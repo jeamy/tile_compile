@@ -1,0 +1,16 @@
+<map id="tile_compile::io::detect_bayer_pattern" name="tile_compile::io::detect_bayer_pattern">
+<area shape="rect" id="Node000001" title="Detects bayer pattern." alt="" coords="657,23,809,62"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#adf81e82a18e16187f6850cc42c8c48d3" title="Detects color mode." alt="" coords="456,23,609,62"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="641,45,609,45,609,40,641,40"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,6,395,31"/>
+<area shape="poly" id="edge7_Node000001_Node000003" title=" " alt="" coords="653,22,608,13,553,9,496,8,396,14,396,9,496,3,553,4,609,8,654,17"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,56,408,80"/>
+<area shape="poly" id="edge8_Node000001_Node000005" title=" " alt="" coords="654,69,609,77,504,83,408,79,409,73,504,78,608,72,653,64"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="441,35,395,29,396,24,441,29"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="441,57,409,61,408,56,441,52"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,32,55,56"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="252,28,55,45,55,39,251,23"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,56,206,80"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="238,71,206,71,206,65,238,65"/>
+<area shape="poly" id="edge6_Node000006_Node000004" title=" " alt="" coords="87,58,54,51,55,46,88,53"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="tile_compile::FitsError::FitsError" name="tile_compile::FitsError::FitsError">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,5,154,44"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1IOError.html#a27d12e2ece43255306cc931ba4a74bea" title=" " alt="" coords="202,5,342,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,22,186,22,186,27,154,27"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1TileCompileError.html#a1bb9f227ee22ee6b793e797d3034b939" title=" " alt="" coords="390,5,557,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="342,22,374,22,374,27,342,27"/>
+</map>

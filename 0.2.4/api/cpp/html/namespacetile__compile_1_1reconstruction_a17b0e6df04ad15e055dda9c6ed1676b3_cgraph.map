@@ -1,0 +1,5 @@
+<map id="tile_compile::reconstruction::regularize_local_quality_scores" name="tile_compile::reconstruction::regularize_local_quality_scores">
+<area shape="rect" id="Node000001" title="Implements regularize local quality scores." alt="" coords="5,5,215,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a6d8db894d4113d414b07806df2db8a3f" title="Implements percentile from sorted." alt="" coords="263,5,425,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="215,22,247,22,247,27,215,27"/>
+</map>

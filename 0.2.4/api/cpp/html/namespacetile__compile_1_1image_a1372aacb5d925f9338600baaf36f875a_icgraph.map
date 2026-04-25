@@ -1,0 +1,22 @@
+<map id="tile_compile::image::canvas_mask_matches_image" name="tile_compile::image::canvas_mask_matches_image">
+<area shape="rect" id="Node000001" title="Implements canvas mask matches image." alt="" coords="909,141,1117,179"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a576c733cf449ceaf9e575ad84bad16c2" title="Implements enforce canvas mask on rgb." alt="" coords="702,102,861,154"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="893,146,861,142,862,136,894,141"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="474,173,636,211"/>
+<area shape="poly" id="edge12_Node000001_Node000008" title=" " alt="" coords="894,171,636,189,636,184,893,166"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="456,58,654,97"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="686,109,644,100,645,95,687,104"/>
+<area shape="rect" id="Node000004" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,41,395,66"/>
+<area shape="poly" id="edge9_Node000002_Node000004" title=" " alt="" coords="747,92,705,54,680,37,653,24,615,14,575,9,535,9,496,12,423,26,367,43,366,38,422,21,495,7,535,3,575,3,616,8,655,19,682,32,708,50,750,88"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,90,408,115"/>
+<area shape="poly" id="edge11_Node000002_Node000006" title=" " alt="" coords="686,125,409,110,409,104,686,120"/>
+<area shape="poly" id="edge10_Node000002_Node000008" title=" " alt="" coords="687,157,627,175,625,170,686,152"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="592,45,578,39,555,37,533,39,520,43,516,49,519,57,513,59,511,49,517,39,532,33,555,31,580,34,594,40"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="441,68,396,63,396,58,441,63"/>
+<area shape="poly" id="edge6_Node000003_Node000006" title=" " alt="" coords="441,93,409,97,408,91,441,88"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,66,55,91"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="252,63,55,79,55,74,251,57"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,90,206,115"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="238,105,206,105,206,100,238,100"/>
+<area shape="poly" id="edge8_Node000007_Node000005" title=" " alt="" coords="87,92,54,86,55,81,88,87"/>
+</map>

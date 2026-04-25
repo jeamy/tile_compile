@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::DiskCacheFrameStore::~DiskCacheFrameStore" name="tile_compile::runner::DiskCacheFrameStore::~DiskCacheFrameStore">
+<area shape="rect" id="Node000001" title="Implements ~DiskCacheFrameStore." alt="" coords="5,5,175,58"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#a0ae9e8d95d8a3dc1086b9bcfa8d675c1" title="Remove cached files and release all mappings." alt="" coords="223,5,384,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="175,29,207,29,207,34,175,34"/>
+</map>

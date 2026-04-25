@@ -1,0 +1,20 @@
+var searchData=
+[
+  ['bayer_5foffsets_0',['bayer_offsets',['../namespacetile__compile_1_1image.html#a217f42074971d46783a5e494559a22ca',1,'tile_compile::image']]],
+  ['bayer_5fpattern_5fto_5fstring_1',['bayer_pattern_to_string',['../namespacetile__compile.html#ac31569f320ed3b6cc89891d5957e9484',1,'tile_compile']]],
+  ['bge_5fdiag_5fto_5fjson_2',['bge_diag_to_json',['../namespacetile__compile_1_1runner.html#a9cece72ff1e673cde850000f3688b8fb',1,'tile_compile::runner']]],
+  ['blend_5fmatrix_5fwith_5fidentity_5fper_5fchannel_3',['blend_matrix_with_identity_per_channel',['../namespacetile__compile_1_1astrometry.html#abaaf7c13e823e87bf9c6b3c3a30ba06d',1,'tile_compile::astrometry']]],
+  ['box_5fblur_5fwith_5fvalid_5fmask_4',['box_blur_with_valid_mask',['../namespacetile__compile_1_1astrometry.html#a8168c08b75855ebab23619c50fb59bd8',1,'tile_compile::astrometry']]],
+  ['build_5fbackground_5fmask_5fsigma_5fclip_5',['build_background_mask_sigma_clip',['../namespacetile__compile_1_1metrics.html#a774ced236c218289eca86e7006d6805e',1,'tile_compile::metrics']]],
+  ['build_5fbge_5fcandidate_5fprep_6',['build_bge_candidate_prep',['../namespacetile__compile_1_1image.html#ae531e09c5596460d3d06ba5598627d0a',1,'tile_compile::image']]],
+  ['build_5fchroma_5fbackground_5fmask_5ffrom_5frgb_7',['build_chroma_background_mask_from_rgb',['../namespacetile__compile_1_1image.html#a5abad731013264bf536833d91e60c52a',1,'tile_compile::image']]],
+  ['build_5fcoverage_5ffiltered_5ftile_5fgrid_8',['build_coverage_filtered_tile_grid',['../namespacetile__compile_1_1pipeline.html#a56874a017ec96293fbb203fad2aa2be0',1,'tile_compile::pipeline']]],
+  ['build_5finitial_5ftile_5fgrid_9',['build_initial_tile_grid',['../namespacetile__compile_1_1pipeline.html#a90a097718583db02873d1fa8740b6ce7',1,'tile_compile::pipeline']]],
+  ['build_5fpcc_5fattenuation_5fcontext_10',['build_pcc_attenuation_context',['../namespacetile__compile_1_1astrometry.html#ab26c7f391dd3d92368c4b5925a55491b',1,'tile_compile::astrometry']]],
+  ['build_5fpcc_5fbackground_5fsamples_11',['build_pcc_background_samples',['../namespacetile__compile_1_1astrometry.html#ab30895a7ecc5e1556ad9e978e267a54a',1,'tile_compile::astrometry']]],
+  ['build_5fregistration_5fproxy_12',['build_registration_proxy',['../namespacetile__compile_1_1runner.html#aa57782bfbdaaa8d2c2d680c2c674413d',1,'tile_compile::runner']]],
+  ['build_5fsimilarity_5fconsensus_5fpairs_13',['build_similarity_consensus_pairs',['../namespacetile__compile_1_1registration.html#a2e2e33db68394b6fae247c7aebdd7c6d',1,'tile_compile::registration']]],
+  ['build_5fsparse_5feval_5fgrid_14',['build_sparse_eval_grid',['../namespacetile__compile_1_1image.html#ae5f98bb6d8f165054906488f6e4bd296',1,'tile_compile::image']]],
+  ['build_5ftriangles_15',['build_triangles',['../namespacetile__compile_1_1registration.html#ac1f3548f623c84fc304b0fcd8dbdafd0',1,'tile_compile::registration']]],
+  ['bv_5fto_5fteff_16',['bv_to_teff',['../namespacetile__compile_1_1astrometry.html#af32565bbeefe081d7c1a87dfbe380eac',1,'tile_compile::astrometry']]]
+];

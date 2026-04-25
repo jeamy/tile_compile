@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['i_0',['i',['../structtile__compile_1_1registration_1_1Triangle.html#a006429a66afd2dafe7ad7bcb5c689a28',1,'tile_compile::registration::Triangle']]],
+  ['identity_5fwarp_1',['identity_warp',['../namespacetile__compile_1_1registration.html#a4acc7bb29b4d704ee1ecc482359ea939',1,'tile_compile::registration']]],
+  ['image_5fheight_2',['image_height',['../structtile__compile_1_1config_1_1DataConfig.html#a38095a4102e1a86f9d6cc1499f27ee6c',1,'tile_compile::config::DataConfig::image_height'],['../structtile__compile_1_1image_1_1BGEDiagnostics.html#aac67f7bf32020adf49e09e59179fd59f',1,'tile_compile::image::BGEDiagnostics::image_height']]],
+  ['image_5fwidth_3',['image_width',['../structtile__compile_1_1config_1_1DataConfig.html#a75cea4b9b7c0a306f7b21183ed86766d',1,'tile_compile::config::DataConfig::image_width'],['../structtile__compile_1_1image_1_1BGEDiagnostics.html#a8e3ed47425f598850c970d32a144feb8',1,'tile_compile::image::BGEDiagnostics::image_width']]],
+  ['impl_4',['Impl',['../structtile__compile_1_1reconstruction_1_1ProgressReporter_1_1Impl.html',1,'tile_compile::reconstruction::ProgressReporter']]],
+  ['inliers_5',['inliers',['../structtile__compile_1_1registration_1_1SimilarityResult.html#a63a726f101b11eb1bded933c3e51562e',1,'tile_compile::registration::SimilarityResult']]],
+  ['input_5fstats_6',['input_stats',['../structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a6378edb0a7bd117893f33e0a689599a3',1,'tile_compile::image::BGEChannelDiagnostics']]],
+  ['insufficient_5fcell_5fstrategy_7',['insufficient_cell_strategy',['../structtile__compile_1_1config_1_1BGEConfig.html#afd195758c41d3fa7943ff0e5e4690cf7',1,'tile_compile::config::BGEConfig::insufficient_cell_strategy'],['../structtile__compile_1_1image_1_1BGEConfig.html#a1460499a436468eef849cb50fd3935ab',1,'tile_compile::image::BGEConfig::insufficient_cell_strategy'],['../structtile__compile_1_1image_1_1BGEDiagnostics.html#a96c3097cfc7dadaf1403f1f0204e213a',1,'tile_compile::image::BGEDiagnostics::insufficient_cell_strategy']]],
+  ['int_5fto_5fphase_8',['int_to_phase',['../namespacetile__compile.html#ac58c5c3cde18f6690d3f34345d253925',1,'tile_compile']]],
+  ['int_5fvalues_9',['int_values',['../structtile__compile_1_1io_1_1FitsHeader.html#aebbdcd0351fa8fef609155b94198974b',1,'tile_compile::io::FitsHeader']]],
+  ['internal_5frelaxed_5fchannel_5fguards_10',['internal_relaxed_channel_guards',['../structtile__compile_1_1image_1_1BGEConfig.html#aae0c447ecaab446d35fbedaea72d9d3e',1,'tile_compile::image::BGEConfig']]],
+  ['invert_5faffine_5fwarp_11',['invert_affine_warp',['../namespacetile__compile_1_1runner.html#ab1e0e6c5f8054cadb9a3d3b544cf890f',1,'tile_compile::runner']]],
+  ['invert_5fforward_5faffine_5fto_5fwarp_12',['invert_forward_affine_to_warp',['../namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4',1,'tile_compile::registration']]],
+  ['invert_5fwarp_5f2x3_13',['invert_warp_2x3',['../namespacetile__compile_1_1registration.html#a02e2524a82f5b29b4a8df5236d9348c5',1,'tile_compile::registration']]],
+  ['ioerror_14',['IOError',['../classtile__compile_1_1IOError.html',1,'tile_compile::IOError'],['../classtile__compile_1_1IOError.html#a27d12e2ece43255306cc931ba4a74bea',1,'tile_compile::IOError::IOError()']]],
+  ['ioheavy_15',['IoHeavy',['../namespacetile__compile_1_1runner.html#a734990bacf910bd680d5372eb893665baa6419b7d5d3353038695329c9cc1a23b',1,'tile_compile::runner']]],
+  ['irls_5fmax_5fiterations_16',['irls_max_iterations',['../structtile__compile_1_1config_1_1BGEConfig.html#a92058f6e52915ac438f647e6e4e6609f',1,'tile_compile::config::BGEConfig::irls_max_iterations'],['../structtile__compile_1_1image_1_1BGEConfig.html#ad7c3d49a4ed7031e9e2ac9d7a2c211b6',1,'tile_compile::image::BGEConfig::irls_max_iterations']]],
+  ['irls_5ftolerance_17',['irls_tolerance',['../structtile__compile_1_1config_1_1BGEConfig.html#ae535ec26e8810fc5919cff50a4913623',1,'tile_compile::config::BGEConfig::irls_tolerance'],['../structtile__compile_1_1image_1_1BGEConfig.html#a76f13fd0d844d9615a327a4083128638',1,'tile_compile::image::BGEConfig::irls_tolerance']]],
+  ['is_5fastap_5favailable_18',['is_astap_available',['../namespacetile__compile_1_1registration.html#a430944ebfdc0a73ec67f82453c717be1',1,'tile_compile::registration']]],
+  ['is_5fdead_19',['is_dead',['../structtile__compile_1_1Tile.html#a929fac0d61b05d558c5c7f8ab1232ed0',1,'tile_compile::Tile']]],
+  ['is_5ffits_5fimage_5fpath_20',['is_fits_image_path',['../namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3',1,'tile_compile::io']]],
+  ['is_5flinear_21',['is_linear',['../structtile__compile_1_1metrics_1_1LinearityFrameResult.html#a2017902cb3ac725a85c53df899c96982',1,'tile_compile::metrics::LinearityFrameResult']]],
+  ['is_5fosc_22',['is_osc',['../structtile__compile_1_1image_1_1NormalizationScales.html#a33986f6d139b428f24984e6947ed7002',1,'tile_compile::image::NormalizationScales']]],
+  ['is_5fsiril_5fgaia_5fcatalog_5favailable_23',['is_siril_gaia_catalog_available',['../namespacetile__compile_1_1astrometry.html#a6b86beef7d851942c01272e6a131e253',1,'tile_compile::astrometry']]]
+];

@@ -1,0 +1,2669 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../tbqr_step_by_step_en/">
+      
+      
+        <link rel="next" href="../api/cpp/html/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>TBQR Step-by-Step (DE) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tbqr-schritt-fur-schritt-anleitung-deutsch" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TBQR Step-by-Step (DE)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-voraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Voraussetzungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-die-c-werkzeuge-bauen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) Die C++-Werkzeuge bauen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2b-das-crowc-backend-bauen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2b) Das Crow/C++-Backend bauen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2a-mit-docker-bauen-und-ausfuhren-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2a) Mit Docker bauen und ausführen (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-konfiguration-auswahlen-und-vorbereiten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Konfiguration auswählen und vorbereiten
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-die-pipeline-ausfuhren-runner-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Die Pipeline ausführen (Runner-CLI)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-einen-beendeten-oder-unterbrochenen-lauf-fortsetzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Einen beendeten oder unterbrochenen Lauf fortsetzen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-hilfsbefehle-der-cli-verwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Hilfsbefehle der CLI verwenden
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6) Hilfsbefehle der CLI verwenden">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#eingabeverzeichnis-scannen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eingabeverzeichnis scannen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfigurationsdatei-validieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfigurationsdatei validieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runs-auflisten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runs auflisten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-eines-runs-anzeigen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status eines Runs anzeigen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#letzte-logs-anzeigen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letzte Logs anzeigen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artefakte-auflisten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artefakte auflisten
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-gui2-starten-empfohlener-ui-pfad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) GUI2 starten (empfohlener UI-Pfad)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-gui2-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) GUI2-Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8) GUI2-Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schritt-1-gui2-offnen-und-laufzeit-defaults-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 1: GUI2 öffnen und Laufzeit-Defaults prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2-eingabeframes-scannen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 2: Eingabeframes scannen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2a-batch-queue-funktion-verwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 2a: Batch-/Queue-Funktion verwenden
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-3-kalibrier-eingaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 3: Kalibrier-Eingaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-4-parameter-anpassen-und-validieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 4: Parameter anpassen und validieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-5-einen-lauf-starten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 5: Einen Lauf starten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-6-fortschritt-und-logs-uberwachen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 6: Fortschritt und Logs überwachen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-7-post-run-phasen-bei-bedarf-fortsetzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 7: Post-Run-Phasen bei Bedarf fortsetzen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-8-astrometrie-bge-und-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 8: Astrometrie, BGE und PCC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-9-finale-ausgaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 9: Finale Ausgaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-ausgaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Ausgaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-den-html-diagnosereport-erzeugen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10) Den HTML-Diagnosereport erzeugen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-haufige-troubleshooting-prufungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11) Häufige Troubleshooting-Prüfungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-voraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Voraussetzungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-die-c-werkzeuge-bauen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) Die C++-Werkzeuge bauen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2b-das-crowc-backend-bauen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2b) Das Crow/C++-Backend bauen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2a-mit-docker-bauen-und-ausfuhren-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2a) Mit Docker bauen und ausführen (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-konfiguration-auswahlen-und-vorbereiten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Konfiguration auswählen und vorbereiten
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-die-pipeline-ausfuhren-runner-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Die Pipeline ausführen (Runner-CLI)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-einen-beendeten-oder-unterbrochenen-lauf-fortsetzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Einen beendeten oder unterbrochenen Lauf fortsetzen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-hilfsbefehle-der-cli-verwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Hilfsbefehle der CLI verwenden
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6) Hilfsbefehle der CLI verwenden">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#eingabeverzeichnis-scannen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eingabeverzeichnis scannen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfigurationsdatei-validieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfigurationsdatei validieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runs-auflisten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runs auflisten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-eines-runs-anzeigen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status eines Runs anzeigen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#letzte-logs-anzeigen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letzte Logs anzeigen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artefakte-auflisten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artefakte auflisten
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-gui2-starten-empfohlener-ui-pfad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) GUI2 starten (empfohlener UI-Pfad)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-gui2-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) GUI2-Workflow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8) GUI2-Workflow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schritt-1-gui2-offnen-und-laufzeit-defaults-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 1: GUI2 öffnen und Laufzeit-Defaults prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2-eingabeframes-scannen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 2: Eingabeframes scannen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2a-batch-queue-funktion-verwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 2a: Batch-/Queue-Funktion verwenden
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-3-kalibrier-eingaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 3: Kalibrier-Eingaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-4-parameter-anpassen-und-validieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 4: Parameter anpassen und validieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-5-einen-lauf-starten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 5: Einen Lauf starten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-6-fortschritt-und-logs-uberwachen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 6: Fortschritt und Logs überwachen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-7-post-run-phasen-bei-bedarf-fortsetzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 7: Post-Run-Phasen bei Bedarf fortsetzen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-8-astrometrie-bge-und-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 8: Astrometrie, BGE und PCC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-9-finale-ausgaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt 9: Finale Ausgaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-ausgaben-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Ausgaben prüfen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-den-html-diagnosereport-erzeugen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10) Den HTML-Diagnosereport erzeugen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-haufige-troubleshooting-prufungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11) Häufige Troubleshooting-Prüfungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="tbqr-schritt-fur-schritt-anleitung-deutsch">TBQR Schritt-für-Schritt-Anleitung (Deutsch)<a class="headerlink" href="#tbqr-schritt-fur-schritt-anleitung-deutsch" title="Permanent link">&para;</a></h1>
+<p>Diese Anleitung erklärt, wie die aktive C++-Pipeline (<code>tile_compile_cpp</code>) ausgeführt wird und wie GUI2 über das Crow/C++-Backend mit ihr zusammenarbeitet.</p>
+<p><strong>Update-Hinweis (2026-03-03):</strong>
+- Resume unterstützt <code>ASTROMETRY</code>, <code>BGE</code> und <code>PCC</code>.
+- BGE läuft vor PCC; die BGE-Konfiguration enthält benutzernahe robuste Regler (<code>bge.fit.robust_loss</code>, <code>bge.fit.huber_delta</code>).
+- Die Assumptions werden über die aktiven Runtime-Schwellen (<code>frames_min</code>, <code>frames_reduced_threshold</code>) und Reduced-Mode-Regeln gesteuert.
+- Die streng ausgerichtete Registrierungskaskade kann Star-Pairs über <code>registration.enable_star_pair_fallback: false</code> deaktivieren.</p>
+<h2 id="1-voraussetzungen">1) Voraussetzungen<a class="headerlink" href="#1-voraussetzungen" title="Permanent link">&para;</a></h2>
+<p>Dieses Repository besteht derzeit aus drei relevanten Runtime-/Build-Bausteinen:</p>
+<ul>
+<li><code>tile_compile_cpp</code> für den nativen Runner und die CLI</li>
+<li><code>web_backend_cpp</code> für das Crow/C++-Backend</li>
+<li><code>web_frontend</code> für die statischen HTML/CSS/JS-Dateien von GUI2</li>
+</ul>
+<p>Erforderliche Core-Build-Abhängigkeiten:</p>
+<ul>
+<li>CMake &gt;= 3.21 empfohlen</li>
+<li>C++17-Compiler</li>
+<li>Ninja empfohlen</li>
+<li>pkg-config</li>
+<li>Eigen3</li>
+<li>OpenCV &gt;= 4.5</li>
+<li>cfitsio</li>
+<li>yaml-cpp</li>
+<li>nlohmann-json</li>
+<li>OpenSSL</li>
+<li>libcurl</li>
+</ul>
+<p>GPU-spezifische Voraussetzungen für echte Laufzeitbeschleunigung:</p>
+<ul>
+<li>Das aktive GPU-Backend unterstützt sowohl CUDA- als auch OpenCL-Laufzeitpfade.</li>
+<li>CUDA-Beschleunigung benötigt einen OpenCV-Build mit:</li>
+<li><code>opencv2/core/cuda.hpp</code></li>
+<li><code>opencv2/cudawarping.hpp</code></li>
+<li><code>opencv2/cudaarithm.hpp</code></li>
+<li>OpenCL-Beschleunigung benötigt einen OpenCV-Build bzw. eine Runtime mit aktivierter T-API- / <code>cv::UMat</code>-OpenCL-Unterstützung.</li>
+<li><code>runtime_limits.acceleration_backend: auto</code> bevorzugt CUDA, dann OpenCL, dann CPU.</li>
+<li><code>runtime_limits.acceleration_backend: opencv_opencl</code> ist die empfohlene explizite Einstellung für AMD-GPUs und für Systeme, auf denen OpenCV-OpenCL verfügbar ist, aber kein CUDA.</li>
+<li><code>TILE_COMPILE_ENABLE_CUDA</code> aktiviert nur das CUDA-Hook-/Build-Gate. Es garantiert für sich allein noch keine echte GPU-Ausführung.</li>
+</ul>
+<p>Backend-spezifische Build-Abhängigkeiten:</p>
+<ul>
+<li>Crow</li>
+<li>Asio</li>
+</ul>
+<p>Hinweise:</p>
+<ul>
+<li>Crow und Asio werden über den CMake-Build des Backends eingebunden.</li>
+<li>Das Frontend selbst benötigt für den normalen Betrieb keine JS-Build-Toolchain; es wird als statischer Dateisatz ausgeliefert.</li>
+<li>Viele Standard-OpenCV-Pakete sind CPU-only. Für echte GPU-Ausführung wird ein OpenCV-Paket bzw. -Build mit entweder CUDA-Unterstützung oder funktionierender OpenCL-Unterstützung benötigt.</li>
+<li>Auf Systemen ohne CUDA kann OpenCL trotzdem <code>PREWARP</code>, <code>TILE_RECONSTRUCTION</code> und <code>STACKING</code> beschleunigen, wenn OpenCV-OpenCL zur Laufzeit verfügbar ist.</li>
+<li>Unter macOS bleibt der praktische Pfad in vielen Setups CPU-only, sofern nicht tatsächlich eine kompatible OpenCV-OpenCL-Runtime verfügbar ist.</li>
+</ul>
+<p>Beispielpakete je Plattform:</p>
+<ul>
+<li>Linux: <code>build-essential cmake ninja-build pkg-config libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev libcurl4-openssl-dev</code></li>
+<li>macOS: zuerst <code>xcode-select --install</code>, dann <code>brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl</code> und zusätzlich <code>brew install opencv</code></li>
+<li>Windows MSYS2 MinGW64: <code>mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl mingw-w64-x86_64-curl mingw-w64-x86_64-ntldd</code></li>
+</ul>
+<p>macOS-Hinweis:</p>
+<ul>
+<li>Die Standard-<code>opencv</code>-Formel von Homebrew setzt derzeit ein neueres macOS als macOS 12 voraus. Für den dokumentierten Homebrew-Pfad ist macOS 15 daher praktisch die sinnvolle Basis, sofern OpenCV nicht separat bereitgestellt wird.</li>
+<li>Die obigen Paketbeispiele reichen für CPU-Builds aus. Sie garantieren keine GPU-Beschleunigung, weil das installierte OpenCV-Paket die vom Runner benötigten CUDA-Module enthalten muss.</li>
+<li>Wenn ein heruntergeladenes GUI2-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte <code>.dylib</code> nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit <code>xattr -dr com.apple.quarantine /pfad/zum/entpackten_release</code> und starte das Bundle danach erneut.</li>
+</ul>
+<h2 id="2-die-c-werkzeuge-bauen">2) Die C++-Werkzeuge bauen<a class="headerlink" href="#2-die-c-werkzeuge-bauen" title="Permanent link">&para;</a></h2>
+<p>Ausgehend vom Repository-Root:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>tile_compile_cpp
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>build
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">cd</span><span class="w"> </span>build
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>cmake<span class="w"> </span>..<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>cmake<span class="w"> </span>--build<span class="w"> </span>.<span class="w"> </span>-j<span class="k">$(</span>nproc<span class="k">)</span>
+</span></code></pre></div>
+<p>Dadurch entstehen unter anderem:</p>
+<ul>
+<li><code>tile_compile_runner</code> (Haupt-Runner der Pipeline)</li>
+<li><code>tile_compile_cli</code> (Hilfs-CLI)</li>
+</ul>
+<h2 id="2b-das-crowc-backend-bauen">2b) Das Crow/C++-Backend bauen<a class="headerlink" href="#2b-das-crowc-backend-bauen" title="Permanent link">&para;</a></h2>
+<p>Ausgehend vom Repository-Root:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>web_backend_cpp
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>build
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nb">cd</span><span class="w"> </span>build
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>cmake<span class="w"> </span>..<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w"> </span>-DBUILD_TESTS<span class="o">=</span>OFF
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>cmake<span class="w"> </span>--build<span class="w"> </span>.<span class="w"> </span>-j<span class="k">$(</span>nproc<span class="k">)</span>
+</span></code></pre></div>
+<p>Dadurch entsteht:</p>
+<ul>
+<li><code>tile_compile_web_backend</code> (Crow/C++ API- und UI-Backend)</li>
+</ul>
+<p>Hinweise:</p>
+<ul>
+<li>Das Backend linkt gegen <code>yaml-cpp</code>, <code>OpenSSL</code> und <code>libcurl</code>.</li>
+<li>Unter Windows benötigt das Backend zusätzlich Winsock-Systembibliotheken zur Link-Zeit; das ist bereits im Backend-CMake berücksichtigt.</li>
+</ul>
+<h2 id="2a-mit-docker-bauen-und-ausfuhren-optional">2a) Mit Docker bauen und ausführen (optional)<a class="headerlink" href="#2a-mit-docker-bauen-und-ausfuhren-optional" title="Permanent link">&para;</a></h2>
+<p>Wenn du eine isolierte Umgebung bevorzugst, verwende:
+<code>tile_compile_cpp/scripts/docker_compile_and_run.sh</code></p>
+<p>Unterstützte Befehle:</p>
+<ul>
+<li><code>build-image</code>: baut das Docker-Image und kompiliert <code>tile_compile_cpp</code> im Container</li>
+<li><code>run-shell</code>: öffnet eine interaktive Shell im bereits kompilierten Container</li>
+<li><code>run-app</code>: führt <code>tile_compile_runner</code> direkt im Container aus</li>
+</ul>
+<p>Standard-Mapping für Runs:</p>
+<ul>
+<li>Host: <code>tile_compile_cpp/runs</code></li>
+<li>Container: <code>/workspace/tile_compile_cpp/runs</code></li>
+</ul>
+<p>Beispielablauf:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># aus dem Repository-Root</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>./tile_compile_cpp/scripts/docker_compile_and_run.sh<span class="w"> </span>build-image
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># optional interaktive Shell</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>./tile_compile_cpp/scripts/docker_compile_and_run.sh<span class="w"> </span>run-shell
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Pipeline direkt im Container ausführen</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>./tile_compile_cpp/scripts/docker_compile_and_run.sh<span class="w"> </span>run-app<span class="w"> </span>--<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>--config<span class="w"> </span>/mnt/config/tile_compile.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span>--input-dir<span class="w"> </span>/mnt/input<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span>--runs-dir<span class="w"> </span>/workspace/tile_compile_cpp/runs
+</span></code></pre></div>
+<p>Hinweis: Wenn sich Konfigurations- oder Eingabedateien außerhalb des gemappten Runs-Volumes befinden, verwende <code>run-shell</code> und starte den Runner manuell mit deinen eigenen Mounts.</p>
+<h2 id="3-konfiguration-auswahlen-und-vorbereiten">3) Konfiguration auswählen und vorbereiten<a class="headerlink" href="#3-konfiguration-auswahlen-und-vorbereiten" title="Permanent link">&para;</a></h2>
+<p>Starte mit einem der Beispielprofile in <code>tile_compile_cpp/examples/</code>, zum Beispiel:</p>
+<ul>
+<li><code>tile_compile.full_mode.example.yaml</code></li>
+<li><code>tile_compile.smart_telescope_dwarf_seestar.example.yaml</code></li>
+<li><code>tile_compile.mono_small_n_anti_grid.example.yaml</code></li>
+</ul>
+<p>Kopiere eine Datei und passe mindestens Folgendes an:</p>
+<ul>
+<li><code>run_dir</code></li>
+<li><code>input.pattern</code></li>
+<li><code>data.image_width</code> / <code>data.image_height</code> (falls nötig)</li>
+<li><code>data.bayer_pattern</code> (für OSC/CFA-Datensätze)</li>
+<li><code>assumptions.frames_min</code> / <code>assumptions.frames_reduced_threshold</code></li>
+<li><code>registration.enable_star_pair_fallback</code> (<code>false</code> für strengeres Registrierungsverhalten)</li>
+<li><code>runtime_limits.acceleration_backend</code> (<code>auto</code>, <code>opencv_cuda</code>, <code>opencv_opencl</code> oder <code>cpu</code>, abhängig von deinem System)</li>
+</ul>
+<p>Beispiel:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cp<span class="w"> </span>../examples/tile_compile.smart_telescope_dwarf_seestar.example.yaml<span class="w"> </span>./my_config.yaml
+</span></code></pre></div>
+<h2 id="4-die-pipeline-ausfuhren-runner-cli">4) Die Pipeline ausführen (Runner-CLI)<a class="headerlink" href="#4-die-pipeline-ausfuhren-runner-cli" title="Permanent link">&para;</a></h2>
+<p>Einfacher Lauf:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>./tile_compile_runner<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--config<span class="w"> </span>./my_config.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--input-dir<span class="w"> </span>/path/to/lights<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--runs-dir<span class="w"> </span>/path/to/runs
+</span></code></pre></div>
+<p>Nützliche Optionen:</p>
+<ul>
+<li><code>--max-frames N</code> begrenzt die Eingabeframes (<code>0</code> = kein Limit)</li>
+<li><code>--max-tiles N</code> begrenzt die Tiles in Phase 5/6 (<code>0</code> = kein Limit)</li>
+<li><code>--dry-run</code> validiert den Ablauf ohne vollständige Verarbeitung</li>
+<li><code>--run-id &lt;id&gt;</code> erzwingt eine Run-ID (nützlich, um verwandte Läufe zu gruppieren)</li>
+<li><code>--project-root &lt;path&gt;</code> setzt explizit den Projekt-Root</li>
+<li><code>--stdin</code> zusammen mit <code>--config -</code>, um YAML über stdin zu übergeben</li>
+</ul>
+<p>OpenCL-Hinweis:</p>
+<ul>
+<li>Mit <code>runtime_limits.acceleration_backend: opencv_opencl</code> kann der Runner OpenCL nicht nur für <code>PREWARP</code>, sondern auch für die OpenCL-fähigen Pfade in <code>TILE_RECONSTRUCTION</code> und <code>STACKING</code> verwenden.</li>
+</ul>
+<h2 id="5-einen-beendeten-oder-unterbrochenen-lauf-fortsetzen">5) Einen beendeten oder unterbrochenen Lauf fortsetzen<a class="headerlink" href="#5-einen-beendeten-oder-unterbrochenen-lauf-fortsetzen" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>./tile_compile_runner<span class="w"> </span>resume<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--run-dir<span class="w"> </span>/path/to/runs/&lt;run_id&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--from-phase<span class="w"> </span>BGE
+</span></code></pre></div>
+<p>Aktuell erlaubte <code>--from-phase</code>-Werte sind <code>ASTROMETRY</code>, <code>BGE</code> oder <code>PCC</code>.</p>
+<p>Hinweise:</p>
+<ul>
+<li>Resume ist für die <em>Post-Run</em>-Phasen gedacht, die auf bereits erzeugten Run-Ergebnissen arbeiten, zum Beispiel WCS-Solving, Hintergrundextraktion oder photometrische Farbkalibrierung.</li>
+<li>Stelle sicher, dass das Run-Verzeichnis die erwarteten Eingaben enthält, etwa <code>outputs/stacked_rgb.fits</code> oder die von deiner Konfiguration erzeugten äquivalenten Dateien, sowie den Run-Snapshot <code>config.yaml</code>.</li>
+<li>Wenn du die Konfiguration nach dem Lauf geändert hast, bearbeite vorzugsweise <code>runs/&lt;run_id&gt;/config.yaml</code> direkt, damit die fortgesetzten Phasen konsistente Einstellungen verwenden.</li>
+</ul>
+<h2 id="6-hilfsbefehle-der-cli-verwenden">6) Hilfsbefehle der CLI verwenden<a class="headerlink" href="#6-hilfsbefehle-der-cli-verwenden" title="Permanent link">&para;</a></h2>
+<h3 id="eingabeverzeichnis-scannen">Eingabeverzeichnis scannen<a class="headerlink" href="#eingabeverzeichnis-scannen" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>./tile_compile_cli<span class="w"> </span>scan<span class="w"> </span>/path/to/lights<span class="w"> </span>--frames-min<span class="w"> </span><span class="m">30</span>
+</span></code></pre></div>
+<h3 id="konfigurationsdatei-validieren">Konfigurationsdatei validieren<a class="headerlink" href="#konfigurationsdatei-validieren" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>./tile_compile_cli<span class="w"> </span>validate-config<span class="w"> </span>--path<span class="w"> </span>./my_config.yaml
+</span></code></pre></div>
+<h3 id="runs-auflisten">Runs auflisten<a class="headerlink" href="#runs-auflisten" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>./tile_compile_cli<span class="w"> </span>list-runs<span class="w"> </span>/path/to/runs
+</span></code></pre></div>
+<h3 id="status-eines-runs-anzeigen">Status eines Runs anzeigen<a class="headerlink" href="#status-eines-runs-anzeigen" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>./tile_compile_cli<span class="w"> </span>get-run-status<span class="w"> </span>/path/to/runs/&lt;run_id&gt;
+</span></code></pre></div>
+<h3 id="letzte-logs-anzeigen">Letzte Logs anzeigen<a class="headerlink" href="#letzte-logs-anzeigen" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>./tile_compile_cli<span class="w"> </span>get-run-logs<span class="w"> </span>/path/to/runs/&lt;run_id&gt;<span class="w"> </span>--tail<span class="w"> </span><span class="m">200</span>
+</span></code></pre></div>
+<h3 id="artefakte-auflisten">Artefakte auflisten<a class="headerlink" href="#artefakte-auflisten" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>./tile_compile_cli<span class="w"> </span>list-artifacts<span class="w"> </span>/path/to/runs/&lt;run_id&gt;
+</span></code></pre></div>
+<h2 id="7-gui2-starten-empfohlener-ui-pfad">7) GUI2 starten (empfohlener UI-Pfad)<a class="headerlink" href="#7-gui2-starten-empfohlener-ui-pfad" title="Permanent link">&para;</a></h2>
+<p>Entwicklungsstart aus dem Repository-Root:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>./start_backend.sh
+</span></code></pre></div>
+<p>Danach im Browser öffnen:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>http://127.0.0.1:8080/ui/
+</span></code></pre></div>
+<p>Release-Bundles starten GUI2 über:</p>
+<ul>
+<li>Linux: <code>start_gui2.sh</code></li>
+<li>macOS: <code>start_gui2.command</code></li>
+<li>Windows: <code>start_gui2.bat</code></li>
+</ul>
+<p><strong>Installations- und Update-Verhalten:</strong></p>
+<ul>
+<li>Beim ersten Start kopiert der Starter alle Anwendungsdateien nach <code>~/tilecompile/</code> (Linux/macOS) bzw. <code>%USERPROFILE%\tilecompile\</code> (Windows).</li>
+<li>Nach dem ersten erfolgreichen Start können Sie das heruntergeladene Paket-Archiv und den entpackten Ordner bedenkenlos löschen – alle Daten wurden in Ihr Benutzerverzeichnis kopiert.</li>
+<li>Bei Updates werden nur die Anwendungsdateien (<code>web_frontend/</code>, <code>web_backend_cpp/</code>, <code>tile_compile_cpp/</code>) ersetzt. Ihre Benutzerdaten (Konfigurationen, Runs, ASTAP-Katalog, PCC-Datenbank) bleiben unberührt.</li>
+</ul>
+<p>Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:</p>
+<ul>
+<li>Linux: x86_64-Linux mit <code>glibc &gt;= 2.35</code> (Ubuntu 22.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)</li>
+<li>macOS: macOS 15</li>
+<li>Windows: Windows 10 x64 oder neuer</li>
+</ul>
+<p>Hinweise:</p>
+<ul>
+<li>macOS ist derzeit ab Version 13 vorgesehen. Es ist also nicht erst macOS 15+ nötig, aber macOS 12 und älter sind nicht die dokumentierte Release-Basis.</li>
+<li>Linux-Bundles enthalten keine <code>glibc</code>; ältere Distributionen als die aktuelle Build-Basis sind daher nicht garantiert lauffähig.</li>
+</ul>
+<p>GUI2 ist keine eigenständige native Processing-Engine. Es nutzt das Crow/C++-Backend als UI-/Backend-Schicht und delegiert alle Scan-, Run-, Resume-, Astrometrie-, PCC- und Report-Aktionen an <code>tile_compile_cli</code> und <code>tile_compile_runner</code>.</p>
+<h2 id="8-gui2-workflow">8) GUI2-Workflow<a class="headerlink" href="#8-gui2-workflow" title="Permanent link">&para;</a></h2>
+<p>Verwende diese Reihenfolge für einen vollständigen Lauf vom Scan bis zu den Endergebnissen.</p>
+<h3 id="schritt-1-gui2-offnen-und-laufzeit-defaults-prufen">Schritt 1: GUI2 öffnen und Laufzeit-Defaults prüfen<a class="headerlink" href="#schritt-1-gui2-offnen-und-laufzeit-defaults-prufen" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Öffne das Dashboard unter <code>/ui/</code>.</li>
+<li>Prüfe aktives Runs-Verzeichnis, Standard-Konfigurationsquelle und Guardrail-Status.</li>
+<li>Wechsle bei Bedarf direkt zum Wizard oder zu <strong>Input &amp; Scan</strong>.</li>
+</ol>
+<h3 id="schritt-2-eingabeframes-scannen">Schritt 2: Eingabeframes scannen<a class="headerlink" href="#schritt-2-eingabeframes-scannen" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Öffne <strong>Input &amp; Scan</strong> oder <strong>Wizard</strong> Schritt 1.</li>
+<li>Wähle entweder ein absolutes Eingabeverzeichnis oder eine serielle MONO-Filter-Queue.</li>
+<li>Starte den Scan und prüfe:</li>
+<li>erkannte Frame-Anzahl</li>
+<li>erkannten Farbmodus (<code>OSC</code> / <code>MONO</code>)</li>
+<li>Bildgröße</li>
+<li>Bayer-Muster (bei OSC)</li>
+</ol>
+<h3 id="schritt-2a-batch-queue-funktion-verwenden">Schritt 2a: Batch-/Queue-Funktion verwenden<a class="headerlink" href="#schritt-2a-batch-queue-funktion-verwenden" title="Permanent link">&para;</a></h3>
+<p>Verwende die Batch-Funktion, wenn mehrere Eingabeverzeichnisse nacheinander mit derselben Konfiguration verarbeitet werden sollen.</p>
+<p>Sie ist primär dafür gedacht, MONO-Frames mit verschiedenen Filtern mit einer gemeinsamen Konfiguration seriell zu verarbeiten.</p>
+<ol>
+<li>Lege im <strong>Dashboard</strong> oder im <strong>Wizard</strong> mehrere Queue-Einträge an.</li>
+<li>Trage pro Eintrag mindestens das Eingabeverzeichnis ein; bei MONO-Datensätzen kannst du zusätzlich Filter-/Label-Kontext und bei Bedarf ein Pattern setzen.</li>
+<li>Die Queue wird seriell abgearbeitet: GUI2 startet Batch 1, danach Batch 2, danach Batch 3 usw.</li>
+<li>Wenn die Queue leer ist, verarbeitet <strong>Run starten</strong> stattdessen einfach das aktuell ausgewählte Eingabeverzeichnis als Einzel-Run.</li>
+<li>Im <strong>Run Monitor</strong> erscheint jeder Queue-Eintrag als eigener Tab; per Klick auf den Queue-Namen wechselst du zum zugehörigen Phasenblock.</li>
+</ol>
+<h3 id="schritt-3-kalibrier-eingaben-prufen">Schritt 3: Kalibrier-Eingaben prüfen<a class="headerlink" href="#schritt-3-kalibrier-eingaben-prufen" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Konfiguriere Bias/Dark/Flat nur dann, wenn der Datensatz noch nicht kalibriert ist.</li>
+<li>Wähle nach Bedarf Verzeichnisse oder Master-Dateien.</li>
+<li>Lasse die Kalibrierung deaktiviert, wenn die Pipeline bereits kalibrierte Lights verwenden soll.</li>
+</ol>
+<h3 id="schritt-4-parameter-anpassen-und-validieren">Schritt 4: Parameter anpassen und validieren<a class="headerlink" href="#schritt-4-parameter-anpassen-und-validieren" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Öffne <strong>Parameter Studio</strong>.</li>
+<li>Bearbeite die Parameter nach Bereichen, verwende die Suche und nutze das Explain-Panel.</li>
+<li>Validiere die Konfiguration, bevor du den Lauf startest.</li>
+</ol>
+<h3 id="schritt-5-einen-lauf-starten">Schritt 5: Einen Lauf starten<a class="headerlink" href="#schritt-5-einen-lauf-starten" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Starte den Lauf aus dem <strong>Dashboard</strong>, dem <strong>Wizard</strong> oder über die dedizierten Run-Steuerungen.</li>
+<li>Wähle, wo relevant, das Runs-Verzeichnis und den Run-Namen bzw. das Label.</li>
+<li>Starte den Lauf und wechsle anschließend in den <strong>Run Monitor</strong>.</li>
+</ol>
+<h3 id="schritt-6-fortschritt-und-logs-uberwachen">Schritt 6: Fortschritt und Logs überwachen<a class="headerlink" href="#schritt-6-fortschritt-und-logs-uberwachen" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Nutze den <strong>Run Monitor</strong> für Phasenstatus, Phasenfortschritt, Artefakte und die Auswahl eines Resume-Ziels.</li>
+<li>Verwende <strong>Live Log</strong> für das gestreamte Log.</li>
+<li>Prüfe bei abgeschlossenen oder fehlgeschlagenen Läufen:</li>
+<li><code>runs/&lt;run_id&gt;/logs/run_events.jsonl</code></li>
+<li><code>runs/&lt;run_id&gt;/artifacts/</code></li>
+<li><code>runs/&lt;run_id&gt;/outputs/</code></li>
+</ol>
+<h3 id="schritt-7-post-run-phasen-bei-bedarf-fortsetzen">Schritt 7: Post-Run-Phasen bei Bedarf fortsetzen<a class="headerlink" href="#schritt-7-post-run-phasen-bei-bedarf-fortsetzen" title="Permanent link">&para;</a></h3>
+<p>GUI2 unterstützt über das Backend Resume-Abläufe für <code>ASTROMETRY</code>, <code>BGE</code> und <code>PCC</code>.</p>
+<p>CLI-Äquivalent:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>./tile_compile_runner<span class="w"> </span>resume<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>--run-dir<span class="w"> </span>/path/to/runs/&lt;run_id&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>--from-phase<span class="w"> </span>ASTROMETRY
+</span></code></pre></div>
+<h3 id="schritt-8-astrometrie-bge-und-pcc">Schritt 8: Astrometrie, BGE und PCC<a class="headerlink" href="#schritt-8-astrometrie-bge-und-pcc" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Nutze <strong>Astrometry</strong>, um das RGB-Ergebnis zu lösen und WCS zu schreiben.</li>
+<li>Falls aktiviert, führe <strong>BGE</strong> vor PCC aus.</li>
+<li>Verwende <strong>PCC</strong> auf dem gelösten oder BGE-korrigierten RGB-Ergebnis.</li>
+<li>Erzeuge das finale kalibrierte Ergebnis sowie optionale Stats-/Report-Artefakte.</li>
+</ol>
+<h3 id="schritt-9-finale-ausgaben-prufen">Schritt 9: Finale Ausgaben prüfen<a class="headerlink" href="#schritt-9-finale-ausgaben-prufen" title="Permanent link">&para;</a></h3>
+<p>Prüfe den Inhalt des Run-Verzeichnisses:</p>
+<ul>
+<li><code>outputs/</code> für finale FITS-Produkte</li>
+<li><code>artifacts/</code> für JSON-Diagnosen und Report-Artefakte</li>
+<li><code>logs/run_events.jsonl</code> für die detaillierte Ereignishistorie</li>
+</ul>
+<h2 id="9-ausgaben-prufen">9) Ausgaben prüfen<a class="headerlink" href="#9-ausgaben-prufen" title="Permanent link">&para;</a></h2>
+<p>Ein erfolgreicher Lauf erzeugt <code>runs/&lt;run_id&gt;/</code> mit:</p>
+<ul>
+<li><code>outputs/</code> (gestackte und rekonstruierte FITS-Dateien)</li>
+<li><code>artifacts/</code> (JSON-Diagnosen, Report-Ressourcen)</li>
+<li><code>logs/run_events.jsonl</code></li>
+<li><code>config.yaml</code> (Run-Snapshot)</li>
+</ul>
+<h2 id="10-den-html-diagnosereport-erzeugen">10) Den HTML-Diagnosereport erzeugen<a class="headerlink" href="#10-den-html-diagnosereport-erzeugen" title="Permanent link">&para;</a></h2>
+<p>Aus dem Repository-Root:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>./tile_compile_cli<span class="w"> </span>generate-report<span class="w"> </span>runs/&lt;run_id&gt;
+</span></code></pre></div>
+<p>Erwartete Ausgabedateien:</p>
+<ul>
+<li><code>runs/&lt;run_id&gt;/artifacts/report.html</code></li>
+<li><code>runs/&lt;run_id&gt;/artifacts/report.css</code></li>
+<li><code>runs/&lt;run_id&gt;/artifacts/*.png</code></li>
+</ul>
+<h2 id="11-haufige-troubleshooting-prufungen">11) Häufige Troubleshooting-Prüfungen<a class="headerlink" href="#11-haufige-troubleshooting-prufungen" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Prüfe, ob die FITS-Dateien linear und lesbar sind.</li>
+<li>Stelle sicher, dass <code>input.pattern</code> und <code>--input-dir</code> auf denselben Datensatz zeigen.</li>
+<li>Wenn bei der Registrierung zu viele Frames verworfen werden, überprüfe die Schwellen <code>registration.reject_*</code>.</li>
+<li>Prüfe <code>runs/&lt;run_id&gt;/logs/run_events.jsonl</code> auf Warnungen und Fehler.</li>
+<li>Verwende <code>tile_compile_cli get-run-status</code> und <code>list-artifacts</code>, um Phasenausgaben zu verifizieren.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

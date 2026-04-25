@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::build_pcc_background_samples" name="tile_compile::astrometry::build_pcc_background_samples">
+<area shape="rect" id="Node000001" title="Builds pcc background samples." alt="" coords="5,5,167,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a86defddfb0754840f39af78db6ecd14c" title="Implements attenuation from luma." alt="" coords="215,12,376,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,29,199,29,199,34,167,34"/>
+</map>

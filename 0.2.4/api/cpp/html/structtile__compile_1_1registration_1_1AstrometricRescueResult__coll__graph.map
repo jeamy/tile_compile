@@ -1,0 +1,5 @@
+<map id="tile_compile::registration::AstrometricRescueResult" name="tile_compile::registration::AstrometricRescueResult">
+<area shape="rect" id="Node000001" title=" " alt="" coords="16,100,193,139"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1astrometry_1_1WCS.html" title=" " alt="" coords="5,5,204,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,45,107,99,102,99,102,45"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::curl_progress_callback" name="tile_compile::astrometry::curl_progress_callback">
+<area shape="rect" id="Node000001" title="Implements curl progress callback." alt="" coords="452,5,614,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a8112ab94998a2f9b62585fa76c99bd60" title="Implements http download." alt="" coords="243,5,404,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="437,27,405,27,405,22,437,22"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a61e0d36d8809aff92c88c40c65b10477" title="Downloads chunk if needed." alt="" coords="5,5,195,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,27,195,27,195,22,227,22"/>
+</map>

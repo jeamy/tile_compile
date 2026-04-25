@@ -1,0 +1,64 @@
+<map id="tile_compile::image::apply_background_extraction" name="tile_compile::image::apply_background_extraction">
+<area shape="rect" id="Node000001" title="Applies background extraction." alt="" coords="5,509,203,548"/>
+<area shape="poly" id="edge2_Node000001_Node000001" title=" " alt="" coords="59,510,56,500,63,490,79,485,104,483,131,485,146,491,144,496,130,490,104,488,80,490,66,495,61,501,64,508"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ac6185700f54db43972b8b61c3402fa6b" title="Implements aggregate to coarse grid." alt="" coords="750,5,930,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="109,508,127,457,156,385,197,307,221,269,249,234,305,170,356,126,414,92,492,59,553,41,616,29,678,22,735,20,735,25,678,28,617,34,554,46,494,65,416,97,359,131,309,174,253,237,226,272,202,310,161,388,132,458,114,510"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a7428876f8eeb8f8e84d94d8e912de33a" title="Implements auto tune bge config conservative." alt="" coords="269,248,426,300"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="111,508,131,468,161,415,200,360,249,311,254,306,258,311,252,315,205,363,165,418,135,470,116,510"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1image.html#a5abad731013264bf536833d91e60c52a" title="Builds chroma background mask from rgb." alt="" coords="258,464,438,516"/>
+<area shape="poly" id="edge18_Node000001_Node000017" title=" " alt="" coords="203,510,242,504,243,509,203,516"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1image.html#abb722201bc995b9f7c8f72667aa21ad2" title="Implements coarse background plane slope." alt="" coords="277,541,419,594"/>
+<area shape="poly" id="edge19_Node000001_Node000018" title=" " alt="" coords="203,542,262,551,261,556,203,547"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1image.html#a79f8adbd824d76ab3a9c594bead5dda6" title="Computes grid spacing." alt="" coords="268,617,428,656"/>
+<area shape="poly" id="edge20_Node000001_Node000019" title=" " alt="" coords="140,546,192,575,252,604,266,609,264,614,250,608,189,580,137,551"/>
+<area shape="rect" id="Node000020" href="$namespacetile__compile_1_1image.html#a576c733cf449ceaf9e575ad84bad16c2" title="Implements enforce canvas mask on rgb." alt="" coords="268,680,428,732"/>
+<area shape="poly" id="edge21_Node000001_Node000020" title=" " alt="" coords="124,547,178,604,213,636,252,665,260,670,257,674,249,670,210,641,174,608,120,550"/>
+<area shape="rect" id="Node000022" href="$namespacetile__compile_1_1image.html#a2525ef3fbfbb0f081e66e25003563e42" title="Extracts tile background samples." alt="" coords="265,325,431,378"/>
+<area shape="poly" id="edge23_Node000001_Node000022" title=" " alt="" coords="119,507,173,449,210,416,249,386,255,383,258,388,252,391,213,420,177,452,123,511"/>
+<area shape="rect" id="Node000023" href="$namespacetile__compile_1_1image.html#adf28deac6dd356ff16b8bb34bc88f4c1" title="Implements fit background surface." alt="" coords="266,401,430,440"/>
+<area shape="poly" id="edge25_Node000001_Node000023" title=" " alt="" coords="137,506,189,478,250,449,264,443,266,448,252,454,192,482,140,511"/>
+<area shape="rect" id="Node000028" href="$namespacetile__compile_1_1image.html#adba510b587172f627de3f16713481fb2" title="Implements log chroma std background." alt="" coords="251,756,445,795"/>
+<area shape="poly" id="edge32_Node000001_Node000028" title=" " alt="" coords="116,548,135,588,164,641,204,696,227,721,252,743,257,746,254,750,249,747,223,724,199,699,160,644,130,591,111,550"/>
+<area shape="rect" id="Node000029" href="$namespacetile__compile_1_1image.html#ad88bb65e2327d61203a234d2f6b84fe7" title="Implements spatial background spread." alt="" coords="278,818,418,871"/>
+<area shape="poly" id="edge33_Node000001_Node000029" title=" " alt="" coords="113,548,129,599,157,668,198,741,223,775,252,805,266,815,262,819,249,809,219,779,193,744,152,670,124,601,108,549"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#ae531e09c5596460d3d06ba5598627d0a" title="Builds bge candidate prep." alt="" coords="507,75,687,113"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="385,245,555,121,558,125,388,249"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1image.html#ae5f98bb6d8f165054906488f6e4bd296" title="Builds sparse eval grid." alt="" coords="516,185,678,224"/>
+<area shape="poly" id="edge7_Node000003_Node000006" title=" " alt="" coords="426,250,509,226,511,231,428,255"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1image.html#aafd30c582c3937a0c245729297ad5e75" title="Extracts autotune prepared tile samples." alt="" coords="506,325,689,378"/>
+<area shape="poly" id="edge8_Node000003_Node000007" title=" " alt="" coords="428,296,497,317,495,323,426,301"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1image.html#af49f84ea7c74d0be7e5d7f25d0d75402" title="Implements try bge candidate prepared." alt="" coords="528,248,666,300"/>
+<area shape="poly" id="edge9_Node000003_Node000008" title=" " alt="" coords="427,271,513,271,513,277,427,277"/>
+<area shape="poly" id="edge5_Node000004_Node000002" title=" " alt="" coords="667,72,754,46,756,51,668,77"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#af093b316187a1c2ecf52779571c32ed4" title="Implements deterministic split indices." alt="" coords="773,68,907,120"/>
+<area shape="poly" id="edge6_Node000004_Node000005" title=" " alt="" coords="688,91,757,91,757,97,688,97"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1image.html#ab9bf5da9eaddef0d4a46fe3d6d76c3e2" title="Implements eval model flatness." alt="" coords="766,144,914,183"/>
+<area shape="poly" id="edge10_Node000008_Node000009" title=" " alt="" coords="665,250,700,233,724,213,748,192,756,187,759,192,751,196,727,217,703,238,668,255"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1image.html#a82a2ea52d35060a88b8175abe6aed2ac" title="Implements eval model roughness." alt="" coords="759,207,921,245"/>
+<area shape="poly" id="edge11_Node000008_Node000010" title=" " alt="" coords="666,258,744,242,745,248,667,263"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1image.html#a05e03e6cb95991c79dd45ebda3f7b5a3" title="Implements eval polynomial model at." alt="" coords="749,269,931,308"/>
+<area shape="poly" id="edge12_Node000008_Node000011" title=" " alt="" coords="666,275,734,280,734,285,666,281"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1image.html#a3cde8ffd8244ec7f92fc57780c4d5d14" title="Implements eval predictor rms at cells." alt="" coords="771,332,909,384"/>
+<area shape="poly" id="edge13_Node000008_Node000012" title=" " alt="" coords="667,295,757,327,755,332,665,300"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1image.html#a7214bcb26eabad9def034e55f2aa2852" title="Implements eval rbf model at." alt="" coords="772,515,908,553"/>
+<area shape="poly" id="edge14_Node000008_Node000013" title=" " alt="" coords="668,287,687,297,703,311,719,332,727,352,730,391,733,431,739,451,751,472,767,489,786,504,782,508,764,493,747,476,734,453,728,432,725,391,722,353,714,334,699,314,684,302,665,292"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1image.html#ab65028e319506601ae2a396b3dc64e23" title="Implements select background surface model." alt="" coords="771,409,909,462"/>
+<area shape="poly" id="edge15_Node000008_Node000014" title=" " alt="" coords="668,290,703,311,720,332,728,353,735,374,751,395,760,401,756,406,747,399,731,377,723,355,716,335,700,315,665,294"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1image.html#ad91ab5763b468f2a4dc3fe164282bd84" title="Implements solve polynomial model." alt="" coords="979,385,1149,424"/>
+<area shape="poly" id="edge16_Node000014_Node000015" title=" " alt="" coords="909,423,963,416,964,421,909,429"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1image.html#a96698c7472382a55450e53db00ad2e34" title="Implements solve rbf model." alt="" coords="997,448,1130,487"/>
+<area shape="poly" id="edge17_Node000014_Node000016" title=" " alt="" coords="909,442,982,453,981,458,909,448"/>
+<area shape="rect" id="Node000021" href="$namespacetile__compile_1_1image.html#a1372aacb5d925f9338600baaf36f875a" title="Implements canvas mask matches image." alt="" coords="493,687,701,725"/>
+<area shape="poly" id="edge22_Node000020_Node000021" title=" " alt="" coords="428,703,477,703,477,709,428,709"/>
+<area shape="poly" id="edge24_Node000022_Node000007" title=" " alt="" coords="432,349,490,349,490,354,432,354"/>
+<area shape="poly" id="edge31_Node000023_Node000014" title=" " alt="" coords="431,420,756,430,756,436,430,426"/>
+<area shape="rect" id="Node000024" href="$namespacetile__compile_1_1image.html#a7e910e106f27ae0c3a9e7254afa38190" title=" " alt="" coords="521,592,673,644"/>
+<area shape="poly" id="edge26_Node000023_Node000024" title=" " alt="" coords="432,438,447,449,460,466,468,482,472,515,476,546,483,562,495,577,509,589,506,593,491,581,478,565,471,548,467,515,462,484,456,469,443,453,429,442"/>
+<area shape="rect" id="Node000026" href="$namespacetile__compile_1_1image.html#a028381a7920cf67a4ac8b0e03e2641f7" title="Implements render polynomial surface." alt="" coords="530,453,664,506"/>
+<area shape="poly" id="edge28_Node000023_Node000026" title=" " alt="" coords="431,437,516,458,514,463,430,443"/>
+<area shape="rect" id="Node000027" href="$namespacetile__compile_1_1image.html#ad256f7fa1d36a26ffe93b8eae2909ab0" title="Implements render rbf surface." alt="" coords="528,529,667,568"/>
+<area shape="poly" id="edge29_Node000023_Node000027" title=" " alt="" coords="428,438,447,449,463,466,471,484,479,500,495,516,514,527,512,532,491,520,475,503,467,486,459,469,443,453,425,443"/>
+<area shape="rect" id="Node000025" href="$namespacetile__compile_1_1image.html#a98e4021af8712c9d2e649864be1818d3" title=" " alt="" coords="773,599,907,637"/>
+<area shape="poly" id="edge27_Node000024_Node000025" title=" " alt="" coords="674,615,758,615,758,621,674,621"/>
+<area shape="poly" id="edge30_Node000027_Node000013" title=" " alt="" coords="667,542,756,536,757,542,667,547"/>
+</map>

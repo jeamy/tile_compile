@@ -1,0 +1,16 @@
+<map id="tile_compile::metrics::measure_frame_stars" name="tile_compile::metrics::measure_frame_stars">
+<area shape="rect" id="Node000001" title="Implements measure frame stars." alt="" coords="5,177,162,216"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ab325ae028a10bb44bd344a32bba8911a" title="Estimates fwhm xy." alt="" coords="231,92,372,131"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="134,174,235,134,237,139,136,179"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="631,149,755,188"/>
+<area shape="poly" id="edge8_Node000001_Node000004" title=" " alt="" coords="162,190,616,170,616,175,162,196"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="210,235,394,273"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="160,214,211,228,210,233,159,219"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="442,5,583,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="350,89,448,48,450,53,352,94"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="373,97,473,92,529,95,584,105,622,119,655,138,652,143,619,124,583,110,529,100,473,97,373,103"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="443,120,582,159"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="373,118,428,125,427,131,373,123"/>
+<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="583,148,616,154,615,159,582,153"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="394,245,486,233,583,213,638,192,639,197,584,218,487,239,395,250"/>
+</map>

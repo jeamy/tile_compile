@@ -1,0 +1,25 @@
+var structtile__compile_1_1config_1_1PCCConfig =
+[
+    [ "annulus_inner_fwhm_mult", "structtile__compile_1_1config_1_1PCCConfig.html#a9f1ef7bbcafa6e4e17c9b0bfbbf538b5", null ],
+    [ "annulus_inner_px", "structtile__compile_1_1config_1_1PCCConfig.html#a49e515cc3ff354247faf48c753c2a6bc", null ],
+    [ "annulus_outer_fwhm_mult", "structtile__compile_1_1config_1_1PCCConfig.html#ab17f89b11cf038f2737ffb0f78e3ae1e", null ],
+    [ "annulus_outer_px", "structtile__compile_1_1config_1_1PCCConfig.html#a1936dfd9ed9e6fa242ac88577272d286", null ],
+    [ "aperture_fwhm_mult", "structtile__compile_1_1config_1_1PCCConfig.html#aae8d626871c34795fd913fdb26873cd0", null ],
+    [ "aperture_radius_px", "structtile__compile_1_1config_1_1PCCConfig.html#a5f539147e22610983253bc96d2af77f6", null ],
+    [ "apply_attenuation", "structtile__compile_1_1config_1_1PCCConfig.html#a911cb560e5b1c7a74a98366be70e361b", null ],
+    [ "background_model", "structtile__compile_1_1config_1_1PCCConfig.html#a2bd884d6bf7df61b7b488868bbe35494", null ],
+    [ "background_neutralization_mode", "structtile__compile_1_1config_1_1PCCConfig.html#a35ac1f35736090f8fff435c059513a02", null ],
+    [ "chroma_strength", "structtile__compile_1_1config_1_1PCCConfig.html#a029fb994100733aa69949c31db1ecb33", null ],
+    [ "enabled", "structtile__compile_1_1config_1_1PCCConfig.html#a18f34d54e577960b296c8a21268b4c89", null ],
+    [ "k_max", "structtile__compile_1_1config_1_1PCCConfig.html#acd9017662447a7c25ff815f2ade82e97", null ],
+    [ "mag_bright_limit", "structtile__compile_1_1config_1_1PCCConfig.html#aab3518eb1d61f229335cb912581efdf8", null ],
+    [ "mag_limit", "structtile__compile_1_1config_1_1PCCConfig.html#afdd1ed623c0b58abcdbdac3d439a5330", null ],
+    [ "max_condition_number", "structtile__compile_1_1config_1_1PCCConfig.html#ae48daaf36e6c1439e824e557c1c4ce84", null ],
+    [ "max_residual_rms", "structtile__compile_1_1config_1_1PCCConfig.html#ad598d82f05c7a7e775bcf186e65bfa0b", null ],
+    [ "min_aperture_px", "structtile__compile_1_1config_1_1PCCConfig.html#a7c7e01b2e892b479393912c0d69bd9c8", null ],
+    [ "min_stars", "structtile__compile_1_1config_1_1PCCConfig.html#a2cb0b8064be5b8bc95950fefcfd7c515", null ],
+    [ "radii_mode", "structtile__compile_1_1config_1_1PCCConfig.html#a4f6b92902cc26df5df06100e05d712bf", null ],
+    [ "sigma_clip", "structtile__compile_1_1config_1_1PCCConfig.html#a96da658ebc6723fef8c71c55a3fcbfb8", null ],
+    [ "siril_catalog_dir", "structtile__compile_1_1config_1_1PCCConfig.html#aedda1a3e098c0f2ad76b851865e65162", null ],
+    [ "source", "structtile__compile_1_1config_1_1PCCConfig.html#aa83cea31d1b718b6d6efedd17978d94f", null ]
+];

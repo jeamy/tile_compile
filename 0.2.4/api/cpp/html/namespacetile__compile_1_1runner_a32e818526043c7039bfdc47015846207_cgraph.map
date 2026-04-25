@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::load_canvas_mask_fits" name="tile_compile::runner::load_canvas_mask_fits">
+<area shape="rect" id="Node000001" title="Loads canvas mask fits." alt="" coords="5,5,171,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#a7af72ae3826370803e912d70fcef995b" title="Reads fits pixels float." alt="" coords="219,5,360,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="171,22,203,22,203,27,171,27"/>
+</map>

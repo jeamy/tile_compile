@@ -1,0 +1,15 @@
+<map id="tile_compile::astrometry::apply_color_matrix_impl" name="tile_compile::astrometry::apply_color_matrix_impl">
+<area shape="rect" id="Node000001" title="Applies color matrix impl." alt="" coords="5,68,175,107"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a733d330c25947207ac6c2dfbfca3177a" title="Applies color matrix to deltas." alt="" coords="223,5,421,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="163,65,232,46,234,51,165,70"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a86defddfb0754840f39af78db6ecd14c" title="Implements attenuation from luma." alt="" coords="241,68,402,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="175,85,225,85,225,90,175,90"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#ab26c7f391dd3d92368c4b5925a55491b" title="Builds pcc attenuation context." alt="" coords="241,130,402,183"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="158,105,227,126,226,131,156,110"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#a8168c08b75855ebab23619c50fb59bd8" title="Implements box blur with valid mask." alt="" coords="469,75,650,113"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="402,133,468,115,469,120,403,138"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a9a07e7572d0c142e10daf6717804d96f" title="Estimates background." alt="" coords="479,137,640,176"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="403,154,463,154,463,159,403,159"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a76b568f446cff5464eac476d2886feea" title="Implements percentile sorted." alt="" coords="479,200,640,239"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="403,175,469,193,468,198,402,180"/>
+</map>

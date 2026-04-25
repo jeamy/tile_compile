@@ -1,0 +1,12 @@
+<map id="tile_compile::runner::build_registration_proxy" name="tile_compile::runner::build_registration_proxy">
+<area shape="rect" id="Node000001" title="Builds registration proxy." alt="" coords="5,37,172,76"/>
+<area shape="poly" id="edge1_Node000001_Node000001" title=" " alt="" coords="43,38,40,28,47,18,64,13,89,11,115,13,131,19,129,24,114,18,88,16,65,18,50,23,45,29,48,36"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a9aa39996cdd5affe61ec5892e538322d" title="Implements cfa green proxy downsample2x2." alt="" coords="220,5,446,44"/>
+<area shape="poly" id="edge2_Node000001_Node000002" title=" " alt="" coords="172,43,204,39,204,44,173,48"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#a1d7266ab0ff8cbbbda8d1f0a1871b40f" title="Implements downsample2x2 mean." alt="" coords="252,68,414,107"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="173,64,236,73,236,78,172,70"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ae4f616d47a353b018edd3ed00b34add8" title="Implements cfa green proxy." alt="" coords="494,5,627,44"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="446,22,479,22,479,27,446,27"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#a35224abf3795fc0671535191057f21d2" title="Implements cfa green mask." alt="" coords="675,5,809,44"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="628,22,660,22,660,27,628,27"/>
+</map>

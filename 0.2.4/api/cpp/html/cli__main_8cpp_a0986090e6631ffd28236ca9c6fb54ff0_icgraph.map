@@ -1,0 +1,13 @@
+<map id="read_stdin" name="read_stdin">
+<area shape="rect" id="Node000001" title="Reads stdin." alt="" coords="291,55,372,79"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a3d88560fc7a740dead44063c0a636221" title="Handles CLI command save config." alt="" coords="112,5,234,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="276,52,214,33,216,28,277,47"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#aa5f2860acca0ac992bb0672ff2f833ea" title="Handles CLI command save gui state." alt="" coords="103,55,243,79"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="275,70,244,70,244,64,275,64"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html#af778e37211a3f2c45ebad2f39e746435" title="Handles CLI command validate config." alt="" coords="103,104,242,129"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="277,87,216,106,214,101,276,82"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,55,55,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="121,38,56,61,54,56,120,33"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="87,70,55,70,55,64,87,64"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="120,101,54,78,56,73,121,96"/>
+</map>

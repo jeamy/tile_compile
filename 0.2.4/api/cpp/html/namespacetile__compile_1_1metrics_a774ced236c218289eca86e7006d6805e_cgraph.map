@@ -1,0 +1,8 @@
+<map id="tile_compile::metrics::build_background_mask_sigma_clip" name="tile_compile::metrics::build_background_mask_sigma_clip">
+<area shape="rect" id="Node000001" title="Builds background mask sigma clip." alt="" coords="5,5,174,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="409,12,532,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,26,222,25,361,25,393,26,393,31,361,30,222,30,174,31"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="222,40,361,79"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="175,41,207,45,206,51,174,46"/>
+<area shape="poly" id="edge3_Node000003_Node000002" title=" " alt="" coords="361,46,393,41,394,46,362,51"/>
+</map>

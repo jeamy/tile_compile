@@ -1,0 +1,7 @@
+<map id="tile_compile::registration::wcs_to_similarity_warp" name="tile_compile::registration::wcs_to_similarity_warp">
+<area shape="rect" id="Node000001" title="Implements wcs to similarity warp." alt="" coords="217,40,382,79"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a48f410ac9531580ec468ed3ed785b502" title="Implements try astrometric rescue." alt="" coords="5,5,169,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="201,46,169,41,170,35,202,41"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#a8632e5b7d5a1186fb3b838c87d792791" title="Implements try astrometric rescue from paths." alt="" coords="5,68,169,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="202,78,170,83,169,78,201,73"/>
+</map>

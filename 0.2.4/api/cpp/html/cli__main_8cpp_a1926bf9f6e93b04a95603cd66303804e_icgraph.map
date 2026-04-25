@@ -1,0 +1,10 @@
+<map id="default_gui_state_path" name="default_gui_state_path">
+<area shape="rect" id="Node000001" title="Returns the default gui state path." alt="" coords="291,31,443,55"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a5ae92305560c708370940a65d35edbcb" title="Handles CLI command load gui state." alt="" coords="104,5,242,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="275,34,241,29,242,24,276,28"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#aa5f2860acca0ac992bb0672ff2f833ea" title="Handles CLI command save gui state." alt="" coords="103,55,243,79"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="276,57,244,61,243,56,275,52"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,31,55,55"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="90,35,55,41,54,36,89,30"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="87,55,54,50,55,44,88,50"/>
+</map>

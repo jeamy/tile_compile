@@ -1,0 +1,11 @@
+<map id="tile_compile::io::detect_bayer_pattern" name="tile_compile::io::detect_bayer_pattern">
+<area shape="rect" id="Node000001" title="Detects bayer pattern." alt="" coords="5,100,158,139"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1io_1_1FitsHeader.html#a73021e72ebf77938e73e9657e24178ab" title="Implements get int." alt="" coords="206,5,386,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,97,205,53,218,48,220,52,207,58,119,102"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1io_1_1FitsHeader.html#a772d96a6cff28a4144ea678c052f19c1" title="Implements get string." alt="" coords="206,68,386,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="158,105,190,101,190,106,158,111"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile.html#ad4e114e09ae7f66d9aa605b587d57596" title=" " alt="" coords="231,131,361,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="158,128,216,136,215,141,158,133"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="234,193,358,232"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="121,137,207,178,223,185,221,190,205,183,119,142"/>
+</map>

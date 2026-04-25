@@ -1,0 +1,9 @@
+<map id="find_fits_files" name="find_fits_files">
+<area shape="rect" id="Node000001" title="Implements find fits files." alt="" coords="5,44,104,69"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3" title="Checks fits image path." alt="" coords="152,37,278,76"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="104,54,136,54,136,59,104,59"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a72f3c7d6cde700425cba6bae612b2969" title="Implements ends with." alt="" coords="326,5,449,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="278,42,310,36,311,42,279,48"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="326,68,449,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="279,65,311,71,310,76,278,71"/>
+</map>

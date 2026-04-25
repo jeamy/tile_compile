@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::decode_entry" name="tile_compile::astrometry::decode_entry">
+<area shape="rect" id="Node000001" title="Implements decode entry." alt="" coords="5,5,167,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a75e68ca96c6f38685b04fe25f49006d0" title="Implements half to float." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,22,199,22,199,27,167,27"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="cmd_validate_config" name="cmd_validate_config">
+<area shape="rect" id="Node000001" title="Handles CLI command validate config." alt="" coords="103,5,242,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,5,55,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,20,55,20,55,15,87,15"/>
+</map>

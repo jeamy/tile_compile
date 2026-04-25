@@ -1,0 +1,4882 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../../configuration_examples_practical_de/">
+      
+      
+        <link rel="next" href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>v3.3.9 Specification (EN) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tile-based-quality-reconstruction-for-dso-methodology-v339" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              v3.3.9 Specification (EN)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-objective-of-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Objective of v3.3.9
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-principles-and-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Principles and Definitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Principles and Definitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-physical-objective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Physical Objective
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-no-frame-selection-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 No Frame Selection (Invariant)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-linearity-semantics-clarified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Linearity Semantics (Clarified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-assumptions-and-operating-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Assumptions and Operating Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Assumptions and Operating Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-hard-assumptions-violation-abort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Hard Assumptions (Violation -&gt; Abort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-soft-assumptions-and-runtime-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Soft Assumptions and Runtime Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-runtime-configured-operating-modes-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Runtime-Configured Operating Modes (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-below-minimum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Below Minimum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-shared-core-channel-semantic-variants-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Shared-Core Channel-Semantic Variants (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-pipeline-overview-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Pipeline Overview (Normative)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-registration-and-channel-separation-up-to-phase-2-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Registration and Channel Separation up to Phase 2 (Normative)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Registration and Channel Separation up to Phase 2 (Normative)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-cfa-based-registration-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 CFA-Based Registration Path
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.1 CFA-Based Registration Path">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#411-optional-pre-warp-cfa-defect-pixel-suppression-feature-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1.1 Optional Pre-Warp CFA Defect-Pixel Suppression (Feature-Gated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-registration-cascade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Registration Cascade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-cfa-proxy-core-path-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 CFA-Proxy Core Path (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-shared-core-from-phase-3-onward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Shared Core from Phase 3 Onward
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Shared Core from Phase 3 Onward">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-notation-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Notation (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#52-global-linear-normalization-mandatory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Global Linear Normalization (Mandatory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#53-global-metrics-and-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Global Metrics and Weights
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.3 Global Metrics and Weights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#531-robust-metric-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.1 Robust Metric Normalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#532-global-quality-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.2 Global Quality Index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#533-optional-adaptive-weighting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.3 Optional Adaptive Weighting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#54-tile-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Tile Geometry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#55-local-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Local Tile Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.5 Local Tile Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#551-soft-local-support-blend-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.1 Soft Local Support Blend (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#552-star-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.2 STAR Tile Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#553-structure-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.3 STRUCTURE Tile Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#554-neighborhood-aware-metric-normalization-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.4 Neighborhood-Aware Metric Normalization (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#555-spatial-regularization-of-local-scores-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.5 Spatial Regularization of Local Scores (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#556-local-weight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.6 Local Weight
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#56-effective-weight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Effective Weight
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#57-tile-reconstruction-consolidated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Tile Reconstruction (Consolidated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.7 Tile Reconstruction (Consolidated)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#571-support-aware-windowing-and-overlap-add-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7.1 Support-Aware Windowing and Overlap-Add (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#572-boundary-diagnostics-recommended-non-invasive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7.2 Boundary Diagnostics (Recommended, Non-Invasive)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#58-optional-local-denoisers-explicitly-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 Optional Local Denoisers (Explicitly Optional)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.8 Optional Local Denoisers (Explicitly Optional)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#581-soft-threshold-high-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8.1 Soft-Threshold High-Pass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#582-wiener-in-the-frequency-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8.2 Wiener in the Frequency Domain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#59-state-based-clustering-full-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.9 State-Based Clustering (Full Mode)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#510-synthetic-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10 Synthetic Frames
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.10 Synthetic Frames">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#5101-default-global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.1 Default (global)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5102-optional-tile_weighted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.2 Optional (tile_weighted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5103-semantics-of-phase-7-vs-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.3 Semantics of Phase 7 vs 9
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#511-final-linear-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11 Final Linear Stacking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.11 Final Linear Stacking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#5111-cluster-quality-and-mass-definition-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.1 Cluster Quality and Mass Definition (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5112-mass-preserving-quality-weighted-cluster-aggregation-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.2 Mass-Preserving Quality-Weighted Cluster Aggregation (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5113-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.3 Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-post-processing-not-part-of-the-mandatory-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Post-Processing (Not Part of the Mandatory Core)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Post-Processing (Not Part of the Mandatory Core)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-rgblrgb-combination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 RGB/LRGB Combination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-astrometry-wcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Astrometry (WCS)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-pre-pcc-background-gradient-extraction-bge-optional-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Pre-PCC Background Gradient Extraction (BGE) (Optional, Recommended)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3 Pre-PCC Background Gradient Extraction (BGE) (Optional, Recommended)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#631-principle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.1 Principle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#632-tile-driven-sampling-grid-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.2 Tile-Driven Sampling Grid (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#633-coarse-grid-aggregation-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.3 Coarse Grid Aggregation (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#634-surface-fitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.4 Surface Fitting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#635-subtraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.5 Subtraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#636-validation-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.6 Validation Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#637-auto-tuned-bge-optional-conservative-binding-when-enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.7 Auto-Tuned BGE (Optional, Conservative) (Binding When Enabled)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#638-mathematical-surface-model-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.8 Mathematical Surface Model (Binding)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3.8 Mathematical Surface Model (Binding)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#639-adaptive-grid-definition-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.9 Adaptive Grid Definition (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.10 RBF Surface Mathematical Specification (Binding, when bge.fit.method = rbf)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 PCC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.4 PCC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#641-local-background-modeling-in-the-sky-annulus-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.1 Local Background Modeling in the Sky Annulus (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#642-fwhm-adaptive-radii-optional-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.2 FWHM-Adaptive Radii (Optional, Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#643-configuration-hooks-normative-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.3 Configuration Hooks (Normative Names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#644-optional-post-pcc-isolated-chroma-speckle-suppression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-validation-and-abort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Validation and Abort
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Validation and Abort">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-success-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Success Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-abort-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Abort Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-minimum-tests-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Minimum Tests (Normative)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-recommended-numerical-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Recommended Numerical Defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-scope-boundary-mandatory-core-vs-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Scope Boundary: Mandatory Core vs Extension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Scope Boundary: Mandatory Core vs Extension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mandatory-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mandatory Core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Extension
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#91-operational-example-configurations-tile_compile_cpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Operational Example Configurations (tile_compile_cpp)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#92-constrained-ml-optimization-extension-optional-non-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Constrained ML Optimization Extension (Optional, Non-Core)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9.2 Constrained ML Optimization Extension (Optional, Non-Core)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#921-binding-invariants-hard-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.1 Binding Invariants (Hard Constraints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#922-allowed-ml-outputs-constrained" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.2 Allowed ML Outputs (Constrained)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#923-ml-driven-effective-weight-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.3 ML-Driven Effective Weight (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#924-recommended-learning-paradigms-non-binding-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.4 Recommended Learning Paradigms (Non-Binding Guidance)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#925-models-that-fit-the-constrained-output-constraint-non-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.5 Models That Fit the Constrained Output Constraint (Non-Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#926-validation-requirements-for-ml-extension-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.6 Validation Requirements for ML Extension (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#927-configuration-hooks-normative-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.7 Configuration Hooks (Normative Names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-core-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Core Statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-objective-of-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Objective of v3.3.9
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-principles-and-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Principles and Definitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Principles and Definitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-physical-objective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Physical Objective
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-no-frame-selection-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 No Frame Selection (Invariant)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-linearity-semantics-clarified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Linearity Semantics (Clarified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-assumptions-and-operating-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Assumptions and Operating Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Assumptions and Operating Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-hard-assumptions-violation-abort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Hard Assumptions (Violation -&gt; Abort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-soft-assumptions-and-runtime-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Soft Assumptions and Runtime Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-runtime-configured-operating-modes-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Runtime-Configured Operating Modes (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-below-minimum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Below Minimum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-shared-core-channel-semantic-variants-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Shared-Core Channel-Semantic Variants (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-pipeline-overview-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Pipeline Overview (Normative)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-registration-and-channel-separation-up-to-phase-2-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Registration and Channel Separation up to Phase 2 (Normative)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Registration and Channel Separation up to Phase 2 (Normative)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-cfa-based-registration-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 CFA-Based Registration Path
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.1 CFA-Based Registration Path">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#411-optional-pre-warp-cfa-defect-pixel-suppression-feature-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1.1 Optional Pre-Warp CFA Defect-Pixel Suppression (Feature-Gated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-registration-cascade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Registration Cascade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-cfa-proxy-core-path-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 CFA-Proxy Core Path (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-shared-core-from-phase-3-onward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Shared Core from Phase 3 Onward
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Shared Core from Phase 3 Onward">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-notation-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Notation (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#52-global-linear-normalization-mandatory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Global Linear Normalization (Mandatory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#53-global-metrics-and-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Global Metrics and Weights
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.3 Global Metrics and Weights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#531-robust-metric-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.1 Robust Metric Normalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#532-global-quality-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.2 Global Quality Index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#533-optional-adaptive-weighting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3.3 Optional Adaptive Weighting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#54-tile-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Tile Geometry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#55-local-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Local Tile Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.5 Local Tile Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#551-soft-local-support-blend-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.1 Soft Local Support Blend (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#552-star-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.2 STAR Tile Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#553-structure-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.3 STRUCTURE Tile Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#554-neighborhood-aware-metric-normalization-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.4 Neighborhood-Aware Metric Normalization (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#555-spatial-regularization-of-local-scores-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.5 Spatial Regularization of Local Scores (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#556-local-weight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5.6 Local Weight
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#56-effective-weight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Effective Weight
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#57-tile-reconstruction-consolidated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Tile Reconstruction (Consolidated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.7 Tile Reconstruction (Consolidated)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#571-support-aware-windowing-and-overlap-add-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7.1 Support-Aware Windowing and Overlap-Add (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#572-boundary-diagnostics-recommended-non-invasive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7.2 Boundary Diagnostics (Recommended, Non-Invasive)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#58-optional-local-denoisers-explicitly-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 Optional Local Denoisers (Explicitly Optional)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.8 Optional Local Denoisers (Explicitly Optional)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#581-soft-threshold-high-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8.1 Soft-Threshold High-Pass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#582-wiener-in-the-frequency-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8.2 Wiener in the Frequency Domain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#59-state-based-clustering-full-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.9 State-Based Clustering (Full Mode)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#510-synthetic-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10 Synthetic Frames
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.10 Synthetic Frames">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#5101-default-global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.1 Default (global)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5102-optional-tile_weighted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.2 Optional (tile_weighted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5103-semantics-of-phase-7-vs-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10.3 Semantics of Phase 7 vs 9
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#511-final-linear-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11 Final Linear Stacking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5.11 Final Linear Stacking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#5111-cluster-quality-and-mass-definition-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.1 Cluster Quality and Mass Definition (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5112-mass-preserving-quality-weighted-cluster-aggregation-binding-in-v339" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.2 Mass-Preserving Quality-Weighted Cluster Aggregation (Binding in v3.3.9)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5113-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11.3 Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-post-processing-not-part-of-the-mandatory-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Post-Processing (Not Part of the Mandatory Core)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Post-Processing (Not Part of the Mandatory Core)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-rgblrgb-combination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 RGB/LRGB Combination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-astrometry-wcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Astrometry (WCS)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-pre-pcc-background-gradient-extraction-bge-optional-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Pre-PCC Background Gradient Extraction (BGE) (Optional, Recommended)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3 Pre-PCC Background Gradient Extraction (BGE) (Optional, Recommended)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#631-principle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.1 Principle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#632-tile-driven-sampling-grid-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.2 Tile-Driven Sampling Grid (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#633-coarse-grid-aggregation-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.3 Coarse Grid Aggregation (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#634-surface-fitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.4 Surface Fitting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#635-subtraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.5 Subtraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#636-validation-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.6 Validation Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#637-auto-tuned-bge-optional-conservative-binding-when-enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.7 Auto-Tuned BGE (Optional, Conservative) (Binding When Enabled)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#638-mathematical-surface-model-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.8 Mathematical Surface Model (Binding)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3.8 Mathematical Surface Model (Binding)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#639-adaptive-grid-definition-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.9 Adaptive Grid Definition (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.10 RBF Surface Mathematical Specification (Binding, when bge.fit.method = rbf)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 PCC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.4 PCC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#641-local-background-modeling-in-the-sky-annulus-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.1 Local Background Modeling in the Sky Annulus (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#642-fwhm-adaptive-radii-optional-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.2 FWHM-Adaptive Radii (Optional, Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#643-configuration-hooks-normative-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.3 Configuration Hooks (Normative Names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#644-optional-post-pcc-isolated-chroma-speckle-suppression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-validation-and-abort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Validation and Abort
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Validation and Abort">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-success-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Success Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-abort-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Abort Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-minimum-tests-normative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Minimum Tests (Normative)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-recommended-numerical-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Recommended Numerical Defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-scope-boundary-mandatory-core-vs-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Scope Boundary: Mandatory Core vs Extension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Scope Boundary: Mandatory Core vs Extension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mandatory-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mandatory Core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional Extension
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#91-operational-example-configurations-tile_compile_cpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Operational Example Configurations (tile_compile_cpp)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#92-constrained-ml-optimization-extension-optional-non-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Constrained ML Optimization Extension (Optional, Non-Core)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9.2 Constrained ML Optimization Extension (Optional, Non-Core)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#921-binding-invariants-hard-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.1 Binding Invariants (Hard Constraints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#922-allowed-ml-outputs-constrained" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.2 Allowed ML Outputs (Constrained)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#923-ml-driven-effective-weight-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.3 ML-Driven Effective Weight (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#924-recommended-learning-paradigms-non-binding-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.4 Recommended Learning Paradigms (Non-Binding Guidance)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#925-models-that-fit-the-constrained-output-constraint-non-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.5 Models That Fit the Constrained Output Constraint (Non-Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#926-validation-requirements-for-ml-extension-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.6 Validation Requirements for ML Extension (Binding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#927-configuration-hooks-normative-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2.7 Configuration Hooks (Normative Names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-core-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Core Statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="tile-based-quality-reconstruction-for-dso-methodology-v339">Tile-Based Quality Reconstruction for DSO - Methodology v3.3.9<a class="headerlink" href="#tile-based-quality-reconstruction-for-dso-methodology-v339" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Normative reference specification<br />
+<strong>Version:</strong> v3.3.9 (2026-03-27)<br />
+<strong>Last revised:</strong> 2026-03-27 
+<strong>Applies to:</strong> <code>tile_compile.yaml</code></p>
+<hr />
+<h2 id="0-objective-of-v339">0. Objective of v3.3.9<a class="headerlink" href="#0-objective-of-v339" title="Permanent link">&para;</a></h2>
+<p>Core objectives:</p>
+<ol>
+<li>mathematical consistency (notation, formulas, edge cases)</li>
+<li>photometrically clean separation of additive background vs. multiplicative photometric scaling</li>
+<li>a mandatory reconstruction core that remains linear in pixel values and does <strong>not</strong> use tile-wise nonlinear renormalization before OLA</li>
+<li>soft local quality blending instead of a hard STAR/STRUCTURE switch</li>
+<li>mass-preserving cluster aggregation in full mode</li>
+<li>support-aware overlap-add semantics, including deterministic boundary coverage</li>
+</ol>
+<hr />
+<h2 id="1-principles-and-definitions">1. Principles and Definitions<a class="headerlink" href="#1-principles-and-definitions" title="Permanent link">&para;</a></h2>
+<h3 id="11-physical-objective">1.1 Physical Objective<a class="headerlink" href="#11-physical-objective" title="Permanent link">&para;</a></h3>
+<p>From fully registered, linear short-exposure frames, a spatially and temporally optimally weighted signal is reconstructed.</p>
+<p>The method models two orthogonal quality axes:</p>
+<ul>
+<li><strong>global</strong> (atmosphere): transparency, sky brightness, noise</li>
+<li><strong>local</strong> (tile): sharpness, structural support, local background level</li>
+</ul>
+<h3 id="12-no-frame-selection-invariant">1.2 No Frame Selection (Invariant)<a class="headerlink" href="#12-no-frame-selection-invariant" title="Permanent link">&para;</a></h3>
+<p><strong>Forbidden:</strong> Removal of entire frames based on quality.<br />
+<strong>Permitted:</strong> Pixel-wise outlier rejection (sigma clipping), provided that</p>
+<ul>
+<li>it acts only at pixel level,</li>
+<li>it uses deterministic parameters,</li>
+<li>and it includes a documented fallback to the unclipped valid weighted mean.</li>
+</ul>
+<h3 id="13-linearity-semantics-clarified">1.3 Linearity Semantics (Clarified)<a class="headerlink" href="#13-linearity-semantics-clarified" title="Permanent link">&para;</a></h3>
+<p>"Strictly linear" (as established in v3.3.6, unchanged in v3.3.9) means:</p>
+<ol>
+<li><strong>Photometric signal mapping</strong> remains linear (no global nonlinear tone curves such as stretch, asinh, log).</li>
+<li>Linear reconstruction steps (scaling, weighted mean, overlap-add) are mandatory.</li>
+<li>Robust/statistical nonlinearities (MAD, clipping, sigma clipping, adaptive gating decisions) are allowed as <strong>auxiliary steps</strong>.</li>
+<li>Data-dependent tile-wise renormalization of reconstructed pixel values (for example median/MAD equalization before overlap-add) is <strong>not part of the mandatory linear core</strong>.</li>
+</ol>
+<hr />
+<h2 id="2-assumptions-and-operating-modes">2. Assumptions and Operating Modes<a class="headerlink" href="#2-assumptions-and-operating-modes" title="Permanent link">&para;</a></h2>
+<h3 id="21-hard-assumptions-violation-abort">2.1 Hard Assumptions (Violation -&gt; Abort)<a class="headerlink" href="#21-hard-assumptions-violation-abort" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Input data are linear (no stretch, no tone curves)</li>
+<li>No quality-based frame selection</li>
+<li>Registered geometry is expressed in the same pixel reference</li>
+<li>From phase 3 onward, channel semantics remain deterministic and channel-consistent in the shared core</li>
+</ul>
+<h3 id="22-soft-assumptions-and-runtime-defaults">2.2 Soft Assumptions and Runtime Defaults<a class="headerlink" href="#22-soft-assumptions-and-runtime-defaults" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Assumption</th>
+<th style="text-align: right;">Optimal</th>
+<th style="text-align: right;">Minimum</th>
+<th>Action if violated</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Number of usable frames <code>N</code></td>
+<td style="text-align: right;">&gt;= 800</td>
+<td style="text-align: right;"><code>&gt;= assumptions.frames_min</code></td>
+<td>Reduced mode for <code>frames_min .. frames_reduced_threshold-1</code>; below <code>frames_min</code> abort or emergency mode</td>
+</tr>
+<tr>
+<td>Exposure-time consistency</td>
+<td style="text-align: right;">constant within one series</td>
+<td style="text-align: right;">dataset-dependent</td>
+<td>mixed series require explicit handling/calibration; not a guaranteed core invariant</td>
+</tr>
+<tr>
+<td>Registration residual</td>
+<td style="text-align: right;">&lt; 0.3 px</td>
+<td style="text-align: right;">&lt; 1.0 px</td>
+<td>Warning at &gt; 0.5 px</td>
+</tr>
+<tr>
+<td>Star elongation</td>
+<td style="text-align: right;">&lt; 0.2</td>
+<td style="text-align: right;">&lt; 0.4</td>
+<td>Warning at &gt; 0.3</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23-runtime-configured-operating-modes-binding">2.3 Runtime-Configured Operating Modes (Binding)<a class="headerlink" href="#23-runtime-configured-operating-modes-binding" title="Permanent link">&para;</a></h3>
+<p>Let</p>
+<ul>
+<li><code>N_min = assumptions.frames_min</code></li>
+<li><code>N_red = assumptions.frames_reduced_threshold</code>, with <code>N_red &gt;= N_min</code></li>
+</ul>
+<p>Then the active runtime uses:</p>
+<ul>
+<li><strong>Full mode:</strong> <code>N &gt;= N_red</code></li>
+<li><strong>Reduced mode:</strong> <code>N_min &lt;= N &lt; N_red</code></li>
+<li><strong>Below minimum:</strong> <code>N &lt; N_min</code></li>
+</ul>
+<p>Reduced-mode consequences:</p>
+<ul>
+<li><code>STATE_CLUSTERING</code> and <code>SYNTHETIC_FRAMES</code> are skipped if <code>assumptions.reduced_mode_skip_clustering = true</code></li>
+<li>if reduced-mode clustering remains enabled, <code>assumptions.reduced_mode_cluster_range = [K_min, K_max]</code> limits the cluster search</li>
+<li>when clustering/synthesis are skipped, the final output reuses the reconstruction result directly</li>
+</ul>
+<h3 id="24-below-minimum">2.4 Below Minimum<a class="headerlink" href="#24-below-minimum" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>N &lt; assumptions.frames_min:</strong> no regular reduced mode</li>
+<li>Standard action: controlled abort with diagnostics</li>
+<li>Optional only via explicit <code>runtime_limits.allow_emergency_mode: true</code>: emergency mode with warning status</li>
+</ul>
+<h3 id="25-shared-core-channel-semantic-variants-binding">2.5 Shared-Core Channel-Semantic Variants (Binding)<a class="headerlink" href="#25-shared-core-channel-semantic-variants-binding" title="Permanent link">&para;</a></h3>
+<p>Earlier methodology text used the labels <code>strict</code> and <code>practical</code>. In v3.3.9 these are treated as <strong>implementation variants</strong>, not as active <code>tile_compile.yaml</code> operating-profile keys.</p>
+<p>Two conformant shared-core variants are allowed:</p>
+<ul>
+<li><strong>Explicit per-channel variant</strong></li>
+<li>channel separation is completed by phase 2</li>
+<li>phases 3-10 operate per channel</li>
+<li><strong>CFA-proxy-equivalent variant</strong></li>
+<li>the shared core may operate on CFA-proxy data before explicit RGB formation</li>
+</ul>
+<p>For the CFA-proxy-equivalent variant, all of the following remain mandatory:</p>
+<ol>
+<li>linear and deterministic reconstruction behavior in the shared core,</li>
+<li>channel-equivalent weighting/estimation semantics (no hidden cross-channel coupling in the core estimator),</li>
+<li>CFA phase preservation for geometric operations,</li>
+<li>explicit RGB domain before color-calibration extensions (BGE/PCC), with unchanged canvas-mask exclusion policy.</li>
+</ol>
+<hr />
+<h2 id="3-pipeline-overview-normative">3. Pipeline Overview (Normative)<a class="headerlink" href="#3-pipeline-overview-normative" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Registration and geometric harmonization</li>
+<li>Channel separation (explicit or deferred via a CFA-proxy-equivalent core)</li>
+<li>Global linear normalization</li>
+<li>Global frame metrics and global weights</li>
+<li>Tile geometry</li>
+<li>Local tile metrics and local weights</li>
+<li>Tile reconstruction (overlap-add)</li>
+<li>State-based clustering (full mode only)</li>
+<li>Synthetic frames (full mode only)</li>
+<li>Final linear stacking</li>
+<li>Post-processing (optional, not part of the quality core)</li>
+</ol>
+<p>Mandatory core: 1-10.<br />
+Optional/feature-gated: local denoisers, deterministic defect-pixel suppression / cosmetic correction, alternative post-stack clipping policies, WCS/PCC, post-PCC isolated chroma-speckle suppression.</p>
+<hr />
+<h2 id="4-registration-and-channel-separation-up-to-phase-2-normative">4. Registration and Channel Separation up to Phase 2 (Normative)<a class="headerlink" href="#4-registration-and-channel-separation-up-to-phase-2-normative" title="Permanent link">&para;</a></h2>
+<p>Up to and including phase 2, the CFA-based registration and channel-separation path applies.
+From phase 3 onward, one of the binding shared-core variants from §2.5 applies:
+- explicit per-channel core,
+- CFA-proxy-equivalent core.</p>
+<h3 id="41-cfa-based-registration-path">4.1 CFA-Based Registration Path<a class="headerlink" href="#41-cfa-based-registration-path" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Registration on a CFA luminance proxy</li>
+<li>CFA-aware warp by subplanes (<code>warp_cfa_mosaic_via_subplanes</code>)</li>
+<li>Channel separation afterwards (explicit per-channel variant) or deferred split at channel-stack stage (CFA-proxy-equivalent variant)</li>
+</ul>
+<h4 id="411-optional-pre-warp-cfa-defect-pixel-suppression-feature-gated">4.1.1 Optional Pre-Warp CFA Defect-Pixel Suppression (Feature-Gated)<a class="headerlink" href="#411-optional-pre-warp-cfa-defect-pixel-suppression-feature-gated" title="Permanent link">&para;</a></h4>
+<p>Before CFA-aware warp, implementations may apply a deterministic per-frame CFA cosmetic-correction step to suppress isolated defect pixels on the raw mosaic.</p>
+<p>Binding conditions for this optional step:</p>
+<ol>
+<li>CFA phase and sample geometry must remain unchanged; no demosaic or cross-channel resampling is permitted before warp.</li>
+<li>Corrections must remain local and sparse, limited to isolated same-parity outliers (for example hot / cold / chromatically unstable sensels) or an equivalent deterministic defect-pixel signature.</li>
+<li>Replacement values must be derived from finite same-parity CFA neighbors only, or from an equivalent CFA-phase-preserving local estimator.</li>
+<li>Compact real image structure must be protected by a deterministic structure guard; implementations must not erase supported multi-pixel image content under the guise of defect suppression.</li>
+<li>This step is optional and is not part of the mandatory linear quality core from phases 3-10.</li>
+</ol>
+<h3 id="42-registration-cascade">4.2 Registration Cascade<a class="headerlink" href="#42-registration-cascade" title="Permanent link">&para;</a></h3>
+<p>Per frame:</p>
+<ol>
+<li>configurable primary method (<code>triangle_star_matching</code> default)</li>
+<li>fixed fallback order:</li>
+<li><code>trail_endpoint_registration</code></li>
+<li><code>feature_registration_similarity</code> (AKAZE)</li>
+<li><code>robust_phase_ecc</code></li>
+<li><code>hybrid_phase_ecc</code></li>
+<li>identity fallback with warning</li>
+</ol>
+<p>Acceptance criterion per attempt:</p>
+<ul>
+<li><code>NCC(warped, ref) &gt; NCC(identity, ref) + delta_ncc</code></li>
+<li>Default <code>delta_ncc = 0.01</code></li>
+</ul>
+<p><strong>Edge cases (binding):</strong></p>
+<ol>
+<li><strong>Reference frame:</strong> <code>NCC(identity, ref) = 1.0</code> for the reference frame itself, making the criterion unsatisfiable. Implementations must accept the identity transform for the reference frame unconditionally without cascade attempts.</li>
+<li><strong>Near-perfect alignment:</strong> If <code>NCC(identity, ref) &gt;= 1 - delta_ncc</code>, no registration method can satisfy the criterion. Implementations must accept the identity transform directly and log a diagnostic.</li>
+<li>In both cases the identity fallback is the correct outcome and must not be counted as a cascade failure.</li>
+</ol>
+<h3 id="43-cfa-proxy-core-path-binding">4.3 CFA-Proxy Core Path (Binding)<a class="headerlink" href="#43-cfa-proxy-core-path-binding" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Global/local metrics and tile reconstruction may operate on CFA-proxy inputs instead of early explicit RGB planes.</li>
+<li>This is conformant only if the channel semantics and linearity constraints from §2.5 are preserved.</li>
+<li>Explicit RGB data are still required before BGE/PCC and for final RGB outputs.</li>
+</ul>
+<hr />
+<h2 id="5-shared-core-from-phase-3-onward">5. Shared Core from Phase 3 Onward<a class="headerlink" href="#5-shared-core-from-phase-3-onward" title="Permanent link">&para;</a></h2>
+<h3 id="51-notation-binding">5.1 Notation (Binding)<a class="headerlink" href="#51-notation-binding" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>f</code> frame index, <code>t</code> tile index, <code>c</code> channel index, <code>p</code> pixel</li>
+<li><code>I_{f,c}^{raw}(p)</code> raw linear input image per frame/channel</li>
+<li><code>I_{f,c}(p)</code> normalized input image per frame/channel</li>
+<li><code>B_{f,c}</code> global additive background (before normalization)</li>
+<li><code>P_{f,c}</code> global photometric scale (before normalization)</li>
+<li><code>sigma_{f,c}</code> global noise (after normalization)</li>
+<li><code>E_{f,c}</code> global gradient energy (after normalization)</li>
+<li><code>Q_{f,c}</code> global quality index</li>
+<li><code>G_{f,c}</code> global weight</li>
+<li><code>eta_t</code> tile star-support blend factor</li>
+<li><code>U_{f,t,c}</code> local metric confidence</li>
+<li><code>Q_{f,t,c}^{local}</code> local quality index</li>
+<li><code>L_{f,t,c}</code> local weight</li>
+<li><code>W_{f,t,c}</code> effective weight</li>
+<li><code>M_{k,c}</code> cluster mass in full mode</li>
+<li><code>M_{t,c}(p)</code> per-channel support mask for OLA (1 = valid canvas pixel with at least one valid frame, 0 = canvas-invalid or no valid frames)</li>
+<li><code>k_local</code> local weight scale factor (§5.5.6)</li>
+<li><code>k_global</code> global weight scale factor (§5.3.2)</li>
+</ul>
+<p><strong>From this point onward, channel index <code>c</code> is used consistently.</strong></p>
+<hr />
+<h2 id="52-global-linear-normalization-mandatory">5.2 Global Linear Normalization (Mandatory)<a class="headerlink" href="#52-global-linear-normalization-mandatory" title="Permanent link">&para;</a></h2>
+<p>Order:</p>
+<ol>
+<li>Additive background from raw data:</li>
+<li><code>B_{f,c} = median(I_{f,c}^{raw})</code></li>
+<li>Background subtraction:</li>
+<li><code>J_{f,c}(p) = I_{f,c}^{raw}(p) - B_{f,c}</code></li>
+<li>Photometric scale from deterministic throughput/flux reference:</li>
+<li><code>P_{f,c} = photometric_scale(J_{f,c})</code></li>
+</ol>
+<p><strong>Definition of <code>photometric_scale</code> (binding):</strong> Implementations must use one of the following deterministic methods, in priority order:</p>
+<p>a. <strong>Ensemble stellar flux scaling (recommended):</strong> <code>P_{f,c} = median_s(flux_{f,c,s}) / median_s(flux_{ref,c,s})</code>, where <code>flux_{f,c,s}</code> is the instrumental aperture flux of non-saturated reference star <code>s</code> in frame <code>f</code>, channel <code>c</code>. The star set must be fixed (determined from the reference frame) and deterministic.</p>
+<p>b. <strong>Exposure-time ratio:</strong> If all frames share identical optical throughput and only exposure times differ: <code>P_{f,c} = t_f / t_ref</code>, where <code>t_ref</code> is the reference frame exposure time.</p>
+<p>c. <strong>Deterministic fallback (<code>P_{f,c} = 1</code>):</strong> When neither stellar fluxes nor exposure metadata are reliably available, and throughput is already consistent across frames (see constraint 5 below).</p>
+<p>Constraint: <code>P_{f,c}</code> must not be derived solely from the sky-background level <code>B_{f,c}</code>.
+4. Linear scaling:
+   - <code>I_{f,c}(p) = J_{f,c}(p) / max(P_{f,c}, eps_scale)</code>
+5. Metrics on normalized data:
+   - <code>sigma_{f,c}</code>, <code>E_{f,c}</code></p>
+<p>Binding constraints:</p>
+<ol>
+<li>additive background subtraction and multiplicative photometric scaling must remain separate operations,</li>
+<li><code>P_{f,c}</code> must not be defined solely by the sky-background level,</li>
+<li>valid negative or zero pixel values after subtraction/scaling remain admissible samples,</li>
+<li>global nonlinear tone curves remain forbidden,</li>
+<li>if no reliable photometric scale can be estimated and exposure throughput is already consistent, implementations may deterministically use <code>P_{f,c} = 1</code>.</li>
+</ol>
+<p>Recommended default:</p>
+<ul>
+<li><code>eps_bg = 1e-6</code></li>
+<li><code>eps_scale = 1e-6</code></li>
+</ul>
+<hr />
+<h2 id="53-global-metrics-and-weights">5.3 Global Metrics and Weights<a class="headerlink" href="#53-global-metrics-and-weights" title="Permanent link">&para;</a></h2>
+<h3 id="531-robust-metric-normalization">5.3.1 Robust Metric Normalization<a class="headerlink" href="#531-robust-metric-normalization" title="Permanent link">&para;</a></h3>
+<p>For metric sequence <code>x</code>:</p>
+<p><code>z(x_i) = (x_i - median(x)) / max(1.4826 * MAD(x), eps_mad)</code></p>
+<p>with <code>eps_mad = 1e-6</code>.</p>
+<h3 id="532-global-quality-index">5.3.2 Global Quality Index<a class="headerlink" href="#532-global-quality-index" title="Permanent link">&para;</a></h3>
+<p><code>Q_{f,c} = alpha*(-z(B_{f,c})) + beta*(-z(sigma_{f,c})) + gamma*z(E_{f,c})</code></p>
+<p>Constraint: <code>alpha + beta + gamma = 1</code></p>
+<p>Defaults:</p>
+<ul>
+<li><code>alpha=0.4, beta=0.3, gamma=0.3</code></li>
+</ul>
+<p><strong>Notation note:</strong> The symbols <code>alpha</code>, <code>beta</code>, <code>gamma</code> used here refer exclusively to the global quality index weights. The BGE auto-tuning objective (§6.3.7.1) uses the distinct symbols <code>alpha_f</code> (flatness weight) and <code>beta_r</code> (roughness weight) to avoid collision.</p>
+<p><strong>Note on mixed normalization:</strong> <code>B_{f,c}</code> is a pre-normalization quantity while <code>sigma_{f,c}</code> and <code>E_{f,c}</code> are post-normalization (§5.2 step 5). The z-score operation makes them scale-independent, so the combination is statistically valid. In mixed-exposure datasets, <code>z(B_{f,c})</code> may reflect exposure duration rather than sky brightness; in such cases the <code>alpha</code> weight should be reduced or <code>B</code> z-score recomputed on exposure-normalized data.</p>
+<p>Clamping before exponential:</p>
+<p><code>Q_{f,c}^{clamped} = clip(Q_{f,c}, -3, +3)</code></p>
+<p>Global weight:</p>
+<p><code>G_{f,c} = exp(k_global * Q_{f,c}^{clamped})</code></p>
+<p>with <code>k_global &gt; 0</code>, default <code>k_global=1.0</code>.</p>
+<h3 id="533-optional-adaptive-weighting">5.3.3 Optional Adaptive Weighting<a class="headerlink" href="#533-optional-adaptive-weighting" title="Permanent link">&para;</a></h3>
+<p>The mandatory core uses the static weights from §5.3.2.</p>
+<p>If <code>global_metrics.adaptive_weights=true</code>, adaptive weights remain an optional extension and must satisfy all of the following:</p>
+<ol>
+<li>they are derived from a deterministic predictive-utility criterion, not merely from <code>Var(z(.))</code> of already normalized metrics,</li>
+<li>they are clipped to <code>[0.1, 0.7]</code> and renormalized to sum 1,</li>
+<li>they fall back to the static defaults for degenerate or uninformative utility estimates,</li>
+<li>the utility target and tie-break rules must be documented.</li>
+</ol>
+<hr />
+<h2 id="54-tile-geometry">5.4 Tile Geometry<a class="headerlink" href="#54-tile-geometry" title="Permanent link">&para;</a></h2>
+<p>Parameters:</p>
+<ul>
+<li>Image size <code>W,H</code></li>
+<li>Robust seeing estimate <code>F</code> (FWHM in pixels)</li>
+<li><code>s = tile.size_factor</code></li>
+<li><code>T_min = tile.min_size</code></li>
+<li><code>D = tile.max_divisor</code></li>
+<li><code>o = tile.overlap_fraction</code>, <code>0 &lt;= o &lt;= 0.5</code></li>
+</ul>
+<p>Formulas:</p>
+<p><code>T0 = s * F</code></p>
+<p><code>o_clipped = clip(o, 0, 0.5)</code></p>
+<p><code>T_hi = floor(min(W,H)/D)</code></p>
+<p>Size selection (binding):</p>
+<ol>
+<li>if <code>F &lt;= 0</code> -&gt; set <code>F = 3.0</code></li>
+<li>require <code>T_min &gt;= 16</code></li>
+<li>require <code>D &gt;= 1</code></li>
+<li>if <code>T_hi &lt; T_min</code>, enter deterministic compact-tile mode:</li>
+<li><code>T = min(W,H)</code></li>
+<li><code>O = 0</code></li>
+<li><code>S = T</code></li>
+<li>otherwise:</li>
+<li><code>T = floor(clip(T0, T_min, T_hi))</code></li>
+<li><code>O = floor(o_clipped * T)</code></li>
+<li><code>S = T - O</code></li>
+</ol>
+<p>Additional guards (binding):</p>
+<ol>
+<li>if <code>S &lt;= 0</code> -&gt; set <code>o_clipped = 0.25</code>, recompute <code>O,S</code></li>
+<li>if <code>O &gt;= T</code> -&gt; set <code>O = floor(0.25 * T)</code>, <code>S = T - O</code></li>
+<li>if <code>T &lt;= 0</code> -&gt; abort with diagnostics</li>
+</ol>
+<p><strong>Note:</strong> Guards 1 and 2 are invariant under the stated preconditions (<code>o_clipped ∈ [0, 0.5]</code> and <code>T ≥ 1</code> guaranteed by guard 3), so they will never trigger in normal operation. They are retained as defensive safeguards against implementation deviations.</p>
+<hr />
+<h2 id="55-local-tile-metrics">5.5 Local Tile Metrics<a class="headerlink" href="#55-local-tile-metrics" title="Permanent link">&para;</a></h2>
+<p><strong>Canvas exclusion (binding for all of §5.5):</strong> All local tile metric computations — FWHM, roundness, contrast, <code>E/sigma</code>, background <code>B_{f,t,c}</code> — must operate exclusively on pixels that are both finite and within valid canvas support for that frame. Canvas-invalid pixels must be excluded from all metric accumulators. If the canvas-valid pixel count in a tile falls below a minimum (recommended: 16 px), the tile's metrics for that frame are marked as unavailable and the fallback from §5.5.1 applies.</p>
+<h3 id="551-soft-local-support-blend-binding-in-v339">5.5.1 Soft Local Support Blend (Binding in v3.3.9)<a class="headerlink" href="#551-soft-local-support-blend-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>The mandatory core does <strong>not</strong> use a hard STAR/STRUCTURE switch.</p>
+<p>Instead, each tile receives a deterministic star-support blend factor:</p>
+<p><code>eta_t = clip(star_count_t / max(tile.star_soft_count, 1), 0, 1)</code></p>
+<p>with normative default:</p>
+<ul>
+<li><code>tile.star_soft_count = tile.star_min_count</code></li>
+</ul>
+<p>Semantics:</p>
+<ul>
+<li><code>eta_t = 1</code>: fully star-supported tile</li>
+<li><code>eta_t = 0</code>: purely structure-driven tile</li>
+<li>intermediate values blend both local models continuously</li>
+</ul>
+<p>If star metrics are unavailable or non-finite for a given frame/tile/channel term, the effective star contribution for that term is treated as unavailable and the blend falls back to the structure component.</p>
+<h3 id="552-star-tile-metrics">5.5.2 STAR Tile Metrics<a class="headerlink" href="#552-star-tile-metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>FWHM_{f,t,c}</code></li>
+<li><code>R_{f,t,c}</code> (roundness)</li>
+<li><code>C_{f,t,c}</code> (contrast)</li>
+</ul>
+<p>Local index:</p>
+<p><code>Q_{f,t,c}^{star} = 0.6*(-z_tilde(FWHM)) + 0.2*z_tilde(R) + 0.2*z_tilde(C)</code></p>
+<h3 id="553-structure-tile-metrics">5.5.3 STRUCTURE Tile Metrics<a class="headerlink" href="#553-structure-tile-metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>(E/sigma)_{f,t,c}</code></li>
+<li><code>B_{f,t,c}</code></li>
+</ul>
+<p>Local index:</p>
+<p><code>Q_{f,t,c}^{struct} = 0.7*z_tilde(E/sigma) - 0.3*z_tilde(B)</code></p>
+<h3 id="554-neighborhood-aware-metric-normalization-binding-in-v339">5.5.4 Neighborhood-Aware Metric Normalization (Binding in v3.3.9)<a class="headerlink" href="#554-neighborhood-aware-metric-normalization-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>For each scalar tile metric family <code>m</code> and tile <code>t</code>, first compute the tile-local robust z-score over usable frames:</p>
+<p><code>z_local(m_{f,t,c}) = robust_z(m_{f,t,c}; {m_{f',t,c}}_{f' in F_t})</code></p>
+<p>If neighborhood normalization is enabled, additionally compute a pooled robust location/scale over neighboring tiles and all usable frames:</p>
+<ul>
+<li><code>N_r(t)</code>: Manhattan-radius tile neighborhood with radius <code>r = local_metrics.neighborhood_normalization.radius</code></li>
+<li><code>P_t(m) = { m_{f',u,c} | u in N_r(t), f' usable }</code></li>
+</ul>
+<p><code>z_pool(m_{f,t,c}) = (m_{f,t,c} - median(P_t(m))) / max(1.4826*MAD(P_t(m)), eps_mad)</code></p>
+<p>The metric z-score used by the local quality model is then</p>
+<p><code>z_tilde(m_{f,t,c}) = (1 - b_local) * z_local(m_{f,t,c}) + b_local * z_pool(m_{f,t,c})</code></p>
+<p>with <code>b_local = local_metrics.neighborhood_normalization.blend</code>.</p>
+<p>If neighborhood normalization is disabled or <code>P_t(m)</code> is empty, use:</p>
+<p><code>z_tilde(m_{f,t,c}) = z_local(m_{f,t,c})</code></p>
+<p>Normative default parameters:</p>
+<ul>
+<li><code>local_metrics.neighborhood_normalization.enabled = true</code></li>
+<li><code>local_metrics.neighborhood_normalization.radius = 1</code></li>
+<li><code>local_metrics.neighborhood_normalization.blend = 0.5</code></li>
+</ul>
+<p>Binding constraints:</p>
+<ol>
+<li>normalization is metric-local and frame-order independent,</li>
+<li>only finite metric samples may contribute to pooled neighborhood statistics,</li>
+<li>neighborhood normalization changes scores only through metric normalization, never through direct pixel manipulation.</li>
+</ol>
+<h3 id="555-spatial-regularization-of-local-scores-binding-in-v339">5.5.5 Spatial Regularization of Local Scores (Binding in v3.3.9)<a class="headerlink" href="#555-spatial-regularization-of-local-scores-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>First compute the unregularized local score:</p>
+<p><code>Q_{f,t,c}^{blend} = eta_t * Q_{f,t,c}^{star} + (1 - eta_t) * Q_{f,t,c}^{struct}</code></p>
+<p>If one component is unavailable, use the other available component directly.</p>
+<p><code>Q_{f,t,c}^{raw} = clip(Q_{f,t,c}^{blend}, q_min, q_max)</code></p>
+<p>with default local clamp range <code>[q_min, q_max] = [-3, +3]</code>.</p>
+<p>To prevent neighboring tiles from diverging into incompatible local regimes while preserving reliable local differences, the local score field is regularized on the tile-neighborhood graph before exponential weighting.</p>
+<p>Let <code>N(t)</code> be the 4-neighborhood of tile <code>t</code> on the tile grid.</p>
+<p>Define a local confidence term</p>
+<p><code>U_{f,t,c} = clip(n_valid_metrics_{f,t,c} / max(n_expected_metrics_{f,t,c}, 1), 0, 1)</code></p>
+<p>and an edge-aware neighbor affinity</p>
+<p><code>A_{t,u}^{(k)} = exp(-|Q_{f,t,c}^{(k)} - Q_{f,u,c}^{(k)}| / tau_local)</code></p>
+<p>For each frame <code>f</code>, tile <code>t</code>, and pass <code>k</code>:</p>
+<p><code>lambda_{f,t,c}^{eff} = lambda_local * (1 - U_{f,t,c})</code></p>
+<p>Let <code>S_A^{(k)} = sum_{u in N(t)} A_{t,u}^{(k)}</code>.</p>
+<p><strong>Affinity-zero guard (binding):</strong> If <code>S_A^{(k)} &lt; eps_affinity</code>, set <code>Q_{f,t,c}^{(k+1)} = Q_{f,t,c}^{(k)}</code> (no regularization for this tile/pass). Otherwise:</p>
+<p><code>Q_{f,t,c}^{(k+1)} = (1 - lambda_{f,t,c}^{eff}) * Q_{f,t,c}^{(k)} + lambda_{f,t,c}^{eff} * sum_{u in N(t)} A_{t,u}^{(k)} Q_{f,u,c}^{(k)} / S_A^{(k)}</code></p>
+<p>Default <code>eps_affinity = 1e-6</code>.</p>
+<p>with initialization:</p>
+<p><code>Q_{f,t,c}^{(0)} = Q_{f,t,c}^{raw}</code></p>
+<p>and final regularized score after <code>P</code> passes:</p>
+<p><code>Q_{f,t,c}^{reg} = Q_{f,t,c}^{(P)}</code></p>
+<p>Normative default parameters:</p>
+<ul>
+<li><code>local_metrics.spatial_regularization.enabled = true</code></li>
+<li><code>local_metrics.spatial_regularization.lambda = 0.35</code></li>
+<li><code>local_metrics.spatial_regularization.passes = 1</code></li>
+<li><code>local_metrics.spatial_regularization.tau_local = 1.0</code></li>
+<li><code>local_metrics.spatial_regularization.eps_affinity = 1e-6</code></li>
+</ul>
+<p>Binding constraints:</p>
+<ol>
+<li>only valid/common tiles may participate,</li>
+<li>regularization is frame-local and must not couple different frames,</li>
+<li>tiles without valid neighbors or with <code>lambda_{f,t,c}^{eff} &lt;= 0</code> keep <code>Q_{f,t,c}^{reg} = Q_{f,t,c}^{raw}</code>,</li>
+<li>regularization acts only on local quality scores, never directly on pixel values.</li>
+</ol>
+<h3 id="556-local-weight">5.5.6 Local Weight<a class="headerlink" href="#556-local-weight" title="Permanent link">&para;</a></h3>
+<p><code>Q_{f,t,c}^{local} = clip(Q_{f,t,c}^{reg}, q_min, q_max)</code></p>
+<p><code>L_{f,t,c} = exp(k_local * Q_{f,t,c}^{local})</code></p>
+<p>with <code>k_local &gt; 0</code>, default <code>k_local = 1.0</code>.</p>
+<p><strong>Symmetry with global weight:</strong> The scale factors <code>k_global</code> (§5.3.2) and <code>k_local</code> independently control the sensitivity of global and local exponential weighting. Both default to 1.0. Increasing <code>k_local</code> sharpens the local quality contrast; decreasing it toward 0 equalizes local weights across tiles.</p>
+<hr />
+<h2 id="56-effective-weight">5.6 Effective Weight<a class="headerlink" href="#56-effective-weight" title="Permanent link">&para;</a></h2>
+<p><code>W_{f,t,c} = G_{f,c} * L_{f,t,c}</code></p>
+<p>Semantics:</p>
+<ul>
+<li><code>G</code>: global atmospheric quality</li>
+<li><code>L</code>: local structure/sharpness quality</li>
+</ul>
+<hr />
+<h2 id="57-tile-reconstruction-consolidated">5.7 Tile Reconstruction (Consolidated)<a class="headerlink" href="#57-tile-reconstruction-consolidated" title="Permanent link">&para;</a></h2>
+<p>Let the tile-level weights be</p>
+<p><code>w_{f,t,c} = W_{f,t,c}</code>.</p>
+<p>If</p>
+<p><code>sum_f max(w_{f,t,c}, 0) &lt;= eps_weight</code></p>
+<p>the tile enters a deterministic weight fallback and all positive finite tile weights are replaced by <code>1</code>.</p>
+<p>For each pixel <code>p</code> in tile <code>t</code>, define the valid sample set</p>
+<p><code>V_{t,c}(p) = { f | I_{f,c}(p) is finite and inside valid canvas support }</code>.</p>
+<p>If <code>|V_{t,c}(p)| = 0</code>, set</p>
+<p><code>R_{t,c}(p) = 0</code>.</p>
+<p>For <code>|V_{t,c}(p)| &lt;= 2</code> (or if clipping iterations are disabled), use the valid weighted mean directly:</p>
+<p><code>R_{t,c}(p) = sum_{f in V_{t,c}(p)} w_{f,t,c} I_{f,c}(p) / sum_{f in V_{t,c}(p)} w_{f,t,c}</code>.</p>
+<p>Otherwise apply iterative weighted sigma clipping on the active set <code>A^{(0)} = V_{t,c}(p)</code>:</p>
+<p><code>mu^{(k)} = sum_{f in A^{(k)}} w_{f,t,c} I_{f,c}(p) / sum_{f in A^{(k)}} w_{f,t,c}</code></p>
+<p>with</p>
+<ul>
+<li><code>V1 = sum_{f in A^{(k)}} w_{f,t,c}</code></li>
+<li><code>V2 = sum_{f in A^{(k)}} w_{f,t,c}^2</code></li>
+<li><code>N_eff = V1^2 / max(V2, eps_weight)</code></li>
+<li><code>D_eff = V1 - V2 / max(V1, eps_weight)</code></li>
+</ul>
+<p>If <code>N_eff &lt;= 2 + eps_neff</code> or <code>D_eff &lt;= eps_var</code>, terminate clipping and use the weighted mean over the current active set.</p>
+<p>Otherwise:</p>
+<p><code>sigma^{(k)} = sqrt( sum_{f in A^{(k)}} w_{f,t,c}(I_{f,c}(p)-mu^{(k)})^2 / D_eff )</code></p>
+<p>and update</p>
+<p><code>A_prop^{(k+1)} = { f in A^{(k)} | mu^{(k)} - sigma_low*sigma^{(k)} &lt;= I_{f,c}(p) &lt;= mu^{(k)} + sigma_high*sigma^{(k)} }</code></p>
+<p>subject to the keep-floor</p>
+<p><code>|A_prop^{(k+1)}| &gt;= ceil(min_fraction * |V_{t,c}(p)|)</code></p>
+<p>with <code>min_fraction in (0, 1)</code>, normative default <code>min_fraction = 0.5</code>.</p>
+<p>Deterministic keep-floor rule:</p>
+<ul>
+<li>if the proposed set satisfies the keep-floor, accept it:</li>
+<li><code>A^{(k+1)} = A_prop^{(k+1)}</code></li>
+<li>otherwise terminate clipping and keep the previous active set:</li>
+<li><code>A^{(*)} = A^{(k)}</code></li>
+</ul>
+<p>The final reconstruction value is the weighted mean over the final accepted set. If clipping empties the accepted set numerically, fall back to the unclipped valid weighted mean over <code>V_{t,c}(p)</code>.</p>
+<p>Default <code>eps_weight = 1e-6</code>.</p>
+<p>Recommended guards:</p>
+<ul>
+<li><code>eps_neff = 1e-6</code></li>
+<li><code>eps_var = 1e-12</code></li>
+<li><code>min_fraction = 0.5</code> (configurable via <code>tile_reconstruction.sigma_clip.min_fraction</code>)</li>
+</ul>
+<h3 id="571-support-aware-windowing-and-overlap-add-binding-in-v339">5.7.1 Support-Aware Windowing and Overlap-Add (Binding in v3.3.9)<a class="headerlink" href="#571-support-aware-windowing-and-overlap-add-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>The mandatory core does <strong>not</strong> apply tile-wise median/MAD renormalization before overlap-add.</p>
+<p>Instead, the OLA input is the reconstructed tile itself:</p>
+<p><code>Y_{t,c}(p) = R_{t,c}(p)</code></p>
+<p>Let</p>
+<ul>
+<li><code>M_{t,c}(p) = 1</code> if <code>|V_{t,c}(p)| &gt; 0</code> AND <code>R_{t,c}(p)</code> is finite AND pixel <code>p</code> is inside valid canvas support, otherwise <code>0</code></li>
+<li><code>omega_t(p) &gt;= 0</code> be the deterministic blend window for tile <code>t</code></li>
+</ul>
+<p><strong>Canvas semantics (binding):</strong> <code>M_{t,c}(p) = 0</code> in all of the following cases:
+1. <code>|V_{t,c}(p)| = 0</code> (no valid frames contribute to pixel <code>p</code> in tile <code>t</code>, channel <code>c</code>); the convention <code>R_{t,c}(p) = 0</code> is a fill value only and must NOT enter the OLA accumulator.
+2. Pixel <code>p</code> is outside valid canvas support (canvas-masked region), regardless of whether frames nominally cover it.
+3. <code>R_{t,c}(p)</code> is non-finite (NaN or Inf).</p>
+<p>The support mask carries a channel index <code>c</code> because in CFA-proxy-equivalent processing the number of valid frames per pixel can differ per channel.</p>
+<p><strong>Note on fill-zero exclusion:</strong> Setting <code>M_{t,c}(p) = 0</code> when <code>|V| = 0</code> prevents fill-zero values from diluting the OLA denominator <code>S</code> at coverage boundaries. Without this, <code>S</code> would accumulate window weights from tiles with no valid data, biasing <code>I_rec</code> toward zero in partially covered regions.</p>
+<p>Binding OLA semantics:</p>
+<ol>
+<li><code>omega_t</code> must depend only on tile geometry, overlap geometry, and boundary position, never on pixel values,</li>
+<li><code>omega_t</code> must be non-negative,</li>
+<li>for every valid canvas pixel <code>p</code>, implementations must guarantee</li>
+<li><code>sum_t omega_t(p) * M_{t,c}(p) &gt; 0</code>,</li>
+<li>for interior pixels with full support, the windows must form a partition of unity up to numeric tolerance:</li>
+<li><code>sum_t omega_t(p) * M_{t,c}(p) in [1 - tol_ola, 1 + tol_ola]</code>,</li>
+<li>tiles touching an outer image boundary must use one-sided boundary-aware windows or an equivalent support-aware renormalization; symmetric zero-at-both-ends windows are not permitted on the outer canvas boundary unless rules 3 and 4 remain satisfied by construction.</li>
+</ol>
+<p>Recommended defaults:</p>
+<ul>
+<li><code>tol_ola = 1e-6</code></li>
+<li>interior tiles: separable cosine/Tukey partition windows</li>
+<li>boundary tiles: one-sided cosine ramps only across actual overlap zones</li>
+</ul>
+<p>Accumulation:</p>
+<ul>
+<li>numerator accumulator: <code>A</code></li>
+<li>support accumulator: <code>S</code></li>
+</ul>
+<p><code>A += omega_t * M_{t,c} * Y_{t,c}</code></p>
+<p><code>S += omega_t * M_{t,c}</code></p>
+<p><code>I_rec = A / max(S, eps_weight)</code></p>
+<p><strong>Canvas guarantee:</strong> Only pixels with <code>M_{t,c}(p) = 1</code> contribute to <code>A</code> and <code>S</code>. Canvas-invalid pixels contribute nothing to either accumulator and thus do not enter any calculation. The final <code>I_rec</code> at a canvas-invalid pixel will be <code>0 / eps_weight</code>, which must be subsequently masked out in the output (not interpreted as a valid reconstruction value).</p>
+<h3 id="572-boundary-diagnostics-recommended-non-invasive">5.7.2 Boundary Diagnostics (Recommended, Non-Invasive)<a class="headerlink" href="#572-boundary-diagnostics-recommended-non-invasive" title="Permanent link">&para;</a></h3>
+<p>To diagnose visible tile boundaries without changing the reconstruction result, implementations may evaluate neighboring tiles on the actual OLA input <code>R_{t,c}</code> and on the windowed input <code>omega_t * R_{t,c}</code>.</p>
+<p>Recommended practice is to emit these diagnostics twice:</p>
+<ul>
+<li>once on the raw reconstructed tiles <code>R_{t,c}</code></li>
+<li>once on the windowed OLA input <code>omega_t * R_{t,c}</code></li>
+</ul>
+<p>For each neighboring tile pair <code>(a,b)</code> with overlap domain <code>Omega_ab</code>, define:</p>
+<p><code>Delta_ab(p) = R_{b,c}(p) - R_{a,c}(p)</code>, for <code>p in Omega_ab</code></p>
+<p>Only samples inside the common canvas-valid domain may contribute. Masked canvas zones must be excluded rather than treated as valid zero-valued pixels.</p>
+<p>Recommended pair diagnostics:</p>
+<ul>
+<li><code>mean_abs_diff_ab = mean_p |Delta_ab(p)|</code></li>
+<li><code>p95_abs_diff_ab = p95_p |Delta_ab(p)|</code></li>
+<li><code>mean_signed_diff_ab = mean_p Delta_ab(p)</code></li>
+<li><code>n_ab = |Omega_ab|</code> valid finite overlap samples</li>
+</ul>
+<p>Additionally, implementations may summarize per-pair differences in:</p>
+<ul>
+<li>valid frame support,</li>
+<li>post-reconstruction background metrics,</li>
+<li>post-reconstruction SNR proxies,</li>
+<li>post-reconstruction mean correlation proxies,</li>
+<li>and fallback mismatch flags.</li>
+</ul>
+<p>Binding semantics:</p>
+<ol>
+<li>These diagnostics must be <strong>read-only</strong> and must not alter <code>R_{t,c}</code>, <code>omega_t</code>, <code>A</code>, <code>S</code>, or the final OLA result.</li>
+<li>They may be emitted as runtime artifacts for analysis and regression testing.</li>
+<li>Because they do not feed back into the estimator, they do <strong>not</strong> change the linearity semantics of the reconstruction core.</li>
+</ol>
+<hr />
+<h2 id="58-optional-local-denoisers-explicitly-optional">5.8 Optional Local Denoisers (Explicitly Optional)<a class="headerlink" href="#58-optional-local-denoisers-explicitly-optional" title="Permanent link">&para;</a></h2>
+<p>These steps are <strong>not part of the mandatory mathematical core</strong>, but are admissible extensions.</p>
+<h3 id="581-soft-threshold-high-pass">5.8.1 Soft-Threshold High-Pass<a class="headerlink" href="#581-soft-threshold-high-pass" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Background via box blur</li>
+<li>Residual</li>
+<li><code>tau = alpha_d * sigma_tile</code></li>
+<li>Soft shrinkage</li>
+<li>Reconstruction</li>
+</ul>
+<h3 id="582-wiener-in-the-frequency-domain">5.8.2 Wiener in the Frequency Domain<a class="headerlink" href="#582-wiener-in-the-frequency-domain" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Reflection padding</li>
+<li>FFT</li>
+<li>Wiener transfer function</li>
+<li>IFFT and crop</li>
+</ul>
+<p>Apply only if gating conditions are met (SNR/quality/tile type).</p>
+<hr />
+<h2 id="59-state-based-clustering-full-mode">5.9 State-Based Clustering (Full Mode)<a class="headerlink" href="#59-state-based-clustering-full-mode" title="Permanent link">&para;</a></h2>
+<p>Active only in <strong>full mode</strong> (<code>N &gt;= N_red</code>, see §2.3). Additionally, clustering requires a minimum of 50 usable frames to yield at least <code>K_min = 5</code> meaningful clusters (<code>K = clip(floor(N/10), K_min, K_max)</code> yields K ≥ 5 for N ≥ 50). If <code>N_red &lt; 50</code>, the effective threshold is <code>max(N_red, 50)</code>.</p>
+<p><strong>Removed:</strong> The previously stated fixed threshold <code>N &gt;= 200</code> is superseded by the configurable mode framework. Implementations must not hardcode 200 as a clustering gate.</p>
+<p>State vector per frame/channel (per-channel or channel-aggregated, configurable):</p>
+<p><code>v_f = (G_{f,*}, mean_t(Q_{f,t,*}^{local}), var_t(Q_{f,t,*}^{local}), B_{f,*}, sigma_{f,*})</code></p>
+<p>Number of clusters:</p>
+<p><code>K = clip(floor(N/10), K_min, K_max)</code></p>
+<p>Defaults: <code>K_min=5</code>, <code>K_max=30</code>.</p>
+<hr />
+<h2 id="510-synthetic-frames">5.10 Synthetic Frames<a class="headerlink" href="#510-synthetic-frames" title="Permanent link">&para;</a></h2>
+<h3 id="5101-default-global">5.10.1 Default (global)<a class="headerlink" href="#5101-default-global" title="Permanent link">&para;</a></h3>
+<p>For cluster <code>k</code>:</p>
+<p><code>S_{k,c} = sum_{f in k} G_{f,c} * I_{f,c} / sum_{f in k} G_{f,c}</code></p>
+<p><strong>Zero-denominator fallback:</strong> If <code>sum_{f in k} G_{f,c} &lt;= eps_weight</code> (degenerate cluster), use the unweighted mean: <code>S_{k,c} = sum_{f in k} I_{f,c} / |k|</code>.</p>
+<h3 id="5102-optional-tile_weighted">5.10.2 Optional (tile_weighted)<a class="headerlink" href="#5102-optional-tile_weighted" title="Permanent link">&para;</a></h3>
+<p>If <code>synthetic.weighting=tile_weighted</code>:</p>
+<ul>
+<li>reconstruct per tile/channel with <code>W_{f,t,c}</code></li>
+<li>assemble to <code>S_{k,c}</code> via the same support-aware OLA semantics from §5.7.1</li>
+<li>implementations must monitor the tile-boundary diagnostics from §5.7/§11; if tile-weighted synthesis shows simultaneous boundary regression and cross-tile weight disagreement, they must deterministically fall back to §5.10.1 (<code>global</code>) for synthetic-frame formation instead of reintroducing nonlinear per-tile renormalization</li>
+<li>the requested and effective synthetic weighting modes must be recorded in diagnostics</li>
+</ul>
+<h3 id="5103-semantics-of-phase-7-vs-9">5.10.3 Semantics of Phase 7 vs 9<a class="headerlink" href="#5103-semantics-of-phase-7-vs-9" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Full mode with <code>global</code>: phase 7 primarily provides local quality modeling/diagnostics; the final product is generated from phases 9+10.</li>
+<li>Full mode with <code>tile_weighted</code>: local tile quality is explicitly propagated into synthetic frames unless the seam guard above falls back to <code>global</code>.</li>
+<li>Reduced mode: the output from phase 7 is the direct final product.</li>
+</ul>
+<hr />
+<h2 id="511-final-linear-stacking">5.11 Final Linear Stacking<a class="headerlink" href="#511-final-linear-stacking" title="Permanent link">&para;</a></h2>
+<h3 id="5111-cluster-quality-and-mass-definition-binding-in-v339">5.11.1 Cluster Quality and Mass Definition (Binding in v3.3.9)<a class="headerlink" href="#5111-cluster-quality-and-mass-definition-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>For each cluster <code>k</code> and channel <code>c</code>, define:</p>
+<p><code>Q_{k,c} = median_{f in k}(Q_{f,c}^{clamped})</code></p>
+<p><code>M_{k,c} = sum_{f in k} G_{f,c}</code></p>
+<p>where <code>Q_{f,c}^{clamped}</code> is the global frame quality index already limited to <code>[-3,+3]</code>.</p>
+<p>If <code>M_{k,c} &lt;= eps_weight</code>, replace it deterministically by</p>
+<p><code>M_{k,c} = |k|</code>.</p>
+<h3 id="5112-mass-preserving-quality-weighted-cluster-aggregation-binding-in-v339">5.11.2 Mass-Preserving Quality-Weighted Cluster Aggregation (Binding in v3.3.9)<a class="headerlink" href="#5112-mass-preserving-quality-weighted-cluster-aggregation-binding-in-v339" title="Permanent link">&para;</a></h3>
+<p>Clusters are aggregated using exponential quality weighting <strong>and</strong> cluster mass preservation:</p>
+<p><code>Q_{k,c}^{rel} = clip(Q_{k,c} - median_j(Q_{j,c}), -3, +3)</code></p>
+<p><code>w_{k,c}^{raw} = M_{k,c} * exp(kappa_cluster * Q_{k,c}^{rel})</code></p>
+<p>with:</p>
+<ul>
+<li><code>kappa_cluster &gt; 0</code> (recommended default: <code>kappa_cluster = 1.0</code>)</li>
+<li><code>Q_{k,c}^{rel}</code> already clamped to <code>[-3,+3]</code></li>
+</ul>
+<p>Optional stability cap (recommended):</p>
+<p><code>w_{k,c} = min(w_{k,c}^{raw}, r_cap * median_j(w_{j,c}^{raw}))</code></p>
+<p>with recommended <code>r_cap</code> in <code>[10, 50]</code>.</p>
+<p>If weight capping is disabled, use:</p>
+<p><code>w_{k,c} = w_{k,c}^{raw}</code></p>
+<p>Final result per channel:</p>
+<p><code>R_c = sum_k (w_{k,c} * S_{k,c}) / sum_k w_{k,c}</code></p>
+<p><strong>Zero-denominator fallback:</strong> If <code>sum_k w_{k,c} &lt;= eps_weight</code> (degenerate weight distribution), fall back to the equal-weight mean: <code>R_c = sum_k S_{k,c} / K</code>. This fallback must be logged as a warning.</p>
+<h3 id="5113-semantics">5.11.3 Semantics<a class="headerlink" href="#5113-semantics" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Better atmospheric states (higher <code>Q_{k,c}</code>) receive stronger influence.</li>
+<li>All clusters remain included (no hard state selection).</li>
+<li>Cluster support is preserved through <code>M_{k,c}</code>.</li>
+<li>The estimator remains linear in synthetic frames.</li>
+<li>Dominance is bounded via optional weight capping.</li>
+</ul>
+<h2 id="6-post-processing-not-part-of-the-mandatory-core">6. Post-Processing (Not Part of the Mandatory Core)<a class="headerlink" href="#6-post-processing-not-part-of-the-mandatory-core" title="Permanent link">&para;</a></h2>
+<h3 id="61-rgblrgb-combination">6.1 RGB/LRGB Combination<a class="headerlink" href="#61-rgblrgb-combination" title="Permanent link">&para;</a></h3>
+<p>Interchangeable, outside the reconstruction core.</p>
+<h3 id="62-astrometry-wcs">6.2 Astrometry (WCS)<a class="headerlink" href="#62-astrometry-wcs" title="Permanent link">&para;</a></h3>
+<p>Permissible downstream step, without feedback into core weights.</p>
+<h3 id="63-pre-pcc-background-gradient-extraction-bge-optional-recommended">6.3 Pre-PCC Background Gradient Extraction (BGE) (Optional, Recommended)<a class="headerlink" href="#63-pre-pcc-background-gradient-extraction-bge-optional-recommended" title="Permanent link">&para;</a></h3>
+<p>Background gradients (e.g. artificial light pollution, moonlight, airglow) can bias Photometric Color Calibration (PCC), especially when gradients are spectrally non-uniform across channels.<br />
+To mitigate this, an additive Background Gradient Extraction (BGE) step may be applied <strong>before PCC</strong>.</p>
+<h4 id="631-principle">6.3.1 Principle<a class="headerlink" href="#631-principle" title="Permanent link">&para;</a></h4>
+<p>For each channel <code>c</code>, estimate a smooth large-scale background model <code>B_c(x,y)</code> and subtract:</p>
+<p><code>I'_c(x,y) = I_c(x,y) - B_c(x,y)</code></p>
+<p>BGE must be:
+- strictly additive,
+- channel-wise,
+- independent of frame weighting logic,
+- and must not introduce nonlinear tone transforms.</p>
+<h4 id="632-tile-driven-sampling-grid-binding">6.3.2 Tile-Driven Sampling Grid (Binding)<a class="headerlink" href="#632-tile-driven-sampling-grid-binding" title="Permanent link">&para;</a></h4>
+<p>The reconstruction tiles are reused as background sampling units. The goal is to obtain <strong>object-free</strong> background samples per tile.</p>
+<h5 id="a-background-mask-definition-binding">(a) Background Mask Definition (Binding)<a class="headerlink" href="#a-background-mask-definition-binding" title="Permanent link">&para;</a></h5>
+<p>For each tile <code>t</code> and channel <code>c</code>, define a binary mask <code>M_bg</code> that marks pixels admissible as background samples. <code>M_bg</code> must exclude:</p>
+<ol>
+<li><strong>Canvas-invalid pixels:</strong> pixels outside valid canvas support for the reconstructed image <code>I_rec</code>. Canvas-masked regions must never enter BGE calculations regardless of their pixel values. This is a binding constraint.</li>
+<li><strong>Stars:</strong> pixels in <code>M_star</code> (from star detection or segmentation), optionally dilated by <code>mask.star_dilate_px</code> (recommended default: 2–6 px).</li>
+<li><strong>High-structure pixels:</strong> pixels where <code>structure_metric(p) &gt; structure_thresh</code>, where <code>structure_metric</code> is derived from local gradients (see definition below) and <code>structure_thresh</code> is configurable.</li>
+<li><strong>Saturated pixels:</strong> pixels with <code>I &gt;= sat_level</code> and optionally a dilation margin <code>mask.sat_dilate_px</code>.</li>
+<li><strong>Optional object mask:</strong> if available (nebula/galaxy mask), exclude it to prevent bias in extended-object fields.</li>
+</ol>
+<p>If no star detection is available, <code>M_star</code> may be approximated by thresholding a bandpass/DoG response and dilating; this approximation must be deterministic.</p>
+<h5 id="b-robust-tile-background-sample-binding-configurable">(b) Robust Tile Background Sample (Binding, Configurable)<a class="headerlink" href="#b-robust-tile-background-sample-binding-configurable" title="Permanent link">&para;</a></h5>
+<p>Compute one robust background sample per tile using a configurable quantile:</p>
+<p><code>b_{t,c} = quantile_q(R_{t,c}[M_bg])</code></p>
+<p>with:
+- <code>q = bge.sample_quantile</code> in <code>(0, 0.5]</code>
+- <strong>default:</strong> <code>q = 0.20</code> (20% quantile)
+- median is obtained by setting <code>q = 0.50</code></p>
+<p>Rationale: the lower quantile is more resistant to residual faint object contamination and imperfect masks, while the median is acceptable in sparse fields with strong masking.</p>
+<p>Associate each sample with the tile center <code>(x_t, y_t)</code>.</p>
+<h5 id="c-tile-reliability-weight-optional-recommended">(c) Tile Reliability Weight (Optional, Recommended)<a class="headerlink" href="#c-tile-reliability-weight-optional-recommended" title="Permanent link">&para;</a></h5>
+<p>Tiles may be assigned a reliability weight for later fitting:</p>
+<p><code>w_t = exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)</code></p>
+<p>where:
+- <code>masked_fraction_t = (number of M_bg=0 pixels in tile t) / (total canvas-valid pixels in tile t)</code> — the fraction of canvas-valid pixels excluded by the background mask.
+- <code>structure_score_t</code> is defined as the dimensionless relative high-pass energy:</p>
+<p><code>structure_score_t = median_{p in M_bg_t} ( hp(R_{t,c}(p)) / max(sigma_{t,c}^{bg}, eps_sigma) )^2</code></p>
+<p>where <code>hp(x)</code> is the high-pass residual after box-blur with radius <code>bge.structure_blur_px</code> (recommended default: 5 px), applied only to canvas-valid pixels within the tile, and <code>sigma_{t,c}^{bg}</code> is the local background noise scale on the same tile/channel. Preferred source: the local STRUCTURE noise proxy from §5.5.3 when available; deterministic fallback: a robust MAD-based estimate on the unmasked background pixels <code>M_bg_t</code>. If no <code>M_bg</code> pixels are available in the tile, <code>structure_score_t = +inf</code> and <code>w_t = 0</code>.</p>
+<ul>
+<li><code>lambda_structure &gt; 0</code> is a damping factor (recommended default: <code>lambda_structure = 2.0</code>).</li>
+</ul>
+<p>This normalization is binding: a global multiplicative intensity rescaling of the same image content must not, by itself, change <code>structure_score_t</code> or <code>w_t</code> apart from floating-point noise.</p>
+<p>This formula is binding and applies to both §6.3.2(c) and §6.3.4. <strong>Canvas-invalid pixels must not contribute to <code>masked_fraction_t</code> or <code>structure_score_t</code>.</strong></p>
+<h4 id="633-coarse-grid-aggregation-binding">6.3.3 Coarse Grid Aggregation (Binding)<a class="headerlink" href="#633-coarse-grid-aggregation-binding" title="Permanent link">&para;</a></h4>
+<p>To avoid overfitting small-scale structure, tile samples are aggregated to a <strong>coarser</strong> grid before surface fitting.</p>
+<h5 id="a-grid-definition">(a) Grid Definition<a class="headerlink" href="#a-grid-definition" title="Permanent link">&para;</a></h5>
+<p>Given grid spacing <code>G</code> (see 6.3.9), define axis-aligned grid cells over the image plane. Each grid cell is a rectangle of size <code>G x G</code>.</p>
+<h5 id="b-assigning-tiles-to-grid-cells-binding">(b) Assigning Tiles to Grid Cells (Binding)<a class="headerlink" href="#b-assigning-tiles-to-grid-cells-binding" title="Permanent link">&para;</a></h5>
+<p>Each tile sample <code>(x_t, y_t, b_{t,c}, w_t)</code> is assigned to exactly one grid cell via integer binning of its center:</p>
+<p><code>cell_x = floor(x_t / G)</code><br />
+<code>cell_y = floor(y_t / G)</code></p>
+<p>(All tiles whose centers fall inside the same <code>G x G</code> cell belong to that cell.)</p>
+<h5 id="c-per-cell-aggregation-binding">(c) Per-Cell Aggregation (Binding)<a class="headerlink" href="#c-per-cell-aggregation-binding" title="Permanent link">&para;</a></h5>
+<p>For each cell and channel <code>c</code>, aggregate all tile samples assigned to the cell:</p>
+<ul>
+<li>Value: <code>b_cell = median({b_{t,c}})</code> (robust)</li>
+<li>Weight: <code>w_cell = median({w_t})</code> (normative default)</li>
+</ul>
+<h5 id="d-insufficient-samples-binding">(d) Insufficient Samples (Binding)<a class="headerlink" href="#d-insufficient-samples-binding" title="Permanent link">&para;</a></h5>
+<p>A grid cell is considered <strong>insufficient</strong> if it contains fewer than:</p>
+<p><code>n_cell &lt; bge.min_tiles_per_cell</code></p>
+<p>Recommended default: <code>bge.min_tiles_per_cell = 3</code>.</p>
+<p>Insufficient cells must be handled deterministically by one of:</p>
+<ol>
+<li><strong>Discard (default):</strong> exclude the cell from the fit, or</li>
+<li><strong>Nearest-neighbor fill:</strong> replace <code>(b_cell, w_cell)</code> by the nearest sufficient cell (by Euclidean distance between cell centers), or</li>
+<li><strong>Radius expansion:</strong> iteratively include tiles from neighboring cells within radius <code>r = k*G</code> until <code>n_cell &gt;= min_tiles_per_cell</code> (deterministic traversal order required).</li>
+</ol>
+<p>The chosen strategy must be configurable and recorded in diagnostics.</p>
+<h4 id="634-surface-fitting">6.3.4 Surface Fitting<a class="headerlink" href="#634-surface-fitting" title="Permanent link">&para;</a></h4>
+<p>Fit a smooth background surface per channel using:</p>
+<ul>
+<li>Robust 2D polynomial (order 2–3 recommended), or</li>
+<li>Thin-plate spline, or</li>
+<li>Bicubic spline with robust loss, or</li>
+<li>Radial Basis Function (RBF) surface with smoothing (recommended only with explicit regularization), or</li>
+<li>Foreground-aware modeled-mask mesh sky surface (<code>modeled_mask_mesh</code>) for scenes with large diffuse foreground structures.</li>
+</ul>
+<p>Optional weights: use <code>w_t</code> as defined in §6.3.2(c) (binding formula: <code>exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)</code>, with dimensionless <code>structure_score_t</code>). Canvas-invalid pixels must be excluded from both <code>structure_score_t</code> and <code>masked_fraction_t</code> as specified there.</p>
+<p>Use robust loss (Huber/Tukey).</p>
+<h4 id="635-subtraction">6.3.5 Subtraction<a class="headerlink" href="#635-subtraction" title="Permanent link">&para;</a></h4>
+<p><code>I'_c(x,y) = I_c(x,y) - B_c(x,y)</code></p>
+<p>No multiplicative correction permitted.</p>
+<h4 id="636-validation-requirements">6.3.6 Validation Requirements<a class="headerlink" href="#636-validation-requirements" title="Permanent link">&para;</a></h4>
+<p>When BGE is enabled:</p>
+<ol>
+<li>Background RMS must decrease or remain stable.</li>
+<li>No artificial curvature across tile boundaries.</li>
+<li>Stellar flux ratios must remain stable within tolerance.</li>
+<li>PCC residuals must improve or remain stable vs. no-BGE baseline.</li>
+</ol>
+<p>BGE must not modify core weights (<code>G</code>, <code>L</code>, <code>W</code>).</p>
+<h4 id="637-auto-tuned-bge-optional-conservative-binding-when-enabled">6.3.7 Auto-Tuned BGE (Optional, Conservative) (Binding When Enabled)<a class="headerlink" href="#637-auto-tuned-bge-optional-conservative-binding-when-enabled" title="Permanent link">&para;</a></h4>
+<p>This optional extension enables deterministic <strong>test–adjust–test</strong> tuning of BGE parameters to improve robustness under varying gradient conditions (light pollution gradients, moon gradients, airglow). The reconstruction core remains unchanged; BGE remains strictly additive and downstream.</p>
+<h5 id="6371-objective-binding">6.3.7.1 Objective (Binding)<a class="headerlink" href="#6371-objective-binding" title="Permanent link">&para;</a></h5>
+<p>For a given channel, define a deterministic brightness-normalized objective:</p>
+<p><code>B_ref = max(abs(median_i b_i), eps_bg)</code></p>
+<p><code>J = E_cv / B_ref + alpha_f * E_flat / B_ref^2 + beta_r * E_rough / B_ref</code></p>
+<p>with:
+- <code>E_cv</code>: holdout RMS of background sample residuals evaluated on a deterministic validation split,
+- <code>E_flat</code>: large-scale gradient energy of the fitted background model,
+- <code>E_rough</code>: second-derivative energy of the fitted model (penalizes overfit waviness).
+- <code>B_ref</code>: robust background amplitude from the same candidate's grid-cell values <code>{b_i}</code>.
+- <code>eps_bg &gt; 0</code>: zero-safe normalization floor (recommended default: <code>1e-12</code> in normalized data units).</p>
+<p><strong>Notation:</strong> <code>alpha_f</code> (flatness weight) and <code>beta_r</code> (roughness weight) are distinct from the global quality index weights <code>alpha</code>, <code>beta</code>, <code>gamma</code> (§5.3.2).</p>
+<p>All terms must be computed deterministically from the same grid-cell set. This normalization is binding: a global multiplicative rescaling of the input intensities must not change candidate ranking except for negligible floating-point differences.</p>
+<h5 id="6372-deterministic-holdout-split-binding">6.3.7.2 Deterministic Holdout Split (Binding)<a class="headerlink" href="#6372-deterministic-holdout-split-binding" title="Permanent link">&para;</a></h5>
+<p>Grid cells must be sorted by <code>(cell_y, cell_x)</code> and split deterministically by selecting every k-th cell as validation, where <code>k = round(1/holdout_fraction)</code>.</p>
+<p><code>holdout_fraction</code> must be clamped to <code>[0.05, 0.50]</code> before split generation.</p>
+<h5 id="6373-candidate-search-conservative-defaults">6.3.7.3 Candidate Search (Conservative Defaults)<a class="headerlink" href="#6373-candidate-search-conservative-defaults" title="Permanent link">&para;</a></h5>
+<p>When enabled, implementations must evaluate a bounded set of candidate parameters (hard cap <code>max_evals</code>) and select the candidate with minimal <code>J</code> using deterministic tie-break rules (prefer lower roughness, then coarser effective model).</p>
+<p>Conservative candidate families (implementation-defined but must be documented):
+- <code>sample_quantile</code>: <code>{q0, 0.35, 0.50}</code>
+- <code>structure_thresh_percentile</code>: <code>{p0, 0.85}</code>
+- <code>rbf_mu_factor</code>: <code>{m0, 1.4}</code>
+- <code>rbf_lambda</code>: may still apply internal smoothing preference (select smoothest accepted λ).</p>
+<p>Grid spacing <code>G</code> should remain unchanged in conservative mode unless explicitly enabled by a non-conservative strategy.</p>
+<p><code>max_evals</code> is a hard upper bound on evaluated candidates and must be <code>&gt;= 1</code>.</p>
+<h5 id="6374-configuration-hooks-normative-names">6.3.7.4 Configuration Hooks (Normative Names)<a class="headerlink" href="#6374-configuration-hooks-normative-names" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>bge.autotune.enabled: true|false</code></li>
+<li><code>bge.autotune.max_evals</code></li>
+<li><code>bge.autotune.holdout_fraction</code></li>
+<li><code>bge.autotune.alpha_f</code> (flatness weight, corresponds to <code>alpha_f</code> in objective)</li>
+<li><code>bge.autotune.beta_r</code> (roughness weight, corresponds to <code>beta_r</code> in objective)</li>
+<li><code>bge.autotune.strategy: conservative|extended</code></li>
+</ul>
+<p>When <code>enabled=true</code>, the chosen parameter set and objective components must be included in diagnostics.</p>
+<p>Minimum diagnostic fields (binding):</p>
+<ul>
+<li><code>autotune.enabled</code></li>
+<li><code>autotune.strategy</code></li>
+<li><code>autotune.max_evals</code></li>
+<li><code>autotune.evals_performed</code></li>
+<li><code>autotune.best.sample_quantile</code></li>
+<li><code>autotune.best.structure_thresh_percentile</code></li>
+<li><code>autotune.best.rbf_mu_factor</code></li>
+<li><code>autotune.best.objective</code> (binding normalized objective <code>J</code>)</li>
+<li><code>autotune.best.objective_raw</code> (recommended auxiliary diagnostic)</li>
+<li><code>autotune.best.cv_rms</code></li>
+<li><code>autotune.best.flatness</code></li>
+<li><code>autotune.best.roughness</code></li>
+<li><code>autotune.fallback_used</code></li>
+</ul>
+<h5 id="6375-robustness-and-fallback-semantics-binding">6.3.7.5 Robustness and Fallback Semantics (Binding)<a class="headerlink" href="#6375-robustness-and-fallback-semantics-binding" title="Permanent link">&para;</a></h5>
+<p>Auto-tuning must be fail-safe and deterministic:</p>
+<ol>
+<li>If the candidate fit cannot produce sufficient valid cells/metrics, that candidate is marked failed.</li>
+<li>If no candidate succeeds, the implementation must fall back to the user/base BGE configuration unchanged.</li>
+<li>Tie-break for equal objective values must be deterministic (prefer lower roughness, then coarser effective model).</li>
+<li>Auto-tuning must not alter core reconstruction weights (<code>G</code>, <code>L</code>, <code>W</code>) and remains strictly additive.</li>
+</ol>
+<h3 id="638-mathematical-surface-model-binding">6.3.8 Mathematical Surface Model (Binding)<a class="headerlink" href="#638-mathematical-surface-model-binding" title="Permanent link">&para;</a></h3>
+<p>Let the background samples be defined as:</p>
+<p><code>(x_i, y_i, b_i, w_i)</code>  for i = 1..M</p>
+<p>where:
+- <code>(x_i, y_i)</code> are grid cell centers,
+- <code>b_i</code> is the robust background estimate,
+- <code>w_i</code> optional reliability weight.</p>
+<p>A robust polynomial surface of order d (recommended d = 2 or 3) is defined as:</p>
+<p><code>B_c(x,y) = sum_{m+n &lt;= d} a_{mn} x^m y^n</code></p>
+<p>The coefficients <code>a_{mn}</code> are obtained by minimizing:</p>
+<p><code>argmin_a sum_i w_i * rho( b_i - B_c(x_i,y_i) )</code></p>
+<p>where <code>rho</code> is a robust loss function, e.g.:</p>
+<p>Huber loss:</p>
+<p><code>rho(r) = 0.5 * r^2                        if |r| &lt;= delta</code>
+<code>rho(r) = delta * (|r| - 0.5 * delta)      otherwise</code></p>
+<p>(Equivalently: <code>delta * |r| - 0.5 * delta^2</code> for the linear branch.)</p>
+<p>or Tukey biweight loss.</p>
+<p>The fit must be solved via Iteratively Reweighted Least Squares (IRLS) or equivalent deterministic robust optimization.</p>
+<p>Thin-plate spline alternative:</p>
+<p><code>B_c = argmin_B sum_i w_i (b_i - B(x_i,y_i))^2 + lambda * J_TPS(B)</code></p>
+<p>where the standard 2D TPS bending energy is:</p>
+<p><code>J_TPS(B) = integral [ (d^2B/dx^2)^2 + 2*(d^2B/dxdy)^2 + (d^2B/dy^2)^2 ] dx dy</code></p>
+<p>with regularization parameter <code>lambda</code> controlling smoothness.</p>
+<p>Only large-scale (low-frequency) components are permitted; overfitting is forbidden.</p>
+<h4 id="639-adaptive-grid-definition-binding">6.3.9 Adaptive Grid Definition (Binding)<a class="headerlink" href="#639-adaptive-grid-definition-binding" title="Permanent link">&para;</a></h4>
+<p>Grid spacing <code>G</code> must scale with image dimensions to avoid under- or overfitting.</p>
+<p>Define:</p>
+<p><code>G = clip( max(2*T, min(W,H)/N_g), G_min, G_max )</code></p>
+<p>Recommended defaults:</p>
+<ul>
+<li><code>N_g = 32</code> (target grid resolution across smallest image axis)</li>
+<li><code>G_min = 64 px</code></li>
+<li><code>G_max = min(W,H)/4</code></li>
+</ul>
+<p>This ensures:</p>
+<ul>
+<li>background model captures only large-scale gradients,</li>
+<li>grid density adapts to sensor resolution,</li>
+<li>small images are not over-parameterized,</li>
+<li>large mosaics retain sufficient spatial sampling.</li>
+</ul>
+<p>Implementations must guarantee that grid resolution is coarser than tile resolution (<code>G &gt;= 2*T</code>) <strong>except</strong> in compact-tile mode.</p>
+<p><strong>Compact-tile mode exception (binding):</strong> When compact-tile mode is active (§5.4 step 4, <code>T = min(W,H)</code>), the constraint <code>G &gt;= 2*T</code> cannot be satisfied because <code>G_max = min(W,H)/4 &lt; 2*T</code>. In this case, BGE <strong>must</strong> be disabled (<code>bge.enabled = false</code> implicitly) or the grid spacing is fixed at <code>G = G_max</code> with an explicit diagnostic warning. Implementations must document which behavior is active and must not silently violate the <code>G &gt;= 2*T</code> constraint.</p>
+<hr />
+<h4 id="6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf">6.3.10 RBF Surface Mathematical Specification (Binding, when <code>bge.fit.method = rbf</code>)<a class="headerlink" href="#6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf" title="Permanent link">&para;</a></h4>
+<p>Let grid-cell samples be <code>(r_j, b_j, w_j)</code> for <code>j = 1..J</code>, where:</p>
+<ul>
+<li><code>r_j = (x_j, y_j)</code> are grid cell centers</li>
+<li><code>b_j</code> is the aggregated background value</li>
+<li><code>w_j &gt;= 0</code> is the cell reliability weight (as defined in §6.3.2(c))</li>
+</ul>
+<p>Define the RBF surface with affine trend term:</p>
+<p><code>B_c(r) = sum_{i=1..J} u_i * phi(||r - r_i||; mu) + a0 + a1*x + a2*y</code></p>
+<p>where:</p>
+<ul>
+<li><code>u_i</code> are RBF coefficients (unknown)</li>
+<li><code>(a0, a1, a2)</code> is an affine term (recommended; improves extrapolation stability)</li>
+<li><code>mu &gt; 0</code> is the kernel shape/scale parameter</li>
+<li><code>phi</code> is the chosen radial kernel</li>
+</ul>
+<h5 id="supported-kernels-binding">Supported Kernels (Binding)<a class="headerlink" href="#supported-kernels-binding" title="Permanent link">&para;</a></h5>
+<ol>
+<li>Multiquadric:</li>
+</ol>
+<p><code>phi(d; mu) = sqrt(d^2 + mu^2)</code></p>
+<ol>
+<li>Thin-plate spline kernel:</li>
+</ol>
+<p><code>phi(d) = d^2 * log(d + eps_rbf)</code></p>
+<p>with small <code>eps_rbf &gt; 0</code> for numerical stability (recommended: <code>eps_rbf = 1e-6 * G</code>).</p>
+<ol>
+<li>Gaussian:</li>
+</ol>
+<p><code>phi(d; mu) = exp(-d^2 / (2 * mu^2))</code></p>
+<p>For Gaussian, <code>mu</code> acts as bandwidth.</p>
+<h5 id="robust-regularized-fit-binding">Robust Regularized Fit (Binding)<a class="headerlink" href="#robust-regularized-fit-binding" title="Permanent link">&para;</a></h5>
+<p>Solve for parameters <code>theta = (u, a)</code> by minimizing:</p>
+<p><code>argmin_theta sum_{j=1..J} w_j * rho(b_j - B_c(r_j)) + lambda * ||u||_2^2</code></p>
+<p>where:</p>
+<ul>
+<li><code>rho</code> is the configured robust loss (Huber or Tukey, as defined in §6.3.8)</li>
+<li><code>lambda &gt; 0</code> is mandatory regularization when using RBF</li>
+<li>Optimization must be deterministic (IRLS or equivalent).</li>
+</ul>
+<p><strong>RBF without regularization (<code>lambda = 0</code>) is forbidden.</strong></p>
+<p>Canvas-invalid pixels must not contribute to the sample set <code>(r_j, b_j, w_j)</code> used for fitting.</p>
+<h5 id="recommended-defaults">Recommended Defaults<a class="headerlink" href="#recommended-defaults" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>mu = G</code> (grid spacing)</li>
+<li><code>lambda = 1e-4</code> (tune within <code>[1e-6, 1e-2]</code> depending on gradient strength)</li>
+<li>Include affine term by default.</li>
+</ul>
+<hr />
+<h3 id="64-pcc">6.4 PCC<a class="headerlink" href="#64-pcc" title="Permanent link">&para;</a></h3>
+<p>This specification recommends applying BGE prior to PCC when spatial background gradients are present.</p>
+<h4 id="641-local-background-modeling-in-the-sky-annulus-binding">6.4.1 Local Background Modeling in the Sky Annulus (Binding)<a class="headerlink" href="#641-local-background-modeling-in-the-sky-annulus-binding" title="Permanent link">&para;</a></h4>
+<p>PCC star photometry must subtract a local background estimated in the sky annulus. To reduce gradient bias, the background model may be:</p>
+<ul>
+<li><code>median</code>: constant median over annulus (legacy), or</li>
+<li><code>plane</code>: robust plane fit <code>bg(dx,dy)=a + b*dx + c*dy</code> over annulus pixels (recommended under gradients).</li>
+</ul>
+<p>If <code>plane</code> fit fails, implementations must fall back deterministically to <code>median</code>.</p>
+<h4 id="642-fwhm-adaptive-radii-optional-recommended">6.4.2 FWHM-Adaptive Radii (Optional, Recommended)<a class="headerlink" href="#642-fwhm-adaptive-radii-optional-recommended" title="Permanent link">&para;</a></h4>
+<p>When a global seeing estimate <code>FWHM</code> is available, PCC radii may be set automatically:</p>
+<ul>
+<li><code>r_ap = max(min_aperture_px, aperture_fwhm_mult * FWHM)</code></li>
+<li><code>r_in = max(r_ap + 1, annulus_inner_fwhm_mult * FWHM)</code></li>
+<li><code>r_out = max(r_in + 2, annulus_outer_fwhm_mult * FWHM)</code></li>
+</ul>
+<p>If <code>FWHM &lt;= 0</code> or unavailable, implementations must deterministically fall back to <code>FWHM = 0</code>, yielding:</p>
+<ul>
+<li><code>r_ap = min_aperture_px</code></li>
+<li><code>r_in = max(r_ap + 1, annulus_inner_fwhm_mult * 0) = r_ap + 1</code></li>
+<li><code>r_out = max(r_in + 2, annulus_outer_fwhm_mult * 0) = r_in + 2</code></li>
+</ul>
+<p>Recommended conservative defaults:
+- <code>aperture_fwhm_mult = 1.8</code>
+- <code>annulus_inner_fwhm_mult = 3.0</code>
+- <code>annulus_outer_fwhm_mult = 5.0</code></p>
+<p>These changes must preserve determinism.</p>
+<h4 id="643-configuration-hooks-normative-names">6.4.3 Configuration Hooks (Normative Names)<a class="headerlink" href="#643-configuration-hooks-normative-names" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>pcc.background_model: median|plane</code></li>
+<li><code>pcc.radii_mode: fixed|auto_fwhm</code></li>
+<li><code>pcc.aperture_fwhm_mult</code></li>
+<li><code>pcc.annulus_inner_fwhm_mult</code></li>
+<li><code>pcc.annulus_outer_fwhm_mult</code></li>
+<li><code>pcc.min_aperture_px</code></li>
+</ul>
+<p>Permissible downstream step, applied to linear data.</p>
+<h4 id="644-optional-post-pcc-isolated-chroma-speckle-suppression">6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression<a class="headerlink" href="#644-optional-post-pcc-isolated-chroma-speckle-suppression" title="Permanent link">&para;</a></h4>
+<p>After successful PCC, implementations may apply a deterministic cleanup step for isolated chromatic speckles before writing the final RGB outputs.</p>
+<p>Binding conditions for this optional step:</p>
+<ol>
+<li>The step operates only in the explicit RGB domain after PCC.</li>
+<li>It must be restricted to pixels inside valid canvas support.</li>
+<li>A correction is permitted only when exactly one channel is an isolated local outlier relative to neighboring valid RGB samples, or an equivalent deterministic single-channel chroma-outlier condition is satisfied.</li>
+<li>Bright stellar cores, compact real structures, and supported multi-pixel chromatic image content must be protected by deterministic luma and/or structure guards.</li>
+<li>Replacement values must be derived from robust local neighborhood statistics of the affected channel, or from an equivalent deterministic local estimator.</li>
+<li>This step belongs to optional post-processing and is not part of the mandatory linear quality core.</li>
+</ol>
+<hr />
+<h2 id="7-validation-and-abort">7. Validation and Abort<a class="headerlink" href="#7-validation-and-abort" title="Permanent link">&para;</a></h2>
+<h3 id="71-success-criteria">7.1 Success Criteria<a class="headerlink" href="#71-success-criteria" title="Permanent link">&para;</a></h3>
+<ul>
+<li>FWHM improvement over the reference stack according to <code>validation.min_fwhm_improvement_percent</code></li>
+<li>Background RMS not worse than reference</li>
+<li>No systematic tile seams</li>
+<li>Stable stellar flux ratios and photometric scaling</li>
+<li>Stable weight distributions</li>
+</ul>
+<h3 id="72-abort-criteria">7.2 Abort Criteria<a class="headerlink" href="#72-abort-criteria" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Data integrity violated (nonlinear, unreadable, inconsistent)</li>
+<li>Registration failure across large portions of the dataset</li>
+<li>Numerical instability despite fallbacks</li>
+</ul>
+<h3 id="73-minimum-tests-normative">7.3 Minimum Tests (Normative)<a class="headerlink" href="#73-minimum-tests-normative" title="Permanent link">&para;</a></h3>
+<ol>
+<li><code>alpha+beta+gamma=1</code> (global quality index weights, §5.3.2)</li>
+<li>clamping before <code>exp</code> (global and local weights)</li>
+<li>additive background subtraction and multiplicative photometric scaling remain separate</li>
+<li>valid negative or zero pixels remain admissible samples</li>
+<li>tile monotonicity in <code>F</code>, including deterministic compact-tile fallback for small images</li>
+<li>overlap consistency (<code>0&lt;=o&lt;=0.5</code>, explicit <code>o_clipped=clip(o,0,0.5)</code>, integer <code>O,S</code>)</li>
+<li>low-weight fallback without NaN/Inf</li>
+<li>sigma-clipping guards on <code>N_eff</code> and <code>D_eff</code>; <code>min_fraction</code> keep-floor active</li>
+<li>soft local-score blending remains continuous around the star-support threshold</li>
+<li>support-aware OLA covers all valid boundary pixels and satisfies partition-of-unity tolerance with <code>M_{t,c}(p)</code> as defined in §5.7.1</li>
+<li>no channel coupling</li>
+<li>no quality-based frame selection</li>
+<li>deterministic reproducibility</li>
+<li>registration cascade including identity fallback; reference-frame unconditional identity acceptance</li>
+<li>CFA phase preservation</li>
+<li>cluster aggregation is mass-preserving (<code>M_{k,c}</code> included) with optional dominance cap</li>
+<li>WCS round-trip error below <code>validation.wcs_roundtrip_max_arcsec</code> (recommended default: <code>0.5</code> arcsec) only when WCS is enabled</li>
+<li>PCC stability: positive determinant, condition number below <code>validation.pcc_max_condition_number</code> (recommended default: <code>1000</code>), residuals below <code>validation.pcc_max_residual_mag</code> (recommended default: <code>0.05</code> mag) only when PCC is enabled</li>
+<li>STAR metric coefficient sum: <code>0.6 + 0.2 + 0.2 = 1.0</code> (§5.5.2)</li>
+<li>STRUCTURE metric coefficient sum (unsigned): <code>0.7 + 0.3 = 1.0</code> (§5.5.3)</li>
+<li>canvas-invalid pixels contribute zero to OLA accumulators <code>A</code> and <code>S</code> (§5.7.1), zero to local metrics (§5.5), and zero to BGE sampling (§6.3.2)</li>
+<li>clustering threshold matches mode framework: active iff <code>N &gt;= max(N_red, 50)</code> (§5.9)</li>
+<li>BGE tile reliability weights remain stable under global multiplicative intensity rescaling when the local noise scale is rescaled consistently (§6.3.2(c))</li>
+<li>BGE autotune candidate ranking uses the normalized objective <code>J</code>; <code>autotune.best.objective</code> reports that normalized value (§6.3.7.1)</li>
+</ol>
+<p>Note: The legacy PCC test "no negative matrix element" is <strong>no longer</strong> required as a hard criterion in v3.3+.</p>
+<hr />
+<h2 id="8-recommended-numerical-defaults">8. Recommended Numerical Defaults<a class="headerlink" href="#8-recommended-numerical-defaults" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>eps_bg = 1e-6</code></li>
+<li><code>eps_scale = 1e-6</code></li>
+<li><code>eps_mad = 1e-6</code></li>
+<li><code>eps_weight = 1e-6</code></li>
+<li><code>eps_neff = 1e-6</code></li>
+<li><code>eps_var = 1e-12</code></li>
+<li><code>tol_ola = 1e-6</code></li>
+<li><code>eps_affinity = 1e-6</code></li>
+<li><code>delta_ncc = 0.01</code></li>
+<li><code>Q</code> clamp global/local: <code>[-3, +3]</code></li>
+<li><code>k_global = 1.0</code></li>
+<li><code>k_local = 1.0</code></li>
+<li><code>min_fraction = 0.5</code> (sigma-clip keep-floor)</li>
+<li><code>lambda_bge = 1.0</code> (BGE structure score damping)</li>
+<li><code>bge.structure_blur_px = 5</code></li>
+<li><code>validation.wcs_roundtrip_max_arcsec = 0.5</code></li>
+<li><code>validation.pcc_max_condition_number = 1000</code></li>
+<li><code>validation.pcc_max_residual_mag = 0.05</code></li>
+</ul>
+<hr />
+<h2 id="9-scope-boundary-mandatory-core-vs-extension">9. Scope Boundary: Mandatory Core vs Extension<a class="headerlink" href="#9-scope-boundary-mandatory-core-vs-extension" title="Permanent link">&para;</a></h2>
+<h3 id="mandatory-core">Mandatory Core<a class="headerlink" href="#mandatory-core" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CFA-based registration path up to explicit or deferred (shared-core-variant-dependent) channel separation</li>
+<li>global normalization</li>
+<li>global/local metrics and weights</li>
+<li>tile reconstruction including consolidated fallbacks</li>
+<li>clustering/synthesis/final stack depending on operating mode</li>
+</ul>
+<h3 id="optional-extension">Optional Extension<a class="headerlink" href="#optional-extension" title="Permanent link">&para;</a></h3>
+<ul>
+<li>deterministic CFA defect-pixel suppression / cosmetic correction</li>
+<li>soft-threshold / Wiener</li>
+<li>alternative sigma-clipping strategies</li>
+<li>WCS/PCC</li>
+<li>post-PCC isolated chroma-speckle suppression</li>
+<li>specialized performance backends (GPU, queue workers)</li>
+</ul>
+<h3 id="91-operational-example-configurations-tile_compile_cpp">9.1 Operational Example Configurations (tile_compile_cpp)<a class="headerlink" href="#91-operational-example-configurations-tile_compile_cpp" title="Permanent link">&para;</a></h3>
+<p>For operational use, complete reference configurations are provided:</p>
+<ul>
+<li><code>tile_compile_cpp/examples/full_mode.example.yaml</code></li>
+<li><code>tile_compile_cpp/examples/reduced_mode.example.yaml</code></li>
+<li><code>tile_compile_cpp/examples/emergency_mode.example.yaml</code></li>
+<li><code>tile_compile_cpp/examples/smart_telescope_dwarf_seestar.example.yaml</code></li>
+</ul>
+<p>All example files include the active configuration surface with inline comments.
+They expose runtime thresholds such as <code>assumptions.frames_min</code> and <code>assumptions.frames_reduced_threshold</code> explicitly.
+The channel-semantic shared-core variant is an implementation property, not a user-facing <code>assumptions.pipeline_profile</code> switch.</p>
+<p>Procedure:</p>
+<ol>
+<li>copy the appropriate profile,</li>
+<li>adapt <code>run_dir</code>, <code>input.pattern</code>, and sensor parameters (<code>image_width/height</code>, <code>bayer_pattern</code>),</li>
+<li>launch the runner with this file.</li>
+</ol>
+<hr />
+<h2 id="92-constrained-ml-optimization-extension-optional-non-core">9.2 Constrained ML Optimization Extension (Optional, Non-Core)<a class="headerlink" href="#92-constrained-ml-optimization-extension-optional-non-core" title="Permanent link">&para;</a></h2>
+<p>This extension introduces machine-learning (ML) modules <strong>only</strong> to improve the estimation of weights and state descriptors while preserving the mandatory core invariants:</p>
+<h3 id="921-binding-invariants-hard-constraints">9.2.1 Binding Invariants (Hard Constraints)<a class="headerlink" href="#921-binding-invariants-hard-constraints" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>No frame selection:</strong> Entire frames must not be removed based on quality (unchanged from v3.2.x).</li>
+<li><strong>Strict photometric linearity of the reconstruction core:</strong> The final reconstruction must remain a weighted linear estimator over input frames (and/or synthetic frames), i.e. of the form</li>
+</ol>
+<p><code>R(p) = sum_i w_i(p) * X_i(p) / sum_i w_i(p)</code></p>
+<p>with <code>w_i(p) &gt;= 0</code> and deterministic fallbacks.
+3. <strong>Determinism:</strong> ML inference must be deterministic (fixed model weights, fixed preprocessing, fixed seeds where applicable).
+4. <strong>No hallucinated content:</strong> ML modules must not generate new spatial structures. ML outputs are restricted to <strong>weights, masks, metrics, and state labels</strong>.
+5. <strong>Channel separation preserved:</strong> ML modules must operate per-channel or on explicitly defined channel-aggregated features; no implicit cross-channel coupling in the core estimator.</p>
+<h3 id="922-allowed-ml-outputs-constrained">9.2.2 Allowed ML Outputs (Constrained)<a class="headerlink" href="#922-allowed-ml-outputs-constrained" title="Permanent link">&para;</a></h3>
+<p>ML may output any of the following, provided outputs are deterministic and bounded:</p>
+<ul>
+<li>Global quality score per frame/channel: <code>Q̂_{f,c}</code> (dimensionless, mapped/clamped to <code>[-3,+3]</code>)</li>
+<li>Global weight per frame/channel: <code>Ĝ_{f,c} = exp(k_global * Q̂_{f,c})</code></li>
+<li>Local tile quality score: <code>q̂_{f,t,c}</code> (dimensionless, clamped to <code>[-3,+3]</code>)</li>
+<li>Local tile weight: <code>L̂_{f,t,c} = exp(q̂_{f,t,c})</code></li>
+<li>Pixel reliability mask (soft, not hard rejection): <code>M̂_{f,t,c}(p) in [m_min, 1]</code> with recommended <code>m_min = 0.05</code></li>
+<li>State descriptor for clustering (per frame): <code>v̂_f</code> (feature vector)</li>
+<li>State labels (clusters) and/or transition probabilities (HMM), used only to form synthetic frames</li>
+</ul>
+<p>Forbidden ML outputs:</p>
+<ul>
+<li>Direct prediction of reconstructed pixel intensities (end-to-end image generation)</li>
+<li>Super-resolution or inpainting that creates spatial detail not supported by the input</li>
+<li>Any stochastic sampling at inference time</li>
+</ul>
+<h3 id="923-ml-driven-effective-weight-binding">9.2.3 ML-Driven Effective Weight (Binding)<a class="headerlink" href="#923-ml-driven-effective-weight-binding" title="Permanent link">&para;</a></h3>
+<p>If ML modules are enabled, the effective weight may be extended to pixel level:</p>
+<p><code>Ŵ_{f,t,c}(p) = Ĝ_{f,c} * L̂_{f,t,c} * M̂_{f,t,c}(p)</code></p>
+<p>The tile reconstruction remains a weighted mean:</p>
+<p><code>R_{t,c}(p) = sum_f Ŵ_{f,t,c}(p) * I_{f,c}(p) / sum_f Ŵ_{f,t,c}(p)</code></p>
+<p>Fallback rule remains unchanged: if denominator &lt; <code>eps_weight</code>, fall back to the unweighted mean.</p>
+<p><strong>ML mask and sigma-clipping integration (binding):</strong></p>
+<ol>
+<li>
+<p><strong>Valid sample set:</strong> The valid sample set <code>V_{t,c}(p)</code> (§5.7) remains defined by the canvas/finiteness criterion. The soft mask <code>M̂_{f,t,c}(p) in [m_min, 1]</code> does NOT change membership in <code>V_{t,c}(p)</code>. Instead it scales the frame's effective weight at pixel level.</p>
+</li>
+<li>
+<p><strong>Sigma-clipping with ML weights:</strong> When sigma-clipping is active (§5.7), the per-iteration weighted statistics must use the pixel-level weight <code>Ŵ_{f,t,c}(p)</code> instead of the tile-level weight <code>w_{f,t,c}</code>. All other sigma-clipping semantics (keep-floor <code>min_fraction</code>, fallback to unclipped mean, <code>N_eff</code> guard, <code>D_eff</code> guard) apply unchanged.</p>
+</li>
+<li>
+<p><strong>Keep-floor with soft masks:</strong> The keep-floor <code>ceil(min_fraction * |V_{t,c}(p)|)</code> counts all frames in <code>V_{t,c}(p)</code> regardless of their soft mask value. This prevents near-zero mask values from trivially shrinking the active set.</p>
+</li>
+<li>
+<p><strong>Canvas invariant:</strong> The canvas exclusion defined in §5.7.1 applies unconditionally. <code>M̂_{f,t,c}(p) &gt; 0</code> for a canvas-invalid pixel does not make that pixel a valid sample. Canvas invalidity overrides any ML mask value.</p>
+</li>
+</ol>
+<h3 id="924-recommended-learning-paradigms-non-binding-guidance">9.2.4 Recommended Learning Paradigms (Non-Binding Guidance)<a class="headerlink" href="#924-recommended-learning-paradigms-non-binding-guidance" title="Permanent link">&para;</a></h3>
+<p>Because ground truth is typically unavailable, prioritize:</p>
+<ul>
+<li><strong>Self-supervised learning:</strong> consistency across random frame subsets, Noise2Self/Noise2Void style objectives for masks/denoising proxies (note: denoising must still output masks/weights, not pixels inside the mandatory reconstruction core).</li>
+<li><strong>Weak supervision via proxies:</strong> optimize weights to improve deterministic metrics (FWHM, ellipticity, background RMS, seam score) on validation sets.</li>
+<li><strong>Uncertainty-aware models:</strong> output confidence to avoid overconfident downweighting; uncertainty must be mapped into bounded masks/weights.</li>
+</ul>
+<h3 id="925-models-that-fit-the-constrained-output-constraint-non-binding">9.2.5 Models That Fit the Constrained Output Constraint (Non-Binding)<a class="headerlink" href="#925-models-that-fit-the-constrained-output-constraint-non-binding" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Global weights: gradient-boosted trees (GBM), small MLPs on frame metrics</li>
+<li>Tile quality: small CNN encoders / lightweight ViT-tiny (only if data volume sufficient)</li>
+<li>Pixel reliability masks: U-Net-lite producing <code>M̂(p)</code> in <code>[m_min,1]</code></li>
+</ul>
+<p>LLMs are admissible only for <strong>configuration synthesis, validation report interpretation, and test generation</strong>, not for pixel-level reconstruction.</p>
+<h3 id="926-validation-requirements-for-ml-extension-binding">9.2.6 Validation Requirements for ML Extension (Binding)<a class="headerlink" href="#926-validation-requirements-for-ml-extension-binding" title="Permanent link">&para;</a></h3>
+<p>When ML is enabled, all mandatory core validation tests still apply, plus:</p>
+<ol>
+<li><strong>Bounded outputs:</strong> enforce <code>Q̂ in [-3,+3]</code>, <code>M̂ in [m_min,1]</code></li>
+<li><strong>Deterministic inference:</strong> identical inputs yield identical weights/masks</li>
+<li><strong>No structural synthesis:</strong> correlation of residuals must not show non-physical high-frequency injection; seams and ringing must not increase vs. non-ML baseline</li>
+<li><strong>Photometric consistency:</strong> flux ratios of calibration stars remain within tolerance (configurable) compared to baseline core</li>
+<li><strong>Ablation:</strong> report baseline (non-ML) vs ML-enabled improvements on the same dataset</li>
+</ol>
+<h3 id="927-configuration-hooks-normative-names">9.2.7 Configuration Hooks (Normative Names)<a class="headerlink" href="#927-configuration-hooks-normative-names" title="Permanent link">&para;</a></h3>
+<p>Suggested (non-exhaustive) configuration keys:</p>
+<ul>
+<li><code>ml.enable: true|false</code></li>
+<li><code>ml.global_model.path</code></li>
+<li><code>ml.tile_model.path</code></li>
+<li><code>ml.mask_model.path</code></li>
+<li><code>ml.mask.m_min</code></li>
+<li><code>ml.inference.device: cpu|gpu</code></li>
+<li><code>ml.inference.deterministic: true</code></li>
+</ul>
+<p>Implementations must treat missing ML models as a controlled fallback to the non-ML core.</p>
+<p><em>The RBF surface mathematical specification has been relocated to </em><em>§6.3.10</em><em> within the BGE section where it belongs.</em></p>
+<hr />
+<h2 id="10-core-statement">10. Core Statement<a class="headerlink" href="#10-core-statement" title="Permanent link">&para;</a></h2>
+<p>The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, uses all frames without quality-based selection, and reconstructs signal where it is physically and statistically most reliable.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

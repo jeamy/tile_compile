@@ -1,0 +1,23 @@
+<map id="tile_compile::registration::phasecorr_translation" name="tile_compile::registration::phasecorr_translation">
+<area shape="rect" id="Node000001" title="Implements phasecorr translation." alt="" coords="1123,92,1286,131"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#aa9be86c1aa18d873fb56b9102c1e1882" title="Implements hybrid phase ecc." alt="" coords="913,29,1075,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1122,90,1061,71,1062,66,1124,85"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#abd738c5c12e80bd3cf185259006a2a76" title="Implements robust phase ecc." alt="" coords="913,92,1075,131"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="1108,114,1076,114,1076,109,1108,109"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="475,142,636,195"/>
+<area shape="poly" id="edge12_Node000001_Node000006" title=" " alt="" coords="1116,137,1076,145,956,158,836,166,636,172,636,166,836,161,956,153,1075,139,1115,132"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="1029,16,1016,10,994,8,974,10,962,15,957,21,960,28,955,30,952,20,958,11,973,5,994,3,1017,5,1031,12"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a999f0bdab47ddde25022bb0a43bf4daa" title="Implements register single frame." alt="" coords="703,92,865,131"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="898,114,866,114,866,109,898,109"/>
+<area shape="poly" id="edge7_Node000004_Node000004" title=" " alt="" coords="818,79,806,73,784,71,763,73,751,77,747,83,750,91,745,92,742,82,748,73,762,67,784,65,807,68,821,74"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#a373bf47bd5c03acc7734445a99c7f85b" title="Implements register frames to reference." alt="" coords="456,80,655,119"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="687,109,655,107,655,102,687,104"/>
+<area shape="poly" id="edge8_Node000004_Node000006" title=" " alt="" coords="690,138,637,151,635,146,689,132"/>
+<area shape="poly" id="edge6_Node000005_Node000005" title=" " alt="" coords="592,67,579,61,555,59,534,61,521,65,516,71,519,79,514,81,511,70,517,61,532,55,556,53,580,56,595,62"/>
+<area shape="rect" id="Node000007" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,156,408,181"/>
+<area shape="poly" id="edge9_Node000006_Node000007" title=" " alt="" coords="459,171,409,171,409,166,459,166"/>
+<area shape="rect" id="Node000008" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,156,206,181"/>
+<area shape="poly" id="edge10_Node000007_Node000008" title=" " alt="" coords="238,171,206,171,206,166,238,166"/>
+<area shape="rect" id="Node000009" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,156,55,181"/>
+<area shape="poly" id="edge11_Node000008_Node000009" title=" " alt="" coords="87,171,55,171,55,166,87,166"/>
+</map>

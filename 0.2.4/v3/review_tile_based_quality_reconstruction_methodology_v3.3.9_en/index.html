@@ -1,0 +1,2522 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Review: Tile-Based Quality Reconstruction Methodology v3.3.9 - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#review-tile-based-quality-reconstruction-methodology-v339" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Review: Tile-Based Quality Reconstruction Methodology v3.3.9
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-mathematical-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Mathematical Errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Mathematical Errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-critical-571-support-mask-m_tp-incorrectly-marks-empty-reconstruction-pixels-as-valid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 [CRITICAL] §5.7.1: Support mask M_t(p) incorrectly marks empty-reconstruction pixels as valid
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-critical-632c-vs-634-inconsistent-tile-reliability-weight-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 [CRITICAL] §6.3.2(c) vs §6.3.4: Inconsistent tile reliability weight formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-critical-639-g-2t-constraint-violated-in-compact-tile-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 [CRITICAL] §6.3.9: G &gt;= 2*T constraint violated in compact-tile mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-major-555-spatial-regularization-drifts-to-zero-when-neighbor-affinities-are-near-zero" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 [MAJOR] §5.5.5: Spatial regularization drifts to zero when neighbor affinities are near-zero
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-major-42-ncc-acceptance-criterion-becomes-unsatisfiable-for-near-identity-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 [MAJOR] §4.2: NCC acceptance criterion becomes unsatisfiable for near-identity frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-major-638-ambiguous-huber-loss-notation-delta-looks-like-dirac-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 [MAJOR] §6.3.8: Ambiguous Huber loss notation — delta(...) looks like Dirac delta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-minor-638-non-standard-thin-plate-spline-bending-energy-notation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 [MINOR] §6.3.8: Non-standard thin-plate spline bending energy notation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-logic-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Logic Errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Logic Errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-major-59-hard-threshold-n-200-conflicts-with-configurable-mode-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 [MAJOR] §5.9: Hard threshold N &gt;= 200 conflicts with configurable mode framework
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-major-57-min_fraction-used-in-keep-floor-without-a-normative-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 [MAJOR] §5.7: min_fraction used in keep-floor without a normative default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-major-52-photometric_scale-function-undefined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 [MAJOR] §5.2: photometric_scale() function undefined
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-minor-54-guard-rules-1-and-2-are-unreachable-dead-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 [MINOR] §5.4: Guard rules 1 and 2 are unreachable dead code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-major-5112-no-fallback-when-sum_k-w_kc-0-in-final-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 [MAJOR] §5.11.2: No fallback when sum_k w_{k,c} = 0 in final stacking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-major-923-ml-soft-mask-integration-with-sigma-clipping-algorithm-unspecified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 [MAJOR] §9.2.3: ML soft mask integration with sigma-clipping algorithm unspecified
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-notation-and-consistency-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Notation and Consistency Errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Notation and Consistency Errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-major-532-6371-symbol-collision-alpha-beta-reused-with-different-meanings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 [MAJOR] §5.3.2 / §6.3.7.1: Symbol collision — alpha, beta reused with different meanings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-major-532-vs-556-asymmetric-weight-formulas-global-has-k_global-local-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 [MAJOR] §5.3.2 vs §5.5.6: Asymmetric weight formulas — global has k_global, local does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-minor-13-version-reference-to-v336-in-a-v339-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 [MINOR] §1.3: Version reference to v3.3.6 in a v3.3.9 document
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-minor-633c-or-sum-implementation-choice-violates-determinism-requirement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 [MINOR] §6.3.3(c): "or sum, implementation choice" violates determinism requirement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-minor-52-b_fc-used-in-quality-index-is-pre-normalization-while-sigma-and-e-are-post-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 [MINOR] §5.2: B_{f,c} used in quality index is pre-normalization, while sigma and E are post-normalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-structural-document-integrity-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Structural / Document Integrity Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Structural / Document Integrity Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-major-rbf-surface-specification-is-severely-misplaced-appears-after-9-instead-of-within-634" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 [MAJOR] RBF surface specification is severely misplaced — appears after §9 instead of within §6.3.4
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-major-639-references-grid-spacing-g-and-the-g-2t-constraint-before-rbf-which-uses-g-and-g-default-is-defined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 [MAJOR] §6.3.9 references grid spacing G and the G &gt;= 2*T constraint before RBF (which uses G and μ = G default) is defined
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-minor-71-and-72-use-heading-level-same-as-7-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 [MINOR] §7.1 and §7.2 use ## heading level (same as §7), not ###
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-minor-51-uses-heading-level-same-as-5-instead-of" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 [MINOR] §5.1 uses ## heading level (same as §5) instead of ###
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-minor-638-mathematical-surface-model-contains-polynomial-and-tps-but-not-rbf-which-is-split-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 [MINOR] §6.3.8 "Mathematical Surface Model" contains polynomial and TPS but not RBF, which is split out
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-specification-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Specification Gaps
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Specification Gaps">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-major-structure_score_t-undefined-for-the-weight-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 [MAJOR] structure_score_t undefined for the weight formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-major-73-tests-17-and-18-reference-undefined-thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 [MAJOR] §7.3 tests 17 and 18 reference undefined thresholds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-minor-5101-no-fallback-when-cluster-weight-denominator-is-zero" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 [MINOR] §5.10.1: No fallback when cluster weight denominator is zero
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-minor-73-no-test-for-starstructure-coefficient-sums" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 [MINOR] §7.3: No test for STAR/STRUCTURE coefficient sums
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-priority-fix-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Priority Fix Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Priority Fix Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#immediate-block-conformant-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Immediate (block conformant implementation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#high-priority-correctness-cross-section-consistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High Priority (correctness / cross-section consistency)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#normal-priority-clarity-robustness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Normal Priority (clarity, robustness)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="review-tile-based-quality-reconstruction-methodology-v339">Review: Tile-Based Quality Reconstruction Methodology v3.3.9<a class="headerlink" href="#review-tile-based-quality-reconstruction-methodology-v339" title="Permanent link">&para;</a></h1>
+<p><strong>Document under review:</strong> <code>tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md</code><br />
+<strong>Review date:</strong> 2026-03-27<br />
+<strong>Reviewer:</strong> Cascade (automated analysis)<br />
+<strong>Scope:</strong> Mathematical correctness, logical consistency, notation, specification gaps, structural issues</p>
+<p>Issues are categorized by severity:
+- <strong>[CRITICAL]</strong> — Formula produces wrong or undefined results
+- <strong>[MAJOR]</strong> — Logic error, unreachable code, specification gap that breaks conformance
+- <strong>[MINOR]</strong> — Notation ambiguity, redundancy, cosmetic issue
+- <strong>[INFO]</strong> — Non-normative observation</p>
+<hr />
+<h2 id="1-mathematical-errors">1. Mathematical Errors<a class="headerlink" href="#1-mathematical-errors" title="Permanent link">&para;</a></h2>
+<h3 id="11-critical-571-support-mask-m_tp-incorrectly-marks-empty-reconstruction-pixels-as-valid">1.1 [CRITICAL] §5.7.1: Support mask <code>M_t(p)</code> incorrectly marks empty-reconstruction pixels as valid<a class="headerlink" href="#11-critical-571-support-mask-m_tp-incorrectly-marks-empty-reconstruction-pixels-as-valid" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.7.1, line ~534</p>
+<p><strong>Definition in document:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>M_t(p) = 1  if R_{t,c}(p) is finite and inside valid tile/canvas support
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>         0  otherwise
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> When <code>|V_{t,c}(p)| = 0</code> (no valid frames at pixel p), the document sets <code>R_{t,c}(p) = 0</code> (line ~477). The value <code>0</code> is finite, so <code>M_t(p) = 1</code>. This means the zero-fill value contributes <code>omega_t * 0 = 0</code> to the OLA numerator <code>A</code> but <code>omega_t * 1</code> to the support accumulator <code>S</code>. The final result <code>I_rec = A / S</code> is thereby diluted at coverage edges, producing biased output rather than coverage exclusion.</p>
+<p>The mask must distinguish "valid zero-valued reconstruction" from "fill value due to empty sample set". Correct definition:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>M_t(p) = 1  if |V_{t,c}(p)| &gt; 0 AND R_{t,c}(p) is finite and inside valid canvas support
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>         0  otherwise
+</span></code></pre></div></p>
+<p><strong>Additional sub-issue:</strong> <code>M_t(p)</code> has no channel index <code>c</code>, but <code>R_{t,c}(p)</code> is channel-dependent. In a CFA-proxy-equivalent variant, the number of valid frames per pixel can differ per channel. <code>M_t</code> should be <code>M_{t,c}(p)</code>.</p>
+<hr />
+<h3 id="12-critical-632c-vs-634-inconsistent-tile-reliability-weight-formula">1.2 [CRITICAL] §6.3.2(c) vs §6.3.4: Inconsistent tile reliability weight formula<a class="headerlink" href="#12-critical-632c-vs-634-inconsistent-tile-reliability-weight-formula" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.2(c), line ~778 vs §6.3.4, line ~836</p>
+<p><strong>§6.3.2(c):</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)
+</span></code></pre></div></p>
+<p><strong>§6.3.4:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>w_t = exp(-lambda * structure_score_t)
+</span></code></pre></div></p>
+<p>The factor <code>(1 - masked_fraction_t)</code> appears in §6.3.2(c) (where the weight is defined for background sampling) but is absent in §6.3.4 (where the same weight is used in the surface fit). These are contradictory. A tile with <code>masked_fraction_t = 0.9</code> receives a significantly reduced weight in §6.3.2(c) but full weight in §6.3.4. One of the two formulas is incorrect.</p>
+<hr />
+<h3 id="13-critical-639-g-2t-constraint-violated-in-compact-tile-mode">1.3 [CRITICAL] §6.3.9: <code>G &gt;= 2*T</code> constraint violated in compact-tile mode<a class="headerlink" href="#13-critical-639-g-2t-constraint-violated-in-compact-tile-mode" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.9, line ~973 and §5.4, line ~296</p>
+<p><strong>§6.3.9 asserts:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>G = clip( max(2*T, min(W,H)/N_g), G_min, G_max )
+</span></code></pre></div>
+with <code>G_max = min(W,H)/4</code>, and claims (line ~988) "Implementations must guarantee that grid resolution is coarser than tile resolution (<code>G &gt;= 2*T</code>)."</p>
+<p><strong>§5.4 compact-tile mode</strong> sets <code>T = min(W,H)</code> when <code>T_hi &lt; T_min</code>.</p>
+<p>In compact-tile mode: <code>2*T = 2*min(W,H)</code>, but <code>G_max = min(W,H)/4</code>. Since the clip upper bound is <code>G_max = min(W,H)/4 &lt;&lt; 2*T</code>, the result <code>G &lt;= G_max &lt; 2*T</code>. The stated constraint <code>G &gt;= 2*T</code> is violated. This is not a defensive gap — it is an unconditional violation when compact-tile mode is active.</p>
+<p><strong>Fix required:</strong> Either exclude BGE from compact-tile mode, or define a separate <code>G_max</code> branch for this case.</p>
+<hr />
+<h3 id="14-major-555-spatial-regularization-drifts-to-zero-when-neighbor-affinities-are-near-zero">1.4 [MAJOR] §5.5.5: Spatial regularization drifts to zero when neighbor affinities are near-zero<a class="headerlink" href="#14-major-555-spatial-regularization-drifts-to-zero-when-neighbor-affinities-are-near-zero" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.5.5, lines ~410–416</p>
+<p><strong>Formula:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Q^{(k+1)} = (1 - lambda_eff) * Q^{(k)} + lambda_eff * sum_u A_{t,u}^{(k)} Q_u^{(k)} / max(sum_u A_{t,u}^{(k)}, eps_weight)
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> When all neighbor affinities <code>A_{t,u}^{(k)}</code> are numerically very small (not zero, since <code>exp &gt; 0</code> always, but they can be <code>~exp(-100/tau)</code> ≈ 0), the neighbor term becomes:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>lambda_eff * sum_u(~0 * Q_u) / max(~0, eps) ≈ lambda_eff * 0 / eps ≈ 0
+</span></code></pre></div></p>
+<p>The update becomes <code>Q^{(k+1)} ≈ (1 - lambda_eff) * Q^{(k)}</code>, which decays toward zero rather than preserving <code>Q^{(k)}</code>.</p>
+<p><strong>Binding constraint §5.5.5 point 3</strong> states: "tiles without valid neighbors ... keep <code>Q_{f,t,c}^{reg} = Q_{f,t,c}^{raw}</code>". However, the formula does NOT implement this for the numerically-near-zero affinity case — only for a structurally empty N(t), which cannot occur for any grid larger than 1×1 since every tile has at least 2 neighbors.</p>
+<p><strong>Fix:</strong> Add an explicit guard: if <code>sum_u A_{t,u}^{(k)} &lt; eps_affinity</code>, set <code>Q^{(k+1)} = Q^{(k)}</code>.</p>
+<hr />
+<h3 id="15-major-42-ncc-acceptance-criterion-becomes-unsatisfiable-for-near-identity-frames">1.5 [MAJOR] §4.2: NCC acceptance criterion becomes unsatisfiable for near-identity frames<a class="headerlink" href="#15-major-42-ncc-acceptance-criterion-becomes-unsatisfiable-for-near-identity-frames" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §4.2, line ~163</p>
+<p><strong>Criterion:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>NCC(warped, ref) &gt; NCC(identity, ref) + delta_ncc
+</span></code></pre></div>
+with <code>delta_ncc = 0.01</code>.</p>
+<p><strong>Problem:</strong> For the reference frame itself, <code>NCC(identity, ref) = 1.0</code>. The criterion requires <code>NCC &gt; 1.01</code>, which is mathematically impossible (NCC ∈ [-1, 1]). Similarly, any frame with <code>NCC(identity, ref) &gt; 0.99</code> (well-aligned frame) makes the criterion unsatisfiable. The identity fallback will be triggered — which is the correct outcome — but the document never documents this expected path or states that the criterion is intentionally unsatisfiable in such cases.</p>
+<p>Additionally, there is no stated exception for the reference frame itself.</p>
+<hr />
+<h3 id="16-major-638-ambiguous-huber-loss-notation-delta-looks-like-dirac-delta">1.6 [MAJOR] §6.3.8: Ambiguous Huber loss notation — <code>delta(...)</code> looks like Dirac delta<a class="headerlink" href="#16-major-638-ambiguous-huber-loss-notation-delta-looks-like-dirac-delta" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.8, line ~952–953</p>
+<p><strong>As written:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>rho(r) = 0.5 r^2                       if |r| &lt;= delta
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>rho(r) = delta(|r| - 0.5 delta)        otherwise
+</span></code></pre></div></p>
+<p>The expression <code>delta(|r| - 0.5 delta)</code> is mathematically ambiguous: <code>delta(x)</code> conventionally denotes the <strong>Dirac delta distribution</strong>, not multiplication. The correct meaning is <code>delta * (|r| - 0.5 * delta)</code>. The missing <code>*</code> operator makes this look like a function application.</p>
+<p>The standard Huber form <code>rho(r) = delta * |r| - 0.5 * delta^2</code> in the linear branch is equivalent, uses standard notation, and is unambiguous.</p>
+<hr />
+<h3 id="17-minor-638-non-standard-thin-plate-spline-bending-energy-notation">1.7 [MINOR] §6.3.8: Non-standard thin-plate spline bending energy notation<a class="headerlink" href="#17-minor-638-non-standard-thin-plate-spline-bending-energy-notation" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.8, line ~961</p>
+<p><strong>As written:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>B_c = argmin_B sum_i w_i (b_i - B(x_i,y_i))^2 + lambda * integral |D^2 B|^2 dx dy
+</span></code></pre></div></p>
+<p><code>|D^2 B|^2</code> is non-standard. The standard 2D TPS bending energy is:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>J(B) = integral [ (d^2B/dx^2)^2 + 2*(d^2B/dxdy)^2 + (d^2B/dy^2)^2 ] dx dy
+</span></code></pre></div>
+It is unclear whether <code>|D^2 B|^2</code> means the squared Frobenius norm of the Hessian, the trace of the squared Hessian, or the standard TPS form above. These differ by a factor of 2 on the cross-term.</p>
+<hr />
+<h2 id="2-logic-errors">2. Logic Errors<a class="headerlink" href="#2-logic-errors" title="Permanent link">&para;</a></h2>
+<h3 id="21-major-59-hard-threshold-n-200-conflicts-with-configurable-mode-framework">2.1 [MAJOR] §5.9: Hard threshold <code>N &gt;= 200</code> conflicts with configurable mode framework<a class="headerlink" href="#21-major-59-hard-threshold-n-200-conflicts-with-configurable-mode-framework" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.9, line ~627</p>
+<p><strong>Document states:</strong> "Active only for N &gt;= 200."</p>
+<p><strong>Conflict with §2.3:</strong> Full mode is defined as <code>N &gt;= N_red</code> where <code>N_red = assumptions.frames_reduced_threshold</code> is user-configurable. If a user sets <code>N_red = 100</code> and has <code>N = 150</code>, the system is in full mode by §2.3 but clustering is inactive by §5.9's hard threshold. These two conditions are contradictory.</p>
+<p>Either the threshold <code>N &gt;= 200</code> should be replaced with <code>N &gt;= N_red</code> (consistent with the mode framework), or the relationship between the 200-frame threshold and the configurable thresholds must be explicitly documented.</p>
+<hr />
+<h3 id="22-major-57-min_fraction-used-in-keep-floor-without-a-normative-default">2.2 [MAJOR] §5.7: <code>min_fraction</code> used in keep-floor without a normative default<a class="headerlink" href="#22-major-57-min_fraction-used-in-keep-floor-without-a-normative-default" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.7, line ~506</p>
+<p><strong>Formula:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>|A_prop^{(k+1)}| &gt;= ceil(min_fraction * |V_{t,c}(p)|)
+</span></code></pre></div></p>
+<p><code>min_fraction</code> is used as a parameter but no normative default value, valid range, or configuration key is given anywhere in the document. This is a critical specification gap for any conformant implementation.</p>
+<hr />
+<h3 id="23-major-52-photometric_scale-function-undefined">2.3 [MAJOR] §5.2: <code>photometric_scale()</code> function undefined<a class="headerlink" href="#23-major-52-photometric_scale-function-undefined" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.2 step 3, line ~207</p>
+<p><strong>As written:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>P_{f,c} = photometric_scale(J_{f,c})
+</span></code></pre></div></p>
+<p>The function <code>photometric_scale</code> is never defined. The accompanying text says "from deterministic throughput/flux reference" but provides no formula, algorithm, or reference. Constraint 5 of §5.2 permits <code>P_{f,c} = 1</code> as a fallback, but the primary case is completely unspecified. This is a critical gap in a normative specification.</p>
+<hr />
+<h3 id="24-minor-54-guard-rules-1-and-2-are-unreachable-dead-code">2.4 [MINOR] §5.4: Guard rules 1 and 2 are unreachable dead code<a class="headerlink" href="#24-minor-54-guard-rules-1-and-2-are-unreachable-dead-code" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.4, lines ~306–307</p>
+<p><strong>Guard rule 1:</strong> "if <code>S &lt;= 0</code> → set <code>o_clipped = 0.25</code>, recompute <code>O,S</code>"<br />
+<strong>Guard rule 2:</strong> "if <code>O &gt;= T</code> → set <code>O = floor(0.25 * T)</code>, <code>S = T - O</code>"</p>
+<p><strong>Analysis:</strong> In step 5, <code>o_clipped = clip(o, 0, 0.5)</code>, so <code>o_clipped ∈ [0, 0.5]</code>. Therefore:
+- <code>O = floor(o_clipped * T) ≤ floor(0.5 * T) ≤ T - 1</code> for any integer <code>T ≥ 1</code>
+- <code>S = T - O ≥ T - (T-1) = 1 &gt; 0</code></p>
+<p>Both conditions <code>S &lt;= 0</code> and <code>O &gt;= T</code> are thus mathematically impossible given the preceding clamping, for any <code>T &gt;= 1</code> (which is guaranteed by guard rule 3 aborting for <code>T &lt;= 0</code>). These guards are dead code under the specified logic.</p>
+<p>They could be removed, or a comment should explain under which historical or future conditions they could trigger.</p>
+<hr />
+<h3 id="25-major-5112-no-fallback-when-sum_k-w_kc-0-in-final-stacking">2.5 [MAJOR] §5.11.2: No fallback when <code>sum_k w_{k,c} = 0</code> in final stacking<a class="headerlink" href="#25-major-5112-no-fallback-when-sum_k-w_kc-0-in-final-stacking" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.11.2, line ~705</p>
+<p><strong>Formula:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>R_c = sum_k (w_{k,c} * S_{k,c}) / sum_k w_{k,c}
+</span></code></pre></div></p>
+<p>No fallback is specified when the denominator <code>sum_k w_{k,c} = 0</code>. Unlike §5.7 (tile reconstruction) which has an explicit weight fallback, §5.11.2 is silent on this case. While it is unlikely given <code>M_{k,c} &gt; 0</code> and <code>exp &gt; 0</code>, the document should specify a deterministic fallback (e.g., equal-weight mean over all synthetic frames) for completeness and conformance testing.</p>
+<hr />
+<h3 id="26-major-923-ml-soft-mask-integration-with-sigma-clipping-algorithm-unspecified">2.6 [MAJOR] §9.2.3: ML soft mask integration with sigma-clipping algorithm unspecified<a class="headerlink" href="#26-major-923-ml-soft-mask-integration-with-sigma-clipping-algorithm-unspecified" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §9.2.3, lines ~1169–1175</p>
+<p><strong>Problem:</strong> The ML-extended weight <code>Ŵ_{f,t,c}(p) = Ĝ * L̂ * M̂</code> is a pixel-level soft weight. However, §5.7's sigma-clipping algorithm uses frame-level tile weights <code>w_{f,t,c}</code> (not pixel-level). The ML extension does not specify:</p>
+<ol>
+<li>Whether sigma-clipping in §5.7 uses <code>w_{f,t,c}</code> or <code>Ŵ_{f,t,c}(p)</code>.</li>
+<li>How the soft mask <code>M̂_{f,t,c}(p) ∈ [m_min, 1]</code> interacts with the binary valid sample set <code>V_{t,c}(p)</code> defined by a finite-check. A frame with <code>M̂ = 0.05</code> is nearly excluded, but V still includes it, giving a near-zero weight that participates in the denominator.</li>
+<li>Whether the keep-floor <code>ceil(min_fraction * |V|)</code> counts soft-masked frames.</li>
+</ol>
+<p>This is a specification gap that makes ML-mode behavior non-deterministic across implementations.</p>
+<hr />
+<h2 id="3-notation-and-consistency-errors">3. Notation and Consistency Errors<a class="headerlink" href="#3-notation-and-consistency-errors" title="Permanent link">&para;</a></h2>
+<h3 id="31-major-532-6371-symbol-collision-alpha-beta-reused-with-different-meanings">3.1 [MAJOR] §5.3.2 / §6.3.7.1: Symbol collision — <code>alpha, beta</code> reused with different meanings<a class="headerlink" href="#31-major-532-6371-symbol-collision-alpha-beta-reused-with-different-meanings" title="Permanent link">&para;</a></h3>
+<p><strong>§5.3.2:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Q_{f,c} = alpha*(-z(B)) + beta*(-z(sigma)) + gamma*z(E)
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>alpha = 0.4, beta = 0.3, gamma = 0.3
+</span></code></pre></div></p>
+<p><strong>§6.3.7.1:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>J = E_cv + alpha * E_flat + beta * E_rough
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>alpha = bge.autotune.alpha_flatness
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>beta = bge.autotune.beta_roughness
+</span></code></pre></div></p>
+<p>The same Greek letters <code>alpha</code> and <code>beta</code> are used for entirely unrelated quantities in different sections. The configuration key names (<code>alpha_flatness</code>, <code>beta_roughness</code>) differ from the global metric defaults in §5.3.2, but the in-document math uses the same unqualified symbols. A reader who holds both sections in context will encounter ambiguity. The BGE autotune symbols should use different notation (e.g., <code>alpha_f</code>, <code>beta_r</code>) or be renamed entirely.</p>
+<hr />
+<h3 id="32-major-532-vs-556-asymmetric-weight-formulas-global-has-k_global-local-does-not">3.2 [MAJOR] §5.3.2 vs §5.5.6: Asymmetric weight formulas — global has <code>k_global</code>, local does not<a class="headerlink" href="#32-major-532-vs-556-asymmetric-weight-formulas-global-has-k_global-local-does-not" title="Permanent link">&para;</a></h3>
+<p><strong>Global weight (§5.3.2):</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>G_{f,c} = exp(k_global * Q_{f,c}^{clamped})     k_global = 1.0 (configurable)
+</span></code></pre></div></p>
+<p><strong>Local weight (§5.5.6):</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>L_{f,t,c} = exp(Q_{f,t,c}^{local})              (no k_local)
+</span></code></pre></div></p>
+<p>There is no <code>k_local</code> scale factor for the local weight. This asymmetry is not documented, explained, or justified. There is no way to independently tune the sensitivity of local weights without modifying Q values. Either a <code>k_local</code> parameter is missing from the local weight formula, or the document should explicitly state why <code>k_local = 1</code> is hardcoded and not configurable.</p>
+<hr />
+<h3 id="33-minor-13-version-reference-to-v336-in-a-v339-document">3.3 [MINOR] §1.3: Version reference to v3.3.6 in a v3.3.9 document<a class="headerlink" href="#33-minor-13-version-reference-to-v336-in-a-v339-document" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §1.3, line ~44</p>
+<p><strong>As written:</strong> <code>"Strictly linear" in v3.3.6 means:</code></p>
+<p>This is a v3.3.9 document. The phrasing implies this definition was introduced in v3.3.6 and carried forward unchanged. If that is the intent, it should read: <code>"Strictly linear" (as established in v3.3.6, unchanged in v3.3.9) means:</code>. As written, it looks like a copy-paste artifact.</p>
+<hr />
+<h3 id="34-minor-633c-or-sum-implementation-choice-violates-determinism-requirement">3.4 [MINOR] §6.3.3(c): "or sum, implementation choice" violates determinism requirement<a class="headerlink" href="#34-minor-633c-or-sum-implementation-choice-violates-determinism-requirement" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.3(c), line ~805</p>
+<p><strong>As written:</strong> "Weight: <code>w_cell = median({w_t})</code> (or sum, implementation choice; must be documented)"</p>
+<p><code>median</code> and <code>sum</code> of reliability weights have substantially different behaviors: sum accumulates mass (larger cells get more influence) while median is robust to outlier tiles. The document's core emphasis on determinism and reproducibility (§1.3, §7.3 test 13) is undermined by leaving this choice open. The chosen default must be normatively specified, not left as "implementation choice."</p>
+<hr />
+<h3 id="35-minor-52-b_fc-used-in-quality-index-is-pre-normalization-while-sigma-and-e-are-post-normalization">3.5 [MINOR] §5.2: <code>B_{f,c}</code> used in quality index is pre-normalization, while <code>sigma</code> and <code>E</code> are post-normalization<a class="headerlink" href="#35-minor-52-b_fc-used-in-quality-index-is-pre-normalization-while-sigma-and-e-are-post-normalization" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.3.2, line ~240</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>Q_{f,c} = alpha*(-z(B_{f,c})) + beta*(-z(sigma_{f,c})) + gamma*z(E_{f,c})
+</span></code></pre></div>
+<p>From §5.1: <code>B_{f,c}</code> is "global additive background (before normalization)".<br />
+From §5.2 step 5: <code>sigma_{f,c}</code> and <code>E_{f,c}</code> are "metrics on normalized data".</p>
+<p>The quality index thus mixes z-scores of pre-normalization data (<code>B</code>) with post-normalization data (<code>sigma</code>, <code>E</code>). These are on different physical scales and distributions. While this is not necessarily incorrect (z-scores are scale-independent), the inconsistency is nowhere acknowledged or justified. If <code>B</code> varies systematically with exposure time but <code>sigma</code> is normalized away, the z-score combination may weight frames suboptimally in mixed-exposure datasets.</p>
+<hr />
+<h2 id="4-structural-document-integrity-issues">4. Structural / Document Integrity Issues<a class="headerlink" href="#4-structural-document-integrity-issues" title="Permanent link">&para;</a></h2>
+<h3 id="41-major-rbf-surface-specification-is-severely-misplaced-appears-after-9-instead-of-within-634">4.1 [MAJOR] RBF surface specification is severely misplaced — appears after §9 instead of within §6.3.4<a class="headerlink" href="#41-major-rbf-surface-specification-is-severely-misplaced-appears-after-9-instead-of-within-634" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> Lines ~1218–1273 (after §9.2.7)</p>
+<p>The section "RBF Surface (Binding, when <code>bge.fit.method = rbf</code>)" is placed after the ML extension §9.2.7 — far from §6.3.4 where surface fitting methods are introduced and RBF is listed as one option. The document references "RBF surface with smoothing" at line ~831 but the binding specification for it appears ~390 lines later outside any section hierarchy.</p>
+<p>The section has no heading number (the heading starts with <code>####</code> but is not numbered), making it unreferenceable. It belongs as §6.3.10 or §6.3.4.1 at minimum.</p>
+<p><strong>Impact:</strong> A conformant implementation that reads §6.3.4 for RBF details will not find the binding specification without reading the entire document, including post-scope material.</p>
+<hr />
+<h3 id="42-major-639-references-grid-spacing-g-and-the-g-2t-constraint-before-rbf-which-uses-g-and-g-default-is-defined">4.2 [MAJOR] §6.3.9 references grid spacing <code>G</code> and the <code>G &gt;= 2*T</code> constraint before RBF (which uses <code>G</code> and <code>μ = G</code> default) is defined<a class="headerlink" href="#42-major-639-references-grid-spacing-g-and-the-g-2t-constraint-before-rbf-which-uses-g-and-g-default-is-defined" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.9 precedes the RBF section by ~250 lines</p>
+<p>The RBF default <code>μ = G</code> depends on the adaptive grid spacing defined in §6.3.9, but the binding RBF definition appears after §9. This creates a forward-reference dependency. Combined with issue 4.1, the BGE specification is fragmented across the document in a way that violates its own "normative reference" status.</p>
+<hr />
+<h3 id="43-minor-71-and-72-use-heading-level-same-as-7-not">4.3 [MINOR] §7.1 and §7.2 use <code>##</code> heading level (same as §7), not <code>###</code><a class="headerlink" href="#43-minor-71-and-72-use-heading-level-same-as-7-not" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> Lines ~1040, ~1048</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>## 7. Validation and Abort    ← H2
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>## 7.1 Success Criteria        ← should be H3 (###)
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>## 7.2 Abort Criteria          ← should be H3 (###)
+</span></code></pre></div>
+<p>§7.1 and §7.2 appear as siblings of §7 in the heading hierarchy rather than as children. This is a Markdown structural error that will render incorrectly in table-of-contents generators and document viewers.</p>
+<hr />
+<h3 id="44-minor-51-uses-heading-level-same-as-5-instead-of">4.4 [MINOR] §5.1 uses <code>##</code> heading level (same as §5) instead of <code>###</code><a class="headerlink" href="#44-minor-51-uses-heading-level-same-as-5-instead-of" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> Line ~176</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>## 5. Shared Core from Phase 3 Onward   ← H2
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>## 5.1 Notation (Binding)               ← should be H3 (###)
+</span></code></pre></div>
+<p>Same structural issue as §7.1/7.2.</p>
+<hr />
+<h3 id="45-minor-638-mathematical-surface-model-contains-polynomial-and-tps-but-not-rbf-which-is-split-out">4.5 [MINOR] §6.3.8 "Mathematical Surface Model" contains polynomial and TPS but not RBF, which is split out<a class="headerlink" href="#45-minor-638-mathematical-surface-model-contains-polynomial-and-tps-but-not-rbf-which-is-split-out" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.8 vs the unnumbered RBF section after §9</p>
+<p>§6.3.8 contains the polynomial surface model and TPS alternative, while RBF (also listed in §6.3.4 as a surface method) is separately defined outside the section hierarchy. The three surface methods (polynomial, TPS, RBF) should be co-located within §6.3, ideally as §6.3.8.1, §6.3.8.2, §6.3.8.3.</p>
+<hr />
+<h2 id="5-specification-gaps">5. Specification Gaps<a class="headerlink" href="#5-specification-gaps" title="Permanent link">&para;</a></h2>
+<h3 id="51-major-structure_score_t-undefined-for-the-weight-formula">5.1 [MAJOR] <code>structure_score_t</code> undefined for the weight formula<a class="headerlink" href="#51-major-structure_score_t-undefined-for-the-weight-formula" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §6.3.2(c) line ~780, §6.3.4 line ~836</p>
+<p>Both formulas reference <code>structure_score_t</code> computed "from <code>E/sigma</code> or similar local structure metrics." For a normative specification, "or similar" is not acceptable. The exact formula (or its normative equivalent) must be defined. Without this, implementations will differ.</p>
+<hr />
+<h3 id="52-major-73-tests-17-and-18-reference-undefined-thresholds">5.2 [MAJOR] §7.3 tests 17 and 18 reference undefined thresholds<a class="headerlink" href="#52-major-73-tests-17-and-18-reference-undefined-thresholds" title="Permanent link">&para;</a></h3>
+<p><strong>Test 17:</strong> "WCS round-trip error below threshold" — no threshold value or parameter name defined anywhere in the document.</p>
+<p><strong>Test 18:</strong> "PCC residuals below threshold" — same problem.</p>
+<p>These tests cannot be implemented as written. Normative threshold values or configuration keys must be given.</p>
+<hr />
+<h3 id="53-minor-5101-no-fallback-when-cluster-weight-denominator-is-zero">5.3 [MINOR] §5.10.1: No fallback when cluster weight denominator is zero<a class="headerlink" href="#53-minor-5101-no-fallback-when-cluster-weight-denominator-is-zero" title="Permanent link">&para;</a></h3>
+<p><strong>Location:</strong> §5.10.1, line ~647</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>S_{k,c} = sum_{f in k} G_{f,c} * I_{f,c} / sum_{f in k} G_{f,c}
+</span></code></pre></div>
+<p>No fallback is specified if <code>sum G = 0</code>. In practice this cannot happen (G = exp(...) &gt; 0), but the pattern is inconsistent with other reconstruction formulas in the document which always include explicit fallbacks.</p>
+<hr />
+<h3 id="54-minor-73-no-test-for-starstructure-coefficient-sums">5.4 [MINOR] §7.3: No test for STAR/STRUCTURE coefficient sums<a class="headerlink" href="#54-minor-73-no-test-for-starstructure-coefficient-sums" title="Permanent link">&para;</a></h3>
+<p>§7.3 test 1 checks <code>alpha + beta + gamma = 1</code> for the global metric. There is no analogous test for the STAR metric coefficients (<code>0.6 + 0.2 + 0.2 = 1.0</code>) or the STRUCTURE metric coefficients (unsigned sum <code>0.7 + 0.3 = 1.0</code>). These should be added as normative tests for completeness.</p>
+<hr />
+<h2 id="6-summary-table">6. Summary Table<a class="headerlink" href="#6-summary-table" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Section</th>
+<th>Severity</th>
+<th>Category</th>
+<th>Short Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.1</td>
+<td>§5.7.1</td>
+<td>CRITICAL</td>
+<td>Math</td>
+<td><code>M_t(p)=1</code> for fill-zero R; no channel index</td>
+</tr>
+<tr>
+<td>1.2</td>
+<td>§6.3.2(c)/6.3.4</td>
+<td>CRITICAL</td>
+<td>Math</td>
+<td>Inconsistent tile weight formula (with/without masked_fraction)</td>
+</tr>
+<tr>
+<td>1.3</td>
+<td>§6.3.9/5.4</td>
+<td>CRITICAL</td>
+<td>Math</td>
+<td><code>G &gt;= 2*T</code> constraint violated in compact-tile mode</td>
+</tr>
+<tr>
+<td>1.4</td>
+<td>§5.5.5</td>
+<td>MAJOR</td>
+<td>Math</td>
+<td>Regularization drifts to zero with near-zero affinities</td>
+</tr>
+<tr>
+<td>1.5</td>
+<td>§4.2</td>
+<td>MAJOR</td>
+<td>Math</td>
+<td>NCC acceptance unsatisfiable for near-perfect / reference frame</td>
+</tr>
+<tr>
+<td>1.6</td>
+<td>§6.3.8</td>
+<td>MAJOR</td>
+<td>Math</td>
+<td>Huber loss: <code>delta(...)</code> looks like Dirac delta (missing <code>*</code>)</td>
+</tr>
+<tr>
+<td>1.7</td>
+<td>§6.3.8</td>
+<td>MINOR</td>
+<td>Math</td>
+<td>TPS bending energy <code>\|D^2 B\|^2</code> is non-standard/ambiguous</td>
+</tr>
+<tr>
+<td>2.1</td>
+<td>§5.9</td>
+<td>MAJOR</td>
+<td>Logic</td>
+<td>Hard <code>N &gt;= 200</code> threshold conflicts with configurable mode framework</td>
+</tr>
+<tr>
+<td>2.2</td>
+<td>§5.7</td>
+<td>MAJOR</td>
+<td>Logic</td>
+<td><code>min_fraction</code> used but never given a normative default</td>
+</tr>
+<tr>
+<td>2.3</td>
+<td>§5.2</td>
+<td>MAJOR</td>
+<td>Logic</td>
+<td><code>photometric_scale()</code> function undefined</td>
+</tr>
+<tr>
+<td>2.4</td>
+<td>§5.4</td>
+<td>MINOR</td>
+<td>Logic</td>
+<td>Guard rules 1 and 2 are unreachable dead code</td>
+</tr>
+<tr>
+<td>2.5</td>
+<td>§5.11.2</td>
+<td>MAJOR</td>
+<td>Logic</td>
+<td>No fallback for zero-denominator in final stack formula</td>
+</tr>
+<tr>
+<td>2.6</td>
+<td>§9.2.3</td>
+<td>MAJOR</td>
+<td>Logic</td>
+<td>ML soft mask integration with sigma-clipping unspecified</td>
+</tr>
+<tr>
+<td>3.1</td>
+<td>§5.3.2/6.3.7.1</td>
+<td>MAJOR</td>
+<td>Notation</td>
+<td><code>alpha</code>, <code>beta</code> reused for different quantities</td>
+</tr>
+<tr>
+<td>3.2</td>
+<td>§5.3.2/5.5.6</td>
+<td>MAJOR</td>
+<td>Notation</td>
+<td>Asymmetric <code>k_global</code>/missing <code>k_local</code> undocumented</td>
+</tr>
+<tr>
+<td>3.3</td>
+<td>§1.3</td>
+<td>MINOR</td>
+<td>Notation</td>
+<td>References v3.3.6 in v3.3.9 document</td>
+</tr>
+<tr>
+<td>3.4</td>
+<td>§6.3.3(c)</td>
+<td>MAJOR</td>
+<td>Notation</td>
+<td>"or sum, implementation choice" violates determinism</td>
+</tr>
+<tr>
+<td>3.5</td>
+<td>§5.3.2</td>
+<td>MINOR</td>
+<td>Notation</td>
+<td>Quality index mixes pre/post-normalization z-scores</td>
+</tr>
+<tr>
+<td>4.1</td>
+<td>§6.3/§9</td>
+<td>MAJOR</td>
+<td>Structure</td>
+<td>RBF binding spec misplaced after §9 instead of in §6.3</td>
+</tr>
+<tr>
+<td>4.2</td>
+<td>§6.3.9</td>
+<td>MAJOR</td>
+<td>Structure</td>
+<td>§6.3.9 forward-references RBF <code>G</code> 250 lines before its definition</td>
+</tr>
+<tr>
+<td>4.3</td>
+<td>§7.1/7.2</td>
+<td>MINOR</td>
+<td>Structure</td>
+<td><code>##</code> heading level should be <code>###</code></td>
+</tr>
+<tr>
+<td>4.4</td>
+<td>§5.1</td>
+<td>MINOR</td>
+<td>Structure</td>
+<td><code>##</code> heading level should be <code>###</code></td>
+</tr>
+<tr>
+<td>4.5</td>
+<td>§6.3.8</td>
+<td>MINOR</td>
+<td>Structure</td>
+<td>Polynomial/TPS in §6.3.8, RBF outside — should be co-located</td>
+</tr>
+<tr>
+<td>5.1</td>
+<td>§6.3.2(c)/6.3.4</td>
+<td>MAJOR</td>
+<td>Gap</td>
+<td><code>structure_score_t</code> formula undefined</td>
+</tr>
+<tr>
+<td>5.2</td>
+<td>§7.3 tests 17/18</td>
+<td>MAJOR</td>
+<td>Gap</td>
+<td>Threshold values for WCS/PCC tests undefined</td>
+</tr>
+<tr>
+<td>5.3</td>
+<td>§5.10.1</td>
+<td>MINOR</td>
+<td>Gap</td>
+<td>No fallback for zero cluster weight denominator</td>
+</tr>
+<tr>
+<td>5.4</td>
+<td>§7.3</td>
+<td>MINOR</td>
+<td>Gap</td>
+<td>No test for STAR/STRUCTURE coefficient sums</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7-priority-fix-recommendations">7. Priority Fix Recommendations<a class="headerlink" href="#7-priority-fix-recommendations" title="Permanent link">&para;</a></h2>
+<h3 id="immediate-block-conformant-implementation">Immediate (block conformant implementation)<a class="headerlink" href="#immediate-block-conformant-implementation" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>1.1</strong> — Fix <code>M_t(p)</code> to exclude fill-zero pixels; add channel index <code>c</code></li>
+<li><strong>1.2</strong> — Unify tile reliability weight formula in §6.3.2(c) and §6.3.4</li>
+<li><strong>2.2</strong> — Add normative default for <code>min_fraction</code> (e.g., <code>min_fraction = 0.5</code>)</li>
+<li><strong>2.3</strong> — Define <code>photometric_scale()</code> or provide a normative formula</li>
+<li><strong>5.2</strong> — Add threshold values for WCS/PCC validation tests (§7.3 items 17, 18)</li>
+</ol>
+<h3 id="high-priority-correctness-cross-section-consistency">High Priority (correctness / cross-section consistency)<a class="headerlink" href="#high-priority-correctness-cross-section-consistency" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>1.3</strong> — Document or fix <code>G &gt;= 2*T</code> in compact-tile mode</li>
+<li><strong>1.4</strong> — Add affinity-zero guard to regularization update</li>
+<li><strong>2.1</strong> — Replace hard <code>N &gt;= 200</code> with reference to <code>N_red</code></li>
+<li><strong>3.1</strong> — Rename <code>alpha</code>/<code>beta</code> in §6.3.7.1 to avoid symbol collision</li>
+<li><strong>3.2</strong> — Add <code>k_local</code> parameter to local weight formula, or justify its absence</li>
+<li><strong>4.1</strong> — Move RBF binding spec into §6.3 as a numbered subsection</li>
+</ol>
+<h3 id="normal-priority-clarity-robustness">Normal Priority (clarity, robustness)<a class="headerlink" href="#normal-priority-clarity-robustness" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>1.5</strong> — Document NCC acceptance behavior for reference frame / near-1.0 case</li>
+<li><strong>1.6</strong> — Fix Huber loss notation: <code>delta * (|r| - 0.5 * delta)</code></li>
+<li><strong>2.5</strong> — Add explicit fallback for zero denominator in §5.11.2</li>
+<li><strong>2.6</strong> — Specify ML mask / sigma-clipping integration in §9.2.3</li>
+<li><strong>3.4</strong> — Specify normative default for cell weight aggregation (median or sum, not both)</li>
+<li><strong>5.1</strong> — Define <code>structure_score_t</code> formula</li>
+</ol>
+<hr />
+<p><em>End of review.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

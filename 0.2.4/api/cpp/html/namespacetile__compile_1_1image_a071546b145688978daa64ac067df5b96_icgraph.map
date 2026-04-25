@@ -1,0 +1,17 @@
+<map id="tile_compile::image::debayer_nearest_neighbor_into" name="tile_compile::image::debayer_nearest_neighbor_into">
+<area shape="rect" id="Node000001" title="Implements debayer nearest neighbor into." alt="" coords="710,63,918,101"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a1c7cd4adb8122884dad2a8148485acf9" title="Implements debayer nearest neighbor." alt="" coords="481,5,662,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="714,61,656,47,657,42,715,56"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,62,433,86"/>
+<area shape="poly" id="edge8_Node000001_Node000005" title=" " alt="" coords="694,83,434,78,434,73,694,77"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1image.html#a14b5070b1754e882ea705df317138034" title="Implements debayer nearest neighbor." alt="" coords="481,120,662,159"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="715,108,657,122,656,117,714,103"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,12,231,37"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="466,27,232,27,232,22,466,22"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="470,51,414,64,413,58,469,45"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,38,55,62"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="88,42,56,48,55,43,87,37"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,62,218,86"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="263,77,219,77,219,71,263,71"/>
+<area shape="poly" id="edge6_Node000006_Node000004" title=" " alt="" coords="100,65,55,57,56,52,101,60"/>
+</map>

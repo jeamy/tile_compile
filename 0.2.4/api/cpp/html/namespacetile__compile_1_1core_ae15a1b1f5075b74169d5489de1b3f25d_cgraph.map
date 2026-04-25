@@ -1,0 +1,6 @@
+<map id="tile_compile::core::compute_mad" name="tile_compile::core::compute_mad">
+<area shape="rect" id="Node000001" title="Computes mad." alt="" coords="5,29,129,68"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad0cdf30377d8d38f231587e922fdaf07" title="Computes median." alt="" coords="177,29,305,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="129,46,161,46,161,51,129,51"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="208,30,206,20,211,11,223,5,241,3,260,5,272,12,269,16,259,10,241,8,224,10,214,15,211,21,213,28"/>
+</map>

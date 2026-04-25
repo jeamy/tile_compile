@@ -1,0 +1,7 @@
+<map id="tile_compile::config::TileDenoiseConfig" name="tile_compile::config::TileDenoiseConfig">
+<area shape="rect" id="Node000001" title=" " alt="" coords="300,37,436,76"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1config_1_1SoftThresholdConfig.html" title=" " alt="" coords="9,5,158,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,32,300,46,299,52,173,37"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1config_1_1WienerDenoiseConfig.html" title=" " alt="" coords="5,68,162,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="177,82,275,73,299,70,300,75,276,79,177,87"/>
+</map>

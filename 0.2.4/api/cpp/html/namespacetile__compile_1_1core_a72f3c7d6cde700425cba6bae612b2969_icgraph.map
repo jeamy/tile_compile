@@ -1,0 +1,11 @@
+<map id="tile_compile::core::ends_with" name="tile_compile::core::ends_with">
+<area shape="rect" id="Node000001" title="Implements ends with." alt="" coords="553,5,676,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3" title="Checks fits image path." alt="" coords="378,5,505,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="537,27,505,27,505,22,537,22"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#aed3eaab5bfceeb39a4d41802d42c138d" title="Implements find fits files." alt="" coords="232,12,330,37"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="363,27,331,27,331,22,363,22"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#a93c01834fe61eb1808a8aa1087e1ae27" title="Handles CLI command scan." alt="" coords="103,12,184,37"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="216,27,184,27,184,22,216,22"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,12,55,37"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,27,55,27,55,22,87,22"/>
+</map>

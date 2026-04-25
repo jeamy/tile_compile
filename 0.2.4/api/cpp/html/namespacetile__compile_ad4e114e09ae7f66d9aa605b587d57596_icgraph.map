@@ -1,0 +1,19 @@
+<map id="tile_compile::string_to_bayer_pattern" name="tile_compile::string_to_bayer_pattern">
+<area shape="rect" id="Node000001" title=" " alt="" coords="857,107,987,146"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#acd1422bc0aa98116383422a85d79b2c4" title="Detects bayer pattern." alt="" coords="657,52,809,91"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="841,106,802,94,803,89,843,101"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,90,408,115"/>
+<area shape="poly" id="edge10_Node000001_Node000006" title=" " alt="" coords="842,126,408,108,409,103,842,121"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1io.html#adf81e82a18e16187f6850cc42c8c48d3" title="Detects color mode." alt="" coords="456,27,609,66"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="641,63,609,59,609,53,641,58"/>
+<area shape="rect" id="Node000004" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,34,395,59"/>
+<area shape="poly" id="edge8_Node000002_Node000004" title=" " alt="" coords="685,47,648,30,608,17,566,10,533,8,457,17,413,25,373,36,371,31,412,20,456,12,533,3,567,4,609,12,650,25,687,42"/>
+<area shape="poly" id="edge9_Node000002_Node000006" title=" " alt="" coords="642,81,409,99,409,94,641,76"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="441,49,395,49,395,44,441,44"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="447,73,379,92,377,87,445,68"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,62,55,87"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="252,56,55,75,55,70,251,51"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,86,206,111"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="238,103,206,102,207,97,239,98"/>
+<area shape="poly" id="edge7_Node000007_Node000005" title=" " alt="" coords="87,88,54,82,55,76,88,83"/>
+</map>

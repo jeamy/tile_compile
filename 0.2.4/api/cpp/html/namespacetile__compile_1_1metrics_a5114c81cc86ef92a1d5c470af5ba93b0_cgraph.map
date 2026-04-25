@@ -1,0 +1,10 @@
+<map id="tile_compile::metrics::estimate_fwhm_from_patch" name="tile_compile::metrics::estimate_fwhm_from_patch">
+<area shape="rect" id="Node000001" title="Estimates fwhm from patch." alt="" coords="5,63,196,101"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="244,5,385,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,60,228,45,229,50,176,65"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="433,92,556,131"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="196,86,418,103,418,108,196,92"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="245,120,384,159"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="176,99,230,114,229,119,174,104"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="384,126,417,121,418,126,385,131"/>
+</map>

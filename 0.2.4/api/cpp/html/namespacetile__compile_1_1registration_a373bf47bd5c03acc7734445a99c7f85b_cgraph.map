@@ -1,0 +1,85 @@
+<map id="tile_compile::registration::register_frames_to_reference" name="tile_compile::registration::register_frames_to_reference">
+<area shape="rect" id="Node000001" title="Implements register frames to reference." alt="" coords="5,372,204,411"/>
+<area shape="poly" id="edge7_Node000001_Node000001" title=" " alt="" coords="57,373,53,362,61,353,78,347,105,345,133,348,150,354,148,359,132,353,104,351,79,353,64,358,58,363,62,371"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile.html#ac31569f320ed3b6cc89891d5957e9484" title=" " alt="" coords="300,183,430,221"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,370,169,301,207,263,250,230,285,215,287,220,253,235,210,267,173,305,121,373"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a9aa39996cdd5affe61ec5892e538322d" title="Implements cfa green proxy downsample2x2." alt="" coords="252,245,478,284"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="133,369,187,335,251,301,284,287,286,292,253,306,189,340,136,374"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1registration.html#a1d7266ab0ff8cbbbda8d1f0a1871b40f" title="Implements downsample2x2 mean." alt="" coords="783,984,945,1023"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="122,409,180,487,274,600,393,728,459,789,528,845,592,887,660,923,727,953,787,976,785,981,725,958,658,928,589,892,524,849,455,793,389,732,270,604,176,490,118,413"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1registration.html#a4acc7bb29b4d704ee1ecc482359ea939" title="Implements identity warp." alt="" coords="783,441,945,480"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="152,369,261,332,332,314,409,300,490,294,572,297,652,313,690,327,727,345,746,364,753,385,760,406,775,427,780,431,777,435,771,431,755,409,748,387,741,366,724,350,688,332,650,318,571,302,490,299,410,306,333,319,263,337,154,374"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1registration.html#a999f0bdab47ddde25022bb0a43bf4daa" title="Implements register single frame." alt="" coords="284,441,446,480"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="181,409,276,434,274,439,179,414"/>
+<area shape="rect" id="Node000034" href="$namespacetile__compile_1_1registration.html#adba9035a2cf978e0e9e5b584e435d958" title="Implements scale translation warp." alt="" coords="284,912,446,951"/>
+<area shape="poly" id="edge49_Node000001_Node000034" title=" " alt="" coords="108,411,112,497,118,558,130,625,148,696,174,766,208,832,254,891,272,905,268,909,250,895,204,835,169,768,143,698,125,627,113,559,106,498,103,411"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#ae4f616d47a353b018edd3ed00b34add8" title="Implements cfa green proxy." alt="" coords="559,37,692,76"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="459,243,476,231,488,217,495,204,501,177,507,148,513,132,524,116,544,97,566,82,569,86,547,101,528,120,518,135,512,149,507,178,500,206,493,220,480,235,462,247"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#a35224abf3795fc0671535191057f21d2" title="Implements cfa green mask." alt="" coords="797,5,931,44"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="692,45,782,33,782,38,693,50"/>
+<area shape="poly" id="edge24_Node000008_Node000007" title=" " alt="" coords="446,458,767,458,767,463,446,463"/>
+<area shape="poly" id="edge25_Node000008_Node000008" title=" " alt="" coords="317,442,314,432,321,422,338,417,365,415,393,417,410,423,408,428,392,422,365,420,339,422,324,427,319,433,322,440"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1registration.html#a00335e03bcc56984bbced1cc964ef769" title="Applies warp." alt="" coords="544,499,707,537"/>
+<area shape="poly" id="edge9_Node000008_Node000009" title=" " alt="" coords="447,476,530,494,529,499,446,481"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1registration.html#a2be16de9b009e2e476259f3768ac2b05" title="Computes ncc." alt="" coords="544,585,707,624"/>
+<area shape="poly" id="edge10_Node000008_Node000010" title=" " alt="" coords="403,478,577,575,574,580,400,483"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1registration.html#af799f6cbe7b272aa9ae6c48915360aa6" title="Computes ncc masked." alt="" coords="544,672,707,711"/>
+<area shape="poly" id="edge12_Node000008_Node000011" title=" " alt="" coords="383,479,442,551,483,594,528,633,571,662,568,666,524,637,480,597,439,554,379,482"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1registration.html#a3cb0a6d89b2b5a677decfe370584a3ea" title="Detects stars simple." alt="" coords="783,193,945,232"/>
+<area shape="poly" id="edge14_Node000008_Node000012" title=" " alt="" coords="377,440,460,317,524,231,584,206,647,194,710,191,767,194,767,200,710,197,648,200,585,211,528,235,464,320,381,443"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1registration.html#a63404943651ce064fa0bf949870eb220" title="Implements feature registration similarity." alt="" coords="526,735,725,773"/>
+<area shape="poly" id="edge19_Node000008_Node000016" title=" " alt="" coords="375,479,394,528,426,593,471,661,498,692,528,720,534,724,531,729,524,724,494,696,466,664,422,595,390,530,370,481"/>
+<area shape="rect" id="Node000020" href="$namespacetile__compile_1_1registration.html#abd738c5c12e80bd3cf185259006a2a76" title="Implements robust phase ecc." alt="" coords="544,797,707,836"/>
+<area shape="poly" id="edge26_Node000008_Node000020" title=" " alt="" coords="373,480,388,539,418,620,439,664,464,707,493,747,528,783,533,787,530,791,524,787,489,751,459,710,434,667,413,622,383,540,368,481"/>
+<area shape="rect" id="Node000026" href="$namespacetile__compile_1_1registration.html#abae51a6363e850da19139fabf9d99631" title="Implements star registration similarity." alt="" coords="535,131,716,169"/>
+<area shape="poly" id="edge34_Node000008_Node000026" title=" " alt="" coords="379,439,424,376,476,294,488,264,495,238,504,213,524,187,539,175,542,180,528,191,509,215,500,239,493,265,480,297,429,379,383,443"/>
+<area shape="rect" id="Node000031" href="$namespacetile__compile_1_1registration.html#a3572b46c7355041407f4ba84ffbfdaa5" title="Implements triangle star matching." alt="" coords="544,245,707,284"/>
+<area shape="poly" id="edge43_Node000008_Node000031" title=" " alt="" coords="391,439,585,292,588,296,394,443"/>
+<area shape="rect" id="Node000033" href="$namespacetile__compile_1_1registration.html#aaedc5684f1f2262d26e5754008969a32" title="Implements warp valid mask." alt="" coords="544,384,707,423"/>
+<area shape="poly" id="edge47_Node000008_Node000033" title=" " alt="" coords="446,440,529,422,530,427,447,445"/>
+<area shape="poly" id="edge11_Node000010_Node000010" title=" " alt="" coords="582,586,578,576,585,566,601,561,626,559,652,561,667,567,665,572,651,566,626,564,602,566,589,571,584,577,587,584"/>
+<area shape="poly" id="edge13_Node000011_Node000011" title=" " alt="" coords="582,673,578,662,585,653,601,647,626,645,652,648,667,654,665,659,651,653,626,651,602,653,589,657,584,663,587,671"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1registration.html#a74a3d972c5344aa96ed02b61495d9600" title="Detects stars with threshold." alt="" coords="1017,252,1210,291"/>
+<area shape="poly" id="edge15_Node000012_Node000013" title=" " alt="" coords="946,229,1014,245,1013,251,945,234"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="1272,161,1395,200"/>
+<area shape="poly" id="edge16_Node000012_Node000014" title=" " alt="" coords="927,190,1002,174,1064,168,1113,169,1224,174,1256,175,1256,180,1224,179,1113,174,1065,174,1003,179,928,195"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="1044,189,1183,228"/>
+<area shape="poly" id="edge17_Node000012_Node000015" title=" " alt="" coords="946,209,1028,207,1028,213,946,214"/>
+<area shape="poly" id="edge18_Node000015_Node000014" title=" " alt="" coords="1183,197,1256,188,1257,193,1184,202"/>
+<area shape="poly" id="edge21_Node000016_Node000007" title=" " alt="" coords="709,732,723,720,742,693,750,666,751,639,748,612,745,584,746,556,753,527,771,498,782,487,786,491,775,501,758,529,751,557,750,584,753,612,756,639,755,667,747,695,727,724,713,736"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1registration.html#ace44bae6c0411d49266a57c3fb8f4586" title="Estimates affine family transform." alt="" coords="1032,398,1194,451"/>
+<area shape="poly" id="edge20_Node000016_Node000017" title=" " alt="" coords="708,732,723,720,738,700,745,680,747,639,748,597,756,575,771,554,793,534,814,521,856,509,900,503,954,489,1036,455,1038,460,956,494,901,508,857,514,816,526,796,538,775,557,761,578,754,598,752,639,751,681,743,702,727,724,712,736"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4" title="Inverts forward affine to warp." alt="" coords="1032,517,1194,570"/>
+<area shape="poly" id="edge22_Node000016_Node000018" title=" " alt="" coords="707,732,723,720,736,705,742,689,745,657,750,625,757,608,772,593,790,583,814,574,876,560,947,550,1016,545,1017,550,947,556,876,565,815,579,792,587,775,597,762,611,755,626,751,658,747,691,740,708,727,724,710,736"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1registration.html#aa959a9fca0a69792d3abdf94cb9b0ac0" title="Converts uint8 stretch." alt="" coords="783,608,945,647"/>
+<area shape="poly" id="edge23_Node000016_Node000019" title=" " alt="" coords="703,732,724,720,739,705,747,689,756,672,772,656,777,652,780,657,775,660,760,675,752,691,743,708,727,724,705,737"/>
+<area shape="poly" id="edge27_Node000020_Node000006" title=" " alt="" coords="700,834,727,853,739,869,746,884,752,913,757,942,764,955,775,969,779,973,776,977,771,973,759,958,752,943,746,914,741,885,735,871,724,857,697,839"/>
+<area shape="poly" id="edge31_Node000020_Node000007" title=" " alt="" coords="706,796,723,783,741,760,750,739,755,718,756,696,757,649,761,623,771,594,802,538,835,491,839,494,806,541,776,596,766,624,762,650,761,696,760,718,755,740,745,763,727,787,709,801"/>
+<area shape="rect" id="Node000021" href="$namespacetile__compile_1_1registration.html#a0f29af2e7ea6328333dd11714dd0fc7d" title="Implements ecc warp." alt="" coords="783,796,945,835"/>
+<area shape="poly" id="edge28_Node000020_Node000021" title=" " alt="" coords="707,814,767,813,767,819,707,819"/>
+<area shape="rect" id="Node000022" href="$namespacetile__compile_1_1registration.html#adb47a778774749fb480dfb0a85cf2974" title="Estimates rotation logpolar." alt="" coords="773,859,955,897"/>
+<area shape="poly" id="edge29_Node000020_Node000022" title=" " alt="" coords="704,834,772,852,771,857,703,839"/>
+<area shape="rect" id="Node000023" href="$namespacetile__compile_1_1registration.html#aa8d7e38058a69f0ab49b5d493feb74b9" title="Implements gradient preprocess." alt="" coords="783,921,945,960"/>
+<area shape="poly" id="edge30_Node000020_Node000023" title=" " alt="" coords="692,834,727,853,742,867,751,881,760,894,775,907,783,912,781,916,772,911,756,897,747,884,738,871,724,858,689,839"/>
+<area shape="rect" id="Node000024" href="$namespacetile__compile_1_1registration.html#a627ada6cbeccf8c64d7db7a4b91cb073" title="Implements phasecorr translation." alt="" coords="783,671,945,709"/>
+<area shape="poly" id="edge32_Node000020_Node000024" title=" " alt="" coords="703,795,724,783,739,767,747,752,756,735,772,719,777,715,780,720,775,723,760,738,752,754,743,770,727,787,705,799"/>
+<area shape="rect" id="Node000025" href="$namespacetile__compile_1_1registration.html#af3f5c2303bc73db7e0111e5d8cf48ba6" title="Implements prepare ecc image." alt="" coords="783,733,945,772"/>
+<area shape="poly" id="edge33_Node000020_Node000025" title=" " alt="" coords="700,794,774,774,775,779,701,799"/>
+<area shape="poly" id="edge36_Node000026_Node000007" title=" " alt="" coords="662,168,697,195,728,231,741,259,747,286,747,334,747,357,750,380,758,403,775,427,778,429,774,433,771,430,754,405,745,381,742,358,742,334,742,286,736,261,723,234,693,199,658,172"/>
+<area shape="poly" id="edge35_Node000026_Node000012" title=" " alt="" coords="702,167,774,186,772,191,701,172"/>
+<area shape="rect" id="Node000027" href="$namespacetile__compile_1_1registration.html#a2da28bf435a655f0d0d0a4abe2c3788e" title="Implements maybe refine similarity to affine." alt="" coords="781,302,947,355"/>
+<area shape="poly" id="edge37_Node000026_Node000027" title=" " alt="" coords="655,168,817,291,814,295,652,172"/>
+<area shape="rect" id="Node000029" href="$namespacetile__compile_1_1registration.html#a5f5dac332dc0b1c5d199d9808cc52614" title="Implements score similarity." alt="" coords="783,131,945,169"/>
+<area shape="poly" id="edge41_Node000026_Node000029" title=" " alt="" coords="717,147,767,147,767,153,717,153"/>
+<area shape="rect" id="Node000030" href="$namespacetile__compile_1_1registration.html#a029bb827451751bfebfb90336b0bba9c" title="Implements similarity from pairs." alt="" coords="783,68,945,107"/>
+<area shape="poly" id="edge42_Node000026_Node000030" title=" " alt="" coords="701,128,772,109,774,114,702,133"/>
+<area shape="poly" id="edge39_Node000027_Node000017" title=" " alt="" coords="936,353,1030,390,1028,395,934,358"/>
+<area shape="poly" id="edge40_Node000027_Node000018" title=" " alt="" coords="943,354,957,364,975,389,983,412,989,436,1005,462,1028,485,1054,506,1051,510,1025,489,1001,465,985,438,978,414,970,391,953,368,940,358"/>
+<area shape="rect" id="Node000028" href="$namespacetile__compile_1_1registration.html#a2e2e33db68394b6fae247c7aebdd7c6d" title="Builds similarity consensus pairs." alt="" coords="1003,315,1224,353"/>
+<area shape="poly" id="edge38_Node000027_Node000028" title=" " alt="" coords="948,328,987,329,987,334,948,333"/>
+<area shape="poly" id="edge46_Node000031_Node000007" title=" " alt="" coords="700,282,727,301,740,318,747,334,752,366,756,397,763,412,775,427,779,431,776,434,771,430,758,414,751,398,746,367,742,336,735,321,723,305,697,287"/>
+<area shape="poly" id="edge45_Node000031_Node000012" title=" " alt="" coords="707,244,767,231,768,236,708,250"/>
+<area shape="rect" id="Node000032" href="$namespacetile__compile_1_1registration.html#ac1f3548f623c84fc304b0fcd8dbdafd0" title="Builds triangles." alt="" coords="783,379,945,417"/>
+<area shape="poly" id="edge44_Node000031_Node000032" title=" " alt="" coords="694,282,727,301,743,318,752,334,760,350,775,365,780,368,777,373,772,369,756,353,747,337,739,321,724,305,691,287"/>
+<area shape="poly" id="edge48_Node000033_Node000033" title=" " alt="" coords="582,385,578,374,585,365,601,359,626,357,652,360,667,366,665,371,651,365,626,363,602,365,589,369,584,375,587,383"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="tile_compile::image::extract_tile_background_samples" name="tile_compile::image::extract_tile_background_samples">
+<area shape="rect" id="Node000001" title="Extracts tile background samples." alt="" coords="5,5,172,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#aafd30c582c3937a0c245729297ad5e75" title="Extracts autotune prepared tile samples." alt="" coords="220,5,403,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="172,29,204,29,204,34,172,34"/>
+</map>

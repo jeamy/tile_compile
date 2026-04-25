@@ -1,0 +1,5 @@
+<map id="tile_compile::core::emit_event" name="tile_compile::core::emit_event">
+<area shape="rect" id="Node000001" title="Implements emit event." alt="" coords="5,5,129,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#afae94880bbf78939b975bc91e5b014ac" title="Implements get iso timestamp." alt="" coords="177,5,316,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="129,22,161,22,161,27,129,27"/>
+</map>

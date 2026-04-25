@@ -1,0 +1,7 @@
+<map id="tile_compile::core::estimate_background_sigma_clip" name="tile_compile::core::estimate_background_sigma_clip">
+<area shape="rect" id="Node000001" title="Estimates background sigma clip." alt="" coords="5,30,158,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="206,5,329,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,41,190,35,191,40,158,46"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a7d4f91baddca7830d102d8b05e3e8ba4" title="Implements stddev of." alt="" coords="206,68,329,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="158,67,191,72,190,77,157,72"/>
+</map>

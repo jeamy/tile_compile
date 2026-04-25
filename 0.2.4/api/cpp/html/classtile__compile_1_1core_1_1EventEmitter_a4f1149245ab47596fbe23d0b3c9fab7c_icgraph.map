@@ -1,0 +1,15 @@
+<map id="tile_compile::core::EventEmitter::run_end" name="tile_compile::core::EventEmitter::run_end">
+<area shape="rect" id="Node000001" title="Runs end." alt="" coords="701,76,859,115"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,5,653,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="694,74,649,61,650,56,696,69"/>
+<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,83,408,108"/>
+<area shape="poly" id="edge7_Node000001_Node000003" title=" " alt="" coords="685,98,409,98,409,93,685,93"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="468,134,641,172"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="687,122,634,136,633,130,686,117"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="446,65,378,85,376,80,445,60"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,83,206,108"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="238,98,206,98,206,93,238,93"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,83,55,108"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,98,55,98,55,93,87,93"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="461,132,381,111,383,106,463,127"/>
+</map>

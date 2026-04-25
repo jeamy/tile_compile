@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::robust_mean_weighted" name="tile_compile::astrometry::robust_mean_weighted">
+<area shape="rect" id="Node000001" title="Implements robust mean weighted." alt="" coords="5,5,168,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a9a8cbb19e2f93d34397b402b76106afc" title="Implements weighted median." alt="" coords="216,5,377,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="168,22,200,22,200,27,168,27"/>
+</map>

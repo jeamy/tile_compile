@@ -1,0 +1,15 @@
+<map id="tile_compile::astrometry::vizier_apass_cone_search" name="tile_compile::astrometry::vizier_apass_cone_search">
+<area shape="rect" id="Node000001" title="Implements vizier apass cone search." alt="" coords="706,29,888,68"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a413fd9ebd818a0df44ae1a0ccd267628" title="Queries pcc catalog stars." alt="" coords="481,29,658,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="690,51,658,51,658,46,690,46"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="605,16,592,10,569,8,549,10,537,15,532,21,535,28,530,30,527,20,533,11,548,5,570,3,593,5,607,12"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,11,231,36"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="466,45,231,30,231,25,466,40"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,60,433,85"/>
+<area shape="poly" id="edge5_Node000002_Node000005" title=" " alt="" coords="467,63,434,67,433,61,466,58"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,36,55,61"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="88,41,56,47,55,42,87,35"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,60,218,85"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="263,75,219,75,219,70,263,70"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="100,64,55,56,56,50,101,58"/>
+</map>

@@ -1,0 +1,12 @@
+<map id="format_config_float_scalar" name="format_config_float_scalar">
+<area shape="rect" id="Node000001" title="Formats config float scalar." alt="" coords="512,29,645,68"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#ab66ba18cd0563fd1a39a3bc8ef0710d0" title="Implements round yaml numeric scalars inplace." alt="" coords="324,29,464,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="497,51,464,51,464,46,497,46"/>
+<area shape="poly" id="edge4_Node000002_Node000002" title=" " alt="" coords="424,16,413,10,394,8,376,10,366,15,362,21,365,28,359,30,357,20,362,11,375,5,394,3,415,5,427,12"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#ad27c64c0e6ccca63928254a83a9bd88d" title="Handles CLI command dump default config." alt="" coords="103,8,276,33"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="309,40,276,35,277,30,309,34"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1config_1_1Config.html#ad4688d8888233a3393df20f5146b5eac" title="Implements save." alt="" coords="123,57,256,96"/>
+<area shape="poly" id="edge5_Node000002_Node000005" title=" " alt="" coords="309,63,257,70,256,65,308,58"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,8,55,33"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="87,23,55,23,55,18,87,18"/>
+</map>

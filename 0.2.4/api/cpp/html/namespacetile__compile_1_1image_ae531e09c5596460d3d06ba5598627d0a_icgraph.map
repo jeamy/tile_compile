@@ -1,0 +1,17 @@
+<map id="tile_compile::image::build_bge_candidate_prep" name="tile_compile::image::build_bge_candidate_prep">
+<area shape="rect" id="Node000001" title="Builds bge candidate prep." alt="" coords="932,29,1112,68"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a7428876f8eeb8f8e84d94d8e912de33a" title="Implements auto tune bge config conservative." alt="" coords="727,22,884,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="917,51,884,51,884,46,917,46"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="481,29,679,68"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="711,51,679,51,679,46,711,46"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="617,16,603,10,580,8,558,10,545,15,541,21,544,28,538,30,536,20,542,11,557,5,580,3,605,5,619,11"/>
+<area shape="rect" id="Node000004" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,11,231,36"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="465,44,231,30,232,25,466,39"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,60,433,85"/>
+<area shape="poly" id="edge6_Node000003_Node000006" title=" " alt="" coords="466,64,434,67,433,62,466,58"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,36,55,61"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="88,41,56,47,55,42,87,35"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,60,218,85"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="263,75,219,75,219,70,263,70"/>
+<area shape="poly" id="edge8_Node000007_Node000005" title=" " alt="" coords="100,64,55,56,56,50,101,58"/>
+</map>

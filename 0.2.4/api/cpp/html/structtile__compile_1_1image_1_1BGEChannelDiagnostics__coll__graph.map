@@ -1,0 +1,7 @@
+<map id="tile_compile::image::BGEChannelDiagnostics" name="tile_compile::image::BGEChannelDiagnostics">
+<area shape="rect" id="Node000001" title=" " alt="" coords="64,211,237,249"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1image_1_1BGEProfileTiming.html" title=" " alt="" coords="5,5,139,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,57,146,210,141,211,82,59"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1image_1_1BGEValueStats.html" title=" " alt="" coords="163,5,296,44"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="226,60,211,121,185,188,169,211,165,209,180,185,206,119,221,59"/>
+</map>

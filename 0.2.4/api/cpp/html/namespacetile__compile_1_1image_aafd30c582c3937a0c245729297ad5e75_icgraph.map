@@ -1,0 +1,20 @@
+<map id="tile_compile::image::extract_autotune_prepared_tile_samples" name="tile_compile::image::extract_autotune_prepared_tile_samples">
+<area shape="rect" id="Node000001" title="Extracts autotune prepared tile samples." alt="" coords="941,44,1124,97"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a7428876f8eeb8f8e84d94d8e912de33a" title="Implements auto tune bge config conservative." alt="" coords="731,5,888,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="925,54,889,48,890,43,926,49"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1image.html#a2525ef3fbfbb0f081e66e25003563e42" title="Extracts tile background samples." alt="" coords="727,83,893,135"/>
+<area shape="poly" id="edge9_Node000001_Node000008" title=" " alt="" coords="926,92,894,97,893,92,925,86"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="481,51,679,90"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="717,50,679,56,679,51,716,45"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="617,38,603,32,580,30,558,32,545,36,541,42,544,50,538,52,536,41,542,32,557,26,580,24,605,27,619,33"/>
+<area shape="rect" id="Node000004" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,33,231,57"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="465,66,231,52,232,46,466,61"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,82,433,107"/>
+<area shape="poly" id="edge6_Node000003_Node000006" title=" " alt="" coords="466,85,434,89,433,83,466,80"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,58,55,83"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="88,62,56,68,55,63,87,57"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,82,218,107"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="263,97,219,97,219,92,263,92"/>
+<area shape="poly" id="edge8_Node000007_Node000005" title=" " alt="" coords="100,85,55,77,56,72,101,80"/>
+<area shape="poly" id="edge10_Node000008_Node000003" title=" " alt="" coords="711,95,679,90,680,84,712,90"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="tile_compile::core::AccelerationOps::sigma_clip_reduce" name="tile_compile::core::AccelerationOps::sigma_clip_reduce">
+<area shape="rect" id="Node000001" title="Implements sigma clip reduce." alt="" coords="495,41,664,93"/>
+<area shape="rect" id="Node000002" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,5,231,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="480,51,447,46,333,33,231,24,232,19,333,27,448,40,480,45"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="286,55,440,79"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="480,70,441,70,441,64,480,64"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1core_1_1AccelerationOps.html#aef95ecb9cf7b0e0e13c7b2a82b1f9397" title="Process multiple tiles in a single GPU dispatch (reduces kernel&#45;launch overhead)." alt="" coords="279,127,447,180"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="499,102,432,129,430,124,497,97"/>
+<area shape="rect" id="Node000003" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,31,55,55"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="88,35,56,41,55,36,87,30"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,55,218,79"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="271,70,219,70,219,64,271,64"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="100,58,55,50,56,45,101,53"/>
+<area shape="poly" id="edge7_Node000006_Node000006" title=" " alt="" coords="394,114,382,108,363,106,346,108,335,112,330,119,330,127,324,127,325,117,332,108,344,103,363,101,384,103,396,110"/>
+</map>

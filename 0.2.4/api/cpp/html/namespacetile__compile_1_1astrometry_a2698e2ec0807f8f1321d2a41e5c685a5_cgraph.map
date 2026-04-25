@@ -1,0 +1,19 @@
+<map id="tile_compile::astrometry::vizier_apass_cone_search" name="tile_compile::astrometry::vizier_apass_cone_search">
+<area shape="rect" id="Node000001" title="Implements vizier apass cone search." alt="" coords="5,131,188,169"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#af32565bbeefe081d7c1a87dfbe380eac" title="Implements bv to teff." alt="" coords="236,36,397,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="137,128,235,84,247,78,249,83,237,88,140,133"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#aa74e4b2a36ce1316e828e71e463c2848" title="Implements http get." alt="" coords="236,99,397,137"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="188,134,220,129,221,135,188,139"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#af0f406026214539be07cd54b371cbd08" title="Parses vizier tsv." alt="" coords="236,161,397,200"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="188,160,221,165,220,170,188,165"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#a8331cc5e7751ebd3c60bcf7c0255e7be" title="Implements trim." alt="" coords="236,224,397,263"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="142,167,237,209,252,215,250,220,235,214,140,172"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a48a439df5b900c3b98fd7fc810f4ceb8" title="Implements configure curl common." alt="" coords="445,5,612,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="370,96,396,84,420,68,444,53,454,48,456,53,446,58,422,73,398,88,372,101"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#ae31bc02ba71268e0507d5da5cef687c7" title="Implements curl error message." alt="" coords="448,68,609,107"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="397,104,432,99,433,104,398,109"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a325b179a10ee33f66302bd52df892389" title="Implements curl write callback." alt="" coords="448,131,609,169"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="398,128,433,133,432,138,397,133"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#ac6486ef2bce8aa92a6bdf3236fbc06a6" title="Implements ensure curl ready." alt="" coords="448,193,609,232"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="375,136,398,146,422,162,446,178,459,184,456,189,444,183,420,167,396,151,373,140"/>
+</map>

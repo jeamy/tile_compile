@@ -1,0 +1,17 @@
+<map id="tile_compile::astrometry::download_chunk_if_needed" name="tile_compile::astrometry::download_chunk_if_needed">
+<area shape="rect" id="Node000001" title="Downloads chunk if needed." alt="" coords="5,163,195,201"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a8112ab94998a2f9b62585fa76c99bd60" title="Implements http download." alt="" coords="243,131,404,169"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="195,166,227,161,228,166,195,171"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a3cfce724ad8c0d794560e7f6bcaab26b" title="Implements siril catalog chunk url." alt="" coords="243,193,404,232"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="195,192,228,197,227,202,195,198"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a48a439df5b900c3b98fd7fc810f4ceb8" title="Implements configure curl common." alt="" coords="452,5,619,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="346,128,392,91,451,53,459,49,462,53,453,58,396,95,349,132"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#ae31bc02ba71268e0507d5da5cef687c7" title="Implements curl error message." alt="" coords="455,68,616,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="390,128,452,109,454,114,392,133"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#afe5661cc679755cc6efe82803d64448f" title="Implements curl progress callback." alt="" coords="454,131,617,169"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="405,147,439,147,439,153,405,153"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a325b179a10ee33f66302bd52df892389" title="Implements curl write callback." alt="" coords="455,193,616,232"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="392,167,454,186,452,191,390,172"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#ac6486ef2bce8aa92a6bdf3236fbc06a6" title="Implements ensure curl ready." alt="" coords="455,256,616,295"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="388,168,406,179,422,195,430,211,439,226,454,241,461,246,458,250,450,245,434,229,426,213,417,198,402,183,385,172"/>
+</map>

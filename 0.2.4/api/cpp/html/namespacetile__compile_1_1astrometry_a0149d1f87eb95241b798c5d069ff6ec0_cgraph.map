@@ -1,0 +1,91 @@
+<map id="tile_compile::astrometry::run_pcc" name="tile_compile::astrometry::run_pcc">
+<area shape="rect" id="Node000001" title="Runs pcc." alt="" coords="5,560,167,599"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a76ad2f1309bfdc9228cfacd6c1b48fb1" title="Applies color matrix impl." alt="" coords="237,144,406,183"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="86,560,93,492,112,397,128,344,150,293,178,244,213,200,227,189,230,193,217,204,182,247,155,295,133,346,117,398,98,493,91,560"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#ab26c7f391dd3d92368c4b5925a55491b" title="Builds pcc attenuation context." alt="" coords="500,105,662,158"/>
+<area shape="poly" id="edge17_Node000001_Node000005" title=" " alt="" coords="86,560,94,498,114,413,131,367,152,322,179,281,213,244,240,225,265,213,290,208,315,206,367,205,396,201,428,192,452,180,476,167,487,162,489,167,478,171,454,184,430,197,397,206,367,211,315,212,291,213,267,218,243,229,216,248,183,284,157,325,136,369,119,415,99,499,91,560"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#abfb6c70138ada6b0d90a51f1815a43ce" title="Applies color matrix impl simple." alt="" coords="215,82,429,120"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="84,560,86,481,91,426,101,366,117,303,140,240,171,181,213,130,214,128,218,132,217,133,176,184,145,242,122,304,107,367,97,427,91,481,89,560"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1astrometry.html#a9edd11f0298e713fdd46e0a0fa9d658a" title="Applies diagonal color matrix affine." alt="" coords="500,244,662,297"/>
+<area shape="poly" id="edge11_Node000001_Node000010" title=" " alt="" coords="92,559,108,520,134,472,169,422,190,399,213,379,242,361,268,349,316,339,367,334,428,321,492,300,494,305,430,326,367,339,317,344,269,354,244,365,216,383,193,403,173,425,138,475,113,523,97,561"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1image.html#a5abad731013264bf536833d91e60c52a" title="Builds chroma background mask from rgb." alt="" coords="770,333,950,386"/>
+<area shape="poly" id="edge16_Node000001_Node000011" title=" " alt="" coords="107,558,155,519,213,479,342,416,417,385,476,366,548,355,621,349,755,349,755,354,622,354,549,360,478,372,418,390,344,420,216,483,158,523,111,562"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1astrometry.html#abaaf7c13e823e87bf9c6b3c3a30ba06d" title="Implements blend matrix with identity per channel." alt="" coords="230,932,414,985"/>
+<area shape="poly" id="edge15_Node000001_Node000013" title=" " alt="" coords="92,599,102,658,124,741,140,787,161,831,186,873,217,911,228,921,224,925,213,915,182,877,156,834,135,789,119,743,97,660,87,600"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1astrometry.html#ab30895a7ecc5e1556ad9e978e267a54a" title="Builds pcc background samples." alt="" coords="241,259,402,311"/>
+<area shape="poly" id="edge18_Node000001_Node000014" title=" " alt="" coords="90,559,104,513,129,452,165,386,187,356,213,328,226,318,230,322,216,332,191,359,169,389,134,454,109,515,95,560"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1image.html#a1372aacb5d925f9338600baaf36f875a" title="Implements canvas mask matches image." alt="" coords="477,1067,685,1106"/>
+<area shape="poly" id="edge20_Node000001_Node000015" title=" " alt="" coords="90,599,93,674,99,725,109,781,124,839,147,896,177,949,217,995,242,1015,266,1027,289,1034,313,1036,366,1037,396,1039,430,1045,489,1060,488,1065,428,1050,395,1044,365,1042,313,1041,288,1039,264,1032,239,1020,213,999,173,952,142,898,119,840,103,782,93,725,87,674,84,599"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1image.html#a576c733cf449ceaf9e575ad84bad16c2" title="Implements enforce canvas mask on rgb." alt="" coords="242,1060,402,1113"/>
+<area shape="poly" id="edge21_Node000001_Node000016" title=" " alt="" coords="90,599,93,679,99,734,109,795,125,859,147,924,178,985,217,1039,231,1052,227,1056,213,1043,173,987,142,926,120,861,104,796,94,734,88,679,84,600"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1astrometry.html#abcc0011d70255aef67a2f39787e837fd" title="Implements fit color matrix." alt="" coords="241,1136,402,1175"/>
+<area shape="poly" id="edge23_Node000001_Node000017" title=" " alt="" coords="92,599,105,707,130,865,147,947,167,1021,191,1082,217,1123,229,1134,226,1138,213,1127,186,1085,162,1023,142,948,125,866,100,708,87,600"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1astrometry.html#a5b088cd326757c985e7744d378d21cd4" title="Implements recompute residual rms for matrix." alt="" coords="496,1244,667,1297"/>
+<area shape="poly" id="edge48_Node000001_Node000018" title=" " alt="" coords="91,599,102,718,125,895,142,987,163,1070,188,1139,202,1165,216,1184,310,1208,481,1246,480,1251,309,1213,213,1189,197,1168,183,1141,157,1072,137,988,120,896,97,719,86,599"/>
+<area shape="rect" id="Node000023" href="$namespacetile__compile_1_1image.html#adba510b587172f627de3f16713481fb2" title="Implements log chroma std background." alt="" coords="763,751,957,790"/>
+<area shape="poly" id="edge30_Node000001_Node000023" title=" " alt="" coords="106,598,154,654,217,722,277,777,327,816,376,858,431,918,445,943,452,965,460,984,478,1000,533,1025,557,1031,580,1033,628,1024,684,1000,714,982,740,959,786,906,820,851,843,803,848,805,825,853,790,909,744,963,717,986,687,1005,630,1029,580,1038,556,1036,531,1030,476,1005,456,987,447,966,440,945,427,921,372,861,324,821,273,781,213,726,150,658,102,601"/>
+<area shape="rect" id="Node000024" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="241,674,402,712"/>
+<area shape="poly" id="edge31_Node000001_Node000024" title=" " alt="" coords="129,597,267,664,265,669,127,602"/>
+<area shape="rect" id="Node000033" href="$namespacetile__compile_1_1astrometry.html#aa6a658bdc6664bc7973b445eca6d0191" title="Implements neutralize background offsets." alt="" coords="241,493,402,546"/>
+<area shape="poly" id="edge41_Node000001_Node000033" title=" " alt="" coords="164,557,226,541,227,547,166,562"/>
+<area shape="rect" id="Node000037" href="$namespacetile__compile_1_1astrometry.html#a5297df93c8cd235b37c15d4b2dc94a6f" title="Implements sampled background std after matrix." alt="" coords="234,5,410,58"/>
+<area shape="poly" id="edge49_Node000001_Node000037" title=" " alt="" coords="87,560,101,458,128,311,145,235,165,165,188,107,213,67,219,61,223,65,217,71,192,109,170,167,150,236,133,312,107,459,92,561"/>
+<area shape="rect" id="Node000038" href="$namespacetile__compile_1_1astrometry.html#aa2c86219f875fec195a5e4540b04dc7b" title="Updates result matrix metrics." alt="" coords="241,1251,402,1303"/>
+<area shape="poly" id="edge51_Node000001_Node000038" title=" " alt="" coords="91,599,103,725,126,914,143,1012,164,1103,188,1178,202,1208,217,1230,230,1243,226,1247,213,1233,197,1210,184,1180,159,1105,138,1013,121,915,97,726,86,600"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a733d330c25947207ac6c2dfbfca3177a" title="Applies color matrix to deltas." alt="" coords="482,43,680,82"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="400,141,428,129,451,110,476,91,486,86,489,90,478,95,455,114,430,134,402,146"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a86defddfb0754840f39af78db6ecd14c" title="Implements attenuation from luma." alt="" coords="500,182,662,220"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="407,173,486,185,485,190,406,178"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="407,151,485,141,486,146,407,156"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a8168c08b75855ebab23619c50fb59bd8" title="Implements box blur with valid mask." alt="" coords="769,56,951,95"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="662,113,754,94,755,99,663,118"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a9a07e7572d0c142e10daf6717804d96f" title="Estimates background." alt="" coords="779,187,941,226"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="663,151,771,180,770,185,662,156"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a76b568f446cff5464eac476d2886feea" title="Implements percentile sorted." alt="" coords="779,119,941,158"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="662,131,764,133,764,139,662,136"/>
+<area shape="poly" id="edge9_Node000009_Node000003" title=" " alt="" coords="429,82,466,77,467,82,430,88"/>
+<area shape="poly" id="edge10_Node000009_Node000005" title=" " alt="" coords="430,111,485,118,485,123,429,116"/>
+<area shape="poly" id="edge13_Node000010_Node000007" title=" " alt="" coords="662,249,763,226,765,231,663,254"/>
+<area shape="poly" id="edge12_Node000010_Node000011" title=" " alt="" coords="663,294,762,326,760,331,662,299"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1astrometry.html#afcaf4ee1a9c64f3b0958af88a0ec2494" title="Estimates channel background median." alt="" coords="733,262,987,300"/>
+<area shape="poly" id="edge14_Node000010_Node000012" title=" " alt="" coords="662,271,718,273,718,278,662,276"/>
+<area shape="poly" id="edge19_Node000014_Node000004" title=" " alt="" coords="398,255,476,229,497,223,498,228,478,234,400,261"/>
+<area shape="poly" id="edge22_Node000016_Node000015" title=" " alt="" coords="402,1084,461,1084,461,1089,402,1089"/>
+<area shape="poly" id="edge24_Node000017_Node000018" title=" " alt="" coords="389,1173,430,1192,455,1211,478,1229,488,1235,486,1239,476,1234,451,1215,428,1197,387,1178"/>
+<area shape="rect" id="Node000020" href="$namespacetile__compile_1_1astrometry.html#a9a8cbb19e2f93d34397b402b76106afc" title="Implements weighted median." alt="" coords="1035,1184,1196,1223"/>
+<area shape="poly" id="edge29_Node000017_Node000020" title=" " alt="" coords="403,1148,517,1144,663,1144,825,1150,987,1166,1039,1177,1038,1182,986,1172,825,1155,663,1149,517,1150,403,1154"/>
+<area shape="rect" id="Node000021" href="$namespacetile__compile_1_1astrometry.html#a0499f14ba023fbdc4d084218d04a467a" title="Implements repeated median fit." alt="" coords="500,1182,662,1220"/>
+<area shape="poly" id="edge27_Node000017_Node000021" title=" " alt="" coords="403,1167,486,1182,485,1187,403,1172"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1astrometry.html#a9f2a51bb6c55cd0ccbf8c27aee3820a2" title="Implements robust mean weighted." alt="" coords="779,1247,941,1286"/>
+<area shape="poly" id="edge25_Node000018_Node000019" title=" " alt="" coords="667,1266,763,1265,763,1270,667,1272"/>
+<area shape="poly" id="edge26_Node000019_Node000020" title=" " alt="" coords="941,1244,1019,1225,1020,1230,942,1249"/>
+<area shape="rect" id="Node000022" href="$namespacetile__compile_1_1astrometry.html#abe1aa9ea98f835f5e7fa889f9cd324ac" title="Implements simple median." alt="" coords="779,1182,941,1220"/>
+<area shape="poly" id="edge28_Node000021_Node000022" title=" " alt="" coords="662,1198,764,1198,764,1204,662,1204"/>
+<area shape="poly" id="edge34_Node000024_Node000011" title=" " alt="" coords="340,671,383,622,427,557,436,535,440,515,443,478,449,443,459,425,475,408,496,396,523,386,594,372,676,363,755,359,755,364,676,368,595,377,525,391,498,401,479,412,463,428,454,444,448,478,445,516,441,537,431,560,388,625,345,675"/>
+<area shape="rect" id="Node000025" href="$namespacetile__compile_1_1astrometry.html#aeb063b2fc3f3030d687b2ab6d4c9c17c" title="Implements annulus safe fraction." alt="" coords="500,827,662,866"/>
+<area shape="poly" id="edge32_Node000024_Node000025" title=" " alt="" coords="345,711,402,761,439,788,478,812,492,818,489,823,476,817,436,793,399,765,342,715"/>
+<area shape="rect" id="Node000026" href="$namespacetile__compile_1_1astrometry.html#ad6370de619d90565e4f5c2ef26ac7eb5" title="Implements aperture flux." alt="" coords="500,890,662,928"/>
+<area shape="poly" id="edge33_Node000024_Node000026" title=" " alt="" coords="337,711,359,747,391,791,431,836,479,875,488,880,485,885,475,879,428,840,387,794,354,750,332,714"/>
+<area shape="rect" id="Node000027" href="$namespacetile__compile_1_1astrometry.html#ac21ef6045cc61cee27acaa7fa31bd282" title="Estimates teff from xp." alt="" coords="500,952,662,991"/>
+<area shape="poly" id="edge35_Node000024_Node000027" title=" " alt="" coords="337,712,412,840,453,904,479,938,488,944,485,948,475,942,448,907,408,842,332,714"/>
+<area shape="rect" id="Node000028" href="$namespacetile__compile_1_1astrometry.html#a21f882eae16b13cabd29e57af4b7806b" title="Implements keep largest connected component." alt="" coords="496,500,666,553"/>
+<area shape="poly" id="edge36_Node000024_Node000028" title=" " alt="" coords="340,671,398,618,435,588,476,561,483,557,486,562,478,566,438,592,401,622,344,675"/>
+<area shape="rect" id="Node000029" href="$namespacetile__compile_1_1astrometry.html#ae8e706eb295c574495cbf8389b8f5355" title="Implements radial support fraction." alt="" coords="500,576,662,615"/>
+<area shape="poly" id="edge37_Node000024_Node000029" title=" " alt="" coords="364,671,476,624,494,618,496,623,478,629,366,676"/>
+<area shape="rect" id="Node000030" href="$namespacetile__compile_1_1astrometry.html#aec7a47d085b52c28f88b19622b550258" title="Implements sampled high percentile." alt="" coords="495,639,667,678"/>
+<area shape="poly" id="edge38_Node000024_Node000030" title=" " alt="" coords="403,680,479,669,480,675,403,685"/>
+<area shape="rect" id="Node000031" href="$structtile__compile_1_1astrometry_1_1WCS.html#aeaedba3765f38e6ca3229645beb3b79a" title=" " alt="" coords="500,702,662,740"/>
+<area shape="poly" id="edge39_Node000024_Node000031" title=" " alt="" coords="403,699,485,708,485,713,403,704"/>
+<area shape="rect" id="Node000032" href="$namespacetile__compile_1_1astrometry.html#a6a8cdcd6938470f17b75cafd244d0578" title="Implements teff to rgb." alt="" coords="500,764,662,803"/>
+<area shape="poly" id="edge40_Node000024_Node000032" title=" " alt="" coords="374,710,478,749,500,757,498,762,476,754,372,715"/>
+<area shape="rect" id="Node000034" href="$namespacetile__compile_1_1astrometry.html#a1fe6e20802bf2190e2983d34538663a5" title="Implements decide pcc background neutralization." alt="" coords="497,423,665,475"/>
+<area shape="poly" id="edge42_Node000033_Node000034" title=" " alt="" coords="402,495,481,473,483,479,404,500"/>
+<area shape="poly" id="edge43_Node000034_Node000011" title=" " alt="" coords="665,420,760,389,762,394,667,425"/>
+<area shape="poly" id="edge44_Node000034_Node000012" title=" " alt="" coords="606,420,661,369,695,342,732,319,765,304,767,309,735,323,698,347,664,373,609,424"/>
+<area shape="poly" id="edge45_Node000034_Node000023" title=" " alt="" coords="667,472,687,486,717,514,745,546,791,615,826,681,849,735,844,737,821,684,786,617,740,549,713,518,684,490,664,477"/>
+<area shape="rect" id="Node000035" href="$namespacetile__compile_1_1astrometry.html#a904a9137a78d7f5a51b36fe5e3f0a83e" title="Implements robust sigma from samples." alt="" coords="762,430,958,468"/>
+<area shape="poly" id="edge46_Node000034_Node000035" title=" " alt="" coords="666,446,746,446,746,452,666,452"/>
+<area shape="rect" id="Node000036" href="$namespacetile__compile_1_1core.html#a6d8db894d4113d414b07806df2db8a3f" title="Implements percentile from sorted." alt="" coords="1035,430,1197,468"/>
+<area shape="poly" id="edge47_Node000035_Node000036" title=" " alt="" coords="958,446,1019,446,1019,452,958,452"/>
+<area shape="poly" id="edge50_Node000037_Node000003" title=" " alt="" coords="411,39,467,46,466,51,410,45"/>
+</map>

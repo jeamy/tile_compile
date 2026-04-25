@@ -1,0 +1,13 @@
+<map id="tile_compile::reconstruction::reconstruct_tiles_parallel" name="tile_compile::reconstruction::reconstruct_tiles_parallel">
+<area shape="rect" id="Node000001" title="Implements reconstruct tiles parallel." alt="" coords="5,68,186,107"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a0d78cf0cb859ddb0413d9c7b59086e58" title="Computes memory budget plan." alt="" coords="234,5,445,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="172,65,246,46,247,51,174,70"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#afa6532e37c0096692733f26da1731550" title="Creates partition window 1d." alt="" coords="246,68,432,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,85,231,85,231,90,186,90"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#a5bc12e5d8f67220f539295524d4bd7d5" title="Runs tile scheduler." alt="" coords="249,131,430,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="174,105,247,124,246,129,172,110"/>
+<area shape="rect" id="Node000005" href="$classtile__compile_1_1reconstruction_1_1ProgressReporter.html#af46495416f4cfed326206771348aa503" title="Update the number of currently active workers (called by scheduler)." alt="" coords="493,99,744,137"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="430,137,477,132,478,137,430,142"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1reconstruction_1_1ProgressReporter.html#a324ada64dd2860f232627d1b4406ce27" title="Called by a worker thread when one tile has been processed." alt="" coords="528,161,709,200"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="430,157,514,166,513,172,430,163"/>
+</map>

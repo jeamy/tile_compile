@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::parse_fits_double" name="tile_compile::astrometry::parse_fits_double">
+<area shape="rect" id="Node000001" title="Parses fits double." alt="" coords="215,5,376,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a55aded016e86d46b3ea859a3c536bf02" title="Parses wcs file." alt="" coords="5,5,167,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="199,27,167,27,167,22,199,22"/>
+</map>

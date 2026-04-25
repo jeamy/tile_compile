@@ -1,0 +1,7 @@
+<map id="tile_compile::reconstruction::run_tile_scheduler" name="tile_compile::reconstruction::run_tile_scheduler">
+<area shape="rect" id="Node000001" title="Runs tile scheduler." alt="" coords="5,37,186,76"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1reconstruction_1_1ProgressReporter.html#af46495416f4cfed326206771348aa503" title="Update the number of currently active workers (called by scheduler)." alt="" coords="234,5,485,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,43,218,39,219,44,186,48"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1reconstruction_1_1ProgressReporter.html#a324ada64dd2860f232627d1b4406ce27" title="Called by a worker thread when one tile has been processed." alt="" coords="269,68,450,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,64,254,72,254,78,186,70"/>
+</map>

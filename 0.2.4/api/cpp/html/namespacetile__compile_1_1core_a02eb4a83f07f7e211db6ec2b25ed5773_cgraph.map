@@ -1,0 +1,5 @@
+<map id="tile_compile::core::device_frame_batch_to_json" name="tile_compile::core::device_frame_batch_to_json">
+<area shape="rect" id="Node000001" title="Implements device frame batch to json." alt="" coords="5,5,152,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a9885f9d8493bcbc986d34e17a8ef8391" title="Implements device frame to json." alt="" coords="200,12,356,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="152,29,184,29,184,34,152,34"/>
+</map>

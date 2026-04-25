@@ -1,0 +1,2896 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Multi-Frame Blind Deconvolution (MFBD): Detaillierte Analyse und Vergleich mit deiner Methodik - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#multi-frame-blind-deconvolution-mfbd-detaillierte-analyse-und-vergleich-mit-deiner-methodik" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Multi-Frame Blind Deconvolution (MFBD): Detaillierte Analyse und Vergleich mit deiner Methodik
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-was-ist-multi-frame-blind-deconvolution-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Was ist Multi-Frame Blind Deconvolution (MFBD)?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Was ist Multi-Frame Blind Deconvolution (MFBD)?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-definition-kernkonzept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Definition &amp; Kernkonzept
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-wissenschaftliche-grundlagen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Wissenschaftliche Grundlagen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-wie-mfbd-funktioniert-mathematik-algorithmen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Wie MFBD funktioniert (Mathematik &amp; Algorithmen)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Wie MFBD funktioniert (Mathematik &amp; Algorithmen)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-das-optimierungsproblem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Das Optimierungsproblem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-klassische-mfbd-algorithmen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Klassische MFBD-Algorithmen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.2 Klassische MFBD-Algorithmen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-harikumar-bresler-1999" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A) Harikumar &amp; Bresler (1999)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b-sroubek-milanfar-2012-robustheit-gegen-rauschen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B) Šroubek &amp; Milanfar (2012) — Robustheit gegen Rauschen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-harmeling-et-al-2009-online-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C) Harmeling et al. (2009) — Online MFBD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d-hope-jefferies-2011-compact-mfbd-cmfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D) Hope &amp; Jefferies (2011) — Compact MFBD (CMFBD)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-kostrykin-harmeling-2022-eigenvector-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E) Kostrykin &amp; Harmeling (2022) — Eigenvector MFBD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-kraken-mfbd-hope-et-al-2022-state-of-the-art" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Kraken MFBD (Hope et al., 2022) — State-of-the-Art
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-mfbd-vs-deine-tile-basierte-methodik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. MFBD vs. deine Tile-Basierte Methodik
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. MFBD vs. deine Tile-Basierte Methodik">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-direkter-vergleich-der-grundkonzepte" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Direkter Vergleich der Grundkonzepte
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-philosophical-unterschiede" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Philosophical Unterschiede
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.2 Philosophical Unterschiede">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mfbd-ansatz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MFBD Ansatz:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deine-methodik-ansatz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deine Methodik Ansatz:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-komplementare-vs-konkurrierende-verfahren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Komplementäre vs. Konkurrierende Verfahren?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.3 Komplementäre vs. Konkurrierende Verfahren?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#konkurrierend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konkurrierend:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#komplementar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Komplementär:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-technische-unterschiede-im-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Technische Unterschiede im Detail
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Technische Unterschiede im Detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-psf-behandlung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 PSF-Behandlung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.1 PSF-Behandlung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MFBD:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deine-methodik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deine Methodik:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-lokalitat-vs-globalitat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Lokalität vs. Globalität
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.2 Lokalität vs. Globalität">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mfbd_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MFBD:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deine-methodik_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deine Methodik:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-konvergenz-stabilitat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Konvergenz &amp; Stabilität
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.3 Konvergenz &amp; Stabilität">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mfbd_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MFBD:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deine-methodik_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deine Methodik:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-praktische-anwendungen-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Praktische Anwendungen &amp; Performance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Praktische Anwendungen &amp; Performance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-wo-wird-mfbd-verwendet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Wo wird MFBD verwendet?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-performance-vergleiche-kostrykin-harmeling-2022" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Performance Vergleiche (Kostrykin &amp; Harmeling, 2022)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-kann-man-mfbd-mit-deiner-methodik-kombinieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Kann man MFBD mit deiner Methodik kombinieren?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Kann man MFBD mit deiner Methodik kombinieren?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-hybrid-ansatz-pre-stacking-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Hybrid-Ansatz: Pre-Stacking + MFBD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-alternativ-deine-methodik-als-input-zu-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Alternativ: Deine Methodik als Input zu MFBD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-wann-mfbd-vs-deine-methodik-wahlen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Wann MFBD vs. deine Methodik wählen?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Wann MFBD vs. deine Methodik wählen?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-entscheidungsmatrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Entscheidungsmatrix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-zusammenfassung-mfbd-deine-methodik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Zusammenfassung: MFBD &amp; deine Methodik
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Zusammenfassung: MFBD &amp; deine Methodik">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-kernmerkmale-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 Kernmerkmale MFBD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-deine-methodik-unique-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 Deine Methodik: Unique Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-referenzen-zu-mfbd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Referenzen zu MFBD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Referenzen zu MFBD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-klassische-fundamentale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Klassische Fundamentale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-aktuelle-implementierungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Aktuelle Implementierungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-raum-variable-psf-relevant-zu-deinen-tiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Raum-Variable PSF (Relevant zu deinen Tiles)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-abschlieende-bewertung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Abschließende Bewertung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Abschließende Bewertung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ahnleit-zwischen-mfbd-und-deiner-methodik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ähnleit zwischen MFBD und deiner Methodik?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sind-sie-konkurrenten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sind sie Konkurrenten?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#potential-fur-hybridisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Potential für Hybridisierung?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-empfehlung-fur-zukunftige-arbeiten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Empfehlung für zukünftige Arbeiten
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Empfehlung für zukünftige Arbeiten">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#publikations-angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publikations-Angle:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="multi-frame-blind-deconvolution-mfbd-detaillierte-analyse-und-vergleich-mit-deiner-methodik">Multi-Frame Blind Deconvolution (MFBD): Detaillierte Analyse und Vergleich mit deiner Methodik<a class="headerlink" href="#multi-frame-blind-deconvolution-mfbd-detaillierte-analyse-und-vergleich-mit-deiner-methodik" title="Permanent link">&para;</a></h1>
+<p><strong>Recherche-Gegenstand:</strong> Multi-Frame Blind Deconvolution (MFBD) — Technologie, Algorithmen, Vergleich mit tile-basierter Qualitätsrekonstruktion</p>
+<p><strong>Status:</strong> Basierend auf Analyse von 3 wissenschaftlichen Publikationen und 20+ arXiv-Papieren</p>
+<hr />
+<h2 id="1-was-ist-multi-frame-blind-deconvolution-mfbd">1. Was ist Multi-Frame Blind Deconvolution (MFBD)?<a class="headerlink" href="#1-was-ist-multi-frame-blind-deconvolution-mfbd" title="Permanent link">&para;</a></h2>
+<h3 id="11-definition-kernkonzept">1.1 Definition &amp; Kernkonzept<a class="headerlink" href="#11-definition-kernkonzept" title="Permanent link">&para;</a></h3>
+<p><strong>Multi-Frame Blind Deconvolution</strong> ist eine mathematische Technik zur <strong>gleichzeitigen Schätzung</strong> von:</p>
+<ol>
+<li><strong>Object</strong> (f): Das ursprüngliche, unverzerrte Bild</li>
+<li><strong>PSF</strong> (h_l): Die Punktspreizfunktion (Point Spread Function) für <strong>jeden Frame l</strong> der Sequenz</li>
+</ol>
+<p>aus einer Sequenz von <strong>schlecht aufgelösten, verzerrten Bildern</strong> (g_l).</p>
+<p><strong>Mathematisches Modell:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>g_l(x,y) = f(x,y) * h_l(x,y) + ε_l(x,y)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>wobei:
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  g_l = beobachtetes (unscharfes) Bild l
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  f = unbekanntes, scharfes Originalobject
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  h_l = unbekannte PSF für Frame l
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  * = Faltung (Convolution)
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  ε_l = Rauschen
+</span></code></pre></div></p>
+<p><strong>"Blind"</strong> = beide Faktoren (f und h) sind unbekannt<br />
+<strong>"Multi-Frame"</strong> = Nutzung von vielen Frames (Sequenz) statt einzelnes Bild</p>
+<hr />
+<h3 id="12-wissenschaftliche-grundlagen">1.2 Wissenschaftliche Grundlagen<a class="headerlink" href="#12-wissenschaftliche-grundlagen" title="Permanent link">&para;</a></h3>
+<p><strong>Ursprüngliche Arbeiten:</strong>
+- <strong>Jefferies &amp; Christou (1993):</strong> "Restoration of atmospherically degraded images" — Erste MFBD in Astronomie
+- <strong>Harikumar &amp; Bresler (1999):</strong> "Perfect blind restoration of images blurred by multiple filters" — Mathematische Fundamente
+- <strong>Schulz (1993):</strong> "Multiframe blind deconvolution of astronomical images"</p>
+<p><strong>Anwendungen:</strong>
+- Solar Imaging (dominierend seit 2005)
+- Extreme Adaptive Optics (ExAO) Post-Processing
+- Ground-based Astronomy bei schlechten Seeing-Bedingungen
+- Remote Sensing (Satellite Imaging)</p>
+<hr />
+<h2 id="2-wie-mfbd-funktioniert-mathematik-algorithmen">2. Wie MFBD funktioniert (Mathematik &amp; Algorithmen)<a class="headerlink" href="#2-wie-mfbd-funktioniert-mathematik-algorithmen" title="Permanent link">&para;</a></h2>
+<h3 id="21-das-optimierungsproblem">2.1 Das Optimierungsproblem<a class="headerlink" href="#21-das-optimierungsproblem" title="Permanent link">&para;</a></h3>
+<p><strong>Kostenfunktion zu minimieren:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>χ² = Σ_l Σ_(x,y) [ (g_l(x,y) - f(x,y) * h_l(x,y)) / σ_l(x,y) ]²
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>wobei:
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  σ_l(x,y) = Gewichtung basierend auf lokaler Rauschvaranz
+</span></code></pre></div>
+<p><strong>Vereinfacht (bei homogenem Rauschen):</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Minimize: Σ_l ||g_l - f * h_l||²  über f und h_l
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> 
+- Non-konvex Optimierungsproblem
+- Lokalminima-Fallen (local minima)
+- Je mehr Frames, desto höher die Dimensionalität (schlechter)</p>
+<h3 id="22-klassische-mfbd-algorithmen">2.2 Klassische MFBD-Algorithmen<a class="headerlink" href="#22-klassische-mfbd-algorithmen" title="Permanent link">&para;</a></h3>
+<h4 id="a-harikumar-bresler-1999">A) Harikumar &amp; Bresler (1999)<a class="headerlink" href="#a-harikumar-bresler-1999" title="Permanent link">&para;</a></h4>
+<p><strong>Ansatz:</strong> Iterative Alternating Minimization (IAM)</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Schritt 1: Schätze h_l mit festem f
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>           h_l ← arg min_h ||g_l - f * h_l||²
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Schritt 2: Schätze f mit festem h_l
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>           f ← arg min_f Σ_l ||g_l - f * h_l||²
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>Wiederhole bis Konvergenz
+</span></code></pre></div>
+<p><strong>Limitation:</strong> 
+- O(n·N_a × n·N_a) Matrix-Dimension → Memory-Explosion bei vielen Frames
+- Praktisch infeasible für n &gt; 50 Frames bei hoher Auflösung</p>
+<h4 id="b-sroubek-milanfar-2012-robustheit-gegen-rauschen">B) Šroubek &amp; Milanfar (2012) — Robustheit gegen Rauschen<a class="headerlink" href="#b-sroubek-milanfar-2012-robustheit-gegen-rauschen" title="Permanent link">&para;</a></h4>
+<p><strong>Verbesserung:</strong> Regularisierung + Prior</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Minimize: Σ_l ||g_l - f * h_l||² 
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>          + λ_f · Regularizer(f)    // z.B. Sparse Gradient
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>          + λ_h · Regularizer(h)    // Positivität, Normalisierung
+</span></code></pre></div>
+<p><strong>Vorteil:</strong> Robuster gegen hohe Rauschpegel<br />
+<strong>Nachteil:</strong> Immer noch O(n·N_a × n·N_a) Matrizen</p>
+<h4 id="c-harmeling-et-al-2009-online-mfbd">C) Harmeling et al. (2009) — Online MFBD<a class="headerlink" href="#c-harmeling-et-al-2009-online-mfbd" title="Permanent link">&para;</a></h4>
+<p><strong>Innovation:</strong> One-frame-at-a-time Verarbeitung</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Online Minimization:
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  For each new frame g_l:
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    Update f und h_l basierend nur auf g_l
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    (Kumulativ über alle Frames)
+</span></code></pre></div>
+<p><strong>Vorteil:</strong> Memory-Komplexität O(N_x) statt O(n·N_x)<br />
+<strong>Limitation:</strong> Konvergenz schwächer, mehr Iterationen nötig</p>
+<h4 id="d-hope-jefferies-2011-compact-mfbd-cmfbd">D) Hope &amp; Jefferies (2011) — Compact MFBD (CMFBD)<a class="headerlink" href="#d-hope-jefferies-2011-compact-mfbd-cmfbd" title="Permanent link">&para;</a></h4>
+<p><strong>Strategie:</strong> 2-Stufen-Prozess</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Phase 1: CMFBD mit wenigen &quot;Best-Frames&quot;
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>         - Selektiere besten Frames (z.B. Top 5%)
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>         - Schätze f und h nur für diese Frames
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>         - Geringes Rausch-Problem (wenig Variablen)
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>Phase 2: Expandiere zu allen Frames
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>         - Verwende CMFBD-Schätzer als Initialisierung
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>         - Führe volle MFBD mit allen Frames durch
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>         - Bessere Konvergenz (guter Starting-Punkt)
+</span></code></pre></div>
+<p><strong>Resultat:</strong> Balance zwischen Qualität und Rechenzeit<br />
+<strong>Used in:</strong> Kraken MFBD (Hope et al., 2022) für ExAO-Imaging</p>
+<h4 id="e-kostrykin-harmeling-2022-eigenvector-mfbd">E) Kostrykin &amp; Harmeling (2022) — Eigenvector MFBD<a class="headerlink" href="#e-kostrykin-harmeling-2022-eigenvector-mfbd" title="Permanent link">&para;</a></h4>
+<p><strong>Radikale Neuerung:</strong> Keine Filter-Schätzung erforderlich!</p>
+<p><strong>Ansatz:</strong> Signal Subspace Analysis</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Schritt 1: Berechne Kovarianzvarianz der Observations:
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>           Σ = (1/n) Y·Y^T
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>Schritt 2: EVD (Eigenvalue Decomposition):
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>           Σ = U·Λ·U^T
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>Schritt 3: Signal Subspace (erste m Eigenvektoren):
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>           U_m = [u_1, ..., u_m]
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>Schritt 4: f erscheint als Eigenvector von:
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>           M = Σ_k B_k^T (I - U_m·U_m^T) B_k
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>           f* = arg min ||P_{U_⊥} x_k||²
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>Schritt 5: Optional: Estimate PSF Footprint h mit
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>           alternating optimization
+</span></code></pre></div>
+<p><strong>Innovation:</strong> 
+- Keine Filter-Schätzung ⟹ Parameter-Raum reduziert!
+- Direkter Eigenvector-Solver statt iterative Minimization
+- Funktioniert mit SEHR vielem Rauschen (n → ∞)</p>
+<p><strong>Komplexität:</strong> O(N_x + m·N_y) statt O(n·N_x)</p>
+<hr />
+<h3 id="23-kraken-mfbd-hope-et-al-2022-state-of-the-art">2.3 Kraken MFBD (Hope et al., 2022) — State-of-the-Art<a class="headerlink" href="#23-kraken-mfbd-hope-et-al-2022-state-of-the-art" title="Permanent link">&para;</a></h3>
+<p><strong>Kontext:</strong> Extreme Adaptive Optics Post-Processing (ExAO)</p>
+<p><strong>Input:</strong> 
+- 1000–60,000 Frames bei 1 kHz (KHz-Kadenz)
+- Atmosphere-turbulence residual PSF (Strehl ~0.3)
+- Goal: Diffraction-limited resolution recovery</p>
+<p><strong>Algorithmus:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Step 1: Best-Frames Selection
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>        - Maximiere Peak Value + Sharpness
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>        - Select Top 0.5–1% (z.B. 3000/60000 frames)
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>Step 2: Compact MFBD (CMFBD) Initialization
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>        - Use nur beste 2–10 Frames
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>        - Estimate object f und PSFs h für diese
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>        - Cost function (Eq. 2 im Paper):
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>          χ² = Σ_k [(g_k - f*h_k)/σ_k]²
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>               + α·Σ_(k≠j) [negative penalty]
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>               + γ·[PSF consistency penalty]
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        - Constraint: f is band-limited
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>        - Variables: φ(x,y) and ψ(u,v) only
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>Step 3: PSF Modeling
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>        - P(u,v) = A(u,v) exp(-iψ(u,v))
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>          wobei A = Amplitude, ψ = Phase
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>        - h(x,y) = FT⁻¹[P * P̄] (autocorrelation)
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>        - Wavefront modeling: captures atmospheric variations
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
+</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>Step 4: Full MFBD with all frames
+</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>        - Initialize with CMFBD estimates
+</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>        - Minimize Eq. 1 mit conjugate gradient
+</span><span id="__span-8-26"><a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>        - Two restarts:
+</span><span id="__span-8-27"><a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>          1. Estimate ψ only (constant A)
+</span><span id="__span-8-28"><a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>          2. Estimate P_R, P_I (real/imag parts)
+</span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>
+</span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a>Step 5: Convergence Check
+</span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a>        - Δχ² &lt; 10⁻⁵ → Stop
+</span></code></pre></div>
+<p><strong>Result für α And Binary (16.3 mas separation):</strong>
+- Input: 60,000 frames, Strehl 0.3, seeing &gt; 1"
+- Output: FWHM = 6.7 mas (theoretical diffraction limit: 16.4 mas)
+- <strong>13-fold Improvement in Resolution!</strong></p>
+<hr />
+<h2 id="3-mfbd-vs-deine-tile-basierte-methodik">3. MFBD vs. deine Tile-Basierte Methodik<a class="headerlink" href="#3-mfbd-vs-deine-tile-basierte-methodik" title="Permanent link">&para;</a></h2>
+<h3 id="31-direkter-vergleich-der-grundkonzepte">3.1 Direkter Vergleich der Grundkonzepte<a class="headerlink" href="#31-direkter-vergleich-der-grundkonzepte" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Aspekt</th>
+<th>MFBD</th>
+<th>Deine Methodik (v3)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Was wird geschätzt?</strong></td>
+<td>Object f + PSF h_l</td>
+<td>Object f (PSF ist implizit in Gewichten)</td>
+</tr>
+<tr>
+<td><strong>PSF-Handling</strong></td>
+<td>Explizit für jeden Frame</td>
+<td>Lokal über Tiles, implizit in Qualitätsmetriken</td>
+</tr>
+<tr>
+<td><strong>Optimierungsproblem</strong></td>
+<td>Non-konvex, Eigen-/Gradient-Solver</td>
+<td>Linear (weighted averaging)</td>
+</tr>
+<tr>
+<td><strong>Komplexität</strong></td>
+<td>O(n·N_x) bis O(N_x)</td>
+<td>O(N_tiles·n) = O(N_x·n)</td>
+</tr>
+<tr>
+<td><strong>Frame-Selektion</strong></td>
+<td>Oft: Best-Frames Selection (Top 1–5%)</td>
+<td>Keine! Alle Frames verwenden</td>
+</tr>
+<tr>
+<td><strong>Linearität</strong></td>
+<td>Non-linear (Konvolution, PSF-Fitting)</td>
+<td><strong>Streng linear</strong></td>
+</tr>
+<tr>
+<td><strong>Clusterung</strong></td>
+<td>Keine (implizit durch Frame-Selektion)</td>
+<td><strong>State-based ohne Selektion</strong></td>
+</tr>
+<tr>
+<td><strong>PSF-Variation</strong></td>
+<td>Modelliert (h_l variiert pro Frame)</td>
+<td>Implizit: lokale FWHM-Variation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="32-philosophical-unterschiede">3.2 Philosophical Unterschiede<a class="headerlink" href="#32-philosophical-unterschiede" title="Permanent link">&para;</a></h3>
+<h4 id="mfbd-ansatz">MFBD Ansatz:<a class="headerlink" href="#mfbd-ansatz" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Forward Model:
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  g_l = f * h_l + noise
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>Umkehren (Inverse Problem):
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  &quot;Ich kenne g_l und Rausch σ_l
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>   Ich suche: f und h_l
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>   Constraint: f und h sollen physikalisch sinnvoll sein&quot;
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>Resultat: 
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>  - Super-resolution (diffraction limit) erreichbar
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>  - Benötigt viele Frames mit variabler PSF
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>  - Non-linear, teuer in Rechenzeit
+</span></code></pre></div>
+<h4 id="deine-methodik-ansatz">Deine Methodik Ansatz:<a class="headerlink" href="#deine-methodik-ansatz" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Gewichtetes Stacking:
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>  f_out = Σ_l W_l · f_l / Σ_l W_l
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>  wobei f_l bereits registriert (Pfad A/B)
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>Idee:
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>  &quot;Frames sind bereits registriert und debayert
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>   Ich gewichte lokal basierend auf Qualität
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>   Keine PSF-Schätzung nötig (PSF ist in f_l implizit)&quot;
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>Resultat:
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>  - Besseres SNR durch Stacking
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>  - Seeing-limitiert bleiben
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>  - Linear, schnell rechenbar
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>  - Fokus auf lokale Qualitätsvariationen
+</span></code></pre></div>
+<hr />
+<h3 id="33-komplementare-vs-konkurrierende-verfahren">3.3 Komplementäre vs. Konkurrierende Verfahren?<a class="headerlink" href="#33-komplementare-vs-konkurrierende-verfahren" title="Permanent link">&para;</a></h3>
+<p><strong>Frage:</strong> Sind MFBD und deine Methodik Konkurrenten oder komplementär?</p>
+<p><strong>Antwort: Beides!</strong></p>
+<h4 id="konkurrierend">Konkurrierend:<a class="headerlink" href="#konkurrierend" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>Beide sind Post-Processing-Techniken nach Registrierung
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>Beide versuchen, Qualität aus Multi-Frame-Sequenzen zu extrahieren
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>Alternative Pipelines:
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>  Pipeline A (MFBD):
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    Raw frames → Registrierung → MFBD → Super-resolution output
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>  Pipeline B (Deine Methodik):
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>    Raw frames → Registrierung + Debayer → Tile-weighted Stacking → Output
+</span></code></pre></div>
+<h4 id="komplementar">Komplementär:<a class="headerlink" href="#komplementar" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>MFBD benötigt Vorverarbeitung (Registrierung)
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>  → Deine Methodik könnte als Vorverarbeitung für MFBD dienen!
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    Raw frames → Tile-weighted Pre-Stack 
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    → MFBD auf Pre-Stack + einzelne frames
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    → Super-resolution Output
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>Deine Methodik könnte von MFBD-PSF-Schätzungen profitieren
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>  → Lokale PSF-Schätzung (von MFBD) → bessere Tiles-Gewichtung
+</span></code></pre></div>
+<hr />
+<h2 id="4-technische-unterschiede-im-detail">4. Technische Unterschiede im Detail<a class="headerlink" href="#4-technische-unterschiede-im-detail" title="Permanent link">&para;</a></h2>
+<h3 id="41-psf-behandlung">4.1 PSF-Behandlung<a class="headerlink" href="#41-psf-behandlung" title="Permanent link">&para;</a></h3>
+<h4 id="mfbd">MFBD:<a class="headerlink" href="#mfbd" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Explizite PSF-Schätzung für jeden Frame:
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>  h_l(x,y) oder H_l(u,v) im Fourier-Raum
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>Modellierung:
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>  - Moffat PSF: h(r) = (α-1) / (π·β²) · (1 + (r/β)²)^(-α)
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>  - Or: Band-limited (Kraken): H(u,v) = A(u,v) exp(-iψ(u,v))
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>Benefit:
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>  - Explizites Verständnis der Atmosphären-Aberration pro Frame
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>  - Kann für Adaptive Optics feedback genutzt werden
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>Cost:
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>  - Schätzung ist instabil bei Rauschen
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>  - Viele Variablen (multipliziert mit Frame-Anzahl)
+</span></code></pre></div>
+<h4 id="deine-methodik">Deine Methodik:<a class="headerlink" href="#deine-methodik" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Implizite PSF-Behandlung:
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>  - Global: G_f,c = exp(Q_f,c) berücksichtigt σ (Rausch)
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>  - Lokal: L_f,t,c basiert auf lokaler FWHM + Struktur-Metriken
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>Keine explizite PSF-Schätzung pro Frame nötig
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>  → Vereinfachung, weniger Parameter
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>Tradeoff:
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>  - Keine Super-resolution möglich (seeing-limitiert)
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>  - Aber: Robuster gegen Rausch, schneller
+</span></code></pre></div>
+<hr />
+<h3 id="42-lokalitat-vs-globalitat">4.2 Lokalität vs. Globalität<a class="headerlink" href="#42-lokalitat-vs-globalitat" title="Permanent link">&para;</a></h3>
+<h4 id="mfbd_1">MFBD:<a class="headerlink" href="#mfbd_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Global PSF für ganzes Frame:
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>  h_l ist eine einzige PSF
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>Problem bei räumlich variierendem Seeing:
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>  &quot;PSF ist nicht constant über das Feld!&quot;
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>Lösung: Spatially-Variant MFBD (SVMFBD)
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>  - Tile-basierte h_tile pro Tile
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>  - Viel komplexer!
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>Paper: Hirsch et al. (2010): &quot;Efficient filter flow for space-variant 
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>        multiframe blind deconvolution&quot;
+</span></code></pre></div>
+<h4 id="deine-methodik_1">Deine Methodik:<a class="headerlink" href="#deine-methodik_1" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>Lokal für jedes Tile:
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>  - L_f,t,c berücksichtigt lokale Variation
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>  - FWHM-adaptive Tile-Größe (§3.3)
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>  - Möhrt naturally räumliche PSF-Variation
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>Vorteil:
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>  - Sees-adaptive Tiling behandelt räumliche Variation
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>  - Keine separate &quot;SVMFBD&quot;-Komplexität nötig
+</span></code></pre></div>
+<hr />
+<h3 id="43-konvergenz-stabilitat">4.3 Konvergenz &amp; Stabilität<a class="headerlink" href="#43-konvergenz-stabilitat" title="Permanent link">&para;</a></h3>
+<h4 id="mfbd_2">MFBD:<a class="headerlink" href="#mfbd_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>Non-konvex Optimierungsproblem:
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>  Σ_l ||g_l - f * h_l||² ist nicht konvex in (f, h)
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>Lokalminima-Problem:
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>  - Je mehr Frames, desto größer die Dimension
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>  - Desto tiefer die lokalen Minima
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>Lösung (Kraken):
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>  1. Best-Frames Selection (eliminiert schlechte Frames)
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>  2. CMFBD Initialization (guter Starting-Punkt)
+</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>  3. Multi-step refinement (Phase 1: ψ nur, Phase 2: P_R, P_I)
+</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>
+</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>Convergence-Kriterium:
+</span><span id="__span-17-14"><a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>  Δχ² &lt; 10⁻⁵
+</span></code></pre></div>
+<h4 id="deine-methodik_2">Deine Methodik:<a class="headerlink" href="#deine-methodik_2" title="Permanent link">&para;</a></h4>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>Linear Weighted Averaging:
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>  f_out = Σ_l W_l · f_l / Σ_l W_l
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>Direkt lösbar (keine Iteration):
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>  - Kein Lokalminima-Problem
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>  - Deterministic output
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>Stabilitäts-Fallbacks (§3.6):
+</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>  - Low-weight Tiles: Fallback zu ungewichteten Mittel
+</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a>  - Explizite Clamping von Gewichten
+</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>
+</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>Convergence:
+</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>  Keine Iteration nötig! Direkte Lösung.
+</span></code></pre></div>
+<hr />
+<h2 id="5-praktische-anwendungen-performance">5. Praktische Anwendungen &amp; Performance<a class="headerlink" href="#5-praktische-anwendungen-performance" title="Permanent link">&para;</a></h2>
+<h3 id="51-wo-wird-mfbd-verwendet">5.1 Wo wird MFBD verwendet?<a class="headerlink" href="#51-wo-wird-mfbd-verwendet" title="Permanent link">&para;</a></h3>
+<p><strong>Solar Imaging (Dominant):</strong>
+- Swedish 1-meter Solar Telescope (SSST)
+- Hinode/SOT (Space Telescope)
+- IRIS (Chromatically-variant imaging)
+- <strong>Publikationen:</strong> Hunderte pro Jahr in SoPh (Solar Physics)</p>
+<p><strong>Extreme Adaptive Optics:</strong>
+- Large Binocular Telescope (LBT) SHARK-VIS (2022)
+- Keck Telescope (experimental)
+- Gemini 8-m (speckle + MFBD)</p>
+<p><strong>Military/Remote Sensing:</strong>
+- Satellite imaging from ground (atmospheric degradation)
+- High-resolution reconnaissance</p>
+<p><strong>Frequency:</strong> ~50+ papers/year on MFBD in arXiv</p>
+<h3 id="52-performance-vergleiche-kostrykin-harmeling-2022">5.2 Performance Vergleiche (Kostrykin &amp; Harmeling, 2022)<a class="headerlink" href="#52-performance-vergleiche-kostrykin-harmeling-2022" title="Permanent link">&para;</a></h3>
+<p><strong>Test:</strong> Synthetisch generierte Frames mit bekanntem Truth</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>Scenario 1: Moderate Noise (σ² = 0.1–1.0)
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>  n = 1000 frames, 128×128 px, PSF 10×10 px
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>  Method                    | Runtime  | RMS Error
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>  ========================|==========|===========
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>  Harmeling et al. (2009) | ~600 s   | 7.58
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>  Kostrykin/Harmeling (22)| ~9.3 s   | 5.67
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>  ════════════════════════════════════════════════
+</span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>
+</span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>  Improvement: ~26% better quality, 64× faster!
+</span><span id="__span-19-11"><a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>
+</span><span id="__span-19-12"><a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>Scenario 2: High Noise (σ² = 50)
+</span><span id="__span-19-13"><a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a>  n = 5000 frames, 40×40 px, PSF 5×5 px
+</span><span id="__span-19-14"><a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>
+</span><span id="__span-19-15"><a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a>  Online MFBD              | 245 s    | 7.58 (nach 9.3s: 12.49)
+</span><span id="__span-19-16"><a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>  Eigenvector MFBD         | 9.3 s    | 5.67
+</span><span id="__span-19-17"><a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a>  ════════════════════════════════════════════════
+</span><span id="__span-19-18"><a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a>
+</span><span id="__span-19-19"><a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a>  Same runtime: 34% better!
+</span><span id="__span-19-20"><a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a>  64× speedup for full convergence
+</span></code></pre></div>
+<hr />
+<h2 id="6-kann-man-mfbd-mit-deiner-methodik-kombinieren">6. Kann man MFBD mit deiner Methodik kombinieren?<a class="headerlink" href="#6-kann-man-mfbd-mit-deiner-methodik-kombinieren" title="Permanent link">&para;</a></h2>
+<h3 id="61-hybrid-ansatz-pre-stacking-mfbd">6.1 Hybrid-Ansatz: Pre-Stacking + MFBD<a class="headerlink" href="#61-hybrid-ansatz-pre-stacking-mfbd" title="Permanent link">&para;</a></h3>
+<p><strong>Idee:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>Pipeline:
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>  Raw Frames (1000×)
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>    ↓
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>  [Deine Methodik: Tile-weighted Pre-Stack]
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>  ↓
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>  Pre-Stacked Image (~50–100 effective frames)
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>    ↓
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>  [MFBD on Pre-Stack + Raw Frames]
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>  → Schätze f_final und h_l (low-rank model)
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>    ↓
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>  Final Deconvolution
+</span></code></pre></div>
+<p><strong>Vorteile:</strong>
+- MFBD bekommt weniger Rauschen (Pre-Stack mit deinen Gewichten)
+- MFBD hat weniger Frames zu verarbeiten (CMFBD effektiver)
+- Localität bleibt erhalten (Deine Tiles informieren MFBD-PSF-Schätzung)</p>
+<p><strong>Implementation:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Step 1: Apply your tile-weighted stacking
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>        f_pre = Σ_l W_l · f_l / Σ_l W_l
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>Step 2: Compute residuals (per frame)
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>        r_l = g_l - f_pre * (some PSF estimate)
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>
+</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>Step 3: Run MFBD on:
+</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>        Input: f_pre (initial guess) + g_l (residuals)
+</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a>        Output: f_final with refined PSFs
+</span></code></pre></div></p>
+<hr />
+<h3 id="62-alternativ-deine-methodik-als-input-zu-mfbd">6.2 Alternativ: Deine Methodik als Input zu MFBD<a class="headerlink" href="#62-alternativ-deine-methodik-als-input-zu-mfbd" title="Permanent link">&para;</a></h3>
+<p><strong>Möglich nur wenn:</strong>
+1. Registrierung ist akkurat genug (subpixel)
+2. Debayering ist neutral (linear wie in Pfad B)
+3. MFBD akzeptiert weighted pre-processed frames</p>
+<p><strong>Reality Check:</strong> MFBD benötigt Roh-Frames meist, nicht pre-procesed.<br />
+<strong>Aber:</strong> Konzept ist interessant für zukünftige Hybrid-Systeme.</p>
+<hr />
+<h2 id="7-wann-mfbd-vs-deine-methodik-wahlen">7. Wann MFBD vs. deine Methodik wählen?<a class="headerlink" href="#7-wann-mfbd-vs-deine-methodik-wahlen" title="Permanent link">&para;</a></h2>
+<h3 id="71-entscheidungsmatrix">7.1 Entscheidungsmatrix<a class="headerlink" href="#71-entscheidungsmatrix" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Szenario</th>
+<th>Best Choice</th>
+<th>Grund</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>DSO Photography (Amateur)</strong></td>
+<td><strong>Deine Methodik</strong></td>
+<td>Schnell, einfach, keine Super-res nötig, robust</td>
+</tr>
+<tr>
+<td><strong>Solar Imaging (Professional)</strong></td>
+<td><strong>MFBD</strong></td>
+<td>Diffraction-limit recovery, krisp, etabliert</td>
+</tr>
+<tr>
+<td><strong>Ground-based Astronomy + ExAO</strong></td>
+<td><strong>Kraken MFBD</strong></td>
+<td>Post-AO residuals, PSF variabel, 1000s frames/sec</td>
+</tr>
+<tr>
+<td><strong>Very High Noise</strong></td>
+<td><strong>Both</strong></td>
+<td>Hybrid: Pre-stack (deine) + MFBD (refine)</td>
+</tr>
+<tr>
+<td><strong>Speed Critical</strong></td>
+<td><strong>Deine Methodik</strong></td>
+<td>Linear, O(N), instant</td>
+</tr>
+<tr>
+<td><strong>Best Quality</strong></td>
+<td><strong>MFBD</strong></td>
+<td>Super-resolution, wenn frames variabel sind</td>
+</tr>
+<tr>
+<td><strong>Frame-Selektion muss vermieden</strong></td>
+<td><strong>Deine Methodik</strong></td>
+<td>Harte Invariante!</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-zusammenfassung-mfbd-deine-methodik">8. Zusammenfassung: MFBD &amp; deine Methodik<a class="headerlink" href="#8-zusammenfassung-mfbd-deine-methodik" title="Permanent link">&para;</a></h2>
+<h3 id="81-kernmerkmale-mfbd">8.1 Kernmerkmale MFBD<a class="headerlink" href="#81-kernmerkmale-mfbd" title="Permanent link">&para;</a></h3>
+<p>✓ <strong>Explizite PSF-Schätzung</strong> für jeden Frame<br />
+✓ <strong>Super-resolution</strong> erreichbar (diffraction limit)<br />
+✓ <strong>Non-linear</strong>, inverse Problem → komplexer<br />
+✓ <strong>Frame-Selektion</strong> oft erforderlich (Best-Frames)<br />
+✓ <strong>Lokalminima</strong> können Probleme machen<br />
+✓ <strong>Sehr aktuell</strong> in Solar &amp; ExAO<br />
+✗ Langsam ohne Optimierungen (alt: O(n·N_a²))<br />
+✗ Parameter-Explosion bei vielen Frames  </p>
+<h3 id="82-deine-methodik-unique-features">8.2 Deine Methodik: Unique Features<a class="headerlink" href="#82-deine-methodik-unique-features" title="Permanent link">&para;</a></h3>
+<p>✓ <strong>Streng linear</strong> → deterministisch, stabil<br />
+✓ <strong>Keine Frame-Selektion</strong> → alle Frames verwenden<br />
+✓ <strong>Tile-basiert</strong> → natürlich räumlich-variierbar<br />
+✓ <strong>Schnell</strong> → O(N_tiles·n), direkter averaging<br />
+✓ <strong>State-based Clusterung</strong> → novel<br />
+✓ <strong>CFA-aware Pfad</strong> → Farbphasen-erhaltend<br />
+✗ Seeing-limitiert (keine Super-resolution)<br />
+✗ Nicht für extreme Adaptive Optics optimiert  </p>
+<hr />
+<h2 id="9-referenzen-zu-mfbd">9. Referenzen zu MFBD<a class="headerlink" href="#9-referenzen-zu-mfbd" title="Permanent link">&para;</a></h2>
+<h3 id="91-klassische-fundamentale">9.1 Klassische Fundamentale<a class="headerlink" href="#91-klassische-fundamentale" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Jefferies &amp; Christou (1993)</strong> — ApJ 415:862</li>
+<li>
+<p>Erste MFBD in Astronomie</p>
+</li>
+<li>
+<p><strong>Schulz (1993)</strong> — JOSA 10:1064</p>
+</li>
+<li>
+<p>Multiframe blind deconvolution theory</p>
+</li>
+<li>
+<p><strong>Harikumar &amp; Bresler (1999)</strong> — IEEE Trans. IP 8(2):202–219</p>
+</li>
+<li>
+<p>Mathematical foundations, alternating minimization</p>
+</li>
+<li>
+<p><strong>Šroubek &amp; Milanfar (2012)</strong> — IEEE Trans. IP 21(4):1687–1700</p>
+</li>
+<li>Robust MFBD via fast alternating minimization</li>
+</ol>
+<h3 id="92-aktuelle-implementierungen">9.2 Aktuelle Implementierungen<a class="headerlink" href="#92-aktuelle-implementierungen" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Hope &amp; Jefferies (2011)</strong> — Opt. Lett. 36:867</li>
+<li>
+<p>Compact MFBD (CMFBD)</p>
+</li>
+<li>
+<p><strong>Harmeling et al. (2009)</strong> — ICCP 2009</p>
+</li>
+<li>
+<p>Online blind deconvolution for astronomical imaging</p>
+</li>
+<li>
+<p><strong>Kostrykin &amp; Harmeling (2022)</strong> — arXiv:2210.00252</p>
+</li>
+<li>"Blindly Deconvolving Super-noisy Blurry Image Sequences"</li>
+<li>
+<p>Eigenvector method, no filter estimation!</p>
+</li>
+<li>
+<p><strong>Hope et al. (2022)</strong> — arXiv:2202.02178</p>
+</li>
+<li>"Kraken multi-frame blind deconvolution algorithm"</li>
+<li>Post-AO high-resolution imaging (ExAO)</li>
+</ol>
+<h3 id="93-raum-variable-psf-relevant-zu-deinen-tiles">9.3 Raum-Variable PSF (Relevant zu deinen Tiles)<a class="headerlink" href="#93-raum-variable-psf-relevant-zu-deinen-tiles" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Hirsch et al. (2010)</strong> — CVPR</li>
+<li>"Efficient filter flow for space-variant multiframe blind deconvolution"</li>
+</ol>
+<hr />
+<h2 id="10-abschlieende-bewertung">10. Abschließende Bewertung<a class="headerlink" href="#10-abschlieende-bewertung" title="Permanent link">&para;</a></h2>
+<h3 id="ahnleit-zwischen-mfbd-und-deiner-methodik">Ähnleit zwischen MFBD und deiner Methodik?<a class="headerlink" href="#ahnleit-zwischen-mfbd-und-deiner-methodik" title="Permanent link">&para;</a></h3>
+<p><strong>Oberflächlich:</strong> 
+- Beide verwenden Multi-Frame-Sequenzen
+- Beide versuchen, Qualität zu verbessern
+- Beide berücksichtigen Variation zwischen Frames</p>
+<p><strong>Tiefer:</strong>
+- MFBD: Inverse Problem (Schätzung von f und h)
+- Deine Methodik: Gewichtetes Averaging (f bereits bekannt, nur Gewichte)
+- MFBD ist <strong>non-linear</strong>, deine Methodik ist <strong>linear</strong></p>
+<h3 id="sind-sie-konkurrenten">Sind sie Konkurrenten?<a class="headerlink" href="#sind-sie-konkurrenten" title="Permanent link">&para;</a></h3>
+<p><strong>In bestimmten Szenarien: Ja</strong>
+- Beide sind Post-Processing nach Registrierung
+- Beide wollen Bildqualität aus Sequenzen extrahieren</p>
+<p><strong>Aber: Unterschiedliche Ziele</strong>
+- MFBD zielt auf <strong>Super-Resolution</strong> (diffraction-limit)
+- Deine Methodik zielt auf <strong>robustes Stacking</strong> mit lokaler Qualitätsbewertung</p>
+<h3 id="potential-fur-hybridisierung">Potential für Hybridisierung?<a class="headerlink" href="#potential-fur-hybridisierung" title="Permanent link">&para;</a></h3>
+<p><strong>Ja, definitiv:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Pre-Stack (deine Methodik) → Clean Input
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>                          ↓
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>                    MFBD (Refine) → Final Output
+</span></code></pre></div></p>
+<p>Diese Hybrid-Strategie könnte die Stärken von beiden kombinieren!</p>
+<hr />
+<h2 id="11-empfehlung-fur-zukunftige-arbeiten">11. Empfehlung für zukünftige Arbeiten<a class="headerlink" href="#11-empfehlung-fur-zukunftige-arbeiten" title="Permanent link">&para;</a></h2>
+<h3 id="publikations-angle">Publikations-Angle:<a class="headerlink" href="#publikations-angle" title="Permanent link">&para;</a></h3>
+<p>Wenn du MFBD erwähnst in einer Publikation:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Position deiner Methodik:
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>&quot;Während Multi-Frame Blind Deconvolution (MFBD) 
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a> eine Super-resolution durch explizite PSF-Schätzung 
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a> erreicht (Hope et al. 2022), fokussiert diese Arbeit
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a> auf robustes, lokal-gewichtetes Stacking mit 
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a> expliziter Tile-Geometrie und state-basierter 
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a> Clusterung ohne Frame-Selektion. 
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a> Diese Ansätze sind komplementär: 
+</span><span id="__span-23-10"><a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a> Die tile-basierten Gewichte könnten zukünftig 
+</span><span id="__span-23-11"><a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a> als Input für MFBD-Vorverarbeitung dienen.&quot;
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2236 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Differences between Methodology v3.3.8 and v3.3.9 - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#differences-between-methodology-v338-and-v339" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Differences between Methodology v3.3.8 and v3.3.9
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-structural-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Structural Changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Structural Changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-version-and-objective-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Version and Objective Definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-new-or-relocated-subsections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 New or Relocated Subsections
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-changes-in-the-reconstruction-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Changes in the Reconstruction Core
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Changes in the Reconstruction Core">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-linearity-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Linearity Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-global-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Global Normalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-adaptive-global-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Adaptive Global Weights
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-tile-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Tile Geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-local-tile-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Local Tile Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-tile-reconstruction-and-ola" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.6 Tile Reconstruction and OLA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#37-state-based-clustering-and-synthetic-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.7 State-Based Clustering and Synthetic Frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#38-final-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.8 Final Stacking
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-changes-in-bge-and-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Changes in BGE and PCC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Changes in BGE and PCC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-bge-sampling-and-tile-reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 BGE Sampling and Tile Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-coarse-grid-and-surface-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Coarse Grid and Surface Fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-bge-autotuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 BGE Autotuning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-adaptive-grid-and-rbf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Adaptive Grid and RBF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 PCC
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-changes-in-validation-and-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Changes in Validation and Defaults
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Changes in Validation and Defaults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-recommended-numerical-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Recommended Numerical Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-changes-in-scope-and-optional-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Changes in Scope and Optional Extensions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Changes in Scope and Optional Extensions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-optional-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Optional Extensions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-ml-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 ML Extension
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-main-net-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Main Net Effects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-note-on-the-nature-of-this-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Note on the Nature of This Document
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="differences-between-methodology-v338-and-v339">Differences between Methodology v3.3.8 and v3.3.9<a class="headerlink" href="#differences-between-methodology-v338-and-v339" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Comparison document<br />
+<strong>Compared files:</strong><br />
+- <code>doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md</code>
+- <code>doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md</code></p>
+<hr />
+<h2 id="1-summary">1. Summary<a class="headerlink" href="#1-summary" title="Permanent link">&para;</a></h2>
+<p><code>v3.3.9</code> is not just an editorial revision of <code>v3.3.8</code>; it is a substantive tightening of the methodology core. The most important changes are:</p>
+<ol>
+<li>clean separation of additive background <code>B_{f,c}</code> and multiplicative photometric scaling <code>P_{f,c}</code></li>
+<li>removal of tile-wise nonlinear renormalization before OLA from the mandatory core</li>
+<li>soft local STAR/STRUCTURE blending instead of hard switching</li>
+<li>support-aware overlap-add semantics with explicit exclusion of canvas-invalid or unsupported pixels</li>
+<li>mass-preserving cluster aggregation in full mode</li>
+<li>stronger normative definitions for BGE, PCC, validation, and ML-mask integration</li>
+</ol>
+<hr />
+<h2 id="2-structural-changes">2. Structural Changes<a class="headerlink" href="#2-structural-changes" title="Permanent link">&para;</a></h2>
+<h3 id="21-version-and-objective-definition">2.1 Version and Objective Definition<a class="headerlink" href="#21-version-and-objective-definition" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>v3.3.8</code> was updated to <code>v3.3.9</code>.</li>
+<li>The objective section was materially refocused.</li>
+<li>Newly emphasized in <code>v3.3.9</code>:</li>
+<li>separation of additive background and photometric scaling</li>
+<li>prohibition of tile-wise nonlinear renormalization in the mandatory core</li>
+<li>soft local quality blending</li>
+<li>mass-preserving cluster aggregation</li>
+<li>support-aware OLA with deterministic boundary coverage</li>
+</ul>
+<h3 id="22-new-or-relocated-subsections">2.2 New or Relocated Subsections<a class="headerlink" href="#22-new-or-relocated-subsections" title="Permanent link">&para;</a></h3>
+<p>New in <code>v3.3.9</code>:</p>
+<ul>
+<li><code>4.1.1 Optional Pre-Warp CFA Defect-Pixel Suppression (Feature-Gated)</code></li>
+<li><code>6.3.10 RBF Surface Mathematical Specification</code></li>
+<li><code>6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression</code></li>
+</ul>
+<p>Removed or replaced in <code>v3.3.9</code>:</p>
+<ul>
+<li><code>5.7.1 Tile Normalization before OLA</code></li>
+<li><code>5.7.1a Robust Tile-Normalization Guard</code></li>
+<li><code>5.7.1b Photometric Preservation after OLA</code></li>
+<li>the old RBF appendix in <code>9.2.7</code> was removed and relocated to <code>6.3.10</code></li>
+</ul>
+<hr />
+<h2 id="3-changes-in-the-reconstruction-core">3. Changes in the Reconstruction Core<a class="headerlink" href="#3-changes-in-the-reconstruction-core" title="Permanent link">&para;</a></h2>
+<h3 id="31-linearity-semantics">3.1 Linearity Semantics<a class="headerlink" href="#31-linearity-semantics" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code> adds explicitly:</p>
+<ul>
+<li>tile-wise data-dependent renormalization of reconstructed pixel values before OLA is <strong>not</strong> part of the mandatory linear core</li>
+</ul>
+<p>This is a central methodological change relative to <code>v3.3.8</code>, where that normalization was still normative in <code>5.7.1</code>.</p>
+<h3 id="32-global-normalization">3.2 Global Normalization<a class="headerlink" href="#32-global-normalization" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>derived linear normalization in the core from the global background level</li>
+<li><code>I = I_raw / max(B, eps_bg)</code></li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>introduces a mandatory two-step path:</li>
+<li>additive background subtraction <code>J = I_raw - B</code></li>
+<li>photometric scaling <code>I = J / max(P, eps_scale)</code></li>
+<li>defines <code>photometric_scale()</code> bindingly:</li>
+<li>ensemble stellar-flux scaling</li>
+<li>exposure-time ratio</li>
+<li>deterministic fallback <code>P = 1</code></li>
+<li>explicitly forbids deriving <code>P</code> solely from sky background <code>B</code></li>
+</ul>
+<h3 id="33-adaptive-global-weights">3.3 Adaptive Global Weights<a class="headerlink" href="#33-adaptive-global-weights" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>allowed optional adaptive weighting from variances of z-normalized metrics</li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>makes the static weights the mandatory core</li>
+<li>keeps adaptive weights only as an optional extension</li>
+<li>requires documented utility/tie-break semantics instead of a simple <code>Var(z(.))</code> heuristic</li>
+</ul>
+<h3 id="34-tile-geometry">3.4 Tile Geometry<a class="headerlink" href="#34-tile-geometry" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code> tightens tile geometry:</p>
+<ul>
+<li>explicit <code>T_hi = floor(min(W,H)/D)</code></li>
+<li>deterministic compact-tile mode when <code>T_hi &lt; T_min</code></li>
+<li>additional guards for <code>S &lt;= 0</code>, <code>O &gt;= T</code>, <code>T &lt;= 0</code></li>
+<li>explicit note that some guards are purely defensive under valid preconditions</li>
+</ul>
+<h3 id="35-local-tile-metrics">3.5 Local Tile Metrics<a class="headerlink" href="#35-local-tile-metrics" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>used hard STAR/STRUCTURE classification</li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>replaces classification with <code>eta_t</code> as a soft STAR/STRUCTURE blend factor</li>
+<li>adds binding canvas exclusion for all local metrics</li>
+<li>extends regularization with:</li>
+<li>local confidence <code>U_{f,t,c}</code></li>
+<li>edge-aware neighbor affinity <code>A_{t,u}</code></li>
+<li><code>eps_affinity</code> guard</li>
+<li>introduces <code>k_local</code> as an explicit local weight scale factor</li>
+</ul>
+<h3 id="36-tile-reconstruction-and-ola">3.6 Tile Reconstruction and OLA<a class="headerlink" href="#36-tile-reconstruction-and-ola" title="Permanent link">&para;</a></h3>
+<p>This is one of the largest differences between the two versions.</p>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>defined tile-wise median/MAD normalization before OLA</li>
+<li>added global photometric restoration after OLA</li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>removes that entire normalization path from the mandatory core</li>
+<li>defines support-aware OLA instead:</li>
+<li>valid samples by finiteness plus valid canvas support</li>
+<li><code>M_{t,c}(p)</code> as an explicit support mask</li>
+<li>canvas-invalid pixels and <code>|V| = 0</code> do not contribute to the OLA denominator</li>
+<li>binding partition-of-unity and boundary rules</li>
+<li>adds sigma-clipping guards:</li>
+<li><code>N_eff</code></li>
+<li><code>D_eff</code></li>
+<li><code>min_fraction</code> keep-floor</li>
+</ul>
+<h3 id="37-state-based-clustering-and-synthetic-frames">3.7 State-Based Clustering and Synthetic Frames<a class="headerlink" href="#37-state-based-clustering-and-synthetic-frames" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>active only for <code>N &gt;= 200</code></li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>replaces the fixed threshold with the mode framework:</li>
+<li>active iff <code>N &gt;= max(N_red, 50)</code></li>
+<li>adds for <code>synthetic.weighting=tile_weighted</code>:</li>
+<li>use of the same support-aware OLA semantics</li>
+<li>deterministic fallback to <code>global</code> when boundary regression and cross-tile weight disagreement are detected</li>
+</ul>
+<h3 id="38-final-stacking">3.8 Final Stacking<a class="headerlink" href="#38-final-stacking" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>aggregated clusters by quality weighting only</li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>introduces <code>M_{k,c}</code> as cluster mass</li>
+<li>makes aggregation mass-preserving:</li>
+<li><code>w_{k,c}^{raw} = M_{k,c} * exp(kappa_cluster * Q_{k,c}^{rel})</code></li>
+<li>adds zero-denominator fallbacks at both cluster and final aggregation level</li>
+</ul>
+<hr />
+<h2 id="4-changes-in-bge-and-pcc">4. Changes in BGE and PCC<a class="headerlink" href="#4-changes-in-bge-and-pcc" title="Permanent link">&para;</a></h2>
+<h3 id="41-bge-sampling-and-tile-reliability">4.1 BGE Sampling and Tile Reliability<a class="headerlink" href="#41-bge-sampling-and-tile-reliability" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code> substantially tightens BGE:</p>
+<ul>
+<li>canvas-invalid pixels must be explicitly excluded</li>
+<li><code>structure_score_t</code> is bindingly defined as dimensionless relative high-pass energy</li>
+<li><code>w_t</code> is normatively defined by</li>
+<li><code>exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)</code></li>
+<li>stability under global intensity rescaling is explicitly required</li>
+</ul>
+<h3 id="42-coarse-grid-and-surface-fit">4.2 Coarse Grid and Surface Fit<a class="headerlink" href="#42-coarse-grid-and-surface-fit" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>makes <code>w_cell = median({w_t})</code> the normative default</li>
+<li>tightens coarse-grid semantics</li>
+<li>directly binds the weight formula from <code>6.3.2(c)</code> into <code>6.3.4</code></li>
+</ul>
+<h3 id="43-bge-autotuning">4.3 BGE Autotuning<a class="headerlink" href="#43-bge-autotuning" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>objective <code>J = E_cv + alpha * E_flat + beta * E_rough</code></li>
+<li>configuration names <code>alpha_flatness</code>, <code>beta_roughness</code></li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>brightness-normalized objective</li>
+<li><code>B_ref = max(abs(median_i b_i), eps_bg)</code></li>
+<li><code>J = E_cv / B_ref + alpha_f * E_flat / B_ref^2 + beta_r * E_rough / B_ref</code></li>
+<li>new normative configuration names:</li>
+<li><code>bge.autotune.alpha_f</code></li>
+<li><code>bge.autotune.beta_r</code></li>
+<li><code>autotune.best.objective</code> is now explicitly the normalized objective</li>
+<li><code>autotune.best.objective_raw</code> is added as an auxiliary diagnostic</li>
+</ul>
+<h3 id="44-adaptive-grid-and-rbf">4.4 Adaptive Grid and RBF<a class="headerlink" href="#44-adaptive-grid-and-rbf" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>adds the compact-tile-mode exception for <code>G &gt;= 2*T</code></li>
+<li>relocates the RBF specification from the ML appendix to the proper BGE section <code>6.3.10</code></li>
+<li>makes regularization and canvas exclusion explicit in the RBF fit</li>
+</ul>
+<h3 id="45-pcc">4.5 PCC<a class="headerlink" href="#45-pcc" title="Permanent link">&para;</a></h3>
+<p>New in <code>v3.3.9</code>:</p>
+<ul>
+<li><code>6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression</code></li>
+</ul>
+<p>This is the first normative description of:</p>
+<ul>
+<li>RGB-only processing after PCC</li>
+<li>restriction to valid canvas support</li>
+<li>isolated single-channel chroma-outlier correction only</li>
+<li>structure/luma guards</li>
+</ul>
+<hr />
+<h2 id="5-changes-in-validation-and-defaults">5. Changes in Validation and Defaults<a class="headerlink" href="#5-changes-in-validation-and-defaults" title="Permanent link">&para;</a></h2>
+<h3 id="51-validation">5.1 Validation<a class="headerlink" href="#51-validation" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.8</code>:</p>
+<ul>
+<li>13 minimum normative tests</li>
+</ul>
+<p><code>v3.3.9</code>:</p>
+<ul>
+<li>24 minimum normative tests</li>
+<li>newly added tests include, among others:</li>
+<li>separation of additive and multiplicative normalization</li>
+<li>admissibility of negative and zero pixels</li>
+<li>sigma-clipping guards</li>
+<li>support-aware OLA</li>
+<li>mass-preserving cluster aggregation</li>
+<li>STAR/STRUCTURE coefficient sums</li>
+<li>canvas-invalid exclusion</li>
+<li>clustering gate according to the mode framework</li>
+<li>BGE stability under intensity rescaling</li>
+<li>normalized BGE autotune objective</li>
+</ul>
+<h3 id="52-recommended-numerical-defaults">5.2 Recommended Numerical Defaults<a class="headerlink" href="#52-recommended-numerical-defaults" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code> adds relative to <code>v3.3.8</code>:</p>
+<ul>
+<li><code>eps_scale</code></li>
+<li><code>eps_neff</code></li>
+<li><code>eps_var</code></li>
+<li><code>tol_ola</code></li>
+<li><code>eps_affinity</code></li>
+<li><code>k_global</code></li>
+<li><code>k_local</code></li>
+<li><code>min_fraction</code></li>
+<li><code>lambda_bge</code></li>
+<li><code>bge.structure_blur_px</code></li>
+<li><code>validation.wcs_roundtrip_max_arcsec</code></li>
+<li><code>validation.pcc_max_condition_number</code></li>
+<li><code>validation.pcc_max_residual_mag</code></li>
+</ul>
+<p>Removed from the defaults list:</p>
+<ul>
+<li><code>eps_median</code></li>
+</ul>
+<hr />
+<h2 id="6-changes-in-scope-and-optional-extensions">6. Changes in Scope and Optional Extensions<a class="headerlink" href="#6-changes-in-scope-and-optional-extensions" title="Permanent link">&para;</a></h2>
+<h3 id="61-optional-extensions">6.1 Optional Extensions<a class="headerlink" href="#61-optional-extensions" title="Permanent link">&para;</a></h3>
+<p>New in <code>v3.3.9</code>:</p>
+<ul>
+<li>deterministic CFA defect-pixel suppression / cosmetic correction</li>
+<li>post-PCC isolated chroma-speckle suppression</li>
+</ul>
+<h3 id="62-ml-extension">6.2 ML Extension<a class="headerlink" href="#62-ml-extension" title="Permanent link">&para;</a></h3>
+<p><code>v3.3.9</code> adds bindingly in <code>9.2.3</code>:</p>
+<ul>
+<li>how ML masks interact with the valid sample set</li>
+<li>that soft masks do not change membership in <code>V_{t,c}(p)</code></li>
+<li>that sigma-clipping must operate at pixel level with <code>Ŵ_{f,t,c}(p)</code></li>
+<li>that canvas invalidity overrides ML masks</li>
+</ul>
+<p>Also:</p>
+<ul>
+<li>the old RBF section was removed from the ML part</li>
+<li>it is replaced there by a reference to <code>§6.3.10</code></li>
+</ul>
+<hr />
+<h2 id="7-main-net-effects">7. Main Net Effects<a class="headerlink" href="#7-main-net-effects" title="Permanent link">&para;</a></h2>
+<p>Overall, <code>v3.3.9</code> shifts the methodology in the following direction:</p>
+<ul>
+<li>fewer implicit nonlinear tile heuristics inside the reconstruction core</li>
+<li>clearer photometric semantics</li>
+<li>more robust boundary and support handling</li>
+<li>more strongly normalized BGE/PCC integration</li>
+<li>more precise validation and diagnostics requirements</li>
+</ul>
+<p>The largest substantive differences are therefore:</p>
+<ol>
+<li><code>v3.3.8</code> still allowed or required tile-wise pre-OLA normalization, while <code>v3.3.9</code> removes it from the mandatory core.</li>
+<li><code>v3.3.8</code> used a hard STAR/STRUCTURE switch, while <code>v3.3.9</code> replaces it with soft blending plus confidence-aware regularization.</li>
+<li><code>v3.3.8</code> aggregated clusters by quality weighting, while <code>v3.3.9</code> additionally preserves cluster mass.</li>
+<li><code>v3.3.9</code> makes canvas support and OLA semantics explicit binding mathematical constraints.</li>
+</ol>
+<hr />
+<h2 id="8-note-on-the-nature-of-this-document">8. Note on the Nature of This Document<a class="headerlink" href="#8-note-on-the-nature-of-this-document" title="Permanent link">&para;</a></h2>
+<p>This document is <strong>not a raw line-by-line diff</strong>. It is a structured, content-oriented summary of the differences between <code>v3.3.8</code> and <code>v3.3.9</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

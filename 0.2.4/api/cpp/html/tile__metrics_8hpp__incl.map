@@ -1,0 +1,21 @@
+<map id="include/tile_compile/metrics/tile_metrics.hpp" name="include/tile_compile/metrics/tile_metrics.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="309,5,473,44"/>
+<area shape="rect" id="Node000002" href="$types_8hpp.html" title=" " alt="" coords="301,92,481,117"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="394,45,394,76,388,76,388,45"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,165,102,189"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="335,120,117,165,116,160,334,115"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="126,165,200,189"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="354,120,215,162,214,157,352,115"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="225,165,285,189"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="370,120,292,160,290,155,367,115"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="308,165,388,189"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="386,119,365,153,361,150,382,116"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="412,165,458,189"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="400,116,422,150,417,153,396,119"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="482,165,548,189"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="413,115,483,154,480,159,410,120"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="572,165,626,189"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="426,115,558,159,557,164,424,120"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="649,165,706,189"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="442,115,635,161,633,166,441,120"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="include/tile_compile/registration/registration.hpp" name="include/tile_compile/registration/registration.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="257,5,440,44"/>
+<area shape="rect" id="Node000002" href="$runner__phase__registration_8cpp.html" title=" " alt="" coords="5,200,233,224"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="242,40,189,60,164,75,144,94,129,119,121,149,120,199,115,199,116,148,124,117,140,90,161,71,186,55,241,35"/>
+<area shape="rect" id="Node000003" href="$astrometric__rescue_8hpp.html" title=" " alt="" coords="153,92,312,145"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="315,56,267,93,263,89,312,51"/>
+<area shape="rect" id="Node000004" href="$astrometric__rescue_8cpp.html" title=" " alt="" coords="258,193,434,231"/>
+<area shape="poly" id="edge5_Node000001_Node000004" title=" " alt="" coords="351,59,349,192,343,192,345,59"/>
+<area shape="rect" id="Node000005" href="$global__registration_8cpp.html" title=" " alt="" coords="386,99,532,138"/>
+<area shape="poly" id="edge6_Node000001_Node000005" title=" " alt="" coords="384,52,438,97,435,101,381,56"/>
+<area shape="rect" id="Node000006" href="$registration_8cpp.html" title=" " alt="" coords="556,106,756,131"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="427,46,618,103,616,108,425,52"/>
+<area shape="poly" id="edge3_Node000003_Node000002" title=" " alt="" coords="190,157,135,202,131,197,187,153"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="277,152,324,190,321,194,274,157"/>
+</map>

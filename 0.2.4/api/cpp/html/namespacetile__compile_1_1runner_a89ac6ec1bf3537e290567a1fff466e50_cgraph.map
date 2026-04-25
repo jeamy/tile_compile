@@ -1,0 +1,7 @@
+<map id="tile_compile::runner::compute_largest_valid_crop_box" name="tile_compile::runner::compute_largest_valid_crop_box">
+<area shape="rect" id="Node000001" title="Computes largest valid crop box." alt="" coords="5,30,164,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a1673ff3ca8829d1b72eb45c7369fa90f" title="Computes nonzero data bbox." alt="" coords="212,5,410,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,43,196,38,197,43,164,48"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1runner_1_1CropBox.html#ae3d4c3c3e909700c09408cfe2049ff7e" title=" " alt="" coords="244,68,378,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="164,65,229,74,228,79,164,70"/>
+</map>

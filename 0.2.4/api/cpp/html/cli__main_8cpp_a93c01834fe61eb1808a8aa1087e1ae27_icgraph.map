@@ -1,0 +1,5 @@
+<map id="cmd_scan" name="cmd_scan">
+<area shape="rect" id="Node000001" title="Handles CLI command scan." alt="" coords="103,5,184,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,5,55,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,20,55,20,55,15,87,15"/>
+</map>

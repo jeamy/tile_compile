@@ -1,0 +1,10 @@
+<map id="tile_compile::registration::detect_stars_simple" name="tile_compile::registration::detect_stars_simple">
+<area shape="rect" id="Node000001" title="Detects stars simple." alt="" coords="5,63,168,101"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a74a3d972c5344aa96ed02b61495d9600" title="Detects stars with threshold." alt="" coords="216,5,409,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="165,60,218,46,219,51,166,65"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="457,92,580,131"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="168,85,442,104,441,109,168,90"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="243,120,382,159"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="166,99,228,115,227,121,165,104"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="382,127,441,119,442,124,383,132"/>
+</map>

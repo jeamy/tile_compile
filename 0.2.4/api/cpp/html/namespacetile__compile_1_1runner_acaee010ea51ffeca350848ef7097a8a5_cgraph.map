@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::apply_common_overlap_to_tile_inplace" name="tile_compile::runner::apply_common_overlap_to_tile_inplace">
+<area shape="rect" id="Node000001" title="Apply the COMMON_OVERLAP mask to one tile in&#45;place." alt="" coords="5,5,171,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a4c84e57777ea8f19152642ce20b55c9b" title="Sentinel used for pixels outside the common&#45;overlap mask." alt="" coords="219,12,426,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="171,29,203,29,203,34,171,34"/>
+</map>

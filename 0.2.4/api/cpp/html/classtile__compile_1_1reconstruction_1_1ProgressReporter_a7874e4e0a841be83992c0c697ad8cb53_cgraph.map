@@ -1,0 +1,5 @@
+<map id="tile_compile::reconstruction::ProgressReporter::~ProgressReporter" name="tile_compile::reconstruction::ProgressReporter::~ProgressReporter">
+<area shape="rect" id="Node000001" title="Implements ~ProgressReporter." alt="" coords="5,5,255,44"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1reconstruction_1_1ProgressReporter.html#ace355b7b776590d1c3c72701f9cc626e" title="Flush a final progress entry and stop the background thread." alt="" coords="303,5,483,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="255,22,287,22,287,27,255,27"/>
+</map>

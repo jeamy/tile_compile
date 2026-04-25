@@ -1,0 +1,3222 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v3.1 (Erweitert) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v31-erweitert" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v3.1 (Erweitert)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-motivation-fur-v31e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Motivation für v3.1E
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Ziel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-annahmen-verbindlich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Annahmen (verbindlich)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Annahmen (verbindlich)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-harte-annahmen-versto-abbruch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Harte Annahmen (Verstoß → Abbruch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-weiche-annahmen-mit-toleranzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Weiche Annahmen (mit Toleranzen)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-implizite-annahmen-neu-explizit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Implizite Annahmen (neu explizit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-reduced-mode-50199-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Reduced Mode (50–199 Frames)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gesamtpipeline-normativ" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gesamtpipeline (normativ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v31-erweitert">Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v3.1 (Erweitert)<a class="headerlink" href="#tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v31-erweitert" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Erweiterte Referenzspezifikation
+<strong>Version:</strong> v3.1E (2026-02-12)
+<strong>Basiert auf:</strong> Methodik v3.1 (2026-01-09)
+<strong>Ziel:</strong> Integration fortschrittlicher Methoden der C++ Implementierung in die Spezifikation
+<strong>Gilt für:</strong> <code>tile_compile.proc</code> (Clean Break) + <code>tile_compile.yaml</code></p>
+<hr />
+<h2 id="0-motivation-fur-v31e">0. Motivation für v3.1E<a class="headerlink" href="#0-motivation-fur-v31e" title="Permanent link">&para;</a></h2>
+<p>Methodik v3.1 definierte die Qualitäts‑ und Rekonstruktionslogik präzise, aber die aktuelle C++ Implementierung hat einige methodische Verbesserungen eingeführt, die noch nicht in der Spezifikation enthalten sind. Diese erweiterte Version integriert diese fortschrittlichen Methoden in die formale Spezifikation, insbesondere:</p>
+<ul>
+<li><strong>Erweiterte Registrierungskaskade</strong> mit mehreren spezialisierten Algorithmen</li>
+<li><strong>Fortschrittliche CFA‑aware Transformation</strong> für präzisere Bayer‑Muster‑Erhaltung</li>
+<li><strong>Qualitätsbasierte Referenzauswahl</strong> für optimale Registrierung</li>
+<li><strong>Adaptive Rauschunterdrückung</strong> auf Tile‑Ebene</li>
+<li><strong>Robustere statistische Methoden</strong> für Metriken und Validierung</li>
+</ul>
+<p>Die Kernkonzepte und Ziele der Methodik v3 bleiben unverändert.</p>
+<hr />
+<h2 id="1-ziel">1. Ziel<a class="headerlink" href="#1-ziel" title="Permanent link">&para;</a></h2>
+<p>Ziel ist es, aus vollständig registrierten, linearen Kurzzeit‑Frames astronomischer Deep‑Sky‑Objekte ein <strong>räumlich und zeitlich optimal gewichtetes Signal</strong> zu rekonstruieren.</p>
+<p>Die Methode modelliert explizit zwei orthogonale Einflüsse:</p>
+<ul>
+<li><strong>globale atmosphärische Qualität</strong> (Transparenz, Dunst, Hintergrunddrift)</li>
+<li><strong>lokale seeing‑ und strukturgetriebene Qualität</strong> (Schärfe, Detailtragfähigkeit)</li>
+</ul>
+<p>Es gibt <strong>keine Frame‑Selektion</strong>. Jeder Frame trägt gemäß seinem physikalischen Informationsgehalt bei.</p>
+<hr />
+<h2 id="2-annahmen-verbindlich">2. Annahmen (verbindlich)<a class="headerlink" href="#2-annahmen-verbindlich" title="Permanent link">&para;</a></h2>
+<h3 id="21-harte-annahmen-versto-abbruch">2.1 Harte Annahmen (Verstoß → Abbruch)<a class="headerlink" href="#21-harte-annahmen-versto-abbruch" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Daten sind <strong>linear</strong> (kein Stretch, keine nichtlinearen Operatoren)</li>
+<li><strong>keine Frame‑Selektion</strong> (Artefakt‑Rejection auf Pixelebene erlaubt)</li>
+<li>Verarbeitung <strong>kanalgetrennt</strong></li>
+<li>Pipeline ist <strong>streng linear</strong>, ohne Rückkopplungen</li>
+<li>Einheitliche Belichtungszeit (Toleranz: ±5%)</li>
+</ul>
+<h3 id="22-weiche-annahmen-mit-toleranzen">2.2 Weiche Annahmen (mit Toleranzen)<a class="headerlink" href="#22-weiche-annahmen-mit-toleranzen" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Annahme</th>
+<th>Optimal</th>
+<th>Minimum</th>
+<th>Reduced Mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frame‑Anzahl</td>
+<td>≥ 800</td>
+<td>≥ 50</td>
+<td>50–199</td>
+</tr>
+<tr>
+<td>Registrierungsresiduum</td>
+<td>&lt; 0.3 px</td>
+<td>&lt; 1.0 px</td>
+<td>Warnung bei &gt; 0.5 px</td>
+</tr>
+<tr>
+<td>Stern‑Elongation</td>
+<td>&lt; 0.2</td>
+<td>&lt; 0.4</td>
+<td>Warnung bei &gt; 0.3</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23-implizite-annahmen-neu-explizit">2.3 Implizite Annahmen (neu explizit)<a class="headerlink" href="#23-implizite-annahmen-neu-explizit" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Stabile optische Konfiguration (Fokus, Feldkrümmung)</li>
+<li>Tracking‑Fehler &lt; 1 Pixel pro Belichtung</li>
+<li>Keine systematischen Drifts während der Session</li>
+</ul>
+<h3 id="24-reduced-mode-50199-frames">2.4 Reduced Mode (50–199 Frames)<a class="headerlink" href="#24-reduced-mode-50199-frames" title="Permanent link">&para;</a></h3>
+<p>Bei Frame‑Anzahl unterhalb des Optimums aber oberhalb des Minimums:</p>
+<ul>
+<li>Zustandsbasierte Clusterung (§3.7) wird <strong>übersprungen</strong></li>
+<li>Keine synthetischen Frames (§3.8 wird übersprungen)</li>
+<li>Validierungswarnung im Report</li>
+</ul>
+<p><strong>Workflow im Reduced Mode (verbindlich):</strong></p>
+<ol>
+<li>Schritte 1–7 werden normal ausgeführt (inkl. Tile-basierte Rekonstruktion)</li>
+<li>Schritte 8–9 werden übersprungen</li>
+<li>Schritt 10 stackt die <strong>rekonstruierten Frames aus §3.6</strong> direkt:</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>R_c = rekonstruiertes Bild aus §3.6
+</span></code></pre></div>
+<p>Alternativ (falls Clusterung dennoch aktiviert):
+* Cluster‑Anzahl wird auf 5–10 reduziert
+* Synthetische Frames werden mit reduzierter Cluster-Anzahl erzeugt</p>
+<p><strong>Graduelles Degradieren (statt hartem Abbruch):</strong></p>
+<p>Bei Verletzung von Annahmen wird nicht sofort abgebrochen, sondern stufenweise degradiert:</p>
+<table>
+<thead>
+<tr>
+<th>Schweregrad</th>
+<th>Aktion</th>
+<th>Beispiel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Warnung</strong></td>
+<td>Fortfahren mit Hinweis</td>
+<td>Registrierungsresiduum 0.5-1.0 px</td>
+</tr>
+<tr>
+<td><strong>Degradiert</strong></td>
+<td>Fallback-Modus aktivieren</td>
+<td>&lt; 50 Frames → Reduced Mode ohne Clusterung</td>
+</tr>
+<tr>
+<td><strong>Kritisch</strong></td>
+<td>Abbruch mit Erklärung</td>
+<td>Keine Sterne gefunden, Daten nicht linear</td>
+</tr>
+</tbody>
+</table>
+<p>Nur bei <strong>kritischen</strong> Fehlern (Datenintegrität verletzt) erfolgt ein Abbruch.</p>
+<hr />
+<h2 id="3-gesamtpipeline-normativ">3. Gesamtpipeline (normativ)<a class="headerlink" href="#3-gesamtpipeline-normativ" title="Permanent link">&para;</a></h2>
+<p>Gemeinsame abstrakte Pipeline:</p>
+<ol>
+<li>Registrierung &amp; geometrische Vereinheitlichung</li>
+<li>Kanaltrennung</li>
+<li>Globale lineare Normalisierung (Pflicht)</li>
+<li>Globale Frame‑Metriken</li>
+<li>Tile‑Geometrie</li>
+<li>Lokale Tile‑Metriken</li>
+<li>Tile‑basierte Rekonstruktion (kanalweise)</li>
+<li>Zustandsbasierte Clusterung</li>
+<li>Rekonstruktion synthetischer Frames</li>
+<li>Finales lineares Stacking (kanalweise)</li>
+<li><strong>Post-Processing (optional):</strong></li>
+<li>RGB/LRGB-Kombination (außerhalb der Methodik)</li>
+<li>Astrometrische Kalibrierung (WCS)</li>
+<li>Photometrische Farbkalibrierung (PCC)</li>
+</ol>
+<p><strong>Unterschiede A/B betreffen ausschließlich Schritt 1–2.</strong></p>
+<hr />
+<h1 id="a-registrierung-debayer-pfad-referenz">A. Registrierung + Debayer Pfad (Referenz)<a class="headerlink" href="#a-registrierung-debayer-pfad-referenz" title="Permanent link">&para;</a></h1>
+<h2 id="a1-zweck-und-einordnung">A.1 Zweck und Einordnung<a class="headerlink" href="#a1-zweck-und-einordnung" title="Permanent link">&para;</a></h2>
+<p>Dieser Pfad verwendet eine <strong>eigenständige mehrstufige Registrierung</strong> mit anschließendem Debayer. Die Registrierung erfolgt auf Basis eines extrahierten Luminanzkanals (bei OSC-Daten) oder direkt auf Mono-Daten.</p>
+<p>Dieser Pfad ist:</p>
+<ul>
+<li>stabil</li>
+<li>robust</li>
+<li>für Produktion empfohlen</li>
+</ul>
+<hr />
+<h2 id="a2-schritte-a1a2">A.2 Schritte A.1–A.2<a class="headerlink" href="#a2-schritte-a1a2" title="Permanent link">&para;</a></h2>
+<h3 id="a21-mehrstufige-registrierung-neu">A.2.1 Mehrstufige Registrierung (NEU)<a class="headerlink" href="#a21-mehrstufige-registrierung-neu" title="Permanent link">&para;</a></h3>
+<h4 id="a211-vorbereitung-und-referenzauswahl">A.2.1.1 Vorbereitung und Referenzauswahl<a class="headerlink" href="#a211-vorbereitung-und-referenzauswahl" title="Permanent link">&para;</a></h4>
+<ol>
+<li><strong>Proxy-Erzeugung</strong>:</li>
+<li>OSC-Daten: Extraktion eines Luminanz-Proxys via <code>cfa_green_proxy_downsample2x2</code></li>
+<li>
+<p>Mono-Daten: Downsampling via <code>downsample2x2_mean</code> für Geschwindigkeitsoptimierung</p>
+</li>
+<li>
+<p><strong>Qualitätsbasierte Referenzauswahl</strong> (NEU):</p>
+</li>
+<li>Globale Qualitätsmetriken für alle Frames berechnen</li>
+<li>Auswahl des Referenzframes nach einem der folgenden Kriterien:
+     a) Höchstes globales Qualitätsgewicht (<code>global_weight</code>) 
+     b) Niedrigster Hintergrundwert (<code>background</code>)
+     c) Niedrigstes Rauschen (<code>noise</code>)
+     d) Höchste Gradientenergie (<code>gradient_energy</code>)
+     e) Median-Frame in der zeitlichen Sequenz (Fallback)</li>
+</ol>
+<h4 id="a212-registrierungskaskade-neu-aktualisiert-2026-02-12">A.2.1.2 Registrierungskaskade (NEU, aktualisiert 2026-02-12)<a class="headerlink" href="#a212-registrierungskaskade-neu-aktualisiert-2026-02-12" title="Permanent link">&para;</a></h4>
+<p>Für jedes Frame wird eine zweistufige Kaskade ausgeführt: zuerst die konfigurierte Primärmethode, dann eine feste Fallback-Kaskade.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Für jedes Frame:
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  Primärmethode (konfigurierbar via registration.engine):
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    1a. triangle_star_matching  (Default)
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    1b. star_registration_similarity
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    [oder: opencv_feature / hybrid_phase_ecc je nach Config]
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  Fallback-Kaskade (fest, falls Primärmethode fehlschlägt):
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    2. trail_endpoint_registration  (Sternspuren bei Feldrotation)
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    3. feature_registration_similarity (AKAZE)
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    4. robust_phase_ecc  (Gradient-Preprocessing + Multi-Scale)
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    5. hybrid_phase_ecc  (Phase-Correlation + ECC)
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    6. Identitätstransformation mit Warnung
+</span></code></pre></div>
+<p><strong>Begründung der Reihenfolge:</strong> Geometrische Methoden (Sternmuster) sind schneller und robuster als ECC für typische Astro-Daten. ECC-Methoden dienen als Fallback für Fälle ohne erkennbare Sterne (z.B. starke Wolken, Nebel-dominierte Felder).</p>
+<p>Jeder erfolgreiche Registrierungsschritt wird durch <strong>NCC (Normalized Cross Correlation)</strong> validiert:
+- Berechnung der NCC zwischen registriertem Frame und Referenz
+- Vergleich mit unregistrierter Baseline-NCC (ncc_identity)
+- Akzeptanz nur bei NCC &gt; ncc_identity + 0.01 (signifikante Verbesserung)</p>
+<h4 id="a213-registrierungsalgorithmen-neu-aktualisiert-2026-02-12">A.2.1.3 Registrierungsalgorithmen (NEU, aktualisiert 2026-02-12)<a class="headerlink" href="#a213-registrierungsalgorithmen-neu-aktualisiert-2026-02-12" title="Permanent link">&para;</a></h4>
+<ol>
+<li><strong>triangle_star_matching</strong> (Primär-Default):</li>
+<li>Geometrische Übereinstimmung von Sterndreiecken</li>
+<li>Rotation und Translation werden geschätzt</li>
+<li>RANSAC für robuste Estimation</li>
+<li>
+<p>Hot-Pixel-Rejection in Sterndetektion (Konzentrations- und Rundheitsfilter)</p>
+</li>
+<li>
+<p><strong>star_registration_similarity</strong> (Primär-Fallback):</p>
+</li>
+<li>Direkte Sternpaarzuordnung über Paar-Distanz-Matching</li>
+<li>Similarity-Transformation (Rotation, Translation, Skalierung)</li>
+<li>
+<p>Konfigurierbar: <code>star_dist_bin_px</code> für Binning-Toleranz</p>
+</li>
+<li>
+<p><strong>trail_endpoint_registration</strong> (Fallback 1):</p>
+</li>
+<li>Morphologischer Top-Hat (15×15 Ellipse) → Kontur-Extraktion → Endpunkt-Paare</li>
+<li>Für Sternspuren bei Feldrotation (Alt/Az-Montierungen)</li>
+<li>Kombiniert Trail-Endpunkte + reguläre Sterne</li>
+<li>
+<p>Relaxierte Schwellwerte (inlier_tol × 2, min_inliers / 2)</p>
+</li>
+<li>
+<p><strong>feature_registration_similarity</strong> (Fallback 2):</p>
+</li>
+<li>AKAZE Feature-Detektion und Deskriptor-Matching</li>
+<li>Rotationsinvariant, keine Rotationsbegrenzung</li>
+<li>
+<p>Similarity-Transformation via RANSAC</p>
+</li>
+<li>
+<p><strong>robust_phase_ecc</strong> (Fallback 3):</p>
+</li>
+<li>Gradient-Preprocessing: GaussianBlur(σ=2) → Laplacian → Normalisierung</li>
+<li>3-Level Coarse-to-Fine Pyramide</li>
+<li>Gröbste Ebene: Phasenkorrelation + Log-Polar Rotationsschätzung</li>
+<li>ECC-Verfeinerung auf jeder Ebene</li>
+<li>
+<p>Entfernt Nebel/Wolken-Gradienten durch Gradient-Preprocessing</p>
+</li>
+<li>
+<p><strong>hybrid_phase_ecc</strong> (Fallback 4):</p>
+</li>
+<li>Kombination aus Phasenkorrelation und ECC (Single-Scale)</li>
+<li>Schätzung der groben Translation via Phasenkorrelation</li>
+<li>Log-Polar Rotationsschätzung als ECC-Seed</li>
+<li>Verfeinung durch Enhanced Correlation Coefficient</li>
+</ol>
+<h4 id="a214-anwendung-der-transformationen">A.2.1.4 Anwendung der Transformationen<a class="headerlink" href="#a214-anwendung-der-transformationen" title="Permanent link">&para;</a></h4>
+<ol>
+<li><strong>OSC-Daten</strong>:</li>
+<li>Transformation via <code>apply_global_warp</code>, was intern zu CFA-aware Transformation führt</li>
+<li>
+<p>Parameter: Vollauflösungs-Frame, berechnete Warp-Matrix</p>
+</li>
+<li>
+<p><strong>Mono-Daten</strong>:</p>
+</li>
+<li>Standard-Warp via OpenCV's <code>warpAffine</code></li>
+<li>Parameter: Vollauflösungs-Frame, berechnete Warp-Matrix, Interpolation=INTER_LINEAR, WARP_INVERSE_MAP</li>
+</ol>
+<hr />
+<h3 id="a22-kanaltrennung-nach-registrierung">A.2.2 Kanaltrennung (nach Registrierung!)<a class="headerlink" href="#a22-kanaltrennung-nach-registrierung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>OSC: Debayer der registrierten Frames via <code>debayer_nearest_neighbor</code></li>
+<li>R → R_frames[f][x,y]</li>
+<li>G → G_frames[f][x,y]</li>
+<li>B → B_frames[f][x,y]</li>
+<li>Mono: Direkte Weiterverarbeitung</li>
+<li>Ab hier <strong>keine kanalübergreifenden Operationen mehr</strong></li>
+</ul>
+<p>Begründung:</p>
+<blockquote>
+<p>Kanalübergreifendes Stacken führt zu kohärenter Addition farbabhängiger Resampling‑Residuen.</p>
+</blockquote>
+<hr />
+<h2 id="a3-ubergabe-an-den-gemeinsamen-kern">A.3 Übergabe an den gemeinsamen Kern<a class="headerlink" href="#a3-ubergabe-an-den-gemeinsamen-kern" title="Permanent link">&para;</a></h2>
+<p>Ab hier gelten <strong>alle Regeln aus dem gemeinsamen Kern unverändert</strong>, kanalweise.</p>
+<p>Eingangsdaten:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>R_frames[f][x,y]
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>G_frames[f][x,y]
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>B_frames[f][x,y]
+</span></code></pre></div>
+<hr />
+<h1 id="b-cfa-basierter-pfad">B. CFA-basierter Pfad<a class="headerlink" href="#b-cfa-basierter-pfad" title="Permanent link">&para;</a></h1>
+<h2 id="b1-zweck-und-einordnung">B.1 Zweck und Einordnung<a class="headerlink" href="#b1-zweck-und-einordnung" title="Permanent link">&para;</a></h2>
+<p>Der CFA‑Pfad vermeidet <strong>jede farbabhängige Interpolation vor der Tile‑Analyse</strong>.</p>
+<p>Er ist methodisch ideal für OSC-Daten, da:
+* keine Farbinterpolation vor kritischen Analysen erfolgt
+* Bayer-Muster-Integrität während der Transformation erhalten bleibt
+* maximale Auflösung erhalten wird</p>
+<hr />
+<h2 id="b2-schritte-b1b2-cfa">B.2 Schritte B.1–B.2 (CFA)<a class="headerlink" href="#b2-schritte-b1b2-cfa" title="Permanent link">&para;</a></h2>
+<h3 id="b21-registrierung-auf-cfaluminanz">B.2.1 Registrierung auf CFA‑Luminanz<a class="headerlink" href="#b21-registrierung-auf-cfaluminanz" title="Permanent link">&para;</a></h3>
+<p><strong>CFA-Luminanz-Extraktion</strong>:
+1. Erzeugung eines Luminanz-Proxys via <code>cfa_green_proxy</code>
+2. Optional: Downsampling via <code>cfa_green_proxy_downsample2x2</code></p>
+<p><strong>Registrierung</strong>:
+* Gleiche mehrstufige Registrierungskaskade wie in A.2.1.2
+* Registrierung erfolgt auf dem Luminanz-Proxy
+* Schätzung <strong>einer einzigen</strong> Transformation pro Frame</p>
+<p><strong>Wichtig:</strong></p>
+<blockquote>
+<p>Die Transformation ist farbunabhängig, die Anwendung jedoch <strong>CFA‑aware</strong>.</p>
+</blockquote>
+<hr />
+<h3 id="b22-cfaaware-transformation-neu">B.2.2 CFA‑aware Transformation (NEU)<a class="headerlink" href="#b22-cfaaware-transformation-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Implementation</strong>: <code>warp_cfa_mosaic_via_subplanes</code></p>
+<p><strong>Algorithmus</strong>:
+1. CFA‑Mosaik wird in 4 Subplanes zerlegt:
+   * R-Subplane: Pixel an (r_row, r_col) Positionen
+   * G1-Subplane: Erste grüne Position
+   * G2-Subplane: Zweite grüne Position
+   * B-Subplane: Pixel an (b_row, b_col) Positionen</p>
+<ol>
+<li>Separate Transformation jeder Subplane:</li>
+<li>Gleiche Warp-Matrix für alle Subplanes</li>
+<li>Interpolation nur innerhalb der jeweiligen Subplane</li>
+<li>
+<p><strong>Keine Interpolation zwischen Bayer‑Phasen</strong></p>
+</li>
+<li>
+<p>Re‑Interleaving zum CFA:</p>
+</li>
+<li>Rekonstruktion des transformierten CFA-Mosaiks</li>
+<li>Erhaltung der Bayer-Phasenpositionen</li>
+</ol>
+<p><strong>Ergebnis:</strong>
+* Registrierte CFA‑Frames ohne Farbphasen‑Mischung
+* Erhaltung der ursprünglichen Auflösung und Farbintegrität</p>
+<hr />
+<h3 id="b23-kanaltrennung">B.2.3 Kanaltrennung<a class="headerlink" href="#b23-kanaltrennung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CFA → R / G / B via <code>split_cfa_channels</code></li>
+<li>Optional: Zusammenführung der G1/G2-Kanäle bei Bedarf</li>
+<li>Ab hier identisch zu Pfad A</li>
+</ul>
+<hr />
+<h1 id="3-gemeinsamer-kern-ab-phase-3-a-b">3. Gemeinsamer Kern ab Phase 3 (A == B)<a class="headerlink" href="#3-gemeinsamer-kern-ab-phase-3-a-b" title="Permanent link">&para;</a></h1>
+<h2 id="31-globale-lineare-normalisierung-pflicht">3.1 Globale lineare Normalisierung (Pflicht)<a class="headerlink" href="#31-globale-lineare-normalisierung-pflicht" title="Permanent link">&para;</a></h2>
+<h3 id="zweck">Zweck<a class="headerlink" href="#zweck" title="Permanent link">&para;</a></h3>
+<p>Entkopplung photometrischer Transparenzschwankungen von Qualitätsmetriken.</p>
+<h3 id="anforderungen">Anforderungen<a class="headerlink" href="#anforderungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>global</li>
+<li>linear</li>
+<li>exakt einmal</li>
+<li>vor <strong>jeder</strong> Metrik (außer B_f, das für die Normalisierung benötigt wird)</li>
+<li>getrennt pro Kanal</li>
+</ul>
+<h3 id="zulassige-methoden">Zulässige Methoden<a class="headerlink" href="#zulassige-methoden" title="Permanent link">&para;</a></h3>
+<ul>
+<li>hintergrundbasierte Skalierung (maskiert, robust)</li>
+<li>Fallback: Skalierung über globalen Median</li>
+</ul>
+<h3 id="verboten">Verboten<a class="headerlink" href="#verboten" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Histogramm‑Stretch</li>
+<li>asinh / log</li>
+</ul>
+<p><strong>Reihenfolge (verbindlich):</strong></p>
+<ol>
+<li>B_f,c (Hintergrundniveau) wird auf <strong>Rohdaten</strong> berechnet</li>
+<li>Normalisierung: <code>I'_f = I_f / B_f</code></li>
+<li>σ_f,c und E_f,c werden auf <strong>normalisierten</strong> Daten berechnet</li>
+</ol>
+<p>Formal:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>B_f,c = median(I_f,c)           # VOR Normalisierung
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>I&#39;_f,c = I_f,c / B_f,c          # Normalisierung
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>σ_f,c = std(I&#39;_f,c)             # NACH Normalisierung
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>E_f,c = gradient_energy(I&#39;_f,c) # NACH Normalisierung
+</span></code></pre></div>
+<hr />
+<h2 id="32-globale-framemetriken">3.2 Globale Frame‑Metriken<a class="headerlink" href="#32-globale-framemetriken" title="Permanent link">&para;</a></h2>
+<p>Pro Frame <em>f</em> und Kanal <em>c</em>:</p>
+<ul>
+<li>B_f,c – Hintergrundniveau (auf Rohdaten, siehe §3.1)</li>
+<li>σ_f,c – Rauschen (auf normalisierten Daten)</li>
+<li>E_f,c – Gradientenergie (auf normalisierten Daten)</li>
+</ul>
+<h3 id="normalisierung">Normalisierung<a class="headerlink" href="#normalisierung" title="Permanent link">&para;</a></h3>
+<p>Alle Metriken werden robust über <strong>Median + MAD</strong> skaliert.</p>
+<p>Formal (für einen Metrikwert <code>x</code>):</p>
+<p>[
+\tilde x = \frac{x - \mathrm{median}(x)}{1.4826 \cdot \mathrm{MAD}(x)}
+]</p>
+<h3 id="globaler-qualitatsindex">Globaler Qualitätsindex<a class="headerlink" href="#globaler-qualitatsindex" title="Permanent link">&para;</a></h3>
+<p>[
+Q_{f,c} = \alpha(-\tilde B_{f,c}) + \beta(-\tilde\sigma_{f,c}) + \gamma\tilde E_{f,c}
+]</p>
+<p>mit:</p>
+<ul>
+<li>α + β + γ = 1 (verbindlich)</li>
+<li>Default: α = 0.4, β = 0.3, γ = 0.3</li>
+</ul>
+<p><code>Q_f,c</code> wird auf <strong>[−3, +3]</strong> geklemmt, bevor <code>exp(·)</code> angewendet wird.</p>
+<h3 id="globales-gewicht">Globales Gewicht<a class="headerlink" href="#globales-gewicht" title="Permanent link">&para;</a></h3>
+<p>[
+G_{f,c} = \exp(Q_{f,c})
+]</p>
+<p><strong>Adaptive Gewichtung:</strong></p>
+<p>Falls die Datencharakteristik stark von typischen Bedingungen abweicht, können die Gewichte adaptiv angepasst werden.</p>
+<p><strong>Algorithmus (varianzbasiert):</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>1. Berechne Varianz der Metriken:
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>   Var(B), Var(σ), Var(E)
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>2. Gewichte basierend auf Varianz:
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>   α&#39; = Var(B) / (Var(B) + Var(σ) + Var(E))
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>   β&#39; = Var(σ) / (Var(B) + Var(σ) + Var(E))
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>   γ&#39; = Var(E) / (Var(B) + Var(σ) + Var(E))
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>3. Constraints anwenden:
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>   α&#39;, β&#39;, γ&#39; = clip(α&#39;, β&#39;, γ&#39;, 0.1, 0.7)
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>4. Renormalisieren:
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>   α&#39;, β&#39;, γ&#39; = normalize(α&#39;, β&#39;, γ&#39;) so dass Σ = 1
+</span></code></pre></div>
+<p><strong>Eigenschaften:</strong>
+* Je höher die Varianz einer Metrik, desto mehr Gewicht erhält sie
+* Minimum 0.1, Maximum 0.7 pro Gewicht (verhindert Extreme)
+* Summe garantiert = 1.0
+* Fallback auf Default-Gewichte bei Var = 0</p>
+<p><strong>Konfiguration:</strong></p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">global_metrics</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">adaptive_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">weights</span><span class="p">:</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">background</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">noise</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">gradient</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span>
+</span></code></pre></div>
+<p><strong>Semantik:</strong> <code>G_f</code> kodiert ausschließlich globale atmosphärische Qualität.</p>
+<hr />
+<h2 id="33-tilegeometrie-seeingadaptiv">3.3 Tile‑Geometrie (seeing‑adaptiv)<a class="headerlink" href="#33-tilegeometrie-seeingadaptiv" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Tiles werden NACH Registrierung und Kanaltrennung erzeugt, aber VOR jeder Kombination.</strong></p>
+</blockquote>
+<ul>
+<li>identisches Tile‑Grid für alle Frames und Kanäle</li>
+<li>seeing‑adaptiv</li>
+</ul>
+<p>Definitionen:</p>
+<ul>
+<li><code>W</code>, <code>H</code> – Bildbreite/-höhe in Pixel</li>
+<li><code>F</code> – robuste FWHM‑Schätzung in Pixel (z. B. Median über viele Sterne und Frames)</li>
+<li><code>s = tile.size_factor</code> – dimensionsloser Skalierungsfaktor</li>
+<li><code>T_min = tile.min_size</code></li>
+<li><code>D = tile.max_divisor</code></li>
+<li><code>o = tile.overlap_fraction</code> mit <code>0 ≤ o ≤ 0.5</code></li>
+</ul>
+<p>Herleitung (kompakt, normativ):</p>
+<ol>
+<li>Ein seeing‑limitierter Stern besitzt eine charakteristische Skala <code>F</code> (FWHM). Um lokale Seeing‑/Fokus‑ und Strukturvariationen stabil zu messen, muss ein Tile <strong>mehrere PSF‑Skalen</strong> abdecken.</li>
+<li>Wir setzen daher die Tile‑Kantenlänge proportional zur PSF‑Skala:</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>T_0 = s · F
+</span></code></pre></div>
+<ol>
+<li>Zusätzlich erzwingen wir <strong>untere</strong> und <strong>obere</strong> Schranken:<ul>
+<li>Untere Schranke: zu kleine Tiles sind instabil (zu wenig Sterne/Struktur, hohe Varianz)</li>
+<li>Obere Schranke: Tiles dürfen nicht zu groß werden, sonst verschwindet Lokalität</li>
+</ul>
+</li>
+</ol>
+<p>Normative Tile‑Size‑Formel:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>O = floor(o · T)
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>S = T − O
+</span></code></pre></div>
+<p>wobei <code>clip(x, a, b) = min(max(x, a), b)</code>.</p>
+<p><strong>Grenzwertprüfungen (verbindlich):</strong></p>
+<p>Vor der Tile-Berechnung müssen folgende Bedingungen geprüft werden:</p>
+<ol>
+<li><code>F &gt; 0</code>: Falls FWHM nicht messbar, verwende Default <code>F = 3.0</code></li>
+<li><code>T_min ≥ 16</code>: Absolute Untergrenze für Tile-Größe</li>
+<li><code>T ≥ T_min</code>: Falls <code>T &lt; T_min</code> nach Berechnung, setze <code>T = T_min</code></li>
+<li><code>S &gt; 0</code>: Falls <code>S ≤ 0</code> (bei extremem Overlap), setze <code>o = 0.25</code> und berechne neu</li>
+<li><code>min(W, H) ≥ T</code>: Falls Bild kleiner als Tile, verwende <code>T = min(W, H)</code> und <code>O = 0</code></li>
+</ol>
+<hr />
+<h2 id="331-tilebasierte-rauschunterdruckung-erweitert">3.3.1 Tile‑basierte Rauschunterdrückung (erweitert)<a class="headerlink" href="#331-tilebasierte-rauschunterdruckung-erweitert" title="Permanent link">&para;</a></h2>
+<p><strong>Zweck:</strong> Vor der Berechnung lokaler Metriken kann eine adaptive Rauschunterdrückung auf Tile‑Ebene angewendet werden. Diese reduziert Hintergrundrauschen, während Sterne und Strukturen erhalten bleiben.</p>
+<h3 id="highpass-softthreshold-basis">Highpass + Soft‑Threshold (Basis)<a class="headerlink" href="#highpass-softthreshold-basis" title="Permanent link">&para;</a></h3>
+<p>Für jedes Tile <em>t</em> im Frame <em>f</em>:</p>
+<ol>
+<li>
+<p><strong>Background‑Schätzung:</strong> Box‑Blur mit Kernelgröße <em>k</em>
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>B_t = box_blur(T_t, k)
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Residuum (Highpass):</strong>
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>R_t = T_t − B_t
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Robuste Rauschschätzung (MAD):</strong>
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>σ_t = 1.4826 · median(|R_t − median(R_t)|)
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Soft‑Threshold:</strong>
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>τ = α · σ_t
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>R&#39;_t = sign(R_t) · max(|R_t| − τ, 0)
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Rekonstruktion:</strong>
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>T&#39;_t = B_t + R&#39;_t
+</span></code></pre></div></p>
+</li>
+</ol>
+<h3 id="wiener-filter-neu">Wiener-Filter (NEU)<a class="headerlink" href="#wiener-filter-neu" title="Permanent link">&para;</a></h3>
+<p>Als alternative fortschrittliche Methode kann ein Wiener-Filter im Frequenzraum angewendet werden:</p>
+<p><strong>Implementation</strong>: <code>wiener_tile_filter</code></p>
+<p><strong>Algorithmus</strong>:
+1. <strong>Padding</strong>: Das Tile wird mit einer Reflection-Padding-Strategie erweitert
+2. <strong>FFT</strong>: Transformation ins Frequenzspektrum
+3. <strong>Power-Spektrum</strong>: Berechnung des Leistungsspektrums |F|²
+4. <strong>Wiener-Filter</strong>: Anwendung des Wiener-Filters H = (|F|² - σ²) / |F|²
+5. <strong>Clamp</strong>: Begrenzung der Filterwerte auf [0,1]
+6. <strong>Inverse FFT</strong>: Rücktransformation in den Ortsraum
+7. <strong>Crop</strong>: Ausschneiden des originalen Tile-Bereichs</p>
+<p><strong>Parameter</strong>:
+* <code>sigma</code>: Rauschschätzung aus dem Tile
+* <code>snr_threshold</code>: Minimaler SNR-Wert für Filteranwendung
+* <code>q_min</code>: Minimaler Qualitätswert für Filteranwendung</p>
+<p><strong>Selektive Anwendung</strong>:
+* Nur auf Struktur-Tiles, nicht auf Stern-Tiles
+* Nur bei ausreichender Struktur (q_struct_tile &gt; q_min)
+* Nur bei niedrigem SNR (snr_tile &lt; snr_threshold)</p>
+<p><strong>Overlap‑Blending:</strong></p>
+<p>Da Tiles überlappen, werden die entstörrten Tiles mit linearen Gewichten geblendet:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>w(x, y) = ramp(x) · ramp(y)
+</span></code></pre></div>
+wobei <code>ramp</code> linear von 0 (Rand) nach 1 (Mitte) verläuft.</p>
+<p><strong>Konfiguration:</strong></p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">tile_denoising</span><span class="p">:</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;wiener&quot;</span><span class="w">  </span><span class="c1"># oder &quot;threshold&quot;</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span><span class="nt">wiener</span><span class="p">:</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">    </span><span class="nt">snr_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="nt">q_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.2</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">  </span><span class="nt">threshold</span><span class="p">:</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="nt">kernel_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">31</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">    </span><span class="nt">alpha</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
+</span></code></pre></div>
+<hr />
+<h2 id="34-lokale-tilemetriken">3.4 Lokale Tile‑Metriken<a class="headerlink" href="#34-lokale-tilemetriken" title="Permanent link">&para;</a></h2>
+<p>Für jedes Tile <em>t</em>, Frame <em>f</em>, Kanal <em>c</em>:</p>
+<p><strong>Stern‑Tiles</strong> (Tiles mit ≥ <code>tile.star_min_count</code> Sternen):</p>
+<ul>
+<li>FWHM_t,f,c – mittlere Halbwertsbreite der Sterne im Tile</li>
+<li>R_t,f,c – Rundheit (1 = perfekt rund, 0 = elongiert)</li>
+<li>C_t,f,c – Kontrast (Stern-Signal / Hintergrund)</li>
+</ul>
+<p><strong>Struktur‑Tiles</strong> (Tiles ohne ausreichend Sterne):</p>
+<ul>
+<li>(E/σ)_t,f,c – Signal-zu-Rausch-Verhältnis der Struktur</li>
+<li>B_t,f,c – lokaler Hintergrund</li>
+</ul>
+<h3 id="fwhm-messung-erweitert">FWHM-Messung (erweitert)<a class="headerlink" href="#fwhm-messung-erweitert" title="Permanent link">&para;</a></h3>
+<p><strong>Standard-Methode (PSF-Fit)</strong>:
+* Sterne werden via PSF-Fitting vermessen
+* FWHM wird direkt aus dem Fit-Parameter extrahiert</p>
+<p><strong>Alternative Proxy-Methode</strong> (für Felder mit wenigen Sternen):
+* Für jedes Stern-Tile wird die Anzahl der Pixel oberhalb der halben Maximalhöhe gezählt
+* FWHM-Proxy = sqrt(Pixelanzahl / π)</p>
+<p><strong>Sternfindung</strong>:
+* OpenCV's <code>goodFeaturesToTrack</code> für schnelle Eckpunktdetektion
+* Filterung nach Helligkeit, Größe und Isolation
+* Minimaler Abstand zwischen Sternen konfigurierbar</p>
+<p><strong>Rundheitsberechnung</strong>:
+* Standardmethode: Verhältnis der Hauptachsen einer elliptischen Anpassung
+* Proxy-Methode: Verhältnis der Standardabweichungen in x- und y-Richtung um den Peak</p>
+<p><strong>Lokaler Qualitätsindex (verbindlich):</strong></p>
+<p>Für Stern-Tiles:</p>
+<p>[
+Q_{star} = 0.6,(−\widetilde{\mathrm{FWHM}}) + 0.2,\tilde R + 0.2,\tilde C
+]</p>
+<p>Dabei ist <code>FWHM̃</code> die per MAD normalisierte FWHM (Median+MAD), <strong>ohne</strong> <code>log(FWHM)</code>.</p>
+<p>Für Struktur-Tiles:</p>
+<p>[
+Q_{struct} = 0.7,\widetilde{(E/\sigma)} − 0.3,\tilde B
+]</p>
+<p>Default-Gewichte:
+* Stern-Modus: w_fwhm = 0.6, w_round = 0.2, w_con = 0.2
+* Struktur-Modus: w_struct = 0.7, w_bg = 0.3</p>
+<p><strong>Lokales Gewicht:</strong></p>
+<p>Alle lokalen Qualitätswerte werden auf <strong>[−3, +3]</strong> geklemmt.</p>
+<p>[
+L_{f,t} = \exp(Q_{local})
+]</p>
+<hr />
+<h2 id="35-effektives-gewicht">3.5 Effektives Gewicht<a class="headerlink" href="#35-effektives-gewicht" title="Permanent link">&para;</a></h2>
+<p>[
+W_{f,t} = G_f \cdot L_{f,t}
+]</p>
+<p><code>G_f</code> und <code>L_f,t</code> repräsentieren orthogonale Informationsachsen.</p>
+<hr />
+<h2 id="36-tilerekonstruktion">3.6 Tile‑Rekonstruktion<a class="headerlink" href="#36-tilerekonstruktion" title="Permanent link">&para;</a></h2>
+<p>Für jedes Pixel <em>p</em> im Tile <em>t</em>:</p>
+<p>[
+I_t(p) = \frac{\sum_f W_{f,t} I_f(p)}{\sum_f W_{f,t}}
+]</p>
+<h3 id="stabilitatsregeln">Stabilitätsregeln<a class="headerlink" href="#stabilitatsregeln" title="Permanent link">&para;</a></h3>
+<p>Definiere den Nenner:</p>
+<p>[
+D_t = \sum_f W_{f,t}
+]</p>
+<p>mit einer kleinen Konstante <code>ε &gt; 0</code>.</p>
+<ul>
+<li>Wenn <code>D_t ≥ ε</code>: normale gewichtete Rekonstruktion.</li>
+<li>Wenn <code>D_t &lt; ε</code> (z. B. alle Gewichte numerisch ~0):</li>
+<li>
+<p>Rekonstruiere das Tile als <strong>ungewichtetes Mittel</strong> über <strong>alle</strong> Frames (keine Frame‑Selektion):</p>
+<p>[
+ I_t(p) = \frac{1}{N}\sum_f I_f(p)
+ ]</p>
+</li>
+<li>
+<p>Markiere das Tile als <code>fallback_used=true</code> (für Validierungs-/Abbruch‑Entscheidungen).</p>
+</li>
+</ul>
+<p><strong>Overlap‑Add mit Fensterfunktion (verbindlich):</strong></p>
+<ul>
+<li>Fensterfunktion: <strong>Hanning</strong> (2D, separabel)</li>
+<li>Formel: <code>w(x,y) = hann(x) · hann(y)</code> mit <code>hann(t) = 0.5 · (1 - cos(2πt))</code></li>
+</ul>
+<p><strong>Tile‑Normalisierung (verbindlich):</strong></p>
+<p>Vor dem Overlap-Add wird jedes Tile normalisiert:</p>
+<ol>
+<li>Hintergrund subtrahieren: <code>T'_t = T_t - median(T_t)</code></li>
+<li>Normalisieren: <code>T''_t = T'_t / median(|T'_t|)</code> (falls median &gt; ε)</li>
+</ol>
+<p><strong>Fallbacks für degenerierte / low‑weight Tiles (verbindlich):</strong></p>
+<p>Definiere den Nenner</p>
+<p>und die Stabilitätskonstante <code>ε = 1e-6</code>.</p>
+<ul>
+<li>Wenn <code>D_t,c ≥ ε</code>: normale gewichtete Rekonstruktion.</li>
+<li>Wenn <code>D_t,c &lt; ε</code> (z. B. alle Gewichte numerisch ~0):</li>
+<li>Rekonstruiere das Tile als <strong>ungewichtetes Mittel</strong> über <strong>alle</strong> Frames (keine Frame‑Selektion):</li>
+<li>Markiere das Tile als <code>fallback_used=true</code> (für Validation/Abort‑Entscheidung).</li>
+</ul>
+<p>Anmerkung: Diese Fallbacks sind streng linear und verletzen nicht das „keine Frame‑Selektion"‑Prinzip.</p>
+<h3 id="gewichtetes-sigma-clipping-auf-tile-ebene-neu">Gewichtetes Sigma-Clipping auf Tile-Ebene (NEU)<a class="headerlink" href="#gewichtetes-sigma-clipping-auf-tile-ebene-neu" title="Permanent link">&para;</a></h3>
+<p>Als Erweiterung kann eine Ausreißerrejektion auf Pixel-Ebene durchgeführt werden, die die Gewichte berücksichtigt:</p>
+<p><strong>Implementation</strong>: <code>sigma_clip_weighted_tile</code></p>
+<p><strong>Algorithmus</strong>:
+1. Für jedes Pixel p im Tile:
+   a. Sammle die Werte dieses Pixels aus allen Frames und die zugehörigen Gewichte
+   b. Berechne den gewichteten Mittelwert und die gewichtete Standardabweichung
+   c. Markiere Werte außerhalb von [μ-σ_low, μ+σ_high] als Ausreißer
+   d. Wiederhole a-c bis Konvergenz oder max_iter erreicht
+   e. Berechne den gewichteten Mittelwert der nicht-ausgeschlossenen Werte</p>
+<ol>
+<li>Fallback bei zu vielen verworfenen Werten:</li>
+<li>Falls weniger als min_fraction der Werte übrig bleiben, verwende alle Werte</li>
+</ol>
+<p><strong>Parameter</strong>:
+* <code>sigma_low</code>: Sigma-Faktor für untere Schranke (Default: 3.0)
+* <code>sigma_high</code>: Sigma-Faktor für obere Schranke (Default: 3.0)
+* <code>max_iters</code>: Maximale Anzahl an Iterationen (Default: 3)
+* <code>min_fraction</code>: Minimaler Anteil der Werte, die beibehalten werden müssen (Default: 0.5)</p>
+<p><strong>Konfiguration</strong>:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">tile_reconstruction</span><span class="p">:</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">sigma_clip</span><span class="p">:</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="nt">sigma_low</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">    </span><span class="nt">sigma_high</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">    </span><span class="nt">max_iters</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">    </span><span class="nt">min_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+</span></code></pre></div></p>
+<p><strong>Wichtig</strong>: Die gewichtete Sigma-Clipping-Methode respektiert die Gewichte der Frames und stellt sicher, dass keine systematische Frame-Selektion erfolgt.</p>
+<hr />
+<h2 id="37-zustandsbasierte-clusterung">3.7 Zustandsbasierte Clusterung<a class="headerlink" href="#37-zustandsbasierte-clusterung" title="Permanent link">&para;</a></h2>
+<h3 id="prinzip">Prinzip<a class="headerlink" href="#prinzip" title="Permanent link">&para;</a></h3>
+<p>Ein synthetischer Frame repräsentiert einen <strong>physikalisch kohärenten Beobachtungszustand</strong>, nicht ein Zeitintervall.</p>
+<h3 id="zustandsvektor">Zustandsvektor<a class="headerlink" href="#zustandsvektor" title="Permanent link">&para;</a></h3>
+<p>Für jedes Frame <em>f</em>:</p>
+<p>[
+v_f = (G_f, \langle Q_{tile} \rangle, \mathrm{Var}(Q_{tile}), B_f, \sigma_f)
+]</p>
+<h3 id="clusterung">Clusterung<a class="headerlink" href="#clusterung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Clusterung der <strong>Frames</strong>, nicht Tiles</li>
+</ul>
+<p><strong>Dynamische Cluster-Anzahl (verbindlich):</strong></p>
+<p>Die Cluster-Anzahl K wird adaptiv basierend auf der Frame-Anzahl N berechnet:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>K = clip(floor(N / 10), K_min, K_max)
+</span></code></pre></div>
+<p>wobei:
+* K_min = 5 (Minimum für stabile Statistik)
+* K_max = 30 (Maximum für Effizienz)
+* N = Anzahl der Frames</p>
+<p>Beispiele:
+* N = 50 → K = 5
+* N = 200 → K = 20
+* N = 500 → K = 30
+* N = 800 → K = 30 (gedeckelt)</p>
+<hr />
+<h2 id="38-synthetische-frames-und-finales-stacking">3.8 Synthetische Frames und finales Stacking<a class="headerlink" href="#38-synthetische-frames-und-finales-stacking" title="Permanent link">&para;</a></h2>
+<p><strong>Synthetische Frames (verbindlich):</strong></p>
+<p>Für jeden Cluster <em>k</em> (aus §3.7) wird ein synthetischer Frame erzeugt:</p>
+<p>[
+S_{k,c} = \frac{\sum_{f\in Cluster_k} G_{f,c} \cdot I_{f,c}}{\sum_{f\in Cluster_k} G_{f,c}}
+]</p>
+<p>wobei I_f,c die <strong>Original-Frames</strong> (nicht rekonstruiert) sind.</p>
+<p><strong>Optional (tile‑basiert, zur Qualitäts‑Propagation):</strong></p>
+<p>Wenn tile‑basierte Qualitätsverbesserungen (z. B. durch Tile‑Noise‑Filtering in §3.3.1) bis in den finalen Stack getragen werden sollen, kann die Erzeugung der synthetischen Frames alternativ tile‑basiert erfolgen. Dabei wird pro Tile <em>t</em> im Cluster der effektive Gewichtsvektor</p>
+<p>[
+W_{f,t,c} = G_{f,c} \cdot L_{f,t,c}
+]</p>
+<p>verwendet und das synthetische Frame analog zur Rekonstruktion (§3.6) per Overlap‑Add aus den Tile‑Ergebnissen zusammengesetzt. Aktivierung über:</p>
+<p><code>synthetic.weighting: tile_weighted</code> (Default: <code>global</code>).</p>
+<p>Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).</p>
+<p><strong>Finales Stacking (verbindlich):</strong></p>
+<p>Die synthetischen Frames werden im Backend rein linear gestackt. Optional kann
+vor dem Mittelwert ein <strong>Sigma-Clipping auf Pixelebene</strong> durchgeführt werden,
+um Ausreißer (z. B. kosmische Strahlung) zu unterdrücken.</p>
+<p><strong>Implementation</strong>: <code>sigma_clip_stack</code></p>
+<p><strong>Algorithmus</strong>:
+1. Für jedes Pixel p:
+   a. Sammle die Werte dieses Pixels aus allen synthetischen Frames
+   b. Berechne Mittelwert und Standardabweichung
+   c. Markiere Werte außerhalb von [μ-σ_low, μ+σ_high] als Ausreißer
+   d. Wiederhole a-c bis Konvergenz oder max_iter erreicht
+   e. Berechne den Mittelwert der nicht-ausgeschlossenen Werte</p>
+<ol>
+<li>Fallback bei zu vielen verworfenen Werten:</li>
+<li>Falls weniger als min_fraction der Werte übrig bleiben, verwende alle Werte</li>
+</ol>
+<p>Die Normativität bezieht sich auf das Endergebnis:</p>
+<p>[
+R_c = \operatorname{mean}(\mathcal{S}<em k_c="k,c">c) = \frac{1}{K} \cdot \sum_k S</em>
+]</p>
+<p>mit:</p>
+<ul>
+<li>linearem Stacking (ungewichtet im Sinne des Zustandsraums – alle Gewichte
+  sind bereits in S_{k,c} enthalten)</li>
+<li><strong>kein Drizzle</strong></li>
+<li><strong>keine zusätzliche gewichtete Umverteilung</strong> im Stacking-Schritt</li>
+</ul>
+<p>Sigma-Clipping (falls aktiviert) ist dabei als rein pixelebene Ausreißer-
+Rejektion mit anschließendem Fallback auf den <strong>unveränderten Mittelwert</strong>
+zu verstehen und verletzt weder Linearität noch das „keine Frame-Selektion"-
+Prinzip.</p>
+<hr />
+<h2 id="39-nachbearbeitung-post-processing">3.9 Nachbearbeitung (Post-Processing)<a class="headerlink" href="#39-nachbearbeitung-post-processing" title="Permanent link">&para;</a></h2>
+<h3 id="391-rgb-kombination">3.9.1 RGB-Kombination<a class="headerlink" href="#391-rgb-kombination" title="Permanent link">&para;</a></h3>
+<p>RGB- oder LRGB-Kombination ist:</p>
+<ul>
+<li><strong>kein Teil</strong> der Qualitätsrekonstruktion</li>
+<li>ein separater, nachgelagerter Schritt</li>
+<li>frei austauschbar</li>
+</ul>
+<h3 id="392-astrometrische-kalibrierung-neu">3.9.2 Astrometrische Kalibrierung (NEU)<a class="headerlink" href="#392-astrometrische-kalibrierung-neu" title="Permanent link">&para;</a></h3>
+<p>Für die Erzeugung einer astrometrischen Lösung (WCS - World Coordinate System) wird folgende Methode implementiert:</p>
+<p><strong>Implementation</strong>: <code>wcs_from_cdelt_crota</code> und <code>parse_wcs_file</code></p>
+<p><strong>Datenstruktur</strong>:
+- Die WCS-Struktur enthält eine vollständige TAN-Projektion mit CD-Matrix
+- Referenzpixel (CRPIX1, CRPIX2)
+- Referenz-Himmelskoordinaten (CRVAL1, CRVAL2 in Grad)
+- CD-Matrix (CD1_1, CD1_2, CD2_1, CD2_2 in Grad/Pixel)
+- Bilddimensionen (NAXIS1, NAXIS2)</p>
+<p><strong>Algorithmen</strong>:
+1. <strong>WCS-Parsing</strong>:
+   - Einlesen von ASTAP .wcs-Dateien (FITS-ähnliches Format)
+   - Konvertierung zwischen CDELT/CROTA und CD-Matrix-Formaten
+   - Unterstützung für ältere und neuere FITS-WCS-Standards</p>
+<ol>
+<li><strong>Koordinatenumwandlung</strong>:</li>
+<li>Pixel zu Himmel (RA/Dec): TAN (gnomonic) Projektion</li>
+<li>Himmel zu Pixel: Inverse TAN-Projektion</li>
+<li>
+<p>Suchradius-Berechnung für Katalogabfragen</p>
+</li>
+<li>
+<p><strong>Convenience-Funktionen</strong>:</p>
+</li>
+<li>Berechnung von Pixelskala (Bogensekunden/Pixel)</li>
+<li>Berechnung der Bildrotation (Grad)</li>
+<li>Sichtfeld-Abmessungen (Grad)</li>
+</ol>
+<p><strong>Eigenschaften</strong>:
+- Validierung der WCS-Parameter auf Konsistenz
+- Berechnung der Transformationen mit Doppelpräzision
+- Unterstützung für die gnomische (TAN) Projektion</p>
+<h3 id="393-photometrische-farbkalibrierung-neu">3.9.3 Photometrische Farbkalibrierung (NEU)<a class="headerlink" href="#393-photometrische-farbkalibrierung-neu" title="Permanent link">&para;</a></h3>
+<p>Die Photometrische Farbkalibrierung (PCC) passt die Farbbalance des Bildes an reale Sternfarben an. Dies erfolgt durch die Anpassung an Sterndaten aus dem Gaia-Katalog.</p>
+<p><strong>Implementation</strong>: <code>run_pcc</code>, <code>measure_stars</code>, <code>fit_color_matrix</code>, <code>apply_color_matrix</code></p>
+<p><strong>Datenquellen</strong>:
+1. <strong>Gaia-Katalog (Siril-Format)</strong>:
+   - XP-gesampelte Spektren (336-1020 nm in 2 nm Schritten)
+   - HEALPix-basierte Partitionierung für effiziente Suche
+   - Kegelförmige Suche (Cone Search) innerhalb eines Radius</p>
+<ol>
+<li><strong>Fallback-Kataloge über VizieR</strong>:</li>
+<li>Gaia DR3: Direkter API-Zugriff für Teff-Werte</li>
+<li>APASS DR9: Fallback für schwächere Sterne, mit B-V-Indizes</li>
+</ol>
+<p><strong>Algorithmischer Ablauf</strong>:
+1. <strong>Sternmessung</strong>:
+   - Apertur-Photometrie auf katalogidentifizierten Sternen
+   - Annulus-basierte Hintergrundsubtraktion
+   - Filtermessung in R-, G- und B-Kanälen</p>
+<ol>
+<li><strong>Synthetische Flusswerte</strong>:</li>
+<li>Für Gaia-XP-Spektren: Integration der Spektren über Filterkurven</li>
+<li>Für Teff-basierte Sterne: Schwarzkörperspektrum-Modellierung</li>
+<li>
+<p>B-V zu Teff Konvertierung für APASS-Sterne</p>
+</li>
+<li>
+<p><strong>Farbmatrix-Berechnung</strong>:</p>
+</li>
+<li>Robuste 3x3 Farbkorrekturmatrix-Anpassung</li>
+<li>Sigma-Clipping für Ausreißererkennung</li>
+<li>
+<p>RMS-Residuen-Validierung</p>
+</li>
+<li>
+<p><strong>Anwendung der Farbkorrektur</strong>:</p>
+</li>
+<li>Lineartransformation der RGB-Kanäle</li>
+<li>In-Place-Anwendung auf lineare Bilddaten</li>
+</ol>
+<p><strong>Parameter</strong>:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">pcc</span><span class="p">:</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">aperture_radius_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span><span class="nt">annulus_inner_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12.0</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">  </span><span class="nt">annulus_outer_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">18.0</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">  </span><span class="nt">mag_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14.0</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">  </span><span class="nt">mag_bright_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6.0</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">  </span><span class="nt">min_stars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">  </span><span class="nt">sigma_clip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.5</span>
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">  </span><span class="nt">catalog</span><span class="p">:</span>
+</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;siril_gaia&quot;</span><span class="w">  </span><span class="c1"># oder &quot;vizier_gaia&quot;, &quot;vizier_apass&quot;</span>
+</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;$HOME/.local/share/siril/siril_cat1_healpix8_xpsamp&quot;</span>
+</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">    </span><span class="nt">download_missing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div></p>
+<p><strong>Validierung</strong>:
+- Minimale Sternanzahl für zuverlässige Anpassung (standardmäßig 10)
+- RMS-Residuen unter einem konfigurierbaren Schwellenwert
+- Deterministische Katalogabfragen für Reproduzierbarkeit</p>
+<hr />
+<h2 id="4-validierung-und-abbruch">4. Validierung und Abbruch<a class="headerlink" href="#4-validierung-und-abbruch" title="Permanent link">&para;</a></h2>
+<h3 id="erfolgskriterien">Erfolgskriterien<a class="headerlink" href="#erfolgskriterien" title="Permanent link">&para;</a></h3>
+<ul>
+<li>mediane FWHM ↓ ≥ 5–10%</li>
+<li>Feldhomogenität ↑</li>
+<li>Hintergrund‑RMS ≤ klassisches Stacking</li>
+<li>keine systematischen Tile‑Artefakte</li>
+</ul>
+<h3 id="abbruchkriterien">Abbruchkriterien<a class="headerlink" href="#abbruchkriterien" title="Permanent link">&para;</a></h3>
+<ul>
+<li>&lt; 30% der <strong>signaltragenden Tiles</strong> verwendbar</li>
+<li>sehr geringe Streuung der Tile‑Gewichte</li>
+<li>sichtbare Tiling‑/Seam‑Artefakte</li>
+<li>Verletzung der Normalisierungsregeln</li>
+</ul>
+<hr />
+<h2 id="5-kernsatz">5. Kernsatz<a class="headerlink" href="#5-kernsatz" title="Permanent link">&para;</a></h2>
+<p>Die Methode ersetzt die Suche nach „besten Frames" durch eine <strong>räumlich‑zeitliche Qualitätskarte</strong> und nutzt jedes Informationsstück genau dort, wo es physikalisch gültig ist.</p>
+<p>Diese Spezifikation ist <strong>normativ</strong>. Abweichungen erfordern explizite Versionierung.</p>
+<hr />
+<h2 id="6-testfalle-normativ">6. Testfälle (normativ)<a class="headerlink" href="#6-testfalle-normativ" title="Permanent link">&para;</a></h2>
+<p>Die folgenden Testfälle sind verbindlich. Ein Run gilt nur dann als methodikkonform, wenn diese Tests (automatisiert oder nachvollziehbar manuell) erfüllt sind.</p>
+<ol>
+<li>
+<p><strong>Gewichtsnormierung global</strong></p>
+<ul>
+<li><strong>Given</strong>: α, β, γ aus Konfiguration</li>
+<li><strong>Then</strong>: α + β + γ = 1 (harte Fehlermeldung sonst)</li>
+</ul>
+</li>
+<li>
+<p><strong>Clamping vor Exponentialfunktion</strong></p>
+<ul>
+<li><strong>Given</strong>: beliebige Metrik‑Werte, auch Ausreißer</li>
+<li><strong>Then</strong>: <code>Q_f,c</code> und <code>Q_local</code> werden vor <code>exp(·)</code> auf [−3, +3] geklemmt</li>
+</ul>
+</li>
+<li>
+<p><strong>Tile‑Size‑Monotonie</strong></p>
+<ul>
+<li><strong>Given</strong>: zwei seeing‑Schätzungen <code>F1 &lt; F2</code></li>
+<li><strong>Then</strong>: <code>T(F1) ≤ T(F2)</code> (unter Berücksichtigung der Clamps)</li>
+</ul>
+</li>
+<li>
+<p><strong>Overlap‑Konsistenz</strong></p>
+<ul>
+<li><strong>Then</strong>: <code>0 ≤ overlap_fraction ≤ 0.5</code> und <code>O = floor(o·T)</code>, <code>S = T−O</code> sind ganzzahlig und deterministisch</li>
+</ul>
+</li>
+<li>
+<p><strong>Low‑weight Tile Fallback</strong></p>
+<ul>
+<li><strong>Given</strong>: Tile mit <code>D_t,c &lt; ε</code></li>
+<li><strong>Then</strong>: Rekonstruktion nutzt ungewichtetes Mittel über <strong>alle</strong> Frames; Ergebnis enthält keine NaNs/Infs</li>
+</ul>
+</li>
+<li>
+<p><strong>Kanaltrennung / keine Kanal‑Kopplung</strong></p>
+<ul>
+<li><strong>Then</strong>: Kein Metrik‑, Gewicht‑ oder Rekonstruktionsschritt mischt Informationen zwischen R/G/B</li>
+</ul>
+</li>
+<li>
+<p><strong>Keine Frame‑Selektion (invariante Regel)</strong></p>
+<ul>
+<li><strong>Then</strong>: Jede Rekonstruktionsformel verwendet alle Frames; Abweichungen führen zum Abbruch</li>
+</ul>
+</li>
+<li>
+<p><strong>Determinismus</strong></p>
+<ul>
+<li><strong>Given</strong>: gleiche Inputs (Frames + Config)</li>
+<li><strong>Then</strong>: bit‑stabile oder numerisch stabile (Toleranz definiert) Outputs und identische Tile‑Geometrie</li>
+</ul>
+</li>
+<li>
+<p><strong>Registrierungskaskade Fallback (NEU)</strong></p>
+<ul>
+<li><strong>Given</strong>: Ein Frame, das mit keinem primären Algorithmus registriert werden kann</li>
+<li><strong>Then</strong>: Kaskade durchläuft alle verfügbaren Methoden bis eine erfolgreich ist oder Fallback auf Identity</li>
+</ul>
+</li>
+<li>
+<p><strong>CFA-Transformation Phasenerhalt (NEU)</strong></p>
+<ul>
+<li><strong>Given</strong>: Ein CFA-Mosaikbild mit Bayer-Pattern</li>
+<li><strong>Then</strong>: Nach Transformation via <code>warp_cfa_mosaic_via_subplanes</code> bleibt das Bayer-Pattern korrekt erhalten</li>
+</ul>
+</li>
+<li>
+<p><strong>WCS-Konsistenz (NEU)</strong></p>
+<ul>
+<li><strong>Given</strong>: Ein gültiger WCS mit Referenzpixel und -koordinaten</li>
+<li><strong>Then</strong>: Pixel-zu-Himmel-zu-Pixel-Konvertierung muss für Bildpunkte innerhalb des Sichtfelds einen Rundtrip-Fehler &lt; 0.01 Pixel haben</li>
+</ul>
+</li>
+<li>
+<p><strong>PCC-Matrix-Eigenschaft (NEU)</strong></p>
+<ul>
+<li><strong>Given</strong>: Eine erfolgreich angepasste PCC-Farbmatrix</li>
+<li><strong>Then</strong>: Die Matrix-Determinante muss größer als 0 sein, und kein Element darf negativ sein</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2 id="7-anderungshistorie">7. Änderungshistorie<a class="headerlink" href="#7-anderungshistorie" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Datum</th>
+<th>Version</th>
+<th>Änderungen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Integration fortschrittlicher Methoden aus C++ Implementierung</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Erweiterte Registrierungskaskade (A.2.1.2)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>CFA-aware Transformation detailliert (B.2.2)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Wiener-Filter für Tiles hinzugefügt (3.3.1)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Gewichtetes Sigma-Clipping spezifiziert (3.6)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Astrometrische Kalibrierung (WCS) hinzugefügt (3.9.2)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Photometrische Farbkalibrierung (PCC) hinzugefügt (3.9.3)</td>
+</tr>
+<tr>
+<td>2026-02-12</td>
+<td>v3.1E</td>
+<td>Zusätzliche Testfälle für neue Funktionalität (6.9-10)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Grenzwertprüfungen für Tile-Geometrie (§3.3)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Dynamische Cluster-Anzahl K = clip(N/10, 5, 30) (§3.7)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Adaptive Gewichtung als optionale Erweiterung (§3.2)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Graduelles Degradieren statt hartem Abbruch (§1.4)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Explizite Q_local Formel mit MAD-Normalisierung (§3.4)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Hanning-Fensterfunktion und ε=1e-6 spezifiziert (§3.6)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.1</td>
+<td>Synthetische Frame-Formel explizit dokumentiert (§3.8)</td>
+</tr>
+<tr>
+<td>2026-01-09</td>
+<td>v3.0</td>
+<td>Initiale v3 Spezifikation mit Pfad A/B</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="anhang-a-implementierungsnotizen-nicht-normativ-aber-dringend-empfohlen">Anhang A – Implementierungsnotizen (nicht normativ, aber dringend empfohlen)<a class="headerlink" href="#anhang-a-implementierungsnotizen-nicht-normativ-aber-dringend-empfohlen" title="Permanent link">&para;</a></h2>
+<p>Dieser Anhang präzisiert rechnerische und algorithmische Details, um <strong>reproduzierbare, robuste Implementierungen</strong> sicherzustellen. Er erweitert die Methodik ohne ihre Semantik zu ändern.</p>
+<h3 id="a1-hintergrundschatzung-global-und-lokal">A.1 Hintergrundschätzung (global und lokal)<a class="headerlink" href="#a1-hintergrundschatzung-global-und-lokal" title="Permanent link">&para;</a></h3>
+<p><strong>Ziel:</strong> robuste Trennung von Signal und atmosphärischem Dunst.</p>
+<p>Empfohlenes Vorgehen:</p>
+<ul>
+<li>grobe Objektmaske (z. B. Sigma‑Clip + Dilatation)</li>
+<li>Hintergrund aus verbleibenden Pixeln berechnen</li>
+<li>robuste Statistik (Median oder Biweight‑Location)</li>
+</ul>
+<p>Hinweis:</p>
+<blockquote>
+<p>Der Hintergrund darf <strong>keine strukturellen Gradienten</strong> enthalten, die später in E oder E/σ einfließen.</p>
+</blockquote>
+<hr />
+<h3 id="a2-rauschschatzung">A.2 Rauschschätzung σ<a class="headerlink" href="#a2-rauschschatzung" title="Permanent link">&para;</a></h3>
+<p><strong>Global:</strong></p>
+<ul>
+<li>robuste Standardabweichung aus hintergrundmaskierten Pixeln</li>
+<li>kein Smoothing vor der Schätzung</li>
+</ul>
+<p><strong>Lokal (Tile):</strong></p>
+<ul>
+<li>gleiche Methode, aber auf Tile beschränkt</li>
+<li>σ wird explizit als <strong>Normalisierung</strong> für Strukturmetriken verwendet</li>
+</ul>
+<hr />
+<h3 id="a3-gradientenergie-e">A.3 Gradientenergie E<a class="headerlink" href="#a3-gradientenergie-e" title="Permanent link">&para;</a></h3>
+<p><strong>Empfohlene Definition:</strong></p>
+<p>E = mean(|∇I|²)</p>
+<p>Robustere Alternative:</p>
+<p>E = median(|∇I|²)</p>
+<p>Implementierungsnotizen:</p>
+<ul>
+<li>Sobel‑ oder Scharr‑Operator</li>
+<li>optional leichtes Pre‑Smoothing (σ ≤ 1 px), aber konsistent global &amp; lokal</li>
+<li>Randpixel verwerfen</li>
+</ul>
+<p>Wichtig:</p>
+<blockquote>
+<p>Unterschiedliche Gradientdefinitionen ändern die Skala, <strong>nicht</strong> die Methodik – Skalierung wird durch MAD‑Normalisierung absorbiert.</p>
+</blockquote>
+<hr />
+<h3 id="a4-sternauswahl-fur-fwhm">A.4 Sternauswahl für FWHM<a class="headerlink" href="#a4-sternauswahl-fur-fwhm" title="Permanent link">&para;</a></h3>
+<p>Empfohlene Kriterien:</p>
+<ul>
+<li>SNR &gt; Schwellwert</li>
+<li>Elliptizität &lt; 0.4</li>
+<li>keine Sättigung</li>
+</ul>
+<p>FWHM:</p>
+<ul>
+<li>Messung via PSF‑Fit oder Radialprofil</li>
+<li><strong>kein</strong> Log‑Transform; Verwendung der <strong>MAD‑normalisierten FWHM</strong> direkt als \widetilde{\mathrm{FWHM}}</li>
+</ul>
+<hr />
+<h3 id="a5-normalisierung-median-mad">A.5 Normalisierung (Median + MAD)<a class="headerlink" href="#a5-normalisierung-median-mad" title="Permanent link">&para;</a></h3>
+<p>Für jede Metrik x:</p>
+<p>x̃ = (x − median(x)) / (1.4826 · MAD(x))</p>
+<p>Hinweise:</p>
+<ul>
+<li>getrennt pro Metrik</li>
+<li>getrennt für global vs lokal</li>
+<li>Skalen nicht mischen</li>
+</ul>
+<hr />
+<h3 id="a6-tilenormalisierung-vor-overlapadd">A.6 Tile‑Normalisierung vor Overlap‑Add<a class="headerlink" href="#a6-tilenormalisierung-vor-overlapadd" title="Permanent link">&para;</a></h3>
+<p>Vorgehen:</p>
+<ol>
+<li>lokalen Hintergrund schätzen und subtrahieren</li>
+<li>Tile auf gemeinsamen Median skalieren</li>
+<li>Fensterfunktion anwenden</li>
+<li>Overlap‑Add</li>
+</ol>
+<p>Guard:</p>
+<ul>
+<li>wenn |median(tile_bgfree)| &lt; ε_median, <strong>nicht</strong> skalieren (scale = 1.0)</li>
+</ul>
+<p>Ziel:</p>
+<ul>
+<li>Patchwork‑Helligkeit vermeiden</li>
+<li>Qualitätsmetriken nicht beeinflussen</li>
+</ul>
+<hr />
+<h3 id="a7-clusterung">A.7 Clusterung<a class="headerlink" href="#a7-clusterung" title="Permanent link">&para;</a></h3>
+<p>Empfehlungen:</p>
+<ul>
+<li>Standard: k‑means oder GMM</li>
+<li>Feature‑Vektor standardisieren</li>
+<li>mehrere Initialisierungen; beste Inertia/LLH wählen</li>
+</ul>
+<p>Warnung:</p>
+<blockquote>
+<p>Zeitbasierte Clusterung ist <strong>kein</strong> Ersatz für Zustands‑Clusterung.</p>
+</blockquote>
+<hr />
+<h3 id="a8-numerische-stabilitat">A.8 Numerische Stabilität<a class="headerlink" href="#a8-numerische-stabilitat" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ε im Nenner der Tile‑Rekonstruktion explizit setzen</li>
+<li>exp(Q) clampen (z. B. Q ∈ [−3, 3])</li>
+<li>Double‑Precision bevorzugen</li>
+</ul>
+<p>Empfohlene Defaults:</p>
+<ul>
+<li>ε = 1e−6</li>
+<li>ε_median = 1e−6</li>
+</ul>
+<hr />
+<h3 id="a9-debug-und-diagnoseartefakte-empfohlen">A.9 Debug‑ und Diagnose‑Artefakte (empfohlen)<a class="headerlink" href="#a9-debug-und-diagnoseartefakte-empfohlen" title="Permanent link">&para;</a></h3>
+<p>Während der Entwicklung speichern:</p>
+<ul>
+<li>Histogramme von Q_f und Q_local</li>
+<li>2D‑Maps der Tile‑Gewichte</li>
+<li>Differenzbild rekonstruiert − klassisch</li>
+</ul>
+<p>Diese Artefakte sind nicht Teil der Produktion, aber essenziell für Verifikation.</p>
+<hr />
+<h3 id="a10-registrierungskaskade-neu">A.10 Registrierungskaskade (NEU)<a class="headerlink" href="#a10-registrierungskaskade-neu" title="Permanent link">&para;</a></h3>
+<p>Die Registrierungskaskade ist ein kritischer Erfolgsfaktor. Empfohlene Implementierung:</p>
+<ol>
+<li><strong>Vorverarbeitung für Registrierung</strong>:</li>
+<li>Rauschunterdrückung (Gauß-Filter mit σ=1.5)</li>
+<li>Histogrammnormalisierung auf [0,1]</li>
+<li>
+<p>Optional: Downsampling für Geschwindigkeit</p>
+</li>
+<li>
+<p><strong>Kaskade mit frühem Abbruch</strong> (aktualisiert 2026-02-12):
+   <div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Pseudocode (entspricht register_single_frame() in global_registration.cpp)</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">register_with_cascade</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">ncc_identity</span> <span class="o">=</span> <span class="n">compute_ncc</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">)</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">try_method</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">method_name</span><span class="p">):</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span> <span class="k">return</span> <span class="kc">False</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>        <span class="n">warped</span> <span class="o">=</span> <span class="n">apply_warp</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">warp</span><span class="p">)</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>        <span class="n">ncc</span> <span class="o">=</span> <span class="n">compute_ncc</span><span class="p">(</span><span class="n">warped</span><span class="p">,</span> <span class="n">reference</span><span class="p">)</span>
+</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>        <span class="k">return</span> <span class="n">ncc</span> <span class="o">&gt;</span> <span class="n">ncc_identity</span> <span class="o">+</span> <span class="mf">0.01</span>  <span class="c1"># signifikante Verbesserung</span>
+</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a>
+</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>    <span class="c1"># 1. Primärmethode (konfigurierbar, Default: triangle)</span>
+</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">triangle_star_matching</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;triangle&quot;</span><span class="p">):</span>
+</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-14"><a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">star_registration_similarity</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;star_pair&quot;</span><span class="p">):</span>
+</span><span id="__span-18-15"><a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-16"><a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a>
+</span><span id="__span-18-17"><a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a>    <span class="c1"># 2. Fallback-Kaskade (fest)</span>
+</span><span id="__span-18-18"><a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">trail_endpoint_registration</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;trail_endpoint&quot;</span><span class="p">):</span>
+</span><span id="__span-18-19"><a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-20"><a id="__codelineno-18-20" name="__codelineno-18-20" href="#__codelineno-18-20"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">feature_registration_similarity</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;akaze&quot;</span><span class="p">):</span>
+</span><span id="__span-18-21"><a id="__codelineno-18-21" name="__codelineno-18-21" href="#__codelineno-18-21"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-22"><a id="__codelineno-18-22" name="__codelineno-18-22" href="#__codelineno-18-22"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">robust_phase_ecc</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;robust_phase_ecc&quot;</span><span class="p">):</span>
+</span><span id="__span-18-23"><a id="__codelineno-18-23" name="__codelineno-18-23" href="#__codelineno-18-23"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-24"><a id="__codelineno-18-24" name="__codelineno-18-24" href="#__codelineno-18-24"></a>    <span class="k">if</span> <span class="n">try_method</span><span class="p">(</span><span class="n">hybrid_phase_ecc</span><span class="p">(</span><span class="n">moving</span><span class="p">,</span> <span class="n">reference</span><span class="p">),</span> <span class="s2">&quot;hybrid_phase_ecc&quot;</span><span class="p">):</span>
+</span><span id="__span-18-25"><a id="__codelineno-18-25" name="__codelineno-18-25" href="#__codelineno-18-25"></a>        <span class="k">return</span> <span class="n">result</span>
+</span><span id="__span-18-26"><a id="__codelineno-18-26" name="__codelineno-18-26" href="#__codelineno-18-26"></a>
+</span><span id="__span-18-27"><a id="__codelineno-18-27" name="__codelineno-18-27" href="#__codelineno-18-27"></a>    <span class="c1"># 3. Fallback auf Identität</span>
+</span><span id="__span-18-28"><a id="__codelineno-18-28" name="__codelineno-18-28" href="#__codelineno-18-28"></a>    <span class="k">return</span> <span class="n">identity_with_warning</span><span class="p">()</span>
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Validierung jeder Registrierung</strong>:</p>
+</li>
+<li>NCC vor und nach der Transformation berechnen</li>
+<li>Akzeptanz nur bei NCC &gt; ncc_identity + 0.01</li>
+<li>
+<p>Diagnostik-Logging für erste 3 Frames (Sternzahlen, NCC-Werte, Methoden-Ergebnisse)</p>
+</li>
+<li>
+<p><strong>Parameter-Tuning</strong>:</p>
+</li>
+<li>Für jede Methode eigene Parameter optimal wählen</li>
+<li>Hybrid-Methode: schnell, aber weniger robust</li>
+<li>Geometrische Methoden: langsamer, aber robust bei schwierigen Bildern</li>
+</ol>
+<hr />
+<h3 id="a11-cfa-aware-transformation-neu">A.11 CFA-aware Transformation (NEU)<a class="headerlink" href="#a11-cfa-aware-transformation-neu" title="Permanent link">&para;</a></h3>
+<p>Die <code>warp_cfa_mosaic_via_subplanes</code>-Methode ist wie folgt implementiert:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Pseudocode</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">warp_cfa_mosaic_via_subplanes</span><span class="p">(</span><span class="n">mosaic</span><span class="p">,</span> <span class="n">warp_matrix</span><span class="p">,</span> <span class="n">bayer_pattern</span><span class="p">):</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="c1"># 1. Bestimme Bayer-Positionen</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">r_row</span><span class="p">,</span> <span class="n">r_col</span><span class="p">,</span> <span class="n">b_row</span><span class="p">,</span> <span class="n">b_col</span> <span class="o">=</span> <span class="n">bayer_offsets</span><span class="p">(</span><span class="n">bayer_pattern</span><span class="p">)</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>    <span class="c1"># 2. Extrahiere Subplanes</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>    <span class="n">r_plane</span> <span class="o">=</span> <span class="n">extract_subplane</span><span class="p">(</span><span class="n">mosaic</span><span class="p">,</span> <span class="n">r_row</span><span class="p">,</span> <span class="n">r_col</span><span class="p">)</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>    <span class="n">g1_plane</span> <span class="o">=</span> <span class="n">extract_subplane</span><span class="p">(</span><span class="n">mosaic</span><span class="p">,</span> <span class="p">(</span><span class="n">r_row</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">%</span><span class="mi">2</span><span class="p">,</span> <span class="n">r_col</span><span class="p">)</span>
+</span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>    <span class="n">g2_plane</span> <span class="o">=</span> <span class="n">extract_subplane</span><span class="p">(</span><span class="n">mosaic</span><span class="p">,</span> <span class="n">r_row</span><span class="p">,</span> <span class="p">(</span><span class="n">r_col</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">%</span><span class="mi">2</span><span class="p">)</span>
+</span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>    <span class="n">b_plane</span> <span class="o">=</span> <span class="n">extract_subplane</span><span class="p">(</span><span class="n">mosaic</span><span class="p">,</span> <span class="n">b_row</span><span class="p">,</span> <span class="n">b_col</span><span class="p">)</span>
+</span><span id="__span-19-11"><a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>
+</span><span id="__span-19-12"><a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>    <span class="c1"># 3. Warp jede Subplane separat</span>
+</span><span id="__span-19-13"><a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a>    <span class="n">r_warped</span> <span class="o">=</span> <span class="n">warp_affine</span><span class="p">(</span><span class="n">r_plane</span><span class="p">,</span> <span class="n">warp_matrix</span><span class="p">)</span>
+</span><span id="__span-19-14"><a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>    <span class="n">g1_warped</span> <span class="o">=</span> <span class="n">warp_affine</span><span class="p">(</span><span class="n">g1_plane</span><span class="p">,</span> <span class="n">warp_matrix</span><span class="p">)</span>
+</span><span id="__span-19-15"><a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a>    <span class="n">g2_warped</span> <span class="o">=</span> <span class="n">warp_affine</span><span class="p">(</span><span class="n">g2_plane</span><span class="p">,</span> <span class="n">warp_matrix</span><span class="p">)</span>
+</span><span id="__span-19-16"><a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>    <span class="n">b_warped</span> <span class="o">=</span> <span class="n">warp_affine</span><span class="p">(</span><span class="n">b_plane</span><span class="p">,</span> <span class="n">warp_matrix</span><span class="p">)</span>
+</span><span id="__span-19-17"><a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a>
+</span><span id="__span-19-18"><a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a>    <span class="c1"># 4. Reassemble CFA mosaic</span>
+</span><span id="__span-19-19"><a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">zeros_like</span><span class="p">(</span><span class="n">mosaic</span><span class="p">)</span>
+</span><span id="__span-19-20"><a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a>
+</span><span id="__span-19-21"><a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a>    <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">height</span><span class="p">):</span>
+</span><span id="__span-19-22"><a id="__codelineno-19-22" name="__codelineno-19-22" href="#__codelineno-19-22"></a>        <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">width</span><span class="p">):</span>
+</span><span id="__span-19-23"><a id="__codelineno-19-23" name="__codelineno-19-23" href="#__codelineno-19-23"></a>            <span class="n">py</span> <span class="o">=</span> <span class="n">y</span> <span class="o">%</span> <span class="mi">2</span>
+</span><span id="__span-19-24"><a id="__codelineno-19-24" name="__codelineno-19-24" href="#__codelineno-19-24"></a>            <span class="n">px</span> <span class="o">=</span> <span class="n">x</span> <span class="o">%</span> <span class="mi">2</span>
+</span><span id="__span-19-25"><a id="__codelineno-19-25" name="__codelineno-19-25" href="#__codelineno-19-25"></a>
+</span><span id="__span-19-26"><a id="__codelineno-19-26" name="__codelineno-19-26" href="#__codelineno-19-26"></a>            <span class="k">if</span> <span class="n">py</span> <span class="o">==</span> <span class="n">r_row</span> <span class="ow">and</span> <span class="n">px</span> <span class="o">==</span> <span class="n">r_col</span><span class="p">:</span>
+</span><span id="__span-19-27"><a id="__codelineno-19-27" name="__codelineno-19-27" href="#__codelineno-19-27"></a>                <span class="n">result</span><span class="p">[</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">r_warped</span><span class="p">[</span><span class="n">y</span><span class="o">//</span><span class="mi">2</span><span class="p">,</span> <span class="n">x</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-19-28"><a id="__codelineno-19-28" name="__codelineno-19-28" href="#__codelineno-19-28"></a>            <span class="k">elif</span> <span class="n">py</span> <span class="o">==</span> <span class="n">b_row</span> <span class="ow">and</span> <span class="n">px</span> <span class="o">==</span> <span class="n">b_col</span><span class="p">:</span>
+</span><span id="__span-19-29"><a id="__codelineno-19-29" name="__codelineno-19-29" href="#__codelineno-19-29"></a>                <span class="n">result</span><span class="p">[</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_warped</span><span class="p">[</span><span class="n">y</span><span class="o">//</span><span class="mi">2</span><span class="p">,</span> <span class="n">x</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-19-30"><a id="__codelineno-19-30" name="__codelineno-19-30" href="#__codelineno-19-30"></a>            <span class="k">elif</span> <span class="n">py</span> <span class="o">==</span> <span class="n">g1_row</span> <span class="ow">and</span> <span class="n">px</span> <span class="o">==</span> <span class="n">g1_col</span><span class="p">:</span>
+</span><span id="__span-19-31"><a id="__codelineno-19-31" name="__codelineno-19-31" href="#__codelineno-19-31"></a>                <span class="n">result</span><span class="p">[</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">g1_warped</span><span class="p">[</span><span class="n">y</span><span class="o">//</span><span class="mi">2</span><span class="p">,</span> <span class="n">x</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-19-32"><a id="__codelineno-19-32" name="__codelineno-19-32" href="#__codelineno-19-32"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-19-33"><a id="__codelineno-19-33" name="__codelineno-19-33" href="#__codelineno-19-33"></a>                <span class="n">result</span><span class="p">[</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">g2_warped</span><span class="p">[</span><span class="n">y</span><span class="o">//</span><span class="mi">2</span><span class="p">,</span> <span class="n">x</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-19-34"><a id="__codelineno-19-34" name="__codelineno-19-34" href="#__codelineno-19-34"></a>
+</span><span id="__span-19-35"><a id="__codelineno-19-35" name="__codelineno-19-35" href="#__codelineno-19-35"></a>    <span class="k">return</span> <span class="n">result</span>
+</span></code></pre></div>
+<p>Diese Methode stellt sicher, dass Farbinformationen während der Transformation nicht vermischt werden und Bayer-Artefakte vermieden werden.</p>
+<hr />
+<h3 id="a12-wiener-filterung-fur-tiles-neu">A.12 Wiener-Filterung für Tiles (NEU)<a class="headerlink" href="#a12-wiener-filterung-fur-tiles-neu" title="Permanent link">&para;</a></h3>
+<p>Die Frequenzraum-basierte Wiener-Filterung bietet eine optimale Balance zwischen Rauschunterdrückung und Detailerhalt:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Pseudocode</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">wiener_tile_filter</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">snr_tile</span><span class="p">,</span> <span class="n">q_struct_tile</span><span class="p">,</span> <span class="n">is_star_tile</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">enabled</span> <span class="ow">or</span> <span class="n">is_star_tile</span><span class="p">:</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>        <span class="k">return</span> <span class="n">tile</span>  <span class="c1"># Keine Filterung für Stern-Tiles</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>    <span class="k">if</span> <span class="n">snr_tile</span> <span class="o">&gt;=</span> <span class="n">config</span><span class="o">.</span><span class="n">snr_threshold</span><span class="p">:</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>        <span class="k">return</span> <span class="n">tile</span>  <span class="c1"># SNR bereits ausreichend gut</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>    <span class="k">if</span> <span class="n">q_struct_tile</span> <span class="o">&lt;=</span> <span class="n">config</span><span class="o">.</span><span class="n">q_min</span><span class="p">:</span>
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>        <span class="k">return</span> <span class="n">tile</span>  <span class="c1"># Qualität zu niedrig für sinnvolle Filterung</span>
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>
+</span><span id="__span-20-12"><a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a>    <span class="c1"># 1. Padding</span>
+</span><span id="__span-20-13"><a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a>    <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">tile</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-20-14"><a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a>    <span class="n">pad_h</span><span class="p">,</span> <span class="n">pad_w</span> <span class="o">=</span> <span class="n">h</span><span class="o">//</span><span class="mi">4</span><span class="p">,</span> <span class="n">w</span><span class="o">//</span><span class="mi">4</span>
+</span><span id="__span-20-15"><a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a>    <span class="n">padded</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">copyMakeBorder</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">pad_h</span><span class="p">,</span> <span class="n">pad_h</span><span class="p">,</span> <span class="n">pad_w</span><span class="p">,</span> <span class="n">pad_w</span><span class="p">,</span> <span class="n">cv</span><span class="o">.</span><span class="n">BORDER_REFLECT_101</span><span class="p">)</span>
+</span><span id="__span-20-16"><a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a>
+</span><span id="__span-20-17"><a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a>    <span class="c1"># 2. FFT</span>
+</span><span id="__span-20-18"><a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a>    <span class="n">F</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">dft</span><span class="p">(</span><span class="n">padded</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">cv</span><span class="o">.</span><span class="n">DFT_COMPLEX_OUTPUT</span><span class="p">)</span>
+</span><span id="__span-20-19"><a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a>    <span class="n">planes</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">F</span><span class="p">)</span>
+</span><span id="__span-20-20"><a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a>    <span class="n">power</span> <span class="o">=</span> <span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">planes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="n">planes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+</span><span id="__span-20-21"><a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a>
+</span><span id="__span-20-22"><a id="__codelineno-20-22" name="__codelineno-20-22" href="#__codelineno-20-22"></a>    <span class="c1"># 3. Wiener-Filter</span>
+</span><span id="__span-20-23"><a id="__codelineno-20-23" name="__codelineno-20-23" href="#__codelineno-20-23"></a>    <span class="n">sigma_sq</span> <span class="o">=</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">sigma</span>
+</span><span id="__span-20-24"><a id="__codelineno-20-24" name="__codelineno-20-24" href="#__codelineno-20-24"></a>    <span class="n">H</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">power</span> <span class="o">-</span> <span class="n">sigma_sq</span><span class="p">)</span>  <span class="c1"># max für threshold, nicht negativ</span>
+</span><span id="__span-20-25"><a id="__codelineno-20-25" name="__codelineno-20-25" href="#__codelineno-20-25"></a>    <span class="n">cv</span><span class="o">.</span><span class="n">divide</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">power</span> <span class="o">+</span> <span class="mf">1e-12</span><span class="p">,</span> <span class="n">H</span><span class="p">)</span>   <span class="c1"># Wiener-Filter: (S-N)/S</span>
+</span><span id="__span-20-26"><a id="__codelineno-20-26" name="__codelineno-20-26" href="#__codelineno-20-26"></a>    <span class="n">cv</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">H</span><span class="p">)</span>                <span class="c1"># Nicht verstärken, nur dämpfen</span>
+</span><span id="__span-20-27"><a id="__codelineno-20-27" name="__codelineno-20-27" href="#__codelineno-20-27"></a>
+</span><span id="__span-20-28"><a id="__codelineno-20-28" name="__codelineno-20-28" href="#__codelineno-20-28"></a>    <span class="c1"># 4. Anwenden des Filters</span>
+</span><span id="__span-20-29"><a id="__codelineno-20-29" name="__codelineno-20-29" href="#__codelineno-20-29"></a>    <span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">planes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">H</span>
+</span><span id="__span-20-30"><a id="__codelineno-20-30" name="__codelineno-20-30" href="#__codelineno-20-30"></a>    <span class="n">planes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">planes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">H</span>
+</span><span id="__span-20-31"><a id="__codelineno-20-31" name="__codelineno-20-31" href="#__codelineno-20-31"></a>    <span class="n">cv</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">planes</span><span class="p">,</span> <span class="n">F</span><span class="p">)</span>
+</span><span id="__span-20-32"><a id="__codelineno-20-32" name="__codelineno-20-32" href="#__codelineno-20-32"></a>
+</span><span id="__span-20-33"><a id="__codelineno-20-33" name="__codelineno-20-33" href="#__codelineno-20-33"></a>    <span class="c1"># 5. Inverse FFT</span>
+</span><span id="__span-20-34"><a id="__codelineno-20-34" name="__codelineno-20-34" href="#__codelineno-20-34"></a>    <span class="n">filtered</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">idft</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">cv</span><span class="o">.</span><span class="n">DFT_SCALE</span> <span class="o">|</span> <span class="n">cv</span><span class="o">.</span><span class="n">DFT_REAL_OUTPUT</span><span class="p">)</span>
+</span><span id="__span-20-35"><a id="__codelineno-20-35" name="__codelineno-20-35" href="#__codelineno-20-35"></a>
+</span><span id="__span-20-36"><a id="__codelineno-20-36" name="__codelineno-20-36" href="#__codelineno-20-36"></a>    <span class="c1"># 6. Crop auf ursprüngliche Größe</span>
+</span><span id="__span-20-37"><a id="__codelineno-20-37" name="__codelineno-20-37" href="#__codelineno-20-37"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">filtered</span><span class="p">[</span><span class="n">pad_h</span><span class="p">:</span><span class="n">pad_h</span><span class="o">+</span><span class="n">h</span><span class="p">,</span> <span class="n">pad_w</span><span class="p">:</span><span class="n">pad_w</span><span class="o">+</span><span class="n">w</span><span class="p">]</span>
+</span><span id="__span-20-38"><a id="__codelineno-20-38" name="__codelineno-20-38" href="#__codelineno-20-38"></a>
+</span><span id="__span-20-39"><a id="__codelineno-20-39" name="__codelineno-20-39" href="#__codelineno-20-39"></a>    <span class="k">return</span> <span class="n">result</span>
+</span></code></pre></div>
+<p>Diese Implementierung ist besonders effektiv bei niedrig-SNR Strukturen, während sie scharfe Details (insbesondere Sterne) gut erhält.</p>
+<hr />
+<h2 id="anhang-b-validierungsplots-formal-spezifiziert">Anhang B – Validierungsplots (formal spezifiziert)<a class="headerlink" href="#anhang-b-validierungsplots-formal-spezifiziert" title="Permanent link">&para;</a></h2>
+<p>Dieser Anhang definiert <strong>verbindliche Validierungsartefakte</strong>, um einen Run als <strong>erfolgreich</strong>, <strong>grenzwertig</strong> oder <strong>fehlgeschlagen</strong> einzustufen. Alle Plots müssen aus <strong>produktionsrelevanten Daten</strong> generiert werden.</p>
+<h3 id="b1-fwhmverteilung-vor-nach">B.1 FWHM‑Verteilung (vor / nach)<a class="headerlink" href="#b1-fwhmverteilung-vor-nach" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Histogramm + Boxplot</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>klassischer Referenzstack (oder Single Frames)</li>
+<li>synthetische Qualitätsframes</li>
+</ul>
+<p><strong>Metriken:</strong></p>
+<ul>
+<li>mediane FWHM</li>
+<li>Interquartilsabstand</li>
+</ul>
+<p><strong>Akzeptanz:</strong></p>
+<ul>
+<li>mediane FWHM‑Reduktion ≥ <code>validation.min_fwhm_improvement_percent</code></li>
+</ul>
+<hr />
+<h3 id="b2-fwhmfeldkarte-2d">B.2 FWHM‑Feldkarte (2D)<a class="headerlink" href="#b2-fwhmfeldkarte-2d" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Heatmap über Bildkoordinaten</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>lokale FWHM‑Messungen aus Stern‑Tiles</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>Feldhomogenisierung</li>
+<li>Reduktion von Rand‑Seeing/Rotationsartefakten</li>
+</ul>
+<p><strong>Warnsignal:</strong></p>
+<ul>
+<li>harte Übergänge entlang Tile‑Grenzen</li>
+</ul>
+<hr />
+<h3 id="b3-globaler-hintergrund-vs-zeit">B.3 Globaler Hintergrund vs Zeit<a class="headerlink" href="#b3-globaler-hintergrund-vs-zeit" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Linienplot</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>B_f (raw) = vor globaler Normalisierung (registrierte, aber noch nicht skalierten Frames)</li>
+<li>effektiver Beitrag nach Gewichtung</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>korrektes Down‑Weighting wolkiger Phasen</li>
+</ul>
+<hr />
+<h3 id="b4-globale-und-lokale-gewichte-uber-zeit">B.4 Globale und lokale Gewichte über Zeit<a class="headerlink" href="#b4-globale-und-lokale-gewichte-uber-zeit" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Scatter/Linie</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>G_f</li>
+<li>⟨L_f,t⟩ pro Frame</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>klare Trennung von Beobachtungszuständen</li>
+</ul>
+<hr />
+<h3 id="b5-tilegewichtsverteilung">B.5 Tile‑Gewichtsverteilung<a class="headerlink" href="#b5-tilegewichtsverteilung" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Histogramm</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>W_f,t für alle Tiles</li>
+</ul>
+<p><strong>Akzeptanz:</strong></p>
+<ul>
+<li>Varianz ≥ <code>validation.min_tile_weight_variance</code></li>
+</ul>
+<hr />
+<h3 id="b6-differenzbild">B.6 Differenzbild<a class="headerlink" href="#b6-differenzbild" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Bild + Histogramm</p>
+<p><strong>Definition:</strong></p>
+<p>difference = Rekonstruktion − klassisches Stacking</p>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>sichtbarer Detailgewinn</li>
+<li>keine großskaligen systematischen Muster</li>
+</ul>
+<p><strong>Abbruch:</strong></p>
+<ul>
+<li>periodische Tile‑Muster</li>
+</ul>
+<hr />
+<h3 id="b7-snr-vs-auflosung">B.7 SNR vs Auflösung<a class="headerlink" href="#b7-snr-vs-auflosung" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Scatter</p>
+<p><strong>Inputs:</strong></p>
+<ul>
+<li>lokales SNR</li>
+<li>lokale FWHM</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>physikalisch plausibler Trade‑off</li>
+<li>kein künstliches Überschärfen</li>
+</ul>
+<hr />
+<h3 id="b8-registrierungsqualitat-neu">B.8 Registrierungsqualität (NEU)<a class="headerlink" href="#b8-registrierungsqualitat-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Multi-Panel-Plot</p>
+<p><strong>Inputs:</strong>
+* NCC-Werte vor und nach Registrierung
+* Verwendete Registrierungsmethode pro Frame
+* Residuen (in Pixel)</p>
+<p><strong>Ziel:</strong>
+* Validierung der Registrierungskaskade
+* Identifikation problematischer Frames</p>
+<p><strong>Akzeptanz:</strong>
+* &gt; 95% der Frames erfolgreich registriert
+* Mittleres NCC nach Registrierung &gt; 0.8</p>
+<hr />
+<h3 id="b9-cfa-transformation-validierung-neu">B.9 CFA-Transformation-Validierung (NEU)<a class="headerlink" href="#b9-cfa-transformation-validierung-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Farbanalyse</p>
+<p><strong>Inputs:</strong>
+* Originales CFA-Muster
+* Transformiertes CFA-Muster</p>
+<p><strong>Validierung:</strong>
+* Bayer-Phasenerhaltung (keine Vermischung von R/G/B-Positionen)
+* Farbsättigung und -tonalität (keine systematischen Farbverschiebungen)</p>
+<p><strong>Akzeptanz:</strong>
+* Keine sichtbaren Bayer-Artefakte im Endresultat</p>
+<hr />
+<h2 id="anhang-c-komplexitat-und-performancebudget">Anhang C – Komplexität und Performance‑Budget<a class="headerlink" href="#anhang-c-komplexitat-und-performancebudget" title="Permanent link">&para;</a></h2>
+<p>Dieser Anhang unterstützt Planung und Skalierung von Produktionsruns.</p>
+<h3 id="c1-rechenkomplexitat-grobe-ordnung">C.1 Rechenkomplexität (grobe Ordnung)<a class="headerlink" href="#c1-rechenkomplexitat-grobe-ordnung" title="Permanent link">&para;</a></h3>
+<p>Sei:</p>
+<ul>
+<li>F = Anzahl Frames</li>
+<li>T = Anzahl Tiles</li>
+<li>P = Pixel pro Tile</li>
+</ul>
+<p><strong>Globale Metriken:</strong> O(F · N_pixels)</p>
+<p><strong>Tile‑Analyse:</strong> O(F · T · P)</p>
+<p><strong>Rekonstruktion:</strong> O(T · F · P)</p>
+<p>Tile‑Analyse dominiert die Laufzeit.</p>
+<hr />
+<h3 id="c2-speicherbedarf">C.2 Speicherbedarf<a class="headerlink" href="#c2-speicherbedarf" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ein Frame im RAM (float32): ~4 · W · H Bytes</li>
+<li>Tile‑Puffer: ~T · P · sizeof(float)</li>
+</ul>
+<p><strong>Empfehlung:</strong></p>
+<ul>
+<li>per Tile streamen</li>
+<li>keine vollständige Frame‑Matrix im RAM halten</li>
+</ul>
+<hr />
+<h3 id="c3-iostrategie">C.3 I/O‑Strategie<a class="headerlink" href="#c3-iostrategie" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Registrierung: ein Read/Write‑Durchlauf</li>
+<li>Tile‑Analyse: sequentiellen Zugriff bevorzugen</li>
+<li>synthetische Frames: explizit persistieren</li>
+</ul>
+<p>Vermeiden:</p>
+<ul>
+<li>zufälligen Tile‑Zugriff auf rotierenden Platten</li>
+</ul>
+<hr />
+<h3 id="c4-parallelisierung">C.4 Parallelisierung<a class="headerlink" href="#c4-parallelisierung" title="Permanent link">&para;</a></h3>
+<p>Geeignete Ebenen:</p>
+<ul>
+<li>Tiles (embarrassingly parallel)</li>
+<li>Frames innerhalb eines Tiles (optional)</li>
+</ul>
+<p>Hinweise:</p>
+<ul>
+<li>globale Normalisierung ist pro Frame unabhängig und parallelisierbar (I/O kann limitieren)</li>
+<li>Zustands‑Clusterung ist typischerweise nicht der Bottleneck; parallel optional</li>
+</ul>
+<p>Option: RabbitMQ‑basierte Parallelisierung</p>
+<p>Diese Option ist für spätere Implementierung vorgesehen und ermöglicht horizontale Skalierung über mehrere Worker.</p>
+<ul>
+<li>Task‑Queue: RabbitMQ</li>
+<li>Granularität:</li>
+<li>bevorzugt: <strong>Tile‑Tasks</strong> (ein Task = Tile t über alle Frames f)</li>
+<li>optional: Frame‑Tasks innerhalb eines Tiles (nur wenn lokale I/O schnell ist)</li>
+<li>Ergebnisse:</li>
+<li>rekonstruiertes Tile‑Block + Summary‑Stats (z. B. ΣW, Tile‑Median nach Background‑Subtraktion)</li>
+<li>separater Kanal/Queue für Diagnose‑Artefakte</li>
+<li>Aggregation:</li>
+<li>Master sammelt Tile‑Ergebnisse und führt deterministisches Overlap‑Add aus</li>
+<li>deterministische Seeds/Sortierung für Reproduzierbarkeit</li>
+<li>Fehlertoleranz:</li>
+<li>idempotente Tasks (Tile kann neu berechnet werden)</li>
+<li>Dead‑Letter‑Queue für fehlgeschlagene Tiles</li>
+</ul>
+<hr />
+<h3 id="c5-laufzeitabschatzung">C.5 Laufzeitabschätzung<a class="headerlink" href="#c5-laufzeitabschatzung" title="Permanent link">&para;</a></h3>
+<p>Für typische Werte:</p>
+<ul>
+<li>F ≈ 1000</li>
+<li>T ≈ 200–400</li>
+<li>P ≈ (64–256)²</li>
+</ul>
+<p>Erwartung:</p>
+<ul>
+<li>CPU (8–16 Cores): Stunden</li>
+<li>GPU‑Beschleunigung: optional</li>
+</ul>
+<hr />
+<h3 id="c6-abbruch-bei-laufzeitlimit">C.6 Abbruch bei Laufzeitlimit<a class="headerlink" href="#c6-abbruch-bei-laufzeitlimit" title="Permanent link">&para;</a></h3>
+<p>Die folgenden Limits sind verbindlich:</p>
+<ul>
+<li><code>runtime_limits.tile_analysis_max_factor_vs_stack</code></li>
+<li><code>runtime_limits.hard_abort_hours</code></li>
+</ul>
+<p>Bei Überschreitung: kontrollierter Abbruch.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

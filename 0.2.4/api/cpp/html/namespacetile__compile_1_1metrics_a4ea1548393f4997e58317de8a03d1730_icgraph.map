@@ -1,0 +1,26 @@
+<map id="tile_compile::metrics::keep_indices_by_mad_clip" name="tile_compile::metrics::keep_indices_by_mad_clip">
+<area shape="rect" id="Node000001" title="Implements keep indices by mad clip." alt="" coords="967,75,1151,114"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a90c79c663ef0cdb9958227dd39096e68" title="Implements measure frame stars." alt="" coords="744,28,900,67"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="951,76,900,66,901,60,952,71"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1metrics.html#a06842cfeb63e01e8e9a562c7b48e045c" title="Implements measure fwhm from image." alt="" coords="726,106,919,144"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="952,111,920,115,919,110,951,106"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="481,5,678,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="729,44,678,41,678,35,729,39"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,86,433,111"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="475,66,401,88,400,83,474,60"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,87,218,112"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="263,102,219,102,219,97,263,96"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,114,55,139"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="101,115,56,124,55,119,100,110"/>
+<area shape="poly" id="edge13_Node000007_Node000004" title=" " alt="" coords="710,121,434,105,434,100,711,116"/>
+<area shape="rect" id="Node000008" href="$cli__main_8cpp.html#a57422c002c0f59964de82201a9319b3d" title="Handles CLI command pcc run." alt="" coords="530,197,629,221"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="764,153,679,186,630,200,629,195,677,181,762,148"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1runner.html#a709132083f9b1e9fa447977b3b98f6e6" title="Resolves pcc auto fwhm px." alt="" coords="484,134,675,172"/>
+<area shape="poly" id="edge9_Node000007_Node000010" title=" " alt="" coords="710,141,675,145,675,139,710,135"/>
+<area shape="rect" id="Node000009" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="332,197,381,221"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="514,212,381,212,381,206,514,206"/>
+<area shape="poly" id="edge12_Node000010_Node000004" title=" " alt="" coords="483,132,409,114,411,109,484,127"/>
+<area shape="rect" id="Node000011" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,138,231,163"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="469,155,231,153,231,148,469,150"/>
+<area shape="poly" id="edge11_Node000011_Node000006" title=" " alt="" coords="87,139,55,133,56,128,88,134"/>
+</map>

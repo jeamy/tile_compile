@@ -1,0 +1,22 @@
+<map id="include/tile_compile/image/cfa_processing.hpp" name="include/tile_compile/image/cfa_processing.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="410,5,588,44"/>
+<area shape="rect" id="Node000002" href="$types_8hpp.html" title=" " alt="" coords="345,92,525,117"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="485,46,456,82,452,78,481,43"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="652,165,706,189"/>
+<area shape="poly" id="edge10_Node000001_Node000009" title=" " alt="" coords="523,43,655,152,652,156,520,47"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,165,102,189"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="372,120,117,167,116,161,371,115"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="126,165,200,189"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="391,120,216,165,215,160,389,115"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="225,165,285,189"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="406,120,300,161,298,156,404,115"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="308,165,388,189"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="422,119,376,157,372,153,419,115"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="412,165,458,189"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="438,117,438,149,432,149,432,117"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="482,165,548,189"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="450,115,492,152,489,156,446,119"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="476,115,638,161,637,166,474,120"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="572,165,628,189"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="463,115,560,156,558,161,461,120"/>
+</map>

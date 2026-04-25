@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::sampled_high_percentile" name="tile_compile::astrometry::sampled_high_percentile">
+<area shape="rect" id="Node000001" title="Implements sampled high percentile." alt="" coords="424,5,596,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="409,27,377,27,377,22,409,22"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,5,167,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="199,27,167,27,167,22,199,22"/>
+</map>

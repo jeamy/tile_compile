@@ -1,0 +1,19 @@
+<map id="tile_compile::astrometry::estimate_background" name="tile_compile::astrometry::estimate_background">
+<area shape="rect" id="Node000001" title="Estimates background." alt="" coords="686,59,848,98"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a9edd11f0298e713fdd46e0a0fa9d658a" title="Applies diagonal color matrix affine." alt="" coords="477,5,638,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="671,60,638,52,639,47,672,54"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#ab26c7f391dd3d92368c4b5925a55491b" title="Builds pcc attenuation context." alt="" coords="477,91,638,143"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="671,99,639,105,638,99,670,93"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,70,167,108"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="462,46,168,82,167,77,461,41"/>
+<area shape="poly" id="edge10_Node000004_Node000003" title=" " alt="" coords="461,106,429,102,290,95,167,92,167,86,291,89,429,97,462,100"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#a76ad2f1309bfdc9228cfacd6c1b48fb1" title="Applies color matrix impl." alt="" coords="237,175,406,214"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="469,151,430,165,392,177,390,172,428,160,467,146"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#abfb6c70138ada6b0d90a51f1815a43ce" title="Applies color matrix impl simple." alt="" coords="215,112,429,151"/>
+<area shape="poly" id="edge7_Node000004_Node000007" title=" " alt="" coords="462,126,430,128,429,122,461,120"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="232,172,214,165,189,152,165,137,121,111,123,106,168,132,192,147,216,160,233,167"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a3a529e8592863c808b336f297f589789" title="Applies color matrix." alt="" coords="5,147,167,186"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="222,185,167,179,167,173,222,180"/>
+<area shape="poly" id="edge9_Node000007_Node000003" title=" " alt="" coords="199,112,167,106,167,101,200,107"/>
+<area shape="poly" id="edge8_Node000007_Node000006" title=" " alt="" coords="200,152,167,157,167,152,199,147"/>
+</map>

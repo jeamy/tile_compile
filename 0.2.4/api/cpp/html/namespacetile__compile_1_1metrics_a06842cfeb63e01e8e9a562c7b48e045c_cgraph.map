@@ -1,0 +1,16 @@
+<map id="tile_compile::metrics::measure_fwhm_from_image" name="tile_compile::metrics::measure_fwhm_from_image">
+<area shape="rect" id="Node000001" title="Implements measure fwhm from image." alt="" coords="5,177,199,216"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a5114c81cc86ef92a1d5c470af5ba93b0" title="Estimates fwhm from patch." alt="" coords="247,92,437,131"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,174,270,134,272,139,159,179"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="674,149,798,188"/>
+<area shape="poly" id="edge8_Node000001_Node000004" title=" " alt="" coords="199,190,658,169,659,175,199,195"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="250,235,434,273"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="186,214,244,228,243,233,185,219"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="485,5,626,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="391,89,491,48,493,53,393,94"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="437,95,530,92,579,96,627,105,665,119,698,138,695,143,662,124,626,110,578,101,530,97,437,100"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="486,120,625,159"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="438,121,471,126,470,131,437,127"/>
+<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="626,148,659,154,658,159,625,153"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="434,245,527,234,626,213,681,192,682,197,627,218,528,239,435,251"/>
+</map>

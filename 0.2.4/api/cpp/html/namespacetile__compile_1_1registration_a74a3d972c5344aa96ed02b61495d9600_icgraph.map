@@ -1,0 +1,25 @@
+<map id="tile_compile::registration::detect_stars_with_threshold" name="tile_compile::registration::detect_stars_with_threshold">
+<area shape="rect" id="Node000001" title="Detects stars with threshold." alt="" coords="1353,64,1546,103"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a3cb0a6d89b2b5a677decfe370584a3ea" title="Detects stars simple." alt="" coords="1142,64,1305,103"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1337,86,1305,86,1305,81,1337,81"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#a999f0bdab47ddde25022bb0a43bf4daa" title="Implements register single frame." alt="" coords="703,64,865,103"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1141,63,1094,54,1004,47,913,54,852,66,851,61,913,49,1004,41,1095,49,1142,57"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1registration.html#abae51a6363e850da19139fabf9d99631" title="Implements star registration similarity." alt="" coords="913,64,1094,103"/>
+<area shape="poly" id="edge10_Node000002_Node000009" title=" " alt="" coords="1127,86,1095,86,1095,81,1127,81"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1registration.html#a3572b46c7355041407f4ba84ffbfdaa5" title="Implements triangle star matching." alt="" coords="922,127,1085,165"/>
+<area shape="poly" id="edge12_Node000002_Node000010" title=" " alt="" coords="1140,110,1075,129,1073,124,1138,105"/>
+<area shape="poly" id="edge5_Node000003_Node000003" title=" " alt="" coords="820,51,807,45,784,43,762,45,750,49,745,55,748,63,743,65,740,54,747,45,761,39,784,37,808,40,822,46"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a373bf47bd5c03acc7734445a99c7f85b" title="Implements register frames to reference." alt="" coords="456,29,655,68"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="687,71,655,66,655,61,688,66"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="475,92,636,144"/>
+<area shape="poly" id="edge6_Node000003_Node000005" title=" " alt="" coords="688,101,636,108,636,103,687,95"/>
+<area shape="poly" id="edge4_Node000004_Node000004" title=" " alt="" coords="592,16,579,10,555,8,534,10,521,15,516,21,519,28,514,30,511,20,517,11,532,5,556,3,580,5,595,11"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,106,408,130"/>
+<area shape="poly" id="edge7_Node000005_Node000006" title=" " alt="" coords="459,121,409,121,409,115,459,115"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,106,206,130"/>
+<area shape="poly" id="edge8_Node000006_Node000007" title=" " alt="" coords="238,121,206,121,206,115,238,115"/>
+<area shape="rect" id="Node000008" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,106,55,130"/>
+<area shape="poly" id="edge9_Node000007_Node000008" title=" " alt="" coords="87,121,55,121,55,115,87,115"/>
+<area shape="poly" id="edge11_Node000009_Node000003" title=" " alt="" coords="898,86,866,86,866,81,898,81"/>
+<area shape="poly" id="edge13_Node000010_Node000003" title=" " alt="" coords="918,125,853,106,855,101,920,119"/>
+</map>

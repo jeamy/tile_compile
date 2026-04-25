@@ -1,0 +1,7 @@
+<map id="tile_compile::image::select_background_surface_model" name="tile_compile::image::select_background_surface_model">
+<area shape="rect" id="Node000001" title="Implements select background surface model." alt="" coords="5,30,143,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ad91ab5763b468f2a4dc3fe164282bd84" title="Implements solve polynomial model." alt="" coords="191,5,361,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="143,43,175,38,176,43,144,48"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a96698c7472382a55450e53db00ad2e34" title="Implements solve rbf model." alt="" coords="209,68,342,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="144,64,194,72,193,77,143,70"/>
+</map>

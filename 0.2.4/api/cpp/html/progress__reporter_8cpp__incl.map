@@ -1,0 +1,19 @@
+<map id="src/reconstruction/progress_reporter.cpp" name="src/reconstruction/progress_reporter.cpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="247,5,400,44"/>
+<area shape="rect" id="Node000002" href="$progress__reporter_8hpp.html" title=" " alt="" coords="165,92,341,131"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="310,46,280,82,276,78,306,43"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="366,99,423,124"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="341,43,377,85,373,89,337,46"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,179,66,203"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="201,134,81,176,79,171,199,129"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="89,179,150,203"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="222,134,154,173,151,168,219,129"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="174,179,238,203"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="244,133,223,166,219,164,239,130"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="262,179,340,203"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="267,130,288,164,283,167,262,133"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="364,179,433,203"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="289,129,364,169,362,174,287,134"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="457,179,510,203"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="310,129,443,173,442,178,308,134"/>
+</map>

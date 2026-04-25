@@ -1,0 +1,15 @@
+<map id="include/tile_compile/reconstruction/progress_reporter.hpp" name="include/tile_compile/reconstruction/progress_reporter.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="172,5,334,58"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,106,66,131"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="187,61,80,103,78,98,185,56"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="89,106,150,131"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="214,61,152,100,149,95,211,56"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="174,106,238,131"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="241,60,222,93,218,91,236,57"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="262,106,340,131"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="270,57,289,91,285,94,265,60"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="364,106,433,131"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="299,56,367,96,364,100,296,61"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="457,106,510,131"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="324,56,443,100,442,105,322,61"/>
+</map>

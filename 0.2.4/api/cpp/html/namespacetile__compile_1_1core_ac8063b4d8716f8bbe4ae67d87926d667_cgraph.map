@@ -1,0 +1,5 @@
+<map id="tile_compile::core::acceleration_selection_summary" name="tile_compile::core::acceleration_selection_summary">
+<area shape="rect" id="Node000001" title="Implements acceleration selection summary." alt="" coords="5,5,164,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#aff9a08bc437d7b73daa9663132dec5b1" title="Implements acceleration backend name." alt="" coords="212,12,405,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,29,196,29,196,34,164,34"/>
+</map>

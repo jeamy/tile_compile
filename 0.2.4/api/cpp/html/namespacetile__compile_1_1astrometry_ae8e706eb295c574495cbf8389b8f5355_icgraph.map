@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::radial_support_fraction" name="tile_compile::astrometry::radial_support_fraction">
+<area shape="rect" id="Node000001" title="Implements radial support fraction." alt="" coords="424,5,585,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="408,27,376,27,376,22,408,22"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,5,167,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="199,27,167,27,167,22,199,22"/>
+</map>

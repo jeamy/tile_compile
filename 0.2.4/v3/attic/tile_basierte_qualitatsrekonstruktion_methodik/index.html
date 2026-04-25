@@ -1,0 +1,2839 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v2 - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v2" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v2
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../process_flow/phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-zielsetzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Zielsetzung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-grundannahmen-verbindlich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Grundannahmen (verbindlich)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gesamtpipeline-normativ" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gesamtpipeline (normativ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-globale-normalisierung-pflicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Globale Normalisierung (Pflicht)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Globale Normalisierung (Pflicht)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#zweck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zweck
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anforderungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zulassige-verfahren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zulässige Verfahren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verboten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verboten
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-globale-framemetriken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Globale Frame‑Metriken
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Globale Frame‑Metriken">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#normalisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Normalisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#globaler-qualitatsindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Globaler Qualitätsindex
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#globales-gewicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Globales Gewicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-tilegeometrie-seeingadaptiv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Tile‑Geometrie (seeing‑adaptiv)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Tile‑Geometrie (seeing‑adaptiv)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fwhmschatzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FWHM‑Schätzung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tilegroe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tile‑Größe
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-lokale-tilemetriken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Lokale Tile‑Metriken
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Lokale Tile‑Metriken">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fall-a-sterne-im-tile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fall A – Sterne im Tile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fall-b-keine-sterne-im-tile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fall B – Keine Sterne im Tile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lokales-gewicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lokales Gewicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-effektives-gewicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Effektives Gewicht
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-tilerekonstruktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Tile‑Rekonstruktion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Tile‑Rekonstruktion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stabilitatsregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stabilitätsregeln
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#randbehandlung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randbehandlung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tilenormalisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tile‑Normalisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-synthetische-qualitatsframes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Synthetische Qualitätsframes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Synthetische Qualitätsframes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grundsatz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grundsatz
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zustandsvektor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zustandsvektor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clusterung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clusterung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-finales-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Finales Stacking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-validierung-und-abbruch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Validierung und Abbruch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Validierung und Abbruch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#erfolgsbedingungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Erfolgsbedingungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#abbruchkriterien" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abbruchkriterien
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-kernaussage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Kernaussage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-implementationshinweise-nicht-normativ-aber-verbindlich-empfohlen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A – Implementationshinweise (nicht-normativ, aber verbindlich empfohlen)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appendix A – Implementationshinweise (nicht-normativ, aber verbindlich empfohlen)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-hintergrundschatzung-global-und-lokal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.1 Hintergrundschätzung (global und lokal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-rauschschatzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.2 Rauschschätzung σ
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-gradientenergie-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.3 Gradientenergie E
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4-sternselektion-fur-fwhm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.4 Sternselektion für FWHM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a5-normalisierung-median-mad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.5 Normalisierung (Median + MAD)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a6-tile-normalisierung-vor-overlap-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.6 Tile-Normalisierung vor Overlap-Add
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a7-clustering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.7 Clustering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a8-numerische-stabilitat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.8 Numerische Stabilität
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a9-debug-und-diagnoseartefakte-empfohlen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A.9 Debug- und Diagnoseartefakte (empfohlen)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-b-validierungsplots-formal-spezifiziert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix B – Validierungsplots (formal spezifiziert)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appendix B – Validierungsplots (formal spezifiziert)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-fwhm-verteilung-vor-nach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.1 FWHM-Verteilung (vor / nach)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2-fwhm-feldkarte-2d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.2 FWHM-Feldkarte (2D)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b3-globaler-hintergrund-vs-zeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.3 Globaler Hintergrund vs. Zeit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b4-globale-und-lokale-gewichte-uber-zeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.4 Globale und lokale Gewichte über Zeit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b5-tile-gewichtsverteilung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.5 Tile-Gewichtsverteilung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b6-differenzbild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.6 Differenzbild
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b7-snr-vs-auflosung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B.7 SNR vs. Auflösung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-c-komplexitats-und-performance-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix C – Komplexitäts- und Performance-Budget
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appendix C – Komplexitäts- und Performance-Budget">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c1-rechenkomplexitat-grobe-ordnung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.1 Rechenkomplexität (grobe Ordnung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c2-speicherbedarf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.2 Speicherbedarf
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c3-io-strategie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.3 I/O-Strategie
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c4-parallelisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.4 Parallelisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c5-laufzeitabschatzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.5 Laufzeitabschätzung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c6-abbruch-bei-laufzeituberschreitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C.6 Abbruch bei Laufzeitüberschreitung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v2">Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v2<a class="headerlink" href="#tilebasierte-qualitatsrekonstruktion-fur-dso-methodik-v2" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Referenzspezifikation (Single Source of Truth)
+<strong>Gültig für:</strong> <code>tile_compile.proc</code> (Clean Break) + <code>tile_compile.yaml</code></p>
+<hr />
+<h2 id="1-zielsetzung">1. Zielsetzung<a class="headerlink" href="#1-zielsetzung" title="Permanent link">&para;</a></h2>
+<p>Ziel ist die Rekonstruktion eines <strong>orts‑ und zeitabhängig optimal gewichteten Signals</strong> aus vollständig registrierten, linearen Kurzbelichtungen astronomischer Deep‑Sky‑Objekte.</p>
+<p>Die Methode modelliert explizit zwei orthogonale Einflussgrößen:</p>
+<ul>
+<li><strong>globale atmosphärische Qualität</strong> (Transparenz, Schleier, Hintergrunddrift)</li>
+<li><strong>lokale seeing‑ und strukturbedingte Qualität</strong> (Schärfe, Detailtragfähigkeit)</li>
+</ul>
+<p>Es findet <strong>keine Frame‑Selektion</strong> statt. Jeder Frame trägt entsprechend seiner physikalischen Aussagekraft zum Endergebnis bei.</p>
+<hr />
+<h2 id="2-grundannahmen-verbindlich">2. Grundannahmen (verbindlich)<a class="headerlink" href="#2-grundannahmen-verbindlich" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Daten sind <strong>linear</strong> (kein Stretch, keine nichtlinearen Operatoren)</li>
+<li>OSC‑Daten, Verarbeitung getrennt pro Farbkanal</li>
+<li>vollständige Registrierung (Translation + Rotation, keine Residuen)</li>
+<li>große Anzahl Kurzbelichtungen (typ. ≥ 800 Frames)</li>
+<li>keine feste Pixel‑ oder Auflösungsannahme</li>
+</ul>
+<p>Ein Verstoß gegen diese Annahmen führt zum <strong>Abbruch des Laufs</strong>.</p>
+<hr />
+<h2 id="3-gesamtpipeline-normativ">3. Gesamtpipeline (normativ)<a class="headerlink" href="#3-gesamtpipeline-normativ" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Registrierung der Rohframes</li>
+<li><strong>Globale lineare Normalisierung (Pflicht, einmalig)</strong></li>
+<li>Berechnung globaler Frame‑Metriken</li>
+<li>seeing‑adaptive Tile‑Geometrie</li>
+<li>Lokale Tile‑Metriken und Gewichtung</li>
+<li>Tile‑weise Rekonstruktion (Overlap‑Add)</li>
+<li><strong>Zustandsbasierte Clusterung der Frames</strong></li>
+<li>Rekonstruktion synthetischer Qualitätsframes</li>
+<li>Finales lineares Stacking</li>
+<li>Validierung und Abbruchentscheidung</li>
+</ol>
+<p>Die Pipeline ist <strong>streng linear</strong>. Es existieren keine Rückkopplungen.</p>
+<hr />
+<h2 id="4-globale-normalisierung-pflicht">4. Globale Normalisierung (Pflicht)<a class="headerlink" href="#4-globale-normalisierung-pflicht" title="Permanent link">&para;</a></h2>
+<h3 id="zweck">Zweck<a class="headerlink" href="#zweck" title="Permanent link">&para;</a></h3>
+<p>Entkopplung photometrischer Transparenzschwankungen von Qualitätsmetriken.</p>
+<h3 id="anforderungen">Anforderungen<a class="headerlink" href="#anforderungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>global</li>
+<li>linear</li>
+<li>exakt einmal</li>
+<li><strong>vor jeder Metrikberechnung</strong></li>
+<li>getrennt pro Farbkanal</li>
+</ul>
+<h3 id="zulassige-verfahren">Zulässige Verfahren<a class="headerlink" href="#zulassige-verfahren" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Hintergrundbasierte Skalierung (maskiert, robust)</li>
+<li>Fallback: Skalierung auf globalen Median</li>
+</ul>
+<p>Formal:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>I&#39;_f = I_f / B_f
+</span></code></pre></div>
+<h3 id="verboten">Verboten<a class="headerlink" href="#verboten" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Histogram‑Stretch</li>
+<li>Asinh / Log</li>
+<li>lokale oder adaptive Normalisierung vor Tile‑Analyse</li>
+</ul>
+<hr />
+<h2 id="5-globale-framemetriken">5. Globale Frame‑Metriken<a class="headerlink" href="#5-globale-framemetriken" title="Permanent link">&para;</a></h2>
+<p>Für jeden registrierten, normalisierten Frame <em>f</em> werden bestimmt:</p>
+<ul>
+<li><strong>B_f</strong> – globales Hintergrundniveau (robust, maskiert)</li>
+<li><strong>σ_f</strong> – globales Rauschen</li>
+<li><strong>E_f</strong> – Gradientenergie (großskalige Struktur)</li>
+</ul>
+<h3 id="normalisierung">Normalisierung<a class="headerlink" href="#normalisierung" title="Permanent link">&para;</a></h3>
+<p>Alle Metriken werden mittels <strong>Median + MAD</strong> robust skaliert.</p>
+<h3 id="globaler-qualitatsindex">Globaler Qualitätsindex<a class="headerlink" href="#globaler-qualitatsindex" title="Permanent link">&para;</a></h3>
+<p>[
+Q_f = \alpha(-\tilde B_f) + \beta(-\tilde\sigma_f) + \gamma\tilde E_f
+]</p>
+<p>mit:</p>
+<ul>
+<li>α + β + γ = 1</li>
+<li>Default: α = 0.4, β = 0.3, γ = 0.3</li>
+</ul>
+<p>Q_f wird auf <strong>[−3, +3]</strong> begrenzt.</p>
+<h3 id="globales-gewicht">Globales Gewicht<a class="headerlink" href="#globales-gewicht" title="Permanent link">&para;</a></h3>
+<p>[
+G_f = \exp(Q_f)
+]</p>
+<p><strong>Semantik:</strong> G_f kodiert ausschließlich globale atmosphärische Qualität.</p>
+<hr />
+<h2 id="6-tilegeometrie-seeingadaptiv">6. Tile‑Geometrie (seeing‑adaptiv)<a class="headerlink" href="#6-tilegeometrie-seeingadaptiv" title="Permanent link">&para;</a></h2>
+<h3 id="fwhmschatzung">FWHM‑Schätzung<a class="headerlink" href="#fwhmschatzung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>aus <strong>registrierten Frames</strong></li>
+<li>robuste Stichprobe über viele Sterne und Frames</li>
+<li>Ausreißer (hohe Elliptizität, geringe SNR) werden verworfen</li>
+</ul>
+<h3 id="tilegroe">Tile‑Größe<a class="headerlink" href="#tilegroe" title="Permanent link">&para;</a></h3>
+<p>[
+T = \mathrm{clip}(32 \cdot F,; 64,; \min(W,H)/6)
+]</p>
+<ul>
+<li>Überlappung: O = 0.25 · T</li>
+<li>Schrittweite: S = T − O</li>
+</ul>
+<p>Diese Definition ist <strong>auflösungs‑ und seeing‑invariant</strong>.</p>
+<hr />
+<h2 id="7-lokale-tilemetriken">7. Lokale Tile‑Metriken<a class="headerlink" href="#7-lokale-tilemetriken" title="Permanent link">&para;</a></h2>
+<p>Für jedes Tile <em>t</em> und jeden Frame <em>f</em>:</p>
+<h3 id="fall-a-sterne-im-tile">Fall A – Sterne im Tile<a class="headerlink" href="#fall-a-sterne-im-tile" title="Permanent link">&para;</a></h3>
+<p><strong>Messgrößen:</strong></p>
+<ul>
+<li>FWHM_f,t</li>
+<li>Rundheit R_f,t</li>
+<li>lokaler Kontrast C_f,t</li>
+</ul>
+<p><strong>Qualitätsindex (Standard):</strong></p>
+<p>[
+Q_{star} = 0.6,(−\widetilde{\log(\mathrm{FWHM})}) + 0.2,\tilde R + 0.2,\tilde C
+]</p>
+<h3 id="fall-b-keine-sterne-im-tile">Fall B – Keine Sterne im Tile<a class="headerlink" href="#fall-b-keine-sterne-im-tile" title="Permanent link">&para;</a></h3>
+<p><strong>Messgrößen:</strong></p>
+<ul>
+<li>Gradientenergie E_f,t</li>
+<li>lokale Standardabweichung σ_f,t</li>
+<li>lokales Hintergrundniveau B_f,t</li>
+</ul>
+<p><strong>Qualitätsindex (Default):</strong></p>
+<p>[
+Q_{struct} = 0.7,\widetilde{(E/\sigma)} − 0.3,\tilde B
+]</p>
+<p>Diese Metrik ist weitgehend helligkeitsinvariant.</p>
+<h3 id="lokales-gewicht">Lokales Gewicht<a class="headerlink" href="#lokales-gewicht" title="Permanent link">&para;</a></h3>
+<p>Alle lokalen Qualitätsindizes werden auf <strong>[−3, +3]</strong> begrenzt.</p>
+<p>[
+L_{f,t} = \exp(Q_{local})
+]</p>
+<hr />
+<h2 id="8-effektives-gewicht">8. Effektives Gewicht<a class="headerlink" href="#8-effektives-gewicht" title="Permanent link">&para;</a></h2>
+<p>[
+W_{f,t} = G_f \cdot L_{f,t}
+]</p>
+<p>G_f und L_f,t repräsentieren orthogonale Informationsachsen.</p>
+<hr />
+<h2 id="9-tilerekonstruktion">9. Tile‑Rekonstruktion<a class="headerlink" href="#9-tilerekonstruktion" title="Permanent link">&para;</a></h2>
+<p>Für jedes Pixel <em>p</em> im Tile <em>t</em>:</p>
+<p>[
+I_t(p) = \frac{\sum_f W_{f,t} I_f(p)}{\sum_f W_{f,t}}
+]</p>
+<h3 id="stabilitatsregeln">Stabilitätsregeln<a class="headerlink" href="#stabilitatsregeln" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p>Falls Σ W_f,t &lt; ε:</p>
+</li>
+<li>
+<p>Tile invalidieren <strong>oder</strong></p>
+</li>
+<li>Fallback: ungewichtetes Mittel</li>
+</ul>
+<h3 id="randbehandlung">Randbehandlung<a class="headerlink" href="#randbehandlung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Cosine‑ oder Hanning‑Fenster</li>
+<li>Overlap‑Add (keine harten Kanten)</li>
+</ul>
+<h3 id="tilenormalisierung">Tile‑Normalisierung<a class="headerlink" href="#tilenormalisierung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>linearer Rescale auf gemeinsamen Tile‑Median</li>
+<li><strong>nach</strong> Hintergrundsubtraktion</li>
+<li><strong>keine</strong> Rückwirkung auf Qualitätsmetriken</li>
+</ul>
+<hr />
+<h2 id="10-synthetische-qualitatsframes">10. Synthetische Qualitätsframes<a class="headerlink" href="#10-synthetische-qualitatsframes" title="Permanent link">&para;</a></h2>
+<h3 id="grundsatz">Grundsatz<a class="headerlink" href="#grundsatz" title="Permanent link">&para;</a></h3>
+<p>Ein synthetisches Frame repräsentiert einen <strong>physikalisch kohärenten Beobachtungszustand</strong>, nicht einen Zeitabschnitt.</p>
+<h3 id="zustandsvektor">Zustandsvektor<a class="headerlink" href="#zustandsvektor" title="Permanent link">&para;</a></h3>
+<p>Für jeden Frame <em>f</em>:</p>
+<p>[
+v_f = (G_f, \langle Q_{tile} \rangle, \mathrm{Var}(Q_{tile}), B_f, \sigma_f)
+]</p>
+<h3 id="clusterung">Clusterung<a class="headerlink" href="#clusterung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Clusterung der <strong>Frames</strong>, nicht der Tiles</li>
+<li>k = 15–30 Cluster</li>
+<li>pro Cluster genau ein synthetisches Frame</li>
+</ul>
+<p>Fallbacks (nur bei explizit stabilen Bedingungen):</p>
+<ul>
+<li>Quantile nach G_f</li>
+<li>Zeitbuckets</li>
+</ul>
+<hr />
+<h2 id="11-finales-stacking">11. Finales Stacking<a class="headerlink" href="#11-finales-stacking" title="Permanent link">&para;</a></h2>
+<ul>
+<li>lineares Stacking der synthetischen Frames</li>
+<li>keine zusätzliche Gewichtung</li>
+<li>kein Drizzle</li>
+</ul>
+<hr />
+<h2 id="12-validierung-und-abbruch">12. Validierung und Abbruch<a class="headerlink" href="#12-validierung-und-abbruch" title="Permanent link">&para;</a></h2>
+<h3 id="erfolgsbedingungen">Erfolgsbedingungen<a class="headerlink" href="#erfolgsbedingungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Median‑FWHM ↓ ≥ 5 – 10 %</li>
+<li>Feldhomogenität ↑</li>
+<li>Hintergrund‑RMS ≤ klassisches Stacking</li>
+<li>keine systematischen Tile‑Artefakte</li>
+</ul>
+<h3 id="abbruchkriterien">Abbruchkriterien<a class="headerlink" href="#abbruchkriterien" title="Permanent link">&para;</a></h3>
+<ul>
+<li>&lt; 30 % der <strong>signalführenden Tiles</strong> verwertbar</li>
+<li>kaum Streuung der Tile‑Gewichte</li>
+<li>sichtbare Kachel‑ oder Übergangsartefakte</li>
+<li>Verletzung der Normalisierungsregeln</li>
+</ul>
+<hr />
+<h2 id="13-kernaussage">13. Kernaussage<a class="headerlink" href="#13-kernaussage" title="Permanent link">&para;</a></h2>
+<p>Die Methode ersetzt die Suche nach „besten Frames“ durch eine <strong>räumlich‑zeitliche Qualitätskarte</strong>, die jede Bildinformation genau dort nutzt, wo sie physikalisch valide ist.</p>
+<p>Diese Spezifikation ist <strong>normativ</strong>. Abweichungen erfordern explizite Versionierung.</p>
+<hr />
+<h2 id="appendix-a-implementationshinweise-nicht-normativ-aber-verbindlich-empfohlen">Appendix A – Implementationshinweise (nicht-normativ, aber verbindlich empfohlen)<a class="headerlink" href="#appendix-a-implementationshinweise-nicht-normativ-aber-verbindlich-empfohlen" title="Permanent link">&para;</a></h2>
+<p>Dieser Appendix konkretisiert rechnerische und algorithmische Details, um <strong>reproduzierbare, robuste Implementierungen</strong> zu gewährleisten. Er erweitert die Methodik, ohne sie semantisch zu verändern.</p>
+<h3 id="a1-hintergrundschatzung-global-und-lokal">A.1 Hintergrundschätzung (global und lokal)<a class="headerlink" href="#a1-hintergrundschatzung-global-und-lokal" title="Permanent link">&para;</a></h3>
+<p><strong>Ziel:</strong> robuste Trennung von Signal und atmosphärischem Schleier.</p>
+<p>Empfohlenes Verfahren:</p>
+<ul>
+<li>Grobe Objektmaske (z. B. Sigma-Clip + Dilatation)</li>
+<li>Berechnung des Hintergrunds aus verbleibenden Pixeln</li>
+<li>Robuststatistik (Median oder biweight location)</li>
+</ul>
+<p>Hinweis:</p>
+<blockquote>
+<p>Der Hintergrund darf <strong>keine strukturellen Gradienten</strong> enthalten, die später in E oder E/σ eingehen.</p>
+</blockquote>
+<hr />
+<h3 id="a2-rauschschatzung">A.2 Rauschschätzung σ<a class="headerlink" href="#a2-rauschschatzung" title="Permanent link">&para;</a></h3>
+<p><strong>Global:</strong></p>
+<ul>
+<li>robuste Standardabweichung aus hintergrundmaskierten Pixeln</li>
+<li>keine Glättung vor der Schätzung</li>
+</ul>
+<p><strong>Lokal (Tile):</strong></p>
+<ul>
+<li>identisches Verfahren, aber nur innerhalb des Tiles</li>
+<li>σ dient explizit als <strong>Normierung</strong> für Strukturmetriken</li>
+</ul>
+<hr />
+<h3 id="a3-gradientenergie-e">A.3 Gradientenergie E<a class="headerlink" href="#a3-gradientenergie-e" title="Permanent link">&para;</a></h3>
+<p><strong>Definition (empfohlen):</strong></p>
+<p>E = mean(|∇I|²)</p>
+<p>Alternative (robuster gegen Ausreißer):</p>
+<p>E = median(|∇I|²)</p>
+<p>Implementationshinweise:</p>
+<ul>
+<li>Sobel- oder Scharr-Operator</li>
+<li>optionale leichte Vor-Glättung (σ ≤ 1 px), <strong>aber konsistent global &amp; lokal</strong></li>
+<li>Randpixel verwerfen</li>
+</ul>
+<p>Wichtig:</p>
+<blockquote>
+<p>Unterschiedliche Gradientdefinitionen verändern die Skala, <strong>nicht</strong> die Methodik – Skalierung wird durch MAD-Normalisierung aufgefangen.</p>
+</blockquote>
+<hr />
+<h3 id="a4-sternselektion-fur-fwhm">A.4 Sternselektion für FWHM<a class="headerlink" href="#a4-sternselektion-fur-fwhm" title="Permanent link">&para;</a></h3>
+<p>Empfohlene Kriterien:</p>
+<ul>
+<li>SNR &gt; definierter Schwelle</li>
+<li>Elliptizität &lt; 0.4</li>
+<li>keine Sättigung</li>
+</ul>
+<p>FWHM:</p>
+<ul>
+<li>gemessen über PSF-Fit oder radiales Profil</li>
+<li><strong>log(FWHM)</strong> erst nach der robusten Aggregation anwenden</li>
+</ul>
+<hr />
+<h3 id="a5-normalisierung-median-mad">A.5 Normalisierung (Median + MAD)<a class="headerlink" href="#a5-normalisierung-median-mad" title="Permanent link">&para;</a></h3>
+<p>Für jede Metrik x:</p>
+<p>x̃ = (x − median(x)) / (1.4826 · MAD(x))</p>
+<p>Hinweise:</p>
+<ul>
+<li>getrennt für jede Metrik</li>
+<li>getrennt für global vs. lokal</li>
+<li>keine Vermischung der Skalen</li>
+</ul>
+<hr />
+<h3 id="a6-tile-normalisierung-vor-overlap-add">A.6 Tile-Normalisierung vor Overlap-Add<a class="headerlink" href="#a6-tile-normalisierung-vor-overlap-add" title="Permanent link">&para;</a></h3>
+<p>Ablauf:</p>
+<ol>
+<li>lokalen Hintergrund schätzen und subtrahieren</li>
+<li>Tile auf gemeinsamen Median skalieren</li>
+<li>Fensterfunktion anwenden</li>
+<li>Overlap-Add</li>
+</ol>
+<p>Guard:</p>
+<ul>
+<li>Wenn |median(tile_bgfree)| &lt; ε_median, dann <strong>keine</strong> Skalierung durchführen (Scale = 1.0)</li>
+</ul>
+<p>Ziel:</p>
+<ul>
+<li>Vermeidung von Patchwork-Helligkeit</li>
+<li>keine Beeinflussung der Qualitätsmetriken</li>
+</ul>
+<hr />
+<h3 id="a7-clustering">A.7 Clustering<a class="headerlink" href="#a7-clustering" title="Permanent link">&para;</a></h3>
+<p>Empfehlungen:</p>
+<ul>
+<li>Standard: k-means oder GMM</li>
+<li>Feature-Vektor vorher standardisieren</li>
+<li>mehrere Initialisierungen, bestes Inertia-/LLH-Ergebnis wählen</li>
+</ul>
+<p>Warnung:</p>
+<blockquote>
+<p>Zeitbasierte Clusterung ist <strong>kein Ersatz</strong> für Zustandsclusterung.</p>
+</blockquote>
+<hr />
+<h3 id="a8-numerische-stabilitat">A.8 Numerische Stabilität<a class="headerlink" href="#a8-numerische-stabilitat" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ε im Nenner der Tile-Rekonstruktion explizit setzen</li>
+<li>exp(Q) ggf. begrenzen (z. B. Q ∈ [−3, 3])</li>
+<li>Double Precision bevorzugen</li>
+</ul>
+<p>Empfohlene Defaults:</p>
+<ul>
+<li>ε = 1e−6</li>
+<li>ε_median = 1e−6</li>
+</ul>
+<hr />
+<h3 id="a9-debug-und-diagnoseartefakte-empfohlen">A.9 Debug- und Diagnoseartefakte (empfohlen)<a class="headerlink" href="#a9-debug-und-diagnoseartefakte-empfohlen" title="Permanent link">&para;</a></h3>
+<p>Während der Entwicklung speichern:</p>
+<ul>
+<li>Histogramme von Q_f und Q_local</li>
+<li>2D-Karten der Tile-Gewichte</li>
+<li>Differenzbild rekonstruiert − klassisch</li>
+</ul>
+<p>Diese Artefakte sind <strong>kein Teil der Produktion</strong>, aber essentiell für Verifikation.</p>
+<hr />
+<h2 id="appendix-b-validierungsplots-formal-spezifiziert">Appendix B – Validierungsplots (formal spezifiziert)<a class="headerlink" href="#appendix-b-validierungsplots-formal-spezifiziert" title="Permanent link">&para;</a></h2>
+<p>Dieser Appendix definiert <strong>verbindliche Validierungsartefakte</strong>, anhand derer entschieden wird, ob ein Lauf als <strong>erfolgreich</strong>, <strong>grenzwertig</strong> oder <strong>fehlgeschlagen</strong> gilt. Alle Plots sind aus <strong>produktionsrelevanten Daten</strong> zu erzeugen.</p>
+<h3 id="b1-fwhm-verteilung-vor-nach">B.1 FWHM-Verteilung (vor / nach)<a class="headerlink" href="#b1-fwhm-verteilung-vor-nach" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Histogramm + Boxplot</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>klassische Referenz (Stack oder Einzel-Frames)</li>
+<li>synthetische Qualitätsframes</li>
+</ul>
+<p><strong>Metriken:</strong></p>
+<ul>
+<li>Median-FWHM</li>
+<li>Interquartilsabstand</li>
+</ul>
+<p><strong>Akzeptanz:</strong></p>
+<ul>
+<li>Median-FWHM-Reduktion ≥ <code>validation.min_fwhm_improvement_percent</code></li>
+</ul>
+<hr />
+<h3 id="b2-fwhm-feldkarte-2d">B.2 FWHM-Feldkarte (2D)<a class="headerlink" href="#b2-fwhm-feldkarte-2d" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Heatmap über Bildkoordinaten</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>lokale FWHM-Messungen aus Stern-Tiles</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>Homogenisierung des Feldes</li>
+<li>Reduktion randnaher Seeing-/Rotationsartefakte</li>
+</ul>
+<p><strong>Warnsignal:</strong></p>
+<ul>
+<li>harte Übergänge entlang Tile-Grenzen</li>
+</ul>
+<hr />
+<h3 id="b3-globaler-hintergrund-vs-zeit">B.3 Globaler Hintergrund vs. Zeit<a class="headerlink" href="#b3-globaler-hintergrund-vs-zeit" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Liniendiagramm</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>B_f (roh) = vor globaler Normalisierung (registrierte, aber noch unskalierte Frames)</li>
+<li>effektiver Beitrag nach Gewichtung</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>korrekte Abwertung wolkiger Phasen</li>
+</ul>
+<hr />
+<h3 id="b4-globale-und-lokale-gewichte-uber-zeit">B.4 Globale und lokale Gewichte über Zeit<a class="headerlink" href="#b4-globale-und-lokale-gewichte-uber-zeit" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Scatter / Linie</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>G_f</li>
+<li>⟨L_f,t⟩ pro Frame</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>klare Trennung unterschiedlicher Zustände</li>
+</ul>
+<hr />
+<h3 id="b5-tile-gewichtsverteilung">B.5 Tile-Gewichtsverteilung<a class="headerlink" href="#b5-tile-gewichtsverteilung" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Histogramm</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>W_f,t aller Tiles</li>
+</ul>
+<p><strong>Akzeptanz:</strong></p>
+<ul>
+<li>Varianz ≥ <code>validation.min_tile_weight_variance</code></li>
+</ul>
+<hr />
+<h3 id="b6-differenzbild">B.6 Differenzbild<a class="headerlink" href="#b6-differenzbild" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Bild + Histogramm</p>
+<p><strong>Definition:</strong></p>
+<p>Differenz = Rekonstruktion − klassisches Stacking</p>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>Detailgewinn sichtbar</li>
+<li>keine großskaligen systematischen Muster</li>
+</ul>
+<p><strong>Abbruch:</strong></p>
+<ul>
+<li>periodische Tile-Strukturen</li>
+</ul>
+<hr />
+<h3 id="b7-snr-vs-auflosung">B.7 SNR vs. Auflösung<a class="headerlink" href="#b7-snr-vs-auflosung" title="Permanent link">&para;</a></h3>
+<p><strong>Typ:</strong> Scatter</p>
+<p><strong>Eingangsdaten:</strong></p>
+<ul>
+<li>lokale SNR</li>
+<li>lokale FWHM</li>
+</ul>
+<p><strong>Ziel:</strong></p>
+<ul>
+<li>physikalisch plausibler Trade-off</li>
+<li>keine künstliche Überschärfung</li>
+</ul>
+<hr />
+<h2 id="appendix-c-komplexitats-und-performance-budget">Appendix C – Komplexitäts- und Performance-Budget<a class="headerlink" href="#appendix-c-komplexitats-und-performance-budget" title="Permanent link">&para;</a></h2>
+<p>Dieser Appendix dient der <strong>Planung und Skalierung</strong> produktiver Läufe.</p>
+<h3 id="c1-rechenkomplexitat-grobe-ordnung">C.1 Rechenkomplexität (grobe Ordnung)<a class="headerlink" href="#c1-rechenkomplexitat-grobe-ordnung" title="Permanent link">&para;</a></h3>
+<p>Sei:</p>
+<ul>
+<li>F = Anzahl Frames</li>
+<li>T = Anzahl Tiles</li>
+<li>P = Pixel pro Tile</li>
+</ul>
+<p><strong>Globale Metriken:</strong>  O(F · N_pixels)</p>
+<p><strong>Tile-Analyse:</strong>      O(F · T · P)</p>
+<p><strong>Rekonstruktion:</strong>   O(T · F · P)</p>
+<p>Die Tile-Analyse dominiert die Laufzeit.</p>
+<hr />
+<h3 id="c2-speicherbedarf">C.2 Speicherbedarf<a class="headerlink" href="#c2-speicherbedarf" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Ein Frame im RAM (float32): ~4 · W · H Bytes</li>
+<li>Tile-Puffer: ~T · P · sizeof(float)</li>
+</ul>
+<p><strong>Empfehlung:</strong></p>
+<ul>
+<li>Streaming pro Tile</li>
+<li>keine vollständige Frame-Matrix im RAM</li>
+</ul>
+<hr />
+<h3 id="c3-io-strategie">C.3 I/O-Strategie<a class="headerlink" href="#c3-io-strategie" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Registrierung: einmaliges Lesen/Schreiben</li>
+<li>Tile-Analyse: bevorzugt sequentiell</li>
+<li>synthetische Frames: explizit zwischenspeichern</li>
+</ul>
+<p>Vermeiden:</p>
+<ul>
+<li>zufällige Tile-Zugriffe auf rotierenden Medien</li>
+</ul>
+<hr />
+<h3 id="c4-parallelisierung">C.4 Parallelisierung<a class="headerlink" href="#c4-parallelisierung" title="Permanent link">&para;</a></h3>
+<p>Geeignete Ebenen:</p>
+<ul>
+<li>Tiles (embarassingly parallel)</li>
+<li>Frames innerhalb eines Tiles (optional)</li>
+</ul>
+<p>Hinweise:</p>
+<ul>
+<li>Globale Normalisierung ist <strong>pro Frame unabhängig</strong> und kann parallelisiert werden (I/O kann limitieren).</li>
+<li>Zustandsclusterung ist typischerweise nicht der Bottleneck; parallelisieren ist optional und implementationsabhängig.</li>
+</ul>
+<p>Option: RabbitMQ‑basierte Parallelisierung</p>
+<p>Diese Option ist für eine spätere Implementierung vorgesehen und dient der horizontalen Skalierung über mehrere Worker.</p>
+<ul>
+<li>Task‑Queue: RabbitMQ</li>
+<li>Granularität:</li>
+<li>bevorzugt: <strong>Tile‑Tasks</strong> (ein Task = Tile t über alle Frames f)</li>
+<li>optional: Frame‑Tasks innerhalb eines Tiles (nur wenn I/O lokal schnell ist)</li>
+<li>Payload (minimal): tile_id, tile_bbox, frame_index_range, benötigte Metrik‑Konfig</li>
+<li>Ergebnisse:</li>
+<li>rekonstruierter Tile‑Block + Summenstatistiken (z. B. ΣW, Tile‑Median nach bg‑sub)</li>
+<li>separater Kanal/Queue für Diagnoseartefakte (Histogramme, QA‑Maps)</li>
+<li>Aggregation:</li>
+<li>Master sammelt Tile‑Ergebnisse und führt Overlap‑Add deterministisch aus</li>
+<li>deterministische Seeds/Sortierung zur Reproduzierbarkeit</li>
+<li>Fehlertoleranz:</li>
+<li>idempotente Tasks (Tile kann neu gerechnet werden)</li>
+<li>Dead‑Letter‑Queue für fehlerhafte Tiles</li>
+</ul>
+<hr />
+<h3 id="c5-laufzeitabschatzung">C.5 Laufzeitabschätzung<a class="headerlink" href="#c5-laufzeitabschatzung" title="Permanent link">&para;</a></h3>
+<p>Für typische Werte:</p>
+<ul>
+<li>F ≈ 1000</li>
+<li>T ≈ 200–400</li>
+<li>P ≈ (64–256)²</li>
+</ul>
+<p>Erwartung:</p>
+<ul>
+<li>CPU (8–16 Kerne): Stundenbereich</li>
+<li>GPU-Beschleunigung: optional, nicht zwingend</li>
+</ul>
+<hr />
+<h3 id="c6-abbruch-bei-laufzeituberschreitung">C.6 Abbruch bei Laufzeitüberschreitung<a class="headerlink" href="#c6-abbruch-bei-laufzeituberschreitung" title="Permanent link">&para;</a></h3>
+<p>Die folgenden Limits sind <strong>verbindlich</strong>:</p>
+<ul>
+<li><code>runtime_limits.tile_analysis_max_factor_vs_stack</code></li>
+<li><code>runtime_limits.hard_abort_hours</code></li>
+</ul>
+<p>Bei Überschreitung erfolgt ein <strong>kontrollierter Abbruch</strong>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

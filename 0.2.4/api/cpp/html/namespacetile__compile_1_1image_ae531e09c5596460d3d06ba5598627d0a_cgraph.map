@@ -1,0 +1,7 @@
+<map id="tile_compile::image::build_bge_candidate_prep" name="tile_compile::image::build_bge_candidate_prep">
+<area shape="rect" id="Node000001" title="Builds bge candidate prep." alt="" coords="5,40,186,79"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ac6185700f54db43972b8b61c3402fa6b" title="Implements aggregate to coarse grid." alt="" coords="234,5,413,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,43,218,38,219,43,186,48"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#af093b316187a1c2ecf52779571c32ed4" title="Implements deterministic split indices." alt="" coords="256,68,390,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,70,241,79,240,84,185,76"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::siril_catalog_chunk_url" name="tile_compile::astrometry::siril_catalog_chunk_url">
+<area shape="rect" id="Node000001" title="Implements siril catalog chunk url." alt="" coords="243,5,404,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a61e0d36d8809aff92c88c40c65b10477" title="Downloads chunk if needed." alt="" coords="5,5,195,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="227,27,195,27,195,22,227,22"/>
+</map>

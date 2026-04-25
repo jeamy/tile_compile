@@ -1,0 +1,12 @@
+<map id="tile_compile::core::median_finite_positive" name="tile_compile::core::median_finite_positive">
+<area shape="rect" id="Node000001" title="Implements median finite positive." alt="" coords="701,44,858,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,5,653,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="685,53,653,48,653,43,686,48"/>
+<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,51,408,76"/>
+<area shape="poly" id="edge5_Node000001_Node000003" title=" " alt="" coords="685,72,653,73,456,73,408,71,409,66,456,68,653,68,685,67"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="441,51,409,55,408,50,440,45"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,51,206,76"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="238,66,206,66,206,61,238,61"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,51,55,76"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,66,55,66,55,61,87,61"/>
+</map>

@@ -1,0 +1,24 @@
+<map id="tile_compile::image::bayer_offsets" name="tile_compile::image::bayer_offsets">
+<area shape="rect" id="Node000001" title="Implements bayer offsets." alt="" coords="900,119,1033,158"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#aaf7a8e75484ffc12723842f814c606a1" title="Applies normalization inplace." alt="" coords="704,112,848,165"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="885,141,849,141,849,136,885,136"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,5,653,58"/>
+<area shape="poly" id="edge13_Node000001_Node000003" title=" " alt="" coords="896,116,851,102,653,54,654,49,853,97,897,111"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1image.html#a41f1f73a01f1b3c5194d9be2f3a63ae8" title="Applies output scaling inplace." alt="" coords="701,217,852,270"/>
+<area shape="poly" id="edge11_Node000001_Node000009" title=" " alt="" coords="918,168,827,219,824,214,916,163"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="707,107,652,79,613,61,615,56,654,75,710,102"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,141,408,165"/>
+<area shape="poly" id="edge10_Node000002_Node000004" title=" " alt="" coords="689,127,652,124,554,117,457,124,413,132,373,143,371,137,412,127,456,118,554,112,653,118,689,122"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="468,134,641,172"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="689,147,642,150,641,145,688,141"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="474,196,635,249"/>
+<area shape="poly" id="edge8_Node000002_Node000008" title=" " alt="" coords="692,173,627,198,625,193,690,168"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="481,67,458,79,353,142,350,138,455,75,479,63"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,141,206,165"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="238,156,206,156,206,150,238,150"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,141,55,165"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="87,156,55,156,55,150,87,150"/>
+<area shape="poly" id="edge7_Node000007_Node000004" title=" " alt="" coords="452,156,409,156,409,150,452,150"/>
+<area shape="poly" id="edge9_Node000008_Node000004" title=" " alt="" coords="459,195,372,168,374,163,460,190"/>
+<area shape="poly" id="edge12_Node000009_Node000004" title=" " alt="" coords="686,270,633,278,574,282,514,278,455,263,418,244,385,217,340,168,344,164,389,213,421,239,457,259,514,273,574,277,632,273,685,265"/>
+</map>

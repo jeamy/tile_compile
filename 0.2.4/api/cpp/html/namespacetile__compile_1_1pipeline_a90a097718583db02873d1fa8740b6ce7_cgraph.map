@@ -1,0 +1,5 @@
+<map id="tile_compile::pipeline::build_initial_tile_grid" name="tile_compile::pipeline::build_initial_tile_grid">
+<area shape="rect" id="Node000001" title="Builds initial tile grid." alt="" coords="5,12,151,51"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1pipeline.html#a56874a017ec96293fbb203fad2aa2be0" title="Builds coverage filtered tile grid." alt="" coords="199,5,360,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="151,29,183,29,183,34,151,34"/>
+</map>

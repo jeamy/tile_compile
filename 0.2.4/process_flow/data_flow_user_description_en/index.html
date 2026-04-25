@@ -1,0 +1,2735 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../phase_7_final_stacking/">
+      
+      
+        <link rel="next" href="../../configuration_reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Data Flow - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#process-flow-technical-data-flow-of-the-system" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Data Flow
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../phase_0_overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-objective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline objective
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core terms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overall-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overall flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-pipeline-is-tile-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the pipeline is tile-based
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phases-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phases in detail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-validate-input-scan_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0) Validate input (SCAN_INPUT)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-global-registration-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Global registration (REGISTRATION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-prewarp-onto-a-common-canvas-prewarp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) Prewarp onto a common canvas (PREWARP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-establish-the-channel-model-channel_split" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Establish the channel model (CHANNEL_SPLIT)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-normalization-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Normalization (NORMALIZATION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-global-quality-metrics-global_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Global quality metrics (GLOBAL_METRICS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-build-the-tile-grid-tile_grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Build the tile grid (TILE_GRID)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-determine-shared-overlap-common_overlap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) Determine shared overlap (COMMON_OVERLAP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-local-per-tile-metrics-local_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) Local per-tile metrics (LOCAL_METRICS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-tile-reconstruction-tile_reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Tile reconstruction (TILE_RECONSTRUCTION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-state-clustering-state_clustering-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10) State clustering (STATE_CLUSTERING, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-synthetic-frames-synthetic_frames-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11) Synthetic frames (SYNTHETIC_FRAMES, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-final-stacking-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12) Final stacking (STACKING)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-debayer-debayer-osc-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13) Debayer (DEBAYER, OSC only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-astrometry-astrometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14) Astrometry (ASTROMETRY)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-background-gradient-extraction-bge-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15) Background Gradient Extraction (BGE, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-photometric-color-calibration-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16) Photometric Color Calibration (PCC)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#17-finish-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        17) Finish (DONE)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typical-run-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical run structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume-of-post-run-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume of post-run phases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-with-the-integrated-report-generator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation with the integrated report generator
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes-on-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes on interpretation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#short-conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Short conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-objective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline objective
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core terms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overall-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overall flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-pipeline-is-tile-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the pipeline is tile-based
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phases-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phases in detail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-validate-input-scan_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0) Validate input (SCAN_INPUT)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-global-registration-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Global registration (REGISTRATION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-prewarp-onto-a-common-canvas-prewarp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) Prewarp onto a common canvas (PREWARP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-establish-the-channel-model-channel_split" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Establish the channel model (CHANNEL_SPLIT)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-normalization-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Normalization (NORMALIZATION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-global-quality-metrics-global_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Global quality metrics (GLOBAL_METRICS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-build-the-tile-grid-tile_grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Build the tile grid (TILE_GRID)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-determine-shared-overlap-common_overlap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) Determine shared overlap (COMMON_OVERLAP)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-local-per-tile-metrics-local_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) Local per-tile metrics (LOCAL_METRICS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-tile-reconstruction-tile_reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Tile reconstruction (TILE_RECONSTRUCTION)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-state-clustering-state_clustering-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10) State clustering (STATE_CLUSTERING, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-synthetic-frames-synthetic_frames-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11) Synthetic frames (SYNTHETIC_FRAMES, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-final-stacking-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12) Final stacking (STACKING)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-debayer-debayer-osc-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13) Debayer (DEBAYER, OSC only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-astrometry-astrometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14) Astrometry (ASTROMETRY)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-background-gradient-extraction-bge-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15) Background Gradient Extraction (BGE, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-photometric-color-calibration-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16) Photometric Color Calibration (PCC)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#17-finish-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        17) Finish (DONE)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typical-run-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical run structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume-of-post-run-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume of post-run phases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-with-the-integrated-report-generator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation with the integrated report generator
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes-on-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes on interpretation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#short-conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Short conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="process-flow-technical-data-flow-of-the-system">Process Flow – Technical Data Flow of the System<a class="headerlink" href="#process-flow-technical-data-flow-of-the-system" title="Permanent link">&para;</a></h1>
+<h2 id="pipeline-objective">Pipeline objective<a class="headerlink" href="#pipeline-objective" title="Permanent link">&para;</a></h2>
+<p>The system turns a set of calibrated astronomical single-frame inputs into a reproducible final product inside a shared geometric and photometric reference space.</p>
+<p>From a technical perspective, the pipeline is organized into three major blocks:</p>
+<ul>
+<li><strong>Preparation and normalization</strong></li>
+<li>validate inputs</li>
+<li>unify geometry</li>
+<li>normalize intensity levels</li>
+<li><strong>Quality modeling and reconstruction</strong></li>
+<li>compute global and local metrics</li>
+<li>perform tile-based selection and reconstruction</li>
+<li>optionally cluster acquisition states and derive synthetic frames</li>
+<li><strong>Post-processing and calibration</strong></li>
+<li>debayer</li>
+<li>astrometry / WCS</li>
+<li>optional BGE</li>
+<li>PCC</li>
+</ul>
+<p>The primary product is a linear stacked image. Depending on configuration and data mode, the run may also generate debayered, gradient-corrected and photometrically calibrated derivatives, plus structured diagnostics.</p>
+<h2 id="core-terms">Core terms<a class="headerlink" href="#core-terms" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Run</strong></li>
+<li>One full pipeline execution with its own run directory under <code>runs/&lt;run_id&gt;/</code>.</li>
+<li><strong>Phase</strong></li>
+<li>One well-defined processing stage such as <code>REGISTRATION</code>, <code>LOCAL_METRICS</code>, or <code>PCC</code>.</li>
+<li><strong>Artifact</strong></li>
+<li>Persisted diagnostic or intermediate data, typically written under <code>artifacts/</code>.</li>
+<li><strong>Event timeline</strong></li>
+<li>Chronological execution events written to <code>logs/run_events.jsonl</code>.</li>
+<li><strong>Assumptions thresholds</strong></li>
+<li><code>assumptions.frames_min</code> and <code>assumptions.frames_reduced_threshold</code> control whether the runner aborts, enters reduced mode, or runs the full pipeline.</li>
+<li><strong>Resume</strong></li>
+<li>Existing run directories can be reused for post-run phases, currently especially from <code>ASTROMETRY</code>, <code>BGE</code>, or <code>PCC</code> onward.</li>
+</ul>
+<hr />
+<h2 id="overall-flow">Overall flow<a class="headerlink" href="#overall-flow" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Input frames (FITS)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   -&gt; SCAN_INPUT
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>   -&gt; REGISTRATION
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>   -&gt; PREWARP
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>   -&gt; CHANNEL_SPLIT
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>   -&gt; NORMALIZATION
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>   -&gt; GLOBAL_METRICS
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>   -&gt; TILE_GRID
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>   -&gt; COMMON_OVERLAP
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   -&gt; LOCAL_METRICS
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   -&gt; TILE_RECONSTRUCTION
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>   -&gt; [optional] STATE_CLUSTERING
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>   -&gt; [optional] SYNTHETIC_FRAMES
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>   -&gt; STACKING
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>   -&gt; [optional / data-dependent] DEBAYER
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>   -&gt; ASTROMETRY
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>   -&gt; [optional] BGE
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>   -&gt; [optional] PCC
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>   -&gt; DONE
+</span></code></pre></div>
+<hr />
+<h2 id="why-the-pipeline-is-tile-based">Why the pipeline is tile-based<a class="headerlink" href="#why-the-pipeline-is-tile-based" title="Permanent link">&para;</a></h2>
+<p>Frame-level global scoring alone is usually insufficient for astrophotography series. Local quality varies within a single frame due to factors such as:</p>
+<ul>
+<li>location-dependent seeing variations</li>
+<li>local guiding or deformation artifacts</li>
+<li>border artifacts after warp or rotation</li>
+<li>uneven background or noise distributions</li>
+</ul>
+<p>For that reason, the system models the data not only at frame level but also at tile level. This makes it possible to decide, per spatial region, which frames or frame contributions provide the highest usable quality there.</p>
+<hr />
+<h2 id="phases-in-detail">Phases in detail<a class="headerlink" href="#phases-in-detail" title="Permanent link">&para;</a></h2>
+<h2 id="0-validate-input-scan_input">0) Validate input (<code>SCAN_INPUT</code>)<a class="headerlink" href="#0-validate-input-scan_input" title="Permanent link">&para;</a></h2>
+<p><strong>Input</strong></p>
+<ul>
+<li>one input path or multiple input directories</li>
+<li>FITS files with headers and acquisition metadata</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>discover and enumerate input files</li>
+<li>validate headers, bit depth, image dimensions and color mode</li>
+<li>classify data as mono or OSC/CFA</li>
+<li>detect obvious exclusion cases</li>
+<li>verify that sufficient storage and workspace capacity are available</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>cleaned frame list</li>
+<li>scan summary with metadata, warnings and errors</li>
+<li>guardrails used by downstream run-start decisions</li>
+</ul>
+<hr />
+<h2 id="1-global-registration-registration">1) Global registration (<code>REGISTRATION</code>)<a class="headerlink" href="#1-global-registration-registration" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>bring all frames into one common geometric reference system</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>select a reference frame</li>
+<li>estimate geometric transforms relative to the reference</li>
+<li>switch through fallback strategies if the primary registration path is not reliable enough</li>
+<li>persist registration metrics and transform parameters</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>registered transform data per frame</li>
+<li>quality indicators such as correlation, drift, rotation or residual misalignment</li>
+</ul>
+<hr />
+<h2 id="2-prewarp-onto-a-common-canvas-prewarp">2) Prewarp onto a common canvas (<code>PREWARP</code>)<a class="headerlink" href="#2-prewarp-onto-a-common-canvas-prewarp" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>move all registered frames onto the same target canvas and pixel geometry</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>apply the estimated transforms to a shared target area</li>
+<li>for OSC/CFA data: use CFA-safe warping via sub-plane logic so the Bayer pattern stays semantically stable</li>
+<li>enlarge the canvas when field rotation or translation exceeds the original bounds</li>
+<li>track offsets such as <code>tile_offset_x</code> and <code>tile_offset_y</code></li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>prewarped frames with unified geometry</li>
+<li>a consistent coordinate domain for all tile-based downstream phases</li>
+</ul>
+<hr />
+<h2 id="3-establish-the-channel-model-channel_split">3) Establish the channel model (<code>CHANNEL_SPLIT</code>)<a class="headerlink" href="#3-establish-the-channel-model-channel_split" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>define a consistent internal channel model for mono or OSC data</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>determine whether subsequent metrics and reconstruction stages operate on mono data, CFA sub-planes, or RGB-compatible representations</li>
+<li>derive channel-related metadata for downstream stages</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>channel and mode description used by later phases</li>
+</ul>
+<hr />
+<h2 id="4-normalization-normalization">4) Normalization (<code>NORMALIZATION</code>)<a class="headerlink" href="#4-normalization-normalization" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>make signal and background levels comparable across frames</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>estimate background and intensity statistics per frame or per channel</li>
+<li>scale data into a shared reference state</li>
+<li>persist normalization parameters</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>normalized frames or equivalent normalization parameters</li>
+<li>diagnostics about background and signal stability</li>
+</ul>
+<hr />
+<h2 id="5-global-quality-metrics-global_metrics">5) Global quality metrics (<code>GLOBAL_METRICS</code>)<a class="headerlink" href="#5-global-quality-metrics-global_metrics" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>derive a global quality profile for each frame</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>compute global measures such as background level, noise, gradient energy, star metrics or global sharpness indicators</li>
+<li>derive a global frame weight</li>
+<li>in the <code>strict</code> profile: evaluate on unified geometry before local stages proceed</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>per-frame global metrics</li>
+<li>global weights and selection priors</li>
+</ul>
+<hr />
+<h2 id="6-build-the-tile-grid-tile_grid">6) Build the tile grid (<code>TILE_GRID</code>)<a class="headerlink" href="#6-build-the-tile-grid-tile_grid" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>partition the image field into locally evaluable regions</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>generate an overlapping or smoothly composable tile raster</li>
+<li>parameterize tile size, overlap and usable support region</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>tile geometry used by local metrics and reconstruction</li>
+</ul>
+<hr />
+<h2 id="7-determine-shared-overlap-common_overlap">7) Determine shared overlap (<code>COMMON_OVERLAP</code>)<a class="headerlink" href="#7-determine-shared-overlap-common_overlap" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>restrict downstream processing to pixel regions that actually contain reliable warped data</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>derive global and tile-local validity masks</li>
+<li>compute usable area fractions after warp, translation and rotation</li>
+<li>mask empty or insufficiently overlapping border regions</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>global valid fractions</li>
+<li>tile-local validity measures</li>
+<li>robust support mask for reconstruction and stacking</li>
+</ul>
+<hr />
+<h2 id="8-local-per-tile-metrics-local_metrics">8) Local per-tile metrics (<code>LOCAL_METRICS</code>)<a class="headerlink" href="#8-local-per-tile-metrics-local_metrics" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>model the best local data quality per tile and per frame</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>compute local sharpness, contrast, noise or star metrics for each tile</li>
+<li>combine them with global weights and validity masks</li>
+<li>in the <code>strict</code> profile: operate on prewarped raw tiles for geometrically consistent comparison</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>local weights and local quality profiles for each tile/frame combination</li>
+</ul>
+<hr />
+<h2 id="9-tile-reconstruction-tile_reconstruction">9) Tile reconstruction (<code>TILE_RECONSTRUCTION</code>)<a class="headerlink" href="#9-tile-reconstruction-tile_reconstruction" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>reconstruct a spatially consistent intermediate image from the best local contributions</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>select or fuse the strongest tile contributions</li>
+<li>blend transitions between neighboring tiles to avoid seam artifacts</li>
+<li>reconstruct using local quality maps and support weights</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>reconstructed image with locally optimized information usage</li>
+<li>per-tile reconstruction metrics</li>
+</ul>
+<hr />
+<h2 id="10-state-clustering-state_clustering-optional">10) State clustering (<code>STATE_CLUSTERING</code>, optional)<a class="headerlink" href="#10-state-clustering-state_clustering-optional" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>group frames with similar quality or acquisition states</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>cluster in global and/or local feature space</li>
+<li>separate heterogeneous sub-populations within a single acquisition series</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>cluster assignment per frame</li>
+<li>diagnostics for cluster size and stability</li>
+</ul>
+<hr />
+<h2 id="11-synthetic-frames-synthetic_frames-optional">11) Synthetic frames (<code>SYNTHETIC_FRAMES</code>, optional)<a class="headerlink" href="#11-synthetic-frames-synthetic_frames-optional" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>derive robust intermediate representations from clusters</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>aggregate frame groups into synthetic representatives</li>
+<li>reduce variance inside a state cluster</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>synthetic frames as alternative inputs for later aggregation stages</li>
+</ul>
+<hr />
+<h2 id="12-final-stacking-stacking">12) Final stacking (<code>STACKING</code>)<a class="headerlink" href="#12-final-stacking-stacking" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>produce the final linear stacked image</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>robustly aggregate reconstructed or synthetic intermediate data</li>
+<li>suppress outliers such as hot pixels, satellite trails or sporadic defects</li>
+<li>combine data using the previously derived quality models</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>linear final image, typically <code>outputs/stacked.fits</code></li>
+</ul>
+<hr />
+<h2 id="13-debayer-debayer-osc-only">13) Debayer (<code>DEBAYER</code>, OSC only)<a class="headerlink" href="#13-debayer-debayer-osc-only" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>convert CFA/OSC data into an RGB representation</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>demosaic the stacked or otherwise prepared linear data product</li>
+<li>for mono data: pass through without color interpolation</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>RGB FITS, typically <code>outputs/stacked_rgb.fits</code></li>
+</ul>
+<hr />
+<h2 id="14-astrometry-astrometry">14) Astrometry (<code>ASTROMETRY</code>)<a class="headerlink" href="#14-astrometry-astrometry" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>generate a WCS solution for the final image</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>perform plate solving against astrometry tools and catalogs</li>
+<li>derive or write sky-coordinate context and image scale</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>WCS-aware image or associated WCS file</li>
+<li>diagnostic artifacts describing the solving process</li>
+</ul>
+<hr />
+<h2 id="15-background-gradient-extraction-bge-optional">15) Background Gradient Extraction (<code>BGE</code>, optional)<a class="headerlink" href="#15-background-gradient-extraction-bge-optional" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>reduce large-scale background gradients before color calibration</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>estimate a background model per RGB channel</li>
+<li>subtract that model from the RGB image</li>
+<li>persist diagnostics such as <code>artifacts/bge.json</code></li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>gradient-corrected RGB image, typically <code>outputs/stacked_rgb_bge.fits</code></li>
+<li>BGE diagnostics</li>
+</ul>
+<hr />
+<h2 id="16-photometric-color-calibration-pcc">16) Photometric Color Calibration (<code>PCC</code>)<a class="headerlink" href="#16-photometric-color-calibration-pcc" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>calibrate the RGB image towards a more astrophysically plausible color balance</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>match stars against catalogs using the available WCS context</li>
+<li>determine and apply color scaling or calibration factors</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>photometrically calibrated RGB image, typically <code>outputs/stacked_rgb_pcc.fits</code></li>
+<li>PCC diagnostics and possibly auxiliary catalog products</li>
+</ul>
+<hr />
+<h2 id="17-finish-done">17) Finish (<code>DONE</code>)<a class="headerlink" href="#17-finish-done" title="Permanent link">&para;</a></h2>
+<p><strong>Goal</strong></p>
+<ul>
+<li>move the run into a consistent final state</li>
+</ul>
+<p><strong>Processing</strong></p>
+<ul>
+<li>persist the terminal status such as <code>ok</code> or <code>validation_failed</code></li>
+<li>finalize artifacts, logs and the configuration snapshot</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li>reproducible and auditable run state</li>
+</ul>
+<hr />
+<h2 id="typical-run-structure">Typical run structure<a class="headerlink" href="#typical-run-structure" title="Permanent link">&para;</a></h2>
+<p>A run typically creates <code>runs/&lt;run_id&gt;/</code> with the following logical structure:</p>
+<ul>
+<li><code>outputs/</code></li>
+<li>final and derived FITS products</li>
+<li>e.g. <code>stacked.fits</code>, <code>stacked_rgb.fits</code>, <code>stacked_rgb_bge.fits</code>, <code>stacked_rgb_pcc.fits</code></li>
+<li><code>artifacts/</code></li>
+<li>per-phase JSON diagnostics</li>
+<li>reports and visual assets</li>
+<li><code>logs/</code></li>
+<li><code>run_events.jsonl</code> as the run event timeline</li>
+<li><code>config.yaml</code></li>
+<li>snapshot of the effective configuration used for this run</li>
+</ul>
+<p>The exact filenames may vary by configuration. The stable part is the semantic separation between outputs, artifacts, logs and configuration snapshot.</p>
+<hr />
+<h2 id="resume-of-post-run-phases">Resume of post-run phases<a class="headerlink" href="#resume-of-post-run-phases" title="Permanent link">&para;</a></h2>
+<p>If a run already exists, post-processing phases can be re-executed from the persisted run state:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./tile_compile_runner resume --run-dir runs/&lt;run_id&gt; --from-phase ASTROMETRY
+</span></code></pre></div>
+<p>The resume path reuses in particular:</p>
+<ul>
+<li>the configuration snapshot <code>config.yaml</code></li>
+<li>outputs and artifacts from earlier phases</li>
+<li>the run directory as the authoritative working context</li>
+</ul>
+<p>Resume is therefore not a partially new run, but a controlled continuation based on persisted run data.</p>
+<hr />
+<h2 id="evaluation-with-the-integrated-report-generator">Evaluation with the integrated report generator<a class="headerlink" href="#evaluation-with-the-integrated-report-generator" title="Permanent link">&para;</a></h2>
+<p>For technical evaluation and quality assurance, an HTML report can be generated from a run directory:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./tile_compile_cli generate-report runs/&lt;run_id&gt;
+</span></code></pre></div>
+<p>The report is typically written to <code>runs/&lt;run_id&gt;/artifacts/report.html</code> and correlates execution events, diagnostic artifacts and configuration state.</p>
+<p>Typical report sections include:</p>
+<ul>
+<li><strong>Normalization</strong></li>
+<li>background trends and intensity-scaling stability</li>
+<li><strong>Global metrics</strong></li>
+<li>background, noise, gradient energy, global weights, distributions</li>
+<li><strong>Star metrics</strong></li>
+<li>FWHM, wFWHM, roundness, star count, correlation plots</li>
+<li><strong>Registration</strong></li>
+<li>drift, rotation, matching or correlation quality</li>
+<li><strong>Tile analysis</strong></li>
+<li>tile grid, local quality maps, spatial heatmaps</li>
+<li><strong>Reconstruction</strong></li>
+<li>tile-local reconstruction metrics and usage maps</li>
+<li><strong>Clustering and synthetic frames</strong></li>
+<li>cluster sizes, reduction behavior, synthetic representative usage</li>
+<li><strong>BGE / PCC</strong></li>
+<li>background model, residuals, calibration diagnostics</li>
+<li><strong>Validation</strong></li>
+<li>derived quality indicators and threshold checks</li>
+<li><strong>Timeline</strong></li>
+<li>chronological phase sequence from <code>run_events.jsonl</code></li>
+</ul>
+<p>The report also embeds the effective <code>config.yaml</code>, which makes each finding directly traceable to the exact parameter state.</p>
+<hr />
+<h2 id="notes-on-interpretation">Notes on interpretation<a class="headerlink" href="#notes-on-interpretation" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Linear images look dark</strong></li>
+<li>This is expected. A linear stacked image is not stretched for presentation by default.</li>
+<li><strong><code>validation_failed</code> does not automatically mean “useless”</strong></li>
+<li>It primarily means that defined validation or guardrail criteria were violated.</li>
+<li><strong>Tile-based optimization is the key principle</strong></li>
+<li>The main advantage comes from using local quality instead of applying a purely global average quality model to all spatial regions.</li>
+</ol>
+<hr />
+<h2 id="short-conclusion">Short conclusion<a class="headerlink" href="#short-conclusion" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>The pipeline transforms a heterogeneous FITS frame series into a shared geometric and photometric reference space, models data quality globally and locally, reconstructs the signal tile-by-tile, and produces a reproducible final image together with diagnostics, WCS metadata and optional color calibration.</p>
+</blockquote>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
