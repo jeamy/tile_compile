@@ -43,6 +43,7 @@ bge:
   min_valid_samples_for_apply: 96
   sample_quantile: 0.18
   structure_thresh_percentile: 0.9
+  tile_weight_lambda_structure: 1
 calibration:
   bias_dir: ""
   bias_master: ""
@@ -65,20 +66,20 @@ calibration:
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
-    amount: 0.82
+    amount: 0.75
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.05
+    sigma_range: 0.06
     sigma_spatial: 2
   chroma_wavelet:
     enabled: true
     levels: 4
-    soft_k: 1.2
-    threshold_scale: 1.9
+    soft_k: 1.1
+    threshold_scale: 1.6
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.88
+  luma_guard_strength: 0.92
   protect_luma: true
   star_protection:
     dilate_px: 3
@@ -96,9 +97,9 @@ dithering:
 global_metrics:
   adaptive_weights: true
   clamp:
-    - -3
-    - 3
-  weight_exponent_scale: 1.2
+    - -2.5
+    - 2.5
+  weight_exponent_scale: 1.3
   weights:
     background: 0.4
     gradient: 0.25
@@ -116,6 +117,7 @@ local_metrics:
   clamp:
     - -3
     - 3
+  k_local: 1
   star_mode:
     weights:
       contrast: 0.2
@@ -127,7 +129,7 @@ local_metrics:
 log_level: info
 normalization:
   enabled: true
-  mode: median
+  mode: background
   per_channel: true
 output:
   crop_to_nonzero_bbox: true
@@ -140,16 +142,16 @@ pcc:
   annulus_outer_px: 16
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
-  apply_attenuation: true
+  apply_attenuation: false
   background_model: plane
-  background_neutralization_mode: auto
-  chroma_strength: 0.7
+  background_neutralization_mode: always
+  chroma_strength: 0.85
   enabled: true
   k_max: 2.4
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 3
-  max_residual_rms: 0.5
+  max_residual_rms: 0.9
   min_aperture_px: 4
   min_stars: 10
   radii_mode: auto_fwhm
@@ -165,11 +167,11 @@ registration:
   auto_engine_rotation_threshold_deg: 0.05
   blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.05
-  enable_local_background_subtraction: false
+  enable_local_background_subtraction: true
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   max_blind_chain_depth: 0
-  reject_cc_min_abs: 0.25
+  reject_cc_min_abs: 0.15
   reject_outliers: true
   reject_scale_max: 1.08
   reject_scale_min: 0.92
@@ -182,7 +184,7 @@ registration:
   star_topk: 150
   transform_model: affine
   use_astrometry: true
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_m104_altaz_rotation_poor_seeing
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -193,23 +195,25 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
+    - m104
     - galaxy
-    - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+    - altaz
+    - rotation
+    - poor_seeing
+  id: m104_altaz_rotation_poor_seeing
+  intent: OSC-Galaxienfeld wie M104 mit etwas staerkerer Alt/Az-Feldrotation, wechselhaftem Seeing und Prioritaet auf robuster Registrierung sowie staerkerer Gewichtung guter Frames.
+  priority: robust_registration_and_stronger_quality_separation
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - M104 und aehnliche kompakte Galaxienfelder auf Alt/Az-Montierung mit sichtbarer Feldrotation
+    - Sessions mit brauchbaren, aber ungleich guten Frames, bei denen gute Frames staerker gewichtet werden sollen
+    - Datensaetze, bei denen eine Ein-Referenz-Registrierung zu langen Sequential-Ketten fuehrt
+  title: M104 AltAz Rotation Poor Seeing
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
     cap_ratio: 20
     enabled: true
-    kappa_cluster: 1
+    kappa_cluster: 120
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
@@ -218,9 +222,9 @@ stacking:
   per_frame_cosmetic_correction_sigma: 2
   sigma_clip:
     max_iters: 4
-    min_fraction: 0.4
-    sigma_high: 1.5
-    sigma_low: 2
+    min_fraction: 0.5
+    sigma_high: 2
+    sigma_low: 3
 synthetic:
   clustering:
     cluster_count_range:
@@ -233,23 +237,9 @@ synthetic:
 tile:
   max_divisor: 6
   min_size: 48
-  overlap_fraction: 0.4
-  size_factor: 28
+  overlap_fraction: 0.3
+  size_factor: 24
   star_min_count: 5
-tile_denoise:
-  soft_threshold:
-    alpha: 1.55
-    blur_kernel: 21
-    enabled: true
-    skip_star_tiles: true
-  wiener:
-    enabled: true
-    max_iterations: 10
-    min_snr: 2.5
-    q_max: 1
-    q_min: -0.5
-    q_step: 0.1
-    snr_threshold: 3.5
 validation:
   max_background_rms_increase_percent: 2
   min_fwhm_improvement_percent: 3

@@ -692,6 +692,16 @@ bool run_phase_registration_prewarp(
       (registration_cfg.engine != cfg.registration.engine ||
        registration_cfg.transform_model != cfg.registration.transform_model);
 
+  // Anchor indices/proxies im äußeren Scope für ASTAP am Ende verfügbar
+  std::vector<int> active_anchor_indices;
+  std::vector<Matrix2Df> active_anchor_proxies;
+  std::vector<uint8_t> is_active_anchor_frame;
+
+  // ASTAP-Variablen im äußeren Scope (wird nach Section 6 ausgeführt)
+  int reg_astrometric_rescued = 0;
+  int reg_astrometric_attempted = 0;
+  int reg_astrometric_replaced_weak = 0;
+
   if (!frames.empty()) {
     try {
       Matrix2Df ref_full;
@@ -738,9 +748,8 @@ bool run_phase_registration_prewarp(
           return (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale)
                                               : 1.0f;
         };
-        std::vector<int> active_anchor_indices;
-        std::vector<Matrix2Df> active_anchor_proxies;
-        std::vector<uint8_t> is_active_anchor_frame(frames.size(), 0);
+        // active_anchor_indices/proxies/is_active_anchor_frame sind jetzt im äußeren Scope
+        is_active_anchor_frame.assign(frames.size(), 0);
         auto maybe_add_active_anchor = [&](int anchor_idx,
                                            const Matrix2Df *proxy_override =
                                                nullptr) -> bool {
@@ -1046,9 +1055,12 @@ bool run_phase_registration_prewarp(
                                                      : reg_error);
         }
 
+        // Adaptive Anker-Anzahl: mehr Anker bei vielen Frames oder schlechtem Seeing
+        // Alt: min(21, max(3, (N+59)/60)) -> bei 325 Frames nur 6 Anker
+        // Neu: min(32, max(4, (N+29)/30)) -> bei 325 Frames 12 Anker
         const int target_active_anchor_count =
             std::max(requested_anchor_count,
-                     std::min(21, std::max(3, (static_cast<int>(frames.size()) + 59) / 60)));
+                     std::min(32, std::max(4, (static_cast<int>(frames.size()) + 29) / 30)));
         const int promote_limit_per_round =
             std::clamp((static_cast<int>(frames.size()) + 159) / 160, 2, 8);
         const int max_direct_anchor_rounds =
@@ -1262,13 +1274,37 @@ bool run_phase_registration_prewarp(
             return true;
           };
 
+          // Hüpfende Sequential Refine: suche nächsten guten Frame (cc>0.4) wenn direkter Nachbar schlecht
+          const float kGoodAnchorCc = 0.40f;
+          auto find_good_neighbor_refine = [&](size_t fi, int direction) -> size_t {
+            // direction: +1 für vorwärts, -1 für rückwärts
+            for (int dist = 1; dist <= 5; ++dist) {
+              int neighbor = static_cast<int>(fi) + direction * dist;
+              if (neighbor < 0 || neighbor >= static_cast<int>(frames.size())) continue;
+              if (global_frame_cc[static_cast<size_t>(neighbor)] > kGoodAnchorCc) {
+                return static_cast<size_t>(neighbor);
+              }
+            }
+            // Fallback: direkter Nachbar
+            return (direction > 0) ? fi - 1 : fi + 1;
+          };
+
           for (size_t fi = static_cast<size_t>(global_ref_idx) + 1;
                fi < frames.size(); ++fi) {
-            try_sequential_refine(fi, fi - 1);
+            size_t neighbor = fi - 1;
+            // Wenn direkter Nachbar schlecht, suche besseren
+            if (global_frame_cc[neighbor] <= kGoodAnchorCc) {
+              neighbor = find_good_neighbor_refine(fi, -1);
+            }
+            try_sequential_refine(fi, neighbor);
           }
           for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            try_sequential_refine(static_cast<size_t>(fi),
-                                  static_cast<size_t>(fi + 1));
+            size_t neighbor = static_cast<size_t>(fi + 1);
+            // Wenn direkter Nachbar schlecht, suche besseren
+            if (global_frame_cc[neighbor] <= kGoodAnchorCc) {
+              neighbor = find_good_neighbor_refine(static_cast<size_t>(fi), +1);
+            }
+            try_sequential_refine(static_cast<size_t>(fi), neighbor);
           }
         }
 
@@ -1393,15 +1429,41 @@ bool run_phase_registration_prewarp(
             return true;
           };
 
+          // Hüpfende Sequential Rescue: suche nächsten guten Anker wenn direkter Nachbar schlecht
+          const float kGoodRescueAnchorCc = 0.30f; // etwas niedriger für Rescue
+          auto find_good_anchor_rescue = [&](size_t fi, int direction) -> size_t {
+            for (int dist = 1; dist <= 8; ++dist) {
+              int anchor = static_cast<int>(fi) + direction * dist;
+              if (anchor < 0 || anchor >= static_cast<int>(frames.size())) continue;
+              size_t ai = static_cast<size_t>(anchor);
+              if (global_frame_cc[ai] > kGoodRescueAnchorCc && can_anchor_blind_chain(ai)) {
+                return ai;
+              }
+            }
+            // Fallback: direkter Nachbar
+            return (direction > 0) ? fi - 1 : fi + 1;
+          };
+
           // Forward pass: ref -> last frame
           for (size_t fi = static_cast<size_t>(global_ref_idx) + 1;
                fi < frames.size(); ++fi) {
-            if (try_sequential(fi, fi - 1)) ++reg_sequential_rescued;
+            size_t anchor = fi - 1;
+            // Wenn direkter Nachbar kein guter Anker, suche weiter
+            if (global_frame_cc[anchor] <= kGoodRescueAnchorCc ||
+                !can_anchor_blind_chain(anchor)) {
+              anchor = find_good_anchor_rescue(fi, -1);
+            }
+            if (try_sequential(fi, anchor)) ++reg_sequential_rescued;
           }
           // Backward pass: ref -> first frame
           for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            if (try_sequential(static_cast<size_t>(fi),
-                               static_cast<size_t>(fi + 1)))
+            size_t anchor = static_cast<size_t>(fi + 1);
+            // Wenn direkter Nachbar kein guter Anker, suche weiter
+            if (global_frame_cc[anchor] <= kGoodRescueAnchorCc ||
+                !can_anchor_blind_chain(anchor)) {
+              anchor = find_good_anchor_rescue(static_cast<size_t>(fi), +1);
+            }
+            if (try_sequential(static_cast<size_t>(fi), anchor))
               ++reg_sequential_rescued;
           }
         }
@@ -1867,115 +1929,8 @@ bool run_phase_registration_prewarp(
           std::cout << "[REG-LOCAL-REF] " << msg.str() << std::endl;
         }
 
-        // ================================================================
-        // SECTION 4: Astrometric rescue (ASTAP plate-solving)
-        // ================================================================
-        // §4.13 — Astrometrische Rescue für verbliebene nicht-registrierte
-        // oder sehr schwach/extrem tief verkettete Frames.
-        int reg_astrometric_rescued = 0;
-        int reg_astrometric_attempted = 0;
-        int reg_astrometric_replaced_weak = 0;
-        if (kUseAstrometry) {
-          const float astrometry_cc_threshold = std::clamp(
-              cfg.registration.reject_cc_min_abs * 0.5f, 0.05f, 0.15f);
-          const int astrometry_chain_depth_threshold =
-              std::max(12, kMaxBlindChainAnchorDepth * 2);
-          auto should_try_astrometry = [&](size_t fi) -> bool {
-            if (fi >= frames.size() || is_active_anchor_frame[fi] != 0 ||
-                reg_provenance[fi] == RegistrationProvenance::astrometric_rescue) {
-              return false;
-            }
-            const bool unresolved = global_frame_cc[fi] <= 0.0f;
-            const bool weak_chained =
-                reg_chain_validated[fi] != 0 &&
-                global_frame_cc[fi] < astrometry_cc_threshold;
-            const bool extreme_chain =
-                reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
-            return unresolved || weak_chained || extreme_chain;
-          };
-          auto nearest_astrometry_anchor_slot = [&](int frame_idx) -> size_t {
-            size_t best_slot = 0;
-            int best_dist = std::numeric_limits<int>::max();
-            for (size_t slot = 0; slot < active_anchor_indices.size(); ++slot) {
-              const int d = std::abs(active_anchor_indices[slot] - frame_idx);
-              if (d < best_dist) {
-                best_dist = d;
-                best_slot = slot;
-              }
-            }
-            return best_slot;
-          };
-
-          if (registration::is_astap_available(cfg.astrometry.astap_bin,
-                                                cfg.astrometry.astap_data_dir)) {
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-              if (!should_try_astrometry(fi)) {
-                continue;
-              }
-
-              const size_t anchor_slot =
-                  nearest_astrometry_anchor_slot(static_cast<int>(fi));
-              const int ref_anchor_idx = active_anchor_indices[anchor_slot];
-              const Matrix2Df &ref_proxy_astro = active_anchor_proxies[anchor_slot];
-              const std::string ref_fits_path =
-                  frames[static_cast<size_t>(ref_anchor_idx)].string();
-              ++reg_astrometric_attempted;
-
-              const Matrix2Df mov_proxy_astro = load_registration_proxy(fi);
-              const std::string mov_fits_path = frames[fi].string();
-
-              auto astro_res =
-                  registration::try_astrometric_rescue_from_paths(
-                      mov_fits_path, ref_fits_path,
-                      mov_proxy_astro, ref_proxy_astro,
-                      cfg.astrometry.astap_bin,
-                      cfg.astrometry.astap_data_dir,
-                      global_reg_scale,
-                      static_cast<float>(cfg.astrometry.search_radius),
-                      0.20f);
-
-              if (astro_res.success) {
-                const float prev_cc = global_frame_cc[fi];
-                const bool weak_or_unresolved =
-                    prev_cc <= 0.0f || prev_cc < astrometry_cc_threshold;
-                const bool replace_existing =
-                    prev_cc <= 0.0f ||
-                    astro_res.correlation > prev_cc + 0.02f ||
-                    reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
-                if (!replace_existing) {
-                  continue;
-                }
-                set_registration_state(
-                    fi,
-                    registration::scale_translation_warp(astro_res.warp,
-                                                         global_reg_scale),
-                    astro_res.correlation, true, 0,
-                    RegistrationProvenance::astrometric_rescue);
-                ++reg_astrometric_rescued;
-                if (weak_or_unresolved && prev_cc > 0.0f) {
-                  ++reg_astrometric_replaced_weak;
-                }
-              }
-            }
-
-            if (reg_astrometric_rescued > 0) {
-              std::ostringstream msg;
-              msg << "REGISTRATION astrometric rescue: recovered "
-                  << reg_astrometric_rescued
-                  << " frames via plate-solving (attempted="
-                  << reg_astrometric_attempted << ", weak_replaced="
-                  << reg_astrometric_replaced_weak << ")";
-              emitter.warning(run_id, msg.str(), log_file);
-              std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
-            }
-          } else {
-            std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
-          }
-        }
-        global_reg_extra["diag"]["reg_astrometric_rescued"] = reg_astrometric_rescued;
-        global_reg_extra["diag"]["reg_astrometric_attempted"] = reg_astrometric_attempted;
-        global_reg_extra["diag"]["reg_astrometric_replaced_weak"] =
-            reg_astrometric_replaced_weak;
+        // ASTAP wird jetzt nach Section 6 (Model-Generierung) ausgeführt
+        // Siehe "SECTION 4b: Astrometric rescue" am Ende der Registrierung
 
         global_reg_status = "ok";
         try {
@@ -2036,6 +1991,7 @@ bool run_phase_registration_prewarp(
   int reg_reject_cc_outliers = 0;
   int reg_reject_shift_outliers = 0;
   int reg_reject_low_cc_protected = 0;
+  int reg_reject_deep_chain_outliers = 0;
   core::json reg_rejected_frames = core::json::array();
   std::vector<uint8_t> reg_rejected_mask(frames.size(), 0);
   if (cfg.registration.reject_outliers) {
@@ -2186,7 +2142,14 @@ bool run_phase_registration_prewarp(
           ++reg_reject_cc_outliers;
           reject_reasons.push_back("low_cc");
         } else if (cc < cc_min_keep) {
-          ++reg_reject_low_cc_protected;
+          const int depth = reg_chain_depth[fi];
+          if (depth > kMaxBlindChainAnchorDepth) {
+            reject = true;
+            ++reg_reject_deep_chain_outliers;
+            reject_reasons.push_back("deep_chain_low_cc");
+          } else {
+            ++reg_reject_low_cc_protected;
+          }
         }
       }
 
@@ -2726,19 +2689,140 @@ bool run_phase_registration_prewarp(
       global_reg_extra["diag"]["reg_model_interpolated"] = reg_model_interpolated;
       global_reg_extra["diag"]["reg_model_blended"] = reg_model_blended;
     }
+
+    // ================================================================
+    // SECTION 4b: Astrometric rescue (ASTAP plate-solving) - nach Section 6
+    // ================================================================
+    // §4.13 — Astrometrische Rescue als letztes Mittel für Model-Frames
+    // mit niedrigem CC. Läuft nach Model-Generierung um auch interpolierte
+    // Frames zu retten.
+    if (kUseAstrometry) {
+      const float astrometry_cc_threshold = std::clamp(
+          cfg.registration.reject_cc_min_abs * 0.5f, 0.05f, 0.15f);
+      const int astrometry_chain_depth_threshold =
+          std::max(12, kMaxBlindChainAnchorDepth * 2);
+      auto should_try_astrometry = [&](size_t fi) -> bool {
+        if (fi >= frames.size() || is_active_anchor_frame[fi] != 0 ||
+            reg_provenance[fi] == RegistrationProvenance::astrometric_rescue) {
+          return false;
+        }
+        const bool unresolved = global_frame_cc[fi] <= 0.0f;
+        const bool weak_chained =
+            reg_chain_validated[fi] != 0 &&
+            global_frame_cc[fi] < astrometry_cc_threshold;
+        const bool extreme_chain =
+            reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
+        // Also try astrometry for model-interpolated frames with low CC
+        // These frames failed direct registration and got interpolated warps
+        const bool weak_model =
+            global_frame_cc[fi] > 0.0f &&
+            global_frame_cc[fi] < astrometry_cc_threshold &&
+            (reg_provenance[fi] == RegistrationProvenance::model_global_poly ||
+             reg_provenance[fi] == RegistrationProvenance::model_local_poly ||
+             reg_provenance[fi] == RegistrationProvenance::model_interpolated ||
+             reg_provenance[fi] == RegistrationProvenance::model_blended ||
+             reg_provenance[fi] == RegistrationProvenance::model_nearest_copy);
+        return unresolved || weak_chained || extreme_chain || weak_model;
+      };
+      auto nearest_astrometry_anchor_slot = [&](int frame_idx) -> size_t {
+        size_t best_slot = 0;
+        int best_dist = std::numeric_limits<int>::max();
+        for (size_t slot = 0; slot < active_anchor_indices.size(); ++slot) {
+          const int d = std::abs(active_anchor_indices[slot] - frame_idx);
+          if (d < best_dist) {
+            best_dist = d;
+            best_slot = slot;
+          }
+        }
+        return best_slot;
+      };
+
+      if (registration::is_astap_available(cfg.astrometry.astap_bin,
+                                            cfg.astrometry.astap_data_dir)) {
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!should_try_astrometry(fi)) {
+            continue;
+          }
+
+          const size_t anchor_slot =
+              nearest_astrometry_anchor_slot(static_cast<int>(fi));
+          const int ref_anchor_idx = active_anchor_indices[anchor_slot];
+          const Matrix2Df &ref_proxy_astro = active_anchor_proxies[anchor_slot];
+          const std::string ref_fits_path =
+              frames[static_cast<size_t>(ref_anchor_idx)].string();
+          ++reg_astrometric_attempted;
+
+          const Matrix2Df mov_proxy_astro = load_registration_proxy(fi);
+          const std::string mov_fits_path = frames[fi].string();
+
+          auto astro_res =
+              registration::try_astrometric_rescue_from_paths(
+                  mov_fits_path, ref_fits_path,
+                  mov_proxy_astro, ref_proxy_astro,
+                  cfg.astrometry.astap_bin,
+                  cfg.astrometry.astap_data_dir,
+                  global_reg_scale,
+                  static_cast<float>(cfg.astrometry.search_radius),
+                  0.20f);
+
+          if (astro_res.success) {
+            const float prev_cc = global_frame_cc[fi];
+            const bool weak_or_unresolved =
+                prev_cc <= 0.0f || prev_cc < astrometry_cc_threshold;
+            const bool replace_existing =
+                prev_cc <= 0.0f ||
+                astro_res.correlation > prev_cc + 0.02f ||
+                reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
+            if (!replace_existing) {
+              continue;
+            }
+
+            set_registration_state(
+                fi,
+                registration::scale_translation_warp(astro_res.warp,
+                                                     global_reg_scale),
+                astro_res.correlation, true, 0,
+                RegistrationProvenance::astrometric_rescue);
+            ++reg_astrometric_rescued;
+            if (weak_or_unresolved && prev_cc > 0.0f) {
+              ++reg_astrometric_replaced_weak;
+            }
+          }
+        }
+
+        if (reg_astrometric_rescued > 0) {
+          std::ostringstream msg;
+          msg << "REGISTRATION astrometric rescue: recovered "
+              << reg_astrometric_rescued
+              << " frames via plate-solving (attempted="
+              << reg_astrometric_attempted << ", weak_replaced="
+              << reg_astrometric_replaced_weak << ")";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
+        }
+      } else {
+        std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
+      }
+    }
+    global_reg_extra["diag"]["reg_astrometric_rescued"] = reg_astrometric_rescued;
+    global_reg_extra["diag"]["reg_astrometric_attempted"] = reg_astrometric_attempted;
+    global_reg_extra["diag"]["reg_astrometric_replaced_weak"] =
+        reg_astrometric_replaced_weak;
   }
   if (reg_reject_orientation_outliers > 0 ||
       reg_reject_reflection_outliers > 0 ||
       reg_reject_scale_outliers > 0 ||
       reg_reject_cc_outliers > 0 ||
       reg_reject_shift_outliers > 0 ||
-      reg_reject_low_cc_protected > 0) {
+      reg_reject_low_cc_protected > 0 ||
+      reg_reject_deep_chain_outliers > 0) {
     std::cout << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
               << " reflection=" << reg_reject_reflection_outliers
               << " scale=" << reg_reject_scale_outliers
               << " cc=" << reg_reject_cc_outliers
               << " shift=" << reg_reject_shift_outliers
+              << " deep_chain=" << reg_reject_deep_chain_outliers
               << " low_cc_protected=" << reg_reject_low_cc_protected
               << std::endl;
   }
@@ -2750,6 +2834,7 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["reg_reject_cc_outliers"] = reg_reject_cc_outliers;
   global_reg_extra["diag"]["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
   global_reg_extra["diag"]["reg_reject_low_cc_protected"] = reg_reject_low_cc_protected;
+  global_reg_extra["diag"]["reg_reject_deep_chain_outliers"] = reg_reject_deep_chain_outliers;
   global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
   global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
 
