@@ -1,5 +1,8 @@
 #include "services/scan_summary.hpp"
 
+/// @brief Implements latest scan job.
+/// @details This implementation summarizes scanner jobs for dashboard status endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<Job> latest_scan_job(const InMemoryJobStore& store) {
     auto jobs = store.list(200);
     for (auto& j : jobs) {
@@ -94,6 +97,9 @@ nlohmann::json summarize_scan_job(const std::optional<Job>& job,
     };
 }
 
+/// @brief Implements scan quality.
+/// @details This implementation summarizes scanner jobs for dashboard status endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json scan_quality(const InMemoryJobStore& store) {
     auto job = latest_scan_job(store);
     auto summary = summarize_scan_job(job);
@@ -118,6 +124,9 @@ nlohmann::json scan_quality(const InMemoryJobStore& store) {
     };
 }
 
+/// @brief Implements scan guardrails.
+/// @details This implementation summarizes scanner jobs for dashboard status endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json scan_guardrails(const InMemoryJobStore& store) {
     auto job = latest_scan_job(store);
     auto summary = summarize_scan_job(job);

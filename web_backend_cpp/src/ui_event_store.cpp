@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <fstream>
 
+/// @brief Implements ui event to json.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json ui_event_to_json(const UiEvent& e) {
     return {
         {"seq", e.seq},
@@ -15,6 +18,9 @@ nlohmann::json ui_event_to_json(const UiEvent& e) {
     };
 }
 
+/// @brief Implements configure.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void UiEventStore::configure(const fs::path& path) {
     std::lock_guard<std::mutex> lk(_mutex);
     _path = path;
@@ -53,6 +59,9 @@ void UiEventStore::push(const std::string& event,
     append_jsonl(_events.back());
 }
 
+/// @brief Lists list.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<UiEvent> UiEventStore::list(int since_seq, int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<UiEvent> result;
@@ -65,17 +74,26 @@ std::vector<UiEvent> UiEventStore::list(int since_seq, int limit) const {
     return result;
 }
 
+/// @brief Implements latest seq.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int UiEventStore::latest_seq() const {
     std::lock_guard<std::mutex> lk(_mutex);
     return _seq;
 }
 
+/// @brief Implements append jsonl.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void UiEventStore::append_jsonl(const UiEvent& e) {
     if (!_log_out.is_open()) return;
     _log_out << ui_event_to_json(e).dump() << '\n';
     _log_out.flush();
 }
 
+/// @brief Loads jsonl locked.
+/// @details This implementation persists and serves bounded UI event streams; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void UiEventStore::load_jsonl_locked() {
     if (_path.empty() || !fs::exists(_path)) return;
 

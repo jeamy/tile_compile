@@ -33,6 +33,9 @@ static crow::response error_response(const std::string& code,
     return json_response({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+/// @brief Implements normalized existing path.
+/// @details This implementation serves backend health and runtime filesystem helper endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static fs::path normalized_existing_path(const fs::path& path) {
     std::error_code ec;
     fs::path normalized = fs::weakly_canonical(path, ec);
@@ -40,6 +43,8 @@ static fs::path normalized_existing_path(const fs::path& path) {
     return normalized;
 }
 
+/// @brief Registers system endpoints for runtime health, path resolution, and backend metadata.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_system_routes(CrowApp& app,
                               std::shared_ptr<AppState> state) {
 

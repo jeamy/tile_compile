@@ -27,6 +27,9 @@ struct DownloadContext {
     std::ofstream out;
 };
 
+/// @brief Trims ascii.
+/// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string trim_ascii(std::string_view raw) {
     size_t start = 0;
     while (start < raw.size() && std::isspace(static_cast<unsigned char>(raw[start]))) ++start;
@@ -35,6 +38,9 @@ std::string trim_ascii(std::string_view raw) {
     return std::string(raw.substr(start, end - start));
 }
 
+/// @brief Parses total from content range.
+/// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::uintmax_t parse_total_from_content_range(const std::string& value) {
     const auto slash = value.rfind('/');
     if (slash == std::string::npos) return 0;
@@ -47,6 +53,9 @@ std::uintmax_t parse_total_from_content_range(const std::string& value) {
     }
 }
 
+/// @brief Ensures output stream.
+/// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool ensure_output_stream(DownloadContext& ctx) {
     if (ctx.stream_ready) return ctx.out.good();
     const bool append = ctx.requested_existing > 0 && ctx.status_code == 206;
@@ -67,6 +76,9 @@ bool ensure_output_stream(DownloadContext& ctx) {
     return ctx.out.good();
 }
 
+/// @brief Writes to file.
+/// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 size_t write_to_file(void* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* ctx = static_cast<DownloadContext*>(userdata);
     if (!ctx) return 0;
@@ -75,6 +87,9 @@ size_t write_to_file(void* ptr, size_t size, size_t nmemb, void* userdata) {
     return ctx->out.good() ? size * nmemb : 0;
 }
 
+/// @brief Implements header cb.
+/// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 size_t header_cb(char* buffer, size_t size, size_t nitems, void* userdata) {
     auto* ctx = static_cast<DownloadContext*>(userdata);
     if (!ctx) return 0;

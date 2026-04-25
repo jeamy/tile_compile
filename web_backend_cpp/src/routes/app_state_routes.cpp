@@ -13,10 +13,16 @@ static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     return res;
 }
 
+/// @brief Implements ui state path.
+/// @details This implementation serves persisted UI state and active-run metadata endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static fs::path ui_state_path(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / "ui_state.json";
 }
 
+/// @brief Loads ui state unlocked.
+/// @details This implementation serves persisted UI state and active-run metadata endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static void load_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
     if (state->ui_state_loaded) return;
     state->ui_state = nlohmann::json::object();
@@ -31,6 +37,9 @@ static void load_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
     state->ui_state_loaded = true;
 }
 
+/// @brief Saves ui state unlocked.
+/// @details This implementation serves persisted UI state and active-run metadata endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool save_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
     const fs::path path = ui_state_path(state);
     std::error_code ec;
@@ -41,6 +50,9 @@ static bool save_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
     return static_cast<bool>(out);
 }
 
+/// @brief Implements detect temp root.
+/// @details This implementation serves persisted UI state and active-run metadata endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static fs::path detect_temp_root(const std::shared_ptr<AppState>& state) {
     std::error_code ec;
     fs::path temp_root = fs::temp_directory_path(ec);
@@ -48,6 +60,8 @@ static fs::path detect_temp_root(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / "tmp";
 }
 
+/// @brief Registers UI-state endpoints for persistent frontend state and current-run metadata.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_app_state_routes(CrowApp& app,
                                 std::shared_ptr<AppState> state) {
 

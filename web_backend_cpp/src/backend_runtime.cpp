@@ -6,6 +6,9 @@
 
 namespace {
 
+/// @brief Implements weakly normalize.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path weakly_normalize(const fs::path& p) {
     if (p.empty()) return {};
     std::error_code ec;
@@ -14,6 +17,9 @@ fs::path weakly_normalize(const fs::path& p) {
     return normalized;
 }
 
+/// @brief Checks whether like project root.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool looks_like_project_root(const fs::path& dir) {
     if (dir.empty()) return false;
     std::error_code ec;
@@ -22,6 +28,9 @@ bool looks_like_project_root(const fs::path& dir) {
            fs::is_directory(dir / "tile_compile_cpp", ec);
 }
 
+/// @brief Discovers project root.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path discover_project_root(fs::path start) {
     start = weakly_normalize(start);
     if (start.empty()) return {};
@@ -34,6 +43,9 @@ fs::path discover_project_root(fs::path start) {
     return {};
 }
 
+/// @brief Implements detect default project root.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path detect_default_project_root() {
     if (auto from_cwd = discover_project_root(fs::current_path()); !from_cwd.empty()) {
         return from_cwd;
@@ -50,6 +62,9 @@ fs::path detect_default_project_root() {
     return weakly_normalize(fs::current_path());
 }
 
+/// @brief Implements env string.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string env_string(const char* name, const char* def = "") {
     const char* v = std::getenv(name);
     return v ? v : def;
@@ -66,6 +81,9 @@ std::vector<std::string> split_colon_paths(const std::string& s) {
     return result;
 }
 
+/// @brief Parses size t env.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 size_t parse_size_t_env(const char* name, size_t fallback, size_t min_value, size_t max_value) {
     const std::string raw = env_string(name, "");
     if (raw.empty()) return fallback;
@@ -77,6 +95,9 @@ size_t parse_size_t_env(const char* name, size_t fallback, size_t min_value, siz
     }
 }
 
+/// @brief Parses uintmax env.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 uintmax_t parse_uintmax_env(const char* name, uintmax_t fallback, uintmax_t min_value, uintmax_t max_value) {
     const std::string raw = env_string(name, "");
     if (raw.empty()) return fallback;
@@ -90,6 +111,9 @@ uintmax_t parse_uintmax_env(const char* name, uintmax_t fallback, uintmax_t min_
 
 }
 
+/// @brief Implements backend guard limits from env.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 BackendGuardLimits backend_guard_limits_from_env() {
     BackendGuardLimits limits;
     limits.subprocess_capture_bytes = parse_size_t_env("TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES",
@@ -143,6 +167,9 @@ BackendGuardLimits backend_guard_limits_from_env() {
     return limits;
 }
 
+/// @brief Implements from env.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 BackendRuntime BackendRuntime::from_env() {
     BackendRuntime rt;
 
@@ -226,6 +253,9 @@ BackendRuntime BackendRuntime::from_env() {
     return rt;
 }
 
+/// @brief Normalizes path.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path BackendRuntime::normalize_path(const fs::path& p) const {
     if (p.empty()) return {};
     std::error_code ec;
@@ -236,6 +266,9 @@ fs::path BackendRuntime::normalize_path(const fs::path& p) const {
     return normalized;
 }
 
+/// @brief Checks whether within root.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& root) const {
     const fs::path normalized_candidate = normalize_path(candidate);
     const fs::path normalized_root = normalize_path(root);
@@ -250,6 +283,9 @@ bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& r
     return root_it == normalized_root.end();
 }
 
+/// @brief Resolves run dir.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path BackendRuntime::resolve_run_dir(const std::string& run_id) const {
     if (run_id.empty()) throw std::invalid_argument("run_id is empty");
     fs::path candidate = runs_dir / run_id;
@@ -263,6 +299,9 @@ fs::path BackendRuntime::resolve_run_dir(const std::string& run_id) const {
     throw std::runtime_error("run_dir not found for run_id: " + run_id);
 }
 
+/// @brief Resolves input path.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 PathResolution BackendRuntime::resolve_input_path(const fs::path& p, bool must_exist) const {
     if (p.empty()) return {PathStatus::not_found, {}};
 
@@ -285,6 +324,9 @@ PathResolution BackendRuntime::resolve_input_path(const fs::path& p, bool must_e
     return {PathStatus::ok, fallback};
 }
 
+/// @brief Checks whether path allowed.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool BackendRuntime::is_path_allowed(const fs::path& p) const {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     for (auto& root : _allowed_roots) {
@@ -293,6 +335,9 @@ bool BackendRuntime::is_path_allowed(const fs::path& p) const {
     return false;
 }
 
+/// @brief Implements allowed roots.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<fs::path> BackendRuntime::allowed_roots() const {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     std::vector<fs::path> roots;
@@ -301,11 +346,17 @@ std::vector<fs::path> BackendRuntime::allowed_roots() const {
     return roots;
 }
 
+/// @brief Implements input search roots.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<fs::path> BackendRuntime::input_search_roots() const {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     return _input_search_roots;
 }
 
+/// @brief Implements grant root.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void BackendRuntime::grant_root(const fs::path& p) {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     _allowed_roots.insert(normalize_path(p).string());

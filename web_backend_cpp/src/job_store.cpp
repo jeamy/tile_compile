@@ -12,6 +12,9 @@ inline nlohmann::json json_str_or_null(const std::string& s) {
 
 } // namespace
 
+/// @brief Implements job to json.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json job_to_json(const Job& j) {
     // Prefer run_id from data payload if present, fall back to j.run_id.
     nlohmann::json run_id_val = (j.data.is_object() && j.data.contains("run_id"))
@@ -34,6 +37,9 @@ nlohmann::json job_to_json(const Job& j) {
     };
 }
 
+/// @brief Creates create.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string InMemoryJobStore::create(const std::string& type, const std::string& run_id) {
     std::lock_guard<std::mutex> lk(_mutex);
     const auto epoch_mod = std::chrono::system_clock::now().time_since_epoch().count() % 100000;
@@ -53,12 +59,18 @@ std::string InMemoryJobStore::create(const std::string& type, const std::string&
     return id;
 }
 
+/// @brief Implements configure retention.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void InMemoryJobStore::configure_retention(size_t max_retained_jobs) {
     std::lock_guard<std::mutex> lk(_mutex);
     _max_retained_jobs = std::max<size_t>(1, max_retained_jobs);
     prune_locked();
 }
 
+/// @brief Implements get.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<Job> InMemoryJobStore::get(const std::string& job_id) const {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -85,6 +97,9 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     return true;
 }
 
+/// @brief Implements merge data.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool InMemoryJobStore::merge_data(const std::string& job_id, const nlohmann::json& patch) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -101,6 +116,9 @@ bool InMemoryJobStore::merge_data(const std::string& job_id, const nlohmann::jso
     return true;
 }
 
+/// @brief Updates progress.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool InMemoryJobStore::update_progress(const std::string& job_id, double progress) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -110,6 +128,9 @@ bool InMemoryJobStore::update_progress(const std::string& job_id, double progres
     return true;
 }
 
+/// @brief Implements set pid.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool InMemoryJobStore::set_pid(const std::string& job_id, std::optional<int> pid) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -119,6 +140,9 @@ bool InMemoryJobStore::set_pid(const std::string& job_id, std::optional<int> pid
     return true;
 }
 
+/// @brief Checks whether cancelled.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool InMemoryJobStore::is_cancelled(const std::string& job_id) const {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -126,6 +150,9 @@ bool InMemoryJobStore::is_cancelled(const std::string& job_id) const {
     return it->second.state == JobState::cancelled;
 }
 
+/// @brief Cancels cancel.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool InMemoryJobStore::cancel(const std::string& job_id) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
@@ -137,6 +164,9 @@ bool InMemoryJobStore::cancel(const std::string& job_id) {
     return true;
 }
 
+/// @brief Lists list.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<Job> InMemoryJobStore::list(int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<Job> result;
@@ -150,6 +180,9 @@ std::vector<Job> InMemoryJobStore::list(int limit) const {
     return result;
 }
 
+/// @brief Implements prune locked.
+/// @details This implementation serializes and mutates transient backend job records; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void InMemoryJobStore::prune_locked() {
     while (_order.size() > _max_retained_jobs) {
         bool removed = false;

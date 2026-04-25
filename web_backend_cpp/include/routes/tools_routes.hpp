@@ -3,5 +3,8 @@
 #include <memory>
 #include "../app_state.hpp"
 
+/// @brief Registers ASTAP/Siril tool discovery, install, download, and astrometry helper endpoints.
+/// @details The function attaches routes to the shared Crow application and uses AppState for
+/// runtime configuration, job tracking, event publication, and filesystem guardrails.
 void register_tools_routes(CrowApp& app,
                              std::shared_ptr<AppState> state);

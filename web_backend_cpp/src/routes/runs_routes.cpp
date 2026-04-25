@@ -47,6 +47,9 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+/// @brief Implements sanitize run id.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string sanitize_run_id(std::string value) {
     for (char& ch : value) {
         bool ok = (ch >= 'a' && ch <= 'z') ||
@@ -61,6 +64,9 @@ static std::string sanitize_run_id(std::string value) {
     return value;
 }
 
+/// @brief Implements url decode component.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string url_decode_component(const std::string& value) {
     std::string out;
     out.reserve(value.size());
@@ -83,6 +89,9 @@ static std::string url_decode_component(const std::string& value) {
     return out;
 }
 
+/// @brief Implements decode base64url.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string decode_base64url(std::string value) {
     for (char& ch : value) {
         if (ch == '-') ch = '+';
@@ -108,6 +117,9 @@ static std::string decode_base64url(std::string value) {
     return out;
 }
 
+/// @brief Implements decode run id param.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string decode_run_id_param(std::string run_id) {
     if (run_id.rfind("b64_", 0) == 0) {
         const std::string decoded = decode_base64url(run_id.substr(4));
@@ -117,6 +129,9 @@ static std::string decode_run_id_param(std::string run_id) {
     return url_decode_component(run_id);
 }
 
+/// @brief Implements current run timestamp.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string current_run_timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -132,6 +147,9 @@ static std::string current_run_timestamp() {
     return oss.str();
 }
 
+/// @brief Implements current run date minutes.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string current_run_date_minutes() {
     const auto now = std::chrono::system_clock::now();
     const auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -147,6 +165,9 @@ static std::string current_run_date_minutes() {
     return oss.str();
 }
 
+/// @brief Builds effective run id.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string make_effective_run_id(const nlohmann::json& body) {
     const std::string raw_run_id = body.value("run_id", "");
     if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
@@ -157,6 +178,9 @@ static std::string make_effective_run_id(const nlohmann::json& body) {
     return base_name + "_" + current_run_timestamp();
 }
 
+/// @brief Builds queue root run id.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string make_queue_root_run_id(const nlohmann::json& body) {
     const std::string raw_run_id = body.value("run_id", "");
     if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
@@ -169,6 +193,9 @@ static std::string make_queue_root_run_id(const nlohmann::json& body) {
     return current_run_date_minutes();
 }
 
+/// @brief Implements wildcard to regex.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string wildcard_to_regex(const std::string& pattern) {
     std::string out;
     out.reserve(pattern.size() * 2 + 4);
@@ -191,6 +218,9 @@ static std::string wildcard_to_regex(const std::string& pattern) {
     return out;
 }
 
+/// @brief Implements wildcard match.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool wildcard_match(const std::string& pattern, const std::string& value) {
     if (pattern.empty()) return true;
     try {
@@ -200,12 +230,18 @@ static bool wildcard_match(const std::string& pattern, const std::string& value)
     }
 }
 
+/// @brief Reads file str.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string read_file_str(const fs::path& path) {
     std::ifstream in(path);
     if (!in) return "";
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+/// @brief Writes file str.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool write_file_str(const fs::path& path, const std::string& text) {
     if (!path.parent_path().empty()) {
         std::error_code ec;
@@ -238,6 +274,9 @@ static void persist_run_config_snapshot(const fs::path& run_dir,
     add_run_config_revision(run_dir, yaml_text, source, run_id);
 }
 
+/// @brief Resolves artifact path.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, const std::string& raw_path) {
     const std::string trimmed = raw_path;
     if (trimmed.empty()) return std::nullopt;
@@ -261,6 +300,9 @@ static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, co
     return candidate;
 }
 
+/// @brief Applies color mode to yaml.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string apply_color_mode_to_yaml(const std::string& base_yaml, const std::string& color_mode) {
     if (base_yaml.empty() || color_mode.empty()) return base_yaml;
     try {
@@ -349,6 +391,9 @@ static std::string derive_queue_run_id(const std::string& base_run_id,
     return (fs::path(base_run_id) / leaf).generic_string();
 }
 
+/// @brief Implements collect queue items.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static nlohmann::json collect_queue_items(const nlohmann::json& body, const std::string& base_run_id) {
     nlohmann::json queue = nlohmann::json::array();
     if (!body.contains("queue") || !body["queue"].is_array()) return queue;
@@ -392,11 +437,17 @@ static nlohmann::json collect_queue_items(const nlohmann::json& body, const std:
     return queue;
 }
 
+/// @brief Builds queue cancel requested.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool queue_cancel_requested(InMemoryJobStore& store, const std::string& job_id) {
     auto job = store.get(job_id);
     return job && job->state == JobState::cancelled;
 }
 
+/// @brief Checks whether terminal job state.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool is_terminal_job_state(const std::string& state) {
     return state == "ok" || state == "error" || state == "cancelled";
 }
@@ -420,6 +471,9 @@ static nlohmann::json queue_job_payload(const nlohmann::json& queue,
     };
 }
 
+/// @brief Normalizes queue filter name.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::string normalize_queue_filter_name(const std::string& raw) {
     std::string out;
     out.reserve(raw.size());
@@ -431,6 +485,9 @@ static std::string normalize_queue_filter_name(const std::string& raw) {
     return out;
 }
 
+/// @brief Builds queue items for run.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static nlohmann::json queue_items_for_run(InMemoryJobStore& store, const std::string& run_id) {
     for (const auto& job : store.list(200)) {
         if (job.type != "run_queue") continue;
@@ -443,6 +500,9 @@ static nlohmann::json queue_items_for_run(InMemoryJobStore& store, const std::st
     return nlohmann::json::array();
 }
 
+/// @brief Builds queue filters for run.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::string& run_id) {
     const auto queue = queue_items_for_run(store, run_id);
     if (!queue.is_array()) return nlohmann::json::array();
@@ -528,12 +588,18 @@ static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<Ap
 }
 
 #ifndef _WIN32
+/// @brief Checks process exists.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool pid_exists(pid_t pid) {
     if (pid <= 0) return false;
     if (kill(pid, 0) == 0) return true;
     return errno == EPERM;
 }
 
+/// @brief Implements terminate pid group.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static bool terminate_pid_group(pid_t pid) {
     if (pid <= 0) return false;
     if (kill(-pid, SIGTERM) != 0) {
@@ -618,6 +684,9 @@ static std::vector<std::string> runner_run_args(const std::shared_ptr<AppState>&
     return args;
 }
 
+/// @brief Implements collect input dirs.
+/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::vector<std::string> collect_input_dirs(const nlohmann::json& body) {
     std::vector<std::string> input_dirs;
 
@@ -642,6 +711,8 @@ static std::vector<std::string> collect_input_dirs(const nlohmann::json& body) {
     return input_dirs;
 }
 
+/// @brief Registers run endpoints for discovery, launch, resume, stop, artifacts, logs, reports, and queue state.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_runs_routes(CrowApp& app,
                            std::shared_ptr<AppState> state) {
  

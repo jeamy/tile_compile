@@ -10,6 +10,9 @@ namespace {
 
 using json = nlohmann::json;
 
+/// @brief Compacts array.
+/// @details This implementation serves input scan requests and scan result normalization; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json compact_array(const json& value, size_t max_items) {
     json out = json::array();
     if (!value.is_array()) return out;
@@ -18,6 +21,9 @@ json compact_array(const json& value, size_t max_items) {
     return out;
 }
 
+/// @brief Implements append limited unique.
+/// @details This implementation serves input scan requests and scan result normalization; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void append_limited_unique(std::vector<std::string>& items, const std::string& value, size_t limit) {
     if (value.empty()) return;
     if (std::find(items.begin(), items.end(), value) != items.end()) return;
@@ -97,12 +103,17 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+/// @brief Parses scan result.
+/// @details This implementation serves input scan requests and scan result normalization; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static std::optional<nlohmann::json> parse_scan_result(const SubprocessResult& res) {
     auto parsed = nlohmann::json::parse(res.stdout_str, nullptr, false);
     if (parsed.is_discarded() || !parsed.is_object()) return std::nullopt;
     return parsed;
 }
 
+/// @brief Registers scan endpoints that launch input discovery and normalize scanner results.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_scan_routes(CrowApp& app,
                            std::shared_ptr<AppState> state) {
 

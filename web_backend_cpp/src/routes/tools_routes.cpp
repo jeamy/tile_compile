@@ -28,6 +28,9 @@ constexpr const char* SIRIL_URL_TEMPLATE_SUFFIX = ".dat.bz2?download=1";
 
 constexpr std::array<const char*, 4> ASTAP_CATALOG_IDS = {"d05", "d20", "d50", "d80"};
 
+/// @brief Implements astap catalog filename.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string astap_catalog_filename(const std::string& catalog_id) {
     if (catalog_id == "d05") return "d05_star_database.zip";
     if (catalog_id == "d20") return "d20_star_database.zip";
@@ -44,11 +47,17 @@ std::string astap_catalog_filename(const std::string& catalog_id) {
     return {};
 }
 
+/// @brief Implements getenv or.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string getenv_or(const char* name, const std::string& fallback = "") {
     const char* v = std::getenv(name);
     return v ? std::string(v) : fallback;
 }
 
+/// @brief Copies file portable.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool copy_file_portable(const fs::path& source, const fs::path& dest, std::string* error_detail = nullptr) {
     std::error_code ec;
     fs::copy_file(source, dest, fs::copy_options::overwrite_existing, ec);
@@ -131,6 +140,9 @@ bool copy_file_portable(const fs::path& source, const fs::path& dest, std::strin
     return true;
 }
 
+/// @brief Implements user home dir.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path user_home_dir() {
 #ifdef _WIN32
     auto home = getenv_or("USERPROFILE");
@@ -140,12 +152,18 @@ fs::path user_home_dir() {
     return home.empty() ? fs::current_path() : fs::path(home);
 }
 
+/// @brief Implements gui2 install root.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path gui2_install_root() {
     const std::string raw = getenv_or("TILE_COMPILE_GUI2_INSTALL_ROOT");
     if (raw.empty()) return {};
     return fs::path(raw);
 }
 
+/// @brief Implements astap cli download url.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string astap_cli_download_url() {
 #ifdef __APPLE__
 #if defined(__aarch64__) || defined(__arm64__) || defined(__ARM_ARCH)
@@ -158,6 +176,9 @@ std::string astap_cli_download_url() {
 #endif
 }
 
+/// @brief Implements default astap data dir.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path default_astap_data_dir() {
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "astap";
@@ -165,6 +186,9 @@ fs::path default_astap_data_dir() {
     return user_home_dir() / ".local" / "share" / "tile_compile" / "astap";
 }
 
+/// @brief Implements default siril catalog dir.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path default_siril_catalog_dir() {
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
@@ -172,6 +196,9 @@ fs::path default_siril_catalog_dir() {
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";
 }
 
+/// @brief Implements expand user path.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path expand_user_path(const fs::path& raw) {
     if (raw.empty()) return raw;
     const std::string text = raw.string();
@@ -182,11 +209,17 @@ fs::path expand_user_path(const fs::path& raw) {
     return raw;
 }
 
+/// @brief Implements path from user input.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path path_from_user_input(const std::string& raw, const fs::path& fallback) {
     if (raw.empty()) return fallback;
     return expand_user_path(fs::path(raw));
 }
 
+/// @brief Checks whether command name.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool is_command_name(const std::string& raw) {
     if (raw.empty()) return false;
     const fs::path path(raw);
@@ -194,10 +227,16 @@ bool is_command_name(const std::string& raw) {
     return raw.find('/') == std::string::npos && raw.find('\\') == std::string::npos;
 }
 
+/// @brief Checks whether astap binary name.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool is_astap_binary_name(const std::string& name) {
     return name == "astap_cli" || name == "astap_cli.exe" || name == "astap";
 }
 
+/// @brief Checks whether astap catalog installed.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool is_astap_catalog_installed(const fs::path& catalog_dir, const std::string& catalog_id) {
     if (!fs::exists(catalog_dir)) return false;
     const std::string prefix = catalog_id + "_";
@@ -209,6 +248,9 @@ bool is_astap_catalog_installed(const fs::path& catalog_dir, const std::string& 
     return false;
 }
 
+/// @brief Implements missing siril chunks.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<int> missing_siril_chunks(const fs::path& catalog_dir) {
     std::vector<int> missing;
     for (int i = 0; i < SIRIL_NUM_CHUNKS; ++i) {
@@ -219,10 +261,16 @@ std::vector<int> missing_siril_chunks(const fs::path& catalog_dir) {
     return missing;
 }
 
+/// @brief Implements siril chunk url.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string siril_chunk_url(int chunk) {
     return std::string(SIRIL_URL_TEMPLATE_PREFIX) + std::to_string(chunk) + SIRIL_URL_TEMPLATE_SUFFIX;
 }
 
+/// @brief Finds astap candidate.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path find_astap_candidate(const fs::path& root) {
     const fs::path expanded = expand_user_path(root);
     std::error_code ec;
@@ -244,12 +292,18 @@ fs::path find_astap_candidate(const fs::path& root) {
     return {};
 }
 
+/// @brief Implements astap probe ok.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool astap_probe_ok(const fs::path& candidate) {
     if (candidate.empty()) return false;
     auto res = run_subprocess({candidate.string(), "-h"});
     return res.exit_code == 0 || res.exit_code == 1;
 }
 
+/// @brief Resolves astap binary.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path resolve_astap_binary(const std::string& astap_cli_raw, const fs::path& data_dir) {
     std::vector<fs::path> candidates;
     const auto add_candidate = [&candidates](const fs::path& raw_candidate) {
@@ -295,6 +349,9 @@ fs::path resolve_astap_binary(const std::string& astap_cli_raw, const fs::path& 
     return {};
 }
 
+/// @brief Implements guess wcs path.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path guess_wcs_path(const fs::path& fits_path) {
     const std::string name = fits_path.filename().string();
     std::string lower = name;
@@ -307,6 +364,9 @@ fs::path guess_wcs_path(const fs::path& fits_path) {
     return fits_path;
 }
 
+/// @brief Parses astrometry wcs summary.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json parse_astrometry_wcs_summary(const fs::path& wcs_path) {
     std::ifstream in(wcs_path);
     std::map<std::string, double> values;
@@ -379,6 +439,9 @@ nlohmann::json parse_astrometry_wcs_summary(const fs::path& wcs_path) {
     return out;
 }
 
+/// @brief Extracts zip archive.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool extract_zip_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef _WIN32
     auto res = run_subprocess({"powershell", "-NoProfile", "-Command",
@@ -393,6 +456,9 @@ bool extract_zip_archive(const fs::path& archive, const fs::path& dest, std::str
     return true;
 }
 
+/// @brief Extracts deb archive.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool extract_deb_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef _WIN32
     error = "deb extraction unsupported on Windows";
@@ -443,6 +509,9 @@ bool extract_deb_archive(const fs::path& archive, const fs::path& dest, std::str
 #endif
 }
 
+/// @brief Extracts pkg archive.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool extract_pkg_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef __APPLE__
     if (!fs::exists(archive)) {
@@ -466,6 +535,9 @@ bool extract_pkg_archive(const fs::path& archive, const fs::path& dest, std::str
 #endif
 }
 
+/// @brief Extracts exe archive.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef _WIN32
     if (!fs::exists(archive)) {
@@ -521,6 +593,9 @@ bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::str
 #endif
 }
 
+/// @brief Decompresses bz2 archive.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
 #ifdef _WIN32
     auto res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
@@ -534,16 +609,25 @@ bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
     return true;
 }
 
+/// @brief Implements curl discard write.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 size_t curl_discard_write(char* ptr, size_t size, size_t nmemb, void*) {
     return size * nmemb;
 }
 
+/// @brief Implements payload text.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string payload_text(const nlohmann::json& payload, const std::string& key, const std::string& fallback = "") {
     if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return fallback;
     if (payload[key].is_string()) return payload[key].get<std::string>();
     return payload[key].dump();
 }
 
+/// @brief Implements payload float.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<double> payload_float(const nlohmann::json& payload, const std::string& key) {
     if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
     try {
@@ -558,6 +642,9 @@ std::optional<double> payload_float(const nlohmann::json& payload, const std::st
     }
 }
 
+/// @brief Implements payload int.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<int> payload_int(const nlohmann::json& payload, const std::string& key) {
     if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
     try {
@@ -572,6 +659,9 @@ std::optional<int> payload_int(const nlohmann::json& payload, const std::string&
     }
 }
 
+/// @brief Implements payload bool.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<bool> payload_bool(const nlohmann::json& payload, const std::string& key) {
     if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
     try {
@@ -622,6 +712,9 @@ struct JobCancelled : std::runtime_error {
     JobCancelled() : std::runtime_error("cancelled") {}
 };
 
+/// @brief Downloads options from payload.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static DownloadOptions download_options_from_payload(const nlohmann::json& payload, long default_timeout_s) {
     DownloadOptions options;
     options.timeout_s = payload.value("timeout_s", default_timeout_s);
@@ -631,10 +724,16 @@ static DownloadOptions download_options_from_payload(const nlohmann::json& paylo
     return options;
 }
 
+/// @brief Implements throw if job cancelled.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static void throw_if_job_cancelled(const std::shared_ptr<AppState>& state, const std::string& job_id) {
     if (state->job_store.is_cancelled(job_id)) throw JobCancelled();
 }
 
+/// @brief Clamps progress fraction.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static double clamp_progress_fraction(double value) {
     if (!std::isfinite(value)) return 0.0;
     return std::max(0.0, std::min(1.0, value));
@@ -649,6 +748,9 @@ static int json_int_or(const nlohmann::json& data, const char* key, int fallback
     }
 }
 
+/// @brief Implements compose download progress.
+/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 static double compose_download_progress(const nlohmann::json& data, double transfer_fraction) {
     const int total_chunks = json_int_or(data, "total_chunks", 0);
     if (total_chunks <= 0) return clamp_progress_fraction(transfer_fraction);
@@ -707,6 +809,8 @@ static void finish_job_cancelled(const std::shared_ptr<AppState>& state,
     state->job_store.update_state(job_id, JobState::cancelled, data);
 }
 
+/// @brief Registers tool and catalog endpoints for ASTAP, Siril catalogs, downloads, and astrometry probes.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_tools_routes(CrowApp& app,
                              std::shared_ptr<AppState> state) {
     auto cancel_jobs_by_type = [state](const std::string& type,

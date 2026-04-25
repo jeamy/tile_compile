@@ -16,6 +16,9 @@ namespace {
 
 using json = nlohmann::json;
 
+/// @brief Implements utc now iso.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string utc_now_iso() {
     using namespace std::chrono;
     const auto now = system_clock::now();
@@ -31,6 +34,9 @@ std::string utc_now_iso() {
     return ss.str();
 }
 
+/// @brief Implements to pct.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double to_pct(const json& raw) {
     for (const auto& key : {"pct", "progress"}) {
         if (!raw.contains(key)) continue;
@@ -45,12 +51,18 @@ double to_pct(const json& raw) {
     return 0.0;
 }
 
+/// @brief Resolves string.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string resolve_string(const json& raw, const std::string& a, const std::string& b = "") {
     if (raw.contains(a) && raw.at(a).is_string()) return raw.at(a).get<std::string>();
     if (!b.empty() && raw.contains(b) && raw.at(b).is_string()) return raw.at(b).get<std::string>();
     return "";
 }
 
+/// @brief Normalizes event.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json normalize_event(const json& raw, const std::string& fallback_run_id) {
     if (!raw.is_object()) {
         return {
@@ -110,6 +122,9 @@ json normalize_event(const json& raw, const std::string& fallback_run_id) {
     return ev;
 }
 
+/// @brief Finds event file.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path find_event_file(const fs::path& run_dir) {
     for (const auto& candidate : {
         run_dir / "logs" / "run_events.jsonl",
@@ -121,6 +136,9 @@ fs::path find_event_file(const fs::path& run_dir) {
     return {};
 }
 
+/// @brief Implements count existing event lines.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 size_t count_existing_event_lines(const fs::path& run_dir) {
     const fs::path event_file = find_event_file(run_dir);
     if (event_file.empty()) return 0;
@@ -159,12 +177,18 @@ struct SystemWsContext {
     std::thread worker;
 };
 
+/// @brief Implements last path component.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string last_path_component(const std::string& path) {
     auto pos = path.find_last_of('/');
     if (pos == std::string::npos) return path;
     return path.substr(pos + 1);
 }
 
+/// @brief Implements url decode.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string url_decode(std::string value) {
     std::string out;
     out.reserve(value.size());
@@ -187,6 +211,9 @@ std::string url_decode(std::string value) {
     return out;
 }
 
+/// @brief Implements decode base64url.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string decode_base64url(std::string value) {
     for (char& ch : value) {
         if (ch == '-') ch = '+';
@@ -212,6 +239,9 @@ std::string decode_base64url(std::string value) {
     return out;
 }
 
+/// @brief Implements run id from ws url.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string run_id_from_ws_url(const std::string& url) {
     static const std::string prefix = "/api/ws/runs/";
     const size_t start = url.find(prefix);
@@ -229,6 +259,9 @@ std::string run_id_from_ws_url(const std::string& url) {
     return suffix;
 }
 
+/// @brief Builds run ctx.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& state, const std::string& run_id) {
     auto ctx = std::make_shared<RunWsContext>();
     ctx->state = state;
@@ -245,6 +278,9 @@ std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& stat
     return ctx;
 }
 
+/// @brief Builds job ctx.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::shared_ptr<JobWsContext> make_job_ctx(const std::shared_ptr<AppState>& state, const std::string& job_id) {
     auto ctx = std::make_shared<JobWsContext>();
     ctx->state = state;
@@ -252,12 +288,18 @@ std::shared_ptr<JobWsContext> make_job_ctx(const std::shared_ptr<AppState>& stat
     return ctx;
 }
 
+/// @brief Builds system ctx.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::shared_ptr<SystemWsContext> make_system_ctx(const std::shared_ptr<AppState>& state) {
     auto ctx = std::make_shared<SystemWsContext>();
     ctx->state = state;
     return ctx;
 }
 
+/// @brief Builds queue event for run.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json queue_event_for_run(const AppState& state, const std::string& run_id) {
     for (const auto& job : state.job_store.list(200)) {
         if (job.type != "run_queue") continue;
@@ -322,6 +364,9 @@ std::optional<json> pending_run_status_event(const std::shared_ptr<AppState>& st
     };
 }
 
+/// @brief Sends json.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool send_json(crow::websocket::connection& conn, const json& j) {
     try {
         conn.send_text(j.dump());
@@ -331,6 +376,9 @@ bool send_json(crow::websocket::connection& conn, const json& j) {
     }
 }
 
+/// @brief Streams run.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsContext>& ctx) {
     while (!ctx->stop.load()) {
         try {
@@ -451,6 +499,9 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
     }
 }
 
+/// @brief Streams job.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void stream_job(crow::websocket::connection& conn, const std::shared_ptr<JobWsContext>& ctx) {
     while (!ctx->stop.load()) {
         auto job = ctx->state->job_store.get(ctx->job_id);
@@ -473,6 +524,9 @@ void stream_job(crow::websocket::connection& conn, const std::shared_ptr<JobWsCo
     }
 }
 
+/// @brief Streams system.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void stream_system(crow::websocket::connection& conn, const std::shared_ptr<SystemWsContext>& ctx) {
     while (!ctx->stop.load()) {
         if (!send_json(conn, {
@@ -494,6 +548,9 @@ void stream_system(crow::websocket::connection& conn, const std::shared_ptr<Syst
 }
 
 template <typename T>
+/// @brief Takes ctx.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::shared_ptr<T> take_ctx(crow::websocket::connection& conn) {
     auto holder = static_cast<std::shared_ptr<T>*>(conn.userdata());
     if (!holder) return {};
@@ -501,6 +558,9 @@ std::shared_ptr<T> take_ctx(crow::websocket::connection& conn) {
 }
 
 template <typename T>
+/// @brief Destroys ctx.
+/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void destroy_ctx(crow::websocket::connection& conn) {
     auto holder = static_cast<std::shared_ptr<T>*>(conn.userdata());
     if (!holder) return;
@@ -518,6 +578,8 @@ void destroy_ctx(crow::websocket::connection& conn) {
 
 } // namespace
 
+/// @brief Registers WebSocket endpoints that stream run, job, and system updates.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_ws_routes(CrowApp& app,
                          std::shared_ptr<AppState> state) {
 

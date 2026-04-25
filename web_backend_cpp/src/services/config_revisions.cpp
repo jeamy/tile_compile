@@ -11,6 +11,9 @@ using json = nlohmann::json;
 
 // now_compact_utc() bleibt lokal – anderes Format als utc_utc_now_iso()
 
+/// @brief Implements now compact utc.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string now_compact_utc() {
     auto now = std::chrono::system_clock::now();
     auto t   = std::chrono::system_clock::to_time_t(now);
@@ -25,10 +28,16 @@ std::string now_compact_utc() {
     return oss.str();
 }
 
+/// @brief Implements run config revisions index path.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path run_config_revisions_index_path(const fs::path& run_dir) {
     return run_config_revisions_dir(run_dir) / "index.json";
 }
 
+/// @brief Reads run revision index.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json read_run_revision_index(const fs::path& run_dir) {
     const fs::path index_path = run_config_revisions_index_path(run_dir);
     std::ifstream in(index_path);
@@ -38,6 +47,9 @@ json read_run_revision_index(const fs::path& run_dir) {
     return parsed;
 }
 
+/// @brief Writes run revision index.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool write_run_revision_index(const fs::path& run_dir, const json& index) {
     std::error_code ec;
     fs::create_directories(run_config_revisions_dir(run_dir), ec);
@@ -47,6 +59,9 @@ bool write_run_revision_index(const fs::path& run_dir, const json& index) {
     return static_cast<bool>(out);
 }
 
+/// @brief Implements next run revision id.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string next_run_revision_id(const fs::path& run_dir) {
     const fs::path dir = run_config_revisions_dir(run_dir);
     const std::string stamp = now_compact_utc();
@@ -60,6 +75,9 @@ std::string next_run_revision_id(const fs::path& run_dir) {
     return "run_cfg_" + stamp + "_overflow";
 }
 
+/// @brief Implements revision from index entry.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 ConfigRevision revision_from_index_entry(const json& item, const fs::path& run_dir) {
     ConfigRevision revision;
     revision.revision_id = item.value("revision_id", std::string());
@@ -75,6 +93,9 @@ ConfigRevision revision_from_index_entry(const json& item, const fs::path& run_d
 
 } // namespace
 
+/// @brief Implements config revision to json.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json config_revision_to_json(const ConfigRevision& r) {
     return {
         {"revision_id", r.revision_id},
@@ -102,6 +123,9 @@ std::string ConfigRevisionStore::add(const fs::path& path,
     return r.revision_id;
 }
 
+/// @brief Implements get.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ConfigRevision> ConfigRevisionStore::get(const std::string& revision_id) const {
     std::lock_guard<std::mutex> lk(_mutex);
     for (auto it = _revisions.rbegin(); it != _revisions.rend(); ++it)
@@ -109,22 +133,34 @@ std::optional<ConfigRevision> ConfigRevisionStore::get(const std::string& revisi
     return std::nullopt;
 }
 
+/// @brief Lists list.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<ConfigRevision> ConfigRevisionStore::list() const {
     std::lock_guard<std::mutex> lk(_mutex);
     return std::vector<ConfigRevision>(_revisions.rbegin(), _revisions.rend());
 }
 
+/// @brief Implements count.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int ConfigRevisionStore::count() const {
     std::lock_guard<std::mutex> lk(_mutex);
     return (int)_revisions.size();
 }
 
+/// @brief Implements latest id.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string ConfigRevisionStore::latest_id() const {
     std::lock_guard<std::mutex> lk(_mutex);
     if (_revisions.empty()) return "";
     return _revisions.back().revision_id;
 }
 
+/// @brief Implements run config revisions dir.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path run_config_revisions_dir(const fs::path& run_dir) {
     return run_dir / "artifacts" / "config_revisions";
 }
@@ -158,6 +194,9 @@ std::string add_run_config_revision(const fs::path& run_dir,
     return revision_id;
 }
 
+/// @brief Lists run config revisions.
+/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<ConfigRevision> list_run_config_revisions(const fs::path& run_dir) {
     std::vector<ConfigRevision> revisions;
     json index = read_run_revision_index(run_dir);

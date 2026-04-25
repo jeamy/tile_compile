@@ -8,6 +8,10 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 
+/// @brief Shared mutable state for all HTTP, WebSocket, and background-job handlers.
+/// @details The backend passes one AppState instance to every route group so runtime paths,
+/// transient UI state, job tracking, subprocess control, and revision history stay consistent
+/// across request handlers and background worker threads.
 struct AppState {
     BackendRuntime runtime;
     InMemoryJobStore job_store;

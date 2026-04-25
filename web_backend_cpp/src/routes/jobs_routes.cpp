@@ -21,6 +21,8 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+/// @brief Registers job endpoints for polling recent jobs and requesting cancellation.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_jobs_routes(CrowApp& app,
                           std::shared_ptr<AppState> state) {
 

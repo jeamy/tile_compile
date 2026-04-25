@@ -59,6 +59,9 @@ struct TileSeries {
     std::string label;
 };
 
+/// @brief Implements html escape.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string html_escape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -74,6 +77,9 @@ std::string html_escape(const std::string& s) {
     return out;
 }
 
+/// @brief Trims trailing zeros.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string trim_trailing_zeros(std::string s) {
     auto pos = s.find('.');
     if (pos == std::string::npos) return s;
@@ -83,6 +89,9 @@ std::string trim_trailing_zeros(std::string s) {
     return s;
 }
 
+/// @brief Formats number.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string format_number(double v, int prec = 3) {
     if (!std::isfinite(v)) return "n/a";
     std::ostringstream ss;
@@ -95,11 +104,17 @@ std::string format_number(double v, int prec = 3) {
     return trim_trailing_zeros(ss.str());
 }
 
+/// @brief Implements sanitize label.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string sanitize_label(std::string s) {
     std::replace(s.begin(), s.end(), '\n', ' ');
     return s;
 }
 
+/// @brief Normalizes channel label.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string normalize_channel_label(std::string s) {
     std::string out;
     out.reserve(s.size());
@@ -110,6 +125,9 @@ std::string normalize_channel_label(std::string s) {
     return out;
 }
 
+/// @brief Implements preferred channel rank.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int preferred_channel_rank(const std::string& label) {
     const std::string normalized = normalize_channel_label(label);
     if (normalized == "R" || normalized == "RED") return 0;
@@ -118,6 +136,9 @@ int preferred_channel_rank(const std::string& label) {
     return 100;
 }
 
+/// @brief Implements preferred channel color.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string preferred_channel_color(const std::string& label) {
     const std::string normalized = normalize_channel_label(label);
     if (normalized == "R" || normalized == "RED") return "#ef4444";
@@ -126,6 +147,9 @@ std::string preferred_channel_color(const std::string& label) {
     return "";
 }
 
+/// @brief Reads text.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string read_text(const fs::path& path) {
     const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::ifstream in(path, std::ios::binary);
@@ -138,6 +162,9 @@ std::string read_text(const fs::path& path) {
     return out;
 }
 
+/// @brief Implements env or.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string env_or(const char* key, const std::string& fallback = "") {
     if (!key || !*key) return fallback;
     const char* value = std::getenv(key);
@@ -145,6 +172,9 @@ std::string env_or(const char* key, const std::string& fallback = "") {
     return std::string(value);
 }
 
+/// @brief Normalizes report locale.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string normalize_report_locale(std::string locale) {
     std::transform(locale.begin(), locale.end(), locale.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -153,6 +183,9 @@ std::string normalize_report_locale(std::string locale) {
     return "de";
 }
 
+/// @brief Implements report i18n path.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 fs::path report_i18n_path(const std::string& locale) {
     const std::string ui_dir = env_or("TILE_COMPILE_UI_DIR", "");
     if (!ui_dir.empty()) return fs::path(ui_dir) / "i18n" / ("report_" + locale + ".json");
@@ -161,6 +194,9 @@ fs::path report_i18n_path(const std::string& locale) {
 
 json read_json_if_exists(const fs::path& path);
 
+/// @brief Loads report translations.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json load_report_translations(const std::string& locale) {
     const json parsed = read_json_if_exists(report_i18n_path(locale));
     if (parsed.is_object() && parsed.contains("translations") && parsed["translations"].is_object()) {
@@ -193,6 +229,9 @@ std::string apply_replacements(const std::string& text,
     return out;
 }
 
+/// @brief Applies report translations.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string apply_report_translations(std::string html, const std::string& locale) {
     const json translations = load_report_translations(locale);
     if (!translations.is_object() || translations.empty()) return html;
@@ -211,6 +250,9 @@ std::string apply_report_translations(std::string html, const std::string& local
     return apply_replacements(html, pairs);
 }
 
+/// @brief Reads json if exists.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json read_json_if_exists(const fs::path& path) {
     const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::error_code ec;
@@ -229,6 +271,9 @@ json read_json_if_exists(const fs::path& path) {
     return parsed;
 }
 
+/// @brief Reads jsonl if exists.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<json> read_jsonl_if_exists(const fs::path& path, int max_lines = 100000) {
     const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::ifstream in(path);
@@ -297,6 +342,9 @@ std::vector<json> read_jsonl_if_exists(const fs::path& path, int max_lines = 100
     return items;
 }
 
+/// @brief Implements json string or.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string json_string_or(const json& obj, const char* key, const std::string& fallback = "") {
     if (!obj.is_object() || !obj.contains(key) || obj.at(key).is_null()) return fallback;
     const auto& value = obj.at(key);
@@ -310,6 +358,9 @@ std::string json_string_or(const json& obj, const char* key, const std::string& 
     return fallback;
 }
 
+/// @brief Implements json number or.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double json_number_or(const json& obj, const char* key, double fallback = 0.0) {
     if (!obj.is_object() || !obj.contains(key) || obj.at(key).is_null()) return fallback;
     const auto& value = obj.at(key);
@@ -320,6 +371,9 @@ double json_number_or(const json& obj, const char* key, double fallback = 0.0) {
     return fallback;
 }
 
+/// @brief Implements json bool or.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool json_bool_or(const json& obj, const char* key, bool fallback = false) {
     if (!obj.is_object() || !obj.contains(key) || obj.at(key).is_null()) return fallback;
     const auto& value = obj.at(key);
@@ -334,6 +388,9 @@ bool json_bool_or(const json& obj, const char* key, bool fallback = false) {
     return fallback;
 }
 
+/// @brief Implements json double array.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<double> json_double_array(const json& arr) {
     std::vector<double> out;
     if (!arr.is_array()) return out;
@@ -347,17 +404,26 @@ std::vector<double> json_double_array(const json& arr) {
     return out;
 }
 
+/// @brief Implements percent value.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double percent_value(double raw) {
     if (raw >= 0.0 && raw <= 1.0) return raw * 100.0;
     return raw;
 }
 
+/// @brief Implements clamp01.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double clamp01(double v) {
     if (v < 0.0) return 0.0;
     if (v > 1.0) return 1.0;
     return v;
 }
 
+/// @brief Implements percentile sorted.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double percentile_sorted(const std::vector<double>& vals, double q) {
     if (vals.empty()) return 0.0;
     if (vals.size() == 1) return vals.front();
@@ -370,6 +436,9 @@ double percentile_sorted(const std::vector<double>& vals, double q) {
     return vals[lo] * (1.0 - t) + vals[hi] * t;
 }
 
+/// @brief Implements basic stats.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 BasicStats basic_stats(std::vector<double> vals) {
     vals.erase(std::remove_if(vals.begin(), vals.end(),
                               [](double v) { return !std::isfinite(v); }),
@@ -393,6 +462,9 @@ BasicStats basic_stats(std::vector<double> vals) {
     return s;
 }
 
+/// @brief Implements plot bounds.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::pair<double, double> plot_bounds(const std::vector<double>& vals, bool force_unit_range = false) {
     auto s = basic_stats(vals);
     if (s.n == 0) return {0.0, 1.0};
@@ -417,12 +489,18 @@ std::pair<double, double> plot_bounds(const std::vector<double>& vals, bool forc
     return {lo, hi};
 }
 
+/// @brief Implements scale linear.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double scale_linear(double v, double in_min, double in_max, double out_min, double out_max) {
     if (!(in_max > in_min)) return (out_min + out_max) * 0.5;
     const double t = (v - in_min) / (in_max - in_min);
     return out_min + t * (out_max - out_min);
 }
 
+/// @brief Parses iso utc seconds.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<double> parse_iso_utc_seconds(const std::string& raw) {
     if (raw.size() < 19) return std::nullopt;
     int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
@@ -459,6 +537,9 @@ std::optional<double> parse_iso_utc_seconds(const std::string& raw) {
     return static_cast<double>(epoch) + fractional;
 }
 
+/// @brief Implements phase name from event.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string phase_name_from_event(const json& ev) {
     if (ev.contains("phase_name") && ev["phase_name"].is_string()) return ev["phase_name"].get<std::string>();
     if (ev.contains("phase")) {
@@ -468,6 +549,9 @@ std::string phase_name_from_event(const json& ev) {
     return "";
 }
 
+/// @brief Formats event line.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string format_event_line(const json& ev) {
     std::vector<std::string> parts;
     const std::string ts = json_string_or(ev, "ts", json_string_or(ev, "timestamp", ""));
@@ -491,6 +575,9 @@ std::string format_event_line(const json& ev) {
     return out.str();
 }
 
+/// @brief Implements rgb from hex.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::array<int, 3> rgb_from_hex(const std::string& hex) {
     if (hex.size() != 7 || hex[0] != '#') return {122, 162, 247};
     auto from_pair = [&](size_t pos) {
@@ -499,6 +586,9 @@ std::array<int, 3> rgb_from_hex(const std::string& hex) {
     return {from_pair(1), from_pair(3), from_pair(5)};
 }
 
+/// @brief Implements rgb hex.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string rgb_hex(const std::array<int, 3>& rgb) {
     std::ostringstream ss;
     ss << '#'
@@ -508,6 +598,9 @@ std::string rgb_hex(const std::array<int, 3>& rgb) {
     return ss.str();
 }
 
+/// @brief Implements interpolate color.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string interpolate_color(const std::vector<ColorStop>& stops, double t) {
     if (stops.empty()) return "#7aa2f7";
     t = clamp01(t);
@@ -530,6 +623,9 @@ std::string interpolate_color(const std::vector<ColorStop>& stops, double t) {
     return stops.back().hex;
 }
 
+/// @brief Implements colormap hex.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string colormap_hex(const std::string& name, double t) {
     static const std::vector<ColorStop> viridis = {
         {0.00, "#440154"}, {0.25, "#3b528b"}, {0.50, "#21918c"}, {0.75, "#5ec962"}, {1.00, "#fde725"}
@@ -566,6 +662,9 @@ std::string colormap_hex(const std::string& name, double t) {
     return interpolate_color(viridis, t);
 }
 
+/// @brief Implements svg begin.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string svg_begin(int width, int height, const std::string& title) {
     std::ostringstream out;
     out << "<svg class=\"report-chart\" viewBox=\"0 0 " << width << ' ' << height
@@ -577,6 +676,9 @@ std::string svg_begin(int width, int height, const std::string& title) {
     return out.str();
 }
 
+/// @brief Implements svg message.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string svg_message(const std::string& title, const std::string& message, int width = 720, int height = 220) {
     std::ostringstream out;
     out << svg_begin(width, height, title);
@@ -1100,6 +1202,9 @@ std::string svg_pie(const std::vector<std::string>& labels,
     return out.str();
 }
 
+/// @brief Implements svg tile overlay.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string svg_tile_overlay(const json& tiles, int img_w, int img_h, const std::string& title, int width = 760, int height = 520) {
     if (!tiles.is_array() || tiles.empty() || img_w <= 0 || img_h <= 0) return svg_message(title, "No tile geometry", width, height);
     const double scale = std::min(620.0 / static_cast<double>(img_w), 400.0 / static_cast<double>(img_h));
@@ -1218,6 +1323,9 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
     return out.str();
 }
 
+/// @brief Renders kv table.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string render_kv_table(const std::vector<std::pair<std::string, std::string>>& rows) {
     std::ostringstream html;
     html << "<table class=\"kv\"><tbody>";
@@ -1228,6 +1336,9 @@ std::string render_kv_table(const std::vector<std::pair<std::string, std::string
     return html.str();
 }
 
+/// @brief Renders artifacts list.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string render_artifacts_list(const json& artifacts, size_t max_items = 40) {
     std::ostringstream html;
     html << "<ul class=\"artifact-list\">";
@@ -1250,6 +1361,9 @@ std::string render_artifacts_list(const json& artifacts, size_t max_items = 40) 
     return html.str();
 }
 
+/// @brief Renders phase summary.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string render_phase_summary(const json& status) {
     if (!status.contains("phases") || !status["phases"].is_array()) {
         return "<p class=\"muted\">No phase information available.</p>";
@@ -1265,6 +1379,9 @@ std::string render_phase_summary(const json& status) {
     return html.str();
 }
 
+/// @brief Renders event tail.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string render_event_tail(const std::vector<json>& events, size_t max_lines = 24) {
     std::ostringstream text;
     const size_t start = events.size() > max_lines ? events.size() - max_lines : 0;
@@ -1274,6 +1391,9 @@ std::string render_event_tail(const std::vector<json>& events, size_t max_lines 
     return "<pre class=\"log-tail\">" + html_escape(text.str()) + "</pre>";
 }
 
+/// @brief Implements infer status.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string infer_status(const std::vector<std::string>& evals) {
     std::string text;
     for (const auto& line : evals) {
@@ -1310,6 +1430,9 @@ std::string explain_panel(const std::string& title,
     return html.str();
 }
 
+/// @brief Builds chart row.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string make_chart_row(const ChartBlock& chart) {
     std::ostringstream html;
     html << "<div class=\"chart-row\"><div class=\"chart-col\">" << chart.svg << "</div>";
@@ -1446,6 +1569,9 @@ std::optional<ReportSection> gen_overview(const fs::path& run_dir,
     return ReportSection{"Overview", cards.str()};
 }
 
+/// @brief Generates timeline.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
     std::map<std::string, double> phase_starts;
     std::vector<std::string> labels;
@@ -1491,6 +1617,9 @@ std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
     return ReportSection{"Pipeline Timeline", make_card_html("Phase durations", charts, evals, "ok")};
 }
 
+/// @brief Generates frame usage.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, const json& synthetic) {
     json run_start = json::object();
     json scan_end = json::object();
@@ -1633,6 +1762,9 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
     return ReportSection{"Frame Usage", make_card_html("Frame retention", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates normalization.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_normalization(const json& norm) {
     if (!norm.is_object() || norm.empty()) return std::nullopt;
     const std::string mode = json_string_or(norm, "mode", "MONO");
@@ -1696,6 +1828,9 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
     return ReportSection{"Normalization", make_card_html("Background levels", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates global metrics.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_global_metrics(const json& gm) {
     if (!gm.is_object() || !gm.contains("metrics") || !gm["metrics"].is_array() || gm["metrics"].empty()) return std::nullopt;
 
@@ -1851,6 +1986,9 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     return ReportSection{"Global Metrics", make_card_html("Frame quality and weights", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates tile grid.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_tile_grid(const json& tg) {
     if (!tg.is_object() || !tg.contains("tiles") || !tg["tiles"].is_array() || tg["tiles"].empty()) return std::nullopt;
     const int img_w = static_cast<int>(json_number_or(tg, "image_width", 0.0));
@@ -1881,6 +2019,9 @@ std::optional<ReportSection> gen_tile_grid(const json& tg) {
     return ReportSection{"Tile Grid", make_card_html("Grid layout", charts, evals, "ok")};
 }
 
+/// @brief Generates registration.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_registration(const json& reg) {
     if (!reg.is_object() || !reg.contains("warps") || !reg["warps"].is_array() || reg["warps"].empty()) return std::nullopt;
     std::vector<double> ccs = json_double_array(reg.value("cc", json::array()));
@@ -1979,6 +2120,9 @@ std::optional<ReportSection> gen_registration(const json& reg) {
     return ReportSection{"Global Registration", make_card_html("Frame alignment", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates local metrics.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
     if (!lm.is_object() || !lm.contains("tile_metrics") || !lm["tile_metrics"].is_array() || lm["tile_metrics"].empty()) return std::nullopt;
     const int n_frames = static_cast<int>(json_number_or(lm, "num_frames", 0.0));
@@ -2113,6 +2257,9 @@ std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
     return ReportSection{"Local Metrics", make_card_html("Per-tile quality", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates reconstruction.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_reconstruction(const json& recon, const json& tg) {
     if (!recon.is_object()) return std::nullopt;
     const auto valid_counts = json_double_array(recon.value("tile_valid_counts", json::array()));
@@ -2209,6 +2356,9 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
     return ReportSection{"Tile Reconstruction", make_card_html("Reconstruction statistics", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates clustering.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_clustering(const json& cl) {
     if (!cl.is_object() || !cl.contains("cluster_sizes") || !cl["cluster_sizes"].is_array()) return std::nullopt;
     const auto sizes = json_double_array(cl.value("cluster_sizes", json::array()));
@@ -2259,6 +2409,9 @@ std::optional<ReportSection> gen_clustering(const json& cl) {
     return ReportSection{"State Clustering", make_card_html("Cluster analysis", charts, evals, "ok")};
 }
 
+/// @brief Generates synthetic.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_synthetic(const json& syn) {
     if (!syn.is_object() || syn.empty()) return std::nullopt;
     std::vector<std::string> evals = {
@@ -2289,6 +2442,9 @@ std::optional<ReportSection> gen_synthetic(const json& syn) {
     return ReportSection{"Synthetic Frames", make_card_html("Synthetic frame summary", charts, evals, "ok")};
 }
 
+/// @brief Generates bge.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_bge(const json& bge) {
     if (!bge.is_object() || bge.empty()) return std::nullopt;
     std::vector<std::string> evals = {
@@ -2357,6 +2513,9 @@ std::optional<ReportSection> gen_bge(const json& bge) {
     return ReportSection{"Background Gradient Extraction (BGE)", make_card_html("BGE diagnostics", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates validation.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_validation(const json& val) {
     if (!val.is_object() || val.empty()) return std::nullopt;
     const double improvement = json_number_or(val, "fwhm_improvement_percent", 0.0);
@@ -2408,6 +2567,9 @@ std::optional<ReportSection> gen_validation(const json& val) {
     return ReportSection{"Validation", make_card_html("Quality validation", charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates common overlap.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_common_overlap(const json& co) {
     if (!co.is_object() || !co.contains("tiles") || !co["tiles"].is_array() || co["tiles"].empty()) return std::nullopt;
     std::vector<double> ratios;
@@ -2565,6 +2727,9 @@ std::string build_report_html(const fs::path& run_dir,
 
 } // namespace
 
+/// @brief Generates run report.
+/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json generate_run_report(const fs::path& run_dir) {
     try {
         const std::string locale = normalize_report_locale(env_or("TILE_COMPILE_REPORT_LOCALE", "de"));

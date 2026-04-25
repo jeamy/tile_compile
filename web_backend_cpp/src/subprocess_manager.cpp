@@ -29,6 +29,9 @@ struct CapturedText {
     bool truncated{false};
 };
 
+/// @brief Implements truncate text.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string truncate_text(const std::string& raw, size_t max_bytes) {
     if (raw.size() <= max_bytes) return raw;
     if (max_bytes == 0) return {};
@@ -72,6 +75,9 @@ json compact_json_for_job_storage(const json& value,
     return value;
 }
 
+/// @brief Compacts scan per dir result.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limits) {
     json out = compact_json_for_job_storage(raw, limits);
     if (!raw.is_object()) return out;
@@ -103,6 +109,9 @@ json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limi
     return out;
 }
 
+/// @brief Compacts scan job result.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 json compact_scan_job_result(const json& raw, const BackendGuardLimits& limits) {
     json out = compact_json_for_job_storage(raw, limits);
     if (!raw.is_object()) return out;
@@ -160,6 +169,9 @@ struct SpawnedProcess {
     int stderr_fd{-1};
 };
 
+/// @brief Implements drain fd.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 CapturedText drain_fd(int fd, size_t capture_limit_bytes) {
     CapturedText out;
     if (fd < 0) return out;
@@ -228,6 +240,9 @@ bool spawn_subprocess(const std::vector<std::string>& args,
     return true;
 }
 
+/// @brief Implements wait for process.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int wait_for_process(BackgroundProcess& proc) {
     int status = 0;
     bool term_sent = false;
@@ -255,6 +270,9 @@ int wait_for_process(BackgroundProcess& proc) {
 
 }  // namespace
 
+/// @brief Executes a foreground subprocess and captures bounded stdout/stderr.
+/// @details Forks or spawns the requested command, writes optional stdin, drains output pipes,
+/// applies backend capture limits, and returns exit status plus truncation metadata.
 SubprocessResult run_subprocess(const std::vector<std::string>& args,
                                 const std::string& cwd,
                                 const std::string& stdin_text,
@@ -406,6 +424,9 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     return res;
 }
 
+/// @brief Starts a background subprocess as a tracked job.
+/// @details Creates the job record, launches a worker thread, streams bounded diagnostics back
+/// into job data, and records completion, cancellation, or error state for API clients.
 std::string SubprocessManager::launch(const std::string& type,
                                       const std::vector<std::string>& args,
                                       const std::string& cwd,
@@ -497,6 +518,12 @@ std::string SubprocessManager::launch(const std::string& type,
     return job_id;
 }
 
+/// @brief Cancels cancel.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
+/// @brief Cancels one tracked background process by job id.
+/// @details Sets the cooperative cancellation flag, terminates the live process group when
+/// possible, and lets the worker thread finalize the job state.
 bool SubprocessManager::cancel(const std::string& job_id) {
     std::lock_guard<std::mutex> lk(_procs_mutex);
     auto it = _procs.find(job_id);
@@ -511,6 +538,12 @@ bool SubprocessManager::cancel(const std::string& job_id) {
     return true;
 }
 
+/// @brief Cancels by run.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
+/// @brief Cancels all tracked background processes for a run id.
+/// @details Scans the active process map for matching job metadata and forwards each match to
+/// the single-job cancellation path.
 void SubprocessManager::cancel_by_run(const std::string& run_id) {
     auto jobs = _store.list(500);
     for (auto& j : jobs) {

@@ -16,12 +16,18 @@ namespace fs = std::filesystem;
 
 namespace {
 
+/// @brief Implements json resp.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
     res.set_header("Content-Type", "application/json");
     return res;
 }
 
+/// @brief Implements err resp.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 crow::response err_resp(const std::string& msg, int status = 400) {
     std::string code = "BAD_REQUEST";
     if (status == 404) code = "NOT_FOUND";
@@ -38,18 +44,27 @@ crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+/// @brief Reads file str.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string read_file_str(const fs::path& p) {
     std::ifstream f(p);
     if (!f) return "";
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+/// @brief Implements scalar looks like float.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool scalar_looks_like_float(const std::string& raw) {
     return raw.find('.') != std::string::npos ||
            raw.find('e') != std::string::npos ||
            raw.find('E') != std::string::npos;
 }
 
+/// @brief Trims trailing zeros.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string trim_trailing_zeros(std::string text) {
     const auto dot = text.find('.');
     if (dot == std::string::npos) return text;
@@ -59,6 +74,9 @@ std::string trim_trailing_zeros(std::string text) {
     return text.empty() ? "0" : text;
 }
 
+/// @brief Formats config float scalar.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string format_config_float_scalar(double value) {
     if (!std::isfinite(value)) return "0";
 
@@ -74,6 +92,9 @@ std::string format_config_float_scalar(double value) {
     return trim_trailing_zeros(oss.str());
 }
 
+/// @brief Implements round yaml numeric scalars inplace.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void round_yaml_numeric_scalars_inplace(YAML::Node node) {
     if (!node || node.IsNull()) return;
     if (node.IsMap()) {
@@ -96,6 +117,9 @@ void round_yaml_numeric_scalars_inplace(YAML::Node node) {
     node = format_config_float_scalar(value);
 }
 
+/// @brief Implements allowed roots json.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json allowed_roots_json(const BackendRuntime& runtime) {
     nlohmann::json roots = nlohmann::json::array();
     for (const auto& root : runtime.allowed_roots()) roots.push_back(root.string());
@@ -117,12 +141,18 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
     return std::nullopt;
 }
 
+/// @brief Parses json.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<nlohmann::json> parse_json(const std::string& raw) {
     auto parsed = nlohmann::json::parse(raw, nullptr, false);
     if (parsed.is_discarded()) return std::nullopt;
     return parsed;
 }
 
+/// @brief Implements backend command failed.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 crow::response backend_command_failed(const std::string& message, const SubprocessResult& result) {
     return err_resp("BACKEND_COMMAND_FAILED", message, 502, {
         {"exit_code", result.exit_code},
@@ -131,6 +161,9 @@ crow::response backend_command_failed(const std::string& message, const Subproce
     });
 }
 
+/// @brief Implements json to yaml node.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 YAML::Node json_to_yaml_node(const nlohmann::json& value) {
     if (value.is_object()) {
         YAML::Node node(YAML::NodeType::Map);
@@ -150,6 +183,9 @@ YAML::Node json_to_yaml_node(const nlohmann::json& value) {
     return YAML::Node(value.get<std::string>());
 }
 
+/// @brief Implements yaml to json.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json yaml_to_json(const YAML::Node& node) {
     if (!node || node.IsNull()) return nullptr;
     if (node.IsMap()) {
@@ -169,6 +205,9 @@ nlohmann::json yaml_to_json(const YAML::Node& node) {
     return nullptr;
 }
 
+/// @brief Implements yaml dump.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string yaml_dump(const nlohmann::json& value) {
     YAML::Node node = json_to_yaml_node(value);
     round_yaml_numeric_scalars_inplace(node);
@@ -177,6 +216,9 @@ std::string yaml_dump(const nlohmann::json& value) {
     return oss.str();
 }
 
+/// @brief Parses scalar value.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_values) {
     if (!parse_values || !raw_value.is_string()) return raw_value;
 
@@ -230,6 +272,9 @@ nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_va
     return raw_value;
 }
 
+/// @brief Implements set dotted.
+/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void set_dotted(nlohmann::json& root, const std::string& dotted_path, const nlohmann::json& value) {
     std::vector<std::string> parts;
     std::istringstream iss(dotted_path);
@@ -249,6 +294,8 @@ void set_dotted(nlohmann::json& root, const std::string& dotted_path, const nloh
 
 } // namespace
 
+/// @brief Registers configuration endpoints for YAML loading, validation, saving, and revision history.
+/// @details This is the route-group entry point called from main during Crow setup.
 void register_config_routes(CrowApp& app,
                             std::shared_ptr<AppState> state,
                             std::shared_ptr<ConfigRevisionStore> /*unused*/) {

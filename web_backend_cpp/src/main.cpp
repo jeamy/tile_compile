@@ -30,6 +30,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
+/// @brief Checks whether queue staging job dir.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool is_queue_staging_job_dir(const fs::path& path) {
     if (path.empty()) return false;
     const std::string name = path.filename().string();
@@ -37,6 +40,9 @@ bool is_queue_staging_job_dir(const fs::path& path) {
 }
 
 #ifdef __linux__
+/// @brief Reads process argv.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<std::string> read_process_argv(const fs::path& proc_dir) {
     std::ifstream cmdline(proc_dir / "cmdline", std::ios::binary);
     if (!cmdline) return {};
@@ -104,12 +110,18 @@ bool process_cmdline_references_path(const fs::path& target_path,
     return false;
 }
 
+/// @brief Checks process exists.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool pid_exists(pid_t pid) {
     if (pid <= 0) return false;
     if (kill(pid, 0) == 0) return true;
     return errno == EPERM;
 }
 
+/// @brief Implements terminate pid group.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool terminate_pid_group(pid_t pid) {
     if (pid <= 0) return false;
     if (kill(-pid, SIGTERM) != 0) {
@@ -151,6 +163,9 @@ bool is_backend_managed_process(const std::vector<std::string>& argv,
            argv_references_path(argv, runtime.default_config_path);
 }
 
+/// @brief Implements cleanup orphan backend processes.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void cleanup_orphan_backend_processes(const BackendRuntime& runtime) {
     std::error_code ec;
     if (!fs::exists("/proc", ec)) return;
@@ -191,6 +206,9 @@ void cleanup_orphan_backend_processes(const BackendRuntime& runtime) {
 }
 #endif
 
+/// @brief Implements cleanup orphan queue staging.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void cleanup_orphan_queue_staging(const BackendRuntime& runtime) {
     const fs::path staging_root = runtime.runs_dir / ".queue_staging";
     std::error_code ec;
@@ -244,6 +262,9 @@ void cleanup_orphan_queue_staging(const BackendRuntime& runtime) {
 
 }  // namespace
 
+/// @brief Starts the backend process and wires runtime services.
+/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int main(int argc, char* argv[]) {
     try {
         auto state = std::make_shared<AppState>();

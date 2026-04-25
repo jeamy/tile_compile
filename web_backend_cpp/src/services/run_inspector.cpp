@@ -17,6 +17,9 @@
 
 namespace {
 
+/// @brief Finds event file.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<fs::path> find_event_file(const fs::path& run_dir) {
     const std::vector<fs::path> candidates = {
         run_dir / "logs" / "run_events.jsonl",
@@ -43,6 +46,9 @@ bool visit_jsonl(const fs::path& path,
     return true;
 }
 
+/// @brief Implements phase name from event.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string phase_name_from_event(const nlohmann::json& ev) {
     if (ev.contains("phase_name") && ev["phase_name"].is_string()) return ev["phase_name"].get<std::string>();
     if (ev.contains("phase")) {
@@ -52,12 +58,18 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
     return "";
 }
 
+/// @brief Implements phase order index.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 int phase_order_index(const std::string& phase_name) {
     auto it = std::find(PHASE_ORDER.begin(), PHASE_ORDER.end(), phase_name);
     if (it == PHASE_ORDER.end()) return -1;
     return static_cast<int>(std::distance(PHASE_ORDER.begin(), it));
 }
 
+/// @brief Clamps progress.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double clamp_progress(const nlohmann::json& value) {
     double v = 0.0;
     try { v = value.get<double>(); } catch (...) { return -1.0; }
@@ -66,6 +78,9 @@ double clamp_progress(const nlohmann::json& value) {
     return v;
 }
 
+/// @brief Implements overall progress.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 double overall_progress(const nlohmann::json& phases, const std::string& current_phase, const nlohmann::json& progress_map) {
     if (PHASE_ORDER.empty()) return 0.0;
     int completed = 0;
@@ -95,6 +110,9 @@ double overall_progress(const nlohmann::json& phases, const std::string& current
     return progress;
 }
 
+/// @brief Reads run color mode.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string read_run_color_mode(const fs::path& run_dir) {
     fs::path config_path = run_dir / "config.yaml";
     std::ifstream f(config_path);
@@ -135,6 +153,9 @@ std::string read_run_color_mode(const fs::path& run_dir) {
     return detected;
 }
 
+/// @brief Extracts run id from events.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string extract_run_id_from_events(const fs::path& event_file) {
     std::string run_id;
     visit_jsonl(event_file, [&](const nlohmann::json& ev) {
@@ -147,15 +168,24 @@ std::string extract_run_id_from_events(const fs::path& event_file) {
     return run_id;
 }
 
+/// @brief Normalizes phase name.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string normalize_phase_name(std::string phase_name) {
     std::transform(phase_name.begin(), phase_name.end(), phase_name.begin(), ::toupper);
     return phase_name;
 }
 
+/// @brief Checks whether run tracking job type.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool is_run_tracking_job_type(const std::string& type) {
     return type.rfind("run", 0) == 0 || type == "resume";
 }
 
+/// @brief Normalizes run id path.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string normalize_run_id_path(std::string run_id) {
     std::replace(run_id.begin(), run_id.end(), '\\', '/');
     while (!run_id.empty() && run_id.front() == '/') run_id.erase(run_id.begin());
@@ -163,6 +193,9 @@ std::string normalize_run_id_path(std::string run_id) {
     return run_id;
 }
 
+/// @brief Implements parent run id.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string parent_run_id(const std::string& run_id) {
     const std::string normalized = normalize_run_id_path(run_id);
     const auto slash = normalized.find_last_of('/');
@@ -170,6 +203,9 @@ std::string parent_run_id(const std::string& run_id) {
     return normalized.substr(0, slash);
 }
 
+/// @brief Implements run id matches queue item.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool run_id_matches_queue_item(const std::string& run_id, const std::string& item_run_id) {
     const std::string normalized_run_id = normalize_run_id_path(run_id);
     const std::string normalized_item_run_id = normalize_run_id_path(item_run_id);
@@ -178,6 +214,9 @@ bool run_id_matches_queue_item(const std::string& run_id, const std::string& ite
     return normalized_run_id == parent_run_id(normalized_item_run_id);
 }
 
+/// @brief Ensures phase array.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void ensure_phase_array(nlohmann::json& status) {
     if (status.contains("phases") && status["phases"].is_array()) return;
     status["phases"] = nlohmann::json::array();
@@ -186,6 +225,9 @@ void ensure_phase_array(nlohmann::json& status) {
     }
 }
 
+/// @brief Applies resume job overlay.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void apply_resume_job_overlay(nlohmann::json& status, const Job& job) {
     if (!job.data.is_object()) return;
 
@@ -222,6 +264,9 @@ void apply_resume_job_overlay(nlohmann::json& status, const Job& job) {
     }
 }
 
+/// @brief Implements iso utc from file time.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
     const auto system_now = std::chrono::system_clock::now();
     const auto file_now = fs::file_time_type::clock::now();
@@ -238,6 +283,9 @@ std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
     return oss.str();
 }
 
+/// @brief Implements mark active phase aborted.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void mark_active_phase_aborted(nlohmann::json& status) {
     std::string current_phase;
     if (status.contains("current_phase") && status["current_phase"].is_string()) {
@@ -261,6 +309,9 @@ void mark_active_phase_aborted(nlohmann::json& status) {
 
 }
 
+/// @brief Builds queue contains run id.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool queue_contains_run_id(const nlohmann::json& queue, const std::string& run_id) {
     if (!queue.is_array() || run_id.empty()) return false;
     for (const auto& item : queue) {
@@ -271,6 +322,9 @@ bool queue_contains_run_id(const nlohmann::json& queue, const std::string& run_i
     return false;
 }
 
+/// @brief Implements job references run id.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 bool job_references_run_id(const Job& job, const std::string& run_id) {
     if (run_id.empty()) return false;
     const std::string job_run_id = job.data.is_object()
@@ -281,6 +335,9 @@ bool job_references_run_id(const Job& job, const std::string& run_id) {
     return queue_contains_run_id(job.data.value("queue", nlohmann::json::array()), run_id);
 }
 
+/// @brief Implements latest run job.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::string& run_id, int limit) {
     if (run_id.empty()) return std::nullopt;
     const std::string normalized_run_id = normalize_run_id_path(run_id);
@@ -317,6 +374,9 @@ std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::stri
     return fallback_match;
 }
 
+/// @brief Applies job state to run status.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<Job>& job) {
     if (!job.has_value()) return;
 
@@ -432,6 +492,9 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
     mark_active_phase_aborted(status);
 }
 
+/// @brief Reads run status.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
@@ -625,6 +688,9 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     return result;
 }
 
+/// @brief Discovers runs.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
     std::vector<nlohmann::json> result;
     if (!fs::exists(runs_dir)) return result;
@@ -665,6 +731,9 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
     return result;
 }
 
+/// @brief Reads run logs.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 std::string read_run_logs(const fs::path& run_dir, int tail) {
     auto event_file = find_event_file(run_dir);
     if (!event_file) return "";
@@ -685,6 +754,9 @@ std::string read_run_logs(const fs::path& run_dir, int tail) {
     return oss.str();
 }
 
+/// @brief Lists run artifacts.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
 nlohmann::json list_run_artifacts(const fs::path& run_dir) {
     nlohmann::json items = nlohmann::json::array();
     if (!fs::is_directory(run_dir)) return items;
