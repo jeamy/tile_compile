@@ -4404,13 +4404,54 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
     constexpr float kMaxChromaStdWorsenFactor = 1.08f;
     bool chroma_guard_failed = false;
+    std::string chroma_guard_reason;
     if (std::isfinite(pre_rg_std) && std::isfinite(post_rg_std) &&
         post_rg_std > pre_rg_std * kMaxChromaStdWorsenFactor) {
       chroma_guard_failed = true;
+      chroma_guard_reason = "background_chroma_rg_worsened";
     }
     if (std::isfinite(pre_bg_std) && std::isfinite(post_bg_std) &&
         post_bg_std > pre_bg_std * kMaxChromaStdWorsenFactor) {
       chroma_guard_failed = true;
+      chroma_guard_reason = "background_chroma_bg_worsened";
+    }
+
+    if (!chroma_guard_failed && diagnostics != nullptr &&
+        diagnostics->channels.size() >= 3) {
+      float model_std_max = 0.0f;
+      float model_median_max = 0.0f;
+      int spatial_channels = 0;
+      for (const auto &ch : diagnostics->channels) {
+        if (!ch.applied)
+          continue;
+        model_std_max = std::max(model_std_max, ch.model_stats.std);
+        model_median_max =
+            std::max(model_median_max, std::abs(ch.model_stats.median));
+      }
+      const float spatial_threshold =
+          std::max(0.25f, 0.001f * std::max(1.0f, model_median_max));
+      for (const auto &ch : diagnostics->channels) {
+        if (ch.applied && ch.model_stats.std > spatial_threshold)
+          ++spatial_channels;
+      }
+
+      const float pre_chroma_max = std::max(pre_rg_std, pre_bg_std);
+      const float post_chroma_max = std::max(post_rg_std, post_bg_std);
+      const bool chroma_is_measurable =
+          std::isfinite(pre_chroma_max) && std::isfinite(post_chroma_max) &&
+          pre_chroma_max > 0.008f;
+      const bool weak_flat_model =
+          spatial_channels == 0 && model_std_max <= spatial_threshold &&
+          chroma_is_measurable && post_chroma_max >= 0.98f * pre_chroma_max;
+      const bool imbalanced_channel_model =
+          spatial_channels > 0 && spatial_channels < 3 &&
+          chroma_is_measurable && post_chroma_max >= 0.95f * pre_chroma_max;
+      if (weak_flat_model || imbalanced_channel_model) {
+        chroma_guard_failed = true;
+        chroma_guard_reason =
+            weak_flat_model ? "flat_model_left_background_chroma"
+                            : "imbalanced_channel_spatial_model";
+      }
     }
 
     std::cout << "[BGE] chroma guard: pre_rg_std="
@@ -4420,8 +4461,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
     if (chroma_guard_failed) {
       std::cout
-          << "[BGE] BGE increased background chroma spread; "
-             "falling back to conservative fits"
+          << "[BGE] BGE failed background chroma guard; "
+             "falling back to conservative fits (reason="
+          << chroma_guard_reason << ")"
           << std::endl;
 
       auto run_fallback = [&](const BGEConfig &fb_cfg, const char *name,
@@ -4491,7 +4533,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         if (diagnostics != nullptr) {
           diagnostics->safety_fallback_triggered = true;
           diagnostics->safety_fallback_method = chosen_method;
-          diagnostics->safety_fallback_reason = "background_chroma_worsened";
+          diagnostics->safety_fallback_reason =
+              chroma_guard_reason.empty() ? "background_chroma_worsened"
+                                          : chroma_guard_reason;
           diagnostics->method = chosen_method;
           diagnostics->autotune_selected_fit_method = chosen_method;
           diagnostics->autotune_selected_sample_estimator =
