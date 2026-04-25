@@ -33,18 +33,34 @@ using json = nlohmann::json;
 static std::string to_lower_copy(std::string value);
 static bool parse_boolish(const std::string& value);
 
+/// @brief Implements get executable dir.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string get_executable_dir() {
     return fs::current_path().string();
 }
 
+/// @brief Returns the default gui state path.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string default_gui_state_path() {
     return (fs::path(get_executable_dir()) / "tile_compile_state.json").string();
 }
 
+/// @brief Implements print json.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void print_json(const json& j) {
     std::cout << j.dump(2) << std::endl;
 }
 
+/// @brief Reads file text.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string read_file_text(const fs::path& p) {
     std::ifstream ifs(p);
     if (!ifs) return "";
@@ -53,6 +69,10 @@ static std::string read_file_text(const fs::path& p) {
     return ss.str();
 }
 
+/// @brief Writes file text.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool write_file_text(const fs::path& p, const std::string& content) {
     std::ofstream ofs(p);
     if (!ofs) return false;
@@ -60,12 +80,20 @@ static bool write_file_text(const fs::path& p, const std::string& content) {
     return true;
 }
 
+/// @brief Reads stdin.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string read_stdin() {
     std::ostringstream ss;
     ss << std::cin.rdbuf();
     return ss.str();
 }
 
+/// @brief Implements yaml node to json.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static json yaml_node_to_json(const YAML::Node& node) {
     if (node.IsMap()) {
         json out = json::object();
@@ -95,12 +123,20 @@ static json yaml_node_to_json(const YAML::Node& node) {
     return nullptr;
 }
 
+/// @brief Implements scalar looks like float.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool scalar_looks_like_float(const std::string& raw) {
     return raw.find('.') != std::string::npos ||
            raw.find('e') != std::string::npos ||
            raw.find('E') != std::string::npos;
 }
 
+/// @brief Implements trim trailing zeros.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string trim_trailing_zeros(std::string text) {
     const auto dot = text.find('.');
     if (dot == std::string::npos) return text;
@@ -110,6 +146,10 @@ static std::string trim_trailing_zeros(std::string text) {
     return text.empty() ? "0" : text;
 }
 
+/// @brief Formats config float scalar.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string format_config_float_scalar(double value) {
     if (!std::isfinite(value)) return "0";
 
@@ -125,6 +165,10 @@ static std::string format_config_float_scalar(double value) {
     return trim_trailing_zeros(oss.str());
 }
 
+/// @brief Implements round yaml numeric scalars inplace.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void round_yaml_numeric_scalars_inplace(YAML::Node node) {
     if (!node || node.IsNull()) return;
     if (node.IsMap()) {
@@ -147,6 +191,10 @@ static void round_yaml_numeric_scalars_inplace(YAML::Node node) {
     node = format_config_float_scalar(value);
 }
 
+/// @brief Computes sha256 file.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string compute_sha256_file(const fs::path& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return "";
@@ -191,6 +239,10 @@ struct FitsHeaderInfo {
     std::string error_msg;
 };
 
+/// @brief Reads fits header info.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
     FitsHeaderInfo info;
     fitsfile* fptr = nullptr;
@@ -275,6 +327,10 @@ static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
     return info;
 }
 
+/// @brief Computes fits stats buffer.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static json compute_fits_stats_buffer(const std::vector<float>& buf) {
     double mean = 0.0;
     double m2 = 0.0;
@@ -320,6 +376,10 @@ static json compute_fits_stats_buffer(const std::vector<float>& buf) {
     return j;
 }
 
+/// @brief Implements fits stats file.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static json fits_stats_file(const fs::path& path) {
     json result;
     result["path"] = path.string();
@@ -388,11 +448,19 @@ static json fits_stats_file(const fs::path& path) {
 // ============================================================================
 // get-schema
 // ============================================================================
+/// @brief Handles CLI command get schema.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_get_schema() {
     std::cout << tile_compile::config::get_schema_json() << std::endl;
     return 0;
 }
 
+/// @brief Handles CLI command dump default config.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_dump_default_config() {
     tile_compile::config::Config cfg;
     YAML::Node node = cfg.to_yaml();
@@ -411,6 +479,10 @@ int cmd_dump_default_config() {
 // ============================================================================
 // load-gui-state [--path <path>]
 // ============================================================================
+/// @brief Handles CLI command load gui state.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_load_gui_state(const std::string& path_arg) {
     fs::path p = path_arg.empty() ? default_gui_state_path() : path_arg;
     
@@ -433,6 +505,10 @@ int cmd_load_gui_state(const std::string& path_arg) {
     return 0;
 }
 
+/// @brief Handles CLI command fits stats.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_fits_stats(const std::string& path) {
     print_json(fits_stats_file(fs::path(path)));
     return 0;
@@ -445,6 +521,10 @@ int cmd_fits_stats(const std::string& path) {
 // implementation as the pipeline PCC step. This is mainly useful for
 // debugging / reproducing PCC output changes without rerunning the pipeline.
 // ============================================================================
+/// @brief Handles CLI command pcc apply.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_pcc_apply(const std::string& input_path, const std::string& output_path,
                   double r_scale, double g_scale, double b_scale) {
     using tile_compile::Matrix2Df;
@@ -477,6 +557,10 @@ int cmd_pcc_apply(const std::string& input_path, const std::string& output_path,
 // ============================================================================
 // save-gui-state [--path <path>] [--stdin | <json>]
 // ============================================================================
+/// @brief Handles CLI command save gui state.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_save_gui_state(const std::string& path_arg, const std::string& json_text, bool use_stdin) {
     fs::path p = path_arg.empty() ? default_gui_state_path() : path_arg;
     
@@ -515,6 +599,10 @@ int cmd_save_gui_state(const std::string& path_arg, const std::string& json_text
 // ============================================================================
 // load-config <path>
 // ============================================================================
+/// @brief Handles CLI command load config.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_load_config(const std::string& path) {
     fs::path p(path);
     if (!fs::exists(p)) {
@@ -536,6 +624,10 @@ int cmd_load_config(const std::string& path) {
 // ============================================================================
 // save-config <path> [--stdin | <yaml>]
 // ============================================================================
+/// @brief Handles CLI command save config.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_save_config(const std::string& path, const std::string& yaml_text, bool use_stdin) {
     std::string content = use_stdin ? read_stdin() : yaml_text;
     if (content.empty()) {
@@ -558,6 +650,10 @@ int cmd_save_config(const std::string& path, const std::string& yaml_text, bool 
 // ============================================================================
 // validate-config --path <path> | --yaml <yaml> | --stdin
 // ============================================================================
+/// @brief Handles CLI command validate config.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bool use_stdin, bool strict_exit) {
     std::string yaml_text;
     if (!path.empty()) {
@@ -593,6 +689,10 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
 // ============================================================================
 // scan <input_path> [--frames-min N] [--with-checksums]
 // ============================================================================
+/// @brief Implements find fits files.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<fs::path> find_fits_files(const fs::path& dir) {
     std::vector<fs::path> files;
     if (!fs::exists(dir) || !fs::is_directory(dir)) return files;
@@ -608,6 +708,10 @@ static std::vector<fs::path> find_fits_files(const fs::path& dir) {
     return files;
 }
 
+/// @brief Handles CLI command scan.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums) {
     fs::path p(input_path);
     
@@ -814,6 +918,10 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
 // ============================================================================
 // list-runs <runs_dir>
 // ============================================================================
+/// @brief Handles CLI command list runs.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_list_runs(const std::string& runs_dir) {
     fs::path p(runs_dir);
     
@@ -856,6 +964,10 @@ int cmd_list_runs(const std::string& runs_dir) {
 // ============================================================================
 // get-run-status <run_dir>
 // ============================================================================
+/// @brief Handles CLI command get run status.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_get_run_status(const std::string& run_dir) {
     fs::path p(run_dir);
     
@@ -921,6 +1033,10 @@ int cmd_get_run_status(const std::string& run_dir) {
 // ============================================================================
 // get-run-logs <run_dir> [--tail N]
 // ============================================================================
+/// @brief Handles CLI command get run logs.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_get_run_logs(const std::string& run_dir, int tail) {
     fs::path p(run_dir);
     
@@ -956,6 +1072,10 @@ int cmd_get_run_logs(const std::string& run_dir, int tail) {
 // ============================================================================
 // list-artifacts <run_dir>
 // ============================================================================
+/// @brief Handles CLI command list artifacts.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_list_artifacts(const std::string& run_dir) {
     fs::path p(run_dir);
     
@@ -993,6 +1113,10 @@ int cmd_list_artifacts(const std::string& run_dir) {
     return 0;
 }
 
+/// @brief Handles CLI command pcc run.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cmd_pcc_run(const std::string& input_path,
                 const std::string& output_path,
                 const std::string& wcs_path,
@@ -1179,6 +1303,10 @@ int cmd_pcc_run(const std::string& input_path,
 // ============================================================================
 // Main
 // ============================================================================
+/// @brief Converts lower copy.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string to_lower_copy(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -1186,11 +1314,19 @@ static std::string to_lower_copy(std::string value) {
     return value;
 }
 
+/// @brief Parses boolish.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool parse_boolish(const std::string& value) {
     const std::string lower = to_lower_copy(value);
     return lower == "1" || lower == "true" || lower == "yes" || lower == "on";
 }
 
+/// @brief Implements print usage.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void print_usage() {
     std::cout << "Usage: tile_compile_cli <command> [options]\n"
               << "\nCommands:\n"
@@ -1211,6 +1347,10 @@ void print_usage() {
               << "  pcc-apply <in> <out> [--r X] [--g Y] [--b Z]  Apply diagonal PCC matrix to RGB FITS cube\n";
 }
 
+/// @brief Implements main.
+/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();

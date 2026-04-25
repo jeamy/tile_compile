@@ -8,6 +8,10 @@
 
 namespace tile_compile::reconstruction {
 
+/// @brief Implements positive median.
+/// @details Part of tile-local normalization statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 PositiveMedianEstimate positive_median(const Matrix2Df &src, bool abs_values,
                                        float center) {
   PositiveMedianEstimate out;
@@ -35,6 +39,10 @@ PositiveMedianEstimate positive_median(const Matrix2Df &src, bool abs_values,
   return out;
 }
 
+/// @brief Estimates tile normalization stats.
+/// @details Part of tile-local normalization statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileNormalizationStats estimate_tile_normalization_stats(const Matrix2Df &src) {
   TileNormalizationStats out;
   const auto bg = positive_median(src, false, 0.0f);
@@ -46,6 +54,10 @@ TileNormalizationStats estimate_tile_normalization_stats(const Matrix2Df &src) {
   return out;
 }
 
+/// @brief Implements minimum tile normalization samples.
+/// @details Part of tile-local normalization statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 size_t minimum_tile_normalization_samples(
     size_t total_count, const TileNormalizationGuardConfig &config) {
   const size_t fraction_floor = static_cast<size_t>(
@@ -54,6 +66,10 @@ size_t minimum_tile_normalization_samples(
   return std::max(config.min_samples, fraction_floor);
 }
 
+/// @brief Implements guard tile normalization stats.
+/// @details Part of tile-local normalization statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileNormalizationGuardSummary guard_tile_normalization_stats(
     std::vector<TileNormalizationStats> *stats,
     const std::vector<uint8_t> &valid_tiles,

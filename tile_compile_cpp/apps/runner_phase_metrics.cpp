@@ -25,6 +25,10 @@ namespace metrics = tile_compile::metrics;
 
 namespace {
 
+/// @brief Extracts exposure seconds.
+/// @details Part of the channel metadata, normalization, and global-metrics phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
   auto read_positive = [&](const char *key) -> std::optional<double> {
     if (auto value = header.get_double(key);
@@ -57,6 +61,10 @@ std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
 
 } // namespace
 
+/// @brief Runs phase channel split normalization global metrics.
+/// @details Part of the channel metadata, normalization, and global-metrics phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool run_phase_channel_split_normalization_global_metrics(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,

@@ -12,6 +12,10 @@ namespace tile_compile::reconstruction {
 
 namespace {
 
+/// @brief Implements analyze pair.
+/// @details Part of tile-boundary seam diagnostics and overlap statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
                                         const Tile &lhs_tile,
                                         const Tile &rhs_tile,
@@ -133,6 +137,10 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
 
 } // namespace
 
+/// @brief Implements analyze tile boundaries.
+/// @details Part of tile-boundary seam diagnostics and overlap statistics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileBoundaryDiagnostics analyze_tile_boundaries(
     const std::vector<Tile> &tiles, const std::vector<Matrix2Df> &images,
     const std::vector<uint8_t> &tile_valid,

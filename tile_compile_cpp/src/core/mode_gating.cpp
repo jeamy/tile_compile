@@ -2,6 +2,10 @@
 
 namespace tile_compile::core {
 
+/// @brief Implements evaluate mode gate.
+/// @details Part of pipeline mode selection and emergency/reduced/full-mode gating; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ModeGateDecision evaluate_mode_gate(int usable_frames, int reduced_threshold,
                                     bool allow_emergency_mode,
                                     int reduced_min_frames) {

@@ -4,6 +4,10 @@
 
 namespace tile_compile::registration {
 
+/// @brief Implements prepare ecc image.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df prepare_ecc_image(const Matrix2Df& img) {
     cv::Mat cv_img(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
     cv::Mat blurred;
@@ -18,6 +22,10 @@ Matrix2Df prepare_ecc_image(const Matrix2Df& img) {
     return result;
 }
 
+/// @brief Implements phasecorr translation.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::pair<float, float> phasecorr_translation(const Matrix2Df& moving, const Matrix2Df& ref) {
     cv::Mat cv_moving(moving.rows(), moving.cols(), CV_32F, const_cast<float*>(moving.data()));
     cv::Mat cv_ref(ref.rows(), ref.cols(), CV_32F, const_cast<float*>(ref.data()));
@@ -26,6 +34,10 @@ std::pair<float, float> phasecorr_translation(const Matrix2Df& moving, const Mat
     return {static_cast<float>(shift.x), static_cast<float>(shift.y)};
 }
 
+/// @brief Implements ecc warp.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RegistrationResult ecc_warp(const Matrix2Df& moving, const Matrix2Df& ref,
                             bool allow_rotation, const WarpMatrix& init_warp,
                             int max_iterations, float epsilon) {
@@ -63,6 +75,10 @@ RegistrationResult ecc_warp(const Matrix2Df& moving, const Matrix2Df& ref,
     return result;
 }
 
+/// @brief Implements identity warp.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WarpMatrix identity_warp() {
     WarpMatrix warp;
     warp << 1.0f, 0.0f, 0.0f,
@@ -70,6 +86,10 @@ WarpMatrix identity_warp() {
     return warp;
 }
 
+/// @brief Applies warp.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df apply_warp(const Matrix2Df& img, const WarpMatrix& warp) {
     cv::Mat cv_img(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
     cv::Mat warp_matrix(2, 3, CV_32F);
@@ -88,6 +108,10 @@ Matrix2Df apply_warp(const Matrix2Df& img, const WarpMatrix& warp) {
     return result;
 }
 
+/// @brief Computes warps bounding box.
+/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 BoundingBox compute_warps_bounding_box(int frame_width, int frame_height,
                                        const std::vector<WarpMatrix>& warps) {
     if (warps.empty()) {

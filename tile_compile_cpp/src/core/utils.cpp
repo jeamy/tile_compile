@@ -18,6 +18,10 @@
 
 namespace tile_compile::core {
 
+/// @brief Implements get iso timestamp.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string get_iso_timestamp() {
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -37,6 +41,10 @@ std::string get_iso_timestamp() {
     return oss.str();
 }
 
+/// @brief Implements get run id.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string get_run_id() {
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -63,6 +71,10 @@ std::string get_run_id() {
     return oss.str();
 }
 
+/// @brief Implements discover frames.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern) {
     std::vector<fs::path> frames;
     
@@ -112,6 +124,10 @@ std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::stri
     return frames;
 }
 
+/// @brief Reads bytes.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<uint8_t> read_bytes(const fs::path& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
@@ -129,6 +145,10 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
     return buffer;
 }
 
+/// @brief Reads text.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string read_text(const fs::path& path) {
     std::ifstream file(path);
     if (!file) {
@@ -140,6 +160,10 @@ std::string read_text(const fs::path& path) {
     return oss.str();
 }
 
+/// @brief Writes text.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void write_text(const fs::path& path, const std::string& text) {
     std::ofstream file(path);
     if (!file) {
@@ -148,6 +172,10 @@ void write_text(const fs::path& path, const std::string& text) {
     file << text;
 }
 
+/// @brief Implements safe hardlink or copy.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst) {
     std::error_code ec;
     fs::create_hard_link(src, dst, ec);
@@ -156,6 +184,10 @@ void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst) {
     }
 }
 
+/// @brief Implements pick output file.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const std::string& ext) {
     fs::create_directories(dir);
     
@@ -175,6 +207,10 @@ fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const 
     return candidate;
 }
 
+/// @brief Implements sha256 bytes.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string sha256_bytes(const std::vector<uint8_t>& data) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256(data.data(), data.size(), hash);
@@ -186,15 +222,27 @@ std::string sha256_bytes(const std::vector<uint8_t>& data) {
     return oss.str();
 }
 
+/// @brief Implements sha256 file.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string sha256_file(const fs::path& path) {
     auto data = read_bytes(path);
     return sha256_bytes(data);
 }
 
+/// @brief Copies config.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void copy_config(const fs::path& src, const fs::path& dst) {
     fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
 }
 
+/// @brief Resolves project root.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 fs::path resolve_project_root(const fs::path& config_path) {
     fs::path p = config_path;
     if (fs::is_regular_file(p)) {
@@ -215,11 +263,19 @@ fs::path resolve_project_root(const fs::path& config_path) {
     }
 }
 
+/// @brief Computes median.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_median(const Matrix2Df& data) {
     VectorXf flat = Eigen::Map<const VectorXf>(data.data(), data.size());
     return compute_median(flat);
 }
 
+/// @brief Computes median.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_median(const VectorXf& data) {
     if (data.size() == 0) return 0.0f;
     
@@ -234,6 +290,10 @@ float compute_median(const VectorXf& data) {
     }
 }
 
+/// @brief Computes mad.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_mad(const Matrix2Df& data) {
     float median = compute_median(data);
     
@@ -245,10 +305,18 @@ float compute_mad(const Matrix2Df& data) {
     return compute_median(deviations);
 }
 
+/// @brief Computes robust sigma.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_robust_sigma(const Matrix2Df& data) {
     return 1.4826f * compute_mad(data);
 }
 
+/// @brief Computes percentile.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_percentile(const VectorXf& data, float percentile) {
     if (data.size() == 0) return 0.0f;
     
@@ -263,22 +331,38 @@ float compute_percentile(const VectorXf& data, float percentile) {
     return sorted[lower] * (1.0f - frac) + sorted[upper] * frac;
 }
 
+/// @brief Converts lower.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string to_lower(const std::string& s) {
     std::string result = s;
     std::transform(result.begin(), result.end(), result.begin(), ::tolower);
     return result;
 }
 
+/// @brief Implements ends with.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool ends_with(const std::string& str, const std::string& suffix) {
     if (suffix.size() > str.size()) return false;
     return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
+/// @brief Implements starts with.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool starts_with(const std::string& str, const std::string& prefix) {
     if (prefix.size() > str.size()) return false;
     return str.compare(0, prefix.size(), prefix) == 0;
 }
 
+/// @brief Implements split.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<std::string> split(const std::string& str, char delimiter) {
     std::vector<std::string> parts;
     std::istringstream iss(str);
@@ -289,6 +373,10 @@ std::vector<std::string> split(const std::string& str, char delimiter) {
     return parts;
 }
 
+/// @brief Joins.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string join(const std::vector<std::string>& parts, const std::string& delimiter) {
     std::ostringstream oss;
     for (size_t i = 0; i < parts.size(); ++i) {
@@ -298,6 +386,10 @@ std::string join(const std::vector<std::string>& parts, const std::string& delim
     return oss.str();
 }
 
+/// @brief Matches or expands glob patterns for  match.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool glob_match(const std::string& pattern, const std::string& str) {
     std::string regex_pattern;
     for (char c : pattern) {
@@ -315,12 +407,20 @@ bool glob_match(const std::string& pattern, const std::string& str) {
     return std::regex_match(str, re);
 }
 
+/// @brief Matches or expands glob patterns for.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern) {
     return discover_frames(dir, pattern);
 }
 
 // --- Statistical utilities (canonical, single implementation) ---
 
+/// @brief Implements median of.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float median_of(std::vector<float>& v) {
     if (v.empty()) return 0.0f;
     const size_t n = v.size();
@@ -333,6 +433,10 @@ float median_of(std::vector<float>& v) {
     return 0.5f * (lo + hi);
 }
 
+/// @brief Implements stddev of.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float stddev_of(const std::vector<float>& v) {
     if (v.size() < 2) return 0.0f;
     double sum = 0.0;
@@ -347,6 +451,10 @@ float stddev_of(const std::vector<float>& v) {
     return (var > 0.0) ? static_cast<float>(std::sqrt(var)) : 0.0f;
 }
 
+/// @brief Implements robust sigma mad.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_sigma_mad(std::vector<float>& pixels) {
     if (pixels.empty()) return 0.0f;
     float med = median_of(pixels);
@@ -355,6 +463,10 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     return 1.4826f * mad;
 }
 
+/// @brief Implements percentile from sorted.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
     if (sorted.empty()) return 0.0f;
     float clamped = std::min(std::max(pct, 0.0f), 100.0f);
@@ -364,6 +476,10 @@ float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
     return sorted[idx];
 }
 
+/// @brief Estimates background sigma clip.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float estimate_background_sigma_clip(std::vector<float> pixels) {
     if (pixels.empty()) return 0.0f;
     for (int iter = 0; iter < 5; ++iter) {
@@ -385,6 +501,10 @@ float estimate_background_sigma_clip(std::vector<float> pixels) {
     return median_of(pixels);
 }
 
+/// @brief Implements sample indices.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<size_t> sample_indices(size_t count, int max_samples) {
     std::vector<size_t> out;
     if (count == 0 || max_samples <= 0) return out;
@@ -404,6 +524,10 @@ std::vector<size_t> sample_indices(size_t count, int max_samples) {
     return out;
 }
 
+/// @brief Implements robust zscore.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
     out.assign(v.size(), 0.0f);
     if (v.empty())
@@ -423,6 +547,10 @@ void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
     }
 }
 
+/// @brief Implements median finite positive.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float median_finite_positive(const std::vector<float>& v, float fallback) {
     std::vector<float> p;
     p.reserve(v.size());
@@ -435,6 +563,10 @@ float median_finite_positive(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
+/// @brief Implements median finite.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float median_finite(const std::vector<float>& v, float fallback) {
     std::vector<float> p;
     p.reserve(v.size());
@@ -447,6 +579,10 @@ float median_finite(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
+/// @brief Implements stretch to u16 linear from zero inplace.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     StretchResult result;
     float max_value = 0.0f;
@@ -477,6 +613,10 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     return result;
 }
 
+/// @brief Implements stretch rgb to u16 linear from zero inplace.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,

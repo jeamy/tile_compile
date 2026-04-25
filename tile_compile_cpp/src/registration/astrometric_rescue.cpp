@@ -18,6 +18,10 @@ namespace fs = std::filesystem;
 namespace core = tile_compile::core;
 namespace astro = tile_compile::astrometry;
 
+/// @brief Checks astap available.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool is_astap_available(const std::string& astap_bin_hint,
                         const std::string& astap_data_dir_hint) {
   // ASTAP-Pfad bestimmen
@@ -55,6 +59,10 @@ bool is_astap_available(const std::string& astap_bin_hint,
 }
 
 // Shell-Quote Helper (kopiert aus runner_pipeline.cpp)
+/// @brief Implements shell quote.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string shell_quote(const std::string& s) {
   std::string out;
   out.reserve(s.size() + 2);
@@ -70,6 +78,10 @@ static std::string shell_quote(const std::string& s) {
   return out;
 }
 
+/// @brief Implements try astrometric rescue.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AstrometricRescueResult try_astrometric_rescue(
     const Matrix2Df& mov,
     const Matrix2Df& ref,
@@ -117,6 +129,10 @@ AstrometricRescueResult try_astrometric_rescue(
   // Aufräumen bei Exit
   struct TempCleaner {
     std::vector<fs::path> paths;
+/// @brief Implements ~TempCleaner.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
     ~TempCleaner() {
       for (const auto& p : paths) {
         if (fs::exists(p)) {
@@ -222,6 +238,10 @@ AstrometricRescueResult try_astrometric_rescue(
   return result;
 }
 
+/// @brief Implements try astrometric rescue from paths.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AstrometricRescueResult try_astrometric_rescue_from_paths(
     const std::string& mov_fits_path,
     const std::string& ref_fits_path,
@@ -262,6 +282,10 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
 
   struct TempCleaner {
     std::vector<fs::path> paths;
+/// @brief Implements ~TempCleaner.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
     ~TempCleaner() {
       for (const auto& p : paths) {
         if (fs::exists(p)) fs::remove(p);
@@ -329,6 +353,10 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
   return result;
 }
 
+/// @brief Implements wcs to similarity warp.
+/// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WarpMatrix wcs_to_similarity_warp(
     const astro::WCS& wcs_mov,
     const astro::WCS& wcs_ref,

@@ -11,6 +11,17 @@
 
 namespace tile_compile::runner {
 
+/// Compute per-frame/per-tile local quality metrics and local reconstruction weights.
+///
+/// The phase reads prewarped frame tiles from `prewarped_frames`, gates them by
+/// the common-overlap masks, optionally applies stored normalization scales,
+/// and computes local structure/star metrics for every live tile. The output
+/// matrices are indexed as `[frame_index][tile_index]` and feed tile-weighted
+/// reconstruction, synthetic-frame generation, diagnostics, and report plots.
+///
+/// `tile_offset_x` and `tile_offset_y` translate tile-grid coordinates into the
+/// prewarped canvas coordinate system when registration expanded the canvas.
+/// Returns `true` when all local metric artifacts were written successfully.
 bool run_phase_local_metrics(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,

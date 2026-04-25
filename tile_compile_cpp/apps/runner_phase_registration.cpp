@@ -38,6 +38,10 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 
+/// @brief Computes required common overlap frames.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int compute_required_common_overlap_frames(int usable_frames) {
   if (usable_frames <= 1) {
     return 1;
@@ -53,6 +57,10 @@ int compute_required_common_overlap_frames(int usable_frames) {
   return std::max(required, 1);
 }
 
+/// @brief Implements wrap angle near.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float wrap_angle_near(float angle, float reference) {
   while (angle - reference > kPi) {
     angle -= 2.0f * kPi;
@@ -63,6 +71,10 @@ float wrap_angle_near(float angle, float reference) {
   return angle;
 }
 
+/// @brief Implements unwrap angle sequence.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<float> unwrap_angle_sequence(const std::vector<float> &angles) {
   if (angles.empty()) {
     return {};
@@ -118,6 +130,10 @@ enum class RegistrationProvenance : uint8_t {
   model_nearest_copy,
 };
 
+/// @brief Implements registration provenance name.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 const char *registration_provenance_name(RegistrationProvenance provenance) {
   switch (provenance) {
   case RegistrationProvenance::unresolved:
@@ -152,6 +168,10 @@ const char *registration_provenance_name(RegistrationProvenance provenance) {
   return "unknown";
 }
 
+/// @brief Implements fit weighted poly.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
                                 const std::vector<float> &ys,
                                 const std::vector<float> &weights,
@@ -197,6 +217,10 @@ ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
   return out;
 }
 
+/// @brief Implements concatenate affine warps.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WarpMatrix concatenate_affine_warps(const WarpMatrix &w1,
                                     const WarpMatrix &w2) {
   WarpMatrix result;
@@ -211,6 +235,10 @@ WarpMatrix concatenate_affine_warps(const WarpMatrix &w1,
 
 } // namespace
 
+/// @brief Runs phase registration prewarp.
+/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool run_phase_registration_prewarp(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,

@@ -17,19 +17,35 @@ namespace {
 constexpr double kSigmaClipEpsNeff = 1.0e-6;
 constexpr double kSigmaClipEpsVar = 1.0e-12;
 
+/// @brief Implements invalid reconstruction sample.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float invalid_reconstruction_sample() {
     return std::numeric_limits<float>::quiet_NaN();
 }
 
+/// @brief Checks valid sample.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline bool is_valid_sample(float v) {
     return std::isfinite(v);
 }
 
+/// @brief Implements tile grid key.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 uint64_t tile_grid_key(int row, int col) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
            static_cast<uint32_t>(col);
 }
 
+/// @brief Implements median inplace.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float median_inplace(std::vector<float>& v) {
     if (v.empty()) return 0.0f;
     const size_t mid = v.size() / 2;
@@ -37,6 +53,10 @@ float median_inplace(std::vector<float>& v) {
     return v[mid];
 }
 
+/// @brief Implements robust sigma mad from mat.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_sigma_mad_from_mat(const cv::Mat& m) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
@@ -51,6 +71,10 @@ float robust_sigma_mad_from_mat(const cv::Mat& m) {
     return 1.4826f * mad;
 }
 
+/// @brief Implements percentile from mat.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float percentile_from_mat(const cv::Mat& m, float p) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
@@ -66,6 +90,10 @@ float percentile_from_mat(const cv::Mat& m, float p) {
     return vals[idx];
 }
 
+/// @brief Implements quantize to step.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float quantize_to_step(float value, float lo, float hi, float step) {
     if (!(std::isfinite(value) && std::isfinite(lo) && std::isfinite(hi))) {
         return lo;
@@ -78,6 +106,10 @@ float quantize_to_step(float value, float lo, float hi, float step) {
     return std::clamp(lo + buckets * step, lo, hi);
 }
 
+/// @brief Implements select wiener quality target.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float select_wiener_quality_target(float q_struct_tile,
                                    const config::WienerDenoiseConfig& cfg) {
     float best_q = cfg.q_min;
@@ -96,6 +128,10 @@ float select_wiener_quality_target(float q_struct_tile,
     return quantize_to_step(best_q, cfg.q_min, cfg.q_max, cfg.q_step);
 }
 
+/// @brief Implements rgb to chroma space.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void rgb_to_chroma_space(const cv::Mat& R, const cv::Mat& G, const cv::Mat& B,
                          const std::string& color_space,
                          cv::Mat& Y, cv::Mat& C1, cv::Mat& C2) {
@@ -111,6 +147,10 @@ void rgb_to_chroma_space(const cv::Mat& R, const cv::Mat& G, const cv::Mat& B,
     C2 = R - Y;
 }
 
+/// @brief Implements chroma space to rgb.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void chroma_space_to_rgb(const cv::Mat& Y, const cv::Mat& C1, const cv::Mat& C2,
                          const std::string& color_space,
                          cv::Mat& R, cv::Mat& G, cv::Mat& B) {
@@ -126,6 +166,10 @@ void chroma_space_to_rgb(const cv::Mat& Y, const cv::Mat& C1, const cv::Mat& C2,
     G = 2.0f * Y - 0.5f * (R + B);
 }
 
+/// @brief Implements soft threshold signed.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
     if (!(tau > 0.0f)) return src.clone();
     cv::Mat abs_src = cv::abs(src);
@@ -141,6 +185,10 @@ cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
     return shrunk;
 }
 
+/// @brief Builds protection mask.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat build_protection_mask(const cv::Mat& y,
                               const config::ChromaDenoiseConfig& cfg) {
     cv::Mat mask = cv::Mat::zeros(y.size(), CV_32F);
@@ -181,6 +229,10 @@ cv::Mat build_protection_mask(const cv::Mat& y,
     return mask;
 }
 
+/// @brief Implements denoise chroma plane inplace.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void denoise_chroma_plane_inplace(cv::Mat& c,
                                   const config::ChromaDenoiseConfig& cfg) {
     if (cfg.chroma_wavelet.enabled) {
@@ -212,6 +264,10 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
 
 } // namespace
 
+/// @brief Implements reconstruct tiles.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                             const TileGrid& grid,
                             const std::vector<std::vector<float>>& tile_weights) {
@@ -290,6 +346,10 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
     return result;
 }
 
+/// @brief Implements wiener tile filter.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
                              float q_struct_tile, bool is_star_tile,
                              const config::WienerDenoiseConfig& cfg) {
@@ -387,6 +447,10 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     return out;
 }
 
+/// @brief Implements soft threshold tile filter.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
                                       const config::SoftThresholdConfig& cfg) {
     if (!cfg.enabled) return tile;
@@ -485,6 +549,10 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     return out;
 }
 
+/// @brief Implements chroma denoise rgb inplace.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
                                 const config::ChromaDenoiseConfig& cfg) {
     if (!cfg.enabled) return;
@@ -543,6 +611,10 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     B_new.copyTo(B);
 }
 
+/// @brief Implements sigma clip stack.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                            float sigma_low, float sigma_high,
                            int max_iters, float min_fraction) {
@@ -644,6 +716,10 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     return out;
 }
 
+/// @brief Implements sigma clip weighted tile.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                                    const std::vector<float>& weights,
                                    float sigma_low, float sigma_high,
@@ -790,6 +866,10 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     return out;
 }
 
+/// @brief Implements sigma clip weighted tile with fallback.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WeightedTileResult sigma_clip_weighted_tile_with_fallback(
     const std::vector<Matrix2Df>& tiles, const std::vector<float>& weights,
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
@@ -820,6 +900,10 @@ WeightedTileResult sigma_clip_weighted_tile_with_fallback(
     return out;
 }
 
+/// @brief Implements sigma clip weighted rgb tile shared mask.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
     const std::vector<Matrix2Df>& tiles_r,
     const std::vector<Matrix2Df>& tiles_g,
@@ -1019,6 +1103,10 @@ RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
     return out;
 }
 
+/// @brief Creates hann 1d.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<float> make_hann_1d(int n) {
     std::vector<float> w;
     if (n <= 0)
@@ -1036,6 +1124,10 @@ std::vector<float> make_hann_1d(int n) {
     return w;
 }
 
+/// @brief Creates partition window 1d.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<float> make_partition_window_1d(int n, int left_overlap,
                                             int right_overlap) {
     std::vector<float> w;
@@ -1084,6 +1176,10 @@ std::vector<float> make_partition_window_1d(int n, int left_overlap,
 
 namespace tile_compile::reconstruction {
 
+/// @brief Implements reconstruct tiles parallel.
+/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ReconstructTilesResult reconstruct_tiles_parallel(
     const std::vector<Matrix2Df>&          frames,
     const TileGrid&                        grid,

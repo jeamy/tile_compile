@@ -19,16 +19,23 @@
 
 namespace tile_compile::runner {
 
+/// Format a byte count for human-readable logs and diagnostics.
 std::string format_bytes(uint64_t bytes);
 
+/// Sum file sizes for input-frame disk-space planning.
 uint64_t estimate_total_file_bytes(const std::vector<std::filesystem::path> &paths);
 
+/// Workload class used to tune runner worker counts for CPU, IO, or mixed phases.
 enum class WorkerParallelProfile {
   CpuBound,
   MixedIo,
   IoHeavy,
 };
 
+/// Decision record for selecting synthetic-frame weighting mode.
+///
+/// The requested mode may be downgraded from tile-weighted to global when
+/// boundary diagnostics show a high risk of visible tile seams.
 struct SyntheticWeightingDecision {
   std::string requested_weighting = "global";
   std::string effective_weighting = "global";
@@ -41,17 +48,28 @@ struct SyntheticWeightingDecision {
   float local_weight_correlation_p05 = 1.0f;
 };
 
+/// Choose a conservative worker count for the current phase and machine limits.
+///
+/// Combines `runtime_limits.parallel_workers`, memory budget, workload type,
+/// and input-frame sizes. CPU-heavy phases can safely use more workers; IO-heavy
+/// phases are throttled to reduce disk pressure.
 int compute_adaptive_worker_count(
     const config::Config &cfg, size_t task_count,
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
 
+/// Resolve the PCC aperture FWHM used by auto-radius photometry.
+///
+/// Estimates a representative star size from RGB channels and falls back to a
+/// caller-provided FWHM when image-based estimation is unavailable. `source_out`
+/// reports whether the value came from image measurement, fallback, or default.
 double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
                                 const Matrix2Df &B,
                                 bool have_fallback_fwhm = false,
                                 double fallback_fwhm_px = 0.0,
                                 std::string *source_out = nullptr);
 
+/// Apply seam-risk guardrails to synthetic-frame weighting selection.
 inline SyntheticWeightingDecision decide_synthetic_weighting(
     const std::string &requested_weighting, int boundary_pair_count,
     float boundary_pair_mean_abs_diff_p95,
@@ -97,12 +115,17 @@ inline SyntheticWeightingDecision decide_synthetic_weighting(
   return out;
 }
 
+/// Sentinel used for pixels outside the common-overlap mask.
 inline float common_overlap_invalid_value() {
   return std::numeric_limits<float>::quiet_NaN();
 }
 
-// Hot-path helper: applies COMMON_OVERLAP mask to a tile in-place.
-// Keeps behavior consistent across pipeline phases and avoids duplicate lambdas.
+/// Apply the COMMON_OVERLAP mask to one tile in-place.
+///
+/// Pixels outside the global common-overlap mask are written as NaN so later
+/// metrics/reconstruction paths can ignore them without maintaining a separate
+/// mask per tile. The helper is deliberately inline because it is used in hot
+/// loops across local metrics, reconstruction, and diagnostics.
 inline void apply_common_overlap_to_tile_inplace(
     Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
     int common_mask_width, int common_mask_height) {
@@ -146,6 +169,7 @@ inline void apply_common_overlap_to_tile_inplace(
   }
 }
 
+/// Apply a common-overlap mask to a tile and report whether finite data remains.
 inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
     Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
     int common_mask_width, int common_mask_height) {
@@ -197,6 +221,7 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
   return any_valid;
 }
 
+/// Apply the common-overlap mask to a full mono/luma frame in-place.
 inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
     Matrix2Df &frame, const std::vector<uint8_t> &common_valid_mask,
     int common_mask_width, int common_mask_height) {
@@ -229,6 +254,7 @@ inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
   return any_valid;
 }
 
+/// Apply the common-overlap mask consistently to full RGB frames.
 inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
     Matrix2Df &r_frame, Matrix2Df &g_frame, Matrix2Df &b_frame,
     const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
@@ -269,6 +295,7 @@ inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
   return any_valid;
 }
 
+/// Apply the common-overlap mask consistently to RGB tile planes.
 inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
     Matrix2Df &r_tile, Matrix2Df &g_tile, Matrix2Df &b_tile, const Tile &t,
     const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
@@ -334,7 +361,7 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
   return any_valid;
 }
 
-// Fast tile-gating helper used after COMMON_OVERLAP masking.
+/// Fast tile-gating helper used after COMMON_OVERLAP masking.
 inline bool tile_has_nonzero_common_data(
     const Matrix2Df &tile, size_t tile_index,
     const std::vector<uint8_t> &tile_common_valid) {
@@ -349,12 +376,15 @@ inline bool tile_has_nonzero_common_data(
   return false;
 }
 
+/// Detect common disk-full messages from exception strings and library errors.
 bool message_indicates_disk_full(const std::string &message);
 
+/// Load a mono FITS canvas mask and validate it against expected dimensions.
 bool load_canvas_mask_fits(const std::filesystem::path &mask_path, int rows,
                            int cols, std::vector<uint8_t> &out_mask,
                            std::string &error_out);
 
+/// Load and validate the canvas mask that belongs to RGB output planes.
 bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
                               const Matrix2Df &R, const Matrix2Df &G,
                               const Matrix2Df &B,
@@ -362,6 +392,7 @@ bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
                               int &rows_out, int &cols_out,
                               std::string &error_out);
 
+/// Integer bounds of a set of warped frame corners on the output canvas.
 struct WarpBounds {
   int min_x = 0;
   int min_y = 0;
@@ -372,11 +403,14 @@ struct WarpBounds {
   [[nodiscard]] int height() const { return max_y - min_y; }
 };
 
+/// Invert a 2x3 affine warp matrix, returning false for singular matrices.
 bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv);
 
+/// Compute the minimal canvas bounds that contain all warped input frames.
 WarpBounds compute_warps_bounds(int width, int height,
                                 const std::vector<WarpMatrix> &warps);
 
+/// Axis-aligned crop rectangle in image coordinates.
 struct CropBox {
   int x{0};
   int y{0};
@@ -386,11 +420,13 @@ struct CropBox {
   [[nodiscard]] bool valid() const { return width > 0 && height > 0; }
 };
 
+/// Find the bounding box of finite/nonzero reconstructed data.
 CropBox compute_nonzero_data_bbox(const Matrix2Df &luma,
                                   const Matrix2Df *r = nullptr,
                                   const Matrix2Df *g = nullptr,
                                   const Matrix2Df *b = nullptr);
 
+/// Find the largest crop box supported by the common-valid mask and data planes.
 CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
                                        const std::vector<uint8_t> &common_valid_mask,
                                        int mask_rows, int mask_cols,
@@ -398,27 +434,39 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
                                        const Matrix2Df *g = nullptr,
                                        const Matrix2Df *b = nullptr);
 
+/// Convert runner configuration into the image-module BGE runtime config.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
+/// Convert runner configuration into the astrometry-module PCC runtime config.
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 
+/// Build the downsampled registration proxy used by global registration.
+///
+/// OSC inputs use a CFA-aware green-channel proxy; mono inputs use a simple
+/// 2x2 mean downsample. The returned image is intentionally lower resolution
+/// than the source frame, so translation components must be scaled before they
+/// are applied to full-resolution frames.
 Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode,
                                    const std::string &detected_bayer_str);
 
+/// Serialize BGE diagnostics into the artifact/report JSON shape.
 tile_compile::core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
                                           bool requested,
                                           bool have_tile_data,
                                           bool metrics_tiles_match);
 
+/// Result of selecting/querying the PCC star catalog backend.
 struct PCCCatalogQueryResult {
   std::vector<astrometry::GaiaStar> stars;
   std::string used_source;
 };
 
+/// Query the configured PCC catalog source for stars covering the solved WCS.
 PCCCatalogQueryResult query_pcc_catalog_stars(const astrometry::WCS &wcs,
                                               const config::PCCConfig &cfg,
                                               std::ostream &log_stream,
                                               const std::string &log_prefix);
 
+/// Stream buffer that mirrors writes to two destination stream buffers.
 class TeeBuf : public std::streambuf {
 public:
   TeeBuf(std::streambuf *a, std::streambuf *b);
@@ -432,6 +480,11 @@ private:
   std::streambuf *b_;
 };
 
+/// Disk-backed fixed-size frame store.
+///
+/// Frames are written as raw float matrices in a run-local cache directory and
+/// loaded/memory-mapped on demand. This keeps long runs under the configured
+/// memory budget while still allowing random tile extraction in later phases.
 class DiskCacheFrameStore {
 public:
   DiskCacheFrameStore();
@@ -444,19 +497,29 @@ public:
   DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept;
   DiskCacheFrameStore &operator=(DiskCacheFrameStore &&o) noexcept;
 
+  /// Persist one full frame at index `fi`.
   void store(size_t fi, const Matrix2Df &frame);
+  /// Load a full frame into memory.
   Matrix2Df load(size_t fi) const;
+  /// Return a mapped pointer to full-frame data; valid until cache cleanup.
   const float *frame_data(size_t fi) const;
+  /// Extract a tile by value, applying optional canvas coordinate offsets.
   Matrix2Df extract_tile(size_t fi, const Tile &t, int offset_x = 0,
                          int offset_y = 0) const;
+  /// Extract a tile into an existing matrix to avoid repeated allocations.
   bool extract_tile_into(size_t fi, const Tile &t, Matrix2Df &out,
                          int offset_x = 0, int offset_y = 0) const;
 
+  /// Whether a frame has been stored for `fi`.
   bool has_data(size_t fi) const;
+  /// Number of frame slots managed by the store.
   size_t size() const;
+  /// Stored frame row count.
   int rows() const;
+  /// Stored frame column count.
   int cols() const;
 
+  /// Remove cached files and release all mappings.
   void cleanup();
 
 private:
@@ -474,6 +537,11 @@ private:
   mutable std::vector<void *> mapped_views_;
 };
 
+/// Shared per-run cache for normalized frames and registration proxies.
+///
+/// Normalized full frames are disk-backed through `DiskCacheFrameStore`; compact
+/// registration proxies stay in memory because they are repeatedly reused by
+/// direct registration, anchor promotion, and rescue passes.
 class RunnerFrameCache {
 public:
   RunnerFrameCache();
@@ -485,16 +553,25 @@ public:
   RunnerFrameCache(RunnerFrameCache &&) = delete;
   RunnerFrameCache &operator=(RunnerFrameCache &&) = delete;
 
+  /// Store a normalized full-resolution frame in the disk cache.
   void store_normalized(size_t fi, const Matrix2Df &frame);
+  /// Load a normalized full-resolution frame from the disk cache.
   Matrix2Df load_normalized(size_t fi) const;
+  /// Whether normalized frame data is available for `fi`.
   bool has_normalized(size_t fi) const;
 
+  /// Store the downsampled registration proxy for `fi`.
   void store_registration_proxy(size_t fi, const Matrix2Df &proxy);
+  /// Load a cached registration proxy if present.
   bool try_load_registration_proxy(size_t fi, Matrix2Df &out) const;
 
+  /// Number of frame slots in the cache.
   size_t size() const;
+  /// Normalized frame row count.
   int rows() const;
+  /// Normalized frame column count.
   int cols() const;
+  /// Remove disk-backed normalized frames and clear in-memory proxies.
   void cleanup();
 
 private:

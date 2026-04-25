@@ -4,6 +4,10 @@
 
 namespace tile_compile::reconstruction {
 
+/// @brief Detects dead tiles.
+/// @details Part of dead/unsupported tile classification helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<bool> detect_dead_tiles(
     const TileGrid&             grid,
     const std::vector<uint8_t>& canvas_mask,

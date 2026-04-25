@@ -10,6 +10,10 @@
 
 namespace tile_compile::metrics {
 
+/// @brief Builds background mask sigma clip.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, int dilate_radius) {
     const int h = frame.rows;
     const int w = frame.cols;
@@ -61,6 +65,10 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
 
 namespace {
 
+/// @brief Implements collect masked pixels.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> out;
     out.reserve(static_cast<size_t>(frame.size()));
@@ -73,12 +81,20 @@ std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b
     return out;
 }
 
+/// @brief Implements masked median.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float masked_median(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
     return core::median_of(px);
 }
 
+/// @brief Implements masked sigma mad.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float center) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
@@ -87,6 +103,10 @@ float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float cent
     return 1.4826f * mad;
 }
 
+/// @brief Implements robust normalize median mad.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 VectorXf robust_normalize_median_mad(const VectorXf& v) {
     if (v.size() <= 0) return v;
     std::vector<float> vals;
@@ -102,6 +122,10 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     return (v.array() - med) / sigma_robust;
 }
 
+/// @brief Implements positive pearson correlation.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float positive_pearson_correlation(const VectorXf& a, const VectorXf& b) {
     if (a.size() <= 1 || a.size() != b.size()) return 0.0f;
 
@@ -121,6 +145,10 @@ float positive_pearson_correlation(const VectorXf& a, const VectorXf& b) {
 
 }
 
+/// @brief Calculates frame metrics.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     FrameMetrics m;
 
@@ -181,6 +209,10 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     return m;
 }
 
+/// @brief Calculates global weights.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
                                    float w_bg, float w_noise, float w_grad,
                                    float clamp_lo, float clamp_hi,
@@ -286,6 +318,10 @@ struct PsfFit2D {
 
 // Fit an elliptical 2D Gaussian proxy using weighted second central moments.
 // The principal-axis sigmas come from the covariance eigenvalues.
+/// @brief Implements fit elliptical psf 2d.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PsfFit2D fit_elliptical_psf_2d(const cv::Mat& patch, float bg) {
     PsfFit2D out;
     if (patch.empty()) return out;
@@ -351,6 +387,10 @@ static PsfFit2D fit_elliptical_psf_2d(const cv::Mat& patch, float bg) {
     return out;
 }
 
+/// @brief Implements keep indices by mad clip.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& values,
                                                     float sigma_clip) {
     std::vector<size_t> keep;
@@ -379,6 +419,10 @@ static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& va
     return keep;
 }
 
+/// @brief Estimates fwhm from patch.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float estimate_fwhm_from_patch(const cv::Mat& patch) {
     if (patch.empty()) return 0.0f;
     std::vector<float> v;
@@ -409,6 +453,10 @@ float estimate_fwhm_from_patch(const cv::Mat& patch) {
     return 0.0f;
 }
 
+/// @brief Implements measure fwhm from image.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
                               int patch_radius, size_t min_stars) {
     if (img.size() <= 0) return 0.0f;
@@ -455,6 +503,10 @@ float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
 
 // Estimate FWHM along principal ellipse axes from a patch.
 // Returns {fwhm_major, fwhm_minor}. Both 0 if invalid.
+/// @brief Estimates fwhm xy.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::pair<float, float> estimate_fwhm_xy(const cv::Mat& patch) {
     if (patch.empty()) return {0.0f, 0.0f};
 
@@ -479,6 +531,10 @@ static std::pair<float, float> estimate_fwhm_xy(const cv::Mat& patch) {
     return {fit.fwhm_major, fit.fwhm_minor};
 }
 
+/// @brief Implements measure frame stars.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 FrameStarMetrics measure_frame_stars(const Matrix2Df& img,
                                      int ref_star_count,
                                      int max_corners,

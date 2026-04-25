@@ -19,6 +19,10 @@ struct PsfFit2D {
 
 // Fit an elliptical 2D Gaussian proxy using weighted second central moments.
 // The principal-axis sigmas come from the covariance eigenvalues.
+/// @brief Implements fit elliptical psf 2d.
+/// @details Part of per-tile metric and PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PsfFit2D fit_elliptical_psf_2d(const cv::Mat& patch, float bg) {
     PsfFit2D out;
     if (patch.empty()) return out;
@@ -105,6 +109,10 @@ struct TileMetricsScratch {
 
 // Measure FWHM, roundness, and contrast from a small patch around a star.
 // Returns valid=true only if both X and Y fits succeed.
+/// @brief Implements measure star patch.
+/// @details Part of per-tile metric and PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool measure_star_patch(const cv::Mat& tile_cv, const cv::Point2f& pt,
                         int patch_radius, float tile_bg, float tile_sigma,
                         StarMeasurement& out) {
@@ -145,6 +153,10 @@ bool measure_star_patch(const cv::Mat& tile_cv, const cv::Point2f& pt,
     return true;
 }
 
+/// @brief Calculates tile metrics impl.
+/// @details Part of per-tile metric and PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileMetrics calculate_tile_metrics_impl(const Matrix2Df& tile,
                                         TileMetricsScratch& scratch) {
     TileMetrics m;
@@ -283,6 +295,10 @@ TileMetrics calculate_tile_metrics_impl(const Matrix2Df& tile,
 
 }
 
+/// @brief Calculates tile metrics.
+/// @details Part of per-tile metric and PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
     thread_local TileMetricsScratch scratch;
     return calculate_tile_metrics_impl(tile, scratch);

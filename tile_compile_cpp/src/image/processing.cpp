@@ -8,6 +8,10 @@
 
 namespace tile_compile::image {
 
+/// @brief Splits cfa channels.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::map<std::string, Matrix2Df> split_cfa_channels(const Matrix2Df& mosaic, BayerPattern pattern) {
     int h = mosaic.rows();
     int w = mosaic.cols();
@@ -48,6 +52,10 @@ std::map<std::string, Matrix2Df> split_cfa_channels(const Matrix2Df& mosaic, Bay
     return {{"R", R}, {"G", G}, {"B", B}};
 }
 
+/// @brief Implements reassemble cfa mosaic.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df reassemble_cfa_mosaic(const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, 
                                  BayerPattern pattern) {
     int hh = R.rows();
@@ -87,6 +95,10 @@ Matrix2Df reassemble_cfa_mosaic(const Matrix2Df& R, const Matrix2Df& G, const Ma
     return mosaic;
 }
 
+/// @brief Normalizes frame.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df normalize_frame(const Matrix2Df& frame, float target_background, 
                           float target_scale, NormalizationMode mode) {
     float median = 0.0f;
@@ -111,6 +123,10 @@ Matrix2Df normalize_frame(const Matrix2Df& frame, float target_background,
     return result;
 }
 
+/// @brief Implements cosmetic correction cfa.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold,
                                  bool correct_hot, int origin_x, int origin_y) {
     if (mosaic.size() == 0) return mosaic;
@@ -285,6 +301,10 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
     return result;
 }
 
+/// @brief Implements cosmetic correction.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, bool correct_hot) {
     if (frame.size() == 0) return frame;
     Matrix2Df result = frame;
@@ -347,6 +367,10 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     return result;
 }
 
+/// @brief Implements suppress isolated chroma speckles rgb inplace.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
     Matrix2Df& R, Matrix2Df& G, Matrix2Df& B,
     const std::vector<uint8_t>* valid_mask, int mask_rows, int mask_cols) {
@@ -554,6 +578,10 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
     return stats;
 }
 
+/// @brief Extracts tile.
+/// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df extract_tile(const Matrix2Df& img, const Tile& t) {
     int cols = static_cast<int>(img.cols());
     int rows = static_cast<int>(img.rows());

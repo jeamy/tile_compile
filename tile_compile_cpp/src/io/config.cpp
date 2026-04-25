@@ -15,8 +15,16 @@ namespace {
 
 namespace fs = std::filesystem;
 
+/// @brief Checks between 0 1.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
 
+/// @brief Normalizes acceleration backend.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string normalize_acceleration_backend(std::string value) {
   auto not_space = [](unsigned char c) { return !std::isspace(c); };
   value.erase(value.begin(),
@@ -30,6 +38,10 @@ std::string normalize_acceleration_backend(std::string value) {
   return value;
 }
 
+/// @brief Reads float pair.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void read_float_pair(const YAML::Node &n, std::array<float, 2> &out) {
   if (n && n.IsSequence() && n.size() == 2) {
     out[0] = n[0].as<float>();
@@ -37,6 +49,10 @@ void read_float_pair(const YAML::Node &n, std::array<float, 2> &out) {
   }
 }
 
+/// @brief Reads int pair.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void read_int_pair(const YAML::Node &n, std::array<int, 2> &out) {
   if (n && n.IsSequence() && n.size() == 2) {
     out[0] = n[0].as<int>();
@@ -44,12 +60,20 @@ void read_int_pair(const YAML::Node &n, std::array<int, 2> &out) {
   }
 }
 
+/// @brief Implements scalar looks like float.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool scalar_looks_like_float(const std::string &raw) {
   return raw.find('.') != std::string::npos ||
          raw.find('e') != std::string::npos ||
          raw.find('E') != std::string::npos;
 }
 
+/// @brief Implements trim trailing zeros.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string trim_trailing_zeros(std::string text) {
   const auto dot = text.find('.');
   if (dot == std::string::npos) {
@@ -67,6 +91,10 @@ std::string trim_trailing_zeros(std::string text) {
   return text.empty() ? "0" : text;
 }
 
+/// @brief Formats config float scalar.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string format_config_float_scalar(double value) {
   if (!std::isfinite(value)) {
     return "0";
@@ -84,6 +112,10 @@ std::string format_config_float_scalar(double value) {
   return trim_trailing_zeros(oss.str());
 }
 
+/// @brief Implements round yaml numeric scalars inplace.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void round_yaml_numeric_scalars_inplace(YAML::Node node) {
   if (!node || node.IsNull()) {
     return;
@@ -121,6 +153,10 @@ void round_yaml_numeric_scalars_inplace(YAML::Node node) {
 
 } // namespace
 
+/// @brief Implements load.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Config Config::load(const fs::path &path) {
   if (!fs::exists(path)) {
     throw ConfigError("Config file not found: " + path.string());
@@ -129,6 +165,10 @@ Config Config::load(const fs::path &path) {
   return from_yaml(node);
 }
 
+/// @brief Implements from yaml.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Config Config::from_yaml(const YAML::Node &node) {
   Config cfg;
 
@@ -762,6 +802,10 @@ Config Config::from_yaml(const YAML::Node &node) {
   return cfg;
 }
 
+/// @brief Implements save.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void Config::save(const fs::path &path) const {
   YAML::Node node = to_yaml();
   round_yaml_numeric_scalars_inplace(node);
@@ -772,6 +816,10 @@ void Config::save(const fs::path &path) const {
   out << node;
 }
 
+/// @brief Converts yaml.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 YAML::Node Config::to_yaml() const {
   YAML::Node node;
 
@@ -1067,6 +1115,10 @@ YAML::Node Config::to_yaml() const {
   return node;
 }
 
+/// @brief Implements validate.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void Config::validate() const {
   if (pipeline.mode != "production" && pipeline.mode != "test") {
     throw ValidationError("pipeline.mode must be 'production' or 'test'");
@@ -1535,6 +1587,10 @@ void Config::validate() const {
   }
 }
 
+/// @brief Implements get schema json.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string get_schema_json() {
   for (const fs::path &candidate : {
            fs::path("tile_compile.schema.json"),

@@ -42,6 +42,10 @@ namespace tile_compile::core {
 
 namespace {
 
+/// @brief Implements opencv cuda headers available.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencv_cuda_headers_available(AccelerationPhase phase) {
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
   switch (phase) {
@@ -57,6 +61,10 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   return false;
 }
 
+/// @brief Implements phase supports backend.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool phase_supports_backend(AccelerationPhase phase,
                             AccelerationBackend backend) {
   switch (backend) {
@@ -76,6 +84,10 @@ bool phase_supports_backend(AccelerationPhase phase,
   return false;
 }
 
+/// @brief Implements opencv cuda runtime available.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencv_cuda_runtime_available() {
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
   try {
@@ -88,6 +100,10 @@ bool opencv_cuda_runtime_available() {
 #endif
 }
 
+/// @brief Implements opencv opencl runtime available.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencv_opencl_runtime_available() {
 #if TILE_COMPILE_HAS_OPENCV_OPENCL
   try {
@@ -104,11 +120,19 @@ bool opencv_opencl_runtime_available() {
 #endif
 }
 
+/// @brief Implements opencl api mutex.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::mutex &opencl_api_mutex() {
   static std::mutex mutex;
   return mutex;
 }
 
+/// @brief Lists missing backend reason.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string missing_backend_reason(AccelerationBackend backend,
                                    bool tile_compile_with_cuda,
                                    bool opencv_cuda_headers,
@@ -143,12 +167,20 @@ std::string missing_backend_reason(AccelerationBackend backend,
   return "unknown_backend";
 }
 
+/// @brief Implements unsupported phase reason.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string unsupported_phase_reason(AccelerationBackend backend,
                                      AccelerationPhase phase) {
   return acceleration_backend_name(backend) + "_backend_not_implemented_for_" +
          acceleration_phase_name(phase);
 }
 
+/// @brief Implements safe frame bytes.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 size_t safe_frame_bytes(int rows, int cols, int channels) {
   const size_t r = static_cast<size_t>(std::max(0, rows));
   const size_t c = static_cast<size_t>(std::max(0, cols));
@@ -156,6 +188,10 @@ size_t safe_frame_bytes(int rows, int cols, int channels) {
   return r * c * ch * sizeof(float);
 }
 
+/// @brief Implements warp is identity.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool warp_is_identity(const WarpMatrix &warp) {
   const float eps = 1.0e-6f;
   return std::fabs(warp(0, 0) - 1.0f) < eps &&
@@ -164,6 +200,10 @@ bool warp_is_identity(const WarpMatrix &warp) {
          std::fabs(warp(1, 2)) < eps;
 }
 
+/// @brief Implements warp matrix to cv.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat warp_matrix_to_cv(const WarpMatrix &warp) {
   cv::Mat warp_matrix(2, 3, CV_32F);
   for (int i = 0; i < 2; ++i) {
@@ -174,6 +214,10 @@ cv::Mat warp_matrix_to_cv(const WarpMatrix &warp) {
   return warp_matrix;
 }
 
+/// @brief Creates host finite mask.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat make_host_finite_mask(const Matrix2Df &matrix) {
   cv::Mat mask(static_cast<int>(matrix.rows()), static_cast<int>(matrix.cols()),
                CV_8U, cv::Scalar(0));
@@ -188,6 +232,10 @@ cv::Mat make_host_finite_mask(const Matrix2Df &matrix) {
   return mask;
 }
 
+/// @brief Writes valid outputs from mask.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void write_valid_outputs_from_mask(const cv::Mat &mask,
                                    std::vector<uint8_t> *valid_mask_out,
                                    bool *has_data_out) {
@@ -223,6 +271,10 @@ void write_valid_outputs_from_mask(const cv::Mat &mask,
   }
 }
 
+/// @brief Builds warped support mask.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool build_warped_support_mask(const cv::Mat &warp_matrix, int src_rows,
                                int src_cols, cv::Size output_size,
                                cv::Mat &support_mask) {
@@ -242,6 +294,10 @@ bool build_warped_support_mask(const cv::Mat &warp_matrix, int src_rows,
 }
 
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
+/// @brief Implements cuda warp affine impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
                            cv::Size output_size, cv::Mat &dst) {
   try {
@@ -258,6 +314,10 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
   }
 }
 
+/// @brief Implements cuda warp cfa mosaic.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                           int out_height, int out_width, Matrix2Df &out) {
   const int h = static_cast<int>(mosaic.rows());
@@ -323,6 +383,10 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
 #endif
 
 #if TILE_COMPILE_HAS_OPENCV_OPENCL
+/// @brief Implements opencl warp affine impl locked.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_affine_impl_locked(const cv::Mat &src,
                                     const cv::Mat &warp_matrix,
                                     cv::Size output_size, cv::Mat &dst) {
@@ -339,6 +403,10 @@ bool opencl_warp_affine_impl_locked(const cv::Mat &src,
   return !dst.empty();
 }
 
+/// @brief Implements opencl warp affine impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
                              cv::Size output_size, cv::Mat &dst) {
   std::lock_guard<std::mutex> lock(opencl_api_mutex());
@@ -349,6 +417,10 @@ bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
   }
 }
 
+/// @brief Implements opencl warp cfa mosaic.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                              int out_height, int out_width, Matrix2Df &out) {
   const int h = static_cast<int>(mosaic.rows());
@@ -420,6 +492,10 @@ bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
   return out.size() > 0;
 }
 
+/// @brief Implements opencl sigma clip weighted tile impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencl_sigma_clip_weighted_tile_impl(
     const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
@@ -709,6 +785,10 @@ bool opencl_sigma_clip_weighted_tile_impl(
   }
 }
 
+/// @brief Implements opencl sigma clip stack impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool opencl_sigma_clip_stack_impl(
     const std::vector<Matrix2Df> &frames, float sigma_low, float sigma_high,
     int max_iters, float min_fraction, Matrix2Df &out) {
@@ -929,6 +1009,10 @@ bool opencl_sigma_clip_stack_impl(
 #endif
 
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
+/// @brief Implements cuda sigma clip weighted tile impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool cuda_sigma_clip_weighted_tile_impl(
     const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
@@ -1220,6 +1304,10 @@ bool cuda_sigma_clip_weighted_tile_impl(
   }
 }
 
+/// @brief Implements cuda sigma clip stack impl.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool cuda_sigma_clip_stack_impl(
     const std::vector<Matrix2Df> &frames, float sigma_low, float sigma_high,
     int max_iters, float min_fraction, Matrix2Df &out) {
@@ -1440,10 +1528,18 @@ bool cuda_sigma_clip_stack_impl(
 }
 #endif
 
+/// @brief Implements auto backend requested.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool auto_backend_requested(const std::string &name) {
   return core::to_lower(name) == "auto";
 }
 
+/// @brief Implements choose auto backend.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AccelerationBackend choose_auto_backend(AccelerationPhase phase,
                                         bool tile_compile_with_cuda,
                                         bool opencv_cuda_runtime,
@@ -1474,6 +1570,10 @@ AccelerationBackend choose_auto_backend(AccelerationPhase phase,
 
 } // namespace
 
+/// @brief Implements acceleration phase name.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string acceleration_phase_name(AccelerationPhase phase) {
   switch (phase) {
   case AccelerationPhase::prewarp:
@@ -1486,6 +1586,10 @@ std::string acceleration_phase_name(AccelerationPhase phase) {
   return "UNKNOWN";
 }
 
+/// @brief Implements acceleration backend name.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string acceleration_backend_name(AccelerationBackend backend) {
   switch (backend) {
   case AccelerationBackend::cpu:
@@ -1500,6 +1604,10 @@ std::string acceleration_backend_name(AccelerationBackend backend) {
   return "cpu";
 }
 
+/// @brief Parses acceleration backend.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool parse_acceleration_backend(const std::string &name,
                                 AccelerationBackend &backend_out) {
   const std::string normalized = core::to_lower(name);
@@ -1522,6 +1630,10 @@ bool parse_acceleration_backend(const std::string &name,
   return false;
 }
 
+/// @brief Implements select acceleration backend.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AccelerationSelection select_acceleration_backend(
     const std::string &requested_backend_name, AccelerationPhase phase) {
   AccelerationSelection selection;
@@ -1587,6 +1699,10 @@ AccelerationSelection select_acceleration_backend(
   return selection;
 }
 
+/// @brief Implements acceleration selection to json.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 json acceleration_selection_to_json(const AccelerationSelection &selection) {
   json out = {
       {"phase", acceleration_phase_name(selection.phase)},
@@ -1608,6 +1724,10 @@ json acceleration_selection_to_json(const AccelerationSelection &selection) {
   return out;
 }
 
+/// @brief Implements acceleration selection summary.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string acceleration_selection_summary(
     const AccelerationSelection &selection) {
   std::ostringstream oss;
@@ -1632,6 +1752,10 @@ std::string acceleration_selection_summary(
   return oss.str();
 }
 
+/// @brief Creates device frame.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DeviceFrame make_device_frame(int rows, int cols, int channels) {
   DeviceFrame frame;
   frame.rows = rows;
@@ -1641,6 +1765,10 @@ DeviceFrame make_device_frame(int rows, int cols, int channels) {
   return frame;
 }
 
+/// @brief Creates device frame batch.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DeviceFrameBatch make_device_frame_batch(size_t batch_size, int rows, int cols,
                                          int channels) {
   DeviceFrameBatch batch;
@@ -1650,6 +1778,10 @@ DeviceFrameBatch make_device_frame_batch(size_t batch_size, int rows, int cols,
   return batch;
 }
 
+/// @brief Creates device tile batch.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DeviceTileBatch make_device_tile_batch(const std::vector<Tile> &tiles,
                                        int channels) {
   DeviceTileBatch batch;
@@ -1668,6 +1800,10 @@ DeviceTileBatch make_device_tile_batch(const std::vector<Tile> &tiles,
   return batch;
 }
 
+/// @brief Implements device frame to json.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 json device_frame_to_json(const DeviceFrame &frame) {
   return {
       {"rows", frame.rows},
@@ -1677,6 +1813,10 @@ json device_frame_to_json(const DeviceFrame &frame) {
   };
 }
 
+/// @brief Implements device frame batch to json.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 json device_frame_batch_to_json(const DeviceFrameBatch &batch) {
   return {
       {"batch_size", batch.batch_size},
@@ -1685,6 +1825,10 @@ json device_frame_batch_to_json(const DeviceFrameBatch &batch) {
   };
 }
 
+/// @brief Implements device tile batch to json.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 json device_tile_batch_to_json(const DeviceTileBatch &batch) {
   return {
       {"batch_size", batch.batch_size},
@@ -1696,6 +1840,10 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch) {
   };
 }
 
+/// @brief Implements AccelerationOps.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AccelerationOps::AccelerationOps(AccelerationSelection selection)
     : selection_(std::move(selection)) {}
 
@@ -1710,6 +1858,10 @@ struct AccelerationOps::OverlapAddState {
 #endif
 };
 
+/// @brief Implements warp affine frame.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
                                         ColorMode mode, int canvas_height,
                                         int canvas_width, int offset_x,
@@ -1835,6 +1987,10 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
   return warped_out.size() > 0;
 }
 
+/// @brief Implements sigma clip reduce.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 reconstruction::WeightedTileResult AccelerationOps::sigma_clip_reduce(
     const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
@@ -1868,6 +2024,10 @@ reconstruction::WeightedTileResult AccelerationOps::sigma_clip_reduce(
       eps_weight);
 }
 
+/// @brief Implements sigma clip stack.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df AccelerationOps::sigma_clip_stack(const std::vector<Matrix2Df> &frames,
                                             float sigma_low,
                                             float sigma_high, int max_iters,
@@ -1896,6 +2056,10 @@ Matrix2Df AccelerationOps::sigma_clip_stack(const std::vector<Matrix2Df> &frames
                                           max_iters, min_fraction);
 }
 
+/// @brief Implements overlap add.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void AccelerationOps::overlap_add(
     const Matrix2Df &tile, const Tile &tile_bounds,
     const std::vector<float> &hann_x, const std::vector<float> &hann_y,
@@ -1933,6 +2097,10 @@ void AccelerationOps::overlap_add(
   overlap_add(tile, tile_bounds, coeff, accum, weight_sum, accumulate_weight);
 }
 
+/// @brief Implements overlap add.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
                                   const Matrix2Df &coeff, Matrix2Df &accum,
                                   Matrix2Df &weight_sum,
@@ -2182,6 +2350,10 @@ void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds
   }
 }
 
+/// @brief Implements overlap add preweighted.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void AccelerationOps::overlap_add_preweighted(const Matrix2Df &weighted_tile,
                                               const Tile &tile_bounds,
                                               Matrix2Df &accum,
@@ -2345,6 +2517,10 @@ void AccelerationOps::overlap_add_preweighted(const Matrix2Df &weighted_tile,
   }
 }
 
+/// @brief Normalizes overlap accum.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
                                               Matrix2Df &weight_sum,
                                               float eps_weight,
@@ -2421,6 +2597,10 @@ bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
   return false;
 }
 
+/// @brief Implements flush overlap state.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
                                           Matrix2Df &weight_sum) const {
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
@@ -2492,6 +2672,10 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 namespace tile_compile::core {
 
 std::vector<reconstruction::WeightedTileResult>
+/// @brief Implements sigma clip reduce batch.
+/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 AccelerationOps::sigma_clip_reduce_batch(
     const std::vector<BatchSigmaClipInput>& tile_inputs,
     float sigma_low,

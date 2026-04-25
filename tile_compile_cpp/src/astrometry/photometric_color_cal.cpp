@@ -25,6 +25,10 @@ struct PlaneFit {
     bool ok = false;
 };
 
+/// @brief Implements fit sky plane huber.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
                                     const std::vector<double> &ys,
                                     const std::vector<double> &vs,
@@ -137,6 +141,10 @@ static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
 
 // ─── Default OSC filter curves (kept for API compatibility) ─────────────
 
+/// @brief Returns the default osc filter curves.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 FilterCurves default_osc_filter_curves() {
     FilterCurves fc;
     for (double wl = 336.0; wl <= 1020.0; wl += 2.0) {
@@ -172,6 +180,10 @@ FilterCurves default_osc_filter_curves() {
 // fitting the ratio of blue-band to red-band integrated flux to a
 // Planck function.  This avoids the need for filter curves entirely.
 
+/// @brief Estimates teff from xp.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double estimate_teff_from_xp(const std::vector<float> &xp_flux) {
     if (xp_flux.size() != XPSAMPLED_LEN) return 0.0;
 
@@ -234,6 +246,10 @@ static double estimate_teff_from_xp(const std::vector<float> &xp_flux) {
 //
 // This is the same approach as Siril's TempK2rgb() but without lcms2.
 
+/// @brief Implements teff to rgb.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void teff_to_rgb(double T, double &r, double &g, double &b) {
     r = g = b = 0;
     if (T < 1000 || T > 50000) return;
@@ -291,6 +307,10 @@ static void teff_to_rgb(double T, double &r, double &g, double &b) {
 
 // ─── Aperture photometry ────────────────────────────────────────────────
 
+/// @brief Implements aperture flux.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double aperture_flux(const Matrix2Df &img, double cx, double cy,
                             double r_ap, double r_ann_in, double r_ann_out,
                             const std::string &background_model,
@@ -395,6 +415,10 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
     return (n_ap > 0) ? total : -1.0;
 }
 
+/// @brief Implements sampled high percentile.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float sampled_high_percentile(const Matrix2Df &img, int step, float q) {
     const int rows = img.rows();
     const int cols = img.cols();
@@ -423,6 +447,10 @@ static float sampled_high_percentile(const Matrix2Df &img, int step, float q) {
     return samples[idx];
 }
 
+/// @brief Implements annulus safe fraction.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
                                     const std::vector<uint8_t> *support_mask,
                                     int rows, int cols,
@@ -455,6 +483,10 @@ static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
     return (n_total > 0) ? (static_cast<double>(n_safe) / static_cast<double>(n_total)) : 0.0;
 }
 
+/// @brief Implements keep largest connected component.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static int keep_largest_connected_component(std::vector<uint8_t> &mask,
                                             int rows, int cols) {
     if (rows <= 0 || cols <= 0 || mask.size() != static_cast<size_t>(rows * cols)) {
@@ -520,6 +552,10 @@ static int keep_largest_connected_component(std::vector<uint8_t> &mask,
     return static_cast<int>(best_component.size());
 }
 
+/// @brief Implements radial support fraction.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double radial_support_fraction(const std::vector<uint8_t> &mask,
                                       int rows, int cols,
                                       double cx, double cy,
@@ -548,6 +584,10 @@ static double radial_support_fraction(const std::vector<uint8_t> &mask,
     return (n_total > 0) ? (static_cast<double>(n_ok) / static_cast<double>(n_total)) : 0.0;
 }
 
+/// @brief Implements blend matrix with identity per channel.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static ColorMatrix blend_matrix_with_identity_per_channel(
     const ColorMatrix &m, double alpha_r, double alpha_b) {
     alpha_r = std::clamp(alpha_r, 0.0, 1.0);
@@ -579,6 +619,10 @@ static ColorMatrix blend_matrix_with_identity_per_channel(
     return out;
 }
 
+/// @brief Updates result matrix metrics.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void update_result_matrix_metrics(PCCResult *res) {
     const double m00 = res->matrix[0][0];
     const double m11 = res->matrix[1][1];
@@ -594,6 +638,10 @@ static void update_result_matrix_metrics(PCCResult *res) {
                           : std::numeric_limits<double>::infinity();
 }
 
+/// @brief Implements measure stars.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<StarPhotometry> measure_stars(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const WCS &wcs,
@@ -841,6 +889,10 @@ std::vector<StarPhotometry> measure_stars(
 // The repeated median fit (Siegel 1982) is breakdown-point 0.5 and
 // handles both slope and intercept robustly unlike simple ratio medians.
 
+/// @brief Implements weighted median.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double weighted_median(const std::vector<double> &vals,
                               const std::vector<double> &weights) {
     if (vals.empty() || vals.size() != weights.size()) return 0.0;
@@ -865,6 +917,10 @@ static double weighted_median(const std::vector<double> &vals,
     return vw.back().first;
 }
 
+/// @brief Implements simple median.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double simple_median(std::vector<double> v) {
     if (v.empty()) return 0.0;
     const size_t n = v.size();
@@ -878,6 +934,10 @@ static double simple_median(std::vector<double> v) {
 // Siegel's repeated median estimator: robust linear fit y = a + b*x.
 // Breakdown point 0.5. Returns false if insufficient data.
 // deviation_out = MAD of residuals after fit.
+/// @brief Implements repeated median fit.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool repeated_median_fit(const std::vector<double> &x,
                                  const std::vector<double> &y,
                                  double &a_out, double &b_out,
@@ -923,6 +983,10 @@ static bool repeated_median_fit(const std::vector<double> &x,
 
 // Weighted robust location estimator with iterative sigma clipping around
 // weighted median / weighted MAD.
+/// @brief Implements robust mean weighted.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double robust_mean_weighted(std::vector<double> &data,
                                    std::vector<double> &weights,
                                    double sigma,
@@ -971,6 +1035,10 @@ static double robust_mean_weighted(std::vector<double> &data,
 }
 
 // Recompute robust log-chroma residuals for the actually applied PCC matrix.
+/// @brief Implements recompute residual rms for matrix.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double recompute_residual_rms_for_matrix(const std::vector<StarPhotometry> &stars,
                                                 const ColorMatrix &matrix,
                                                 double sigma_clip,
@@ -1033,6 +1101,10 @@ static double recompute_residual_rms_for_matrix(const std::vector<StarPhotometry
     return std::max(dev_rg, dev_bg);
 }
 
+/// @brief Implements fit color matrix.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
                            const PCCConfig &config) {
     PCCResult res;
@@ -1271,6 +1343,10 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
 // ─── Apply color matrix ─────────────────────────────────────────────────
 
 // Estimate per-channel background as the median of a subsample
+/// @brief Estimates background.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float estimate_background(const Matrix2Df &img,
                                  const std::vector<uint8_t> *valid_mask = nullptr) {
     int rows = img.rows();
@@ -1299,6 +1375,10 @@ static float estimate_background(const Matrix2Df &img,
     return samples[samples.size() / 2];
 }
 
+/// @brief Implements percentile sorted.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float percentile_sorted(const std::vector<float> &sorted, float q) {
     if (sorted.empty()) return 0.0f;
     if (q <= 0.0f) return sorted.front();
@@ -1310,6 +1390,10 @@ static float percentile_sorted(const std::vector<float> &sorted, float q) {
 constexpr float kShadowAttenFloor = 0.10f;
 constexpr float kHighlightAttenFloor = 0.25f;
 
+/// @brief Implements box blur with valid mask.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<float> box_blur_with_valid_mask(const std::vector<float> &src,
                                                    const std::vector<uint8_t> &valid,
                                                    int rows, int cols,
@@ -1381,6 +1465,10 @@ struct PCCAttenuationContext {
     std::vector<float> luma_smooth;
 };
 
+/// @brief Builds pcc attenuation context.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
                                                            const Matrix2Df &G,
                                                            const Matrix2Df &B,
@@ -1472,6 +1560,10 @@ static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
     return ctx;
 }
 
+/// @brief Implements attenuation from luma.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float attenuation_from_luma(float luma, const PCCAttenuationContext &ctx) {
     float atten_shadows = 1.0f;
     if (ctx.shadow_hi > ctx.shadow_lo && luma < ctx.shadow_hi) {
@@ -1491,6 +1583,10 @@ static float attenuation_from_luma(float luma, const PCCAttenuationContext &ctx)
     return std::min(atten_shadows, atten_highlights);
 }
 
+/// @brief Applies color matrix to deltas.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static inline void apply_color_matrix_to_deltas(const ColorMatrix &m, float atten,
                                                 float dr, float dg, float db,
                                                 float *nr, float *ng, float *nb) {
@@ -1530,6 +1626,10 @@ struct PCCBackgroundNeutralizationDecision {
     std::string reason = "disabled";
 };
 
+/// @brief Builds pcc background samples.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<PCCBackgroundSample> build_pcc_background_samples(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const std::vector<uint8_t> &bg_mask,
@@ -1609,6 +1709,10 @@ struct PCCBackgroundStdPair {
     double bg_std = std::numeric_limits<double>::infinity();
 };
 
+/// @brief Implements sampled background std after matrix.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PCCBackgroundStdPair sampled_background_std_after_matrix(
     const std::vector<PCCBackgroundSample> &samples,
     const ColorMatrix &matrix) {
@@ -1654,6 +1758,10 @@ static PCCBackgroundStdPair sampled_background_std_after_matrix(
     return out;
 }
 
+/// @brief Implements robust sigma from samples.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float robust_sigma_from_samples(std::vector<float> values) {
     if (values.size() < 32) return 0.0f;
     std::sort(values.begin(), values.end());
@@ -1664,6 +1772,10 @@ static float robust_sigma_from_samples(std::vector<float> values) {
     return 1.4826f * mad;
 }
 
+/// @brief Estimates channel background median.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool estimate_channel_background_median(
     const Matrix2Df &ch, const std::vector<uint8_t> &bg_mask, double *median_out) {
     if (median_out == nullptr) return false;
@@ -1684,6 +1796,10 @@ static bool estimate_channel_background_median(
     return std::isfinite(*median_out);
 }
 
+/// @brief Implements decide pcc background neutralization.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const std::vector<uint8_t> &analysis_mask,
@@ -1788,6 +1904,10 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
     return out;
 }
 
+/// @brief Implements neutralize background offsets.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                           const std::vector<uint8_t> &analysis_mask,
                                           const std::string &mode,
@@ -1849,6 +1969,10 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
 }
 
 
+/// @brief Applies diagonal color matrix affine.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                                const ColorMatrix &m, bool verbose,
                                                const std::vector<uint8_t> *analysis_mask = nullptr,
@@ -1945,6 +2069,10 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
 }
 
 
+/// @brief Applies color matrix impl simple.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                            const ColorMatrix &m, bool verbose,
                                            const std::vector<uint8_t> *stats_mask = nullptr,
@@ -2009,6 +2137,10 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
     }
 }
 
+/// @brief Applies color matrix impl.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                     const ColorMatrix &m, bool verbose,
                                     const std::vector<uint8_t> *stats_mask = nullptr,
@@ -2094,6 +2226,10 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     }
 }
 
+/// @brief Applies color matrix.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                         const ColorMatrix &m, bool apply_attenuation) {
     if (apply_attenuation) {
@@ -2105,6 +2241,10 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
 // ─── Full PCC pipeline ──────────────────────────────────────────────────
 
+/// @brief Runs pcc.
+/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                   const WCS &wcs,
                   const std::vector<GaiaStar> &catalog_stars,

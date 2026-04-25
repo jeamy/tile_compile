@@ -8,6 +8,10 @@
 #include <CLI/CLI.hpp>
 #endif
 
+/// @brief Implements print usage.
+/// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void print_usage() {
   std::cout << "Usage: tile_compile_runner <command> [options]\n\n"
             << "Commands:\n"
@@ -27,6 +31,10 @@ void print_usage() {
             << std::endl;
 }
 
+/// @brief Runs command.
+/// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int run_command(const std::string &config_path, const std::string &input_dir,
                 const std::string &runs_dir, const std::string &project_root,
                 const std::string &run_id_override,
@@ -38,6 +46,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                               config_from_stdin);
 }
 
+/// @brief Implements main.
+/// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int main(int argc, char *argv[]) {
 #ifdef HAVE_CLI11
   CLI::App app{"Tile-Compile Runner (C++)"};

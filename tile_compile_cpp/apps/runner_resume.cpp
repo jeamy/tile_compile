@@ -42,6 +42,10 @@ using tile_compile::TileType;
 using tile_compile::runner::WarpBounds;
 using tile_compile::runner::compute_warps_bounds;
 
+/// @brief Implements shell quote.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string shell_quote(const std::string &s) {
   std::string out;
   out.reserve(s.size() + 2);
@@ -57,12 +61,20 @@ std::string shell_quote(const std::string &s) {
   return out;
 }
 
+/// @brief Normalizes phase name.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string normalize_phase_name(std::string phase) {
   std::transform(phase.begin(), phase.end(), phase.begin(),
                  [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   return phase;
 }
 
+/// @brief Checks inplace rerun phase.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool is_inplace_rerun_phase(const std::string &phase_upper) {
   static const std::vector<std::string> kPhases = {
       "SCAN_INPUT",        "CHANNEL_SPLIT",   "NORMALIZATION",
@@ -74,6 +86,10 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
          kPhases.end();
 }
 
+/// @brief Writes canvas mask fits.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool write_canvas_mask_fits(const fs::path &mask_path,
                             const std::vector<uint8_t> &mask, int rows,
                             int cols,
@@ -104,6 +120,10 @@ bool write_canvas_mask_fits(const fs::path &mask_path,
   }
 }
 
+/// @brief Loads registration canvas offsets.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_registration_canvas_offsets(const fs::path &run_dir, int frame_width,
                                       int frame_height,
                                       tile_compile::ColorMode detected_mode,
@@ -160,6 +180,10 @@ bool load_registration_canvas_offsets(const fs::path &run_dir, int frame_width,
   return true;
 }
 
+/// @brief Reads latest run start input dir.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<std::string> read_latest_run_start_input_dir(
     const fs::path &run_events_path) {
   if (!fs::exists(run_events_path)) {
@@ -191,6 +215,10 @@ std::optional<std::string> read_latest_run_start_input_dir(
   return input_dir;
 }
 
+/// @brief Implements current executable path.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 fs::path current_executable_path() {
   std::error_code ec;
   const fs::path proc_self("/proc/self/exe");
@@ -203,6 +231,10 @@ fs::path current_executable_path() {
   return fs::current_path() / "tile_compile_runner";
 }
 
+/// @brief Creates run revision id.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string make_run_revision_id() {
   std::string ts = tile_compile::core::get_iso_timestamp();
   std::string compact;
@@ -218,6 +250,10 @@ std::string make_run_revision_id() {
   return "run_cfg_" + compact;
 }
 
+/// @brief Implements add run config revision.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string add_run_config_revision(const fs::path &run_dir,
                                     const std::string &yaml_text,
                                     const std::string &source,
@@ -270,6 +306,10 @@ std::string add_run_config_revision(const fs::path &run_dir,
   return revision_id;
 }
 
+/// @brief Implements rerun existing run in place.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int rerun_existing_run_in_place(const fs::path &run_dir,
                                 const std::string &run_id,
                                 const std::string &from_phase) {
@@ -337,6 +377,10 @@ int rerun_existing_run_in_place(const fs::path &run_dir,
   return (ret == 0) ? 0 : 1;
 }
 
+/// @brief Parses tile metrics json.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileMetrics parse_tile_metrics_json(const tile_compile::core::json &j) {
   TileMetrics tm{};
   tm.fwhm = j.value("fwhm", 0.0f);
@@ -353,6 +397,10 @@ TileMetrics parse_tile_metrics_json(const tile_compile::core::json &j) {
   return tm;
 }
 
+/// @brief Loads tile grid from artifact.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_tile_grid_from_artifact(const fs::path &tile_grid_path,
                                   TileGrid &out,
                                   std::string &error_out) {
@@ -418,6 +466,10 @@ bool load_tile_grid_from_artifact(const fs::path &tile_grid_path,
   }
 }
 
+/// @brief Loads aggregated tile metrics.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
                                   std::vector<TileMetrics> &out,
                                   std::string &error_out) {
@@ -528,6 +580,10 @@ bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
 
 }  // namespace
 
+/// @brief Implements resume command.
+/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int resume_command(const std::string &run_dir_path, const std::string &from_phase) {
   using namespace tile_compile;
 

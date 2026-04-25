@@ -10,6 +10,10 @@
 namespace tile_compile::metrics {
 
 LinearityThresholds
+/// @brief Implements linearity thresholds for.
+/// @details Part of input-linearity sampling and warning/failure diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 linearity_thresholds_for(const std::string &strictness) {
   if (strictness == "moderate") {
     return {1.2f, 1.2f, 0.7f, 0.9f, 0.7f};
@@ -21,6 +25,10 @@ linearity_thresholds_for(const std::string &strictness) {
 }
 
 LinearityFrameResult
+/// @brief Validates linearity frame.
+/// @details Part of input-linearity sampling and warning/failure diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 validate_linearity_frame(const Matrix2Df &img,
                          const std::string &strictness) {
   LinearityFrameResult out;

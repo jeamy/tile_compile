@@ -16,6 +16,10 @@ constexpr double kAffinityEps = 1.0e-6;
 
 namespace {
 
+/// @brief Implements tile grid key.
+/// @details Part of spatial/temporal local-weight smoothing helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 uint64_t tile_grid_key(int row, int col) {
   return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
          static_cast<uint32_t>(col);
@@ -23,6 +27,10 @@ uint64_t tile_grid_key(int row, int col) {
 
 } // namespace
 
+/// @brief Implements regularize local quality scores.
+/// @details Part of spatial/temporal local-weight smoothing helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 LocalWeightRegularizationSummary regularize_local_quality_scores(
     const std::vector<Tile> &tiles, const std::vector<uint8_t> &tile_valid,
     const std::vector<uint8_t> &frame_has_data,

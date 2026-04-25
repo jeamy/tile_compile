@@ -21,6 +21,10 @@ namespace tile_compile::runner {
 namespace core = tile_compile::core;
 namespace metrics = tile_compile::metrics;
 
+/// @brief Runs phase local metrics.
+/// @details Part of the local tile-metrics and local-weights phase implementation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool run_phase_local_metrics(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,

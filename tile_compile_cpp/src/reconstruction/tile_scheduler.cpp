@@ -7,6 +7,10 @@
 
 namespace tile_compile::reconstruction {
 
+/// @brief Runs tile scheduler.
+/// @details Part of parallel tile scheduling and dead-tile filtering; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileSchedulerResult run_tile_scheduler(
     const TileGrid&            grid,
     size_t                     num_frames,

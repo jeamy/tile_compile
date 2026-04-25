@@ -10,6 +10,10 @@ namespace tile_compile::reconstruction {
 
 namespace {
 
+/// @brief Computes correlation.
+/// @details Part of tile-weight profile consistency diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_correlation(const std::vector<float> &lhs,
                           const std::vector<float> &rhs) {
   if (lhs.size() != rhs.size() || lhs.empty()) {
@@ -50,6 +54,10 @@ float compute_correlation(const std::vector<float> &lhs,
 
 } // namespace
 
+/// @brief Implements analyze tile weight profiles.
+/// @details Part of tile-weight profile consistency diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileWeightProfileDiagnostics analyze_tile_weight_profiles(
     const std::vector<TileBoundaryPairDiagnostic> &boundary_pairs,
     const std::vector<std::vector<float>> &local_weights,

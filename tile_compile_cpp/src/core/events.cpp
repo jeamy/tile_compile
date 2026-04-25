@@ -3,6 +3,10 @@
 
 namespace tile_compile::core {
 
+/// @brief Implements base event.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 json EventEmitter::base_event(const std::string& type, const std::string& run_id) {
     return {
         {"type", type},
@@ -11,11 +15,19 @@ json EventEmitter::base_event(const std::string& type, const std::string& run_id
     };
 }
 
+/// @brief Implements emit.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::emit(const json& event, std::ostream& out) {
     out << event.dump() << "\n";
     out.flush();
 }
 
+/// @brief Runs start.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::run_start(const std::string& run_id, const json& extra, std::ostream& out) {
     json event = base_event("run_start", run_id);
     for (auto& [key, value] : extra.items()) {
@@ -24,6 +36,10 @@ void EventEmitter::run_start(const std::string& run_id, const json& extra, std::
     emit(event, out);
 }
 
+/// @brief Runs end.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::run_end(const std::string& run_id, bool success, 
                            const std::string& status, std::ostream& out) {
     json event = base_event("run_end", run_id);
@@ -32,6 +48,10 @@ void EventEmitter::run_end(const std::string& run_id, bool success,
     emit(event, out);
 }
 
+/// @brief Implements phase start.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::phase_start(const std::string& run_id, Phase phase, 
                                const std::string& name, std::ostream& out) {
     json event = base_event("phase_start", run_id);
@@ -40,6 +60,10 @@ void EventEmitter::phase_start(const std::string& run_id, Phase phase,
     emit(event, out);
 }
 
+/// @brief Implements phase progress.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::phase_progress(const std::string& run_id, Phase phase, float progress,
                                   const std::string& message, std::ostream& out) {
     json event = base_event("phase_progress", run_id);
@@ -55,6 +79,10 @@ void EventEmitter::phase_progress(const std::string& run_id, Phase phase, float 
     emit(event, out);
 }
 
+/// @brief Implements phase progress counts.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::phase_progress_counts(const std::string& run_id, Phase phase, int current, int total,
                                          const std::string& substep, const std::string& pass,
                                          std::ostream& out) {
@@ -73,6 +101,10 @@ void EventEmitter::phase_progress_counts(const std::string& run_id, Phase phase,
     emit(event, out);
 }
 
+/// @brief Implements phase end.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::phase_end(const std::string& run_id, Phase phase, 
                              const std::string& status, const json& extra, std::ostream& out) {
     json event = base_event("phase_end", run_id);
@@ -85,6 +117,10 @@ void EventEmitter::phase_end(const std::string& run_id, Phase phase,
     emit(event, out);
 }
 
+/// @brief Implements frame processed.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::frame_processed(const std::string& run_id, Phase phase, int frame_idx,
                                    int total_frames, const std::string& frame_name, 
                                    std::ostream& out) {
@@ -96,6 +132,10 @@ void EventEmitter::frame_processed(const std::string& run_id, Phase phase, int f
     emit(event, out);
 }
 
+/// @brief Implements warning.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::warning(const std::string& run_id, const std::string& message, 
                            std::ostream& out) {
     json event = base_event("warning", run_id);
@@ -103,6 +143,10 @@ void EventEmitter::warning(const std::string& run_id, const std::string& message
     emit(event, out);
 }
 
+/// @brief Implements error.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void EventEmitter::error(const std::string& run_id, const std::string& message, 
                          std::ostream& out) {
     json event = base_event("error", run_id);
@@ -110,6 +154,10 @@ void EventEmitter::error(const std::string& run_id, const std::string& message,
     emit(event, out);
 }
 
+/// @brief Implements emit event.
+/// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void emit_event(const std::string& type, const std::string& run_id,
                 const json& data, std::ostream& out) {
     json event = {

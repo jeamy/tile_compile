@@ -12,6 +12,10 @@ namespace {
 constexpr float kMinRestoreScale = 1.0e-6f;
 }
 
+/// @brief Applies normalization inplace.
+/// @details Part of frame normalization and output-scale restoration helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
                                  ColorMode mode,
                                  const std::string &bayer_pattern,
@@ -43,6 +47,10 @@ void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
   }
 }
 
+/// @brief Applies output scaling inplace.
+/// @details Part of frame normalization and output-scale restoration helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
                                   ColorMode mode,
                                   const std::string &bayer_pattern,
@@ -93,6 +101,10 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
   }
 }
 
+/// @brief Applies global warp.
+/// @details Part of frame normalization and output-scale restoration helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
                             ColorMode mode, int out_rows, int out_cols) {
   if (img.size() <= 0 || out_rows <= 0 || out_cols <= 0) {
@@ -119,6 +131,10 @@ Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
   return result;
 }
 
+/// @brief Applies global warp.
+/// @details Part of frame normalization and output-scale restoration helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
                             ColorMode mode) {
   return apply_global_warp(img, warp, mode, img.rows(), img.cols());

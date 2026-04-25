@@ -90,6 +90,10 @@ struct CalibrationRunResult {
   core::json artifact = core::json::object();
 };
 
+/// @brief Implements trim copy.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string trim_copy(std::string value) {
   auto not_space = [](unsigned char c) { return !std::isspace(c); };
   value.erase(value.begin(),
@@ -99,6 +103,10 @@ std::string trim_copy(std::string value) {
   return value;
 }
 
+/// @brief Parses double string.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> parse_double_string(const std::string &text) {
   const std::string trimmed = trim_copy(text);
   if (trimmed.empty()) {
@@ -114,6 +122,10 @@ std::optional<double> parse_double_string(const std::string &text) {
   return value;
 }
 
+/// @brief Reads header numeric.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> read_header_numeric(
     const io::FitsHeader &header, std::initializer_list<const char *> keys,
     bool require_positive) {
@@ -138,6 +150,10 @@ std::optional<double> read_header_numeric(
   return std::nullopt;
 }
 
+/// @brief Extracts exposure seconds.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
   return read_header_numeric(
       header, {"EXPTIME", "EXPOSURE", "EXPOSURETIME", "EXPOSURE_TIME",
@@ -145,6 +161,10 @@ std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
       true);
 }
 
+/// @brief Extracts temperature celsius.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> extract_temperature_celsius(const io::FitsHeader &header) {
   return read_header_numeric(
       header, {"CCD-TEMP", "CCD_TEMP", "CCD_TEMP_C", "SENSOR_T",
@@ -152,11 +172,19 @@ std::optional<double> extract_temperature_celsius(const io::FitsHeader &header) 
       false);
 }
 
+/// @brief Extracts gain value.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> extract_gain_value(const io::FitsHeader &header) {
   return read_header_numeric(header, {"GAIN"}, true);
 }
 
 template <typename Extractor>
+/// @brief Implements sample header median.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> sample_header_median(const std::vector<fs::path> &paths,
                                            size_t max_samples,
                                            Extractor extractor) {
@@ -182,6 +210,10 @@ std::optional<double> sample_header_median(const std::vector<fs::path> &paths,
   return static_cast<double>(core::median_of(values));
 }
 
+/// @brief Implements warn if gain mismatch.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void warn_if_gain_mismatch(const std::vector<fs::path> &light_frames,
                            const std::vector<fs::path> &calibration_frames,
                            const std::string &calibration_label,
@@ -211,6 +243,10 @@ void warn_if_gain_mismatch(const std::vector<fs::path> &light_frames,
       log_file);
 }
 
+/// @brief Resolves config path.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 fs::path resolve_config_path(const fs::path &project_root,
                              const std::string &raw_path) {
   const std::string trimmed = trim_copy(raw_path);
@@ -226,6 +262,10 @@ fs::path resolve_config_path(const fs::path &project_root,
   return ec ? path : absolute;
 }
 
+/// @brief Loads average master from files.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_average_master_from_files(const std::vector<fs::path> &paths,
                                     int expected_height, int expected_width,
                                     Matrix2Df &out, std::string &error_out) {
@@ -270,6 +310,10 @@ bool load_average_master_from_files(const std::vector<fs::path> &paths,
   return true;
 }
 
+/// @brief Normalizes flat master.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool normalize_flat_master(Matrix2Df &flat, float &median_out,
                            std::string &error_out) {
   std::vector<float> samples;
@@ -293,6 +337,10 @@ bool normalize_flat_master(Matrix2Df &flat, float &median_out,
   return true;
 }
 
+/// @brief Implements discover calibration frames.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
                                                   const std::string &pattern) {
   auto frames = core::discover_frames(dir, pattern);
@@ -304,6 +352,10 @@ std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
   return frames;
 }
 
+/// @brief Implements select dark inputs.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<fs::path> select_dark_inputs(
     const std::vector<fs::path> &all_darks, const std::vector<fs::path> &lights,
     const tile_compile::config::CalibrationConfig &cfg,
@@ -412,6 +464,10 @@ std::vector<fs::path> select_dark_inputs(
   return all_darks;
 }
 
+/// @brief Resolves calibration master.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool resolve_calibration_master(
     const fs::path &project_root, const std::string &explicit_master_raw,
     const std::string &dir_raw, const std::string &pattern,
@@ -505,6 +561,10 @@ bool resolve_calibration_master(
   return false;
 }
 
+/// @brief Runs scan input calibration.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool run_scan_input_calibration(
     const tile_compile::config::Config &cfg, const fs::path &project_root,
     const std::vector<fs::path> &input_frames, const fs::path &run_dir,
@@ -673,6 +733,10 @@ bool run_scan_input_calibration(
   return true;
 }
 
+/// @brief Implements tile grid key.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 uint64_t tile_grid_key(int row, int col) {
   return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
          static_cast<uint32_t>(col);
@@ -689,6 +753,10 @@ struct TileOlaCoeffCacheEntry {
 };
 
 std::vector<TileWindowCacheEntry>
+/// @brief Builds tile window cache.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_tile_window_cache(const std::vector<Tile> &tiles) {
   std::vector<TileWindowCacheEntry> out(tiles.size());
   std::unordered_map<uint64_t, size_t> tile_by_grid;
@@ -733,6 +801,10 @@ build_tile_window_cache(const std::vector<Tile> &tiles) {
   return out;
 }
 
+/// @brief Builds tile ola coeff cache.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<TileOlaCoeffCacheEntry> build_tile_ola_coeff_cache(
     const std::vector<Tile> &tiles,
     const std::vector<TileWindowCacheEntry> &tile_window_cache,
@@ -778,6 +850,10 @@ std::vector<TileOlaCoeffCacheEntry> build_tile_ola_coeff_cache(
   return out;
 }
 
+/// @brief Implements safe boundary metric.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float safe_boundary_metric(float value) {
   constexpr float kBoundaryMetricFloor = 1.0e-4f;
   if (!std::isfinite(value)) {
@@ -786,6 +862,10 @@ float safe_boundary_metric(float value) {
   return std::max(value, kBoundaryMetricFloor);
 }
 
+/// @brief Decides whether to disable phase7 tile norm.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool should_disable_phase7_tile_norm(
     const reconstruction::TileBoundaryDiagnostics &raw,
     const reconstruction::TileBoundaryDiagnostics &normalized,
@@ -804,6 +884,10 @@ bool should_disable_phase7_tile_norm(
          ratio > kTileNormBoundaryRegressionFactor;
 }
 
+/// @brief Writes canvas mask fits.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool write_canvas_mask_fits(const fs::path &mask_path,
                             const std::vector<uint8_t> &mask,
                             int rows, int cols,
@@ -835,6 +919,10 @@ bool write_canvas_mask_fits(const fs::path &mask_path,
 }
 } // namespace
 
+/// @brief Runs pipeline command.
+/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int run_pipeline_command(const std::string &config_path, const std::string &input_dir,
                 const std::string &runs_dir, const std::string &project_root,
                 const std::string &run_id_override,

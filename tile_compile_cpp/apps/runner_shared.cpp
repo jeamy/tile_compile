@@ -39,6 +39,10 @@ namespace metrics = tile_compile::metrics;
 
 namespace {
 
+/// @brief Implements bge value stats to json.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 core::json bge_value_stats_to_json(const image::BGEValueStats &s) {
   return core::json{{"n", s.n},
                     {"min", s.min},
@@ -48,6 +52,10 @@ core::json bge_value_stats_to_json(const image::BGEValueStats &s) {
                     {"std", s.std}};
 }
 
+/// @brief Implements unmap view.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void unmap_view(void *ptr, size_t bytes) {
   if (ptr == nullptr) {
     return;
@@ -59,6 +67,10 @@ void unmap_view(void *ptr, size_t bytes) {
 #endif
 }
 
+/// @brief Implements sample average file bytes.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 size_t sample_average_file_bytes(const std::vector<fs::path> &paths,
                                  size_t max_samples) {
   if (paths.empty() || max_samples == 0) {
@@ -87,6 +99,10 @@ size_t sample_average_file_bytes(const std::vector<fs::path> &paths,
   return (used > 0) ? static_cast<size_t>(total / used) : 0;
 }
 
+/// @brief Implements cap workers for io profile.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
                                WorkerParallelProfile profile) {
   constexpr size_t MiB = 1024u * 1024u;
@@ -126,6 +142,10 @@ int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
 
 } // namespace
 
+/// @brief Inverts affine warp.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
   const float a = w(0, 0);
   const float b = w(0, 1);
@@ -147,6 +167,10 @@ bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
   return true;
 }
 
+/// @brief Computes warps bounds.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WarpBounds compute_warps_bounds(int width, int height,
                                 const std::vector<WarpMatrix> &warps) {
   WarpBounds b;
@@ -205,6 +229,10 @@ WarpBounds compute_warps_bounds(int width, int height,
   return b;
 }
 
+/// @brief Resolves pcc auto fwhm px.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
                                 const Matrix2Df &B,
                                 bool have_fallback_fwhm,
@@ -243,6 +271,10 @@ double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
   return 0.0;
 }
 
+/// @brief Formats bytes.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string format_bytes(uint64_t bytes) {
   static const char *kUnits[] = {"B", "KiB", "MiB", "GiB", "TiB"};
   double value = static_cast<double>(bytes);
@@ -257,6 +289,10 @@ std::string format_bytes(uint64_t bytes) {
   return oss.str();
 }
 
+/// @brief Estimates total file bytes.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 uint64_t estimate_total_file_bytes(const std::vector<fs::path> &paths) {
   uint64_t total = 0;
   for (const auto &p : paths) {
@@ -277,6 +313,10 @@ uint64_t estimate_total_file_bytes(const std::vector<fs::path> &paths) {
   return total;
 }
 
+/// @brief Computes adaptive worker count.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int compute_adaptive_worker_count(
     const config::Config &cfg, size_t task_count,
     const std::vector<std::filesystem::path> &frames,
@@ -312,6 +352,10 @@ int compute_adaptive_worker_count(
   return std::max(1, std::min(workers, io_cap));
 }
 
+/// @brief Implements message indicates disk full.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool message_indicates_disk_full(const std::string &message) {
   const std::string m = core::to_lower(message);
   return (m.find("no space left on device") != std::string::npos) ||
@@ -320,6 +364,10 @@ bool message_indicates_disk_full(const std::string &message) {
          (m.find("enospc") != std::string::npos);
 }
 
+/// @brief Loads canvas mask fits.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
                            std::vector<uint8_t> &out_mask,
                            std::string &error_out) {
@@ -362,6 +410,10 @@ bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
   }
 }
 
+/// @brief Loads canvas mask for rgb.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
                               const Matrix2Df &G, const Matrix2Df &B,
                               std::vector<uint8_t> &out_mask, int &rows_out,
@@ -379,6 +431,10 @@ bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
                                error_out);
 }
 
+/// @brief Computes nonzero data bbox.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 CropBox compute_nonzero_data_bbox(const Matrix2Df &luma, const Matrix2Df *r,
                                   const Matrix2Df *g, const Matrix2Df *b) {
   constexpr float kCropNonZeroEps = 1.0e-12f;
@@ -424,6 +480,10 @@ CropBox compute_nonzero_data_bbox(const Matrix2Df &luma, const Matrix2Df *r,
   return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
 }
 
+/// @brief Computes largest valid crop box.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
                                        const std::vector<uint8_t> &common_valid_mask,
                                        int mask_rows, int mask_cols,
@@ -497,6 +557,10 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
   return (best_area > 0) ? best_box : data_box;
 }
 
+/// @brief Converts image bge config.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   dst.enabled = src.enabled;
@@ -532,6 +596,10 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   return dst;
 }
 
+/// @brief Converts astrometry pcc config.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
   astrometry::PCCConfig dst;
   dst.aperture_radius_px = src.aperture_radius_px;
@@ -556,6 +624,10 @@ astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
   return dst;
 }
 
+/// @brief Builds registration proxy.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode,
                                    const std::string &detected_bayer_str) {
   if (img.size() <= 0) {
@@ -566,6 +638,10 @@ Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode
              : registration::downsample2x2_mean(img);
 }
 
+/// @brief Implements bge diag to json.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
                             bool requested,
                             bool have_tile_data,
@@ -738,6 +814,10 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   return out;
 }
 
+/// @brief Queries pcc catalog stars.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 PCCCatalogQueryResult query_pcc_catalog_stars(const astrometry::WCS &wcs,
                                               const config::PCCConfig &cfg,
                                               std::ostream &log_stream,
@@ -817,8 +897,16 @@ PCCCatalogQueryResult query_pcc_catalog_stars(const astrometry::WCS &wcs,
   return out;
 }
 
+/// @brief Implements TeeBuf.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TeeBuf::TeeBuf(std::streambuf *a, std::streambuf *b) : a_(a), b_(b) {}
 
+/// @brief Implements overflow.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int TeeBuf::overflow(int c) {
   if (c == EOF)
     return EOF;
@@ -827,6 +915,10 @@ int TeeBuf::overflow(int c) {
   return (ra == EOF || rb == EOF) ? EOF : c;
 }
 
+/// @brief Implements sync.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int TeeBuf::sync() {
   int ra = a_ ? a_->pubsync() : 0;
   int rb = b_ ? b_->pubsync() : 0;
@@ -835,6 +927,10 @@ int TeeBuf::sync() {
 
 DiskCacheFrameStore::DiskCacheFrameStore() = default;
 
+/// @brief Implements DiskCacheFrameStore.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DiskCacheFrameStore::DiskCacheFrameStore(const fs::path &cache_dir,
                                          size_t n_frames, int rows, int cols)
     : cache_dir_(cache_dir), rows_(rows), cols_(cols),
@@ -845,8 +941,16 @@ DiskCacheFrameStore::DiskCacheFrameStore(const fs::path &cache_dir,
   fs::create_directories(cache_dir_);
 }
 
+/// @brief Implements ~DiskCacheFrameStore.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DiskCacheFrameStore::~DiskCacheFrameStore() { cleanup(); }
 
+/// @brief Implements DiskCacheFrameStore.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DiskCacheFrameStore::DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept
     : cache_dir_(std::move(o.cache_dir_)), rows_(o.rows_), cols_(o.cols_),
       frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)),
@@ -878,6 +982,10 @@ DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noe
   return *this;
 }
 
+/// @brief Implements store.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   if (fi >= has_data_.size()) {
     return;
@@ -930,6 +1038,10 @@ void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
 #endif
 }
 
+/// @brief Implements load.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
   const float *src = mapped_frame_ptr(fi);
   if (src == nullptr)
@@ -939,10 +1051,18 @@ Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
   return out;
 }
 
+/// @brief Implements frame data.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 const float *DiskCacheFrameStore::frame_data(size_t fi) const {
   return mapped_frame_ptr(fi);
 }
 
+/// @brief Extracts tile.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
                                             int offset_x,
                                             int offset_y) const {
@@ -953,6 +1073,10 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
   return tile;
 }
 
+/// @brief Extracts tile into.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool DiskCacheFrameStore::extract_tile_into(size_t fi, const Tile &t,
                                             Matrix2Df &out, int offset_x,
                                             int offset_y) const {
@@ -988,6 +1112,10 @@ bool DiskCacheFrameStore::extract_tile_into(size_t fi, const Tile &t,
   return true;
 }
 
+/// @brief Implements mapped frame ptr.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {
   if (fi >= has_data_.size() || has_data_[fi] == 0) {
     return nullptr;
@@ -1050,6 +1178,10 @@ const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {
   return static_cast<const float *>(existing_view);
 }
 
+/// @brief Implements invalidate mapping.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
   void *view = nullptr;
   {
@@ -1063,6 +1195,10 @@ void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
   unmap_view(view, frame_bytes_);
 }
 
+/// @brief Implements clear mappings.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void DiskCacheFrameStore::clear_mappings() {
   std::vector<void *> views;
   {
@@ -1074,16 +1210,36 @@ void DiskCacheFrameStore::clear_mappings() {
   }
 }
 
+/// @brief Implements has data.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool DiskCacheFrameStore::has_data(size_t fi) const {
   return fi < has_data_.size() && has_data_[fi] != 0;
 }
 
+/// @brief Implements size.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 size_t DiskCacheFrameStore::size() const { return has_data_.size(); }
 
+/// @brief Implements rows.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int DiskCacheFrameStore::rows() const { return rows_; }
 
+/// @brief Implements cols.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int DiskCacheFrameStore::cols() const { return cols_; }
 
+/// @brief Implements cleanup.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void DiskCacheFrameStore::cleanup() {
   clear_mappings();
   if (!cache_dir_.empty() && fs::exists(cache_dir_)) {
@@ -1097,30 +1253,54 @@ void DiskCacheFrameStore::cleanup() {
   frame_bytes_ = 0;
 }
 
+/// @brief Implements frame path.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 fs::path DiskCacheFrameStore::frame_path(size_t fi) const {
   return cache_dir_ / (std::to_string(fi) + ".raw");
 }
 
 RunnerFrameCache::RunnerFrameCache() = default;
 
+/// @brief Implements RunnerFrameCache.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
                                    int rows, int cols)
     : normalized_frames_(cache_dir, n_frames, rows, cols),
       has_registration_proxy_(n_frames, static_cast<uint8_t>(0)),
       registration_proxies_(n_frames) {}
 
+/// @brief Implements store normalized.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void RunnerFrameCache::store_normalized(size_t fi, const Matrix2Df &frame) {
   normalized_frames_.store(fi, frame);
 }
 
+/// @brief Loads normalized.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df RunnerFrameCache::load_normalized(size_t fi) const {
   return normalized_frames_.load(fi);
 }
 
+/// @brief Implements has normalized.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool RunnerFrameCache::has_normalized(size_t fi) const {
   return normalized_frames_.has_data(fi);
 }
 
+/// @brief Implements store registration proxy.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void RunnerFrameCache::store_registration_proxy(size_t fi,
                                                 const Matrix2Df &proxy) {
   std::lock_guard<std::mutex> lock(proxy_mutex_);
@@ -1131,6 +1311,10 @@ void RunnerFrameCache::store_registration_proxy(size_t fi,
   has_registration_proxy_[fi] = static_cast<uint8_t>(proxy.size() > 0 ? 1 : 0);
 }
 
+/// @brief Implements try load registration proxy.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool RunnerFrameCache::try_load_registration_proxy(size_t fi,
                                                    Matrix2Df &out) const {
   std::lock_guard<std::mutex> lock(proxy_mutex_);
@@ -1141,12 +1325,28 @@ bool RunnerFrameCache::try_load_registration_proxy(size_t fi,
   return out.size() > 0;
 }
 
+/// @brief Implements size.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 size_t RunnerFrameCache::size() const { return normalized_frames_.size(); }
 
+/// @brief Implements rows.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int RunnerFrameCache::rows() const { return normalized_frames_.rows(); }
 
+/// @brief Implements cols.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int RunnerFrameCache::cols() const { return normalized_frames_.cols(); }
 
+/// @brief Implements cleanup.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void RunnerFrameCache::cleanup() {
   normalized_frames_.cleanup();
   std::lock_guard<std::mutex> lock(proxy_mutex_);

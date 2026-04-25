@@ -17,19 +17,48 @@ namespace tile_compile::runner {
 
 class RunnerFrameCache;
 
+/// Output bundle produced by the combined REGISTRATION and PREWARP phases.
+///
+/// The registration phase estimates one full-resolution affine warp per input
+/// frame, rejects or models weak registrations, and then prewarps usable frames
+/// onto a common canvas. Later phases consume the disk-backed frame store and
+/// the validity masks here instead of re-reading or re-warping the original
+/// FITS files.
 struct PhaseRegistrationContext {
+  /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
+  /// Per-input-frame flag indicating whether the prewarp store contains data.
   std::vector<uint8_t> frame_has_data;
+  /// Per-canvas-pixel count of usable prewarped frames contributing data.
   std::vector<uint16_t> overlap_coverage_count;
+  /// Binary common-overlap mask used to gate local metrics and reconstruction.
   std::vector<uint8_t> common_valid_mask;
+  /// Number of frames retained after registration, modeling, and prewarp.
   int n_usable_frames = 0;
+  /// Minimum frame support required by downstream common-overlap decisions.
   int min_valid_frames = 1;
+  /// Width of the prewarped common canvas in full-resolution pixels.
   int canvas_width = 0;
+  /// Height of the prewarped common canvas in full-resolution pixels.
   int canvas_height = 0;
+  /// X offset from original frame coordinates into canvas coordinates.
   int tile_offset_x = 0;
+  /// Y offset from original frame coordinates into canvas coordinates.
   int tile_offset_y = 0;
 };
 
+/// Run the REGISTRATION and PREWARP phases and fill downstream phase context.
+///
+/// This phase builds registration proxies from normalized frames, selects one
+/// or more temporal/quality anchors, registers frames through the configured
+/// cascade, applies rescue/modeling for weak frames, writes
+/// `global_registration.json`, and finally prewarps accepted frames to a common
+/// canvas. The function owns phase event emission and writes all registration
+/// diagnostics into `run_dir/artifacts`.
+///
+/// Returns `true` when enough frames were registered/prewarped for the pipeline
+/// to continue; returns `false` after emitting an error event when the phase
+/// cannot produce a valid common canvas.
 bool run_phase_registration_prewarp(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,

@@ -8,6 +8,10 @@ struct ProgressReporter::Impl {
     std::thread thread;
 };
 
+/// @brief Implements ProgressReporter.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ProgressReporter::ProgressReporter(int tiles_total,
                                    ProgressLogFn log_fn,
                                    double interval_s,
@@ -22,23 +26,43 @@ ProgressReporter::ProgressReporter(int tiles_total,
     impl_->thread = std::thread([this] { run_loop(); });
 }
 
+/// @brief Implements ~ProgressReporter.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ProgressReporter::~ProgressReporter() {
     finish();
 }
 
+/// @brief Implements tick.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void ProgressReporter::tick() {
     ++tiles_completed_;
 }
 
+/// @brief Implements set workers active.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void ProgressReporter::set_workers_active(int n) {
     workers_active_.store(n);
 }
 
+/// @brief Implements finish.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void ProgressReporter::finish() {
     stop_.store(true);
     if (impl_ && impl_->thread.joinable()) impl_->thread.join();
 }
 
+/// @brief Runs loop.
+/// @details Part of threaded progress reporting for long reconstruction phases; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void ProgressReporter::run_loop() {
     using clock = std::chrono::steady_clock;
     const auto interval = std::chrono::duration<double>(interval_s_);

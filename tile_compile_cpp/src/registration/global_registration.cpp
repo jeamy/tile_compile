@@ -18,6 +18,10 @@
 
 namespace tile_compile::registration {
 
+/// @brief Implements downsample2x2 mean.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df downsample2x2_mean(const Matrix2Df &in) {
   const int h = in.rows();
   const int w = in.cols();
@@ -40,6 +44,10 @@ Matrix2Df downsample2x2_mean(const Matrix2Df &in) {
   return out;
 }
 
+/// @brief Implements scale translation warp.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WarpMatrix scale_translation_warp(const WarpMatrix &w, float scale) {
   WarpMatrix out = w;
   out(0, 2) *= scale;
@@ -48,6 +56,10 @@ WarpMatrix scale_translation_warp(const WarpMatrix &w, float scale) {
 }
 
 // Invert a 2×3 affine warp matrix: given M→R, return R→M (or vice versa).
+/// @brief Inverts warp 2x3.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static WarpMatrix invert_warp_2x3(const WarpMatrix &w) {
   const float a00 = w(0, 0), a01 = w(0, 1), tx = w(0, 2);
   const float a10 = w(1, 0), a11 = w(1, 1), ty = w(1, 2);
@@ -69,6 +81,10 @@ static WarpMatrix invert_warp_2x3(const WarpMatrix &w) {
 
 // Estimate rotation (deg) between ref and mov using log-polar phase correlation
 // on magnitude spectrum.
+/// @brief Estimates rotation logpolar.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float estimate_rotation_logpolar(const cv::Mat &ref, const cv::Mat &mov) {
   cv::Mat ref_dft, mov_dft;
   cv::dft(ref, ref_dft, cv::DFT_COMPLEX_OUTPUT);
@@ -96,6 +112,10 @@ float estimate_rotation_logpolar(const cv::Mat &ref, const cv::Mat &mov) {
   return static_cast<float>(rotation_deg);
 }
 
+/// @brief Converts uint8 stretch.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat to_uint8_stretch(const Matrix2Df &src) {
   cv::Mat f(src.rows(), src.cols(), CV_32F, const_cast<float *>(src.data()));
   std::vector<float> vals;
@@ -120,6 +140,10 @@ cv::Mat to_uint8_stretch(const Matrix2Df &src) {
   return out;
 }
 
+/// @brief Estimates affine family transform.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static cv::Mat estimate_affine_family_transform(
     const std::vector<cv::Point2f> &pts_mov,
     const std::vector<cv::Point2f> &pts_ref,
@@ -134,6 +158,10 @@ static cv::Mat estimate_affine_family_transform(
                                      ransac_threshold, max_iters, confidence);
 }
 
+/// @brief Inverts forward affine to warp.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool invert_forward_affine_to_warp(const cv::Mat &A,
                                           bool allow_rotation, WarpMatrix &warp,
                                           std::string *error_message = nullptr) {
@@ -176,6 +204,10 @@ static bool invert_forward_affine_to_warp(const cv::Mat &A,
   return true;
 }
 
+/// @brief Implements feature registration similarity.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
                                                    const Matrix2Df &ref,
                                                    bool allow_rotation,
@@ -247,6 +279,10 @@ RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
 }
 
 // Internal helper for star detection with configurable threshold
+/// @brief Detects stars with threshold.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<StarPoint> detect_stars_with_threshold(
     const Matrix2Df &img, int topk, float sigma_multiplier, 
     float med, float sigma) {
@@ -344,6 +380,10 @@ static std::vector<StarPoint> detect_stars_with_threshold(
   return stars;
 }
 
+/// @brief Detects stars simple.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk,
                                            bool enable_local_background_subtraction) {
   const int h = img.rows();
@@ -419,6 +459,10 @@ struct SimilarityResult {
   float mean_err = 1.0e9f;
 };
 
+/// @brief Implements score similarity.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 SimilarityResult score_similarity(const std::vector<StarPoint> &mov,
                                   const std::vector<StarPoint> &ref,
                                   float scale, float theta,
@@ -457,6 +501,10 @@ SimilarityResult score_similarity(const std::vector<StarPoint> &mov,
 }
 
 static std::vector<std::pair<cv::Point2f, cv::Point2f>>
+/// @brief Builds similarity consensus pairs.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_similarity_consensus_pairs(const std::vector<StarPoint> &mov,
                                  const std::vector<StarPoint> &ref,
                                  const SimilarityResult &best,
@@ -513,6 +561,10 @@ build_similarity_consensus_pairs(const std::vector<StarPoint> &mov,
   return pairs;
 }
 
+/// @brief Implements maybe refine similarity to affine.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool maybe_refine_similarity_to_affine(
     const std::vector<StarPoint> &mov, const std::vector<StarPoint> &ref,
     const SimilarityResult &best, bool allow_rotation, float inlier_tol_px,
@@ -561,6 +613,10 @@ static bool maybe_refine_similarity_to_affine(
   return true;
 }
 
+/// @brief Implements similarity from pairs.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool similarity_from_pairs(const Eigen::Vector2f &m1, const Eigen::Vector2f &m2,
                            const Eigen::Vector2f &r1, const Eigen::Vector2f &r2,
                            bool allow_rotation, float &scale, float &theta,
@@ -590,6 +646,10 @@ bool similarity_from_pairs(const Eigen::Vector2f &m1, const Eigen::Vector2f &m2,
 // Handles nebula/cloud gradients and large rotations better.
 // =====================================================================
 
+/// @brief Implements gradient preprocess.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static Matrix2Df gradient_preprocess(const Matrix2Df &img) {
   cv::Mat f(img.rows(), img.cols(), CV_32F,
             const_cast<float *>(img.data()));
@@ -613,6 +673,10 @@ static Matrix2Df gradient_preprocess(const Matrix2Df &img) {
   return result;
 }
 
+/// @brief Implements robust phase ecc.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
                                     const Matrix2Df &ref,
                                     bool allow_rotation) {
@@ -691,6 +755,10 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
   return res;
 }
 
+/// @brief Implements robust phase ecc seeded.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RegistrationResult robust_phase_ecc_seeded(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
                                            bool allow_rotation,
@@ -742,6 +810,10 @@ RegistrationResult robust_phase_ecc_seeded(const Matrix2Df &mov,
 }
 
 RegistrationResult
+/// @brief Implements star registration similarity.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
                              bool allow_rotation,
                              int topk_stars, int min_inliers,
@@ -897,6 +969,10 @@ struct Triangle {
 };
 
 static std::vector<Triangle>
+/// @brief Builds triangles.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_triangles(const std::vector<StarPoint> &stars, int max_triangles) {
   const int n = static_cast<int>(stars.size());
   std::vector<Triangle> tris;
@@ -975,6 +1051,10 @@ build_triangles(const std::vector<StarPoint> &stars, int max_triangles) {
 }
 
 RegistrationResult
+/// @brief Implements triangle star matching.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        bool allow_rotation,
                        int topk_stars, int min_inliers,
@@ -1227,6 +1307,10 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
   return res;
 }
 
+/// @brief Implements hybrid phase ecc.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RegistrationResult hybrid_phase_ecc(const Matrix2Df &mov, const Matrix2Df &ref,
                                     bool allow_rotation) {
   RegistrationResult res;
@@ -1276,6 +1360,10 @@ RegistrationResult hybrid_phase_ecc(const Matrix2Df &mov, const Matrix2Df &ref,
 // Canonical single-frame registration cascade with NCC validation
 // =====================================================================
 
+/// @brief Computes ncc.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
   const int n = a.size();
   if (n <= 0 || n != b.size())
@@ -1301,6 +1389,10 @@ static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
   return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
 }
 
+/// @brief Implements warp valid mask.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
   cv::Mat warp_matrix(2, 3, CV_32F);
@@ -1316,6 +1408,10 @@ cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   return warped_mask;
 }
 
+/// @brief Computes ncc masked.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
                          const cv::Mat &mask, int *used_pixels) {
   if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
@@ -1375,6 +1471,10 @@ float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
   return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
 }
 
+/// @brief Implements register single frame.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
                                            const config::RegistrationConfig &rcfg,
@@ -1582,6 +1682,10 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
 // Kept as a thin wrapper for tests/CLI that may call it.
 // =====================================================================
 
+/// @brief Implements concatenate warps.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static WarpMatrix concatenate_warps(const WarpMatrix &w1, const WarpMatrix &w2) {
   WarpMatrix result;
   result(0,0) = w2(0,0)*w1(0,0) + w2(0,1)*w1(1,0);
@@ -1594,6 +1698,10 @@ static WarpMatrix concatenate_warps(const WarpMatrix &w1, const WarpMatrix &w2) 
 }
 
 GlobalRegistrationOutput
+/// @brief Implements register frames to reference.
+/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
                              ColorMode mode, BayerPattern bayer,
                              const config::RegistrationConfig &rcfg,

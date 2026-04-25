@@ -19,6 +19,10 @@ namespace fs = std::filesystem;
 
 // ─── Half-float (IEEE 754 binary16) to float conversion ───────────────────
 
+/// @brief Implements half to float.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float half_to_float(uint16_t h) {
     uint32_t sign = (h >> 15) & 0x1;
     uint32_t exp  = (h >> 10) & 0x1F;
@@ -53,6 +57,10 @@ static constexpr double HALFPI = M_PI / 2.0;
 
 // Convert (theta, phi) to HEALPix NESTED pixel index at given order
 // theta = colatitude [0, pi], phi = longitude [0, 2pi)
+/// @brief Implements ang2pix nest.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static int64_t ang2pix_nest(int order, double theta, double phi) {
     int nside = 1 << order;
     double z = std::cos(theta);
@@ -105,6 +113,10 @@ static int64_t ang2pix_nest(int order, double theta, double phi) {
 
 // Disc query via grid sampling: sample sky positions within the search disc
 // and collect unique HEALPix pixel indices.  Uses the verified ang2pix_nest.
+/// @brief Queries disc nested.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::vector<int> query_disc_nested(int order, double theta_center,
                                           double phi_center, double radius_rad) {
     int nside = 1 << order;
@@ -154,12 +166,20 @@ static std::vector<int> query_disc_nested(int order, double theta_center,
 
 // ─── Siril catalog I/O ──────────────────────────────────────────────────
 
+/// @brief Returns the default siril gaia catalog dir.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string default_siril_gaia_catalog_dir() {
     const char *home = std::getenv("HOME");
     if (!home) return "";
     return std::string(home) + "/.local/share/siril/siril_cat1_healpix8_xpsamp";
 }
 
+/// @brief Checks siril gaia catalog available.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool is_siril_gaia_catalog_available(const std::string &catalog_dir) {
     if (catalog_dir.empty() || !fs::exists(catalog_dir)) return false;
 
@@ -174,6 +194,10 @@ bool is_siril_gaia_catalog_available(const std::string &catalog_dir) {
     return false;
 }
 
+/// @brief Reads header.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static SirilCatHeader read_header(std::ifstream &f) {
     SirilCatHeader h;
     char title_buf[48] = {0};
@@ -193,6 +217,10 @@ static SirilCatHeader read_header(std::ifstream &f) {
     return h;
 }
 
+/// @brief Implements find first chunk.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string find_first_chunk(const std::string &dir) {
     std::regex pattern("siril_cat\\d+_healpix\\d+_xpsamp_\\d+\\.dat");
     for (const auto &entry : fs::directory_iterator(dir)) {
@@ -204,6 +232,10 @@ static std::string find_first_chunk(const std::string &dir) {
     return "";
 }
 
+/// @brief Implements convert healpix level.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static int convert_healpix_level(int pixel_index, int from_level, int to_level) {
     if (from_level < to_level) {
         return pixel_index << (2 * (to_level - from_level));
@@ -212,6 +244,10 @@ static int convert_healpix_level(int pixel_index, int from_level, int to_level) 
     }
 }
 
+/// @brief Implements decode entry.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static GaiaStar decode_entry(const SourceEntryXPsamp &e) {
     constexpr double SCALE = 360.0 / static_cast<double>(INT32_MAX);
     GaiaStar s;
@@ -230,6 +266,10 @@ static GaiaStar decode_entry(const SourceEntryXPsamp &e) {
 }
 
 // Angular distance squared (haversine) for filtering
+/// @brief Implements angular dist sq.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double angular_dist_sq(double ra1, double dec1, double ra2, double dec2) {
     constexpr double D2R = M_PI / 180.0;
     double dra  = (ra2 - ra1) * D2R;
@@ -239,6 +279,10 @@ static double angular_dist_sq(double ra1, double dec1, double ra2, double dec2) 
     return a * a + std::cos(dec1 * D2R) * std::cos(dec2 * D2R) * b * b;
 }
 
+/// @brief Implements siril gaia cone search.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<GaiaStar> siril_gaia_cone_search(
     const std::string &catalog_dir,
     double ra_center, double dec_center,
@@ -361,6 +405,10 @@ std::vector<GaiaStar> siril_gaia_cone_search(
     return results;
 }
 
+/// @brief Implements synthetic flux.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 double synthetic_flux(const std::vector<float> &xp_flux,
                       const std::vector<double> &filter_wl,
                       const std::vector<double> &filter_tx) {
@@ -419,6 +467,10 @@ struct CurlProgressContext {
     std::function<void(size_t, size_t)> progress_cb;
 };
 
+/// @brief Implements ensure curl ready.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void ensure_curl_ready() {
     static const bool initialized = []() {
         return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
@@ -428,6 +480,10 @@ static void ensure_curl_ready() {
     }
 }
 
+/// @brief Implements curl write callback.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static size_t curl_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
     const size_t total = size * nmemb;
     auto *buffer = static_cast<CurlWriteBuffer*>(userdata);
@@ -443,6 +499,10 @@ static size_t curl_write_callback(char *ptr, size_t size, size_t nmemb, void *us
     return 0;
 }
 
+/// @brief Implements curl progress callback.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static int curl_progress_callback(void *clientp,
                                   curl_off_t dltotal,
                                   curl_off_t dlnow,
@@ -455,11 +515,19 @@ static int curl_progress_callback(void *clientp,
     return 0;
 }
 
+/// @brief Implements curl error message.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string curl_error_message(CURLcode code, const char *buffer) {
     if (buffer != nullptr && *buffer != '\0') return std::string(buffer);
     return curl_easy_strerror(code);
 }
 
+/// @brief Implements configure curl common.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool configure_curl_common(CURL *curl, const std::string &url, int timeout_sec, char *error_buffer) {
     if (curl == nullptr) return false;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -473,6 +541,10 @@ static bool configure_curl_common(CURL *curl, const std::string &url, int timeou
 }
 
 // Synchronous HTTP GET using libcurl.  Returns response body, empty on error.
+/// @brief Implements http get.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string http_get(const std::string &url, int timeout_sec = 30) {
     ensure_curl_ready();
 
@@ -504,6 +576,10 @@ static std::string http_get(const std::string &url, int timeout_sec = 30) {
 }
 
 // Synchronous HTTP download to file with progress callback.
+/// @brief Implements http download.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static bool http_download(const std::string &url, const std::string &dest_path,
                           int timeout_sec = 3600,
                           std::function<void(size_t, size_t)> progress_cb = nullptr) {
@@ -550,6 +626,10 @@ static bool http_download(const std::string &url, const std::string &dest_path,
 
 // ─── BV → Teff conversion ───────────────────────────────────────────────
 
+/// @brief Implements bv to teff.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 double bv_to_teff(double bv) {
     // Ballesteros (2012) formula:
     // T = 4600 * (1/(0.92*BV + 1.7) + 1/(0.92*BV + 0.62))
@@ -564,6 +644,10 @@ double bv_to_teff(double bv) {
 // Parse a VizieR asu-tsv response into fields per data line.
 // Skips #-comments, header, units, and separator lines.
 // Calls row_cb(fields) for each data row.
+/// @brief Parses vizier tsv.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void parse_vizier_tsv(
     const std::string &tsv,
     int expected_cols,
@@ -593,6 +677,10 @@ static void parse_vizier_tsv(
 }
 
 // Trim whitespace from both ends
+/// @brief Implements trim.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static std::string trim(const std::string &s) {
     size_t start = s.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
@@ -600,6 +688,10 @@ static std::string trim(const std::string &s) {
     return s.substr(start, end - start + 1);
 }
 
+/// @brief Implements vizier gaia cone search.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<GaiaStar> vizier_gaia_cone_search(
     double ra_center, double dec_center,
     double radius_deg, double mag_limit) {
@@ -646,6 +738,10 @@ std::vector<GaiaStar> vizier_gaia_cone_search(
 
 // ─── VizieR APASS DR9 cone search ───────────────────────────────────────
 
+/// @brief Implements vizier apass cone search.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<GaiaStar> vizier_apass_cone_search(
     double ra_center, double dec_center,
     double radius_deg, double mag_limit) {
@@ -701,6 +797,10 @@ static constexpr int SIRIL_CATALOG_NUM_CHUNKS = 48;
 static const char *SIRIL_ZENODO_BASE =
     "https://zenodo.org/records/14738271/files/";
 
+/// @brief Implements siril catalog chunk url.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string siril_catalog_chunk_url(int chunk_id) {
     char buf[256];
     std::snprintf(buf, sizeof(buf),
@@ -709,6 +809,10 @@ std::string siril_catalog_chunk_url(int chunk_id) {
     return std::string(buf);
 }
 
+/// @brief Lists missing siril catalog chunks.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir) {
     std::vector<int> missing;
     for (int i = 0; i < SIRIL_CATALOG_NUM_CHUNKS; ++i) {
@@ -721,6 +825,10 @@ std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir) {
     return missing;
 }
 
+/// @brief Downloads chunk if needed.
+/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool download_chunk_if_needed(const std::string& cat_dir, int chunk_id,
                               std::function<void(double)> progress_cb) {
 

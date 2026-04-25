@@ -21,12 +21,20 @@ constexpr float kMinUsableTileFraction = 0.10f;
 
 using SteadyClock = std::chrono::steady_clock;
 
+/// @brief Implements elapsed seconds since.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 double elapsed_seconds_since(const SteadyClock::time_point &start) {
   return std::chrono::duration_cast<std::chrono::duration<double>>(
              SteadyClock::now() - start)
       .count();
 }
 
+/// @brief Implements bge parallel worker count.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
   if (work_items <= 0) {
     return 1;
@@ -48,8 +56,16 @@ int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
 #endif
 }
 
+/// @brief Implements clamp01.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
+/// @brief Implements robust median inplace.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_median_inplace(std::vector<float> &values) {
   if (values.empty())
     return 0.0f;
@@ -63,10 +79,18 @@ float robust_median_inplace(std::vector<float> &values) {
   return med;
 }
 
+/// @brief Implements robust median.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_median(std::vector<float> values) {
   return robust_median_inplace(values);
 }
 
+/// @brief Implements robust quantile inplace.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_quantile_inplace(std::vector<float> &values, float q) {
   if (values.empty())
     return 0.0f;
@@ -77,10 +101,18 @@ float robust_quantile_inplace(std::vector<float> &values, float q) {
   return values[idx];
 }
 
+/// @brief Implements robust quantile.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_quantile(std::vector<float> values, float q) {
   return robust_quantile_inplace(values, q);
 }
 
+/// @brief Implements infer bge failure reason.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string infer_bge_failure_reason(const BGEDiagnostics &diag) {
   if (diag.success) {
     return "";
@@ -127,6 +159,10 @@ std::string infer_bge_failure_reason(const BGEDiagnostics &diag) {
   return "surface_fit_failed";
 }
 
+/// @brief Implements sorted quantile.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float sorted_quantile(const std::vector<float> &sorted_values, float q) {
   if (sorted_values.empty())
     return 0.0f;
@@ -136,6 +172,10 @@ float sorted_quantile(const std::vector<float> &sorted_values, float q) {
   return sorted_values[idx];
 }
 
+/// @brief Implements robust mad.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_mad(const std::vector<float> &values, float center) {
   if (values.empty())
     return 0.0f;
@@ -146,6 +186,10 @@ float robust_mad(const std::vector<float> &values, float center) {
   return robust_median_inplace(abs_dev);
 }
 
+/// @brief Implements box blur subregion.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void box_blur_subregion(const Matrix2Df &image, int x0, int y0, int w, int h,
                         int radius, std::vector<double> *integral,
                         std::vector<float> *out) {
@@ -188,6 +232,10 @@ void box_blur_subregion(const Matrix2Df &image, int x0, int y0, int w, int h,
   }
 }
 
+/// @brief Implements dilate mask in place.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void dilate_mask_in_place(std::vector<uint8_t> *mask, int w, int h, int radius,
                           std::vector<uint8_t> *scratch) {
   if (radius <= 0)
@@ -234,6 +282,10 @@ struct TileSampleScratch {
   std::vector<uint8_t> dilate_scratch;
   std::vector<double> blur_integral;
 
+/// @brief Implements prepare.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
   void prepare(int tw, int th) {
     const size_t tile_px = static_cast<size_t>(std::max(0, tw * th));
     finite_values.clear();
@@ -256,6 +308,10 @@ struct TileSampleScratch {
   }
 };
 
+/// @brief Estimates structure noise scale.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float estimate_structure_noise_scale(const TileMetrics &tm,
                                      const std::vector<float> &bg_pixels) {
   if (std::isfinite(tm.noise) && tm.noise > kTiny) {
@@ -272,6 +328,10 @@ float estimate_structure_noise_scale(const TileMetrics &tm,
   return 1.0f;
 }
 
+/// @brief Computes structure score from background mask.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float compute_structure_score_from_background_mask(
     const Matrix2Df &channel, int x0, int y0, int tw, int th, float grad_thresh,
     float noise_scale, const TileSampleScratch &scratch,
@@ -314,6 +374,10 @@ struct AutoTunePreparedTileSample {
 
 enum class RBFKernelType { Multiquadric, ThinPlate, Gaussian };
 
+/// @brief Resolves rbf kernel type.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RBFKernelType resolve_rbf_kernel_type(const std::string &phi) {
   if (phi == "thinplate")
     return RBFKernelType::ThinPlate;
@@ -322,6 +386,10 @@ RBFKernelType resolve_rbf_kernel_type(const std::string &phi) {
   return RBFKernelType::Multiquadric;
 }
 
+/// @brief Implements evaluate rbf kernel.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float evaluate_rbf_kernel(RBFKernelType kernel, float d, float mu,
                           float epsilon) {
   switch (kernel) {
@@ -337,14 +405,26 @@ float evaluate_rbf_kernel(RBFKernelType kernel, float d, float mu,
 
 using RobustWeightFn = float (*)(float, float);
 
+/// @brief Resolves robust weight fn.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RobustWeightFn resolve_robust_weight_fn(const std::string &loss) {
   return (loss == "tukey") ? &tukey_weight : &huber_weight;
 }
 
+/// @brief Implements robust weight from loss.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_weight_from_loss(RobustWeightFn weight_fn, float r, float param) {
   return weight_fn(r, std::max(param, kTiny));
 }
 
+/// @brief Updates robust weights.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void update_robust_weights(const Eigen::VectorXf &residual, float param,
                            RobustWeightFn weight_fn,
                            Eigen::VectorXf *out_weights) {
@@ -354,6 +434,10 @@ void update_robust_weights(const Eigen::VectorXf &residual, float param,
   }
 }
 
+/// @brief Implements stats from values.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 BGEValueStats stats_from_values(const std::vector<float> &values) {
   BGEValueStats st;
   if (values.empty())
@@ -388,6 +472,10 @@ BGEValueStats stats_from_values(const std::vector<float> &values) {
   return st;
 }
 
+/// @brief Implements stats from matrix.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 BGEValueStats stats_from_matrix(const Matrix2Df &m) {
   std::vector<float> vals;
   vals.reserve(static_cast<size_t>(m.size()));
@@ -399,6 +487,10 @@ BGEValueStats stats_from_matrix(const Matrix2Df &m) {
 
 } // namespace
 
+/// @brief Implements canvas mask matches image.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool canvas_mask_matches_image(const std::vector<uint8_t> &mask, int rows,
                                int cols) {
   if (rows <= 0 || cols <= 0)
@@ -406,6 +498,10 @@ bool canvas_mask_matches_image(const std::vector<uint8_t> &mask, int rows,
   return mask.size() == static_cast<size_t>(rows * cols);
 }
 
+/// @brief Implements enforce canvas mask on rgb.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void enforce_canvas_mask_on_rgb(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                 const std::vector<uint8_t> &mask) {
   const int rows = R.rows();
@@ -429,6 +525,10 @@ void enforce_canvas_mask_on_rgb(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   }
 }
 
+/// @brief Implements spatial background spread.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float spatial_background_spread(const Matrix2Df &img,
                                 const std::vector<uint8_t> *valid_mask) {
   const int H = static_cast<int>(img.rows());
@@ -541,6 +641,10 @@ float spatial_background_spread(const Matrix2Df &img,
   return p90 - p10;
 }
 
+/// @brief Implements coarse background plane slope.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float coarse_background_plane_slope(const Matrix2Df &img,
                                     const std::vector<uint8_t> *valid_mask) {
   const int H = static_cast<int>(img.rows());
@@ -684,6 +788,10 @@ float coarse_background_plane_slope(const Matrix2Df &img,
 
 namespace { // (re-open anonymous namespace for private helpers)
 
+/// @brief Builds chroma background mask from rgb impl.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<uint8_t> build_chroma_background_mask_from_rgb_impl(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const std::vector<uint8_t> *valid_mask) {
@@ -778,6 +886,10 @@ std::vector<uint8_t> build_chroma_background_mask_from_rgb_impl(
   return mask;
 }
 
+/// @brief Implements log chroma std background impl.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float log_chroma_std_background_impl(const Matrix2Df &A, const Matrix2Df &G,
                                      const std::vector<uint8_t> &bg_mask) {
   const int H = static_cast<int>(A.rows());
@@ -835,6 +947,10 @@ struct MeshSkyFitResult {
   bool success = false;
 };
 
+/// @brief Implements sampled positive quantile.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float sampled_positive_quantile(const Matrix2Df &img, float q, int step) {
   step = std::max(1, step);
   std::vector<float> vals;
@@ -852,6 +968,10 @@ float sampled_positive_quantile(const Matrix2Df &img, float q, int step) {
   return robust_quantile(std::move(vals), q);
 }
 
+/// @brief Extracts connected components above threshold.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void extract_connected_components_above_threshold(
     const Matrix2Df &luma, float threshold,
     std::vector<ForegroundComponent> *components, std::vector<int> *labels) {
@@ -942,6 +1062,10 @@ void extract_connected_components_above_threshold(
 }
 
 std::vector<std::vector<std::pair<int, int>>>
+/// @brief Builds disk offsets table.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_disk_offsets_table(int max_radius) {
   max_radius = std::max(0, max_radius);
   std::vector<std::vector<std::pair<int, int>>> table(
@@ -960,6 +1084,10 @@ build_disk_offsets_table(int max_radius) {
 }
 
 std::vector<uint8_t>
+/// @brief Builds modeled foreground mask.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
                               std::vector<ForegroundComponent> *components,
                               float *out_threshold, float *out_sigma) {
@@ -1027,6 +1155,10 @@ build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
   return out_mask;
 }
 
+/// @brief Implements robust mesh background estimate.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float robust_mesh_background_estimate(std::vector<float> values) {
   if (values.size() < 16)
     return std::numeric_limits<float>::quiet_NaN();
@@ -1051,6 +1183,10 @@ float robust_mesh_background_estimate(std::vector<float> values) {
   return robust_median_inplace(values);
 }
 
+/// @brief Implements annulus background median.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float annulus_background_median(const Matrix2Df &img, int cx, int cy, int r_in,
                                 int r_out,
                                 const std::vector<uint8_t> &fg_mask) {
@@ -1089,6 +1225,10 @@ float annulus_background_median(const Matrix2Df &img, int cx, int cy, int r_in,
   return robust_median_inplace(vals);
 }
 
+/// @brief Implements subtract bright source models.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void subtract_bright_source_models(
     Matrix2Df &sky_work, const Matrix2Df &luma,
     const std::vector<uint8_t> &fg_mask,
@@ -1178,6 +1318,10 @@ void subtract_bright_source_models(
             << modeled << std::endl;
 }
 
+/// @brief Implements fit modeled mask mesh surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 MeshSkyFitResult fit_modeled_mask_mesh_surface(
     const Matrix2Df &channel, const Matrix2Df &luma,
     const std::vector<uint8_t> &fg_mask,
@@ -1357,36 +1501,64 @@ MeshSkyFitResult fit_modeled_mask_mesh_surface(
 } // namespace
 
 std::vector<uint8_t>
+/// @brief Builds chroma background mask from rgb.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 build_chroma_background_mask_from_rgb(const Matrix2Df &R, const Matrix2Df &G,
                                       const Matrix2Df &B,
                                       const std::vector<uint8_t> &valid_mask) {
   return build_chroma_background_mask_from_rgb_impl(R, G, B, &valid_mask);
 }
 
+/// @brief Implements log chroma std background.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float log_chroma_std_background(const Matrix2Df &A, const Matrix2Df &G,
                                 const std::vector<uint8_t> &bg_mask) {
   return log_chroma_std_background_impl(A, G, bg_mask);
 }
 
 // RBF kernel functions (v3.3 §6.3.7)
+/// @brief Implements rbf kernel multiquadric.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float rbf_kernel_multiquadric(float d, float mu) {
   return std::sqrt(d * d + mu * mu);
 }
 
+/// @brief Implements rbf kernel thinplate.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float rbf_kernel_thinplate(float d, float epsilon) {
   float d_safe = d + epsilon;
   return (d_safe > epsilon) ? (d_safe * d_safe * std::log(d_safe)) : 0.0f;
 }
 
+/// @brief Implements rbf kernel gaussian.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float rbf_kernel_gaussian(float d, float mu) {
   return std::exp(-d * d / (2.0f * mu * mu));
 }
 
+/// @brief Implements huber weight.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float huber_weight(float r, float delta) {
   float abs_r = std::abs(r);
   return (abs_r <= delta) ? 1.0f : (delta / abs_r);
 }
 
+/// @brief Implements tukey weight.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float tukey_weight(float r, float c) {
   float abs_r = std::abs(r);
   if (abs_r <= c) {
@@ -1397,6 +1569,10 @@ float tukey_weight(float r, float c) {
 }
 
 // Compute adaptive grid spacing (v3.3 §6.3.8)
+/// @brief Computes grid spacing.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 int compute_grid_spacing(int image_width, int image_height, int tile_size,
                          const BGEConfig &config) {
   int min_dim = std::min(image_width, image_height);
@@ -1426,6 +1602,10 @@ int compute_grid_spacing(int image_width, int image_height, int tile_size,
 }
 
 // Extract tile background samples (v3.3 §6.3.2)
+/// @brief Extracts tile background samples.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<TileBGSample> extract_tile_background_samples(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, const BGEConfig &config) {
@@ -1743,6 +1923,10 @@ std::vector<TileBGSample> extract_tile_background_samples(
 }
 
 static std::vector<AutoTunePreparedTileSample>
+/// @brief Extracts autotune prepared tile samples.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 extract_autotune_prepared_tile_samples(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, const BGEConfig &config) {
@@ -2047,6 +2231,10 @@ extract_autotune_prepared_tile_samples(
 
 // Aggregate tiles to coarse grid (v3.3 §6.3.3)
 std::vector<GridCell>
+/// @brief Implements aggregate to coarse grid.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
                          int image_width, int image_height, int grid_spacing,
                          const BGEConfig &config) {
@@ -2300,6 +2488,10 @@ struct SurfaceModelSelection {
   bool success = false;
 };
 
+/// @brief Implements solve rbf model.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
                      const BGEConfig &config, RBFModelState *out) {
   const int M = grid_cells.size();
@@ -2469,6 +2661,10 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   return true;
 }
 
+/// @brief Implements eval rbf model at.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float eval_rbf_model_at(const RBFModelState &state, float x, float y) {
   if (!state.success || state.grid_cells == nullptr)
     return std::numeric_limits<float>::quiet_NaN();
@@ -2484,6 +2680,10 @@ float eval_rbf_model_at(const RBFModelState &state, float x, float y) {
   return sum;
 }
 
+/// @brief Implements render rbf surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df render_rbf_surface(const RBFModelState &state, int image_width,
                              int image_height) {
   Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
@@ -2501,6 +2701,10 @@ Matrix2Df render_rbf_surface(const RBFModelState &state, int image_width,
 }
 
 // Polynomial surface fitting (v3.3 §6.3.7)
+/// @brief Implements solve polynomial model.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool solve_polynomial_model(const std::vector<GridCell> &grid_cells,
                             int image_width, int image_height,
                             const BGEConfig &config,
@@ -2605,6 +2809,10 @@ bool solve_polynomial_model(const std::vector<GridCell> &grid_cells,
   return true;
 }
 
+/// @brief Implements eval polynomial model at.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float eval_polynomial_model_at(const PolynomialModelState &state, float x,
                                float y, std::vector<float> *x_pows,
                                std::vector<float> *y_pows) {
@@ -2633,6 +2841,10 @@ float eval_polynomial_model_at(const PolynomialModelState &state, float x,
   return sum;
 }
 
+/// @brief Implements render polynomial surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df render_polynomial_surface(const PolynomialModelState &state,
                                     int image_width, int image_height) {
   Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
@@ -2685,6 +2897,10 @@ Matrix2Df render_polynomial_surface(const PolynomialModelState &state,
   return surface;
 }
 
+/// @brief Implements select background surface model.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool select_background_surface_model(const std::vector<GridCell> &grid_cells,
                                      int image_width, int image_height,
                                      int grid_spacing, const BGEConfig &config,
@@ -2778,6 +2994,10 @@ bool select_background_surface_model(const std::vector<GridCell> &grid_cells,
 }
 
 // RBF interpolation (v3.3 §6.3.7)
+/// @brief Implements fit rbf surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
                           int image_width, int image_height, int grid_spacing,
                           const BGEConfig &config) {
@@ -2789,6 +3009,10 @@ Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
 }
 
 // Polynomial surface fitting (v3.3 §6.3.7)
+/// @brief Implements fit polynomial surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
                                  int image_width, int image_height,
                                  const BGEConfig &config) {
@@ -2801,6 +3025,10 @@ Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
 }
 
 // Fit background surface (v3.3 §6.3.7)
+/// @brief Implements fit background surface.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 BackgroundModel fit_background_surface(const std::vector<GridCell> &grid_cells,
                                        int image_width, int image_height,
                                        int grid_spacing,
@@ -2879,6 +3107,10 @@ struct BGECandidateResult {
   bool success = false;
 };
 
+/// @brief Implements deterministic split indices.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static void deterministic_split_indices(int n, float holdout_fraction,
                                         std::vector<int> *train_idx,
                                         std::vector<int> *val_idx) {
@@ -2909,6 +3141,10 @@ static void deterministic_split_indices(int n, float holdout_fraction,
   }
 }
 
+/// @brief Implements eval model rms at cells.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float eval_model_rms_at_cells(const Matrix2Df &model,
                                      const std::vector<GridCell> &cells) {
   if (cells.empty())
@@ -2930,6 +3166,10 @@ static float eval_model_rms_at_cells(const Matrix2Df &model,
 }
 
 template <typename EvalFn>
+/// @brief Implements eval predictor rms at cells.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float eval_predictor_rms_at_cells(const std::vector<GridCell> &cells,
                                          EvalFn &&eval_fn) {
   if (cells.empty())
@@ -2949,6 +3189,10 @@ static float eval_predictor_rms_at_cells(const std::vector<GridCell> &cells,
   return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(n)));
 }
 
+/// @brief Implements eval model flatness.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float eval_model_flatness(const Matrix2Df &model, int step) {
   step = std::max(1, step);
   std::vector<float> grad_energy;
@@ -2971,6 +3215,10 @@ static float eval_model_flatness(const Matrix2Df &model, int step) {
   return robust_median_inplace(grad_energy);
 }
 
+/// @brief Implements eval model roughness.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static float eval_model_roughness(const Matrix2Df &model, int step) {
   step = std::max(1, step);
   std::vector<float> curvature_energy;
@@ -3013,6 +3261,10 @@ struct SparseEvalGrid {
   std::vector<float> y_coords;
 };
 
+/// @brief Builds sparse eval grid.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static SparseEvalGrid build_sparse_eval_grid(int image_width, int image_height,
                                              int sample_step) {
   SparseEvalGrid grid;
@@ -3040,6 +3292,10 @@ struct BGECandidatePrep {
   float bg_median = kTiny;
 };
 
+/// @brief Builds bge candidate prep.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static BGECandidatePrep build_bge_candidate_prep(
     const std::vector<AutoTunePreparedTileSample> &prepared_tiles,
     float sample_quantile, int image_width, int image_height,
@@ -3106,6 +3362,10 @@ static BGECandidatePrep build_bge_candidate_prep(
 }
 
 static BGECandidateResult
+/// @brief Implements try bge candidate prepared.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 try_bge_candidate_prepared(int image_width, int image_height,
                            const BGEConfig &cfg_try, int grid_spacing,
                            const BGECandidatePrep &prep,
@@ -3182,6 +3442,10 @@ try_bge_candidate_prepared(int image_width, int image_height,
   return out;
 }
 
+/// @brief Implements auto tune bge config conservative.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static BGECandidateResult auto_tune_bge_config_conservative(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, int base_grid_spacing,
@@ -3373,6 +3637,10 @@ static BGECandidateResult auto_tune_bge_config_conservative(
 }
 
 // Main BGE function (v3.3 §6.3)
+/// @brief Applies background extraction.
+/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                  const std::vector<TileMetrics> &tile_metrics,
                                  const TileGrid &tile_grid,

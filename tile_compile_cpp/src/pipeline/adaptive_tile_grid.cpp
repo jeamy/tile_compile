@@ -10,6 +10,10 @@ namespace tile_compile::pipeline {
 namespace {
 
 // Build the raw tile list (no coverage filtering).
+/// @brief Creates raw tiles.
+/// @details Part of adaptive tile-grid construction based on frame size and configuration; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<Tile> make_raw_tiles(int image_width, int image_height,
                                  int tile_size, float overlap_fraction) {
     std::vector<Tile> tiles;
@@ -45,6 +49,10 @@ std::vector<Tile> make_raw_tiles(int image_width, int image_height,
 }
 
 // Compute coverage fraction for a single tile against the canvas mask.
+/// @brief Implements tile coverage.
+/// @details Part of adaptive tile-grid construction based on frame size and configuration; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 float tile_coverage(const Tile& t,
                     const std::vector<uint8_t>& mask,
                     int canvas_width, int canvas_height) {
@@ -66,6 +74,10 @@ float tile_coverage(const Tile& t,
 
 } // namespace
 
+/// @brief Builds coverage filtered tile grid.
+/// @details Part of adaptive tile-grid construction based on frame size and configuration; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 TileGridBuildResult build_coverage_filtered_tile_grid(
     int image_width,
     int image_height,
@@ -150,6 +162,10 @@ TileGridBuildResult build_coverage_filtered_tile_grid(
     return result;
 }
 
+/// @brief Builds initial tile grid.
+/// @details Part of adaptive tile-grid construction based on frame size and configuration; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::vector<Tile> build_initial_tile_grid(int image_width,
                                           int image_height,
                                           int tile_size,

@@ -8,6 +8,10 @@
 
 namespace tile_compile::astrometry {
 
+/// @brief Implements wcs from cdelt crota.
+/// @details Part of WCS parsing and coordinate transform support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WCS wcs_from_cdelt_crota(double crval1, double crval2,
                          double crpix1, double crpix2,
                          double cdelt1, double cdelt2,
@@ -32,6 +36,10 @@ WCS wcs_from_cdelt_crota(double crval1, double crval2,
     return w;
 }
 
+/// @brief Parses fits double.
+/// @details Part of WCS parsing and coordinate transform support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 static double parse_fits_double(const std::string &val_str) {
     std::string s = val_str;
     // Remove trailing comment (after /)
@@ -54,6 +62,10 @@ static double parse_fits_double(const std::string &val_str) {
     return result;
 }
 
+/// @brief Parses wcs file.
+/// @details Part of WCS parsing and coordinate transform support; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 WCS parse_wcs_file(const std::string &path) {
     WCS w;
 

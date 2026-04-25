@@ -15,10 +15,18 @@ enum class CfaColor : uint8_t {
     Blue = 2,
 };
 
+/// @brief Implements clamp index.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline int clamp_index(int v, int lo, int hi) {
     return std::max(lo, std::min(hi, v));
 }
 
+/// @brief Implements fill bayer color lut.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline void fill_bayer_color_lut(BayerPattern pattern, uint8_t color_lut[4]) {
     if (pattern == BayerPattern::UNKNOWN) {
         pattern = BayerPattern::GBRG;
@@ -53,6 +61,10 @@ inline void fill_bayer_color_lut(BayerPattern pattern, uint8_t color_lut[4]) {
     }
 }
 
+/// @brief Implements sample clamped strided.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float sample_clamped_strided(const float* data, int h, int w, int stride,
                                     int y, int x) {
     const int cy = clamp_index(y, 0, h - 1);
@@ -61,10 +73,18 @@ inline float sample_clamped_strided(const float* data, int h, int w, int stride,
                 static_cast<size_t>(cx)];
 }
 
+/// @brief Implements sample clamped.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float sample_clamped(const float* data, int h, int w, int y, int x) {
     return sample_clamped_strided(data, h, w, w, y, x);
 }
 
+/// @brief Implements average neighbors of color strided.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float average_neighbors_of_color_strided(const float* data,
                                                 int h,
                                                 int w,
@@ -101,6 +121,10 @@ inline float average_neighbors_of_color_strided(const float* data,
     return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
 }
 
+/// @brief Implements average neighbors of color.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float average_neighbors_of_color(const float* data,
                                         int h,
                                         int w,
@@ -116,6 +140,10 @@ inline float average_neighbors_of_color(const float* data,
         desired_color);
 }
 
+/// @brief Implements debayer bilinear core.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_bilinear_core(const float* src, int h, int w, int stride,
                            BayerPattern pattern, int origin_x, int origin_y,
                            Matrix2Df& R_out, Matrix2Df& G_out,
@@ -207,6 +235,10 @@ void debayer_bilinear_core(const float* src, int h, int w, int stride,
     }
 }
 
+/// @brief Implements average neighbors of color absolute.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 inline float average_neighbors_of_color_absolute(const float* data,
                                                 int h,
                                                 int w,
@@ -242,6 +274,10 @@ inline float average_neighbors_of_color_absolute(const float* data,
 
 } // namespace
 
+/// @brief Implements cfa green mask.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern) {
     Matrix2Df mask = Matrix2Df::Zero(height, width);
     
@@ -274,6 +310,10 @@ Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern
     return mask;
 }
 
+/// @brief Implements cfa green proxy.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
     int h = mosaic.rows();
     int w = mosaic.cols();
@@ -319,6 +359,10 @@ Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_patt
     return out;
 }
 
+/// @brief Implements cfa green proxy downsample2x2.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cfa_green_proxy_downsample2x2(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
     Matrix2Df p = cfa_green_proxy(mosaic, bayer_pattern);
     
@@ -347,6 +391,10 @@ Matrix2Df cfa_green_proxy_downsample2x2(const Matrix2Df& mosaic, const std::stri
     return out;
 }
 
+/// @brief Implements warp cfa mosaic via subplanes.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df warp_cfa_mosaic_via_subplanes(
     const Matrix2Df& mosaic,
     const WarpMatrix& warp,
@@ -444,6 +492,10 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     return out;
 }
 
+/// @brief Splits cfa channels.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 CFAChannels split_cfa_channels(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
     std::string bp = bayer_pattern;
     std::transform(bp.begin(), bp.end(), bp.begin(), ::toupper);
@@ -487,6 +539,10 @@ CFAChannels split_cfa_channels(const Matrix2Df& mosaic, const std::string& bayer
     return channels;
 }
 
+/// @brief Implements reassemble cfa mosaic.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df reassemble_cfa_mosaic(
     const Matrix2Df& r_plane,
     const Matrix2Df& g_plane, 
@@ -528,6 +584,10 @@ Matrix2Df reassemble_cfa_mosaic(
     return mosaic;
 }
 
+/// @brief Implements bayer offsets.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void bayer_offsets(const std::string& bayer_pattern,
                    int& r_row, int& r_col, int& b_row, int& b_col) {
     std::string bp = bayer_pattern;
@@ -546,6 +606,10 @@ void bayer_offsets(const std::string& bayer_pattern,
     }
 }
 
+/// @brief Implements debayer bilinear into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_bilinear_into(const Matrix2Df& mosaic,
                            BayerPattern pattern,
                            Matrix2Df& R_out,
@@ -554,6 +618,10 @@ void debayer_bilinear_into(const Matrix2Df& mosaic,
     debayer_bilinear_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer bilinear.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern) {
     DebayerResult out;
@@ -561,6 +629,10 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
     return out;
 }
 
+/// @brief Implements debayer bilinear into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_bilinear_into(const Matrix2Df& mosaic,
                            BayerPattern pattern,
                            int origin_x,
@@ -574,6 +646,10 @@ void debayer_bilinear_into(const Matrix2Df& mosaic,
                           R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer bilinear strided into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_bilinear_strided_into(const float* mosaic_data,
                                    int mosaic_rows,
                                    int mosaic_cols,
@@ -595,6 +671,10 @@ void debayer_bilinear_strided_into(const float* mosaic_data,
                           pattern, origin_x, origin_y, R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer bilinear.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern,
                                int origin_x,
@@ -605,6 +685,10 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
     return out;
 }
 
+/// @brief Implements debayer nearest neighbor into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                                    BayerPattern pattern,
                                    Matrix2Df& R_out,
@@ -613,6 +697,10 @@ void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
     debayer_bilinear_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer nearest neighbor.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern) {
     DebayerResult out;
@@ -620,6 +708,10 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
     return out;
 }
 
+/// @brief Implements debayer nearest neighbor into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                                    BayerPattern pattern,
                                    int origin_x,
@@ -631,6 +723,10 @@ void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                           R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer nearest neighbor strided into.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void debayer_nearest_neighbor_strided_into(const float* mosaic_data,
                                            int mosaic_rows,
                                            int mosaic_cols,
@@ -646,6 +742,10 @@ void debayer_nearest_neighbor_strided_into(const float* mosaic_data,
                                   R_out, G_out, B_out);
 }
 
+/// @brief Implements debayer nearest neighbor.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern,
                                        int origin_x,

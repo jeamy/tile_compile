@@ -6,6 +6,10 @@
 
 namespace tile_compile::reconstruction {
 
+/// @brief Computes memory budget plan.
+/// @details Part of memory-budget planning for reconstruction batch sizing and worker use; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 MemoryBudgetPlan compute_memory_budget_plan(
     int    num_frames,
     int    frame_rows,

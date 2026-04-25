@@ -11,12 +11,20 @@ namespace tile_compile::io {
 
 namespace {
 
+/// @brief Implements cfitsio status text.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string cfitsio_status_text(int status) {
     char msg[FLEN_STATUS] = {0};
     fits_get_errstatus(status, msg);
     return std::string(msg);
 }
 
+/// @brief Implements cfitsio disk full.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool cfitsio_disk_full(int status_text_code, const std::string& text) {
     (void)status_text_code;
     const std::string lower = core::to_lower(text);
@@ -26,6 +34,10 @@ bool cfitsio_disk_full(int status_text_code, const std::string& text) {
            (lower.find("enospc") != std::string::npos);
 }
 
+/// @brief Implements fits write error message.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::string fits_write_error_message(const std::string& action,
                                      const fs::path& path,
                                      int status) {
@@ -43,6 +55,10 @@ std::string fits_write_error_message(const std::string& action,
     return oss.str();
 }
 
+/// @brief Implements move to first image hdu.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool move_to_first_image_hdu(fitsfile* fptr,
                              int& bitpix,
                              int& naxis,
@@ -118,6 +134,10 @@ bool move_to_first_image_hdu(fitsfile* fptr,
     return false;
 }
 
+/// @brief Reads current header.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 FitsHeader read_current_header(fitsfile* fptr, int& status) {
     FitsHeader header;
 
@@ -196,6 +216,10 @@ FitsHeader read_current_header(fitsfile* fptr, int& status) {
     return header;
 }
 
+/// @brief Decides whether to skip header key.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool should_skip_header_key(const std::string& key, bool is_rgb_image) {
     if (key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" ||
         key == "NAXIS1" || key == "NAXIS2" || key == "EXTEND" ||
@@ -208,6 +232,10 @@ bool should_skip_header_key(const std::string& key, bool is_rgb_image) {
     return false;
 }
 
+/// @brief Writes header keywords.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void write_header_keywords(fitsfile* fptr, const FitsHeader& header,
                            bool is_rgb_image, int& status) {
     for (const auto& [key, value] : header.string_values) {
@@ -243,6 +271,10 @@ void write_header_keywords(fitsfile* fptr, const FitsHeader& header,
     }
 }
 
+/// @brief Reads current pixels float.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df read_current_pixels_float(fitsfile* fptr, const fs::path& path,
                                     long width, long height, long plane,
                                     int& status) {
@@ -261,6 +293,10 @@ Matrix2Df read_current_pixels_float(fitsfile* fptr, const fs::path& path,
 
 } // namespace
 
+/// @brief Implements get string.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<std::string> FitsHeader::get_string(const std::string& key) const {
     auto it = string_values.find(key);
     if (it != string_values.end()) {
@@ -269,6 +305,10 @@ std::optional<std::string> FitsHeader::get_string(const std::string& key) const 
     return std::nullopt;
 }
 
+/// @brief Implements get double.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<double> FitsHeader::get_double(const std::string& key) const {
     auto it = numeric_values.find(key);
     if (it != numeric_values.end()) {
@@ -277,6 +317,10 @@ std::optional<double> FitsHeader::get_double(const std::string& key) const {
     return std::nullopt;
 }
 
+/// @brief Implements get int.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<int> FitsHeader::get_int(const std::string& key) const {
     auto it = int_values.find(key);
     if (it != int_values.end()) {
@@ -285,6 +329,10 @@ std::optional<int> FitsHeader::get_int(const std::string& key) const {
     return std::nullopt;
 }
 
+/// @brief Implements get bool.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::optional<bool> FitsHeader::get_bool(const std::string& key) const {
     auto it = bool_values.find(key);
     if (it != bool_values.end()) {
@@ -293,22 +341,42 @@ std::optional<bool> FitsHeader::get_bool(const std::string& key) const {
     return std::nullopt;
 }
 
+/// @brief Implements set.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void FitsHeader::set(const std::string& key, const std::string& value) {
     string_values[key] = value;
 }
 
+/// @brief Implements set.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void FitsHeader::set(const std::string& key, double value) {
     numeric_values[key] = value;
 }
 
+/// @brief Implements set.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void FitsHeader::set(const std::string& key, int value) {
     int_values[key] = value;
 }
 
+/// @brief Implements set.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void FitsHeader::set(const std::string& key, bool value) {
     bool_values[key] = value;
 }
 
+/// @brief Checks fits image path.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 bool is_fits_image_path(const fs::path& path) {
     const std::string name = core::to_lower(path.filename().string());
     return core::ends_with(name, ".fit") ||
@@ -319,6 +387,10 @@ bool is_fits_image_path(const fs::path& path) {
            core::ends_with(name, ".fts.fz");
 }
 
+/// @brief Reads fits float.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -354,6 +426,10 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     }
 }
 
+/// @brief Reads fits header.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 FitsHeader read_fits_header(const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -381,6 +457,10 @@ FitsHeader read_fits_header(const fs::path& path) {
     }
 }
 
+/// @brief Reads fits pixels float.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df read_fits_pixels_float(const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -414,6 +494,10 @@ Matrix2Df read_fits_pixels_float(const fs::path& path) {
     }
 }
 
+/// @brief Reads fits rgb.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 RGBImage read_fits_rgb(const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -470,6 +554,10 @@ RGBImage read_fits_rgb(const fs::path& path) {
     }
 }
 
+/// @brief Reads fits region float.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -530,6 +618,10 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
     return data;
 }
 
+/// @brief Writes fits float.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHeader& header) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -569,6 +661,10 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     }
 }
 
+/// @brief Writes fits rgb.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header) {
     if (R.rows() != G.rows() || R.rows() != B.rows() || R.cols() != G.cols() || R.cols() != B.cols()) {
         throw FitsError("RGB channel dimensions must match");
@@ -624,6 +720,10 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     }
 }
 
+/// @brief Updates fits header in place.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 void update_fits_header_in_place(const fs::path& path, const FitsHeader& header) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -657,6 +757,10 @@ void update_fits_header_in_place(const fs::path& path, const FitsHeader& header)
     }
 }
 
+/// @brief Detects bayer pattern.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 BayerPattern detect_bayer_pattern(const FitsHeader& header) {
     auto bayerpat = header.get_string("BAYERPAT");
     if (bayerpat) {
@@ -686,6 +790,10 @@ BayerPattern detect_bayer_pattern(const FitsHeader& header) {
     return BayerPattern::UNKNOWN;
 }
 
+/// @brief Detects color mode.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 ColorMode detect_color_mode(const FitsHeader& header, int naxis) {
     if (naxis >= 3) {
         return ColorMode::RGB;
@@ -708,6 +816,10 @@ ColorMode detect_color_mode(const FitsHeader& header, int naxis) {
     return ColorMode::MONO;
 }
 
+/// @brief Implements get fits dimensions.
+/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
 std::tuple<int, int, int> get_fits_dimensions(const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
