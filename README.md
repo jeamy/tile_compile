@@ -349,7 +349,12 @@ Resume mode:
   --from-phase BGE
 ```
 
-Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
+Supported resume phases (any phase from 0..16):
+- Early: `SCAN_INPUT`, `CHANNEL_SPLIT`, `NORMALIZATION`, `GLOBAL_METRICS`, `TILE_GRID`
+- Mid: `REGISTRATION`, `PREWARP`, `COMMON_OVERLAP`, `LOCAL_METRICS`, `TILE_RECONSTRUCTION`
+- Late: `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`
+
+Common resume points: `ASTROMETRY` (re-solve), `BGE` (re-extract background), `PCC` (re-calibrate color), `STACKING` (re-stack from synthetic frames).
 
 ### CLI Scan
 
@@ -360,16 +365,32 @@ Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
 ### Other CLI Possibilities
 
 ```bash
-# validate config
-./tile_compile_cli validate-config --path ../tile_compile.yaml
+# Config handling
+./tile_compile_cli get-schema                              # Print JSON schema
+./tile_compile_cli dump-default-config                     # Print default config as JSON
+./tile_compile_cli load-config <path>                    # Load and display config YAML
+./tile_compile_cli save-config <path> [--stdin]            # Save config YAML
+./tile_compile_cli validate-config (--path P | --yaml Y | --stdin)
 
-# list available runs
+# Run inspection
 ./tile_compile_cli list-runs /path/to/runs
-
-# inspect one run
 ./tile_compile_cli get-run-status /path/to/runs/<run_id>
-./tile_compile_cli get-run-logs /path/to/runs/<run_id> --tail 200
+./tile_compile_cli get-run-logs /path/to/runs/<run_id> [--tail N]
 ./tile_compile_cli list-artifacts /path/to/runs/<run_id>
+
+# Input scanning
+./tile_compile_cli scan /path/to/lights [--frames-min N]
+
+# FITS analysis
+./tile_compile_cli fits-stats /path/to/image.fits
+
+# Photometric color calibration (PCC)
+./tile_compile_cli pcc-run <in.fits> <out.fits> --wcs <wcs.fits> [--source vizier|siril]
+./tile_compile_cli pcc-apply <in.fits> <out.fits> [--r X] [--g Y] [--b Z]
+
+# GUI state (for external tool integration)
+./tile_compile_cli load-gui-state [--path <file>]
+./tile_compile_cli save-gui-state [--path <file>] [--stdin | <JSON>]
 ```
 
 ### GUI2 integration

@@ -359,7 +359,12 @@ Fortsetzungsmodus (Resume):
   --from-phase BGE
 ```
 
-Unterstützte Resume-Phasen: `ASTROMETRY`, `BGE`, `PCC`.
+Unterstützte Resume-Phasen (alle Phasen 0..16):
+- Früh: `SCAN_INPUT`, `CHANNEL_SPLIT`, `NORMALIZATION`, `GLOBAL_METRICS`, `TILE_GRID`
+- Mitte: `REGISTRATION`, `PREWARP`, `COMMON_OVERLAP`, `LOCAL_METRICS`, `TILE_RECONSTRUCTION`
+- Spät: `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`
+
+Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrahieren), `PCC` (Farbe neu kalibrieren), `STACKING` (neu stacken aus synthetischen Frames).
 
 ### CLI Scan (Frame-Erkennung)
 
@@ -370,16 +375,32 @@ Unterstützte Resume-Phasen: `ASTROMETRY`, `BGE`, `PCC`.
 ### Weitere CLI-Möglichkeiten
 
 ```bash
-# Konfiguration validieren
-./tile_compile_cli validate-config --path ../tile_compile.yaml
+# Konfigurationshandling
+./tile_compile_cli get-schema                              # JSON-Schema ausgeben
+./tile_compile_cli dump-default-config                     # Default-Config als JSON
+./tile_compile_cli load-config <pfad>                    # Config YAML laden und anzeigen
+./tile_compile_cli save-config <pfad> [--stdin]            # Config YAML speichern
+./tile_compile_cli validate-config (--path P | --yaml Y | --stdin)
 
-# verfügbare Runs auflisten
-./tile_compile_cli list-runs /path/to/runs
+# Run-Inspektion
+./tile_compile_cli list-runs /pfad/zu/runs
+./tile_compile_cli get-run-status /pfad/zu/runs/<run_id>
+./tile_compile_cli get-run-logs /pfad/zu/runs/<run_id> [--tail N]
+./tile_compile_cli list-artifacts /pfad/zu/runs/<run_id>
 
-# einen Run inspizieren
-./tile_compile_cli get-run-status /path/to/runs/<run_id>
-./tile_compile_cli get-run-logs /path/to/runs/<run_id> --tail 200
-./tile_compile_cli list-artifacts /path/to/runs/<run_id>
+# Input-Scanning
+./tile_compile_cli scan /pfad/zu/lights [--frames-min N]
+
+# FITS-Analyse
+./tile_compile_cli fits-stats /pfad/zu/bild.fits
+
+# Photometrische Farbkalibrierung (PCC)
+./tile_compile_cli pcc-run <in.fits> <out.fits> --wcs <wcs.fits> [--source vizier|siril]
+./tile_compile_cli pcc-apply <in.fits> <out.fits> [--r X] [--g Y] [--b Z]
+
+# GUI-State (für externe Tool-Integration)
+./tile_compile_cli load-gui-state [--path <datei>]
+./tile_compile_cli save-gui-state [--path <datei>] [--stdin | <JSON>]
 ```
 
 ### GUI2-Integration
