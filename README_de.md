@@ -512,6 +512,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.2.3 (2026-04-24)
+
+- Robustere Registrierung: Deep-Chain-Outlier-Rejection (lange Ketten mit niedrigem CC ablehnen), verdoppelte Anker-Dichte für große-N-Sessions, "Hopping" Sequential Rescue das schwache Nachbarn überspringt um bessere Anker zu finden, und ASTAP-Plate-Solving als Fallback auch für modell-interpolierte Frames.
+
 ## v0.2.2 (2026-04-24)
 
 - **Hot/Dead-Pixel-Korrektur repariert** (`cosmetic_correction_cfa`): Defekte Pixel in Sternbereichen wurden bisher nicht erkannt, da `neighbor_threshold` zu niedrig gesetzt war — Sternhalo-Pixel wurden fälschlicherweise als "heiße Nachbarn" gewertet und blockierten die Korrektur. Der Threshold wurde auf den vollen globalen Schwellwert angehoben. Zusätzlich: Pixel die das 5-fache des lokalen Floors übersteigen werden jetzt bedingungslos ersetzt (`extreme_outlier`-Bypass). Dead/Cold-Pixel-Erkennung neu hinzugefügt. Funktioniert auch ohne Darks.
@@ -684,6 +688,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-24)
+
+**Registrierungs-Robustheit: Deep-Chain-Rejection + adaptive Anchors + Hopping-Rescue + astrometrische Fallback (`v0.2.3`):**
+
+- Chain-validierte Frames mit `chain_depth > max_blind_chain_depth` und `cc < reject_cc_min_abs` werden jetzt als `deep_chain_low_cc`-Outlier rejected statt akzeptiert; verhindert Drift durch lange sequentielle Ketten über Wolkenfelder.
+- Adaptive aktive-Anchor-Zielgröße von `min(21, max(3, (N+59)/60))` auf `min(32, max(4, (N+29)/30))` erhöht, verdoppelt Anker-Dichte für große-N-Sessions (z.B. 325 Frames nutzen jetzt ~12 statt ~6 Anker).
+- "Hopping" Sequential Rescue: wenn der direkte Nachbar niedriges CC hat oder keine Blind-Chain ankern kann, werden bis zu 5 Frames (für Refine) bzw. 8 Frames (für Rescue) in jede Richtung nach einem besseren Anker mit CC > 0.3–0.4 gesucht, reduziert Ketten-Tiefe dramatisch bei Streifwolken-Bedingungen.
+- Astrometrisches Rescue wird jetzt *nach* der modellbasierten Warp-Vorhersage ausgeführt (Section 4b), sodass ASTAP auch Frames retten kann die nur `model_*`-Provenances haben; `weak_model`-Bedingung zu `should_try_astrometry` hinzugefügt damit low-CC Model-Frames für Plate-Solving berechtigt sind.
 
 ### (2026-04-24)
 

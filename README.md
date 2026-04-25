@@ -502,6 +502,10 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versions
 
+## v0.2.3 (2026-04-24)
+
+- More robust registration: deep-chain outlier rejection (reject long chains with low CC), doubled anchor density for large-N sessions, "hopping" sequential rescue that searches past weak neighbors for better anchors, and ASTAP plate-solving as fallback even for model-interpolated frames.
+
 ## v0.2.2 (2026-04-24)
 
 - **Hot/dead-pixel correction fixed** (`cosmetic_correction_cfa`): defective pixels inside star regions were not corrected because `neighbor_threshold` was set too low — star-halo pixels were incorrectly counted as "hot neighbours" and suppressed the correction. The threshold is now aligned with the full global hot-pixel threshold. Additionally: pixels exceeding 5× the local floor are now replaced unconditionally (`extreme_outlier` bypass). Dead/cold-pixel detection added. Works without dark frames.
@@ -674,6 +678,15 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - First public release
 
 ## Changelog
+
+### (2026-04-24)
+
+**Registration robustness: deep-chain rejection + adaptive anchors + hopping rescue + astrometric fallback (`v0.2.3`):**
+
+- Reject chain-validated frames with `chain_depth > max_blind_chain_depth` and `cc < reject_cc_min_abs` as `deep_chain_low_cc` outliers instead of accepting them; this prevents drift from long sequential chains through cloudy blocks.
+- Increased adaptive active-anchor target from `min(21, max(3, (N+59)/60))` to `min(32, max(4, (N+29)/30))`, doubling anchor density for large-N sessions (e.g., 325 frames now use ~12 anchors instead of ~6).
+- "Hopping" sequential rescue: when the direct neighbor has low CC or cannot anchor a blind chain, search up to 5 frames (for refine) or 8 frames (for rescue) in each direction for a better anchor with CC > 0.3–0.4, dramatically reducing chain depth in scattered-cloud conditions.
+- Astrometric rescue moved to run *after* model-based warp prediction (Section 4b), so ASTAP can now also rescue frames that only have interpolated `model_*` provenances; added `weak_model` condition to `should_try_astrometry` so low-CC model frames are eligible for plate-solving.
 
 ### (2026-04-24)
 
