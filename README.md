@@ -523,6 +523,10 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versions
 
+## v0.2.4 (2026-04-25)
+
+- Registration performance: anchor-promotion rounds now reuse the parallel worker pool and only retry unresolved frames whose nearest anchor changed after promotion, instead of running repeated full-frame single-threaded passes. Added `reg_promotion_retry_frames` diagnostics.
+
 ## v0.2.3 (2026-04-24)
 
 - More robust registration: deep-chain outlier rejection (reject long chains with low CC), doubled anchor density for large-N sessions, "hopping" sequential rescue that searches past weak neighbors for better anchors, and ASTAP plate-solving as fallback even for model-interpolated frames.
@@ -699,6 +703,14 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - First public release
 
 ## Changelog
+
+### (2026-04-25)
+
+**Registration performance: parallel anchor-promotion retries (`v0.2.4`):**
+
+- Fixed the direct-registration anchor-promotion loop so promoted-anchor retry passes use the configured parallel registration worker pool instead of falling back to a single-threaded `reg_worker()` call.
+- Promotion rounds now build a targeted retry list and only revisit unresolved frames whose nearest active anchor is one of the newly promoted anchors, avoiding repeated full 325-frame passes when the anchor set changes.
+- Registration progress now reports the actual job count and worker count for each pass, and `global_registration.json` diagnostics include `reg_promotion_retry_frames` for future runtime analysis.
 
 ### (2026-04-24)
 

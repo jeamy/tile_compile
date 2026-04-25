@@ -533,6 +533,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.2.4 (2026-04-25)
+
+- Registrierungs-Performance: Anchor-Promotion-Runden nutzen jetzt wieder den parallelen Worker-Pool und versuchen nur noch ungelöste Frames erneut, deren nächster Anchor sich durch die Promotion geändert hat, statt wiederholte vollständige Single-Thread-Pässe auszuführen. Diagnose `reg_promotion_retry_frames` ergänzt.
+
 ## v0.2.3 (2026-04-24)
 
 - Robustere Registrierung: Deep-Chain-Outlier-Rejection (lange Ketten mit niedrigem CC ablehnen), verdoppelte Anker-Dichte für große-N-Sessions, "Hopping" Sequential Rescue das schwache Nachbarn überspringt um bessere Anker zu finden, und ASTAP-Plate-Solving als Fallback auch für modell-interpolierte Frames.
@@ -709,6 +713,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-25)
+
+**Registrierungs-Performance: parallele Anchor-Promotion-Retries (`v0.2.4`):**
+
+- Die Direct-Registration-Anchor-Promotion-Schleife nutzt für Retry-Pässe jetzt den konfigurierten parallelen Registration-Worker-Pool, statt auf einen single-threaded `reg_worker()`-Aufruf zurückzufallen.
+- Promotion-Runden erzeugen nun eine gezielte Retry-Liste und besuchen nur ungelöste Frames erneut, deren nächster aktiver Anchor einer der neu promoteten Anchors ist; dadurch entfallen wiederholte vollständige 325-Frame-Pässe bei geändertem Anchor-Set.
+- Der Registration-Fortschritt meldet nun die tatsächliche Job-Anzahl und Worker-Anzahl je Pass, und die `global_registration.json`-Diagnose enthält `reg_promotion_retry_frames` für künftige Laufzeitanalysen.
 
 ### (2026-04-24)
 
