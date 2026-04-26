@@ -12,40 +12,39 @@ astrometry:
   search_radius: 183
 bge:
   autotune:
-    alpha_flatness: 0.8
-    beta_roughness: 0.15
+    alpha_flatness: 0.4
+    beta_roughness: 0.08
     enabled: true
-    holdout_fraction: 0.25
-    max_evals: 48
+    holdout_fraction: 0.2
+    max_evals: 32
     strategy: extended
   enabled: true
   fit:
     huber_delta: 1.5
-    irls_max_iterations: 12
+    irls_max_iterations: 10
     irls_tolerance: 1.00e-04
     method: rbf
-    polynomial_order: 3
-    rbf_epsilon: 1.00e-06
+    polynomial_order: 2
+    rbf_epsilon: 0.7
     rbf_lambda: 0.03
-    rbf_mu_factor: 2.5
+    rbf_mu_factor: 1.8
     rbf_phi: multiquadric
-    robust_loss: tukey
+    robust_loss: huber
   grid:
-    G_max_fraction: 0.14
-    G_min_px: 40
-    N_g: 64
+    G_max_fraction: 0.25
+    G_min_px: 56
+    N_g: 36
     insufficient_cell_strategy: radius_expand
   mask:
-    sat_dilate_px: 12
-    star_dilate_px: 12
+    sat_dilate_px: 6
+    star_dilate_px: 6
   min_sample_bg_value: 1
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.25
-  min_valid_samples_for_apply: 100
-  sample_estimator: sextractor_mode
-  sample_quantile: 0.18
-  structure_thresh_percentile: 0.72
-  tile_weight_lambda_structure: 2.5
+  min_valid_sample_fraction_for_apply: 0.28
+  min_valid_samples_for_apply: 96
+  sample_estimator: quantile
+  sample_quantile: 0.15
+  structure_thresh_percentile: 0.8
 calibration:
   bias_dir: ""
   bias_master: ""
@@ -66,33 +65,33 @@ calibration:
   use_dark: false
   use_flat: false
 chroma_denoise:
-  apply_stage: post_pcc
+  apply_stage: post_stack_linear
   blend:
-    amount: 1
+    amount: 0.9
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.04
-    sigma_spatial: 2.2
+    sigma_range: 0.05
+    sigma_spatial: 1.5
   chroma_wavelet:
     enabled: true
-    levels: 4
-    soft_k: 1.3
-    threshold_scale: 2.8
+    levels: 3
+    soft_k: 1
+    threshold_scale: 1.5
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.9
+  luma_guard_strength: 0.75
   protect_luma: true
   star_protection:
-    dilate_px: 3
+    dilate_px: 2
     enabled: true
-    threshold_sigma: 3.2
+    threshold_sigma: 2.5
   structure_protection:
     enabled: true
-    gradient_percentile: 93
+    gradient_percentile: 87
 data:
-  color_mode: OSC
   linear_required: true
+  color_mode: OSC
 dithering:
   enabled: true
   min_shift_px: 0.7
@@ -103,9 +102,9 @@ global_metrics:
     - 3
   weight_exponent_scale: 1.2
   weights:
-    background: 0.55
-    gradient: 0.15
-    noise: 0.3
+    background: 0.4
+    gradient: 0.25
+    noise: 0.35
 input:
   max_frames: 0
   pattern: ./data/*.fits
@@ -144,19 +143,19 @@ pcc:
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
   apply_attenuation: true
-  background_model: median
+  background_model: plane
   background_neutralization_mode: always
   chroma_strength: 1
   enabled: true
-  k_max: 1.8
+  k_max: 2.4
   mag_bright_limit: 6
   mag_limit: 14
-  max_condition_number: 2.2
+  max_condition_number: 3
   max_residual_rms: 0.9
   min_aperture_px: 4
-  min_stars: 16
+  min_stars: 10
   radii_mode: auto_fwhm
-  sigma_clip: 2
+  sigma_clip: 2.5
   siril_catalog_dir: ""
   source: siril
 pipeline:
@@ -168,7 +167,7 @@ registration:
   auto_engine_rotation_threshold_deg: 0.05
   blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.05
-  enable_local_background_subtraction: true
+  enable_local_background_subtraction: false
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   max_blind_chain_depth: 0
@@ -185,7 +184,7 @@ registration:
   star_topk: 80
   transform_model: affine
   use_astrometry: true
-run_dir: ./run_ic434_background_gradient
+run_dir: ./run_ic434_test
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -193,19 +192,6 @@ runtime_limits:
   memory_budget: 2048
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
-scenario_profile:
-  gui2_scenarios:
-    - osc
-    - ic434
-    - background_gradient
-    - nebula
-  id: ic434_background_gradient
-  intent: IC434/OSC mit maximalem Fokus auf Hintergrundberuhigung und starke Gradientglaettung.
-  priority: maximum_background_suppression
-  recommended_for:
-    - IC434 / Horsehead Nebula mit hartnaeckigem links/rechts-Gradienten im Hintergrund
-    - wenn der Standard-IC434-Run noch sichtbare Hintergrundgradienten zuruecklaesst
-  title: IC434 Background Gradient
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
@@ -216,7 +202,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
-  output_stretch: false
+  output_stretch: true
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2
   sigma_clip:

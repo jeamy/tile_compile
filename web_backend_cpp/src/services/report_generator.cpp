@@ -1485,6 +1485,157 @@ std::string make_plain_card_html(const std::string& title,
     return html.str();
 }
 
+std::string human_phase_reason(const std::string& phase,
+                               const std::string& status,
+                               const std::string& reason) {
+    if (phase == "BGE" && reason == "surface_fit_failed") {
+        return "BGE wurde angefordert und gestartet, aber kein Kanal konnte einen belastbaren Hintergrund-Surface-Fit anwenden.";
+    }
+    if (phase == "ASTROMETRY" && reason == "disabled") {
+        return "Astrometrie war in der Konfiguration deaktiviert.";
+    }
+    if (phase == "ASTROMETRY" && reason == "existing_wcs") {
+        return "Astrometrie wurde übersprungen, weil bereits eine WCS-Lösung vorhanden war.";
+    }
+    if (phase == "SYNTHETIC_FRAMES" && reason == "disabled") {
+        return "Synthetische Frames waren in der Konfiguration deaktiviert.";
+    }
+    if (phase == "STATE_CLUSTERING" && reason == "reduced_mode_skip_clustering") {
+        return "State-Clustering wurde im Reduced-Mode bewusst übersprungen.";
+    }
+    if (!reason.empty()) {
+        return "Die Phase meldete als Grund: " + reason + ".";
+    }
+    if (status == "skipped") {
+        return "Die Phase wurde übersprungen; das Event enthält keinen spezifischeren Grund.";
+    }
+    if (status == "error" || status == "failed" || status == "aborted") {
+        return "Die Phase wurde abgebrochen oder fehlerhaft beendet; Details stehen in den Event-Feldern und Logs.";
+    }
+    return "Die Phase endete nicht mit Status ok.";
+}
+
+std::vector<std::pair<std::string, std::string>> scalar_event_details(const json& ev) {
+    static const std::vector<std::string> preferred = {
+        "reason", "error", "message", "artifact", "requested", "attempted", "success",
+        "have_tile_data", "have_local_metrics", "metrics_tiles_match",
+        "frames_usable", "reg_rejected_frames", "num_synthetic", "source",
+        "stars_used", "stars_matched", "residual_rms"
+    };
+    std::vector<std::pair<std::string, std::string>> rows;
+    for (const auto& key : preferred) {
+        if (!ev.contains(key) || ev.at(key).is_null()) continue;
+        const std::string value = json_string_or(ev, key.c_str(), "");
+        if (!value.empty()) rows.push_back({key, value});
+    }
+    return rows;
+}
+
+std::string render_bge_phase_details(const json& bge) {
+    if (!bge.is_object() || bge.empty()) return "";
+
+    std::ostringstream html;
+    const json summary = bge.contains("summary") && bge["summary"].is_object()
+        ? bge["summary"] : json::object();
+    const json cfg = bge.contains("config") && bge["config"].is_object()
+        ? bge["config"] : json::object();
+    const double min_fraction = json_number_or(cfg, "min_valid_sample_fraction_for_apply", 0.0);
+    const int min_samples = static_cast<int>(json_number_or(cfg, "min_valid_samples_for_apply", 0.0));
+
+    html << "<p class=\"muted\">BGE artifact summary: channels applied "
+         << html_escape(json_string_or(summary, "channels_applied", "0")) << "/"
+         << html_escape(json_string_or(summary, "channels_total", "0"))
+         << ", fit success " << html_escape(json_string_or(summary, "channels_fit_success", "0"))
+         << ", valid tile samples " << html_escape(json_string_or(summary, "tile_samples_valid", "0"))
+         << "/" << html_escape(json_string_or(summary, "tile_samples_total", "0")) << ".</p>";
+
+    if (min_fraction > 0.0 || min_samples > 0) {
+        html << "<p class=\"muted\">Apply guard: mindestens "
+             << min_samples << " valide Samples und "
+             << format_number(min_fraction * 100.0, 1) << "% valide Sample-Quote pro Kanal.</p>";
+    }
+
+    if (bge.contains("channels") && bge["channels"].is_array() && !bge["channels"].empty()) {
+        html << "<table class=\"phases\"><thead><tr><th>Channel</th><th>Samples</th><th>Fit</th><th>Applied</th></tr></thead><tbody>";
+        for (const auto& ch : bge["channels"]) {
+            const double total = json_number_or(ch, "tile_samples_total", 0.0);
+            const double valid = json_number_or(ch, "tile_samples_valid", 0.0);
+            const double ratio = total > 0.0 ? valid / total : 0.0;
+            html << "<tr><td>" << html_escape(json_string_or(ch, "channel", "?")) << "</td>"
+                 << "<td>" << html_escape(format_number(valid, 0)) << "/"
+                 << html_escape(format_number(total, 0)) << " ("
+                 << html_escape(format_number(ratio * 100.0, 1)) << "%)</td>"
+                 << "<td>" << (json_bool_or(ch, "fit_success", false) ? "true" : "false") << "</td>"
+                 << "<td>" << (json_bool_or(ch, "applied", false) ? "true" : "false") << "</td></tr>";
+        }
+        html << "</tbody></table>";
+    }
+    return html.str();
+}
+
+std::optional<ReportSection> gen_phase_issue_summary(const std::vector<json>& events,
+                                                     const json& bge) {
+    struct Issue {
+        std::string phase;
+        std::string status;
+        std::string ts;
+        std::string reason;
+        std::string description;
+        std::vector<std::pair<std::string, std::string>> details;
+        std::string extra_html;
+    };
+
+    std::vector<Issue> issues;
+    for (const auto& ev : events) {
+        if (json_string_or(ev, "type", "") != "phase_end") continue;
+        const std::string status = json_string_or(ev, "status", "");
+        if (status.empty() || status == "ok") continue;
+        const std::string phase = phase_name_from_event(ev);
+        const std::string reason = json_string_or(ev, "reason", json_string_or(ev, "error", ""));
+        Issue item;
+        item.phase = phase.empty() ? "unknown" : phase;
+        item.status = status;
+        item.ts = json_string_or(ev, "ts", json_string_or(ev, "timestamp", ""));
+        item.reason = reason;
+        item.description = human_phase_reason(item.phase, status, reason);
+        item.details = scalar_event_details(ev);
+        if (item.phase == "BGE") item.extra_html = render_bge_phase_details(bge);
+        issues.push_back(std::move(item));
+    }
+
+    if (issues.empty()) {
+        return ReportSection{
+            "Phase Issues Summary",
+            make_plain_card_html(
+                "Abgebrochene oder übersprungene Phasen",
+                "<p class=\"muted\">Keine Phase wurde abgebrochen oder übersprungen.</p>",
+                "ok")
+        };
+    }
+
+    std::ostringstream cards;
+    for (const auto& issue : issues) {
+        std::ostringstream body;
+        body << "<p><strong>Status:</strong> " << html_escape(issue.status);
+        if (!issue.reason.empty()) body << " · <strong>Reason:</strong> <code>" << html_escape(issue.reason) << "</code>";
+        if (!issue.ts.empty()) body << " · <span class=\"muted\">" << html_escape(issue.ts) << "</span>";
+        body << "</p>";
+        body << "<p>" << html_escape(issue.description) << "</p>";
+        if (!issue.details.empty()) {
+            body << "<table class=\"kv\"><tbody>";
+            for (const auto& [key, value] : issue.details) {
+                body << "<tr><th>" << html_escape(key) << "</th><td>" << html_escape(value) << "</td></tr>";
+            }
+            body << "</tbody></table>";
+        }
+        body << issue.extra_html;
+        const std::string severity = issue.status == "skipped" ? "warn" : "bad";
+        cards << make_plain_card_html(issue.phase, body.str(), severity);
+    }
+
+    return ReportSection{"Phase Issues Summary", cards.str()};
+}
+
 json build_report_summary_json(const fs::path& run_dir,
                                const json& status,
                                const json& artifacts,
@@ -2682,6 +2833,7 @@ std::string build_report_html(const fs::path& run_dir,
     add(gen_bge(bge));
     add(gen_validation(val));
     add(gen_common_overlap(common_overlap));
+    add(gen_phase_issue_summary(events, bge));
 
     std::ostringstream html;
     html << "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"/>"
