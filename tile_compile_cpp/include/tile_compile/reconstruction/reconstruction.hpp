@@ -29,9 +29,6 @@ struct RGBSharedSigmaClipResult {
 struct ReconstructionConfig {
     int    parallel_workers                    = 1;
     size_t memory_budget_bytes                 = 512ULL * 1024 * 1024;
-    bool   tile_boundary_diagnostics_enabled   = false;
-    float  dead_tile_min_coverage_fraction     = 0.01f;
-    int    gpu_tile_batch_size                 = 8;
 };
 
 // Result returned by reconstruct_tiles_parallel().
@@ -101,9 +98,6 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
 // Chroma-selective denoise for linear RGB planes (OSC pipeline).
 void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
                                 const config::ChromaDenoiseConfig& cfg);
-
-// Generate a 1D Hann (raised cosine) window of length n.
-std::vector<float> make_hann_1d(int n);
 
 // Generate a 1D support-aware partition window with optional left/right
 // overlap ramps. For interior overlap zones, adjacent tiles should use

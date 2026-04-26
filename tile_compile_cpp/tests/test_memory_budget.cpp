@@ -99,18 +99,11 @@ TEST_CASE("memory_budget_plan_throws_when_budget_too_small_for_frame") {
 // Unit-Test: Budget warning when workers reduced below floor
 // ---------------------------------------------------------------------------
 TEST_CASE("memory_budget_plan_sets_warning_when_workers_reduced_below_floor") {
-    // 8 workers, tiny budget (600 MB) with large frames (3840×2160 = ~31 MB each).
-    // OLA buffers: 1 tile × 32×32 × 2 × float = 8 KB → negligible.
-    // Available for frames ≈ 600 MB × 0.8 = 480 MB.
-    // Per-worker: 480 MB / 8 = 60 MB → fits ~1 frame per worker.
-    // With 8 workers × 1 frame × 31 MB = 248 MB < 480 MB → should be fine.
-    // Use extreme case: 1 frame = 200 MB, budget = 600 MB, 8 workers.
-    // frame_bytes = 7000×7000×float ≈ 196 MB.
-    // available ≈ 480 MB → sub_batch = 2 frames.
-    // per_worker = 2 × 196 MB = 392 MB. 8 × 392 MB >> 480 MB → reduce workers.
+    // Use large frames with enough room for global OLA buffers but not enough
+    // room for the requested worker count to own worst-case frame batches.
     const size_t budget = 600 * MB;
     const auto plan = compute_memory_budget_plan(
-        10, 7000, 7000, 1, 1, 32, 32, 1, budget, 8);
+        10, 3000, 3000, 1, 1, 32, 32, 1, budget, 8);
     // Workers must have been reduced (budget is tight).
     // The important thing: if budget > 512 MB and workers < max(1, N/2),
     // budget_warning must be set.

@@ -1,10 +1,10 @@
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/reconstruction/tile_grid_key.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <numeric>
 #include <unordered_map>
 
@@ -13,19 +13,6 @@ namespace tile_compile::reconstruction {
 namespace {
 constexpr double kAffinityEps = 1.0e-6;
 }
-
-namespace {
-
-/// @brief Implements tile grid key.
-/// @details Part of spatial/temporal local-weight smoothing helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-uint64_t tile_grid_key(int row, int col) {
-  return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
-         static_cast<uint32_t>(col);
-}
-
-} // namespace
 
 /// @brief Implements regularize local quality scores.
 /// @details Part of spatial/temporal local-weight smoothing helpers; this helper keeps the implementation

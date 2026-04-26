@@ -541,6 +541,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Installationsanleitungen für vorgefertigte Binärdateien (Ubuntu, Fedora, Arch)
 - Konfigurierbare BGE-Sample-Estimatoren: `quantile`, `sigma_clipped_median`, `sextractor_mode` und `biweight`
 - BGE-Autotune sweept jetzt Sample-Estimatoren und nutzt Chroma-/Background-Spread-Guards gegen flache oder unausgewogene Korrekturflächen
+- Reconstruction-Fallback-Pfad gehärtet: sichere Shape-/Weight-Validierung, korrigiertes OLA-Memory-Budget, tile-lokale temporäre Buffer und Entfernung wirkungsloser Scheduler-/Config-Dead-Code-Pfade
 
 ## v0.2.4 (25.04.2026)
 
@@ -735,6 +736,11 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - BGE-Autotune erweitert: Sample-Estimatoren werden verglichen, flache Modelle werden bei verbleibendem Background-/Chroma-Spread penalisiert oder abgelehnt
 - RGB-Chroma-Guards auf BGE-Methoden ausgeweitet, inklusive konservativer Fallbacks für unausgewogene kanalweise Korrekturflächen
 - `ic434_background_gradient.example.yaml` mit robusten RBF-/`sextractor_mode`-Parametern für IC434-ähnliche rot/grüne Hintergrundgradienten aktualisiert
+- `docs/reconstruction_audit_2026-04-26.md` mit Reconstruction-Audit-Checkliste und Umsetzungsnotizen ergänzt
+- Reconstruction-Fallback-Helper gegen abweichende Frame-/Tile-Größen sowie fehlende oder ungültige Tile-Weights gehärtet
+- `reconstruct_tiles_parallel()` auf tile-große temporäre OLA-Buffer umgestellt statt full-frame Scratch-Matrizen pro Tile/Sub-Batch zu allokieren
+- Reconstruction-Memory-Budget aktualisiert: globale Overlap-Add-Akkumulatoren plus per-worker Tile-Scratch werden jetzt berücksichtigt
+- Wirkungslosen Reconstruction-Scheduler-/Config-Dead-Code entfernt, inklusive ungenutztem GPU-Batch-Feld, ungenutzter `make_hann_1d()`-API und nicht funktionaler Underutilization-Erkennung
 
 ### (25.04.2026)
 

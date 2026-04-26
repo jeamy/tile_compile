@@ -531,6 +531,7 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - Installation instructions for pre-built binaries (Ubuntu, Fedora, Arch)
 - Configurable BGE sample estimators: `quantile`, `sigma_clipped_median`, `sextractor_mode`, and `biweight`
 - BGE autotune now sweeps sample estimators and applies chroma/background-spread guards for flat or imbalanced correction surfaces
+- Reconstruction fallback path hardened: safer shape/weight validation, corrected OLA memory budgeting, tile-local temporary buffers, and removal of ineffective scheduler/config dead code
 
 ## v0.2.4 (2026-04-25)
 
@@ -725,6 +726,11 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - Extended BGE autotune so it can compare sample estimators and penalize or reject flat models when background/chroma spread indicates a real gradient
 - Extended RGB chroma guards across BGE methods, including conservative fallbacks for imbalanced per-channel correction surfaces
 - Updated `ic434_background_gradient.example.yaml` with robust RBF/`sextractor_mode` settings for IC434-like red/green background gradients
+- Added `docs/reconstruction_audit_2026-04-26.md` with the reconstruction audit checklist and implementation notes
+- Hardened reconstruction fallback helpers against mismatched frame/tile shapes and missing or invalid tile weights
+- Reworked `reconstruct_tiles_parallel()` to use tile-sized temporary OLA buffers instead of full-frame scratch matrices per tile/sub-batch
+- Updated reconstruction memory budgeting so it accounts for global overlap-add accumulators plus per-worker tile scratch
+- Removed ineffective reconstruction scheduler/config dead code, including the unused GPU batch field, unused `make_hann_1d()` API, and non-functional underutilization detector
 
 ### (2026-04-25)
 

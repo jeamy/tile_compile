@@ -1,9 +1,9 @@
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/tile_grid_key.hpp"
 
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
-#include <cstdint>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -31,15 +31,6 @@ inline float invalid_reconstruction_sample() {
 /// artifact, and error-handling semantics expected by callers.
 inline bool is_valid_sample(float v) {
     return std::isfinite(v);
-}
-
-/// @brief Implements tile grid key.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-uint64_t tile_grid_key(int row, int col) {
-    return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
-           static_cast<uint32_t>(col);
 }
 
 /// @brief Implements median inplace.
@@ -104,6 +95,41 @@ float quantize_to_step(float value, float lo, float hi, float step) {
     const float clamped = std::clamp(value, lo, hi);
     const float buckets = std::round((clamped - lo) / step);
     return std::clamp(lo + buckets * step, lo, hi);
+}
+
+struct TileOverlaps {
+    int left = 0;
+    int right = 0;
+    int top = 0;
+    int bottom = 0;
+};
+
+TileOverlaps compute_tile_overlaps(
+    const Tile& tile,
+    const std::unordered_map<uint64_t, size_t>& tile_by_grid,
+    const std::vector<Tile>& tiles) {
+    TileOverlaps out;
+    auto find_neighbor = [&](int row, int col) -> const Tile* {
+        auto it = tile_by_grid.find(tile_grid_key(row, col));
+        return (it != tile_by_grid.end()) ? &tiles[it->second] : nullptr;
+    };
+    if (const Tile* nb = find_neighbor(tile.row, tile.col - 1)) {
+        out.left = std::max(0, (nb->x + nb->width) - tile.x);
+    }
+    if (const Tile* nb = find_neighbor(tile.row, tile.col + 1)) {
+        out.right = std::max(0, (tile.x + tile.width) - nb->x);
+    }
+    if (const Tile* nb = find_neighbor(tile.row - 1, tile.col)) {
+        out.top = std::max(0, (nb->y + nb->height) - tile.y);
+    }
+    if (const Tile* nb = find_neighbor(tile.row + 1, tile.col)) {
+        out.bottom = std::max(0, (tile.y + tile.height) - nb->y);
+    }
+    return out;
+}
+
+bool same_shape(const Matrix2Df& m, int rows, int cols) {
+    return m.rows() == rows && m.cols() == cols;
 }
 
 /// @brief Implements select wiener quality target.
@@ -287,42 +313,32 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
 
     for (size_t t = 0; t < grid.tiles.size(); ++t) {
         const Tile& tile = grid.tiles[t];
-        int left_overlap = 0;
-        int right_overlap = 0;
-        int top_overlap = 0;
-        int bottom_overlap = 0;
-
-        auto left_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col - 1));
-        if (left_it != tile_by_grid.end()) {
-            const auto& nbr = grid.tiles[left_it->second];
-            left_overlap = std::max(0, (nbr.x + nbr.width) - tile.x);
-        }
-        auto right_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col + 1));
-        if (right_it != tile_by_grid.end()) {
-            const auto& nbr = grid.tiles[right_it->second];
-            right_overlap = std::max(0, (tile.x + tile.width) - nbr.x);
-        }
-        auto up_it = tile_by_grid.find(tile_grid_key(tile.row - 1, tile.col));
-        if (up_it != tile_by_grid.end()) {
-            const auto& nbr = grid.tiles[up_it->second];
-            top_overlap = std::max(0, (nbr.y + nbr.height) - tile.y);
-        }
-        auto down_it = tile_by_grid.find(tile_grid_key(tile.row + 1, tile.col));
-        if (down_it != tile_by_grid.end()) {
-            const auto& nbr = grid.tiles[down_it->second];
-            bottom_overlap = std::max(0, (tile.y + tile.height) - nbr.y);
-        }
+        const TileOverlaps overlaps =
+            compute_tile_overlaps(tile, tile_by_grid, grid.tiles);
 
         const std::vector<float> wx =
-            make_partition_window_1d(tile.width, left_overlap, right_overlap);
+            make_partition_window_1d(tile.width, overlaps.left, overlaps.right);
         const std::vector<float> wy =
-            make_partition_window_1d(tile.height, top_overlap, bottom_overlap);
+            make_partition_window_1d(tile.height, overlaps.top, overlaps.bottom);
         
         for (size_t f = 0; f < frames.size(); ++f) {
-            float weight = tile_weights[f][t];
+            if (!same_shape(frames[f], h, w)) {
+                continue;
+            }
+            const float weight =
+                (f < tile_weights.size() && t < tile_weights[f].size())
+                    ? tile_weights[f][t]
+                    : 0.0f;
+            if (!(std::isfinite(weight) && weight > 0.0f)) {
+                continue;
+            }
             
-            for (int y = tile.y; y < tile.y + tile.height && y < h; ++y) {
-                for (int x = tile.x; x < tile.x + tile.width && x < w; ++x) {
+            const int y_begin = std::max(0, tile.y);
+            const int y_end = std::min(h, tile.y + tile.height);
+            const int x_begin = std::max(0, tile.x);
+            const int x_end = std::min(w, tile.x + tile.width);
+            for (int y = y_begin; y < y_end; ++y) {
+                for (int x = x_begin; x < x_end; ++x) {
                     int ly = y - tile.y;
                     int lx = x - tile.x;
                     if (ly < 0 || lx < 0 || ly >= static_cast<int>(wy.size()) || lx >= static_cast<int>(wx.size())) continue;
@@ -509,24 +525,7 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
 
     // 4. Soft-threshold: R' = sign(R) · max(|R| - τ, 0)
     float tau = cfg.alpha * sigma;
-    cv::Mat abs_resid = cv::abs(resid);
-    cv::Mat shrunk;
-    cv::subtract(abs_resid, tau, shrunk);
-    cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
-
-    // Apply sign: where resid < 0, negate the shrunk value
-    cv::Mat sign_mat;
-    cv::threshold(resid, sign_mat, 0.0, 0.0, cv::THRESH_TOZERO);     // positive part
-    cv::Mat neg_part;
-    cv::threshold(-resid, neg_part, 0.0, 0.0, cv::THRESH_TOZERO);    // negative part (abs)
-    // sign_mat > 0 → +1, neg_part > 0 → -1, both 0 → 0
-    cv::Mat result_resid = shrunk.clone();
-    // Where resid was negative, negate shrunk
-    cv::Mat neg_mask;
-    cv::compare(resid, 0.0f, neg_mask, cv::CMP_LT);
-    cv::Mat neg_shrunk;
-    cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
-    neg_shrunk.copyTo(result_resid, neg_mask);
+    cv::Mat result_resid = soft_threshold_signed(resid, tau);
 
     // 5. Reconstruct: T' = B + R'. Non-finite input support stays invalid.
     cv::Mat out_cv = bg + result_resid;
@@ -627,13 +626,19 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     if (valid.empty()) return Matrix2Df();
     const int rows = valid[0].get().rows();
     const int cols = valid[0].get().cols();
+    valid.erase(std::remove_if(valid.begin(), valid.end(),
+                               [&](const auto& f) {
+                                   return !same_shape(f.get(), rows, cols);
+                               }),
+                valid.end());
+    if (valid.empty()) return Matrix2Df();
     Matrix2Df out(rows, cols);
     const int n = static_cast<int>(valid.size());
-    const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
 
     std::vector<float> values;
     values.reserve(static_cast<size_t>(n));
     std::vector<uint8_t> keep(static_cast<size_t>(n), 1);
+    std::vector<uint8_t> proposed_keep(static_cast<size_t>(n), 1);
 
     for (int idx = 0; idx < out.size(); ++idx) {
         // Collect only finite frames at this pixel.
@@ -678,7 +683,7 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             int new_kept = 0;
             const double lo = mean - static_cast<double>(sigma_low) * sd;
             const double hi = mean + static_cast<double>(sigma_high) * sd;
-            std::vector<uint8_t> proposed_keep = keep;
+            proposed_keep = keep;
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 float v = values[static_cast<size_t>(i)];
@@ -728,20 +733,18 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     const int rows = tiles[0].rows();
     const int cols = tiles[0].cols();
     Matrix2Df out = Matrix2Df::Zero(rows, cols);
-    std::vector<int> active_indices;
     std::vector<const float*> tile_ptrs;
     std::vector<double> active_weights;
-    active_indices.reserve(weights.size());
     tile_ptrs.reserve(tiles.size());
     active_weights.reserve(weights.size());
     for (size_t i = 0; i < weights.size() && i < tiles.size(); ++i) {
         const float w = weights[i];
         if (!(std::isfinite(w) && w > 0.0f)) continue;
-        active_indices.push_back(static_cast<int>(i));
+        if (!same_shape(tiles[i], rows, cols)) continue;
         active_weights.push_back(static_cast<double>(w));
         tile_ptrs.push_back(tiles[i].data());
     }
-    const int n = static_cast<int>(active_indices.size());
+    const int n = static_cast<int>(tile_ptrs.size());
     if (n <= 0) {
         return out;
     }
@@ -767,6 +770,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
 
     std::vector<float> values(static_cast<size_t>(n));
     std::vector<uint8_t> keep(static_cast<size_t>(n));
+    std::vector<uint8_t> proposed_keep(static_cast<size_t>(n));
 
     for (int idx = 0; idx < out.size(); ++idx) {
         int n_valid_here = 0;
@@ -821,7 +825,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             const double lo = wmean - static_cast<double>(sigma_low) * sd;
             const double hi = wmean + static_cast<double>(sigma_high) * sd;
             int new_kept = 0;
-            std::vector<uint8_t> proposed_keep = keep;
+            proposed_keep = keep;
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 double v = static_cast<double>(values[static_cast<size_t>(i)]);
@@ -967,6 +971,7 @@ RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
     const int n = static_cast<int>(ptr_g.size());
     std::vector<float> values(static_cast<size_t>(n));
     std::vector<uint8_t> keep(static_cast<size_t>(n), 0u);
+    std::vector<uint8_t> proposed_keep(static_cast<size_t>(n), 0u);
 
     auto reduce_channel = [&](const std::vector<const float*>& ptrs, int idx) {
         double local_wsum = 0.0;
@@ -1072,7 +1077,7 @@ RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
                 const double lo = local_wmean - static_cast<double>(sigma_low) * sd;
                 const double hi = local_wmean + static_cast<double>(sigma_high) * sd;
                 int new_kept = 0;
-                std::vector<uint8_t> proposed_keep = keep;
+                proposed_keep = keep;
                 for (int i = 0; i < n; ++i) {
                     if (!keep[static_cast<size_t>(i)]) {
                         continue;
@@ -1101,27 +1106,6 @@ RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
     }
 
     return out;
-}
-
-/// @brief Creates hann 1d.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<float> make_hann_1d(int n) {
-    std::vector<float> w;
-    if (n <= 0)
-        return w;
-    w.resize(static_cast<size_t>(n));
-    if (n == 1) {
-        w[0] = 1.0f;
-        return w;
-    }
-    const float pi = 3.14159265358979323846f;
-    for (int i = 0; i < n; ++i) {
-        float x = static_cast<float>(i) / static_cast<float>(n - 1);
-        w[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
-    }
-    return w;
 }
 
 /// @brief Creates partition window 1d.
@@ -1227,55 +1211,52 @@ ReconstructTilesResult reconstruct_tiles_parallel(
     tile_by_grid.reserve(static_cast<size_t>(num_tiles));
     for (size_t ti = 0; ti < static_cast<size_t>(num_tiles); ++ti) {
         const auto& t = grid.tiles[ti];
-        const uint64_t key =
-            (static_cast<uint64_t>(static_cast<uint32_t>(t.row)) << 32) |
-             static_cast<uint64_t>(static_cast<uint32_t>(t.col));
-        tile_by_grid.emplace(key, ti);
+        tile_by_grid.emplace(tile_grid_key(t.row, t.col), ti);
     }
-
-    auto get_neighbour = [&](int row, int col) -> const Tile* {
-        const uint64_t key =
-            (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) |
-             static_cast<uint64_t>(static_cast<uint32_t>(col));
-        auto it = tile_by_grid.find(key);
-        return (it != tile_by_grid.end()) ? &grid.tiles[it->second] : nullptr;
-    };
 
     // --- Scheduler config ---
     TileSchedulerConfig sched_cfg;
     sched_cfg.num_workers          = plan.effective_workers;
     sched_cfg.frame_sub_batch_size = plan.frame_sub_batch_size;
-    sched_cfg.gpu_tile_batch_size  = cfg.gpu_tile_batch_size;
 
     // Process function called per tile per sub-batch.
     auto process_fn = [&](const Tile& tile, size_t tile_idx,
                           size_t sb_start, size_t sb_end) {
         // Build partition window for this tile.
-        int left_ov = 0, right_ov = 0, top_ov = 0, bot_ov = 0;
-        if (const Tile* nb = get_neighbour(tile.row, tile.col - 1))
-            left_ov  = std::max(0, (nb->x + nb->width)  - tile.x);
-        if (const Tile* nb = get_neighbour(tile.row, tile.col + 1))
-            right_ov = std::max(0, (tile.x + tile.width) - nb->x);
-        if (const Tile* nb = get_neighbour(tile.row - 1, tile.col))
-            top_ov   = std::max(0, (nb->y + nb->height) - tile.y);
-        if (const Tile* nb = get_neighbour(tile.row + 1, tile.col))
-            bot_ov   = std::max(0, (tile.y + tile.height) - nb->y);
+        if (tile.width <= 0 || tile.height <= 0) {
+            return;
+        }
+        const TileOverlaps overlaps =
+            compute_tile_overlaps(tile, tile_by_grid, grid.tiles);
 
-        const auto wx = make_partition_window_1d(tile.width,  left_ov, right_ov);
-        const auto wy = make_partition_window_1d(tile.height, top_ov,  bot_ov);
+        const auto wx =
+            make_partition_window_1d(tile.width, overlaps.left, overlaps.right);
+        const auto wy =
+            make_partition_window_1d(tile.height, overlaps.top, overlaps.bottom);
 
         // Local accumulators for this sub-batch contribution.
-        Matrix2Df local_accum      = Matrix2Df::Zero(h, w);
-        Matrix2Df local_weight_sum = Matrix2Df::Zero(h, w);
+        Matrix2Df local_accum      = Matrix2Df::Zero(tile.height, tile.width);
+        Matrix2Df local_weight_sum = Matrix2Df::Zero(tile.height, tile.width);
+
+        const int y_begin = std::max(0, tile.y);
+        const int y_end = std::min(h, tile.y + tile.height);
+        const int x_begin = std::max(0, tile.x);
+        const int x_end = std::min(w, tile.x + tile.width);
+        if (y_begin >= y_end || x_begin >= x_end) {
+            return;
+        }
 
         for (size_t f = sb_start; f < sb_end; ++f) {
+            if (f >= tile_weights.size() || !same_shape(frames[f], h, w)) {
+                continue;
+            }
             const float weight = (tile_idx < tile_weights[f].size())
-                                 ? tile_weights[f][tile_idx]
-                                 : 0.0f;
-            if (weight == 0.0f) continue;
+                                     ? tile_weights[f][tile_idx]
+                                     : 0.0f;
+            if (!(std::isfinite(weight) && weight > 0.0f)) continue;
 
-            for (int y = tile.y; y < tile.y + tile.height && y < h; ++y) {
-                for (int x = tile.x; x < tile.x + tile.width && x < w; ++x) {
+            for (int y = y_begin; y < y_end; ++y) {
+                for (int x = x_begin; x < x_end; ++x) {
                     const int ly = y - tile.y;
                     const int lx = x - tile.x;
                     if (ly < 0 || lx < 0 ||
@@ -1286,8 +1267,8 @@ ReconstructTilesResult reconstruct_tiles_parallel(
                     const float ww  = weight * win;
                     const float v   = frames[f](y, x);
                     if (!std::isfinite(v)) continue;
-                    local_accum(y, x)      += v * ww;
-                    local_weight_sum(y, x) += ww;
+                    local_accum(ly, lx)      += v * ww;
+                    local_weight_sum(ly, lx) += ww;
                 }
             }
         }
@@ -1295,10 +1276,12 @@ ReconstructTilesResult reconstruct_tiles_parallel(
         // Merge local accumulators into shared ones.
         {
             std::lock_guard<std::mutex> lk(ola_mutex);
-            for (int y = tile.y; y < tile.y + tile.height && y < h; ++y)
-                for (int x = tile.x; x < tile.x + tile.width && x < w; ++x) {
-                    accum(y, x)      += local_accum(y, x);
-                    weight_sum(y, x) += local_weight_sum(y, x);
+            for (int y = y_begin; y < y_end; ++y)
+                for (int x = x_begin; x < x_end; ++x) {
+                    const int ly = y - tile.y;
+                    const int lx = x - tile.x;
+                    accum(y, x)      += local_accum(ly, lx);
+                    weight_sum(y, x) += local_weight_sum(ly, lx);
                 }
         }
     };

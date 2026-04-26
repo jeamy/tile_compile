@@ -28,6 +28,8 @@ using tile_compile::reconstruction::TileNormalizationStats;
 using tile_compile::reconstruction::make_partition_window_1d;
 using tile_compile::reconstruction::chroma_denoise_rgb_inplace;
 using tile_compile::reconstruction::reconstruct_tiles;
+using tile_compile::reconstruction::sigma_clip_stack;
+using tile_compile::reconstruction::sigma_clip_weighted_tile;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 using tile_compile::reconstruction::wiener_tile_filter;
 
@@ -181,6 +183,58 @@ TEST_CASE("reconstruct_tiles_preserves_outer_boundary_support_with_partition_win
   REQUIRE(out(0, 5) == Catch::Approx(60.0f).margin(1e-6));
   REQUIRE(out(0, 2) == Catch::Approx(30.0f).margin(1e-6));
   REQUIRE(out(0, 3) == Catch::Approx(40.0f).margin(1e-6));
+}
+
+TEST_CASE("reconstruct_tiles_handles_negative_tile_origin_and_missing_weights") {
+  Matrix2Df frame(2, 2);
+  frame << 1.0f, 2.0f, 3.0f, 4.0f;
+
+  tile_compile::TileGrid grid;
+  grid.tile_size = 3;
+  grid.overlap_fraction = 0.0f;
+  grid.rows = 1;
+  grid.cols = 1;
+  grid.tiles = {Tile{-1, -1, 3, 3, 0, 0}};
+
+  const std::vector<Matrix2Df> frames{frame};
+  const auto weighted = reconstruct_tiles(frames, grid, {{1.0f}});
+  REQUIRE(weighted.rows() == 2);
+  REQUIRE(weighted.cols() == 2);
+  REQUIRE(weighted(0, 0) == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(weighted(1, 1) == Catch::Approx(4.0f).margin(1e-6));
+
+  const auto missing_weight = reconstruct_tiles(frames, grid, {});
+  REQUIRE(missing_weight.rows() == 2);
+  REQUIRE(missing_weight.cols() == 2);
+  REQUIRE(missing_weight.maxCoeff() == Catch::Approx(0.0f).margin(1e-6));
+}
+
+TEST_CASE("sigma_clip_stack_ignores_mismatched_frame_shapes") {
+  Matrix2Df good(2, 2);
+  good << 1.0f, 2.0f, 3.0f, 4.0f;
+  Matrix2Df mismatched(1, 1);
+  mismatched << 100.0f;
+
+  const auto out = sigma_clip_stack({good, mismatched}, 3.0f, 3.0f, 1, 1.0f);
+  REQUIRE(out.rows() == 2);
+  REQUIRE(out.cols() == 2);
+  REQUIRE(out(0, 0) == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(out(1, 1) == Catch::Approx(4.0f).margin(1e-6));
+}
+
+TEST_CASE("sigma_clip_weighted_tile_ignores_mismatched_tile_shapes") {
+  Matrix2Df good(1, 2);
+  good << 2.0f, 4.0f;
+  Matrix2Df mismatched(1, 1);
+  mismatched << 100.0f;
+
+  const auto out =
+      sigma_clip_weighted_tile({good, mismatched}, {1.0f, 1.0f},
+                               3.0f, 3.0f, 1, 1.0f);
+  REQUIRE(out.rows() == 1);
+  REQUIRE(out.cols() == 2);
+  REQUIRE(out(0, 0) == Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(out(0, 1) == Catch::Approx(4.0f).margin(1e-6));
 }
 
 TEST_CASE("normalization_roundtrip_preserves_affine_scale") {

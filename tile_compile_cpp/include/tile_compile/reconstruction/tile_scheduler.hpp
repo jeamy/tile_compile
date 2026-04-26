@@ -12,7 +12,6 @@ namespace tile_compile::reconstruction {
 struct TileSchedulerConfig {
     int    num_workers          = 1;
     size_t frame_sub_batch_size = 0; // 0 = process all frames at once
-    int    gpu_tile_batch_size  = 1; // tiles per GPU dispatch (>1 enables batching)
 };
 
 struct TileSchedulerResult {

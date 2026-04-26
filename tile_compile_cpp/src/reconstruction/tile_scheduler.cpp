@@ -48,12 +48,7 @@ TileSchedulerResult run_tile_scheduler(
     std::atomic<int> next_tile{0};
     std::atomic<int> tiles_done{0};
 
-    // Worker-underutilisation detection: track last progress timestamp.
-    std::atomic<bool> underutil_warned{false};
-    const auto underutil_threshold = std::chrono::seconds(30);
-
     auto worker_fn = [&]() {
-        auto last_progress = clock::now();
         while (true) {
             const int idx = next_tile.fetch_add(1, std::memory_order_relaxed);
             if (idx >= n_live) break;
@@ -69,16 +64,6 @@ TileSchedulerResult run_tile_scheduler(
 
             ++tiles_done;
             if (reporter) reporter->tick();
-            last_progress = clock::now();
-
-            // Check for worker underutilisation (only from the first worker).
-            if (idx == 0 && !underutil_warned.load()) {
-                const auto idle = clock::now() - last_progress;
-                if (idle > underutil_threshold && next_tile.load() < n_live) {
-                    underutil_warned.store(true);
-                    // Caller can observe this via TileSchedulerResult.workers_used.
-                }
-            }
         }
     };
 

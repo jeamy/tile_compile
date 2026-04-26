@@ -1581,8 +1581,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   // extract_tile is now image::extract_tile (canonical module function)
 
-  // make_hann_1d is now reconstruction::make_hann_1d (canonical module function)
-
   std::vector<std::vector<TileMetrics>> local_metrics;
   std::vector<std::vector<float>> local_weights;
   std::vector<TileMetrics> bge_tile_metrics_cache;
