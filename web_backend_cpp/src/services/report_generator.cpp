@@ -261,28 +261,26 @@ std::string escape_script_json(std::string text) {
     return text;
 }
 
-std::string build_language_switch_script(const std::string& locale) {
-    json dictionaries = {
-        {"de", load_report_translations("de")},
-        {"en", load_report_translations("en")}
-    };
+std::string extract_between(const std::string& text, const std::string& begin, const std::string& end) {
+    const auto begin_pos = text.find(begin);
+    if (begin_pos == std::string::npos) return {};
+    const auto content_pos = begin_pos + begin.size();
+    const auto end_pos = text.find(end, content_pos);
+    if (end_pos == std::string::npos) return {};
+    return text.substr(content_pos, end_pos - content_pos);
+}
+
+std::string build_language_switch_script(const std::string& locale, const json& templates) {
     std::ostringstream js;
     js << "<script>(function(){";
-    js << "const dictionaries=" << escape_script_json(dictionaries.dump()) << ";";
+    js << "const templates=" << escape_script_json(templates.dump()) << ";";
     js << "let current='" << html_escape(locale) << "';";
-    js << "const baseLang=current;";
-    js << "const contentIds=['report-header-content','report-content'];";
-    js << "const baseHtml={};";
-    js << "contentIds.forEach(function(id){const el=document.getElementById(id);if(el)baseHtml[id]=el.innerHTML;});";
-    js << "function pairs(lang){return Object.entries(dictionaries[lang]||{}).filter(function(p){return p[0]&&p[1]!=null;}).sort(function(a,b){return b[0].length-a[0].length;});}";
-    js << "function replaceAll(html,items){for(const p of items){html=html.split(p[0]).join(String(p[1]));}return html;}";
     js << "function setActive(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-report-lang')===current);});}";
     js << "function bind(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.onclick=function(){setLanguage(btn.getAttribute('data-report-lang'));};});setActive();}";
-    js << "function render(lang){const items=lang===baseLang?null:pairs(lang);contentIds.forEach(function(id){const el=document.getElementById(id);if(el&&Object.prototype.hasOwnProperty.call(baseHtml,id)){el.innerHTML=items?replaceAll(baseHtml[id],items):baseHtml[id];}});current=lang;try{localStorage.setItem('tile_compile_report_lang',lang);}catch(e){}bind();}";
-    js << "function setLanguage(lang){if(lang!==baseLang&&!dictionaries[lang])return;if(lang===current){setActive();return;}render(lang);}";
+    js << "function setLanguage(lang){const tpl=templates[lang];if(!tpl)return;if(tpl.header!=null){const h=document.getElementById('report-header-content');if(h)h.innerHTML=tpl.header;}if(tpl.content!=null){const c=document.getElementById('report-content');if(c)c.innerHTML=tpl.content;}current=lang;try{localStorage.setItem('tile_compile_report_lang',lang);}catch(e){}bind();}";
     js << "window.tileCompileReportSetLanguage=setLanguage;";
     js << "bind();";
-    js << "try{const saved=localStorage.getItem('tile_compile_report_lang');if(saved&&saved!==current&&dictionaries[saved])setLanguage(saved);}catch(e){}";
+    js << "try{const saved=localStorage.getItem('tile_compile_report_lang');if(saved&&saved!==current&&templates[saved])setLanguage(saved);}catch(e){}";
     js << "})();</script>";
     return js.str();
 }
@@ -2903,23 +2901,36 @@ std::string build_report_html(const fs::path& run_dir,
          << "@media (min-width:1100px){.chart-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}"
          << "@media (max-width:720px){.header-top{flex-direction:column;}.language-switch{align-self:flex-start;}}"
          << "</style></head><body>";
-    html << "<header><div class=\"header-top\"><div id=\"report-header-content\"><h1>Tile-Compile Report</h1><div class=\"meta\">";
+    html << "<header><div class=\"header-top\"><div id=\"report-header-content\"><!--REPORT_HEADER_BEGIN--><h1>Tile-Compile Report</h1><div class=\"meta\">";
     for (const auto& line : meta_lines) html << "<span>" << html_escape(line) << "</span>";
-    html << "</div></div><nav class=\"language-switch\" aria-label=\"Report language\"><button type=\"button\" data-report-lang=\"de\">Deutsch</button><button type=\"button\" data-report-lang=\"en\">English</button></nav></div></header><main><div id=\"report-content\">";
+    html << "</div><!--REPORT_HEADER_END--></div><nav class=\"language-switch\" aria-label=\"Report language\"><button type=\"button\" data-report-lang=\"de\">Deutsch</button><button type=\"button\" data-report-lang=\"en\">English</button></nav></div></header><main><div id=\"report-content\"><!--REPORT_CONTENT_BEGIN-->";
     for (const auto& section : sections) {
         html << "<section><h2>" << html_escape(section.title) << "</h2><div class=\"grid\">" << section.cards_html << "</div></section>";
     }
-    html << "</div>";
+    html << "<!--REPORT_CONTENT_END--></div>";
     if (!config_yaml.empty()) {
         html << "<details class=\"config\"><summary>Config (config.yaml)</summary><pre>" << html_escape(config_yaml) << "</pre></details>";
     }
     html << "<div class=\"footer\">Generated by tile_compile_web_backend (C++ inline SVG report)</div>";
     html << "</main>__REPORT_LANGUAGE_SCRIPT__</body></html>";
-    std::string localized = apply_report_translations(html.str(), locale);
+    const std::string base_html = html.str();
+    std::string localized = apply_report_translations(base_html, locale);
+    const std::string localized_de = apply_report_translations(base_html, "de");
+    const std::string localized_en = apply_report_translations(base_html, "en");
+    json templates = {
+        {"de", {
+            {"header", extract_between(localized_de, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
+            {"content", extract_between(localized_de, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
+        }},
+        {"en", {
+            {"header", extract_between(localized_en, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
+            {"content", extract_between(localized_en, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
+        }}
+    };
     const std::string marker = "__REPORT_LANGUAGE_SCRIPT__";
     const auto marker_pos = localized.find(marker);
     if (marker_pos != std::string::npos) {
-        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale));
+        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale, templates));
     }
     return localized;
 }

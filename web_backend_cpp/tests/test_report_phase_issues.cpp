@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
         expect_true(report.find("data-report-lang=\"de\"") != std::string::npos, "german language switch rendered");
         expect_true(report.find("data-report-lang=\"en\"") != std::string::npos, "english language switch rendered");
         expect_true(report.find("tileCompileReportSetLanguage") != std::string::npos, "language switch script rendered");
-        expect_true(report.find("const baseHtml={}") != std::string::npos, "language switch keeps stable source html");
+        expect_true(report.find("const templates=") != std::string::npos, "language switch embeds rendered language templates");
         expect_true(report.find("Phase Issues Summary") != std::string::npos, "phase issue section rendered");
         expect_true(report.find("surface_fit_failed") != std::string::npos, "phase reason rendered");
         expect_true(report.find("BGE artifact summary") != std::string::npos, "bge artifact summary rendered");
