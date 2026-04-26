@@ -21,6 +21,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - GUI2 Dashboard-Run (Deutsch): [Dashboard Run Schritt-fuer-Schritt](doc/gui2/dashboard_run_schritt_fuer_schritt.md)
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
+- Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 
 ## Datenquellen Für Das Paper-Beispiel
 
@@ -528,7 +529,7 @@ ctest --output-on-failure
 
 ## Danksagung
 
-Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
+Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, Codex, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
 
 
 ## Versionen
@@ -537,7 +538,6 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 - v0.2.5 kombiniert die Überarbeitung des Dokumentationssystems mit einer BGE-Robustheitsrunde für schwierige chromatische Gradienten wie IC434. Die BGE-Sample-Estimator-Auswahl ist jetzt in YAML, Schema-Validierung und Parameter Studio sichtbar; das Autotuning kann robuste Estimatoren vergleichen und degenerierte flache Hintergrundmodelle ablehnen, wenn weiterhin deutlicher Hintergrund- oder Chroma-Spread vorliegt.
 - Professionelles Dokumentationssystem mit MkDocs Material + Doxygen
-- GitHub Releases Dokumentation mit korrekten Binärdateinamen
 - Installationsanleitungen für vorgefertigte Binärdateien (Ubuntu, Fedora, Arch)
 - Konfigurierbare BGE-Sample-Estimatoren: `quantile`, `sigma_clipped_median`, `sextractor_mode` und `biweight`
 - BGE-Autotune sweept jetzt Sample-Estimatoren und nutzt Chroma-/Background-Spread-Guards gegen flache oder unausgewogene Korrekturflächen

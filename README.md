@@ -21,6 +21,7 @@ While the methodology was originally conceived to address the specific challenge
 - GUI2 dashboard run guide (English): [Dashboard Run Step-by-Step](doc/gui2/dashboard_run_step_by_step.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
+- Full documentation site: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 
 ## Paper Example Data Sources
 
@@ -518,7 +519,7 @@ ctest --output-on-failure
 
 ## Attribution
 
-This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, ***. Babysitting by a human in a virtual environment.
+This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, Codex, ***. Babysitting by a human in a virtual environment.
 
 
 ## Versions
@@ -527,7 +528,6 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 - v0.2.5 combines the documentation-system refresh with a BGE robustness update for difficult chromatic gradients such as IC434. BGE sample-estimator selection is now exposed in YAML, schema validation, and Parameter Studio, while autotune can compare robust estimators and reject degenerate flat background models when significant background or chroma spread remains.
 - Professional documentation system with MkDocs Material + Doxygen
-- GitHub Releases documentation with correct binary filenames
 - Installation instructions for pre-built binaries (Ubuntu, Fedora, Arch)
 - Configurable BGE sample estimators: `quantile`, `sigma_clipped_median`, `sextractor_mode`, and `biweight`
 - BGE autotune now sweeps sample estimators and applies chroma/background-spread guards for flat or imbalanced correction surfaces
