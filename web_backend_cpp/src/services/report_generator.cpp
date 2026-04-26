@@ -189,6 +189,8 @@ std::string normalize_report_locale(std::string locale) {
 fs::path report_i18n_path(const std::string& locale) {
     const std::string ui_dir = env_or("TILE_COMPILE_UI_DIR", "");
     if (!ui_dir.empty()) return fs::path(ui_dir) / "i18n" / ("report_" + locale + ".json");
+    const std::string project_root = env_or("TILE_COMPILE_PROJECT_ROOT", "");
+    if (!project_root.empty()) return fs::path(project_root) / "web_frontend" / "i18n" / ("report_" + locale + ".json");
     return fs::path("web_frontend") / "i18n" / ("report_" + locale + ".json");
 }
 
@@ -242,12 +244,47 @@ std::string apply_report_translations(std::string html, const std::string& local
         if (!it.value().is_string()) continue;
         pairs.emplace_back(it.key(), it.value().get<std::string>());
     }
-    pairs.emplace_back("lang=\"en\"", "lang=\"" + locale + "\"");
+    pairs.emplace_back("<html lang=\"en\"", "<html lang=\"" + locale + "\"");
     // Sort longest key first to avoid partial-match shadowing.
     std::sort(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) {
         return a.first.size() > b.first.size();
     });
     return apply_replacements(html, pairs);
+}
+
+std::string escape_script_json(std::string text) {
+    size_t pos = 0;
+    while ((pos = text.find("</", pos)) != std::string::npos) {
+        text.replace(pos, 2, "<\\/");
+        pos += 3;
+    }
+    return text;
+}
+
+std::string build_language_switch_script(const std::string& locale) {
+    json dictionaries = {
+        {"de", load_report_translations("de")},
+        {"en", load_report_translations("en")}
+    };
+    std::ostringstream js;
+    js << "<script>(function(){";
+    js << "const dictionaries=" << escape_script_json(dictionaries.dump()) << ";";
+    js << "let current='" << html_escape(locale) << "';";
+    js << "const baseLang=current;";
+    js << "const contentIds=['report-header-content','report-content'];";
+    js << "const baseHtml={};";
+    js << "contentIds.forEach(function(id){const el=document.getElementById(id);if(el)baseHtml[id]=el.innerHTML;});";
+    js << "function pairs(lang){return Object.entries(dictionaries[lang]||{}).filter(function(p){return p[0]&&p[1]!=null;}).sort(function(a,b){return b[0].length-a[0].length;});}";
+    js << "function replaceAll(html,items){for(const p of items){html=html.split(p[0]).join(String(p[1]));}return html;}";
+    js << "function setActive(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-report-lang')===current);});}";
+    js << "function bind(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.onclick=function(){setLanguage(btn.getAttribute('data-report-lang'));};});setActive();}";
+    js << "function render(lang){const items=lang===baseLang?null:pairs(lang);contentIds.forEach(function(id){const el=document.getElementById(id);if(el&&Object.prototype.hasOwnProperty.call(baseHtml,id)){el.innerHTML=items?replaceAll(baseHtml[id],items):baseHtml[id];}});current=lang;try{localStorage.setItem('tile_compile_report_lang',lang);}catch(e){}bind();}";
+    js << "function setLanguage(lang){if(lang!==baseLang&&!dictionaries[lang])return;if(lang===current){setActive();return;}render(lang);}";
+    js << "window.tileCompileReportSetLanguage=setLanguage;";
+    js << "bind();";
+    js << "try{const saved=localStorage.getItem('tile_compile_report_lang');if(saved&&saved!==current&&dictionaries[saved])setLanguage(saved);}catch(e){}";
+    js << "})();</script>";
+    return js.str();
 }
 
 /// @brief Reads json if exists.
@@ -1758,9 +1795,9 @@ std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
                 "Der Plot beantwortet primär die Frage, <em>wo</em> die Laufzeit verbrannt wird: I/O, Registrierung, lokale Metriken, Rekonstruktion oder nachgelagerte Korrekturen."
             },
             {
-                "<span class=\"good\">Gut:</span> Die teuersten Phasen sind fachlich erwartbar, z. B. Registrierung, Local Metrics oder Rekonstruktion.",
-                "<span class=\"neutral\">Neutral:</span> Einzelne lange Balken sind normal, wenn viele Frames, grosse Bilder oder viele Tiles verarbeitet wurden.",
-                "<span class=\"bad\">Auffällig:</span> Unverhältnismäßig lange Scan-, Load- oder PREWARP-Phasen deuten eher auf I/O-, Pfad- oder Datenlayout-Probleme als auf Bildinhalt hin.",
+                "<span class=\"good\">Unauffälliger Befund:</span> Die meiste Laufzeit liegt in fachlich erwartbaren Phasen wie Registrierung, lokalen Metriken oder Rekonstruktion; diese Schritte skalieren direkt mit Frameanzahl, Bildgröße und Tilezahl.",
+                "<span class=\"neutral\">Normaler Befund:</span> Einzelne lange Balken sind plausibel, wenn viele Frames, große Bilder oder viele Tiles verarbeitet wurden; entscheidend ist, ob die lange Phase zum Datenumfang passt.",
+                "<span class=\"bad\">Prüfbedarf:</span> Unverhältnismäßig lange Scan-, Load- oder PREWARP-Phasen sprechen eher für I/O-, Pfad- oder Datenlayout-Probleme als für normalen Bildinhalt.",
                 "Starke Unterschiede zwischen nominal ähnlichen Phasen können auf Fallbacks, Wiederholungen oder instabile Eingangsdaten hinweisen."
             }
         )
@@ -1886,9 +1923,9 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
                 "Damit wird sofort sichtbar, ob Verluste früh im Intake oder erst später durch Registrierung und Qualitätsfilter entstehen."
             },
             {
-                "<span class=\"good\">Gut:</span> Nur moderater Abfall von links nach rechts, besonders zwischen Scan und registrierbaren Frames.",
-                "<span class=\"neutral\">Neutral:</span> Ein kleiner Verlust durch Linearity-Checks oder CC-basierte Ablehnung ist normal.",
-                "<span class=\"bad\">Auffällig:</span> Ein starker Einbruch vor oder nach der Registrierung bedeutet, dass ein großer Teil des Datensatzes nicht robust nutzbar war.",
+                "<span class=\"good\">Unauffälliger Befund:</span> Die Framezahl fällt von links nach rechts nur moderat ab; besonders zwischen Scan und Registrierung bleibt der größte Teil des Materials nutzbar.",
+                "<span class=\"neutral\">Normaler Befund:</span> Kleine Verluste durch Linearity-Checks oder CC-basierte Ablehnung sind erwartbar, weil die Pipeline einzelne problematische Frames bewusst aussortiert.",
+                "<span class=\"bad\">Prüfbedarf:</span> Ein starker Einbruch vor oder nach der Registrierung bedeutet, dass ein großer Teil des Datensatzes geometrisch oder photometrisch nicht robust verwertbar war.",
                 "Die Balkenfarbe codiert die Retention relativ zur Anfangsmenge: grün = hoch, gelb = merklicher Verlust, rot = kritischer Verlust."
             }
         )
@@ -1899,13 +1936,13 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
             explain_panel(
                 "Verlustursachen",
                 {
-                    "Das Kreisdiagramm zerlegt die Gesamtmenge in genutzte Frames und die wichtigsten Verlustursachen, z. B. Linearity-Removal, Identity-Fallback oder negative CC-Werte.",
-                    "Es beantwortet damit nicht nur <em>wie viel</em> verloren ging, sondern <em>warum</em>."
+                    "Das Kreisdiagramm zerlegt alle erkannten Frames in effektiv genutztes Material und die wichtigsten Verlustursachen, etwa Linearity-Ausschluss, Identity-Fallbacks oder negative Registrierungs-CC-Werte.",
+                    "Damit wird nicht nur sichtbar, <em>wie viel</em> Material verloren ging, sondern auch, <em>warum</em> es aus der weiteren Verarbeitung herausgefallen ist."
                 },
                 {
-                    "<span class=\"good\">Grüner Anteil:</span> Effektiv genutzte Frames, die im weiteren Pipeline-Verlauf tragen.",
-                    "<span class=\"neutral\">Gelbe Anteile:</span> Grenzwertige, aber typische Verluste durch Registrierung oder konservative Filterung.",
-                    "<span class=\"bad\">Große nicht-grüne Segmente:</span> Deuten auf Akquisitionsprobleme, Wolken, Drift oder eine schwache Registrierbarkeit des Materials hin."
+                    "<span class=\"good\">Unauffälliger Befund:</span> Ein großer grüner Anteil bedeutet, dass viele Frames effektiv genutzt wurden und die späteren Pipeline-Stufen statistisch gut abgestützt sind.",
+                    "<span class=\"neutral\">Normaler Befund:</span> Kleinere gelbe Segmente sind typische Verluste durch vorsichtige Linearity-Prüfung, Registrierung oder konservative Qualitätsfilter.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Große nicht-grüne Segmente weisen auf Akquisitionsprobleme, Wolken, Drift, starke Transparenzwechsel oder eine schwache Registrierbarkeit des Materials hin."
                 }
             )
         });
@@ -1937,9 +1974,9 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
                     "Er ist wichtig, um Transparenzwechsel, Mondlicht, Farbgradienten und kanalabhängige Hintergrundverschiebungen früh zu erkennen."
                 },
                 {
-                    "<span class=\"good\">Gut:</span> Alle Kanäle verlaufen relativ stabil und in ähnlicher Form.",
-                    "<span class=\"neutral\">Neutral:</span> Ein sanfter gemeinsamer Drift über alle Kanäle spricht oft für langsame Bedingungen wie steigende Luftfeuchte oder Himmelsaufhellung.",
-                    "<span class=\"bad\">Auffällig:</span> Starke Sprünge, entkoppelte Kanäle oder große Offset-Unterschiede deuten auf Wolken, Gradienten oder Farbstiche in der Aufnahme hin.",
+                    "<span class=\"good\">Unauffälliger Befund:</span> Die R-, G- und B-Kanäle bleiben über die Session relativ stabil und zeigen eine ähnliche zeitliche Form; die spätere Normalisierung muss dann nur moderate Korrekturen leisten.",
+                    "<span class=\"neutral\">Normaler Befund:</span> Driften alle Kanäle gemeinsam und langsam in dieselbe Richtung, passt das häufig zu langsam veränderlichen Aufnahmebedingungen wie zunehmender Luftfeuchte, sinkender Objekt-Höhe, Mondlicht oder Himmelsaufhellung.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Harte Sprünge, voneinander entkoppelte Kanäle oder große Offset-Unterschiede sprechen für Wolken, Gradienten, Farbverschiebungen oder einzelne problematische Aufnahmeabschnitte.",
                     "Die Normalisierung muss genau diese Unterschiede später kompensieren; je stärker die Schwankung, desto wichtiger ist der Schritt."
                 }
             )
@@ -1962,9 +1999,9 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
                     "Der Verlauf zeigt, ob der Datensatz über die Session hinweg photometrisch stabil geblieben ist."
                 },
                 {
-                    "<span class=\"good\">Gut:</span> Flacher Verlauf nahe am Median mit nur kleinen Schwankungen.",
-                    "<span class=\"neutral\">Neutral:</span> Langsame Drift ist oft noch handhabbar und wird in der Normalisierung abgefedert.",
-                    "<span class=\"bad\">Auffällig:</span> Harte Peaks oder Einbrüche deuten typischerweise auf Wolken, Lichtverschmutzungswechsel, Tau oder sonstige Transparenzsprünge hin."
+                    "<span class=\"good\">Unauffälliger Befund:</span> Der Hintergrund bleibt nahe am Median und schwankt nur kleinräumig; der Stack wird dadurch photometrisch gleichmäßig gestützt.",
+                    "<span class=\"neutral\">Normaler Befund:</span> Eine langsame Drift ist oft noch gut handhabbar, weil sie durch Hintergrundnormalisierung und Gewichtung abgefedert werden kann.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Harte Peaks oder Einbrüche deuten typischerweise auf Wolken, wechselnde Lichtverschmutzung, Tau oder andere Transparenzsprünge hin."
                 }
             )
         });
@@ -2215,13 +2252,13 @@ std::optional<ReportSection> gen_registration(const json& reg) {
         {svg_histogram(ccs, "Registration CC distribution", "CC", "#4ade80"), explain_panel(
             "Registrierungs-CC",
             {
-                "Das Histogramm zeigt die Verteilung des Korrelationskoeffizienten der Registrierung über alle Frames.",
-                "CC ist ein direkter Qualitätsindikator dafür, wie sicher ein Frame an das Referenzbild angepasst werden konnte."
+                "Das Histogramm zeigt die Verteilung des Registrierungs-Korrelationskoeffizienten über alle Einzelbilder.",
+                "Der CC-Wert beschreibt, wie zuverlässig ein Einzelbild geometrisch und photometrisch zum Referenzbild passt."
             },
             {
-                "<span class=\"good\">Gut:</span> Hohe Konzentration bei grossen CC-Werten.",
-                "<span class=\"neutral\">Neutral:</span> Ein gewisser linker Auslauf ist bei schwierigen Sessions normal.",
-                "<span class=\"bad\">Auffällig:</span> Viele kleine CC-Werte bedeuten, dass zahlreiche Frames geometrisch oder photometrisch schlecht matchbar waren."
+                "<span class=\"good\">Unauffälliger Befund:</span> Eine enge Häufung bei hohen CC-Werten bedeutet, dass die meisten Einzelbilder stabil und eindeutig auf das Referenzbild registriert werden konnten.",
+                "<span class=\"neutral\">Normaler Befund:</span> Ein kleiner linker Ausläufer ist bei schwierigen Sessions plausibel, solange nur wenige Einzelbilder deutlich schwächer korrelieren.",
+                "<span class=\"bad\">Prüfbedarf:</span> Viele niedrige CC-Werte bedeuten, dass zahlreiche Einzelbilder geometrisch oder photometrisch nur unsicher zum Referenzbild passen; typische Ursachen sind Wolken, Drift, schwache Sterne, Fokusänderungen oder wechselnde Transparenz."
             }
         )},
         {svg_timeseries(rotations, "Rotation angle", "deg", "#f87171"), explain_panel(
@@ -2634,7 +2671,7 @@ std::optional<ReportSection> gen_bge(const json& bge) {
             },
             {
                 "Größere Werte bedeuten stärkere Korrektureingriffe.",
-                "<span class=\"bad\">Auffällig:</span> Sehr ungleiche Kanäle oder extreme Shifts deuten auf deutliche Gradienten- oder Farbhintergrundprobleme hin."
+                "<span class=\"bad\">Prüfbedarf:</span> Sehr ungleiche Kanäle oder extreme Shifts deuten auf deutliche Gradienten, Kanalversätze oder Farbhintergrundprobleme hin; solche Fälle sollten gegen das lineare Zwischenbild geprüft werden."
             }
         )});
         charts.push_back({svg_bar(labels, residual_stds, "BGE residual std", "std"), explain_panel(
@@ -2644,8 +2681,8 @@ std::optional<ReportSection> gen_bge(const json& bge) {
                 "Damit wird bewertet, wie sauber das Modell den Hintergrund erklären konnte."
             },
             {
-                "<span class=\"good\">Gut:</span> Kleine Residual-Std bedeutet ein ruhiger, konsistenter Restfehler.",
-                "<span class=\"bad\">Auffällig:</span> Hohe Residuen sprechen für zu komplexe Strukturen, zu wenig gültige Samples oder ein unpassendes Modell."
+                "<span class=\"good\">Unauffälliger Befund:</span> Eine kleine Residual-Standardabweichung bedeutet, dass die modellierte Hintergrundfläche die Stützpunkte konsistent erklärt und nur geringe Restfehler bleiben.",
+                "<span class=\"bad\">Prüfbedarf:</span> Hohe Residuen sprechen für zu komplexe Bildstrukturen, zu wenig gültige Hintergrundsamples oder ein Modell, das den realen Gradienten nicht angemessen beschreibt."
             }
         )});
         charts.push_back({svg_bar(labels, valid_ratios, "Valid tile-sample ratio", "ratio"), explain_panel(
@@ -2655,8 +2692,8 @@ std::optional<ReportSection> gen_bge(const json& bge) {
                 "Ein niedriger Anteil bedeutet, dass der Fit auf wenig belastbare Stützpunkte zurückgreifen musste."
             },
             {
-                "<span class=\"good\">Gut:</span> Hoher gültiger Anteil pro Kanal.",
-                "<span class=\"bad\">Auffällig:</span> Niedrige Werte reduzieren die Stabilität und können Restgradienten hinterlassen."
+                "<span class=\"good\">Unauffälliger Befund:</span> Ein hoher gültiger Anteil pro Kanal bedeutet, dass BGE über das Feld ausreichend viele robuste Hintergrundstützpunkte hatte.",
+                "<span class=\"bad\">Prüfbedarf:</span> Niedrige Werte reduzieren die Stabilität des Fits; die Pipeline kann die Korrektur dann überspringen oder sichtbare Restgradienten zurücklassen."
             }
         )});
     }
@@ -2700,8 +2737,8 @@ std::optional<ReportSection> gen_validation(const json& val) {
                 "Die Farbe macht sofort sichtbar, welche Checks bestanden und welche fehlgeschlagen sind."
             },
             {
-                "<span class=\"good\">Gruen:</span> Der jeweilige Check liegt im akzeptierten Bereich.",
-                "<span class=\"bad\">Rot:</span> Der Check ist fehlgeschlagen und markiert ein qualitatives Risiko des Endprodukts.",
+                "<span class=\"good\">Bestandener Check:</span> Der jeweilige Messwert liegt im akzeptierten Bereich und stützt die technische Plausibilität des Endprodukts.",
+                "<span class=\"bad\">Fehlgeschlagener Check:</span> Der Messwert verletzt die definierte Grenze und markiert ein konkretes Qualitätsrisiko, das im Bild oder in den vorgelagerten Phasen geprüft werden sollte.",
                 "Die absolute Balkenhoehe ist nur im Kontext des jeweiligen Checks interpretierbar; entscheidend ist die Kombination aus Wert und PASS/FAIL."
             }
         )
@@ -2738,9 +2775,9 @@ std::optional<ReportSection> gen_common_overlap(const json& co) {
                 "Es ist damit ein wichtiger Indikator für geometrische Abdeckung und statistische Fairness lokaler Metriken."
             },
             {
-                "<span class=\"good\">Gut:</span> Schwerpunkt nahe hoher Ratios bedeutet stabile gemeinsame Abdeckung.",
-                "<span class=\"neutral\">Neutral:</span> Ein Randabfall ist bei Feldrotation oder ungleichmäßiger Abdeckung typisch.",
-                "<span class=\"bad\">Auffällig:</span> Viele niedrige Ratios bedeuten, dass große Teile des Felds lokal nur schwach gemeinsam beobachtet wurden."
+                "<span class=\"good\">Unauffälliger Befund:</span> Liegt der Schwerpunkt nahe hoher Ratios, wurden die meisten Tiles über viele Frames hinweg gemeinsam und geometrisch stabil abgedeckt.",
+                "<span class=\"neutral\">Normaler Befund:</span> Ein Abfall an den Bildrändern ist bei Feldrotation, Dithering oder ungleichmäßiger Abdeckung häufig physikalisch plausibel.",
+                "<span class=\"bad\">Prüfbedarf:</span> Viele niedrige Ratios bedeuten, dass große Teile des Felds lokal nur schwach gemeinsam beobachtet wurden; lokale Metriken und Rekonstruktion sind dort statistisch weniger belastbar."
             }
         )}
     };
@@ -2756,9 +2793,9 @@ std::optional<ReportSection> gen_common_overlap(const json& co) {
                     "Damit erkennt man sofort, welche Feldbereiche geometrisch gut abgestützt sind und wo die Session lokal ausdünnt."
                 },
                 {
-                    "<span class=\"good\">Gut:</span> Homogene, breitflächig hohe Abdeckung.",
-                    "<span class=\"neutral\">Neutral:</span> Abfall an den Rändern ist oft physikalisch normal.",
-                    "<span class=\"bad\">Auffällig:</span> Inselartige Lücken oder starke Inhomogenität können später lokale Bias- und Rekonstruktionsprobleme verursachen."
+                    "<span class=\"good\">Unauffälliger Befund:</span> Eine homogene, breitflächig hohe Abdeckung bedeutet, dass lokale Messwerte im Großteil des Felds auf vergleichbarer Statistik beruhen.",
+                    "<span class=\"neutral\">Normaler Befund:</span> Ein gleichmäßiger Abfall an den Rändern ist bei realer Feldrotation oder Dithering oft normal, solange keine isolierten Löcher entstehen.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Inselartige Lücken oder starke Inhomogenität können lokale Bias-Effekte, instabile Gewichtung und Rekonstruktionsartefakte begünstigen."
                 }
             )
         });
@@ -2844,6 +2881,8 @@ std::string build_report_html(const fs::path& run_dir,
          << "*{box-sizing:border-box;}body{margin:0;background:radial-gradient(circle at top,#0f172a,#020617 60%);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;}"
          << "header{padding:32px 28px 18px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.96));position:sticky;top:0;backdrop-filter:blur(10px);z-index:5;}"
          << "header h1{margin:0 0 8px;font-size:28px;}header .meta{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:8px 16px;}"
+         << ".header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;}.language-switch{display:inline-flex;align-items:center;gap:4px;padding:3px;border:1px solid rgba(148,163,184,.24);border-radius:999px;background:rgba(2,6,23,.55);flex:0 0 auto;}"
+         << ".language-switch button{border:0;border-radius:999px;background:transparent;color:var(--muted);font:600 12px/1 ui-sans-serif,system-ui,sans-serif;padding:7px 10px;cursor:pointer;}.language-switch button.active{background:#2563eb;color:#fff;}.language-switch button:focus-visible{outline:2px solid #93c5fd;outline-offset:2px;}"
          << "main{padding:24px 22px 34px;max-width:1600px;margin:0 auto;}section{margin:0 0 28px;}section h2{margin:0 0 14px;font-size:19px;}"
          << ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;align-items:start;}"
          << ".card{background:linear-gradient(180deg,rgba(17,24,39,.96),rgba(15,23,42,.96));border:1px solid rgba(148,163,184,.15);border-radius:16px;padding:16px 16px 12px;box-shadow:0 8px 28px rgba(0,0,0,.18);}"
@@ -2862,19 +2901,27 @@ std::string build_report_html(const fs::path& run_dir,
          << ".footer{margin-top:18px;color:var(--muted);font-size:12px;}"
          << "svg.report-chart{width:100%;height:auto;display:block;} svg.report-chart line,svg.report-chart polyline,svg.report-chart path{vector-effect:non-scaling-stroke;} .svg-title{fill:#e2e8f0;font-size:14px;font-weight:700;} .svg-title-small{fill:#e2e8f0;font-size:18px;font-weight:700;} .svg-label{fill:#94a3b8;font-size:11px;} .svg-note{fill:#94a3b8;font-size:13px;} .svg-tick{fill:#94a3b8;font-size:10px;} .svg-axis{stroke:#64748b;stroke-width:0.8;} .svg-grid{stroke:#1e293b;stroke-width:0.7;}"
          << "@media (min-width:1100px){.chart-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}"
+         << "@media (max-width:720px){.header-top{flex-direction:column;}.language-switch{align-self:flex-start;}}"
          << "</style></head><body>";
-    html << "<header><h1>Tile-Compile Report</h1><div class=\"meta\">";
+    html << "<header><div class=\"header-top\"><div id=\"report-header-content\"><h1>Tile-Compile Report</h1><div class=\"meta\">";
     for (const auto& line : meta_lines) html << "<span>" << html_escape(line) << "</span>";
-    html << "</div></header><main>";
+    html << "</div></div><nav class=\"language-switch\" aria-label=\"Report language\"><button type=\"button\" data-report-lang=\"de\">Deutsch</button><button type=\"button\" data-report-lang=\"en\">English</button></nav></div></header><main><div id=\"report-content\">";
     for (const auto& section : sections) {
         html << "<section><h2>" << html_escape(section.title) << "</h2><div class=\"grid\">" << section.cards_html << "</div></section>";
     }
+    html << "</div>";
     if (!config_yaml.empty()) {
         html << "<details class=\"config\"><summary>Config (config.yaml)</summary><pre>" << html_escape(config_yaml) << "</pre></details>";
     }
     html << "<div class=\"footer\">Generated by tile_compile_web_backend (C++ inline SVG report)</div>";
-    html << "</main></body></html>";
-    return apply_report_translations(html.str(), locale);
+    html << "</main>__REPORT_LANGUAGE_SCRIPT__</body></html>";
+    std::string localized = apply_report_translations(html.str(), locale);
+    const std::string marker = "__REPORT_LANGUAGE_SCRIPT__";
+    const auto marker_pos = localized.find(marker);
+    if (marker_pos != std::string::npos) {
+        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale));
+    }
+    return localized;
 }
 
 } // namespace
