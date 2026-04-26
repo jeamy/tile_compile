@@ -533,7 +533,16 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
-## v0.2.4 (2026-04-25)
+## v0.2.5 (26.04.2026)
+
+- v0.2.5 kombiniert die Überarbeitung des Dokumentationssystems mit einer BGE-Robustheitsrunde für schwierige chromatische Gradienten wie IC434. Die BGE-Sample-Estimator-Auswahl ist jetzt in YAML, Schema-Validierung und Parameter Studio sichtbar; das Autotuning kann robuste Estimatoren vergleichen und degenerierte flache Hintergrundmodelle ablehnen, wenn weiterhin deutlicher Hintergrund- oder Chroma-Spread vorliegt.
+- Professionelles Dokumentationssystem mit MkDocs Material + Doxygen
+- GitHub Releases Dokumentation mit korrekten Binärdateinamen
+- Installationsanleitungen für vorgefertigte Binärdateien (Ubuntu, Fedora, Arch)
+- Konfigurierbare BGE-Sample-Estimatoren: `quantile`, `sigma_clipped_median`, `sextractor_mode` und `biweight`
+- BGE-Autotune sweept jetzt Sample-Estimatoren und nutzt Chroma-/Background-Spread-Guards gegen flache oder unausgewogene Korrekturflächen
+
+## v0.2.4 (25.04.2026)
 
 - Registrierungs-Performance: Anchor-Promotion-Runden nutzen jetzt wieder den parallelen Worker-Pool und versuchen nur noch ungelöste Frames erneut, deren nächster Anchor sich durch die Promotion geändert hat, statt wiederholte vollständige Single-Thread-Pässe auszuführen. Diagnose `reg_promotion_retry_frames` ergänzt.
 
@@ -714,7 +723,20 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Changelog
 
-### (2026-04-25)
+### (26.04.2026)
+
+**Dokumentationssystem und BGE-Robustheit (`v0.2.5`, 26.04.2026):**
+
+- Professionelles Dokumentationssystem mit MkDocs Material und Doxygen-Integration für C++ API-Referenz hinzugefügt
+- GitHub Releases Dokumentation mit korrekten Binärdateinamen (tile_compile_gui2-linux-v0.2.4.zip, etc.) aktualisiert
+- Umfassende Installationsanleitungen für vorgefertigte Binärdateien auf Ubuntu/Debian, Fedora/RHEL und Arch/Manjaro hinzugefügt
+- Navigation mit separaten Abschnitten für User Guide, Configuration, Methodology und API Reference restrukturiert
+- Konfigurierbares `bge.sample_estimator` in YAML-Konfigurationen, Schema-Dateien und Parameter Studio ergänzt (`quantile`, `sigma_clipped_median`, `sextractor_mode`, `biweight`)
+- BGE-Autotune erweitert: Sample-Estimatoren werden verglichen, flache Modelle werden bei verbleibendem Background-/Chroma-Spread penalisiert oder abgelehnt
+- RGB-Chroma-Guards auf BGE-Methoden ausgeweitet, inklusive konservativer Fallbacks für unausgewogene kanalweise Korrekturflächen
+- `ic434_background_gradient.example.yaml` mit robusten RBF-/`sextractor_mode`-Parametern für IC434-ähnliche rot/grüne Hintergrundgradienten aktualisiert
+
+### (25.04.2026)
 
 **Registrierungs-Performance: parallele Anchor-Promotion-Retries (`v0.2.4`):**
 

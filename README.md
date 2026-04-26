@@ -523,6 +523,15 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versions
 
+## v0.2.5 (2026-04-26)
+
+- v0.2.5 combines the documentation-system refresh with a BGE robustness update for difficult chromatic gradients such as IC434. BGE sample-estimator selection is now exposed in YAML, schema validation, and Parameter Studio, while autotune can compare robust estimators and reject degenerate flat background models when significant background or chroma spread remains.
+- Professional documentation system with MkDocs Material + Doxygen
+- GitHub Releases documentation with correct binary filenames
+- Installation instructions for pre-built binaries (Ubuntu, Fedora, Arch)
+- Configurable BGE sample estimators: `quantile`, `sigma_clipped_median`, `sextractor_mode`, and `biweight`
+- BGE autotune now sweeps sample estimators and applies chroma/background-spread guards for flat or imbalanced correction surfaces
+
 ## v0.2.4 (2026-04-25)
 
 - Registration performance: anchor-promotion rounds now reuse the parallel worker pool and only retry unresolved frames whose nearest anchor changed after promotion, instead of running repeated full-frame single-threaded passes. Added `reg_promotion_retry_frames` diagnostics.
@@ -703,6 +712,19 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - First public release
 
 ## Changelog
+
+### (2026-04-26)
+
+**Documentation system and BGE robustness (`v0.2.5`, 2026-04-26):**
+
+- Added professional documentation system using MkDocs Material with Doxygen integration for C++ API reference
+- Updated all GitHub Releases documentation with correct binary filenames (tile_compile_gui2-linux-v0.2.4.zip, etc.)
+- Added comprehensive installation instructions for pre-built binaries on Ubuntu/Debian, Fedora/RHEL, and Arch/Manjaro
+- Restructured navigation with separate User Guide, Configuration, Methodology, and API Reference sections
+- Added configurable `bge.sample_estimator` support in YAML configs, schema files, and Parameter Studio (`quantile`, `sigma_clipped_median`, `sextractor_mode`, `biweight`)
+- Extended BGE autotune so it can compare sample estimators and penalize or reject flat models when background/chroma spread indicates a real gradient
+- Extended RGB chroma guards across BGE methods, including conservative fallbacks for imbalanced per-channel correction surfaces
+- Updated `ic434_background_gradient.example.yaml` with robust RBF/`sextractor_mode` settings for IC434-like red/green background gradients
 
 ### (2026-04-25)
 
