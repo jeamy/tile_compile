@@ -809,6 +809,14 @@ RegistrationResult robust_phase_ecc_seeded(const Matrix2Df &mov,
   return res;
 }
 
+namespace {
+struct SimilarityPair {
+  int i;
+  int j;
+  float dist;
+};
+} // namespace
+
 RegistrationResult
 /// @brief Implements star registration similarity.
 /// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
@@ -832,16 +840,11 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
     return res;
   }
 
-  struct Pair {
-    int i;
-    int j;
-    float dist;
-  };
-  std::vector<Pair> ref_pairs;
-  std::vector<Pair> mov_pairs;
+  std::vector<SimilarityPair> ref_pairs;
+  std::vector<SimilarityPair> mov_pairs;
 
   auto build_pairs = [&](const std::vector<StarPoint> &stars,
-                         std::vector<Pair> &out) {
+                         std::vector<SimilarityPair> &out) {
     const int n = static_cast<int>(stars.size());
     out.reserve(static_cast<size_t>(n) * static_cast<size_t>(n) / 2);
     for (int i = 0; i < n; ++i) {
@@ -854,7 +857,7 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
       }
     }
     std::sort(out.begin(), out.end(),
-              [](const Pair &a, const Pair &b) { return a.dist > b.dist; });
+              [](const SimilarityPair &a, const SimilarityPair &b) { return a.dist > b.dist; });
     const size_t limit = std::min<size_t>(out.size(), 800);
     out.resize(limit);
   };
@@ -866,7 +869,7 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
     return res;
   }
 
-  std::unordered_map<int, std::vector<Pair>> ref_bucket;
+  std::unordered_map<int, std::vector<SimilarityPair>> ref_bucket;
   ref_bucket.reserve(ref_pairs.size() * 2);
   for (const auto &p : ref_pairs) {
     int key = static_cast<int>(std::round(p.dist / dist_bin_px));

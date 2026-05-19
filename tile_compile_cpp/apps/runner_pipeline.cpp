@@ -3800,68 +3800,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (!consistent || n_tiles == 0) {
         bge_tile_metrics_cache = local_metrics.front();
       } else {
-        auto median_or_zero = [](std::vector<float> vals) -> float {
-          if (vals.empty()) return 0.0f;
-          return core::median_of(vals);
-        };
-
-        bge_tile_metrics_cache.assign(n_tiles, TileMetrics{});
-        for (size_t ti = 0; ti < n_tiles; ++ti) {
-          std::vector<float> fwhm_vals;
-          std::vector<float> round_vals;
-          std::vector<float> contrast_vals;
-          std::vector<float> sharp_vals;
-          std::vector<float> bg_vals;
-          std::vector<float> noise_vals;
-          std::vector<float> grad_vals;
-          std::vector<float> q_vals;
-          std::vector<float> star_count_vals;
-          int star_votes = 0;
-          int structure_votes = 0;
-
-          fwhm_vals.reserve(local_metrics.size());
-          round_vals.reserve(local_metrics.size());
-          contrast_vals.reserve(local_metrics.size());
-          sharp_vals.reserve(local_metrics.size());
-          bg_vals.reserve(local_metrics.size());
-          noise_vals.reserve(local_metrics.size());
-          grad_vals.reserve(local_metrics.size());
-          q_vals.reserve(local_metrics.size());
-          star_count_vals.reserve(local_metrics.size());
-
-          for (const auto &fm : local_metrics) {
-            const auto &tm = fm[ti];
-            if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
-            if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
-            if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
-            if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
-            if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
-            if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
-            if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
-            if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
-            star_count_vals.push_back(static_cast<float>(tm.star_count));
-            if (tm.type == TileType::STAR) {
-              ++star_votes;
-            } else {
-              ++structure_votes;
-            }
-          }
-
-          TileMetrics agg{};
-          agg.fwhm = median_or_zero(std::move(fwhm_vals));
-          agg.roundness = median_or_zero(std::move(round_vals));
-          agg.contrast = median_or_zero(std::move(contrast_vals));
-          agg.sharpness = median_or_zero(std::move(sharp_vals));
-          agg.background = median_or_zero(std::move(bg_vals));
-          agg.noise = median_or_zero(std::move(noise_vals));
-          agg.gradient_energy = median_or_zero(std::move(grad_vals));
-          agg.quality_score = median_or_zero(std::move(q_vals));
-          agg.star_count = static_cast<int>(
-              std::lround(median_or_zero(std::move(star_count_vals))));
-          agg.type = (star_votes >= structure_votes) ? TileType::STAR
-                                                     : TileType::STRUCTURE;
-          bge_tile_metrics_cache[ti] = agg;
-        }
+        bge_tile_metrics_cache = tile_compile::runner::aggregate_tile_metrics_across_frames(local_metrics);
       }
     } else {
       bge_tile_metrics_cache.clear();

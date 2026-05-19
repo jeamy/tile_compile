@@ -500,77 +500,22 @@ bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
         all_frames.begin(), all_frames.end(),
         [n_tiles](const auto &fm) { return fm.is_array() && fm.size() == n_tiles; });
 
-    if (!consistent) {
-      out.clear();
-      out.reserve(n_tiles);
-      for (size_t ti = 0; ti < n_tiles; ++ti) {
-        out.push_back(parse_tile_metrics_json(all_frames.front()[ti]));
+    std::vector<std::vector<TileMetrics>> parsed_metrics(all_frames.size());
+    for (size_t f = 0; f < all_frames.size(); ++f) {
+      const auto &fm = all_frames[f];
+      size_t f_tiles = fm.is_array() ? fm.size() : 0;
+      parsed_metrics[f].reserve(f_tiles);
+      for (size_t t = 0; t < f_tiles; ++t) {
+        parsed_metrics[f].push_back(parse_tile_metrics_json(fm[t]));
       }
+    }
+
+    if (!consistent) {
+      out = parsed_metrics.empty() ? std::vector<TileMetrics>() : parsed_metrics.front();
       return !out.empty();
     }
 
-    auto median_or_zero = [](std::vector<float> vals) -> float {
-      if (vals.empty()) return 0.0f;
-      return tile_compile::core::median_of(vals);
-    };
-
-    out.assign(n_tiles, TileMetrics{});
-    for (size_t ti = 0; ti < n_tiles; ++ti) {
-      std::vector<float> fwhm_vals;
-      std::vector<float> round_vals;
-      std::vector<float> contrast_vals;
-      std::vector<float> sharp_vals;
-      std::vector<float> bg_vals;
-      std::vector<float> noise_vals;
-      std::vector<float> grad_vals;
-      std::vector<float> q_vals;
-      std::vector<float> star_count_vals;
-      int star_votes = 0;
-      int structure_votes = 0;
-
-      fwhm_vals.reserve(all_frames.size());
-      round_vals.reserve(all_frames.size());
-      contrast_vals.reserve(all_frames.size());
-      sharp_vals.reserve(all_frames.size());
-      bg_vals.reserve(all_frames.size());
-      noise_vals.reserve(all_frames.size());
-      grad_vals.reserve(all_frames.size());
-      q_vals.reserve(all_frames.size());
-      star_count_vals.reserve(all_frames.size());
-
-      for (const auto &fm : all_frames) {
-        const TileMetrics tm = parse_tile_metrics_json(fm[ti]);
-        if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
-        if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
-        if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
-        if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
-        if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
-        if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
-        if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
-        if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
-        star_count_vals.push_back(static_cast<float>(tm.star_count));
-        if (tm.type == TileType::STAR) {
-          ++star_votes;
-        } else {
-          ++structure_votes;
-        }
-      }
-
-      TileMetrics agg{};
-      agg.fwhm = median_or_zero(std::move(fwhm_vals));
-      agg.roundness = median_or_zero(std::move(round_vals));
-      agg.contrast = median_or_zero(std::move(contrast_vals));
-      agg.sharpness = median_or_zero(std::move(sharp_vals));
-      agg.background = median_or_zero(std::move(bg_vals));
-      agg.noise = median_or_zero(std::move(noise_vals));
-      agg.gradient_energy = median_or_zero(std::move(grad_vals));
-      agg.quality_score = median_or_zero(std::move(q_vals));
-      agg.star_count = static_cast<int>(
-          std::lround(median_or_zero(std::move(star_count_vals))));
-      agg.type = (star_votes >= structure_votes) ? TileType::STAR
-                                                 : TileType::STRUCTURE;
-      out[ti] = agg;
-    }
+    out = tile_compile::runner::aggregate_tile_metrics_across_frames(parsed_metrics);
     return true;
   } catch (const std::exception &e) {
     error_out = std::string("local_metrics parse failed: ") + e.what();

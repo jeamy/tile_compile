@@ -235,6 +235,54 @@ void debayer_bilinear_core(const float* src, int h, int w, int stride,
     }
 }
 
+/// @brief Implements debayer nearest neighbor core.
+/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers.
+void debayer_nearest_neighbor_core(const float* src, int h, int w, int stride,
+                                   BayerPattern pattern, int origin_x, int origin_y,
+                                   Matrix2Df& R_out, Matrix2Df& G_out,
+                                   Matrix2Df& B_out) {
+    R_out.resize(h, w);
+    G_out.resize(h, w);
+    B_out.resize(h, w);
+
+    uint8_t color_lut[4] = {0, 0, 0, 0};
+    fill_bayer_color_lut(pattern, color_lut);
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            float r = 0, g = 0, b = 0;
+            int abs_y = origin_y + y;
+            int abs_x = origin_x + x;
+            int block_y = abs_y & ~1;
+            int block_x = abs_x & ~1;
+
+            for (int dy = 0; dy < 2; ++dy) {
+                for (int dx = 0; dx < 2; ++dx) {
+                    int py = block_y + dy - origin_y;
+                    int px = block_x + dx - origin_x;
+                    float val = sample_clamped_strided(src, h, w, stride, py, px);
+                    int parity = (dy << 1) | dx;
+                    CfaColor c = static_cast<CfaColor>(color_lut[parity]);
+                    if (c == CfaColor::Red) r = val;
+                    else if (c == CfaColor::Blue) b = val;
+                    else g = val;
+                }
+            }
+
+            float v = sample_clamped_strided(src, h, w, stride, y, x);
+            int current_parity = ((abs_y & 1) << 1) | (abs_x & 1);
+            CfaColor current_c = static_cast<CfaColor>(color_lut[current_parity]);
+            if (current_c == CfaColor::Red) r = v;
+            else if (current_c == CfaColor::Blue) b = v;
+            else g = v;
+
+            R_out(y, x) = r;
+            G_out(y, x) = g;
+            B_out(y, x) = b;
+        }
+    }
+}
+
 /// @brief Implements average neighbors of color absolute.
 /// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -694,7 +742,7 @@ void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                                    Matrix2Df& R_out,
                                    Matrix2Df& G_out,
                                    Matrix2Df& B_out) {
-    debayer_bilinear_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
+    debayer_nearest_neighbor_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
 }
 
 /// @brief Implements debayer nearest neighbor.
@@ -719,8 +767,10 @@ void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                                    Matrix2Df& R_out,
                                    Matrix2Df& G_out,
                                    Matrix2Df& B_out) {
-    debayer_bilinear_into(mosaic, pattern, origin_x, origin_y,
-                          R_out, G_out, B_out);
+    const int h = static_cast<int>(mosaic.rows());
+    const int w = static_cast<int>(mosaic.cols());
+    debayer_nearest_neighbor_core(mosaic.data(), h, w, w, pattern, origin_x, origin_y,
+                                  R_out, G_out, B_out);
 }
 
 /// @brief Implements debayer nearest neighbor strided into.
@@ -737,7 +787,14 @@ void debayer_nearest_neighbor_strided_into(const float* mosaic_data,
                                            Matrix2Df& R_out,
                                            Matrix2Df& G_out,
                                            Matrix2Df& B_out) {
-    debayer_bilinear_strided_into(mosaic_data, mosaic_rows, mosaic_cols,
+    if (mosaic_data == nullptr || mosaic_rows <= 0 || mosaic_cols <= 0 ||
+        mosaic_stride < mosaic_cols) {
+        R_out.resize(0, 0);
+        G_out.resize(0, 0);
+        B_out.resize(0, 0);
+        return;
+    }
+    debayer_nearest_neighbor_core(mosaic_data, mosaic_rows, mosaic_cols,
                                   mosaic_stride, pattern, origin_x, origin_y,
                                   R_out, G_out, B_out);
 }

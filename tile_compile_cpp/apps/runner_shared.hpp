@@ -19,6 +19,10 @@
 
 namespace tile_compile::runner {
 
+/// Aggregate local tile metrics across multiple frames into a single median-based profile.
+std::vector<tile_compile::TileMetrics> aggregate_tile_metrics_across_frames(
+    const std::vector<std::vector<tile_compile::TileMetrics>> &local_metrics);
+
 /// Format a byte count for human-readable logs and diagnostics.
 std::string format_bytes(uint64_t bytes);
 

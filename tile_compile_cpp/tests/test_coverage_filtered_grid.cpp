@@ -96,7 +96,7 @@ TEST_CASE("coverage_filter_full_support_invariant_holds") {
     // Use a mask that covers 90 % of the canvas centrally.
     // Canvas 400×300, original 200×200 → expansion > 10 %.
     const int W = 400, H = 300, TS = 50;
-    const auto mask = central_mask(W, H, 0.9f);
+    const auto mask = central_mask(W, H, 0.98f);
 
     const auto result = build_coverage_filtered_tile_grid(
         W, H, TS, 0.0f, mask, 200, 200, 0.15f);

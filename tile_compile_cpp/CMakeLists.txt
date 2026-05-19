@@ -113,6 +113,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 # Find dependencies
 find_package(PkgConfig QUIET)
+find_package(OpenMP)
 
 # Eigen3 - try find_package first, fallback to pkg-config
 find_package(Eigen3 QUIET)
@@ -457,6 +458,10 @@ target_link_libraries(tile_compile_lib PUBLIC
     OpenSSL::Crypto
     CURL::libcurl
 )
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(tile_compile_lib PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 if(nlohmann_json_FOUND)
     target_link_libraries(tile_compile_lib PUBLIC nlohmann_json::nlohmann_json)
