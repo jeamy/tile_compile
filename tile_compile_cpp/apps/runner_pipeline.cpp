@@ -1394,34 +1394,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
-  // Phase 1-2: REGISTRATION and PREWARP (must run before CHANNEL_SPLIT)
   runner::PhaseRegistrationContext phase_registration_ctx;
-  {
-    // Load first frame for dimensions (needed for registration)
-    Matrix2Df first_img;
-    io::FitsHeader first_hdr;
-    {
-      first_img = io::read_fits_pixels_float(frames[0]);
-      first_hdr = first_header;
-    }
-    const int height = first_img.rows();
-    const int width = first_img.cols();
 
-    // Create empty frame cache for registration phase
-    std::shared_ptr<runner::RunnerFrameCache> frame_cache;
-
-    if (!runner::run_phase_registration_prewarp(
-            run_id, cfg, frames, run_dir, height, width, detected_mode,
-            detected_bayer_str, frame_cache, {}, {}, {}, first_header,
-            emitter, log_file, phase_registration_ctx)) {
-      return 1;
-    }
-    if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
-      return 1;
-    }
-  }
-
-  // Phase 3-5: CHANNEL_SPLIT, NORMALIZATION, GLOBAL_METRICS
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
           run_id, cfg, frames, run_dir, detected_mode, detected_bayer_str,
@@ -1536,21 +1510,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.warning(run_id, msg.str(), log_file);
   }
 
-  // Helper function to write tile_grid.json artifact (reduces code duplication)
-  auto write_tile_grid_artifact = [&](int image_width, int image_height, 
-                                      const std::vector<Tile>& tiles,
-                                      const config::Config& cfg,
-                                      float overlap_fraction,
-                                      float seeing_fwhm_med,
-                                      int seeing_tile_size,
-                                      int overlap_px,
-                                      int stride_px,
-                                      float overlap_clipped,
-                                      int uniform_tile_size,
-                                      const std::filesystem::path& run_dir) {
+  {
     core::json artifact;
-    artifact["image_width"] = image_width;
-    artifact["image_height"] = image_height;
+    artifact["image_width"] = width;
+    artifact["image_height"] = height;
     artifact["num_tiles"] = static_cast<int>(tiles.size());
     artifact["overlap_fraction"] = overlap_fraction;
     artifact["seeing_fwhm_median"] = seeing_fwhm_med;
@@ -1589,12 +1552,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     core::write_text(run_dir / "artifacts" / "tile_grid.json",
                      artifact.dump(2));
-  };
-
-  write_tile_grid_artifact(width, height, tiles, cfg, overlap_fraction,
-                          seeing_fwhm_med, seeing_tile_size, overlap_px,
-                          stride_px, overlap_clipped, uniform_tile_size,
-                          run_dir);
+  }
 
   emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
                     {
@@ -1656,10 +1614,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     first_img = load_frame_normalized(0);
     first_hdr = first_header;
   }
-  const int first_height = first_img.rows();
-  const int first_width = first_img.cols();
 
-  // Use canvas dimensions from phase_registration_ctx (computed during PREWARP)
+  if (!runner::run_phase_registration_prewarp(
+          run_id, cfg, frames, run_dir, height, width, detected_mode,
+          detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
+          first_header, emitter, log_file, phase_registration_ctx)) {
+    return 1;
+  }
+  if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
+    return 1;
+  }
+
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
@@ -1670,89 +1635,56 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   int debayer_tile_offset_y = canvas_tile_offset_y;
   // Canvas dimensions may be larger than original frame due to field rotation.
   const int canvas_height = (phase_registration_ctx.canvas_height > 0)
-      ? phase_registration_ctx.canvas_height : first_height;
+      ? phase_registration_ctx.canvas_height : height;
   const int canvas_width  = (phase_registration_ctx.canvas_width  > 0)
-      ? phase_registration_ctx.canvas_width  : first_width;
+      ? phase_registration_ctx.canvas_width  : width;
 
-  if (canvas_width != first_width || canvas_height != first_height) {
-    // Use coverage-filtered tile grid when canvas is expanded
-    const auto& common_mask = phase_registration_ctx.common_valid_mask;
-    auto grid_result = tile_compile::pipeline::build_coverage_filtered_tile_grid(
-        canvas_width, canvas_height, uniform_tile_size, overlap_fraction,
-        common_mask, first_width, first_height, 0.15f);
-    
-    tiles = grid_result.grid.tiles;
+  if (canvas_width != width || canvas_height != height) {
+    tiles = tile_compile::pipeline::build_initial_tile_grid(
+        canvas_width, canvas_height, uniform_tile_size, overlap_fraction);
 
     std::ostringstream msg;
-    msg << "TILE_GRID updated for expanded canvas: " << first_width << "x" << first_height
+    msg << "TILE_GRID updated for expanded canvas: " << width << "x" << height
         << " -> " << canvas_width << "x" << canvas_height
-        << " (tiles=" << tiles.size();
-    if (grid_result.coverage_filtered_tiles > 0) {
-      msg << ", filtered=" << grid_result.coverage_filtered_tiles;
-    }
-    msg << ")";
+        << " (tiles=" << tiles.size() << ")";
     emitter.warning(run_id, msg.str(), log_file);
 
-    // Update helper function to include coverage_filtered_tiles count
-    auto write_tile_grid_artifact_with_coverage = [&](int image_width, int image_height, 
-                                                      const std::vector<Tile>& tiles,
-                                                      const config::Config& cfg,
-                                                      float overlap_fraction,
-                                                      float seeing_fwhm_med,
-                                                      int seeing_tile_size,
-                                                      int overlap_px,
-                                                      int stride_px,
-                                                      float overlap_clipped,
-                                                      int uniform_tile_size,
-                                                      const std::filesystem::path& run_dir,
-                                                      int coverage_filtered_tiles = 0) {
-      core::json artifact;
-      artifact["image_width"] = image_width;
-      artifact["image_height"] = image_height;
-      artifact["num_tiles"] = static_cast<int>(tiles.size());
-      artifact["overlap_fraction"] = overlap_fraction;
-      artifact["seeing_fwhm_median"] = seeing_fwhm_med;
-      artifact["seeing_tile_size"] = seeing_tile_size;
-      artifact["seeing_overlap_px"] = overlap_px;
-      artifact["stride_px"] = stride_px;
-      artifact["tile_config"] = {
-          {"size_factor", cfg.tile.size_factor},
-          {"min_size", cfg.tile.min_size},
-          {"max_divisor", cfg.tile.max_divisor},
-          {"overlap_fraction", overlap_fraction},
-          {"overlap_clipped", overlap_clipped},
-      };
-      artifact["uniform_tile_size"] = uniform_tile_size;
-
-      // Estimated TILE_RECONSTRUCTION time (Anforderung 9.2).
-      // Calibration constant k ≈ 0.012 s/tile/frame/worker (empirical).
-      constexpr float k_tile_frame_worker = 0.012f;
-      const int pw = std::max(1, cfg.runtime_limits.parallel_workers);
-      artifact["estimated_reconstruction_time_s"] =
-          static_cast<float>(tiles.size()) *
-          static_cast<float>(frames.size()) /
-          static_cast<float>(pw) *
-          k_tile_frame_worker;
-      artifact["coverage_filtered_tiles"] = coverage_filtered_tiles;
-
-      artifact["tiles"] = core::json::array();
-      for (const auto &t : tiles) {
-        artifact["tiles"].push_back({
-            {"x", t.x},
-            {"y", t.y},
-            {"width", t.width},
-            {"height", t.height},
-        });
-      }
-
-      core::write_text(run_dir / "artifacts" / "tile_grid.json",
-                       artifact.dump(2));
+    core::json artifact;
+    artifact["image_width"] = canvas_width;
+    artifact["image_height"] = canvas_height;
+    artifact["num_tiles"] = static_cast<int>(tiles.size());
+    artifact["overlap_fraction"] = overlap_fraction;
+    artifact["seeing_fwhm_median"] = seeing_fwhm_med;
+    artifact["seeing_tile_size"] = seeing_tile_size;
+    artifact["seeing_overlap_px"] = overlap_px;
+    artifact["stride_px"] = stride_px;
+    artifact["tile_config"] = {
+        {"size_factor", cfg.tile.size_factor},
+        {"min_size", cfg.tile.min_size},
+        {"max_divisor", cfg.tile.max_divisor},
+        {"overlap_fraction", overlap_fraction},
+        {"overlap_clipped", overlap_clipped},
     };
-
-    write_tile_grid_artifact_with_coverage(canvas_width, canvas_height, tiles, cfg, overlap_fraction,
-                                         seeing_fwhm_med, seeing_tile_size, overlap_px,
-                                         stride_px, overlap_clipped, uniform_tile_size,
-                                         run_dir, grid_result.coverage_filtered_tiles);
+    artifact["uniform_tile_size"] = uniform_tile_size;
+    // Estimated TILE_RECONSTRUCTION time for expanded canvas.
+    constexpr float k_tile_frame_worker_exp = 0.012f;
+    const int pw_exp = std::max(1, cfg.runtime_limits.parallel_workers);
+    artifact["estimated_reconstruction_time_s"] =
+        static_cast<float>(tiles.size()) *
+        static_cast<float>(frames.size()) /
+        static_cast<float>(pw_exp) *
+        k_tile_frame_worker_exp;
+    artifact["coverage_filtered_tiles"] = 0; // canvas mask not yet available here
+    artifact["tiles"] = core::json::array();
+    for (const auto &t : tiles) {
+      artifact["tiles"].push_back({
+          {"x", t.x},
+          {"y", t.y},
+          {"width", t.width},
+          {"height", t.height},
+      });
+    }
+    core::write_text(run_dir / "artifacts" / "tile_grid.json", artifact.dump(2));
   }
 
   std::vector<Tile> tiles_phase56 = tiles;
@@ -3868,7 +3800,68 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (!consistent || n_tiles == 0) {
         bge_tile_metrics_cache = local_metrics.front();
       } else {
-        bge_tile_metrics_cache = tile_compile::runner::aggregate_tile_metrics_across_frames(local_metrics);
+        auto median_or_zero = [](std::vector<float> vals) -> float {
+          if (vals.empty()) return 0.0f;
+          return core::median_of(vals);
+        };
+
+        bge_tile_metrics_cache.assign(n_tiles, TileMetrics{});
+        for (size_t ti = 0; ti < n_tiles; ++ti) {
+          std::vector<float> fwhm_vals;
+          std::vector<float> round_vals;
+          std::vector<float> contrast_vals;
+          std::vector<float> sharp_vals;
+          std::vector<float> bg_vals;
+          std::vector<float> noise_vals;
+          std::vector<float> grad_vals;
+          std::vector<float> q_vals;
+          std::vector<float> star_count_vals;
+          int star_votes = 0;
+          int structure_votes = 0;
+
+          fwhm_vals.reserve(local_metrics.size());
+          round_vals.reserve(local_metrics.size());
+          contrast_vals.reserve(local_metrics.size());
+          sharp_vals.reserve(local_metrics.size());
+          bg_vals.reserve(local_metrics.size());
+          noise_vals.reserve(local_metrics.size());
+          grad_vals.reserve(local_metrics.size());
+          q_vals.reserve(local_metrics.size());
+          star_count_vals.reserve(local_metrics.size());
+
+          for (const auto &fm : local_metrics) {
+            const auto &tm = fm[ti];
+            if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
+            if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
+            if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
+            if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
+            if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
+            if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
+            if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
+            if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
+            star_count_vals.push_back(static_cast<float>(tm.star_count));
+            if (tm.type == TileType::STAR) {
+              ++star_votes;
+            } else {
+              ++structure_votes;
+            }
+          }
+
+          TileMetrics agg{};
+          agg.fwhm = median_or_zero(std::move(fwhm_vals));
+          agg.roundness = median_or_zero(std::move(round_vals));
+          agg.contrast = median_or_zero(std::move(contrast_vals));
+          agg.sharpness = median_or_zero(std::move(sharp_vals));
+          agg.background = median_or_zero(std::move(bg_vals));
+          agg.noise = median_or_zero(std::move(noise_vals));
+          agg.gradient_energy = median_or_zero(std::move(grad_vals));
+          agg.quality_score = median_or_zero(std::move(q_vals));
+          agg.star_count = static_cast<int>(
+              std::lround(median_or_zero(std::move(star_count_vals))));
+          agg.type = (star_votes >= structure_votes) ? TileType::STAR
+                                                     : TileType::STRUCTURE;
+          bge_tile_metrics_cache[ti] = agg;
+        }
       }
     } else {
       bge_tile_metrics_cache.clear();
