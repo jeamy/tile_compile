@@ -728,7 +728,9 @@ std::vector<GaiaStar> vizier_gaia_cone_search(
             s.teff = static_cast<float>(std::stod(teff_s));
             if (s.teff > 1000 && s.teff < 50000)
                 results.push_back(s);
-        } catch (...) {}
+        } catch (...) {
+            // Skip malformed CSV lines silently
+        }
     });
 
     std::cout << "[PCC] VizieR Gaia: " << results.size()
@@ -783,7 +785,9 @@ std::vector<GaiaStar> vizier_apass_cone_search(
             s.teff = static_cast<float>(bv_to_teff(bv));
             if (s.teff > 1000)
                 results.push_back(s);
-        } catch (...) {}
+        } catch (...) {
+            // Skip malformed VOTable rows silently
+        }
     });
 
     std::cout << "[PCC] VizieR APASS: " << results.size()

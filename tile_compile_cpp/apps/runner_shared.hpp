@@ -561,6 +561,8 @@ public:
   void store_normalized(size_t fi, const Matrix2Df &frame);
   /// Load a normalized full-resolution frame from the disk cache.
   Matrix2Df load_normalized(size_t fi) const;
+  /// Try to load a normalized frame, returning false if not available.
+  bool try_load_normalized(size_t fi, Matrix2Df &out) const;
   /// Whether normalized frame data is available for `fi`.
   bool has_normalized(size_t fi) const;
 

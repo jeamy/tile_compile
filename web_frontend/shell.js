@@ -1,5 +1,7 @@
+import { getMessage, escapeHtml, getStorageJson, setStorageJson, STORAGE_KEYS } from "./src/utils.js";
+
 (function renderSharedShell() {
-  const HELP_STATE_KEY = "gui2.helpWindowState";
+  const HELP_STATE_KEY = STORAGE_KEYS.helpState;
   const HEADER_NAV_ITEMS = [
     { key: "dashboard", href: "index.html", label: "Dashboard", control: "nav.dashboard" },
     { key: "input_scan", href: "input-scan.html", label: "Input&Scan", control: "nav.input_scan" },
@@ -48,37 +50,15 @@
     return `<a${classes}${dataControl}${dataI18n}${dataTitle} href="${item.href}">${item.label}</a>`;
   }
 
-  function activeLocale() {
-    return String(window.GUI2_LOCALE || localStorage.getItem("gui2.locale") || "de").toLowerCase() === "en" ? "en" : "de";
-  }
-
-  function message(key, deFallback, enFallback = deFallback) {
-    const locale = activeLocale();
-    const fallback = locale === "en" ? enFallback : deFallback;
-    const msg = window.GUI2_LOCALE_MESSAGES?.[key];
-    return typeof msg === "string" && msg ? msg : fallback;
-  }
-
-  function escapeHtml(value) {
-    return String(value || "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
-  }
+  const message = getMessage;
 
   function readHelpState() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(HELP_STATE_KEY) || "{}");
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
+    return getStorageJson(HELP_STATE_KEY, {});
   }
 
   function writeHelpState(patch) {
     const current = readHelpState();
-    localStorage.setItem(HELP_STATE_KEY, JSON.stringify({ ...current, ...patch }));
+    setStorageJson(HELP_STATE_KEY, { ...current, ...patch });
   }
 
   function helpMarkup() {

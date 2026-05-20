@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(tile_compile_web_backend VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -98,6 +98,7 @@ set(BACKEND_SOURCES
     src/job_store.cpp
     src/subprocess_manager.cpp
     src/ui_event_store.cpp
+    src/routes/route_utils.cpp
     src/routes/system_routes.cpp
     src/routes/jobs_routes.cpp
     src/routes/app_state_routes.cpp

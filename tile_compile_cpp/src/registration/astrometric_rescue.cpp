@@ -308,7 +308,9 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
     try {
       wcs_mov = astro::parse_wcs_file(mov_wcs_path.string());
       have_wcs_mov = wcs_mov.valid();
-    } catch (...) {}
+    } catch (...) {
+      std::cerr << "[ASTROMETRIC_RESCUE] Warning: Failed to parse moving WCS file: " << mov_wcs_path << std::endl;
+    }
   }
   if (!have_wcs_mov) {
     result.error_message = "plate_solve_failed";
@@ -328,7 +330,9 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
     try {
       wcs_ref = astro::parse_wcs_file(ref_wcs_path.string());
       have_wcs_ref = wcs_ref.valid();
-    } catch (...) {}
+    } catch (...) {
+      std::cerr << "[ASTROMETRIC_RESCUE] Warning: Failed to parse reference WCS file: " << ref_wcs_path << std::endl;
+    }
   }
   if (!have_wcs_ref) {
     result.error_message = "ref_plate_solve_failed";

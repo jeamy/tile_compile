@@ -534,6 +534,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.2.6 (20.05.2026)
+
+**Build-Härtung & Frontend-Bereinigung:**
+- web_backend_cpp Build mit CUDA 13 + OpenCV 4.11 CUDA 13 Konfiguration gehärtet
+- Frontend-Refactoring: Utilities in `src/utils.js` zentralisiert (escapeHtml, getMessage, getStorageJson, humanizeControlId, etc.)
+- shell.js, parameter-studio-page.js und tooltips.js zu ES6-Modulen mit gemeinsamen utils.js-Importen migriert
+- Toter Code entfernt
+
 ## v0.2.5 (26.04.2026)
 
 - v0.2.5 kombiniert die Überarbeitung des Dokumentationssystems mit einer BGE-Robustheitsrunde für schwierige chromatische Gradienten wie IC434. Die BGE-Sample-Estimator-Auswahl ist jetzt in YAML, Schema-Validierung und Parameter Studio sichtbar; das Autotuning kann robuste Estimatoren vergleichen und degenerierte flache Hintergrundmodelle ablehnen, wenn weiterhin deutlicher Hintergrund- oder Chroma-Spread vorliegt.
@@ -723,6 +731,19 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (20.05.2026) – v0.2.6
+
+**Build-Härtung & Frontend-Bereinigung:**
+- RunnerFrameCache Build-Fehler behoben: fehlende Methoden `try_load_normalized` und `store_normalized` implementiert
+- Beide C++-Projekte auf C++20 migriert (GCC 13+, Clang 16+)
+- web_backend_cpp Build mit CUDA 13 + OpenCV 4.11 CUDA 13 Konfiguration gehärtet
+- Backend route_utils: unvollständige AppState-Typ-Fehler behoben, Pfadvalidierung gehärtet
+- Frontend-Refactoring: Utilities in `src/utils.js` zentralisiert (escapeHtml, getMessage, getStorageJson, humanizeControlId, etc.)
+- shell.js, parameter-studio-page.js und tooltips.js zu ES6-Modulen mit gemeinsamen utils.js-Importen migriert
+- Doppelte I18N-Funktionen eliminiert (message(), textFor(), activeLocale(), getLocale())
+- Toter Code entfernt: `param_editor_index.json` (36KB ungenutztes Duplikat)
+- Dokumentation aktualisiert: Einheitliche C++20-Anforderungen, Release-URLs auf v0.2.5 aktualisiert
 
 ### (26.04.2026)
 

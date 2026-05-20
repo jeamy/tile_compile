@@ -17,13 +17,13 @@ Download ready-to-use binaries from [GitHub Releases](https://github.com/jeamy/t
 ### Linux (GUI2 zip)
 
 ```bash
-# Download latest release (replace v0.2.4 with latest)
+# Download latest release (replace v0.2.5 with latest)
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-v0.2.4.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-v0.2.5.zip
 
 # Extract
 unzip tile_compile.zip
-cd tile_compile_gui2-linux-v0.2.4
+cd tile_compile_gui2-linux-v0.2.5
 
 # Verify
 ./tile_compile_runner --version
@@ -34,7 +34,7 @@ cd tile_compile_gui2-linux-v0.2.4
 
 ```bash
 curl -L -o tile_compile.AppImage \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-x86_64-v0.2.4.AppImage
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-x86_64-v0.2.5.AppImage
 chmod +x tile_compile.AppImage
 ./tile_compile.AppImage
 ```
@@ -44,11 +44,11 @@ chmod +x tile_compile.AppImage
 ```bash
 # Apple Silicon
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-apple-v0.2.4.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-apple-v0.2.5.zip
 
 # Or Intel
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-intel-v0.2.4.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-intel-v0.2.5.zip
 
 unzip tile_compile.zip
 cd tile_compile_gui2-macos-*/
@@ -57,7 +57,7 @@ cd tile_compile_gui2-macos-*/
 
 ### Windows
 
-1. Download `tile_compile_gui2-windows-v0.2.4.zip`
+1. Download `tile_compile_gui2-windows-v0.2.5.zip`
 2. Extract to desired location
 3. Run:
    ```cmd
@@ -71,7 +71,7 @@ cd tile_compile_gui2-macos-*/
 
 ### Prerequisites
 
-- C++17 compiler (GCC 11+, Clang 14+, MSVC 2022+)
+- C++20 compiler (GCC 13+, Clang 16+, MSVC 2022+ 17.8+)
 - CMake 3.20+
 - OpenCV 4.x
 - CFITSIO
@@ -126,6 +126,40 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 ctest --output-on-failure
 ```
+
+### CUDA 13 with OpenCV CUDA 13
+
+When using an OpenCV build that was compiled against CUDA 13, configure
+`tile_compile_cpp` with the matching OpenCV and CUDA paths. Mixing an
+OpenCV-CUDA build for one CUDA version with a different CUDA toolkit can make
+CMake fail during `find_package(OpenCV)`.
+
+Example for OpenCV installed in `/opt/opencv-4.11-cuda13` and CUDA installed in
+`/usr/local/cuda-13.0`:
+
+```bash
+rm -rf tile_compile_cpp/build
+cmake -S tile_compile_cpp -B tile_compile_cpp/build \
+  -DOpenCV_DIR=/opt/opencv-4.11-cuda13/lib64/cmake/opencv4 \
+  -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-13.0 \
+  -DCUDA_NVCC_EXECUTABLE=/usr/local/cuda-13.0/bin/nvcc \
+  -DTILE_COMPILE_NVCC_EXECUTABLE=/usr/local/cuda-13.0/bin/nvcc \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc \
+  -DTILE_COMPILE_ENABLE_CUDA=ON
+cmake --build tile_compile_cpp/build -j$(nproc)
+```
+
+The configuration summary should show:
+
+```text
+TILE_COMPILE_ENABLE_CUDA: ON
+TILE_COMPILE_WITH_CUDA: ON
+CUDA nvcc: /usr/local/cuda-13.0/bin/nvcc
+OpenCV: 4.11.0
+```
+
+If CMake reports an unsuitable CUDA version, remove the build directory before
+reconfiguring so stale `CUDA_*` cache entries cannot point to an older toolkit.
 
 Install to system:
 

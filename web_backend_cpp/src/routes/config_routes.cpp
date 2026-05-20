@@ -1,4 +1,5 @@
 #include "routes/config_routes.hpp"
+#include "routes/route_utils.hpp"
 #include "subprocess_manager.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -13,36 +14,10 @@
 #include <yaml-cpp/yaml.h>
 
 namespace fs = std::filesystem;
+using namespace tile_compile::routes;
 
 namespace {
 
-/// @brief Implements json resp.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-crow::response json_resp(const nlohmann::json& j, int status = 200) {
-    crow::response res(status, j.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
-
-/// @brief Implements err resp.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-crow::response err_resp(const std::string& msg, int status = 400) {
-    std::string code = "BAD_REQUEST";
-    if (status == 404) code = "NOT_FOUND";
-    else if (status == 403) code = "FORBIDDEN";
-    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
-    else if (status >= 500) code = "INTERNAL_ERROR";
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
-}
-
-crow::response err_resp(const std::string& code,
-                        const std::string& msg,
-                        int status,
-                        const nlohmann::json& details = nlohmann::json::object()) {
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
-}
 
 /// @brief Reads file str.
 /// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem

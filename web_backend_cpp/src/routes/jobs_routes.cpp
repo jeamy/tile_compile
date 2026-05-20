@@ -1,25 +1,8 @@
 #include "routes/jobs_routes.hpp"
+#include "routes/route_utils.hpp"
 #include <nlohmann/json.hpp>
 
-static crow::response json_resp(const nlohmann::json& j, int status = 200) {
-    crow::response res(status, j.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
-static crow::response err_resp(const std::string& msg, int status = 400) {
-    std::string code = "BAD_REQUEST";
-    if (status == 404) code = "NOT_FOUND";
-    else if (status == 403) code = "FORBIDDEN";
-    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
-    else if (status >= 500) code = "INTERNAL_ERROR";
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
-}
-static crow::response err_resp(const std::string& code,
-                               const std::string& msg,
-                               int status,
-                               const nlohmann::json& details = nlohmann::json::object()) {
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
-}
+using namespace tile_compile::routes;
 
 /// @brief Registers job endpoints for polling recent jobs and requesting cancellation.
 /// @details This is the route-group entry point called from main during Crow setup.
@@ -28,9 +11,7 @@ void register_jobs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/jobs").methods("GET"_method)
     ([state](const crow::request& req) {
-        int limit = 100;
-        if (req.url_params.get("limit"))
-            try { limit = std::stoi(req.url_params.get("limit")); } catch (...) {}
+        int limit = parse_int_param(req, "limit", 100);
         auto jobs = state->job_store.list(limit);
         nlohmann::json items = nlohmann::json::array();
         for (auto& j : jobs) items.push_back(job_to_json(j));

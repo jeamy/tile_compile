@@ -1,5 +1,7 @@
+import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KEYS } from "./src/utils.js";
+
 (function () {
-  const LOCALE_KEY = "gui2.locale";
+  const LOCALE_KEY = STORAGE_KEYS.locale;
   const PARAMETER_UI_KEYS = {
     category: "gui2.parameterStudio.category",
     search: "gui2.parameterStudio.search",
@@ -132,7 +134,7 @@
   }
 
   function textFor(key, fallback) {
-    return localeMessages[key] || fallback;
+    return localeMessages[key] ?? fallback;
   }
 
   function isGermanLocale() {
@@ -210,16 +212,7 @@
   };
 
   function getLocale() {
-    return String(localStorage.getItem(LOCALE_KEY) || document.documentElement.lang || "de").toLowerCase() === "en" ? "en" : "de";
-  }
-
-  function escapeHtml(text) {
-    return String(text)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+    return getActiveLocale();
   }
 
   function hasOwn(obj, key) {

@@ -32,7 +32,5 @@ struct BoundingBox {
     int height() const { return max_y - min_y; }
 };
 
-BoundingBox compute_warps_bounding_box(int frame_width, int frame_height,
-                                       const std::vector<WarpMatrix>& warps);
 
 } // namespace tile_compile::registration

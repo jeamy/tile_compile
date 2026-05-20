@@ -282,11 +282,18 @@ bool run_phase_registration_prewarp(
           static_cast<int>(frames.size() / 2);
       Matrix2Df probe_ref;
       try {
-        Matrix2Df img = io::read_fits_pixels_float(frames[static_cast<size_t>(probe_ref_idx)]);
-        image::apply_normalization_inplace(img, norm_scales[static_cast<size_t>(probe_ref_idx)],
-                                           detected_mode, detected_bayer_str, 0, 0);
+        // Try to use cached normalized frame first
+        Matrix2Df img;
+        if (!frame_cache->try_load_normalized(static_cast<size_t>(probe_ref_idx), img)) {
+          img = io::read_fits_pixels_float(frames[static_cast<size_t>(probe_ref_idx)]);
+          image::apply_normalization_inplace(img, norm_scales[static_cast<size_t>(probe_ref_idx)],
+                                             detected_mode, detected_bayer_str, 0, 0);
+          frame_cache->store_normalized(static_cast<size_t>(probe_ref_idx), img);
+        }
         probe_ref = build_registration_proxy(img, detected_mode, detected_bayer_str);
-      } catch (...) {}
+      } catch (...) {
+        std::cerr << "[REGISTRATION] Warning: auto_engine probe reference frame processing failed" << std::endl;
+      }
 
       if (probe_ref.size() > 0) {
         config::RegistrationConfig probe_star_cfg = registration_cfg;
@@ -306,9 +313,14 @@ bool run_phase_registration_prewarp(
             continue;
           }
           try {
-            Matrix2Df img = io::read_fits_pixels_float(frames[fi]);
-            image::apply_normalization_inplace(img, norm_scales[fi],
-                                               detected_mode, detected_bayer_str, 0, 0);
+            // Try to use cached normalized frame first
+            Matrix2Df img;
+            if (!frame_cache->try_load_normalized(fi, img)) {
+              img = io::read_fits_pixels_float(frames[fi]);
+              image::apply_normalization_inplace(img, norm_scales[fi],
+                                                 detected_mode, detected_bayer_str, 0, 0);
+              frame_cache->store_normalized(fi, img);
+            }
             Matrix2Df probe_mov = build_registration_proxy(img, detected_mode, detected_bayer_str);
             if (probe_mov.size() <= 0 ||
                 probe_mov.rows() != probe_ref.rows() ||
@@ -337,7 +349,9 @@ bool run_phase_registration_prewarp(
             if (sfr_ecc.reg.success) {
               probe_ecc_cc.push_back(sfr_ecc.ncc_warped);
             }
-          } catch (...) {}
+          } catch (...) {
+            std::cerr << "[REGISTRATION] Warning: auto_engine ECC probe failed for frame " << fi << std::endl;
+          }
         }
       }
 

@@ -125,7 +125,9 @@ size_t header_cb(char* buffer, size_t size, size_t nitems, void* userdata) {
                     ctx->bytes_total = (ctx->requested_existing > 0 && ctx->status_code == 206)
                         ? (ctx->requested_existing + content_length)
                         : content_length;
-                } catch (...) {}
+                } catch (...) {
+                    // Silently ignore header parsing errors - non-critical for download
+                }
             }
         }
     }

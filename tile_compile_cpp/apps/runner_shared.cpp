@@ -1384,6 +1384,18 @@ Matrix2Df RunnerFrameCache::load_normalized(size_t fi) const {
   return normalized_frames_.load(fi);
 }
 
+/// @brief Implements try load normalized.
+/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
+bool RunnerFrameCache::try_load_normalized(size_t fi, Matrix2Df &out) const {
+  if (!has_normalized(fi)) {
+    return false;
+  }
+  out = load_normalized(fi);
+  return true;
+}
+
 /// @brief Implements has normalized.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,

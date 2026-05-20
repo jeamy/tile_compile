@@ -1,4 +1,5 @@
 #include "routes/system_routes.hpp"
+#include "routes/route_utils.hpp"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -10,28 +11,8 @@
 #endif
 
 namespace fs = std::filesystem;
+using namespace tile_compile::routes;
 
-static crow::response json_response(const nlohmann::json& j, int status = 200) {
-    crow::response res(status, j.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
-
-static crow::response error_response(const std::string& msg, int status = 400) {
-    std::string code = "BAD_REQUEST";
-    if (status == 404) code = "NOT_FOUND";
-    else if (status == 403) code = "FORBIDDEN";
-    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
-    else if (status >= 500) code = "INTERNAL_ERROR";
-    return json_response({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
-}
-
-static crow::response error_response(const std::string& code,
-                                     const std::string& msg,
-                                     int status,
-                                     const nlohmann::json& details) {
-    return json_response({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
-}
 
 /// @brief Implements normalized existing path.
 /// @details This implementation serves backend health and runtime filesystem helper endpoints; it keeps JSON shapes, filesystem
@@ -49,12 +30,12 @@ void register_system_routes(CrowApp& app,
                               std::shared_ptr<AppState> state) {
 
     CROW_ROUTE(app, "/api/health")
-    ([state]() {
+    ([state](const crow::request& req) {
         return json_response({{"status", "ok"}, {"service", "tile_compile_web_backend"}});
     });
 
     CROW_ROUTE(app, "/api/version")
-    ([state]() {
+    ([state](const crow::request& req) {
         fs::path cli_path = fs::path(state->runtime.cli_exe);
         fs::path runner_path = fs::path(state->runtime.runner_exe);
         return json_response({
@@ -64,7 +45,7 @@ void register_system_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/fs/roots")
-    ([state]() {
+    ([state](const crow::request& req) {
         std::vector<std::string> roots;
         for (const auto& root : state->runtime.allowed_roots()) {
             std::error_code ec;
@@ -105,17 +86,17 @@ void register_system_routes(CrowApp& app,
             std::sort(roots.begin(), roots.end());
             roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
             if (roots.empty()) {
-                return error_response("NO_ALLOWED_ROOTS", "no readable allowed roots available for file browser", 422, nlohmann::json::object());
+                return err_resp("NO_ALLOWED_ROOTS", "no readable allowed roots available for file browser", 422, nlohmann::json::object());
             }
             path = roots.front();
         }
         fs::path dir(path);
         if (!state->runtime.is_path_allowed(dir))
-            return error_response("PATH_NOT_ALLOWED", "Path not allowed: " + path, 403, {{"path", path}});
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + path, 403, {{"path", path}});
         if (!fs::exists(dir))
-            return error_response("PATH_NOT_FOUND", "Path not found: " + path, 422, {{"path", path}});
+            return err_resp("PATH_NOT_FOUND", "Path not found: " + path, 422, {{"path", path}});
         if (!fs::is_directory(dir))
-            return error_response("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", path}});
+            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", path}});
 
         fs::path resolved_dir = normalized_existing_path(dir);
         std::string normalized_path = resolved_dir.string();
@@ -153,18 +134,18 @@ void register_system_routes(CrowApp& app,
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.contains("path"))
-            return error_response("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
         std::string path = body["path"].get<std::string>();
         fs::path candidate = fs::path(path);
         if (candidate.is_relative()) {
-            return error_response("PATH_INVALID", "path must be absolute", 422, {{"path", path}});
+            return err_resp("PATH_INVALID", "path must be absolute", 422, {{"path", path}});
         }
         candidate = normalized_existing_path(candidate);
         if (!fs::exists(candidate)) {
-            return error_response("PATH_NOT_FOUND", "path does not exist", 422, {{"path", candidate.string()}});
+            return err_resp("PATH_NOT_FOUND", "path does not exist", 422, {{"path", candidate.string()}});
         }
         if (!fs::is_directory(candidate)) {
-            return error_response("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", candidate.string()}});
+            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", candidate.string()}});
         }
         state->runtime.grant_root(candidate);
 
@@ -179,13 +160,13 @@ void register_system_routes(CrowApp& app,
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.contains("path"))
-            return error_response("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
         std::string path = body["path"].get<std::string>();
         fs::path target = fs::path(path);
         if (!state->runtime.is_path_allowed(target))
-            return error_response("PATH_NOT_ALLOWED", "Path not allowed", 403, {{"path", path}});
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed", 403, {{"path", path}});
         if (!fs::exists(target))
-            return error_response("PATH_NOT_FOUND", "path does not exist", 422, {{"path", path}});
+            return err_resp("PATH_NOT_FOUND", "path does not exist", 422, {{"path", path}});
         target = normalized_existing_path(target);
 #ifdef __APPLE__
         std::vector<std::string> command = {"open", target.string()};
@@ -199,7 +180,7 @@ void register_system_routes(CrowApp& app,
         int rc = std::system(("xdg-open '" + target.string() + "' >/dev/null 2>&1 &").c_str());
 #endif
         if (rc != 0) {
-            return error_response("OPEN_FAILED", "failed to open path", 422, {{"path", target.string()}});
+            return err_resp("OPEN_FAILED", "failed to open path", 422, {{"path", target.string()}});
         }
         return json_response({{"ok", true}, {"path", target.string()}, {"command", command}});
     });

@@ -1510,10 +1510,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.warning(run_id, msg.str(), log_file);
   }
 
-  {
+  // Helper function to write tile_grid.json artifact (reduces code duplication)
+  auto write_tile_grid_artifact = [&](int image_width, int image_height, 
+                                      const std::vector<Tile>& tiles,
+                                      const config::Config& cfg,
+                                      float overlap_fraction,
+                                      float seeing_fwhm_med,
+                                      int seeing_tile_size,
+                                      int overlap_px,
+                                      int stride_px,
+                                      float overlap_clipped,
+                                      int uniform_tile_size,
+                                      const std::filesystem::path& run_dir) {
     core::json artifact;
-    artifact["image_width"] = width;
-    artifact["image_height"] = height;
+    artifact["image_width"] = image_width;
+    artifact["image_height"] = image_height;
     artifact["num_tiles"] = static_cast<int>(tiles.size());
     artifact["overlap_fraction"] = overlap_fraction;
     artifact["seeing_fwhm_median"] = seeing_fwhm_med;
@@ -1552,7 +1563,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     core::write_text(run_dir / "artifacts" / "tile_grid.json",
                      artifact.dump(2));
-  }
+  };
+
+  write_tile_grid_artifact(width, height, tiles, cfg, overlap_fraction,
+                          seeing_fwhm_med, seeing_tile_size, overlap_px,
+                          stride_px, overlap_clipped, uniform_tile_size,
+                          run_dir);
 
   emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
                     {
@@ -1640,51 +1656,84 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       ? phase_registration_ctx.canvas_width  : width;
 
   if (canvas_width != width || canvas_height != height) {
-    tiles = tile_compile::pipeline::build_initial_tile_grid(
-        canvas_width, canvas_height, uniform_tile_size, overlap_fraction);
+    // Use coverage-filtered tile grid when canvas is expanded
+    const auto& common_mask = phase_registration_ctx.common_valid_mask;
+    auto grid_result = tile_compile::pipeline::build_coverage_filtered_tile_grid(
+        canvas_width, canvas_height, uniform_tile_size, overlap_fraction,
+        common_mask, width, height, 0.15f);
+    
+    tiles = grid_result.grid.tiles;
 
     std::ostringstream msg;
     msg << "TILE_GRID updated for expanded canvas: " << width << "x" << height
         << " -> " << canvas_width << "x" << canvas_height
-        << " (tiles=" << tiles.size() << ")";
+        << " (tiles=" << tiles.size();
+    if (grid_result.coverage_filtered_tiles > 0) {
+      msg << ", filtered=" << grid_result.coverage_filtered_tiles;
+    }
+    msg << ")";
     emitter.warning(run_id, msg.str(), log_file);
 
-    core::json artifact;
-    artifact["image_width"] = canvas_width;
-    artifact["image_height"] = canvas_height;
-    artifact["num_tiles"] = static_cast<int>(tiles.size());
-    artifact["overlap_fraction"] = overlap_fraction;
-    artifact["seeing_fwhm_median"] = seeing_fwhm_med;
-    artifact["seeing_tile_size"] = seeing_tile_size;
-    artifact["seeing_overlap_px"] = overlap_px;
-    artifact["stride_px"] = stride_px;
-    artifact["tile_config"] = {
-        {"size_factor", cfg.tile.size_factor},
-        {"min_size", cfg.tile.min_size},
-        {"max_divisor", cfg.tile.max_divisor},
-        {"overlap_fraction", overlap_fraction},
-        {"overlap_clipped", overlap_clipped},
+    // Update helper function to include coverage_filtered_tiles count
+    auto write_tile_grid_artifact_with_coverage = [&](int image_width, int image_height, 
+                                                      const std::vector<Tile>& tiles,
+                                                      const config::Config& cfg,
+                                                      float overlap_fraction,
+                                                      float seeing_fwhm_med,
+                                                      int seeing_tile_size,
+                                                      int overlap_px,
+                                                      int stride_px,
+                                                      float overlap_clipped,
+                                                      int uniform_tile_size,
+                                                      const std::filesystem::path& run_dir,
+                                                      int coverage_filtered_tiles = 0) {
+      core::json artifact;
+      artifact["image_width"] = image_width;
+      artifact["image_height"] = image_height;
+      artifact["num_tiles"] = static_cast<int>(tiles.size());
+      artifact["overlap_fraction"] = overlap_fraction;
+      artifact["seeing_fwhm_median"] = seeing_fwhm_med;
+      artifact["seeing_tile_size"] = seeing_tile_size;
+      artifact["seeing_overlap_px"] = overlap_px;
+      artifact["stride_px"] = stride_px;
+      artifact["tile_config"] = {
+          {"size_factor", cfg.tile.size_factor},
+          {"min_size", cfg.tile.min_size},
+          {"max_divisor", cfg.tile.max_divisor},
+          {"overlap_fraction", overlap_fraction},
+          {"overlap_clipped", overlap_clipped},
+      };
+      artifact["uniform_tile_size"] = uniform_tile_size;
+
+      // Estimated TILE_RECONSTRUCTION time (Anforderung 9.2).
+      // Calibration constant k ≈ 0.012 s/tile/frame/worker (empirical).
+      constexpr float k_tile_frame_worker = 0.012f;
+      const int pw = std::max(1, cfg.runtime_limits.parallel_workers);
+      artifact["estimated_reconstruction_time_s"] =
+          static_cast<float>(tiles.size()) *
+          static_cast<float>(frames.size()) /
+          static_cast<float>(pw) *
+          k_tile_frame_worker;
+      artifact["coverage_filtered_tiles"] = coverage_filtered_tiles;
+
+      artifact["tiles"] = core::json::array();
+      for (const auto &t : tiles) {
+        artifact["tiles"].push_back({
+            {"x", t.x},
+            {"y", t.y},
+            {"width", t.width},
+            {"height", t.height},
+        });
+      }
+
+      core::write_text(run_dir / "artifacts" / "tile_grid.json",
+                       artifact.dump(2));
     };
-    artifact["uniform_tile_size"] = uniform_tile_size;
-    // Estimated TILE_RECONSTRUCTION time for expanded canvas.
-    constexpr float k_tile_frame_worker_exp = 0.012f;
-    const int pw_exp = std::max(1, cfg.runtime_limits.parallel_workers);
-    artifact["estimated_reconstruction_time_s"] =
-        static_cast<float>(tiles.size()) *
-        static_cast<float>(frames.size()) /
-        static_cast<float>(pw_exp) *
-        k_tile_frame_worker_exp;
-    artifact["coverage_filtered_tiles"] = 0; // canvas mask not yet available here
-    artifact["tiles"] = core::json::array();
-    for (const auto &t : tiles) {
-      artifact["tiles"].push_back({
-          {"x", t.x},
-          {"y", t.y},
-          {"width", t.width},
-          {"height", t.height},
-      });
-    }
-    core::write_text(run_dir / "artifacts" / "tile_grid.json", artifact.dump(2));
+
+    write_tile_grid_artifact_with_coverage(canvas_width, canvas_height, tiles, cfg, overlap_fraction,
+                                         seeing_fwhm_med, seeing_tile_size, overlap_px,
+                                         stride_px, overlap_clipped, uniform_tile_size,
+                                         run_dir, grid_result.coverage_filtered_tiles);
   }
 
   std::vector<Tile> tiles_phase56 = tiles;

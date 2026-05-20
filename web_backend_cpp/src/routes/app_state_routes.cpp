@@ -1,4 +1,5 @@
 #include "routes/app_state_routes.hpp"
+#include "routes/route_utils.hpp"
 #include "services/run_inspector.hpp"
 #include "services/scan_summary.hpp"
 #include <filesystem>
@@ -6,12 +7,7 @@
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
-
-static crow::response json_resp(const nlohmann::json& j, int status = 200) {
-    crow::response res(status, j.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
+using namespace tile_compile::routes;
 
 /// @brief Implements ui state path.
 /// @details This implementation serves persisted UI state and active-run metadata endpoints; it keeps JSON shapes, filesystem
@@ -185,12 +181,11 @@ void register_app_state_routes(CrowApp& app,
         int since = 0;
         int limit = 200;
         if (req.url_params.get("after_seq")) {
-            try { since = std::stoi(req.url_params.get("after_seq")); } catch (...) {}
+            since = parse_int_param(req, "after_seq", since);
         } else if (req.url_params.get("since_seq")) {
-            try { since = std::stoi(req.url_params.get("since_seq")); } catch (...) {}
+            since = parse_int_param(req, "since_seq", since);
         }
-        if (req.url_params.get("limit"))
-            try { limit = std::stoi(req.url_params.get("limit")); } catch (...) {}
+        limit = parse_int_param(req, "limit", limit);
         auto events = state->ui_event_store.list(std::max(0, since), std::max(1, limit));
         nlohmann::json items = nlohmann::json::array();
         for (auto& e : events) items.push_back(ui_event_to_json(e));

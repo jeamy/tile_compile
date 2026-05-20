@@ -1,25 +1,6 @@
-document.addEventListener("DOMContentLoaded", () => {
-  function humanizeControlId(controlId) {
-    return String(controlId || "")
-      .replace(/[._]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
+import { humanizeControlId, getLabelTextForControl, getMessage } from "./src/utils.js";
 
-  function labelTextForControl(el) {
-    if (!el || !(el instanceof Element)) return "";
-    const rowLabel = el.closest(".ps-row")?.querySelector("label");
-    if (rowLabel) return (rowLabel.textContent || "").replace(/\s+/g, " ").trim();
-    if (el.id) {
-      try {
-        const linked = document.querySelector(`label[for='${el.id}']`);
-        if (linked) return (linked.textContent || "").replace(/\s+/g, " ").trim();
-      } catch {
-        // ignore invalid selectors
-      }
-    }
-    return "";
-  }
+document.addEventListener("DOMContentLoaded", () => {
 
   function tooltipFromControlId(el, controlId) {
     const c = String(controlId || "").trim().toLowerCase();
@@ -86,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const label = labelTextForControl(el);
+      const label = getLabelTextForControl(el);
       if (label) {
         el.setAttribute("title", `Feld bearbeiten: ${label}.`);
         return;
@@ -112,7 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function i18nText(key, fallback) {
-    return String(window.GUI2_LOCALE_MESSAGES?.[key] || fallback || "");
+    return getMessage(key, fallback, fallback);
   }
 
   function joinPath(basePath, childPath) {

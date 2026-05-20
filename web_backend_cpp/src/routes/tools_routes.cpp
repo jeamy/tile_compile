@@ -1,4 +1,5 @@
 #include "routes/tools_routes.hpp"
+#include "routes/route_utils.hpp"
 #include "services/download_manager.hpp"
 #include "subprocess_manager.hpp"
 #include <nlohmann/json.hpp>
@@ -18,6 +19,7 @@
 #include <thread>
 
 namespace fs = std::filesystem;
+using namespace tile_compile::routes;
 
 namespace {
 
@@ -676,25 +678,6 @@ std::optional<bool> payload_bool(const nlohmann::json& payload, const std::strin
 
 } // namespace
 
-static crow::response json_resp(const nlohmann::json& j, int status = 200) {
-    crow::response res(status, j.dump());
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
-static crow::response err_resp(const std::string& msg, int status = 400) {
-    std::string code = "BAD_REQUEST";
-    if (status == 404) code = "NOT_FOUND";
-    else if (status == 403) code = "FORBIDDEN";
-    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
-    else if (status >= 500) code = "INTERNAL_ERROR";
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
-}
-static crow::response err_resp(const std::string& code,
-                               const std::string& msg,
-                               int status,
-                               const nlohmann::json& details) {
-    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
-}
 
 static std::optional<std::string> denied_path(const BackendRuntime& runtime,
                                               const fs::path& access_path,

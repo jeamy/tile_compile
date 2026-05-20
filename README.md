@@ -524,6 +524,14 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versions
 
+## v0.2.6 (2026-05-20)
+
+**Build hardening & Frontend cleanup:**
+- Hardened web_backend_cpp build with CUDA 13 + OpenCV 4.11 CUDA 13 configuration
+- Frontend refactoring: centralized utilities in `src/utils.js` (escapeHtml, getMessage, getStorageJson, humanizeControlId, etc.)
+- Migrated shell.js, parameter-studio-page.js, and tooltips.js to ES6 modules with shared utils.js imports
+- Removed dead code
+
 ## v0.2.5 (2026-04-26)
 
 - v0.2.5 combines the documentation-system refresh with a BGE robustness update for difficult chromatic gradients such as IC434. BGE sample-estimator selection is now exposed in YAML, schema validation, and Parameter Studio, while autotune can compare robust estimators and reject degenerate flat background models when significant background or chroma spread remains.
@@ -713,6 +721,19 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - First public release
 
 ## Changelog
+
+### (2026-05-20) – v0.2.6
+
+**Build hardening & Frontend cleanup:**
+- Fixed RunnerFrameCache build errors: implemented missing `try_load_normalized` and `store_normalized` methods
+- Migrated both C++ projects to C++20 (GCC 13+, Clang 16+)
+- Hardened web_backend_cpp build with CUDA 13 + OpenCV 4.11 CUDA 13 configuration
+- Backend route_utils: fixed incomplete AppState type errors, hardened path validation
+- Frontend refactoring: centralized utilities in `src/utils.js` (escapeHtml, getMessage, getStorageJson, humanizeControlId, etc.)
+- Migrated shell.js, parameter-studio-page.js, and tooltips.js to ES6 modules with shared utils.js imports
+- Eliminated duplicate I18N functions across frontend scripts (message(), textFor(), activeLocale(), getLocale())
+- Removed dead code: `param_editor_index.json` (36KB unused duplicate)
+- Updated documentation: unified C++20 requirements, release URLs updated to v0.2.5
 
 ### (2026-04-26)
 
