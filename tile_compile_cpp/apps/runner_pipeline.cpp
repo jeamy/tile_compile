@@ -1394,8 +1394,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
+  // Phase 1-2: REGISTRATION and PREWARP (must run before CHANNEL_SPLIT)
   runner::PhaseRegistrationContext phase_registration_ctx;
+  {
+    // Load first frame for dimensions (needed for registration)
+    Matrix2Df first_img;
+    io::FitsHeader first_hdr;
+    {
+      first_img = io::read_fits_pixels_float(frames[0]);
+      first_hdr = first_header;
+    }
+    const int height = first_img.rows();
+    const int width = first_img.cols();
 
+    // Create empty frame cache for registration phase
+    std::shared_ptr<runner::RunnerFrameCache> frame_cache;
+
+    if (!runner::run_phase_registration_prewarp(
+            run_id, cfg, frames, run_dir, height, width, detected_mode,
+            detected_bayer_str, frame_cache, {}, {}, {}, first_header,
+            emitter, log_file, phase_registration_ctx)) {
+      return 1;
+    }
+    if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
+      return 1;
+    }
+  }
+
+  // Phase 3-5: CHANNEL_SPLIT, NORMALIZATION, GLOBAL_METRICS
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
           run_id, cfg, frames, run_dir, detected_mode, detected_bayer_str,
@@ -1630,17 +1656,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     first_img = load_frame_normalized(0);
     first_hdr = first_header;
   }
+  const int first_height = first_img.rows();
+  const int first_width = first_img.cols();
 
-  if (!runner::run_phase_registration_prewarp(
-          run_id, cfg, frames, run_dir, height, width, detected_mode,
-          detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
-          first_header, emitter, log_file, phase_registration_ctx)) {
-    return 1;
-  }
-  if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
-    return 1;
-  }
-
+  // Use canvas dimensions from phase_registration_ctx (computed during PREWARP)
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
@@ -1651,21 +1670,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   int debayer_tile_offset_y = canvas_tile_offset_y;
   // Canvas dimensions may be larger than original frame due to field rotation.
   const int canvas_height = (phase_registration_ctx.canvas_height > 0)
-      ? phase_registration_ctx.canvas_height : height;
+      ? phase_registration_ctx.canvas_height : first_height;
   const int canvas_width  = (phase_registration_ctx.canvas_width  > 0)
-      ? phase_registration_ctx.canvas_width  : width;
+      ? phase_registration_ctx.canvas_width  : first_width;
 
-  if (canvas_width != width || canvas_height != height) {
+  if (canvas_width != first_width || canvas_height != first_height) {
     // Use coverage-filtered tile grid when canvas is expanded
     const auto& common_mask = phase_registration_ctx.common_valid_mask;
     auto grid_result = tile_compile::pipeline::build_coverage_filtered_tile_grid(
         canvas_width, canvas_height, uniform_tile_size, overlap_fraction,
-        common_mask, width, height, 0.15f);
+        common_mask, first_width, first_height, 0.15f);
     
     tiles = grid_result.grid.tiles;
 
     std::ostringstream msg;
-    msg << "TILE_GRID updated for expanded canvas: " << width << "x" << height
+    msg << "TILE_GRID updated for expanded canvas: " << first_width << "x" << first_height
         << " -> " << canvas_width << "x" << canvas_height
         << " (tiles=" << tiles.size();
     if (grid_result.coverage_filtered_tiles > 0) {
