@@ -29,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const path = String(el.closest(".ps-dyn-row")?.getAttribute("data-path") || "").trim();
       return path ? `Parameterwert bearbeiten: ${path}` : "Parameterwert bearbeiten.";
     }
-    const label = labelTextForControl(el);
+    const label = getLabelTextForControl(el);
     if (label) return `Feld bearbeiten: ${label}.`;
     return `Steuerelement: ${humanizeControlId(controlId)}.`;
   }
