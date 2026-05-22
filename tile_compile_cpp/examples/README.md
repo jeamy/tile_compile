@@ -86,6 +86,14 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `pcc.annulus_inner_fwhm_mult`
     - `pcc.annulus_outer_fwhm_mult`
     - `pcc.min_aperture_px`
+- `hypermetric_stretch.*` (VeraLux HyperMetric Stretch after PCC)
+  - Optional final RGB stretch phase after PCC.
+  - Enabled by default in examples; disable with `hypermetric_stretch.enabled: false` when only linear PCC output is needed.
+  - `mode: ready_to_use` writes a directly viewable VeraLux-stretched RGB with target-background scaling and final soft clip.
+  - `mode: scientific` skips the ready-to-use final scaling/soft clip and allows `linear_expansion`.
+  - Default `color_strategy: fixed` and `fixed_color_strategy: 0` match the VeraLux Python slider default without extra StarPressure color automation.
+  - `sensor_profile` defaults to explicit `rec709`; use one of the named VeraLux sensor profiles listed in `docs/configuration_reference.md` / `docs/configuration_reference_en.md` when the camera is known.
+  - Writes `outputs/stacked_rgb_hms.fits` unless `output_rgb` is overridden.
 
 ## Profiles
 

@@ -114,7 +114,7 @@ const uiState = {
   runProcessStatus: "",
   configSchemaPaths: null,
   runMonitorSwitchHandler: null,
-  runMonitorResumePhases: ["ASTROMETRY", "BGE", "PCC"],
+  runMonitorResumePhases: ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"],
   runPhaseSnapshots: {},
   runMonitorSelectedBatchKey: "",
 };
@@ -248,6 +248,7 @@ const DASHBOARD_PIPELINE_GROUPS = [
   { key: "ASTROM", phases: ["ASTROMETRY"] },
   { key: "BGE", phases: ["BGE"] },
   { key: "PCC", phases: ["PCC"] },
+  { key: "HMS", phases: ["HYPERMETRIC_STRETCH"] },
   { key: "DONE", phases: [] },
 ];
 
@@ -269,6 +270,7 @@ const RUN_MONITOR_PHASE_ORDER = [
   "ASTROMETRY",
   "BGE",
   "PCC",
+  "HYPERMETRIC_STRETCH",
 ];
 
 const PARAM_CONTROL_PATHS = {
@@ -875,6 +877,19 @@ function summarizePhaseEndPayload(phaseRaw, payload) {
     pushLogPart(parts, payload.apply_mode);
     pushLogPart(parts, payload.source);
     pushLogPart(parts, payload.input_rgb_bge);
+  } else if (phase === "HYPERMETRIC_STRETCH") {
+    const logD = formatLogNumber(payload.log_d, 3);
+    const anchor = formatLogNumber(payload.anchor, 6);
+    const starPressure = formatLogNumber(payload.star_pressure, 3);
+    const blackClip = formatLogNumber(payload.black_clip_percent, 3);
+    const whiteClip = formatLogNumber(payload.white_clip_percent, 3);
+    if (logD) parts.push(`LogD ${logD}`);
+    if (anchor) parts.push(`anchor ${anchor}`);
+    if (starPressure) parts.push(`star ${starPressure}`);
+    if (blackClip) parts.push(`black ${blackClip}%`);
+    if (whiteClip) parts.push(`white ${whiteClip}%`);
+    pushLogPart(parts, payload.profile);
+    pushLogPart(parts, payload.output_rgb);
   }
 
   return parts;
@@ -4275,7 +4290,7 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
   const allowed = new Set(
     Array.isArray(resumePhases) && resumePhases.length > 0
       ? resumePhases.map((phase) => String(phase || "").trim().toUpperCase()).filter(Boolean)
-      : ["ASTROMETRY", "BGE", "PCC"],
+      : ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"],
   );
   uiState.runMonitorResumePhases = Array.from(allowed);
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
@@ -5100,7 +5115,7 @@ async function bindRunMonitor() {
     if (String(row.dataset.resumeAllowed || "") !== "1") {
       setFooter(
         formatI18n("ui.message.monitor_resume_supported_from", "Resume aktuell nur ab {phases} unterstützt.", {
-          phases: ["ASTROMETRY", "BGE", "PCC"].map((phase) => localizedRunMonitorPhaseName(phase) || phase).join(", "),
+          phases: ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"].map((phase) => localizedRunMonitorPhaseName(phase) || phase).join(", "),
         }),
         true,
       );

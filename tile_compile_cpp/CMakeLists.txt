@@ -420,6 +420,7 @@ set(LIB_SOURCES
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
     src/image/background_extraction.cpp
+    src/image/hypermetric_stretch.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/registration/astrometric_rescue.cpp
@@ -549,6 +550,7 @@ if(BUILD_TESTS)
             tests/test_coverage_filtered_grid.cpp
             tests/test_tile_scheduler.cpp
             tests/test_reconstruction_parallel.cpp
+            tests/test_hypermetric_stretch.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

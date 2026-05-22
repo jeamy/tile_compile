@@ -6,6 +6,7 @@ This guide complements the configuration reference with practical examples, edge
 
 ## Update Status (2026-03-30)
 
+- HyperMetric Stretch (`hypermetric_stretch.*`) is documented as an optional post-PCC phase with `ready_to_use` and `scientific` modes.
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
 - New BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented.
 - PCC examples were aligned with the current parameter set (without `pcc.method`).
@@ -122,6 +123,43 @@ pcc:
   chroma_strength: 1.0
   k_max: 3.2
 ```
+
+---
+
+## HyperMetric Stretch after PCC
+
+HMS is optional and runs after PCC. Keep it disabled when you only need the linear calibrated output; enable it when the run should also produce a directly viewable VeraLux-stretched RGB file.
+
+**Ready-to-use output:**
+
+```yaml
+hypermetric_stretch:
+  enabled: true
+  require_successful_pcc: true
+  mode: ready_to_use
+  adaptive_anchor: true
+  target_bg: 0.2
+  log_d_mode: auto
+  color_strategy: fixed
+  fixed_color_strategy: 0
+  output_rgb: stacked_rgb_hms.fits
+```
+
+`ready_to_use` follows the VeraLux GUI default: Auto LogD, adaptive output scaling to the target background, and final soft clip. This is the recommended mode for normal final RGB output.
+
+**Scientific mode:**
+
+```yaml
+hypermetric_stretch:
+  enabled: true
+  mode: scientific
+  log_d_mode: auto
+  linear_expansion: 0.25
+  color_grip: 1.0
+  shadow_convergence: 0.0
+```
+
+`scientific` skips the final ready-to-use scaling/soft clip and allows `linear_expansion`. Use it when you want a less polished, more controlled stretch for later processing.
 
 ---
 

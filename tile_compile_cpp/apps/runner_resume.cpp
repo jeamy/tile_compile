@@ -10,6 +10,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
@@ -523,6 +524,30 @@ bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
   }
 }
 
+tile_compile::image::HyperMetricStretchConfig to_image_hms_config(
+    const tile_compile::config::HyperMetricStretchConfig &src) {
+  tile_compile::image::HyperMetricStretchConfig dst;
+  dst.enabled = src.enabled;
+  dst.require_successful_pcc = src.require_successful_pcc;
+  dst.mode = src.mode;
+  dst.sensor_profile = src.sensor_profile;
+  dst.fallback_profile = src.fallback_profile;
+  dst.adaptive_anchor = src.adaptive_anchor;
+  dst.target_bg = src.target_bg;
+  dst.protect_b = src.protect_b;
+  dst.convergence_power = src.convergence_power;
+  dst.log_d_mode = src.log_d_mode;
+  dst.fixed_log_d = src.fixed_log_d;
+  dst.color_strategy = src.color_strategy;
+  dst.fixed_color_strategy = src.fixed_color_strategy;
+  dst.color_grip = src.color_grip;
+  dst.shadow_convergence = src.shadow_convergence;
+  dst.linear_expansion = src.linear_expansion;
+  dst.write_channels = src.write_channels;
+  dst.output_rgb = src.output_rgb;
+  return dst;
+}
+
 }  // namespace
 
 /// @brief Implements resume command.
@@ -535,6 +560,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   namespace core = tile_compile::core;
   namespace io = tile_compile::io;
   namespace astro = tile_compile::astrometry;
+  namespace image = tile_compile::image;
 
   fs::path run_dir(run_dir_path);
   if (!fs::exists(run_dir) || !fs::is_directory(run_dir)) {
@@ -607,6 +633,176 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
               << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
     return true;
   };
+
+  if (phase_l == "hypermetric_stretch" || phase_l == "hms") {
+    namespace image = tile_compile::image;
+    core::EventEmitter emitter;
+    emitter.phase_start(run_id, Phase::HYPERMETRIC_STRETCH,
+                        "HYPERMETRIC_STRETCH", log_file);
+
+    const fs::path outputs_dir = run_dir / "outputs";
+    Matrix2Df R;
+    Matrix2Df G;
+    Matrix2Df B;
+    io::FitsHeader hdr;
+    std::string input_stage;
+    std::string input_rgb;
+    try {
+      const fs::path pcc_r = outputs_dir / "pcc_R.fit";
+      const fs::path pcc_g = outputs_dir / "pcc_G.fit";
+      const fs::path pcc_b = outputs_dir / "pcc_B.fit";
+      if (fs::exists(pcc_r) && fs::exists(pcc_g) && fs::exists(pcc_b)) {
+        std::tie(R, hdr) = io::read_fits_float(pcc_r);
+        G = io::read_fits_pixels_float(pcc_g);
+        B = io::read_fits_pixels_float(pcc_b);
+        input_stage = "pcc_channels";
+        input_rgb = pcc_r.string() + ";" + pcc_g.string() + ";" + pcc_b.string();
+      } else if (fs::exists(outputs_dir / "stacked_rgb_pcc.fits")) {
+        auto rgb = io::read_fits_rgb(outputs_dir / "stacked_rgb_pcc.fits");
+        R = std::move(rgb.R);
+        G = std::move(rgb.G);
+        B = std::move(rgb.B);
+        hdr = rgb.header;
+        input_stage = "pcc_rgb";
+        input_rgb = (outputs_dir / "stacked_rgb_pcc.fits").string();
+      } else if (!cfg.hypermetric_stretch.require_successful_pcc &&
+                 fs::exists(outputs_dir / "stacked_rgb_bge_linear.fits")) {
+        auto rgb = io::read_fits_rgb(outputs_dir / "stacked_rgb_bge_linear.fits");
+        R = std::move(rgb.R);
+        G = std::move(rgb.G);
+        B = std::move(rgb.B);
+        hdr = rgb.header;
+        input_stage = "bge_linear_no_pcc";
+        input_rgb = (outputs_dir / "stacked_rgb_bge_linear.fits").string();
+      } else if (!cfg.hypermetric_stretch.require_successful_pcc &&
+                 fs::exists(outputs_dir / "stacked_rgb_solve.fits")) {
+        auto rgb = io::read_fits_rgb(outputs_dir / "stacked_rgb_solve.fits");
+        R = std::move(rgb.R);
+        G = std::move(rgb.G);
+        B = std::move(rgb.B);
+        hdr = rgb.header;
+        input_stage = "linear_no_pcc";
+        input_rgb = (outputs_dir / "stacked_rgb_solve.fits").string();
+      }
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                        {{"reason", "read_input_failed"},
+                         {"error", e.what()}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "read_input_failed"}},
+                       log_file);
+      return 1;
+    }
+
+    if (R.size() == 0 || G.size() == 0 || B.size() == 0) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
+                        {{"reason", "missing_pcc_artifacts"},
+                         {"require_successful_pcc",
+                          cfg.hypermetric_stretch.require_successful_pcc}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "missing_pcc_artifacts"}},
+                       log_file);
+      return 1;
+    }
+
+    std::vector<uint8_t> mask;
+    std::vector<uint8_t> *mask_ptr = nullptr;
+    int mask_rows = static_cast<int>(R.rows());
+    int mask_cols = static_cast<int>(R.cols());
+    std::string mask_error;
+    if (tile_compile::runner::load_canvas_mask_for_rgb(
+            outputs_dir / "canvas_mask.fits", R, G, B, mask, mask_rows,
+            mask_cols, mask_error)) {
+      mask_ptr = &mask;
+    } else {
+      std::cout << "[HMS][resume] Warning: canvas mask unavailable: "
+                << mask_error << "; using full image" << std::endl;
+      mask_rows = static_cast<int>(R.rows());
+      mask_cols = static_cast<int>(R.cols());
+    }
+
+    image::HyperMetricStretchConfig hms_cfg =
+        to_image_hms_config(cfg.hypermetric_stretch);
+    hms_cfg.enabled = true;
+    auto hms_diag = image::run_hypermetric_stretch_rgb(
+        R, G, B, hms_cfg, mask_ptr, mask_rows, mask_cols);
+    if (!hms_diag.success) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                        {{"reason", "stretch_failed"},
+                         {"error", hms_diag.error_message}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "stretch_failed"}},
+                       log_file);
+      return 1;
+    }
+
+    hdr.set("HMS", true);
+    hdr.set("HMSVER", std::string("1"));
+    hdr.set("HMSMODE", hms_cfg.mode);
+    hdr.set("HMSPROF", hms_diag.profile);
+    hdr.set("HMSWR", static_cast<double>(hms_diag.weights_r));
+    hdr.set("HMSWG", static_cast<double>(hms_diag.weights_g));
+    hdr.set("HMSWB", static_cast<double>(hms_diag.weights_b));
+    hdr.set("HMSANCH", static_cast<double>(hms_diag.anchor));
+    hdr.set("HMSLOGD", static_cast<double>(hms_diag.log_d));
+    hdr.set("HMSB", static_cast<double>(hms_diag.protect_b));
+    hdr.set("HMSTGBG", static_cast<double>(hms_diag.target_bg));
+    hdr.set("HMSCONV", static_cast<double>(hms_diag.convergence_power));
+    hdr.set("HMSSTAR", static_cast<double>(hms_diag.star_pressure));
+
+    fs::path hms_rgb_path(hms_cfg.output_rgb);
+    if (hms_rgb_path.is_relative()) {
+      hms_rgb_path = outputs_dir / hms_rgb_path;
+    }
+    {
+      std::error_code ec;
+      fs::remove(hms_rgb_path, ec);
+    }
+    try {
+      io::write_fits_rgb(hms_rgb_path, R, G, B, hdr);
+      if (hms_cfg.write_channels) {
+        io::write_fits_float(outputs_dir / "hms_R.fit", R, hdr);
+        io::write_fits_float(outputs_dir / "hms_G.fit", G, hdr);
+        io::write_fits_float(outputs_dir / "hms_B.fit", B, hdr);
+      }
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                        {{"reason", "write_output_failed"},
+                         {"error", e.what()}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "write_output_failed"}},
+                       log_file);
+      return 1;
+    }
+
+    emitter.phase_end(
+        run_id, Phase::HYPERMETRIC_STRETCH, "ok",
+        {{"input_rgb", input_rgb},
+         {"input_stage", input_stage},
+         {"output_rgb", hms_rgb_path.string()},
+         {"profile", hms_diag.profile},
+         {"profile_source", hms_diag.profile_source},
+         {"anchor", hms_diag.anchor},
+         {"log_d", hms_diag.log_d},
+         {"target_bg", hms_diag.target_bg},
+         {"star_pressure", hms_diag.star_pressure},
+         {"color_strategy", hms_diag.color_strategy},
+         {"color_grip", hms_diag.color_grip},
+         {"shadow_convergence", hms_diag.shadow_convergence},
+         {"black_clip_percent", hms_diag.black_clip_percent},
+         {"white_clip_percent", hms_diag.white_clip_percent}},
+        log_file);
+    if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
+      return 1;
+    }
+    core::emit_event("resume_end", run_id,
+                     {{"success", true}, {"status", "ok"}}, log_file);
+    return 0;
+  }
 
   if (phase_l == "stacking") {
     namespace image = tile_compile::image;
@@ -1886,6 +2082,77 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     if (abort_if_runtime_limit_exceeded("PCC")) {
       return 1;
+    }
+
+    if (cfg.hypermetric_stretch.enabled) {
+      emitter.phase_start(run_id, Phase::HYPERMETRIC_STRETCH,
+                          "HYPERMETRIC_STRETCH", log_file);
+      image::HyperMetricStretchConfig hms_cfg =
+          to_image_hms_config(cfg.hypermetric_stretch);
+      auto hms_diag = image::run_hypermetric_stretch_rgb(
+          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.output_valid_mask,
+          pcc_cfg.output_mask_rows, pcc_cfg.output_mask_cols);
+      if (!hms_diag.success) {
+        emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                          {{"reason", "stretch_failed"},
+                           {"error", hms_diag.error_message}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "stretch_failed"}},
+                         log_file);
+        return 1;
+      }
+
+      io::FitsHeader hms_hdr = out_hdr;
+      hms_hdr.set("HMS", true);
+      hms_hdr.set("HMSVER", std::string("1"));
+      hms_hdr.set("HMSMODE", hms_cfg.mode);
+      hms_hdr.set("HMSPROF", hms_diag.profile);
+      hms_hdr.set("HMSWR", static_cast<double>(hms_diag.weights_r));
+      hms_hdr.set("HMSWG", static_cast<double>(hms_diag.weights_g));
+      hms_hdr.set("HMSWB", static_cast<double>(hms_diag.weights_b));
+      hms_hdr.set("HMSANCH", static_cast<double>(hms_diag.anchor));
+      hms_hdr.set("HMSLOGD", static_cast<double>(hms_diag.log_d));
+      hms_hdr.set("HMSB", static_cast<double>(hms_diag.protect_b));
+      hms_hdr.set("HMSTGBG", static_cast<double>(hms_diag.target_bg));
+      hms_hdr.set("HMSCONV", static_cast<double>(hms_diag.convergence_power));
+      hms_hdr.set("HMSSTAR", static_cast<double>(hms_diag.star_pressure));
+
+      fs::path hms_rgb_path(hms_cfg.output_rgb);
+      if (hms_rgb_path.is_relative()) {
+        hms_rgb_path = run_dir / "outputs" / hms_rgb_path;
+      }
+      std::error_code hms_ec;
+      fs::remove(hms_rgb_path, hms_ec);
+      io::write_fits_rgb(hms_rgb_path, rgb.R, rgb.G, rgb.B, hms_hdr);
+      if (hms_cfg.write_channels) {
+        io::write_fits_float(run_dir / "outputs" / "hms_R.fit", rgb.R,
+                             hms_hdr);
+        io::write_fits_float(run_dir / "outputs" / "hms_G.fit", rgb.G,
+                             hms_hdr);
+        io::write_fits_float(run_dir / "outputs" / "hms_B.fit", rgb.B,
+                             hms_hdr);
+      }
+
+      emitter.phase_end(
+          run_id, Phase::HYPERMETRIC_STRETCH, "ok",
+          {{"input_stage", "pcc"},
+           {"output_rgb", hms_rgb_path.string()},
+           {"profile", hms_diag.profile},
+           {"profile_source", hms_diag.profile_source},
+           {"anchor", hms_diag.anchor},
+           {"log_d", hms_diag.log_d},
+           {"target_bg", hms_diag.target_bg},
+           {"star_pressure", hms_diag.star_pressure},
+           {"color_strategy", hms_diag.color_strategy},
+           {"color_grip", hms_diag.color_grip},
+           {"shadow_convergence", hms_diag.shadow_convergence},
+           {"black_clip_percent", hms_diag.black_clip_percent},
+           {"white_clip_percent", hms_diag.white_clip_percent}},
+          log_file);
+      if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
+        return 1;
+      }
     }
   }
 

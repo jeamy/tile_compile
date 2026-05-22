@@ -119,7 +119,7 @@ inline int get_effective_chain_depth(int num_frames, const RegistrationConfig& c
 }
 
 struct WienerDenoiseConfig {
-  bool enabled = false;
+  bool enabled = true;
   float snr_threshold = 5.0f;
   float q_min = -0.5f;
   float q_max = 1.0f;
@@ -365,6 +365,27 @@ struct PCCConfig {
   std::string background_neutralization_mode = "auto"; // always | auto | off
 };
 
+struct HyperMetricStretchConfig {
+  bool enabled = true;
+  bool require_successful_pcc = true;
+  std::string mode = "ready_to_use";       // ready_to_use | scientific
+  std::string sensor_profile = "rec709";   // rec709 | profile name | auto
+  std::string fallback_profile = "rec709";
+  bool adaptive_anchor = true;
+  float target_bg = 0.20f;
+  float protect_b = 6.0f;
+  float convergence_power = 3.5f;
+  std::string log_d_mode = "auto";         // auto | fixed
+  float fixed_log_d = 2.0f;
+  std::string color_strategy = "fixed";    // auto | fixed
+  float fixed_color_strategy = 0.0f;       // [-1,1]
+  float color_grip = 1.0f;
+  float shadow_convergence = 0.0f;
+  float linear_expansion = 0.0f;
+  bool write_channels = false;
+  std::string output_rgb = "stacked_rgb_hms.fits";
+};
+
 struct ValidationConfig {
   float min_fwhm_improvement_percent = 0.0f;
   float max_background_rms_increase_percent = 0.0f;
@@ -402,6 +423,7 @@ struct Config {
   AstrometryConfig astrometry;
   BGEConfig bge;
   PCCConfig pcc;
+  HyperMetricStretchConfig hypermetric_stretch;
   StackingConfig stacking;
   ValidationConfig validation;
   RuntimeLimitsConfig runtime_limits;

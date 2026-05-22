@@ -175,7 +175,8 @@ enum class Phase {
     ASTROMETRY = 14,
     BGE = 15,
     PCC = 16,
-    DONE = 17
+    HYPERMETRIC_STRETCH = 17,
+    DONE = 18
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -197,6 +198,7 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::ASTROMETRY: return "ASTROMETRY";
         case Phase::BGE: return "BGE";
         case Phase::PCC: return "PCC";
+        case Phase::HYPERMETRIC_STRETCH: return "HYPERMETRIC_STRETCH";
         case Phase::DONE: return "DONE";
         default: return "UNKNOWN";
     }
@@ -207,7 +209,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 17) {
+    if (i >= 0 && i <= 18) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

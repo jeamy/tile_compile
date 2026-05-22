@@ -49,6 +49,7 @@
   "phase.local_metrics": "Local metrics",
   "phase.normalization": "Normalization",
   "phase.pcc": "PCC",
+  "phase.hypermetric_stretch": "HyperMetric Stretch",
   "phase.prewarp": "Prewarp",
   "phase.registration": "Registration",
   "phase.scan_input": "Scan & Input",

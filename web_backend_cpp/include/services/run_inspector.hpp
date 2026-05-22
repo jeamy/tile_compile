@@ -25,7 +25,8 @@ static const std::vector<std::string> PHASE_ORDER = {
     "DEBAYER",
     "ASTROMETRY",
     "BGE",
-    "PCC"
+    "PCC",
+    "HYPERMETRIC_STRETCH"
 };
 
 /// @brief Phases accepted by resume endpoints and UI selectors.
@@ -46,7 +47,8 @@ static const std::vector<std::string> RESUME_FROM_PHASES = {
     "DEBAYER",
     "ASTROMETRY",
     "BGE",
-    "PCC"
+    "PCC",
+    "HYPERMETRIC_STRETCH"
 };
 
 /// @brief Reads events and artifacts from a run directory and builds the public status object.

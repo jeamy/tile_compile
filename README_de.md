@@ -12,15 +12,13 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 
 ## Dokumentation (v3.3)
 
-- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.9](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
-- Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
-- Prozessfluss (Implementierung): [Process flow (German)](doc/v3/process_flow/README_de.md)
-- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](doc/tbqr_step_by_step_de.md)
-- GUI2 Experteneingabe (Deutsch): [Experteneingabe Schritt-fuer-Schritt](doc/gui2/wizard_schritt_fuer_schritt.md)
-- GUI2 gefuehrter Wizard (Deutsch): [Gefuehrter Wizard Schritt-fuer-Schritt](doc/gui2/wizard_gefuehrter_run_schritt_fuer_schritt.md)
-- GUI2 Dashboard-Run (Deutsch): [Dashboard Run Schritt-fuer-Schritt](doc/gui2/dashboard_run_schritt_fuer_schritt.md)
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.9](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
+- Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](docs/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
+- Prozessfluss (Implementierung): [Process flow (German)](docs/process_flow/README_de.md)
+- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
+- GUI2 Paketierung und Start: [GUI2 README](packaging/gui2/README.md)
 - Englisches Haupt-README: [English README](README.md)
-- Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
+- Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 
 ## Datenquellen Für Das Paper-Beispiel
@@ -73,9 +71,10 @@ Im praktischen Einsatz ist der Gesamtworkflow bewusst einfach gehalten: Nach der
 | 14 | ASTROMETRY | Astrometrisches Solving / WCS |
 | 15 | BGE | Optionale RGB-Hintergrund-Gradientenentfernung vor PCC |
 | 16 | PCC | Photometrische Farbkalibrierung |
-| 17 | DONE | Finaler Status (`ok` oder `validation_failed`) |
+| 17 | HYPERMETRIC_STRETCH | Optionaler VeraLux HyperMetric Stretch nach PCC |
+| 18 | DONE | Finaler Status (`ok` oder `validation_failed`) |
 
-Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
+Detaillierte Phasen-Dokumentation: `docs/process_flow/`
 
 ## Registrierungskaskade (Fallback-Strategie)
 
@@ -92,8 +91,8 @@ Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
 - Hauptkonfigurationsdatei: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
-- Referenzdokument: [Konfigurationsreferenz](doc/configuration_reference.md)
-- Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](doc/configuration_examples_practical_de.md)
+- Referenzdokument: [Konfigurationsreferenz](docs/configuration_reference.md)
+- Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md)
 
 ### Beispielprofile
 
@@ -175,7 +174,7 @@ Hinweise:
 ### C++ CLI / Runner
 
 Für eine vollständige anfängerfreundliche Anleitung siehe:
-[Step-by-Step Guide](doc/tbqr_step_by_step_en.md)
+[Step-by-Step Guide](docs/tbqr_step_by_step_en.md)
 
 ### Build-Voraussetzungen
 
@@ -360,12 +359,12 @@ Fortsetzungsmodus (Resume):
   --from-phase BGE
 ```
 
-Unterstützte Resume-Phasen (alle Phasen 0..16):
+Unterstützte Resume-Phasen (alle Phasen 0..17):
 - Früh: `SCAN_INPUT`, `CHANNEL_SPLIT`, `NORMALIZATION`, `GLOBAL_METRICS`, `TILE_GRID`
 - Mitte: `REGISTRATION`, `PREWARP`, `COMMON_OVERLAP`, `LOCAL_METRICS`, `TILE_RECONSTRUCTION`
-- Spät: `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`
+- Spät: `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`
 
-Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrahieren), `PCC` (Farbe neu kalibrieren), `STACKING` (neu stacken aus synthetischen Frames).
+Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrahieren), `PCC` (Farbe neu kalibrieren), `HYPERMETRIC_STRETCH` (finalen VeraLux-Stretch neu ausführen), `STACKING` (neu stacken aus synthetischen Frames).
 
 ### CLI Scan (Frame-Erkennung)
 
@@ -431,6 +430,7 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `stacked_rgb_solve.fits` / WCS-Artefakte
   - `stacked_rgb_bge.fits` (BGE-only Snapshot vor PCC)
   - `stacked_rgb_pcc.fits`
+  - `stacked_rgb_hms.fits` (optionale VeraLux HyperMetric Stretch Ausgabe)
   - `synthetic_*.fit` (modusabhängig)
 - `artifacts/`
   - `normalization.json`
@@ -511,9 +511,9 @@ tile_compile/
 │   └── tile_compile.schema.yaml
 ├── packaging/gui2/          # GUI2 Starter und Bundle-Helfer
 ├── docker/                  # Docker Build-/Runtime-Images
-├── doc/
-│   ├── v3/                  # Methodik- und Prozessfluss-Doku
-│   └── gui2/                # GUI2 Konzept-/Referenzdokumente
+├── docs/
+│   ├── v3/                  # Methodik-Dokumente
+│   └── process_flow/        # Implementierungs-Prozessfluss
 ├── start_backend.sh         # Dev-Start fuer Crow-Backend + GUI2
 ├── start_gui2_docker.sh     # GUI2 in Docker starten
 ├── README.md
@@ -531,8 +531,23 @@ ctest --output-on-failure
 
 Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, Codex, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
 
+Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Siril-Skript übernommen:
+
+- (c) 2025 Riccardo Paterniti
+- VeraLux - HyperMetric Stretch
+- SPDX-License-Identifier: GPL-3.0-or-later
+- Version 1.5.2
+- Inspiriert von der "True Color"-Methodik von Dr. Roger N. Clark
+- Mathematische Basis: Inverse Hyperbolic Stretch (IHS) und Vector Color Preservation
+- Sensorik-Basis: hardware-spezifische Quantum-Efficiency-Gewichtung
+
 
 ## Versionen
+
+## v0.2.7 (22.05.2026)
+
+**implementationHMS:**
+- VeraLux HyperMetric Stretch (HMS) als Post-PCC-Pipelinephase ergänzt.
 
 ## v0.2.6 (20.05.2026)
 
@@ -732,7 +747,16 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Changelog
 
-### (20.05.2026) – v0.2.6
+### (22.05.2026) 
+
+**implementationHMS:**
+- VeraLux HyperMetric Stretch (HMS) als Post-PCC-Pipelinephase ergänzt.
+- HMS ist jetzt in den C++-Config-Defaults, in `tile_compile.yaml` und in allen Beispiel-YAML-Profilen standardmäßig aktiviert.
+- Der Default-Modus ist `ready_to_use` mit Adaptive Anchor, Auto LogD, Zielhintergrund `0.2` und Ausgabe `outputs/stacked_rgb_hms.fits`.
+- `mode: scientific` ist implementiert für kontrollierte Stretch-Ausgaben ohne Ready-to-Use-Final-Scaling/Soft-Clip und mit optionaler `linear_expansion`.
+- Resume unterstützt direktes erneutes Ausführen von HMS über `--from-phase HYPERMETRIC_STRETCH` für historische Runs mit vorhandenen PCC-Artefakten.
+
+### (20.05.2026) 
 
 **Build-Härtung & Frontend-Bereinigung:**
 - RunnerFrameCache Build-Fehler behoben: fehlende Methoden `try_load_normalized` und `store_normalized` implementiert
@@ -807,7 +831,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Direkte Registrierung laeuft damit auf langen Alt/Az-Datensaetzen deutlich weniger in späte Ein-Referenz-Fallen; fruehe und spaete Sequenzbereiche koennen direkt an naeheren zeitlichen Anchors haengen.
 - Astrometrische Registrierung/Rescue wurde im Registrierungs-Runner praktisch aufgewertet: ASTAP-basierte Loesungen greifen nicht mehr nur bei `cc <= 0`, sondern auch fuer schwache bzw. tief verkettete Ergebnisse und verwenden den naechsten aktiven Anchor als Referenzbasis.
 - Neue Registration-Telemetrie in `global_registration.json`: unter anderem `requested_ref_frames`, `active_ref_frames`, `reg_target_active_anchor_count`, `reg_promote_limit_per_round`, `reg_max_direct_anchor_rounds`, `reg_direct_anchor_rounds` und `reg_source_counts`.
-- Neues Beispielprofil [tile_compile_cpp/examples/m104.example.yaml](tile_compile_cpp/examples/m104.example.yaml) fuer den Problemfall "Alt/Az, etwas staerkere Rotation, schlechtes Seeing, gute Frames staerker gewichten" hinzugefuegt; DE/EN-Praxisbeispiele sowie [doc/process_flow/phase_1_registration.md](doc/process_flow/phase_1_registration.md) auf den aktuellen Registrierungsablauf aktualisiert.
+- Neues Beispielprofil [tile_compile_cpp/examples/m104.example.yaml](tile_compile_cpp/examples/m104.example.yaml) fuer den Problemfall "Alt/Az, etwas staerkere Rotation, schlechtes Seeing, gute Frames staerker gewichten" hinzugefuegt; DE/EN-Praxisbeispiele sowie [docs/process_flow/phase_1_registration.md](docs/process_flow/phase_1_registration.md) auf den aktuellen Registrierungsablauf aktualisiert.
 
 ### (2026-04-07)
 
@@ -936,7 +960,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 **Methodik `v3.3.8` + GUI2-Run-Name-Reset (`v0.0.F`):**
 
-- Neue normative Methodikdokumente `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` und `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md` ergänzt.
+- Neue normative Methodikdokumente `docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` und `docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md` ergänzt.
 - Die Methodikspezifikation so korrigiert, dass sie zur aktiven Runtime bei Modusgrenzen, Shared-Core-Kanal-Semantik, nachbarschaftsbewusster lokaler Metrik-Normalisierung, sigma-geclippter Tile-Rekonstruktion und affiner photometrischer Restaurierung nach OLA passt.
 - GUI2 so korrigiert, dass ein geänderter Eingabeordner den gemeinsamen `run_name` in Dashboard, Wizard und Input&Scan löscht.
 - Kurzen macOS-15-/Sequoia-Hinweis für Gatekeeper-blockierte `start_gui2.command` Start ergänzt.
@@ -1080,7 +1104,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 **Dokumentations-Refresh:**
 
-- `doc/v3/process_flow/*` auf den aktuellen Produktionsstand gebracht, inkl. `PREWARP`, `COMMON_OVERLAP`, Canvas/Offset-Propagation und aktueller Enum-Phasenreihenfolge.
+- `docs/process_flow/*` auf den aktuellen Produktionsstand gebracht, inkl. `PREWARP`, `COMMON_OVERLAP`, Canvas/Offset-Propagation und aktueller Enum-Phasenreihenfolge.
 
 **BGE (Background Gradient Extraction):**
 
@@ -1105,4 +1129,4 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 **Dokumentation:**
 
-- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.
+- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.
