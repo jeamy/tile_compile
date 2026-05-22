@@ -256,7 +256,7 @@ hypermetric_stretch:
   sensor_profile: rec709 # rec709 oder VeraLux-Profilname
   fallback_profile: rec709
   adaptive_anchor: true
-  target_bg: 0.2
+  target_bg: 0.15
   protect_b: 6
   convergence_power: 3.5
   log_d_mode: auto # auto | fixed
