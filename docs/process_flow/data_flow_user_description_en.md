@@ -60,6 +60,7 @@ Input frames (FITS)
    -> ASTROMETRY
    -> [optional] BGE
    -> [optional] PCC
+   -> [optional] HYPERMETRIC_STRETCH
    -> DONE
 ```
 
@@ -397,7 +398,26 @@ For that reason, the system models the data not only at frame level but also at 
 
 ---
 
-## 17) Finish (`DONE`)
+## 17) HyperMetric Stretch (`HYPERMETRIC_STRETCH`, optional)
+
+**Goal**
+
+- apply a final, reproducible VeraLux HMS stretch to the PCC-calibrated RGB image
+
+**Processing**
+
+- reads the PCC RGB result, typically `outputs/stacked_rgb_pcc.fits`
+- resolves the configured sensor profile, adaptive anchor and Auto-LogD
+- applies the HyperMetric stretch curve and color preservation
+
+**Output**
+
+- stretched RGB image, typically `outputs/stacked_rgb_hms.fits`
+- with `write_channels: true`, also `hms_R.fit`, `hms_G.fit`, `hms_B.fit`
+
+---
+
+## 18) Finish (`DONE`)
 
 **Goal**
 
@@ -420,7 +440,7 @@ A run typically creates `runs/<run_id>/` with the following logical structure:
 
 - `outputs/`
   - final and derived FITS products
-  - e.g. `stacked.fits`, `stacked_rgb.fits`, `stacked_rgb_bge.fits`, `stacked_rgb_pcc.fits`
+  - e.g. `stacked.fits`, `stacked_rgb.fits`, `stacked_rgb_bge.fits`, `stacked_rgb_pcc.fits`, `stacked_rgb_hms.fits`
 - `artifacts/`
   - per-phase JSON diagnostics
   - reports and visual assets
@@ -439,6 +459,7 @@ If a run already exists, post-processing phases can be re-executed from the pers
 
 ```text
 ./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
+./tile_compile_runner resume --run-dir runs/<run_id> --from-phase HYPERMETRIC_STRETCH
 ```
 
 The resume path reuses in particular:

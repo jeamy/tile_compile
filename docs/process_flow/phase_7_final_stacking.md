@@ -1,15 +1,16 @@
-# COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC — Finales Stacking und Output
+# COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC + HMS — Finales Stacking und Output
 
 > **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.3 Stand)
-> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `BGE` (15, optional), `PCC` (16), `DONE` (17)
+> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `BGE` (15, optional), `PCC` (16), `HYPERMETRIC_STRETCH` (17, optional), `DONE` (18)
 
 ## Übersicht
 
-Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal, führen optional BGE vor PCC aus und erzeugen die finalen FITS-Outputs. Für `v3.3.9` sind dabei besonders wichtig:
+Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal, führen optional BGE vor PCC aus, kalibrieren per PCC und können danach VeraLux HMS als finale Stretch-Phase ausführen. Für `v3.3.9` sind dabei besonders wichtig:
 
 - support-aware Gültigkeitssemantik an Rand- und Canvas-Bereichen,
 - massenerhaltende Cluster-Semantik im Full Mode,
 - BGE als strikt additiver Schritt vor PCC.
+- HMS als explizit nichtlinearer, finaler Post-PCC-Output-Schritt.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -75,7 +76,14 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  DONE (Phase 17)                                     │
+│  HMS (Phase 17)                                      │
+│  • VeraLux HyperMetric Stretch nach PCC              │
+│  • stacked_rgb_hms.fits                              │
+│  (übersprungen, wenn disabled oder PCC fehlt)         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  DONE (Phase 18)                                     │
 │  • run_end(ok) oder run_end(validation_failed)       │
 └──────────────────────────────────────────────────────┘
 ```
@@ -372,9 +380,13 @@ if (detected_mode == ColorMode::OSC) {
 | `stacked_rgb_solve.fits` | OSC | Lineares RGB für Astrometrie/WCS |
 | `stacked_rgb_bge.fits` | OSC | BGE-Output vor PCC (direkter Vergleichspfad) |
 | `stacked_rgb_pcc.fits` | OSC | PCC-kalibrierter RGB-Cube |
+| `stacked_rgb_hms.fits` | OSC | VeraLux HMS-gestretchter RGB-Cube nach PCC |
 | `pcc_R.fit` | OSC | PCC-kalibrierter R-Kanal |
 | `pcc_G.fit` | OSC | PCC-kalibrierter G-Kanal |
 | `pcc_B.fit` | OSC | PCC-kalibrierter B-Kanal |
+| `hms_R.fit` | OSC | Optionaler HMS-R-Kanal (`write_channels: true`) |
+| `hms_G.fit` | OSC | Optionaler HMS-G-Kanal (`write_channels: true`) |
+| `hms_B.fit` | OSC | Optionaler HMS-B-Kanal (`write_channels: true`) |
 | `synthetic_*.fit` | Normal | Synthetische Frames (mit Skalierung) |
 
 ---
@@ -436,7 +448,30 @@ Bei fehlenden Katalogsternen oder Fit-Problemen wird die Phase als `skipped` bee
 
 `v3.3.9` ergänzt außerdem einen optionalen post-PCC Cleanup-Schritt für **isolierte Chroma-Speckles** im expliziten RGB-Bereich. Dieser gehört nicht mehr zum linearen Kern, ist aber als optionale Nachverarbeitung ausdrücklich erlaubt.
 
-## Phase 17: DONE
+## Phase 17: HYPERMETRIC_STRETCH
+
+HMS läuft nach PCC, wenn:
+
+- `cfg.hypermetric_stretch.enabled = true`
+- RGB-Daten vorhanden sind
+- bei `require_successful_pcc: true` ein erfolgreiches PCC-Ergebnis vorhanden ist
+
+Wirkung:
+
+- liest das PCC-kalibrierte RGB-Ergebnis
+- löst `sensor_profile` bzw. `fallback_profile` in VeraLux-Luminanzgewichte auf
+- bestimmt je nach Konfiguration den adaptiven Anchor und `log_d`
+- schreibt standardmäßig `outputs/stacked_rgb_hms.fits`
+
+HMS ist die erste explizit nichtlineare finale Stretch-Phase im Output-Pfad. Der lineare Core bis einschließlich PCC bleibt dadurch unverändert nachvollziehbar; das gestretchte Bild ist ein zusätzliches Präsentations-/Weiterverarbeitungsprodukt.
+
+Resume:
+
+```text
+./tile_compile_runner resume --run-dir runs/<run_id> --from-phase HYPERMETRIC_STRETCH
+```
+
+## Phase 18: DONE
 
 ```cpp
 emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);

@@ -33,14 +33,15 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 14 | `ASTROMETRY` | Plate Solving / WCS |
 | 15 | `BGE` | Optionale Background Gradient Extraction auf RGB vor PCC |
 | 16 | `PCC` | Photometric Color Calibration |
-| 17 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
+| 17 | `HYPERMETRIC_STRETCH` | VeraLux HyperMetric Stretch nach PCC |
+| 18 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
 
 Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Enum-Phase.
 Hinweis: **BGE** ist eine optionale **eigene Phase** zwischen `ASTROMETRY` und `PCC`.
 
 ## Dokumenten-Struktur
 
-Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..17).
+Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..18).
 
 Kurzzuordnung:
 
@@ -48,7 +49,7 @@ Kurzzuordnung:
 - Registrierung/Prewarp → `REGISTRATION`, `PREWARP`
 - Normalisierung + globale/lokale Gewichte + Rekonstruktion → `NORMALIZATION` bis `TILE_RECONSTRUCTION` (inkl. `COMMON_OVERLAP`)
 - Optionaler Full-Mode-Block → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
-- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional ausführend, aber eigene Phase), `PCC`, `DONE`
+- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional ausführend, aber eigene Phase), `PCC`, `HYPERMETRIC_STRETCH`, `DONE`
 
 ---
 
@@ -179,7 +180,13 @@ Kurzzuordnung:
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 17: DONE             │
+              │  PHASE 17: HMS              │
+              │  • VeraLux HyperMetric      │
+              │  • Stretch nach PCC         │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 18: DONE             │
               │  • Final status emit        │
               └──────────────┬──────────────┘
                              │
@@ -191,6 +198,7 @@ Kurzzuordnung:
               │  • stacked_rgb_solve.fits   │
               │  • stacked_rgb_bge.fits     │
               │  • stacked_rgb_pcc.fits     │
+              │  • stacked_rgb_hms.fits     │
               │  • R/G/B .fit (OSC)         │
               │  • 12 artifact JSON files   │
               │  • run_events.jsonl         │
@@ -199,7 +207,7 @@ Kurzzuordnung:
 
 ## Kernprinzipien (C++ Implementierung)
 
-1. **Linearität**: Keine nichtlinearen Operationen (kein Stretch). Linearitätsprüfung in Phase 0
+1. **Linearität im Kern**: Bis einschließlich PCC bleiben die Core-Phasen linear; HMS ist eine explizite finale Stretch-Phase nach PCC.
 2. **Keine Frame-Selektion**: Alle Frames werden verwendet. Fehlgeschlagene Registrierung → Identity-Warp mit CC=0
 3. **Mono + OSC**: Beide Modi in einer einzigen Pipeline, CFA-aware bei OSC
 4. **Streng sequentiell**: Keine Rückkopplungen, deterministische Abfolge
@@ -211,7 +219,7 @@ Kurzzuordnung:
 ## Modi
 
 ### Full/Normal Mode (N ≥ frames_reduced_threshold)
-- Alle Enum-Phasen 0..17 werden durchlaufen
+- Alle Enum-Phasen 0..18 werden durchlaufen
 - State-Clustering aktiv
 - Synthetische Frames werden erzeugt
 - Sigma-Clipping Rejection Stacking

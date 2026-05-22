@@ -33,7 +33,8 @@ Source of the phase order: `tile_compile::Phase` in `include/tile_compile/core/t
 | 14 | `ASTROMETRY` | Plate solving / WCS |
 | 15 | `BGE` | Optional Background Gradient Extraction on RGB before PCC |
 | 16 | `PCC` | Photometric Color Calibration |
-| 17 | `DONE` | Final status (`ok` or `validation_failed`) |
+| 17 | `HYPERMETRIC_STRETCH` | VeraLux HyperMetric Stretch after PCC |
+| 18 | `DONE` | Final status (`ok` or `validation_failed`) |
 
 Note: **Validation** is a quality block between `STACKING` and `DEBAYER`, but it is not its own enum phase.
 
@@ -41,7 +42,7 @@ Note: **BGE** is an optional **dedicated phase** between `ASTROMETRY` and `PCC`.
 
 ## Document structure
 
-The **authoritative phase order** is the v3.3 list above (0..17).
+The **authoritative phase order** is the v3.3 list above (0..18).
 
 High-level mapping:
 
@@ -49,7 +50,7 @@ High-level mapping:
 - Registration / prewarp -> `REGISTRATION`, `PREWARP`
 - Normalization + global/local weights + reconstruction -> `NORMALIZATION` through `TILE_RECONSTRUCTION` (including `COMMON_OVERLAP`)
 - Optional full-mode block -> `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
-- Finalization path -> `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional but its own phase), `PCC`, `DONE`
+- Finalization path -> `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional but its own phase), `PCC`, `HYPERMETRIC_STRETCH`, `DONE`
 
 ---
 
@@ -180,7 +181,13 @@ High-level mapping:
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 17: DONE             │
+              │  PHASE 17: HMS              │
+              │  • VeraLux HyperMetric      │
+              │  • Stretch after PCC        │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 18: DONE             │
               │  • Final status emit        │
               └──────────────┬──────────────┘
                              │
@@ -192,6 +199,7 @@ High-level mapping:
               │  • stacked_rgb_solve.fits   │
               │  • stacked_rgb_bge.fits     │
               │  • stacked_rgb_pcc.fits     │
+              │  • stacked_rgb_hms.fits     │
               │  • R/G/B .fit (OSC)         │
               │  • 12 artifact JSON files   │
               │  • run_events.jsonl         │
@@ -200,7 +208,7 @@ High-level mapping:
 
 ## Core principles (C++ implementation)
 
-1. **Linearity:** no non-linear operations (no stretch). Linearity is checked in phase 0.
+1. **Core linearity:** phases up to and including PCC stay linear; HMS is an explicit final stretch phase after PCC.
 2. **No hard frame selection:** frames are kept; failed registration falls back to identity warp with CC=0.
 3. **Mono + OSC:** both modes in one pipeline, CFA-aware for OSC.
 4. **Strictly sequential:** no feedback loops; deterministic execution order.
@@ -213,7 +221,7 @@ High-level mapping:
 
 ### Full/normal mode (N ≥ frames_reduced_threshold)
 
-- All enum phases 0..17 are executed.
+- All enum phases 0..18 are executed.
 - State clustering is enabled.
 - Synthetic frames are generated.
 - Sigma-clipping rejection stacking.
