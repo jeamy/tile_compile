@@ -8,6 +8,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
@@ -69,6 +70,30 @@ using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
+
+image::HyperMetricStretchConfig to_image_hms_config(
+    const tile_compile::config::HyperMetricStretchConfig &src) {
+  image::HyperMetricStretchConfig dst;
+  dst.enabled = src.enabled;
+  dst.require_successful_pcc = src.require_successful_pcc;
+  dst.mode = src.mode;
+  dst.sensor_profile = src.sensor_profile;
+  dst.fallback_profile = src.fallback_profile;
+  dst.adaptive_anchor = src.adaptive_anchor;
+  dst.target_bg = src.target_bg;
+  dst.protect_b = src.protect_b;
+  dst.convergence_power = src.convergence_power;
+  dst.log_d_mode = src.log_d_mode;
+  dst.fixed_log_d = src.fixed_log_d;
+  dst.color_strategy = src.color_strategy;
+  dst.fixed_color_strategy = src.fixed_color_strategy;
+  dst.color_grip = src.color_grip;
+  dst.shadow_convergence = src.shadow_convergence;
+  dst.linear_expansion = src.linear_expansion;
+  dst.write_channels = src.write_channels;
+  dst.output_rgb = src.output_rgb;
+  return dst;
+}
 
 constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
@@ -5484,6 +5509,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // Phase 12: PCC (Photometric Color Calibration)
+    bool have_successful_pcc = false;
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
     const fs::path pcc_input_rgb_path =
         have_successful_bge ? stacked_rgb_bge_linear_path : stacked_rgb_solve_path;
@@ -5594,6 +5620,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
 
         if (result.success) {
+          have_successful_pcc = true;
           const auto chroma_speckle_stats =
               image::suppress_isolated_chroma_speckles_rgb_inplace(
                   R_out, G_out, B_out, &pcc_cfg.output_valid_mask,
@@ -5683,6 +5710,111 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       return 1;
     }
 
+    // Phase 13: HyperMetric Stretch (final nonlinear RGB stretch after PCC)
+    emitter.phase_start(run_id, Phase::HYPERMETRIC_STRETCH,
+                        "HYPERMETRIC_STRETCH", log_file);
+    if (!cfg.hypermetric_stretch.enabled) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else if (cfg.hypermetric_stretch.require_successful_pcc &&
+               !have_successful_pcc) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
+                        {{"reason", "missing_successful_pcc"},
+                         {"require_successful_pcc", true}},
+                        log_file);
+    } else {
+      try {
+        image::HyperMetricStretchConfig hms_cfg =
+            to_image_hms_config(cfg.hypermetric_stretch);
+        const int hms_rows = static_cast<int>(R_out.rows());
+        const int hms_cols = static_cast<int>(R_out.cols());
+        const std::vector<uint8_t> *hms_mask = nullptr;
+        if (common_valid_mask.size() ==
+            static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols)) {
+          hms_mask = &common_valid_mask;
+        }
+
+        auto hms_diag = image::run_hypermetric_stretch_rgb(
+            R_out, G_out, B_out, hms_cfg, hms_mask, hms_rows, hms_cols);
+        if (!hms_diag.success) {
+          emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                            {{"reason", "stretch_failed"},
+                             {"error", hms_diag.error_message}},
+                            log_file);
+          emitter.run_end(run_id, false, "error", log_file);
+          return 1;
+        }
+
+        io::FitsHeader hms_hdr = first_hdr;
+        hms_hdr.set("HMS", true);
+        hms_hdr.set("HMSVER", std::string("1"));
+        hms_hdr.set("HMSMODE", hms_cfg.mode);
+        hms_hdr.set("HMSPROF", hms_diag.profile);
+        hms_hdr.set("HMSWR", static_cast<double>(hms_diag.weights_r));
+        hms_hdr.set("HMSWG", static_cast<double>(hms_diag.weights_g));
+        hms_hdr.set("HMSWB", static_cast<double>(hms_diag.weights_b));
+        hms_hdr.set("HMSANCH", static_cast<double>(hms_diag.anchor));
+        hms_hdr.set("HMSLOGD", static_cast<double>(hms_diag.log_d));
+        hms_hdr.set("HMSB", static_cast<double>(hms_diag.protect_b));
+        hms_hdr.set("HMSTGBG", static_cast<double>(hms_diag.target_bg));
+        hms_hdr.set("HMSCONV", static_cast<double>(hms_diag.convergence_power));
+        hms_hdr.set("HMSSTAR", static_cast<double>(hms_diag.star_pressure));
+
+        fs::path hms_rgb_path(hms_cfg.output_rgb);
+        if (hms_rgb_path.is_relative()) {
+          hms_rgb_path = run_dir / "outputs" / hms_rgb_path;
+        }
+        {
+          std::error_code ec;
+          fs::remove(hms_rgb_path, ec);
+        }
+        io::write_fits_rgb(hms_rgb_path, R_out, G_out, B_out, hms_hdr);
+        if (hms_cfg.write_channels) {
+          io::write_fits_float(run_dir / "outputs" / "hms_R.fit", R_out,
+                               hms_hdr);
+          io::write_fits_float(run_dir / "outputs" / "hms_G.fit", G_out,
+                               hms_hdr);
+          io::write_fits_float(run_dir / "outputs" / "hms_B.fit", B_out,
+                               hms_hdr);
+        }
+
+        emitter.phase_end(
+            run_id, Phase::HYPERMETRIC_STRETCH, "ok",
+            {{"output_rgb", hms_rgb_path.string()},
+             {"profile", hms_diag.profile},
+             {"profile_source", hms_diag.profile_source},
+             {"weights_r", hms_diag.weights_r},
+             {"weights_g", hms_diag.weights_g},
+             {"weights_b", hms_diag.weights_b},
+             {"anchor", hms_diag.anchor},
+             {"log_d", hms_diag.log_d},
+             {"target_bg", hms_diag.target_bg},
+             {"protect_b", hms_diag.protect_b},
+             {"convergence_power", hms_diag.convergence_power},
+             {"star_pressure", hms_diag.star_pressure},
+             {"color_strategy", hms_diag.color_strategy},
+             {"color_grip", hms_diag.color_grip},
+             {"shadow_convergence", hms_diag.shadow_convergence},
+             {"black_clip_percent", hms_diag.black_clip_percent},
+             {"white_clip_percent", hms_diag.white_clip_percent},
+             {"input_stage", have_successful_pcc ? "pcc" : "linear_no_pcc"}},
+            log_file);
+      } catch (const std::exception &e) {
+        emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                          {{"reason", "exception"}, {"error", e.what()}},
+                          log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        return 1;
+      }
+    }
+
+    if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
+      return 1;
+    }
+
     // --- Memory release: all large image buffers before final exit ---
     R_out.resize(0, 0);
     G_out.resize(0, 0);
@@ -5694,7 +5826,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     { std::vector<std::vector<float>>().swap(local_weights); }
     { std::vector<Matrix2Df>().swap(synthetic_frames); }
 
-    // Phase 13: DONE
+    // Phase 14: DONE
     emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 

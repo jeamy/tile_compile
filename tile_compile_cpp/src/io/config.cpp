@@ -703,6 +703,55 @@ Config Config::from_yaml(const YAML::Node &node) {
           p["background_neutralization_mode"].as<std::string>();
   }
 
+  if (node["hypermetric_stretch"]) {
+    auto h = node["hypermetric_stretch"];
+    if (h["enabled"])
+      cfg.hypermetric_stretch.enabled = h["enabled"].as<bool>();
+    if (h["require_successful_pcc"])
+      cfg.hypermetric_stretch.require_successful_pcc =
+          h["require_successful_pcc"].as<bool>();
+    if (h["mode"])
+      cfg.hypermetric_stretch.mode = h["mode"].as<std::string>();
+    if (h["sensor_profile"])
+      cfg.hypermetric_stretch.sensor_profile =
+          h["sensor_profile"].as<std::string>();
+    if (h["fallback_profile"])
+      cfg.hypermetric_stretch.fallback_profile =
+          h["fallback_profile"].as<std::string>();
+    if (h["adaptive_anchor"])
+      cfg.hypermetric_stretch.adaptive_anchor =
+          h["adaptive_anchor"].as<bool>();
+    if (h["target_bg"])
+      cfg.hypermetric_stretch.target_bg = h["target_bg"].as<float>();
+    if (h["protect_b"])
+      cfg.hypermetric_stretch.protect_b = h["protect_b"].as<float>();
+    if (h["convergence_power"])
+      cfg.hypermetric_stretch.convergence_power =
+          h["convergence_power"].as<float>();
+    if (h["log_d_mode"])
+      cfg.hypermetric_stretch.log_d_mode = h["log_d_mode"].as<std::string>();
+    if (h["fixed_log_d"])
+      cfg.hypermetric_stretch.fixed_log_d = h["fixed_log_d"].as<float>();
+    if (h["color_strategy"])
+      cfg.hypermetric_stretch.color_strategy =
+          h["color_strategy"].as<std::string>();
+    if (h["fixed_color_strategy"])
+      cfg.hypermetric_stretch.fixed_color_strategy =
+          h["fixed_color_strategy"].as<float>();
+    if (h["color_grip"])
+      cfg.hypermetric_stretch.color_grip = h["color_grip"].as<float>();
+    if (h["shadow_convergence"])
+      cfg.hypermetric_stretch.shadow_convergence =
+          h["shadow_convergence"].as<float>();
+    if (h["linear_expansion"])
+      cfg.hypermetric_stretch.linear_expansion =
+          h["linear_expansion"].as<float>();
+    if (h["write_channels"])
+      cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
+    if (h["output_rgb"])
+      cfg.hypermetric_stretch.output_rgb = h["output_rgb"].as<std::string>();
+  }
+
   if (node["stacking"]) {
     auto st = node["stacking"];
     if (st["method"])
@@ -1071,6 +1120,35 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["k_max"] = pcc.k_max;
   node["pcc"]["background_neutralization_mode"] =
       pcc.background_neutralization_mode;
+
+  node["hypermetric_stretch"]["enabled"] = hypermetric_stretch.enabled;
+  node["hypermetric_stretch"]["require_successful_pcc"] =
+      hypermetric_stretch.require_successful_pcc;
+  node["hypermetric_stretch"]["mode"] = hypermetric_stretch.mode;
+  node["hypermetric_stretch"]["sensor_profile"] =
+      hypermetric_stretch.sensor_profile;
+  node["hypermetric_stretch"]["fallback_profile"] =
+      hypermetric_stretch.fallback_profile;
+  node["hypermetric_stretch"]["adaptive_anchor"] =
+      hypermetric_stretch.adaptive_anchor;
+  node["hypermetric_stretch"]["target_bg"] = hypermetric_stretch.target_bg;
+  node["hypermetric_stretch"]["protect_b"] = hypermetric_stretch.protect_b;
+  node["hypermetric_stretch"]["convergence_power"] =
+      hypermetric_stretch.convergence_power;
+  node["hypermetric_stretch"]["log_d_mode"] = hypermetric_stretch.log_d_mode;
+  node["hypermetric_stretch"]["fixed_log_d"] = hypermetric_stretch.fixed_log_d;
+  node["hypermetric_stretch"]["color_strategy"] =
+      hypermetric_stretch.color_strategy;
+  node["hypermetric_stretch"]["fixed_color_strategy"] =
+      hypermetric_stretch.fixed_color_strategy;
+  node["hypermetric_stretch"]["color_grip"] = hypermetric_stretch.color_grip;
+  node["hypermetric_stretch"]["shadow_convergence"] =
+      hypermetric_stretch.shadow_convergence;
+  node["hypermetric_stretch"]["linear_expansion"] =
+      hypermetric_stretch.linear_expansion;
+  node["hypermetric_stretch"]["write_channels"] =
+      hypermetric_stretch.write_channels;
+  node["hypermetric_stretch"]["output_rgb"] = hypermetric_stretch.output_rgb;
 
   node["stacking"]["method"] = stacking.method;
   node["stacking"]["common_overlap_required_fraction"] =
@@ -1540,6 +1618,59 @@ void Config::validate() const {
         "pcc.background_neutralization_mode must be 'always', 'auto', or 'off'");
   }
 
+  if (hypermetric_stretch.mode != "ready_to_use" &&
+      hypermetric_stretch.mode != "scientific") {
+    throw ValidationError(
+        "hypermetric_stretch.mode must be 'ready_to_use' or 'scientific'");
+  }
+  if (hypermetric_stretch.target_bg < 0.05f ||
+      hypermetric_stretch.target_bg > 0.50f) {
+    throw ValidationError("hypermetric_stretch.target_bg must be in [0.05,0.50]");
+  }
+  if (hypermetric_stretch.protect_b < 0.1f) {
+    throw ValidationError("hypermetric_stretch.protect_b must be >= 0.1");
+  }
+  if (hypermetric_stretch.convergence_power < 1.0f ||
+      hypermetric_stretch.convergence_power > 10.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.convergence_power must be in [1,10]");
+  }
+  if (hypermetric_stretch.log_d_mode != "auto" &&
+      hypermetric_stretch.log_d_mode != "fixed") {
+    throw ValidationError(
+        "hypermetric_stretch.log_d_mode must be 'auto' or 'fixed'");
+  }
+  if (hypermetric_stretch.fixed_log_d < 0.0f ||
+      hypermetric_stretch.fixed_log_d > 7.0f) {
+    throw ValidationError("hypermetric_stretch.fixed_log_d must be in [0,7]");
+  }
+  if (hypermetric_stretch.color_strategy != "auto" &&
+      hypermetric_stretch.color_strategy != "fixed") {
+    throw ValidationError(
+        "hypermetric_stretch.color_strategy must be 'auto' or 'fixed'");
+  }
+  if (hypermetric_stretch.fixed_color_strategy < -1.0f ||
+      hypermetric_stretch.fixed_color_strategy > 1.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.fixed_color_strategy must be in [-1,1]");
+  }
+  if (hypermetric_stretch.color_grip < 0.0f ||
+      hypermetric_stretch.color_grip > 1.0f) {
+    throw ValidationError("hypermetric_stretch.color_grip must be in [0,1]");
+  }
+  if (hypermetric_stretch.shadow_convergence < 0.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.shadow_convergence must be >= 0");
+  }
+  if (hypermetric_stretch.linear_expansion < 0.0f ||
+      hypermetric_stretch.linear_expansion > 1.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.linear_expansion must be in [0,1]");
+  }
+  if (hypermetric_stretch.output_rgb.empty()) {
+    throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
+  }
+
   if (stacking.method != "average" && stacking.method != "rej") {
     throw ValidationError("stacking.method must be 'average' or 'rej'");
   }
@@ -1799,6 +1930,25 @@ std::string get_schema_json() {
                       "chroma_strength":{"type":"number","minimum":0,"maximum":1},
                       "background_neutralization_mode":{"type":"string","enum":["always","auto","off"]},
                       "k_max":{"type":"number","exclusiveMinimum":0} } },
+    "hypermetric_stretch": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "require_successful_pcc":{"type":"boolean"},
+                      "mode":{"type":"string","enum":["ready_to_use","scientific"]},
+                      "sensor_profile":{"type":"string"},
+                      "fallback_profile":{"type":"string"},
+                      "adaptive_anchor":{"type":"boolean"},
+                      "target_bg":{"type":"number","minimum":0.05,"maximum":0.50},
+                      "protect_b":{"type":"number","minimum":0.1},
+                      "convergence_power":{"type":"number","minimum":1.0,"maximum":10.0},
+                      "log_d_mode":{"type":"string","enum":["auto","fixed"]},
+                      "fixed_log_d":{"type":"number","minimum":0,"maximum":7},
+                      "color_strategy":{"type":"string","enum":["auto","fixed"]},
+                      "fixed_color_strategy":{"type":"number","minimum":-1,"maximum":1},
+                      "color_grip":{"type":"number","minimum":0,"maximum":1},
+                      "shadow_convergence":{"type":"number","minimum":0},
+                      "linear_expansion":{"type":"number","minimum":0,"maximum":1},
+                      "write_channels":{"type":"boolean"},
+                      "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},

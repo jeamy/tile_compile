@@ -36,9 +36,10 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 16. [Astrometry](#16-astrometry)
 17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEW in v3.3**
 18. [PCC](#18-pcc)
-19. [Stacking](#19-stacking)
-20. [Validation](#20-validation)
-21. [Runtime Limits](#21-runtime-limits)
+19. [HyperMetric Stretch](#19-hypermetric-stretch)
+20. [Stacking](#20-stacking)
+21. [Validation](#21-validation)
+22. [Runtime Limits](#22-runtime-limits)
 
 ---
 
@@ -1531,7 +1532,70 @@ Photometric Color Calibration settings.
 
 ---
 
-## 19. Stacking
+## 19. HyperMetric Stretch
+
+VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after PCC. It reads the PCC RGB result and writes `outputs/stacked_rgb_hms.fits` by default.
+
+| Key | Type | Default | Constraint |
+|-----|------|---------|------------|
+| `hypermetric_stretch.enabled` | boolean | `true` | |
+| `hypermetric_stretch.require_successful_pcc` | boolean | `true` | |
+| `hypermetric_stretch.mode` | string | `ready_to_use` | `ready_to_use`, `scientific` |
+| `hypermetric_stretch.sensor_profile` | string | `rec709` | |
+| `hypermetric_stretch.fallback_profile` | string | `rec709` | |
+| `hypermetric_stretch.adaptive_anchor` | boolean | `true` | |
+| `hypermetric_stretch.target_bg` | number | `0.20` | 0.05 - 0.50 |
+| `hypermetric_stretch.protect_b` | number | `6.0` | >= 0.1 |
+| `hypermetric_stretch.convergence_power` | number | `3.5` | 1.0 - 10.0 |
+| `hypermetric_stretch.log_d_mode` | string | `auto` | `auto`, `fixed` |
+| `hypermetric_stretch.fixed_log_d` | number | `2.0` | 0 - 7 |
+| `hypermetric_stretch.color_strategy` | string | `fixed` | `auto`, `fixed` |
+| `hypermetric_stretch.fixed_color_strategy` | number | `0.0` | -1 - 1 |
+| `hypermetric_stretch.color_grip` | number | `1.0` | 0 - 1 |
+| `hypermetric_stretch.shadow_convergence` | number | `0.0` | >= 0 |
+| `hypermetric_stretch.linear_expansion` | number | `0.0` | 0 - 1 |
+| `hypermetric_stretch.write_channels` | boolean | `false` | |
+| `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |
+
+`ready_to_use` follows the VeraLux GUI default with output scaling to `target_bg` and final soft clip. `scientific` skips the ready-to-use final scaling/soft clip and allows `linear_expansion`.
+
+The default is the explicit `rec709` profile. Concrete VeraLux profile names can be set directly. `auto` remains accepted for compatibility and currently uses `fallback_profile`, but it is no longer recommended as the default. The sensor profiles are defined in `tile_compile_cpp/src/image/hypermetric_stretch.cpp` in `profiles()`. Profile matching is normalized, so case, spaces, and punctuation are tolerated; the recommended YAML values are:
+
+| YAML value | R | G | B |
+|------------|---|---|---|
+| `rec709` | 0.2126 | 0.7152 | 0.0722 |
+| `Rec.709 (Recommended)` | 0.2126 | 0.7152 | 0.0722 |
+| `Sony IMX571 (ASI2600/QHY268)` | 0.2944 | 0.5021 | 0.2035 |
+| `Sony IMX455 (ASI6200/QHY600)` | 0.2987 | 0.5001 | 0.2013 |
+| `Sony IMX410 (ASI2400)` | 0.3015 | 0.5050 | 0.1935 |
+| `Sony IMX269 (Altair/ToupTek)` | 0.3040 | 0.5010 | 0.1950 |
+| `Sony IMX294 (ASI294)` | 0.3068 | 0.5008 | 0.1925 |
+| `Sony IMX533 (ASI533)` | 0.2910 | 0.5072 | 0.2018 |
+| `Sony IMX676 (ASI676)` | 0.2880 | 0.5100 | 0.2020 |
+| `Sony IMX585 (ASI585) - STARVIS 2` | 0.3431 | 0.4822 | 0.1747 |
+| `Sony IMX662 (ASI662) - STARVIS 2` | 0.3430 | 0.4821 | 0.1749 |
+| `Sony IMX678 (ASI678) - STARVIS 2` | 0.3426 | 0.4825 | 0.1750 |
+| `Sony IMX415 (DWARF II)` | 0.2703 | 0.5405 | 0.1892 |
+| `Sony IMX462 (ASI462)` | 0.3333 | 0.4866 | 0.1801 |
+| `Sony IMX715 (ASI715)` | 0.3410 | 0.4840 | 0.1750 |
+| `Sony IMX482 (ASI482)` | 0.3150 | 0.4950 | 0.1900 |
+| `Sony IMX183 (ASI183)` | 0.2967 | 0.4983 | 0.2050 |
+| `Sony IMX178 (ASI178)` | 0.2346 | 0.5206 | 0.2448 |
+| `Sony IMX224 (ASI224)` | 0.3402 | 0.4765 | 0.1833 |
+| `Canon EOS (Modern - 60D/600D/500D)` | 0.2600 | 0.5200 | 0.2200 |
+| `Canon EOS (Legacy - 300D/40D/20D)` | 0.2450 | 0.5350 | 0.2200 |
+| `Nikon DSLR (Modern - D5100/D7200)` | 0.2650 | 0.5100 | 0.2250 |
+| `Nikon DSLR (Legacy - D3/D300/D90)` | 0.2500 | 0.5300 | 0.2200 |
+| `Fujifilm X-Trans 5 HR` | 0.2800 | 0.5100 | 0.2100 |
+| `Panasonic MN34230 (ASI1600)` | 0.2650 | 0.5250 | 0.2100 |
+| `ZWO Seestar S50` | 0.3333 | 0.4866 | 0.1801 |
+| `ZWO Seestar S30` | 0.2928 | 0.5053 | 0.2019 |
+| `Narrowband HOO` | 0.5000 | 0.2500 | 0.2500 |
+| `Narrowband SHO` | 0.3333 | 0.3400 | 0.3267 |
+
+---
+
+## 20. Stacking
 
 Final stacking settings.
 
@@ -1719,7 +1783,7 @@ This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at
 
 ---
 
-## 20. Validation
+## 21. Validation
 
 Validation and quality control.
 
@@ -1761,7 +1825,7 @@ Validation and quality control.
 
 ---
 
-## 21. Runtime Limits
+## 22. Runtime Limits
 
 Runtime and resource limits.
 
@@ -1961,7 +2025,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `synthetic.clustering.cluster_count_range`: allowed K-search window.
 - Reconstruction/OLA is currently internal runner behavior without a standalone `reconstruction:` config block.
 
-### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
+### A.6 Debayer / Astrometry / PCC / HMS / Stacking / Validation / Runtime
 
 - Debayer is an automatic OSC pipeline phase and no longer a standalone config key.
 - `astrometry.enabled`: enables plate-solving stage.
@@ -1979,6 +2043,15 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive radius controls.
 - `pcc.siril_catalog_dir`: local Siril catalog path override.
 - `pcc.apply_attenuation`, `pcc.background_neutralization_mode`, `pcc.chroma_strength`, `pcc.k_max`: optional PCC apply/background-neutralization controls.
+- `hypermetric_stretch.enabled`: enables VeraLux HyperMetric Stretch after PCC.
+- `hypermetric_stretch.require_successful_pcc`: requires successful PCC artifacts before HMS.
+- `hypermetric_stretch.mode`: `ready_to_use` final output mode or `scientific` controlled stretch mode.
+- `hypermetric_stretch.sensor_profile`, `fallback_profile`: VeraLux luminance weights.
+- `hypermetric_stretch.adaptive_anchor`, `target_bg`, `protect_b`, `convergence_power`: anchor, background target, and stretch controls.
+- `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatic or fixed stretch strength.
+- `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: color strategy and hybrid grip controls.
+- `hypermetric_stretch.linear_expansion`: scientific-mode-only linear expansion.
+- `hypermetric_stretch.write_channels`, `output_rgb`: HMS output controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
 - `stacking.common_overlap_required_fraction`: required pixel coverage across usable frames for `COMMON_OVERLAP`.
 - `stacking.tile_common_valid_min_fraction`: minimum `COMMON_OVERLAP` coverage over the full tile area.

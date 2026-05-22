@@ -298,6 +298,27 @@ properties:
       min_aperture_px: {type: number, exclusiveMinimum: 0}
       k_max: {type: number, exclusiveMinimum: 0}
       siril_catalog_dir: {type: string}
+  hypermetric_stretch:
+    type: object
+    properties:
+      enabled: {type: boolean}
+      require_successful_pcc: {type: boolean}
+      mode: {type: string, enum: [ready_to_use, scientific]}
+      sensor_profile: {type: string}
+      fallback_profile: {type: string}
+      adaptive_anchor: {type: boolean}
+      target_bg: {type: number, minimum: 0.05, maximum: 0.50}
+      protect_b: {type: number, minimum: 0.1}
+      convergence_power: {type: number, minimum: 1.0, maximum: 10.0}
+      log_d_mode: {type: string, enum: [auto, fixed]}
+      fixed_log_d: {type: number, minimum: 0, maximum: 7}
+      color_strategy: {type: string, enum: [auto, fixed]}
+      fixed_color_strategy: {type: number, minimum: -1, maximum: 1}
+      color_grip: {type: number, minimum: 0, maximum: 1}
+      shadow_convergence: {type: number, minimum: 0}
+      linear_expansion: {type: number, minimum: 0, maximum: 1}
+      write_channels: {type: boolean}
+      output_rgb: {type: string}
   bge:
     type: object
     properties:

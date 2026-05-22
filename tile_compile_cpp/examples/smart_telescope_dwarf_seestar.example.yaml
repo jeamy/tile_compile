@@ -253,6 +253,26 @@ pcc:
   chroma_strength: 0.9
   k_max: 2.4 # fuer linearen PCC-Apply: vermeidet Gruenstich in hellen Strukturen bei stabil neutralem Hintergrund
 
+hypermetric_stretch:
+  enabled: true # VeraLux HMS nach PCC; erzeugt outputs/stacked_rgb_hms.fits
+  require_successful_pcc: true # nur nach erfolgreicher PCC anwenden
+  mode: ready_to_use # ready_to_use | scientific
+  sensor_profile: rec709 # rec709 oder VeraLux-Profilname
+  fallback_profile: rec709
+  adaptive_anchor: true
+  target_bg: 0.2
+  protect_b: 6
+  convergence_power: 3.5
+  log_d_mode: auto # auto | fixed
+  fixed_log_d: 2
+  color_strategy: fixed # fixed entspricht Python-Slider-Default
+  fixed_color_strategy: 0
+  color_grip: 1
+  shadow_convergence: 0
+  linear_expansion: 0 # nur in scientific wirksam
+  write_channels: false
+  output_rgb: stacked_rgb_hms.fits
+
 stacking:
   method: rej # rej|average
   sigma_clip:
