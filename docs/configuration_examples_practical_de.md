@@ -138,7 +138,7 @@ hypermetric_stretch:
   require_successful_pcc: true
   mode: ready_to_use
   adaptive_anchor: true
-  target_bg: 0.2
+  target_bg: 0.15
   log_d_mode: auto
   color_strategy: fixed
   fixed_color_strategy: 0

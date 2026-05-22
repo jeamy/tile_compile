@@ -372,7 +372,7 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";   // rec709 | profile name | auto
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
-  float target_bg = 0.20f;
+  float target_bg = 0.15f;
   float protect_b = 6.0f;
   float convergence_power = 3.5f;
   std::string log_d_mode = "auto";         // auto | fixed
