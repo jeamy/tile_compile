@@ -223,7 +223,7 @@ FitsHeader read_current_header(fitsfile* fptr, int& status) {
 bool should_skip_header_key(const std::string& key, bool is_rgb_image) {
     if (key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" ||
         key == "NAXIS1" || key == "NAXIS2" || key == "EXTEND" ||
-        key == "BZERO" || key == "BSCALE") {
+        key == "BZERO" || key == "BSCALE" || key == "ROWORDER") {
         return true;
     }
     if (is_rgb_image && (key == "NAXIS3" || key == "BAYERPAT")) {
@@ -643,6 +643,17 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     }
 
     write_header_keywords(fptr, header, false, status);
+
+    // Declare row order: the internal Eigen RowMajor buffer has row 0 at the top
+    // (screen convention), which is the opposite of the default FITS bottom-up
+    // convention. ROWORDER=TOP-DOWN tells viewers (Siril, DS9, etc.) to display
+    // the image without flipping, matching the actual data layout on disk.
+    {
+        char roworder[] = "TOP-DOWN";
+        fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
+                        "Row order: row 0 is top of image", &status);
+        if (status) status = 0; // non-fatal: proceed even if key cannot be written
+    }
     
     long fpixel[2] = {1, 1};
     long nelem = static_cast<long>(data.size());
@@ -691,6 +702,17 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     }
 
     write_header_keywords(fptr, header, true, status);
+
+    // Declare row order: the internal Eigen RowMajor buffer has row 0 at the top
+    // (screen convention), which is the opposite of the default FITS bottom-up
+    // convention. ROWORDER=TOP-DOWN tells viewers (Siril, DS9, etc.) to display
+    // the image without flipping, matching the actual data layout on disk.
+    {
+        char roworder[] = "TOP-DOWN";
+        fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
+                        "Row order: row 0 is top of image", &status);
+        if (status) status = 0; // non-fatal: proceed even if key cannot be written
+    }
     
     // Write R plane (z=1)
     long fpixel_r[3] = {1, 1, 1};
@@ -749,6 +771,15 @@ void update_fits_header_in_place(const fs::path& path, const FitsHeader& header)
         fits_close_file(fptr, &close_status);
         throw FitsError(fits_write_error_message("update FITS header", path,
                                                  update_status));
+    }
+
+    // Ensure ROWORDER is always present after a header update.
+    {
+        char roworder[] = "TOP-DOWN";
+        int ro_status = 0;
+        fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
+                        "Row order: row 0 is top of image", &ro_status);
+        // non-fatal: ignore if key cannot be written
     }
 
     fits_close_file(fptr, &status);
