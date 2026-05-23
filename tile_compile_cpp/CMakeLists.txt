@@ -4,6 +4,7 @@ project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 include(CheckIncludeFileCXX)
 
 if(POLICY CMP0146)
+    set(CMAKE_WARN_DEPRECATED OFF)
     cmake_policy(SET CMP0146 OLD)
 endif()
 
