@@ -234,7 +234,11 @@ void register_preprocessing_routes(CrowApp& app,
         const auto now_tp = std::chrono::system_clock::now();
         const auto now_tt = std::chrono::system_clock::to_time_t(now_tp);
         std::tm tm_buf{};
+#ifdef _WIN32
+        localtime_s(&tm_buf, &now_tt);
+#else
         localtime_r(&now_tt, &tm_buf);
+#endif
         std::ostringstream ts_ss;
         ts_ss << std::put_time(&tm_buf, "%Y%m%d_%H%M%S");
         const std::string timestamp = ts_ss.str();
