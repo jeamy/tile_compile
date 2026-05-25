@@ -1016,9 +1016,10 @@ void add_artifact(json& artifacts,
   artifacts.push_back({{"type", type}, {"phase", phase}, {"path", path.string()}});
 }
 
-TileGrid build_preprocess_bge_grid(int rows, int cols) {
-  const int target = 32;
-  const int tile_size = std::max(32, std::min({target, std::max(1, rows), std::max(1, cols)}));
+TileGrid build_preprocess_bge_grid(int rows, int cols, int n_g = 32) {
+  const int min_dim = std::min(rows, cols);
+  const int g_res = min_dim / std::max(1, n_g);
+  const int tile_size = std::max(32, g_res / 2);
   TileGrid grid;
   grid.tile_size = tile_size;
   grid.overlap_fraction = 0.0f;
@@ -1186,10 +1187,10 @@ PreprocessPostprocessResult run_preprocess_postprocess(
                       {{"reason", "no_rgb_stack"}}, event_out);
   } else {
     auto rgb = io::read_fits_rgb(current_rgb);
-    TileGrid grid = build_preprocess_bge_grid(rgb.R.rows(), rgb.R.cols());
-    std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
     config::BGEConfig bge_source = cfg.has_bge_config ? cfg.bge : default_preprocess_bge_config();
     if (!cfg.has_bge_config) bge_source.enabled = true;
+    TileGrid grid = build_preprocess_bge_grid(rgb.R.rows(), rgb.R.cols(), bge_source.grid.N_g);
+    std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
     image::BGEConfig bge_cfg = runner::to_image_bge_config(bge_source);
     bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
     bge_cfg.common_mask_rows = rgb.R.rows();
