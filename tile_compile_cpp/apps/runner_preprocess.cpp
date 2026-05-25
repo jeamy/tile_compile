@@ -1037,7 +1037,7 @@ void add_artifact(json& artifacts,
 TileGrid build_preprocess_bge_grid(int rows, int cols, int n_g = 32) {
   const int min_dim = std::min(rows, cols);
   const int g_res = min_dim / std::max(1, n_g);
-  const int tile_size = std::max(32, g_res / 2);
+  const int tile_size = std::max(64, g_res);
   TileGrid grid;
   grid.tile_size = tile_size;
   grid.overlap_fraction = 0.0f;
