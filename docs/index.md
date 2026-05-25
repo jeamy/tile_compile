@@ -41,6 +41,10 @@ Also available: [AppImage](getting_started/installation.md), [macOS](getting_sta
 - [CLI Reference](getting_started/cli_reference.md)
 - [Configuration Reference](configuration_reference.md)
 - [Pipeline Overview](process_flow/phase_0_overview.md)
+- [Raw Stack GUI (DE)](raw_stack_gui_de.md)
+- [Raw Stack GUI (EN)](raw_stack_gui_en.md)
+- [Raw Stack Release Note (DE)](raw_stack_release_note_de.md)
+- [Raw Stack Release Note (EN)](raw_stack_release_note_en.md)
 
 ## Features
 

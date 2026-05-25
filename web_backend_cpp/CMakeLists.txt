@@ -107,11 +107,13 @@ set(BACKEND_SOURCES
     src/routes/runs_routes.cpp
     src/routes/ws_routes.cpp
     src/routes/tools_routes.cpp
+    src/routes/preprocessing_routes.cpp
     src/services/run_inspector.cpp
     src/services/report_generator.cpp
     src/services/scan_summary.cpp
     src/services/config_revisions.cpp
     src/services/download_manager.cpp
+    src/services/preprocessing_service.cpp
 )
 
 add_executable(tile_compile_web_backend ${BACKEND_SOURCES})

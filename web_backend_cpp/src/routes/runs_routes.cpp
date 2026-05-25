@@ -602,17 +602,13 @@ static bool pid_exists(pid_t pid) {
 /// access, process handling, and error reporting localized to this backend component.
 static bool terminate_pid_group(pid_t pid) {
     if (pid <= 0) return false;
-    if (kill(-pid, SIGTERM) != 0) {
-        if (kill(pid, SIGTERM) != 0) return false;
-    }
+    if (kill(pid, SIGTERM) != 0) return false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < deadline) {
         if (!pid_exists(pid)) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    if (kill(-pid, SIGKILL) != 0) {
-        if (kill(pid, SIGKILL) != 0) return false;
-    }
+    if (kill(pid, SIGKILL) != 0) return false;
     return true;
 }
 

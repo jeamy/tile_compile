@@ -9,6 +9,7 @@ import { getMessage, escapeHtml, getStorageJson, setStorageJson, STORAGE_KEYS } 
     { key: "assumptions", href: "assumptions.html", label: "Assumptions", control: "nav.assumptions" },
     { key: "run_monitor", href: "run-monitor.html", label: "Run Monitor", control: "nav.run_monitor" },
     { key: "history_tools", href: "history-tools.html", label: "History+Tools", control: "nav.history_tools" },
+    { key: "raw_stack", href: "raw-stack.html", label: "Raw Stack", control: "nav.raw_stack" },
     { key: "astrometry", href: "astrometry.html", label: "Astrometry", control: "nav.astrometry" },
     { key: "pcc", href: "pcc.html", label: "PCC", control: "nav.pcc" },
     { key: "live_log", href: "live-log.html", label: "Live Log", control: "nav.live_log" },
@@ -22,6 +23,7 @@ import { getMessage, escapeHtml, getStorageJson, setStorageJson, STORAGE_KEYS } 
     { key: "assumptions", href: "assumptions.html", label: "Assumptions", control: "nav.assumptions" },
     { key: "run_monitor", href: "run-monitor.html", label: "Run Monitor", control: "nav.run_monitor" },
     { key: "history_tools", href: "history-tools.html", label: "History + Tools", control: "nav.history_tools" },
+    { key: "raw_stack", href: "raw-stack.html", label: "Raw Stack", control: "nav.raw_stack" },
     { key: "astrometry", href: "astrometry.html", label: "Astrometry", control: "nav.astrometry" },
     { key: "pcc", href: "pcc.html", label: "PCC", control: "nav.pcc" },
     { key: "live_log", href: "live-log.html", label: "Live Log", control: "nav.live_log" },
@@ -35,6 +37,7 @@ import { getMessage, escapeHtml, getStorageJson, setStorageJson, STORAGE_KEYS } 
     if (file === "assumptions.html") return "assumptions";
     if (file === "run-monitor.html") return "run_monitor";
     if (file === "history-tools.html") return "history_tools";
+    if (file === "raw-stack.html") return "raw_stack";
     if (file === "astrometry.html") return "astrometry";
     if (file === "pcc.html") return "pcc";
     if (file === "live-log.html") return "live_log";

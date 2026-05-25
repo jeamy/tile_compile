@@ -23,6 +23,9 @@ const PCC_DOWNLOAD_JOB_KEY = "gui2.tools.pcc.downloadJob";
 const PCC_TEMP_OUTPUT_KEY = "gui2.tools.pcc.tempOutput";
 const PCC_TEMP_CHANNELS_KEY = "gui2.tools.pcc.tempChannels";
 const PCC_TEMP_JOB_KEY = "gui2.tools.pcc.tempJob";
+const PREPROCESSING_JOB_KEY = "gui2.preprocessing.jobId";
+const PREPROCESSING_RUN_ID_KEY = "gui2.preprocessing.runId";
+const PREPROCESSING_RUN_DIR_KEY = "gui2.preprocessing.runDir";
 const UI_STORAGE_KEYS = {
   dashboardRunsDir: "gui2.run.runsDir",
   dashboardRunName: "gui2.run.runName",
@@ -2032,6 +2035,9 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
     input_path: String(src.input_path || fallbackInputPath || ""),
     input_dirs: inputDirs,
     frames_detected: Number.isFinite(framesDetected) ? framesDetected : 0,
+    frames: Array.isArray(src.frames) ? src.frames : [],
+    frames_total: Number(src.frames_total || src.frames_detected || 0),
+    frames_truncated: Boolean(src.frames_truncated),
     color_mode: colorMode,
     color_mode_candidates: candidates,
     image_width: Number.isFinite(width) ? width : 0,
@@ -2071,6 +2077,7 @@ function renderScanSummary(prefix, summary) {
   setText($(`${prefix}-warnings`), warningCountText);
   return data;
 }
+
 
 function normalizeDetectedColorMode(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -4857,6 +4864,65 @@ async function loadRunStatus(runId) {
   return status;
 }
 
+function preprocessingMonitorJobId() {
+  const params = new URLSearchParams(window.location.search || "");
+  return String(params.get("preprocessing_job_id") || "").trim();
+}
+
+function preprocessingRunIdFromStatus(status, fallbackJobId = "") {
+  return normalizeRunIdPath(
+    status?.job?.data?.run_id ||
+    status?.job?.run_id ||
+    localStorage.getItem(PREPROCESSING_RUN_ID_KEY) ||
+    fallbackJobId ||
+    "",
+  );
+}
+
+function preprocessingRunDirFromStatus(status) {
+  return String(
+    status?.job?.data?.run_dir ||
+    localStorage.getItem(PREPROCESSING_RUN_DIR_KEY) ||
+    "",
+  ).trim();
+}
+
+async function loadPreprocessingMonitorLogs(runId) {
+  if (!runId) return;
+  try {
+    const payload = await api.get(API_ENDPOINTS.runs.artifactView(runId, "artifacts/preprocess/events.jsonl"));
+    const text = String(payload?.text || "");
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+      try {
+        return formatStructuredLogLine(JSON.parse(line), { suppressRunStatus: true }) || line;
+      } catch {
+        return line;
+      }
+    });
+    setRunMonitorLogLines(lines);
+  } catch {
+    // The event artifact can appear after the runner created the run dir.
+  }
+}
+
+async function loadPreprocessingMonitorStatus(jobId) {
+  const status = await api.get(API_ENDPOINTS.preprocessing.status(jobId));
+  const runId = preprocessingRunIdFromStatus(status, jobId);
+  const runDir = preprocessingRunDirFromStatus(status);
+  if (runId) setCurrentRunId(runId);
+  uiState.currentRunDir = runDir;
+  uiState.currentRunQueue = [];
+  uiState.currentRunColorMode = "";
+  uiState.runProcessStatus = String(status?.status || "unknown").trim().toLowerCase();
+  setRunMonitorFilterVisibility("", []);
+  renderRunMonitorSummary(runId, status?.status || "unknown", [], runDir);
+  setRunPhaseSnapshot(runId, status?.phases);
+  renderRunMonitorPhaseLists();
+  updateRunMonitorSubtitle(runId, status?.status || "unknown", status?.current_phase || "");
+  await loadPreprocessingMonitorLogs(runId);
+  return status;
+}
+
 async function loadRunRevisions() {
   const sel = $("monitor-resume-config-revision");
   if (!sel) return;
@@ -5054,6 +5120,8 @@ function connectRunMonitorStream(runId) {
 async function bindRunMonitor() {
   if (!$("monitor-stop")) return;
 
+  const preprocessingJobId = preprocessingMonitorJobId();
+  const isPreprocessingMonitor = Boolean(preprocessingJobId);
   const startBtn = $("monitor-start");
   const stopBtn = $("monitor-stop");
   const statsGenerateBtn = $("monitor-stats-generate");
@@ -5066,6 +5134,21 @@ async function bindRunMonitor() {
   const resumeSaveTemplateBtn = $("monitor-resume-save-template");
   const sub = document.querySelector(".app-content .ps-sub");
   const updateResumeEnabled = () => {
+    if (isPreprocessingMonitor) {
+      setDisabledLike($("monitor-resume"), true);
+      setDisabledLike($("monitor-resume-restore-revision"), true);
+      setDisabledLike(resumeLoadCurrentBtn, true);
+      setDisabledLike(resumeApplyTemplateBtn, true);
+      setDisabledLike(resumeSaveTemplateBtn, true);
+      setDisabledLike(resumePresetSelect, true);
+      setDisabledLike($("monitor-resume-preset-dir"), true);
+      setDisabledLike($("monitor-resume-preset-dir-browse"), true);
+      setDisabledLike($("monitor-resume-preset-dir-reload"), true);
+      setDisabledLike($("monitor-resume-config-revision"), true);
+      setDisabledLike(resumeEditor, true);
+      setMonitorResumeInfo(t("page.raw_stack.title", "Raw Stack"));
+      return;
+    }
     const phase = runMonitorSelectedPhase();
     const selectedRow = document.querySelector(".ps-phase-row.is-selected");
     const resumable = String(selectedRow?.dataset?.resumeAllowed || "") === "1";
@@ -5261,6 +5344,13 @@ async function bindRunMonitor() {
     renderArtifacts(result?.items || []);
   };
   const refreshStatsActions = async () => {
+    if (isPreprocessingMonitor) {
+      setDisabledLike(statsGenerateBtn, true);
+      setDisabledLike(statsOpenFolderBtn, true);
+      setMonitorReportAvailable(Boolean(uiState.currentRunId));
+      setInlineAsyncStatus(statsStatusEl, "");
+      return null;
+    }
     const target = runMonitorTargetContext();
     if (!target.runId) {
       uiState.monitorStatsStatus = null;
@@ -5291,7 +5381,7 @@ async function bindRunMonitor() {
     const statsTargetMatches = normalizeRunIdPath(uiState.monitorStatsRunId || "") === normalizeRunIdPath(target.runId || "");
     const canGenerateStats = hasRun && isTerminalRunStatus(target.state) && !(statsTargetMatches && String(uiState.monitorStatsStatus?.state || "").toLowerCase() === "running");
     const hasStatsOutput = statsTargetMatches && Boolean(String(uiState.monitorStatsStatus?.output_dir || "").trim());
-    setDisabledLike(startBtn, isActive);
+    setDisabledLike(startBtn, isPreprocessingMonitor || isActive);
     setDisabledLike(stopBtn, !isActive);
     setDisabledLike(statsGenerateBtn, !canGenerateStats);
     setDisabledLike(statsOpenFolderBtn, !hasStatsOutput);
@@ -5470,6 +5560,13 @@ async function bindRunMonitor() {
   $("monitor-stop")?.addEventListener("click", async () => {
     if (!uiState.currentRunId) return;
     try {
+      if (isPreprocessingMonitor) {
+        const result = await api.post(API_ENDPOINTS.preprocessing.cancel, { job_id: preprocessingJobId });
+        setFooter(result?.ok ? "Raw-Stack-Stop gesendet." : "Raw-Stack-Stop nicht bestaetigt.", !result?.ok);
+        const status = await loadPreprocessingMonitorStatus(preprocessingJobId);
+        setMonitorActionState(isRunActiveStatus(status?.status || ""));
+        return;
+      }
       const result = await api.post(API_ENDPOINTS.runs.stop(uiState.currentRunId), {});
       if (result.ok) {
         const stoppedJobs = Array.isArray(result.cancelled_jobs) ? result.cancelled_jobs.length : 0;
@@ -5643,6 +5740,19 @@ async function bindRunMonitor() {
 
   $("monitor-report")?.addEventListener("click", async () => {
     try {
+      if (isPreprocessingMonitor) {
+        const report = await api.get(API_ENDPOINTS.preprocessing.report(preprocessingJobId));
+        const targetRunId = normalizeRunIdPath(report?.run_id || uiState.currentRunId || localStorage.getItem(PREPROCESSING_RUN_ID_KEY) || "");
+        if (!targetRunId) {
+          setFooter("Preprocessing-Report nicht verfuegbar.", true);
+          return;
+        }
+        const artifactPath = "artifacts/preprocess/preprocessing_report.html";
+        const targetWindow = window.open(api.httpUrl(API_ENDPOINTS.runs.artifactRaw(targetRunId, artifactPath)), "_blank");
+        if (!targetWindow) setFooter("Preprocessing-Report konnte nicht geoeffnet werden.", true);
+        else setFooter(formatI18n("ui.message.monitor_report_path", "Report: {path}", { path: report.report_html || artifactPath }));
+        return;
+      }
       const target = runMonitorTargetContext();
       const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir)).catch(() => uiState.monitorStatsStatus);
       if (!status?.report_path) {
@@ -5681,6 +5791,26 @@ async function bindRunMonitor() {
   try {
     const appConstants = await api.get(API_ENDPOINTS.app.constants).catch(() => null);
     applyRunMonitorResumePhaseAvailability(appConstants?.resume_from);
+    if (isPreprocessingMonitor) {
+      const status = await loadPreprocessingMonitorStatus(preprocessingJobId);
+      await refreshArtifacts();
+      await refreshStatsActions();
+      const isActive = isRunActiveStatus(status?.status || "");
+      setMonitorActionState(isActive);
+      if (isActive) {
+        setRunMonitorLogLines([]);
+        const pollPreprocessing = async () => {
+          const latest = await loadPreprocessingMonitorStatus(preprocessingJobId).catch(() => null);
+          await refreshArtifacts().catch(() => {});
+          const active = isRunActiveStatus(latest?.status || "");
+          setMonitorActionState(active);
+          if (active) window.setTimeout(pollPreprocessing, 1500);
+        };
+        window.setTimeout(pollPreprocessing, 1500);
+      }
+      updateResumeEnabled();
+      return;
+    }
     await loadRunRevisions();
     const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ project: {}, run: { current: {} } }));
     const currentRunId = String(appState?.project?.current_run_id || "").trim();
@@ -7006,6 +7136,793 @@ async function bindPccPage() {
   }).catch(() => {});
 }
 
+function rawStackBool(id) {
+  return String($(id)?.value || "false") === "true";
+}
+
+function rawStackNumber(id, fallback) {
+  const value = Number($(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function rawStackInputDir() {
+  return parseInputDirs(String($("inp-dirs")?.value || ""))[0] || "";
+}
+
+function rawStackInputMode() {
+  const mode = String($("inp-colormode")?.value || "").trim().toUpperCase();
+  if (mode === "OSC") return "cfa_osc";
+  if (mode === "MONO") return "mono";
+  return "auto";
+}
+
+function rawStackBayerPattern() {
+  const raw = String($("inp-bayer")?.value || "").trim();
+  if (!raw || raw.toLowerCase().startsWith("auto")) return "auto";
+  return raw.toUpperCase();
+}
+
+function rawStackCalibrationInput(kind) {
+  const enabled = Boolean($(`cal-${kind}`)?.checked);
+  const useMaster = String($(`cal-${kind}-source`)?.value || "false") === "true";
+  const path = String($(`cal-${kind}-dir`)?.value || "").trim();
+  return { enabled, useMaster, path };
+}
+
+function rawStackSetCheckbox(id, value) {
+  const el = $(id);
+  if (el) el.checked = Boolean(value);
+}
+
+function rawStackSetScanInputMode(value) {
+  const mode = String(value || "auto").toLowerCase();
+  if (mode === "cfa_osc" || mode === "osc") {
+    rawStackSetSelect("inp-colormode", "OSC");
+    return;
+  }
+  if (mode === "mono") {
+    rawStackSetSelect("inp-colormode", "MONO");
+  }
+}
+
+function rawStackSetScanBayer(value) {
+  const raw = String(value || "auto").trim();
+  rawStackSetSelect("inp-bayer", raw.toLowerCase() === "auto" ? "auto (aus FITS-Header)" : raw.toUpperCase());
+}
+
+function rawStackSetCalibrationInput(kind, enabled, useMaster, dirPath, masterPath) {
+  rawStackSetCheckbox(`cal-${kind}`, enabled);
+  rawStackSetSelect(`cal-${kind}-source`, Boolean(useMaster));
+  const el = $(`cal-${kind}-dir`);
+  if (el) el.value = useMaster ? (masterPath || "") : (dirPath || "");
+}
+
+function rawStackDefaultHmsConfig() {
+  return {
+    require_successful_pcc: true,
+    mode: "ready_to_use",
+    sensor_profile: "rec709",
+    fallback_profile: "rec709",
+    adaptive_anchor: true,
+    target_bg: 0.15,
+    protect_b: 6.0,
+    convergence_power: 3.5,
+    log_d_mode: "auto",
+    fixed_log_d: 2.0,
+    color_strategy: "fixed",
+    fixed_color_strategy: 0.0,
+    color_grip: 1.0,
+    shadow_convergence: 0.0,
+    linear_expansion: 0.0,
+    write_channels: false,
+    output_rgb: "stacked_rgb_hms.fits",
+  };
+}
+
+function rawStackNormalizeDefaultsConfig(config) {
+  const normalized = config && typeof config === "object" && !Array.isArray(config)
+    ? { ...config }
+    : {};
+  const postprocess = normalized.postprocess && typeof normalized.postprocess === "object" && !Array.isArray(normalized.postprocess)
+    ? { ...normalized.postprocess }
+    : {};
+  postprocess.hypermetric_stretch = true;
+  normalized.postprocess = postprocess;
+  normalized.hypermetric_stretch = { ...rawStackDefaultHmsConfig(), ...(normalized.hypermetric_stretch || {}) };
+  normalized.rejection = {
+    method: "sigma",
+    low: 3,
+    high: 3,
+    max_iters: 3,
+    min_fraction: 0.4,
+    ...(normalized.rejection || {}),
+  };
+  normalized.stacking = {
+    normalization: "addscale",
+    weighting: "quality",
+    cosmetic_correction: false,
+    cosmetic_correction_sigma: 5,
+    per_frame_cosmetic_correction: false,
+    per_frame_cosmetic_correction_sigma: 5,
+    ...(normalized.stacking || {}),
+  };
+  normalized.runtime_limits = {
+    parallel_workers: 4,
+    memory_budget: 512,
+    ...(normalized.runtime_limits || {}),
+  };
+  return normalized;
+}
+
+async function rawStackConfigFromLoadedTileConfig() {
+  try {
+    const yamlText = String(await resolveConfigYamlForRun() || "");
+    if (!yamlText.trim()) return null;
+    const parsed = await patchConfig({ yamlText, updates: [] });
+    const config = parsed?.config && typeof parsed.config === "object" ? parsed.config : null;
+    if (!config) return null;
+    const out = {};
+    const runtime = config.runtime_limits;
+    if (runtime && typeof runtime === "object" && !Array.isArray(runtime)) {
+      out.runtime_limits = {};
+      if (Number(runtime.parallel_workers) >= 1) out.runtime_limits.parallel_workers = Number(runtime.parallel_workers);
+      if (Number(runtime.memory_budget) >= 1) out.runtime_limits.memory_budget = Number(runtime.memory_budget);
+      if (Object.keys(out.runtime_limits).length === 0) delete out.runtime_limits;
+    }
+    const normalization = config.normalization;
+    if (normalization && typeof normalization === "object" && !Array.isArray(normalization)) {
+      const mode = String(normalization.mode || "").trim();
+      if (["background", "median", "addscale", "none"].includes(mode)) {
+        out.stacking = { ...(out.stacking || {}), normalization: mode };
+      }
+    }
+    const stacking = config.stacking;
+    if (stacking && typeof stacking === "object" && !Array.isArray(stacking)) {
+      const nextStacking = { ...(out.stacking || {}) };
+      const nextRejection = {};
+      if (typeof stacking.cosmetic_correction === "boolean") nextStacking.cosmetic_correction = stacking.cosmetic_correction;
+      if (Number(stacking.cosmetic_correction_sigma) > 0) nextStacking.cosmetic_correction_sigma = Number(stacking.cosmetic_correction_sigma);
+      if (typeof stacking.per_frame_cosmetic_correction === "boolean") nextStacking.per_frame_cosmetic_correction = stacking.per_frame_cosmetic_correction;
+      if (Number(stacking.per_frame_cosmetic_correction_sigma) > 0) nextStacking.per_frame_cosmetic_correction_sigma = Number(stacking.per_frame_cosmetic_correction_sigma);
+      if (["quality", "uniform"].includes(String(stacking.weighting || ""))) nextStacking.weighting = String(stacking.weighting);
+      const sigma = stacking.sigma_clip;
+      if (sigma && typeof sigma === "object" && !Array.isArray(sigma)) {
+        if (Number(sigma.sigma_low) > 0) nextRejection.low = Number(sigma.sigma_low);
+        if (Number(sigma.sigma_high) > 0) nextRejection.high = Number(sigma.sigma_high);
+        if (Number(sigma.max_iters) >= 1) nextRejection.max_iters = Number(sigma.max_iters);
+        if (Number(sigma.min_fraction) >= 0 && Number(sigma.min_fraction) <= 1) nextRejection.min_fraction = Number(sigma.min_fraction);
+      }
+      if (Object.keys(nextStacking).length > 0) out.stacking = nextStacking;
+      if (Object.keys(nextRejection).length > 0) out.rejection = nextRejection;
+    }
+    const nextPostprocess = {};
+    const astrometry = config.astrometry;
+    if (astrometry && typeof astrometry === "object" && !Array.isArray(astrometry) && typeof astrometry.enabled === "boolean") {
+      nextPostprocess.astrometry = astrometry.enabled;
+      out.astrometry = { ...astrometry };
+    }
+    const bge = config.bge;
+    if (bge && typeof bge === "object" && !Array.isArray(bge) && typeof bge.enabled === "boolean") {
+      nextPostprocess.bge = bge.enabled;
+      out.bge = { ...bge };
+    }
+    const pcc = config.pcc;
+    if (pcc && typeof pcc === "object" && !Array.isArray(pcc) && typeof pcc.enabled === "boolean") {
+      nextPostprocess.pcc = pcc.enabled;
+      out.pcc = { ...pcc };
+    }
+    const hms = config.hypermetric_stretch;
+    if (hms && typeof hms === "object" && !Array.isArray(hms)) {
+      out.hypermetric_stretch = { ...hms };
+      if (typeof hms.enabled === "boolean") nextPostprocess.hypermetric_stretch = hms.enabled;
+    }
+    if (Object.keys(nextPostprocess).length > 0) out.postprocess = nextPostprocess;
+    return Object.keys(out).length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function rawStackMergeConfigPatch(config, patch) {
+  if (!patch || typeof patch !== "object") return config;
+  const next = { ...config };
+  ["runtime_limits", "stacking", "rejection", "postprocess", "astrometry", "bge", "pcc", "hypermetric_stretch"].forEach((key) => {
+    if (patch[key] && typeof patch[key] === "object" && !Array.isArray(patch[key])) {
+      next[key] = { ...(next[key] || {}), ...patch[key] };
+    }
+  });
+  return next;
+}
+
+function rawStackParameterOptions(path) {
+  const options = {
+    "input_mode": ["auto", "cfa_osc", "mono"],
+    "bayer_pattern": ["auto", "RGGB", "BGGR", "GRBG", "GBRG", "UNKNOWN"],
+    "mono_mode": ["auto", "mono"],
+    "registration_reference": ["best_quality"],
+    "rejection.method": ["sigma", "median", "winsor"],
+    "quality_filter.mode": ["auto", "strict", "relaxed", "off"],
+    "stacking.normalization": ["background", "median", "addscale", "none"],
+    "stacking.weighting": ["quality", "uniform"],
+    "hypermetric_stretch.mode": ["ready_to_use", "scientific"],
+    "hypermetric_stretch.sensor_profile": ["rec709", "Sony IMX415"],
+    "hypermetric_stretch.fallback_profile": ["rec709", "Sony IMX415"],
+    "hypermetric_stretch.log_d_mode": ["auto", "fixed"],
+    "hypermetric_stretch.color_strategy": ["auto", "fixed"],
+  };
+  return options[path] || null;
+}
+
+function rawStackEditorConfig() {
+  const raw = String($("raw-stack-config-json")?.value || "").trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function rawStackReadConfig() {
+  const bias = rawStackCalibrationInput("bias");
+  const dark = rawStackCalibrationInput("dark");
+  const flat = rawStackCalibrationInput("flat");
+  const editorConfig = rawStackEditorConfig();
+  const editorCalibration = editorConfig.calibration && typeof editorConfig.calibration === "object" && !Array.isArray(editorConfig.calibration)
+    ? editorConfig.calibration
+    : {};
+  const editorRejection = editorConfig.rejection && typeof editorConfig.rejection === "object" && !Array.isArray(editorConfig.rejection)
+    ? editorConfig.rejection
+    : {};
+  const editorQuality = editorConfig.quality_filter && typeof editorConfig.quality_filter === "object" && !Array.isArray(editorConfig.quality_filter)
+    ? editorConfig.quality_filter
+    : {};
+  const editorStacking = editorConfig.stacking && typeof editorConfig.stacking === "object" && !Array.isArray(editorConfig.stacking)
+    ? editorConfig.stacking
+    : {};
+  const editorReport = editorConfig.report && typeof editorConfig.report === "object" && !Array.isArray(editorConfig.report)
+    ? editorConfig.report
+    : {};
+  const editorHms = editorConfig.hypermetric_stretch && typeof editorConfig.hypermetric_stretch === "object" && !Array.isArray(editorConfig.hypermetric_stretch)
+    ? editorConfig.hypermetric_stretch
+    : {};
+  return {
+    ...editorConfig,
+    mode: "linear_prestack",
+    lights_dir: rawStackInputDir(),
+    bias_dir: bias.useMaster ? "" : bias.path,
+    darks_dir: dark.useMaster ? "" : dark.path,
+    flats_dir: flat.useMaster ? "" : flat.path,
+    input_mode: rawStackInputMode(),
+    raw_formats: "tile_compile",
+    bayer_pattern: rawStackBayerPattern(),
+    cfa_mode: "tile_compile",
+    mono_mode: editorConfig.mono_mode || "auto",
+    registration_reference: editorConfig.registration_reference || "best_quality",
+    calibration: {
+      ...editorCalibration,
+      use_bias: bias.enabled,
+      use_dark: dark.enabled,
+      use_flat: flat.enabled,
+      bias_master: bias.useMaster ? bias.path : "",
+      dark_master: dark.useMaster ? dark.path : "",
+      flat_master: flat.useMaster ? flat.path : "",
+      dark_auto_select: editorCalibration.dark_auto_select !== false,
+      dark_match_use_temp: Boolean(editorCalibration.dark_match_use_temp),
+      pattern: editorCalibration.pattern || "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz",
+    },
+    rejection: {
+      ...editorRejection,
+      method: $("raw-stack-rejection")?.value || editorRejection.method || "sigma",
+      low: rawStackNumber("raw-stack-rej-low", 3.0),
+      high: rawStackNumber("raw-stack-rej-high", 3.0),
+      max_iters: Number(editorRejection.max_iters) >= 1 ? Number(editorRejection.max_iters) : 3,
+      min_fraction: Number(editorRejection.min_fraction) >= 0 ? Number(editorRejection.min_fraction) : 0.4,
+    },
+    quality_filter: {
+      ...editorQuality,
+      mode: $("raw-stack-quality-mode")?.value || editorQuality.mode || "auto",
+      min_stars: rawStackNumber("raw-stack-min-stars", 30),
+      min_correlation: rawStackNumber("raw-stack-min-corr", 0.75),
+      max_fwhm_sigma: rawStackNumber("raw-stack-fwhm-sigma", 2.0),
+      max_eccentricity: rawStackNumber("raw-stack-ecc", 0.65),
+    },
+    stacking: {
+      ...editorStacking,
+      normalization: $("raw-stack-normalization")?.value || editorStacking.normalization || "addscale",
+      weighting: $("raw-stack-weighting")?.value || editorStacking.weighting || "quality",
+      cosmetic_correction: Boolean(editorStacking.cosmetic_correction),
+      cosmetic_correction_sigma: Number(editorStacking.cosmetic_correction_sigma) > 0 ? Number(editorStacking.cosmetic_correction_sigma) : 5,
+      per_frame_cosmetic_correction: Boolean(editorStacking.per_frame_cosmetic_correction),
+      per_frame_cosmetic_correction_sigma: Number(editorStacking.per_frame_cosmetic_correction_sigma) > 0 ? Number(editorStacking.per_frame_cosmetic_correction_sigma) : 5,
+    },
+    postprocess: {
+      astrometry: rawStackBool("raw-stack-astrometry"),
+      bge: rawStackBool("raw-stack-bge"),
+      pcc: rawStackBool("raw-stack-pcc"),
+      hypermetric_stretch: rawStackBool("raw-stack-hms"),
+    },
+    hypermetric_stretch: { ...rawStackDefaultHmsConfig(), ...editorHms },
+    report: {
+      ...editorReport,
+      detailed: true,
+      formats: Array.isArray(editorReport.formats) ? editorReport.formats : ["json", "markdown", "html"],
+    },
+  };
+}
+
+function rawStackSetSelect(id, value) {
+  const el = $(id);
+  if (el) el.value = String(value);
+}
+
+function rawStackApplyConfig(config) {
+  const c = config || {};
+  if ($("inp-dirs")) $("inp-dirs").value = c.lights_dir || "";
+  rawStackSetScanInputMode(c.input_mode || "auto");
+  rawStackSetScanBayer(c.bayer_pattern || "auto");
+  const cal = c.calibration || {};
+  rawStackSetCalibrationInput("bias", cal.use_bias, Boolean(cal.bias_master), c.bias_dir, cal.bias_master);
+  rawStackSetCalibrationInput("dark", cal.use_dark, Boolean(cal.dark_master), c.darks_dir, cal.dark_master);
+  rawStackSetCalibrationInput("flat", cal.use_flat, Boolean(cal.flat_master), c.flats_dir, cal.flat_master);
+  const q = c.quality_filter || {};
+  rawStackSetSelect("raw-stack-quality-mode", q.mode || "auto");
+  if ($("raw-stack-min-stars")) $("raw-stack-min-stars").value = q.min_stars ?? 30;
+  if ($("raw-stack-min-corr")) $("raw-stack-min-corr").value = q.min_correlation ?? 0.75;
+  if ($("raw-stack-fwhm-sigma")) $("raw-stack-fwhm-sigma").value = q.max_fwhm_sigma ?? 2.0;
+  if ($("raw-stack-ecc")) $("raw-stack-ecc").value = q.max_eccentricity ?? 0.65;
+  const r = c.rejection || {};
+  rawStackSetSelect("raw-stack-rejection", r.method || "sigma");
+  if ($("raw-stack-rej-low")) $("raw-stack-rej-low").value = r.low ?? 3.0;
+  if ($("raw-stack-rej-high")) $("raw-stack-rej-high").value = r.high ?? 3.0;
+  const s = c.stacking || {};
+  rawStackSetSelect("raw-stack-normalization", s.normalization || "addscale");
+  rawStackSetSelect("raw-stack-weighting", s.weighting || "quality");
+  const p = c.postprocess || {};
+  rawStackSetSelect("raw-stack-astrometry", p.astrometry !== false);
+  rawStackSetSelect("raw-stack-bge", p.bge !== false);
+  rawStackSetSelect("raw-stack-pcc", p.pcc !== false);
+  rawStackSetSelect("raw-stack-hms", p.hypermetric_stretch !== false);
+  if ($("raw-stack-config-json")) {
+    $("raw-stack-config-json").value = JSON.stringify(c, null, 2);
+  }
+  rawStackUpdateJson();
+}
+
+function rawStackUpdateJson() {
+  const el = $("raw-stack-config-json");
+  if (!el) return;
+  el.value = JSON.stringify(rawStackReadConfig(), null, 2);
+}
+
+function rawStackValueAt(config, path) {
+  return String(path || "").split(".").reduce((acc, part) => (
+    acc && typeof acc === "object" ? acc[part] : undefined
+  ), config);
+}
+
+function rawStackSetValueAt(config, path, value) {
+  const parts = String(path || "").split(".").filter(Boolean);
+  if (parts.length === 0) return config;
+  let target = config;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i];
+    if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) {
+      target[key] = {};
+    }
+    target = target[key];
+  }
+  target[parts[parts.length - 1]] = value;
+  return config;
+}
+
+function rawStackParseParameterValue(raw, previousValue) {
+  const text = String(raw ?? "");
+  if (typeof previousValue === "boolean") return text === "true";
+  if (typeof previousValue === "number") {
+    const n = Number(text);
+    return Number.isFinite(n) ? n : previousValue;
+  }
+  if (previousValue && typeof previousValue === "object") {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return previousValue;
+    }
+  }
+  return text;
+}
+
+function rawStackParameterControl(path, value) {
+  const data = `data-raw-stack-param="1" data-path="${escapeRunMonitorAttr(path)}"`;
+  const enumOptions = rawStackParameterOptions(path);
+  if (Array.isArray(enumOptions) && enumOptions.length > 0) {
+    const current = String(value ?? "");
+    const options = enumOptions.map((item) => {
+      const v = String(item);
+      return `<option value="${escapeRunMonitorAttr(v)}" ${v === current ? "selected" : ""}>${escapeRunMonitorHtml(v)}</option>`;
+    }).join("");
+    return `<select class="ps-input raw-stack-param-input" ${data}>${options}</select>`;
+  }
+  if (typeof value === "boolean") {
+    return `<select class="ps-input raw-stack-param-input" ${data}>
+      <option value="true" ${value ? "selected" : ""}>true</option>
+      <option value="false" ${!value ? "selected" : ""}>false</option>
+    </select>`;
+  }
+  if (typeof value === "number") {
+    return `<input class="ps-input raw-stack-param-input" type="number" step="any" value="${escapeRunMonitorAttr(value)}" ${data}>`;
+  }
+  if (value && typeof value === "object") {
+    return `<textarea class="ps-input raw-stack-param-input raw-stack-param-json" rows="3" spellcheck="false" ${data}>${escapeRunMonitorHtml(JSON.stringify(value))}</textarea>`;
+  }
+  return `<input class="ps-input raw-stack-param-input" type="text" value="${escapeRunMonitorAttr(value ?? "")}" ${data}>`;
+}
+
+function rawStackCommitParameterEdit(el) {
+  const path = String(el?.dataset?.path || "");
+  if (!path) return;
+  const current = rawStackReadConfig();
+  const previousValue = rawStackValueAt(current, path);
+  const nextValue = rawStackParseParameterValue(el.value, previousValue);
+  rawStackSetValueAt(current, path, nextValue);
+  if ($("raw-stack-config-json")) {
+    $("raw-stack-config-json").value = JSON.stringify(current, null, 2);
+  }
+  rawStackApplyConfig(current);
+}
+
+function rawStackRenderParameterGroups(groups, config) {
+  const host = $("raw-stack-parameter-groups");
+  if (!host) return;
+  const visibleGroups = Array.isArray(groups) ? groups : [];
+  host.innerHTML = visibleGroups.map((group) => {
+    const paths = Array.isArray(group.paths) ? group.paths : [];
+    const rows = paths.map((path) => {
+      const value = rawStackValueAt(config, path);
+      return `<div class="ps-row raw-stack-param-row">
+        <label>${escapeRunMonitorHtml(path)}</label>
+        ${rawStackParameterControl(path, value)}
+      </div>`;
+    }).join("");
+    return `<details class="ps-card raw-stack-parameter-group">
+      <summary class="ps-section-title">${escapeRunMonitorHtml(group.label || group.id || "Group")}</summary>
+      ${rows}
+    </details>`;
+  }).join("");
+  host.querySelectorAll("[data-raw-stack-param]").forEach((el) => {
+    const eventName = el.tagName === "SELECT" ? "change" : "change";
+    el.addEventListener(eventName, () => rawStackCommitParameterEdit(el));
+  });
+}
+
+function rawStackParseCsv(text) {
+  const lines = String(text || "").split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(",");
+  return lines.slice(1).map((line) => {
+    const cells = line.split(",");
+    const row = {};
+    header.forEach((key, idx) => { row[key] = cells[idx] ?? ""; });
+    return row;
+  });
+}
+
+function rawStackSetManualOverride(index, filename, include) {
+  const editor = rawStackEditorConfig();
+  const quality = editor.quality_filter && typeof editor.quality_filter === "object" && !Array.isArray(editor.quality_filter)
+    ? { ...editor.quality_filter }
+    : {};
+  const overrides = quality.manual_overrides && typeof quality.manual_overrides === "object" && !Array.isArray(quality.manual_overrides)
+    ? { ...quality.manual_overrides }
+    : {};
+  overrides[String(index)] = { index: Number(index), filename: String(filename || ""), include: Boolean(include) };
+  quality.manual_overrides = overrides;
+  const next = { ...rawStackReadConfig(), quality_filter: { ...(rawStackReadConfig().quality_filter || {}), ...quality } };
+  const el = $("raw-stack-config-json");
+  if (el) el.value = JSON.stringify(next, null, 2);
+}
+
+function rawStackRenderFrameTable(rows) {
+  const host = $("raw-stack-frame-table");
+  if (!host) return;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    host.innerHTML = "";
+    return;
+  }
+  host.innerHTML = `<div class="ps-section-title" style="margin-bottom:6px;">Verwendete Frames (${rows.length})</div><table class="ps-table" style="min-width:820px;">
+    <thead><tr><th>Use</th><th>Index</th><th>Frame</th><th>Stars</th><th>FWHM</th><th>ECC</th><th>CC</th><th>Score</th><th>Reason</th></tr></thead>
+    <tbody>${rows.map((row) => {
+      const included = String(row.included || "0") === "1";
+      const index = String(row.index || "0");
+      const filename = String(row.filename || "");
+      return `<tr>
+        <td><input type="checkbox" data-raw-stack-frame-override="1" data-index="${escapeRunMonitorAttr(index)}" data-filename="${escapeRunMonitorAttr(filename)}" ${included ? "checked" : ""}></td>
+        <td>${escapeRunMonitorHtml(index)}</td>
+        <td>${escapeRunMonitorHtml(filename)}</td>
+        <td>${escapeRunMonitorHtml(row.star_count || "-")}</td>
+        <td>${escapeRunMonitorHtml(row.fwhm || "-")}</td>
+        <td>${escapeRunMonitorHtml(row.eccentricity || "-")}</td>
+        <td>${escapeRunMonitorHtml(row.registration_cc || "-")}</td>
+        <td>${escapeRunMonitorHtml(row.quality_score || "-")}</td>
+        <td>${escapeRunMonitorHtml(row.exclusion_reason || "-")}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+  host.querySelectorAll("[data-raw-stack-frame-override]").forEach((el) => {
+    el.addEventListener("change", () => {
+      rawStackSetManualOverride(el.dataset.index || "0", el.dataset.filename || "", el.checked);
+      rawStackUpdateJson();
+    });
+  });
+}
+
+async function rawStackLoadFrameQuality(runId) {
+  const target = String(runId || "").trim();
+  if (!target) return;
+  const payload = await api.get(API_ENDPOINTS.runs.artifactView(target, "artifacts/preprocess/frame_quality.csv"));
+  rawStackRenderFrameTable(rawStackParseCsv(payload?.text || ""));
+}
+
+const RAW_STACK_PHASE_ORDER = [
+  "INPUT_SCAN","CALIBRATION","CFA_CHANNEL_PREP","REFERENCE_SELECTION",
+  "REGISTRATION","QUALITY_ANALYSIS","FRAME_FILTERING","STACKING",
+  "ASTROMETRY","BGE","PCC","HYPERMETRIC_STRETCH","REPORT",
+];
+
+function rawStackRenderPhases(status, livePhase = "", livePct = 0) {
+  const list = $("raw-stack-phase-list");
+  if (!list) return;
+  let phases = Array.isArray(status?.phases) ? status.phases : [];
+  // Wenn Backend noch kein phases-Array liefert, synthetisch aus livePhase aufbauen
+  if (phases.length === 0 && livePhase) {
+    let found = false;
+    phases = RAW_STACK_PHASE_ORDER.map((name) => {
+      if (name === livePhase) { found = true; return { phase: name, status: "running", pct: livePct / 100 }; }
+      return { phase: name, status: found ? "pending" : "ok", pct: found ? 0 : 1 };
+    });
+  }
+  list.innerHTML = phases.map((p) => {
+    const phase = String(p.phase || "-");
+    const state = String(p.status || "pending");
+    const tone = state === "ok" ? "ok" : state === "failed" || state === "error" ? "error" : state === "running" ? "running" : "check";
+    const pct = formatLogPercent(p.pct ?? p.progress ?? 0);
+    return `<div class="ps-row"><label>${phase}</label><span class="shell-status-chip shell-status-chip-${tone}">${state}${pct ? ` ${pct}` : ""}</span></div>`;
+  }).join("");
+}
+
+async function bindRawStackPage() {
+  if (pageName() !== "raw-stack.html") return;
+  const chip = $("raw-stack-status-chip");
+  const logBox = $("raw-stack-log");
+  let currentJobId = localStorage.getItem(PREPROCESSING_JOB_KEY) || "";
+
+  const currentConfig = () => rawStackReadConfig();
+
+  async function loadDefaults(reset = false) {
+    const parameters = reset
+      ? await api.get(API_ENDPOINTS.preprocessing.defaults)
+      : await api.get(API_ENDPOINTS.preprocessing.parameters);
+    let config = rawStackNormalizeDefaultsConfig(parameters?.config || {});
+    config = rawStackMergeConfigPatch(config, await rawStackConfigFromLoadedTileConfig());
+    rawStackApplyConfig(config);
+    rawStackRenderParameterGroups(parameters?.groups || [], rawStackReadConfig());
+  }
+
+  // Liest events.jsonl und leitet livePhase/livePct ab; gibt { livePhase, livePct, logLines } zurück
+  async function loadEventsLog(runId) {
+    if (!runId) return { livePhase: "", livePct: 0, logLines: [] };
+    try {
+      const payload = await api.get(API_ENDPOINTS.runs.artifactView(runId, "artifacts/preprocess/events.jsonl"));
+      const text = String(payload?.text || "");
+      if (!text.trim()) return { livePhase: "", livePct: 0, logLines: [] };
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      let livePhase = "";
+      let livePct = 0;
+      const logLines = [];
+      for (const l of lines) {
+        try {
+          const ev = JSON.parse(l);
+          const evType = String(ev.type || "").toLowerCase();
+          const evPhase = String(ev.phase_name || ev.payload?.phase_name || ev.phase || ev.payload?.phase || "").trim();
+          if (evType === "phase_start" && evPhase) { livePhase = evPhase; livePct = 0; }
+          if (evType === "phase_progress" && evPhase) {
+            livePhase = evPhase;
+            livePct = Math.round((ev.pct ?? ev.progress ?? ev.payload?.pct ?? ev.payload?.progress ?? 0) * 100);
+          }
+          if (evType === "phase_end") { livePhase = ""; livePct = 0; }
+          const formatted = formatStructuredLogLine(ev, { suppressRunStatus: true });
+          if (formatted) logLines.push(formatted);
+        } catch { logLines.push(l); }
+      }
+      return { livePhase, livePct, logLines };
+    } catch { return { livePhase: "", livePct: 0, logLines: [] }; }
+  }
+
+  async function refreshStatus() {
+    if (!currentJobId) return null;
+    const status = await api.get(API_ENDPOINTS.preprocessing.status(currentJobId));
+    const s = String(status.status || "unknown").toLowerCase();
+    const isRunning = isActiveJobState(s);
+    console.log("[raw-stack] refreshStatus", s, "phase:", status.current_phase, "phases:", status.phases?.length);
+
+    // Run-ID aus Status oder localStorage
+    const runId = String(
+      status.job?.data?.run_id || status.run_id ||
+      localStorage.getItem(PREPROCESSING_RUN_ID_KEY) || ""
+    ).trim();
+
+    // events.jsonl: Log + livePhase
+    const { livePhase, livePct, logLines } = await loadEventsLog(runId);
+
+    // Log-Box befüllen
+    if (logBox && logLines.length > 0) {
+      logBox.textContent = logLines.join("\n");
+      scrollLogToEnd(logBox);
+    }
+
+    // Phasen-Chips: Backend-Array bevorzugen, sonst aus livePhase ableiten
+    const backendPhase = String(status.current_phase || "").trim();
+    if (isRunning && !backendPhase && livePhase) {
+      rawStackRenderPhases(status, livePhase, livePct);
+    } else {
+      rawStackRenderPhases(status);
+    }
+
+    // Status-Chip
+    const effectivePhase = backendPhase || (isRunning ? livePhase : "");
+    const pctStr = isRunning && livePct > 0 ? ` ${livePct}%` : "";
+    if (s === "ok") {
+      setStatusChip(chip, "OK", "ok");
+    } else if (s === "error" || s === "failed") {
+      setStatusChip(chip, "error", "error");
+    } else if (s === "cancelled") {
+      setStatusChip(chip, "cancelled", "check");
+    } else if (isRunning) {
+      setStatusChip(chip, effectivePhase ? `running: ${effectivePhase}${pctStr}` : "running…", "running");
+    } else {
+      setStatusChip(chip, s || "idle", "check");
+    }
+
+    // frame_quality.csv nach Laufende laden
+    if (!isRunning && runId) {
+      rawStackLoadFrameQuality(runId).catch(() => {});
+    }
+
+    return status;
+  }
+
+  // Poll-Schleife solange aktiv (wie bindRunMonitor)
+  async function startPolling() {
+    const poll = async () => {
+      const status = await refreshStatus().catch(() => null);
+      if (isActiveJobState(String(status?.status || ""))) {
+        window.setTimeout(poll, 2000);
+      }
+    };
+    window.setTimeout(poll, 1000);
+  }
+
+  // --- Event-Handler ---
+
+  document.querySelectorAll("#inp-dirs,#inp-colormode,#inp-bayer,#cal-bias,#cal-bias-source,#cal-bias-dir,#cal-dark,#cal-dark-source,#cal-dark-dir,#cal-flat,#cal-flat-source,#cal-flat-dir,#raw-stack-quality-mode,#raw-stack-min-stars,#raw-stack-min-corr,#raw-stack-fwhm-sigma,#raw-stack-ecc,#raw-stack-rejection,#raw-stack-rej-low,#raw-stack-rej-high,#raw-stack-normalization,#raw-stack-weighting,#raw-stack-astrometry,#raw-stack-bge,#raw-stack-pcc,#raw-stack-hms").forEach((el) => {
+    el.addEventListener("input", rawStackUpdateJson);
+    el.addEventListener("change", rawStackUpdateJson);
+  });
+
+  $("raw-stack-load-defaults")?.addEventListener("click", () => void loadDefaults(false));
+  $("raw-stack-reset-defaults")?.addEventListener("click", () => void loadDefaults(true));
+
+  $("raw-stack-validate-params")?.addEventListener("click", async () => {
+    const statusEl = $("raw-stack-validate-status");
+    const detailsEl = $("raw-stack-validate-details");
+    const setVS = (text, color) => { if (statusEl) { statusEl.textContent = text; statusEl.style.color = color; } };
+    const clearDetails = () => { if (detailsEl) { detailsEl.innerHTML = ""; detailsEl.style.display = "none"; } };
+    try {
+      clearDetails();
+      setStatusChip(chip, "validating", "running");
+      rawStackRenderPhases({ phases: [{ phase: "CONFIG_VALIDATION", status: "running", pct: 0 }] });
+      setVS("Validierung läuft…", "#475569");
+      const result = await api.patch(API_ENDPOINTS.preprocessing.parameters, { config: currentConfig() });
+      rawStackApplyConfig(result.config || {});
+      rawStackRenderParameterGroups(result.groups || [], rawStackReadConfig());
+      const validation = result.validation || {};
+      if (detailsEl) {
+        const checks = Array.isArray(validation.checks) ? validation.checks : [];
+        detailsEl.innerHTML = "";
+        const summary = document.createElement("div");
+        summary.textContent = "Scope: configuration. Bilddaten, Stack-Farbkanäle und Postprocess-Outputs werden erst beim Lauf geprüft.";
+        detailsEl.appendChild(summary);
+        if (checks.length > 0) {
+          const ul = document.createElement("ul");
+          ul.style.cssText = "margin:4px 0 0 18px;padding:0;";
+          checks.forEach((check) => {
+            const li = document.createElement("li");
+            li.textContent = String(check);
+            ul.appendChild(li);
+          });
+          detailsEl.appendChild(ul);
+        }
+        detailsEl.style.display = "block";
+      }
+      setStatusChip(chip, "validated", "ok");
+      rawStackRenderPhases({ phases: [{ phase: "CONFIG_VALIDATION", status: "ok", pct: 1 }] });
+      setVS("Validierung: OK", "#166534");
+      setFooter("Raw-Stack-Parameter validiert.");
+    } catch (err) {
+      const msg = errorText(err);
+      setStatusChip(chip, "validation error", "error");
+      rawStackRenderPhases({ phases: [{ phase: "CONFIG_VALIDATION", status: "error", pct: 1 }] });
+      setVS(`Validierung: ERROR – ${msg}`, "#b91c1c");
+      if (detailsEl) {
+        detailsEl.innerHTML = "";
+        const title = document.createElement("div");
+        title.textContent = "Fehler (1)";
+        title.style.cssText = "margin-top:6px;font-weight:600;color:#b91c1c;";
+        const ul = document.createElement("ul");
+        ul.style.cssText = "margin:4px 0 0 18px;padding:0;";
+        const li = document.createElement("li");
+        li.textContent = msg;
+        ul.appendChild(li);
+        detailsEl.appendChild(title);
+        detailsEl.appendChild(ul);
+        detailsEl.style.display = "block";
+      }
+      setFooter(`Raw-Stack-Validierung fehlgeschlagen: ${msg}`, true);
+    }
+  });
+
+  $("raw-stack-start")?.addEventListener("click", async () => {
+    try {
+      const cfg = currentConfig();
+      setStatusChip(chip, "starting…", "running");
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.preprocessing.run, cfg),
+        { fallbackPath: cfg.lights_dir },
+      );
+      currentJobId = accepted.job_id || "";
+      if (currentJobId) localStorage.setItem(PREPROCESSING_JOB_KEY, currentJobId);
+      if (accepted.run_id) localStorage.setItem(PREPROCESSING_RUN_ID_KEY, String(accepted.run_id));
+      if (accepted.run_dir) localStorage.setItem(PREPROCESSING_RUN_DIR_KEY, String(accepted.run_dir));
+      await refreshStatus().catch(() => {});
+      startPolling();
+    } catch (err) {
+      setStatusChip(chip, "error", "error");
+      setFooter(`Raw-Stack-Lauf fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  $("raw-stack-cancel")?.addEventListener("click", async () => {
+    if (!currentJobId) return;
+    try {
+      await api.post(API_ENDPOINTS.preprocessing.cancel, { job_id: currentJobId });
+      setStatusChip(chip, "cancelled", "check");
+      setFooter("Raw-Stack-Lauf abgebrochen.");
+    } catch (err) {
+      setFooter(`Raw-Stack-Cancel fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  $("raw-stack-open-report")?.addEventListener("click", async () => {
+    const jobId = currentJobId || localStorage.getItem(PREPROCESSING_JOB_KEY) || "";
+    if (!jobId) return;
+    const report = await api.get(API_ENDPOINTS.preprocessing.report(jobId)).catch(() => null);
+    if ($("raw-stack-artifacts") && report) {
+      $("raw-stack-artifacts").textContent = `JSON: ${report.report_json || "-"} | HTML: ${report.report_html || "-"} | Manifest: ${report.manifest || "-"}`;
+    }
+  });
+
+  // --- Init: Defaults laden + letzten Job-Status wiederherstellen ---
+  await loadDefaults().catch((err) => setFooter(`Raw-Stack-Defaults nicht geladen: ${errorText(err)}`, true));
+  if (currentJobId) {
+    const status = await refreshStatus().catch(() => null);
+    if (isActiveJobState(String(status?.status || ""))) {
+      startPolling();
+    }
+  }
+}
+
 async function bindLiveLogPage() {
   const page = pageName();
   if (page !== "live-log.html") return;
@@ -7936,6 +8853,7 @@ async function init() {
   await bindHistoryPage();
   await bindAstrometryPage();
   await bindPccPage();
+  await bindRawStackPage();
   await bindLiveLogPage();
   await bindDashboard();
   await bindWizard();

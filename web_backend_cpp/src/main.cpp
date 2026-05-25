@@ -7,6 +7,7 @@
 #include "routes/runs_routes.hpp"
 #include "routes/ws_routes.hpp"
 #include "routes/tools_routes.hpp"
+#include "routes/preprocessing_routes.hpp"
 
 #define CROW_MAIN
 #include "crow_app.hpp"
@@ -294,6 +295,7 @@ int main(int argc, char* argv[]) {
         register_runs_routes(app, state);
         register_ws_routes(app, state);
         register_tools_routes(app, state);
+        register_preprocessing_routes(app, state);
 
         auto read_ui_file = [&state](const fs::path& relative_path) -> std::optional<std::pair<fs::path, std::string>> {
             fs::path f = state->runtime.ui_dir / relative_path;

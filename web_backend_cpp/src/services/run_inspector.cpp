@@ -762,7 +762,7 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
     if (!fs::is_directory(run_dir)) return items;
 
     static const std::vector<std::string> ARTIFACT_EXTS = {
-        ".json", ".jsonl", ".html", ".yaml", ".yml", ".png", ".fits", ".log"
+        ".json", ".jsonl", ".html", ".md", ".yaml", ".yml", ".csv", ".txt", ".png", ".fits", ".log"
     };
 
     std::function<void(const fs::path&, const std::string&)> scan =

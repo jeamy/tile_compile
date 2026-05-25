@@ -20,6 +20,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
+- Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
 
 ## Datenquellen Für Das Paper-Beispiel
 
@@ -544,6 +545,18 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Versionen
 
+## v0.2.9 (25.05.2026)
+
+**Raw-Stack-Preprocessing-Pipeline:**
+- Neue eigenständige Raw-Stack-Oberfläche: Preprocessing von FITS-Light-Frames bis zum fertigen Stack, vollständig getrennt vom Tile-Compile-Run-Studio.
+- Pipeline umfasst: Kalibrierung, CFA/Mono-Prep, Registrierung, Quality-Filtering, Stacking, Astrometrie, BGE, PCC, HyperMetric Stretch.
+- Alle Parameter (Sigma-Clip, Rejection, Gewichtung, BGE, PCC, Astrometrie, HMS) werden aus der Parameter-Studio-Konfiguration übernommen – keine hartkodierten Werte.
+- Siehe [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md) für die GUI-Dokumentation.
+
+## v0.2.8 (2026-05-23)
+
+-- HMS Bug fixes
+
 ## v0.2.7 (22.05.2026)
 
 **implementationHMS:**
@@ -746,6 +759,17 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Erste öffentliche Version
 
 ## Changelog
+
+### (25.05.2026)
+
+**Raw-Stack-Preprocessing-Pipeline (`v0.2.8`):**
+
+- Neue eigenständige Raw-Stack-Seite in GUI2 für die vollständige Vorverarbeitung von FITS-Light-Frames bis zum fertig gestackten und nachbearbeiteten Bild, läuft vollständig getrennt vom normalen Tile-Compile-Run-Studio.
+- Die Pipeline deckt alle Phasen ab: Kalibrierung (Bias/Dark/Flat), CFA/Mono-Prep, Registrierung, Quality-Analyse, Frame-Filterung, Stacking (Sigma/Median/Winsor), Astrometrie (ASTAP), Background Gradient Extraction (BGE), Photometrische Farbkalibrierung (PCC) und HyperMetric Stretch.
+- Alle konfigurierbaren Parameter (Sigma-Clip, Rejection-Methode, Stacking-Gewichtung, BGE, PCC, Astrometrie und HyperMetric Stretch) werden direkt aus der Parameter-Studio-Konfiguration übernommen – keine hartkodierten Werte.
+- Output-Skalierung stellt Hintergrund und Skala nach dem Stacking korrekt wieder her für akkurate Pixelwerte.
+- Raw-Stack-UI-Bereinigung: Run-Monitor-Button entfernt, vollständige i18n-Abdeckung für alle Labels und Buttons ergänzt.
+- Siehe [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md) für die vollständige GUI-Referenz.
 
 ### (22.05.2026) 
 

@@ -1,4 +1,5 @@
 #include "runner_pipeline.hpp"
+#include "runner_preprocess.hpp"
 #include "runner_resume.hpp"
 
 #include <iostream>
@@ -16,6 +17,7 @@ void print_usage() {
   std::cout << "Usage: tile_compile_runner <command> [options]\n\n"
             << "Commands:\n"
             << "  run      Run the pipeline\n"
+            << "  preprocess Run the separate raw-preprocessing pipeline\n"
             << "  resume   Resume a run from a specific phase\n"
             << "\nOptions:\n"
             << "  --config <path>       Path to config.yaml (run)\n"
@@ -58,10 +60,15 @@ int main(int argc, char *argv[]) {
   std::string run_id_override;
   std::string resume_run_dir;
   std::string resume_from_phase = "PCC";
+  std::string preprocess_config_path;
+  std::string preprocess_runs_dir;
+  std::string preprocess_project_root;
+  std::string preprocess_run_id;
   bool dry_run = false;
   int max_frames = 0;
   int max_tiles = 0;
   bool config_from_stdin = false;
+  bool preprocess_config_from_stdin = false;
 
   auto run_cmd = app.add_subcommand("run", "Run the pipeline");
   run_cmd->add_option("--config", config_path, "Path to config.yaml")
@@ -79,6 +86,15 @@ int main(int argc, char *argv[]) {
   run_cmd->add_flag("--stdin", config_from_stdin,
                     "Read config YAML from stdin (use with --config -)");
 
+  auto preprocess_cmd = app.add_subcommand("preprocess", "Run the separate raw-preprocessing pipeline");
+  preprocess_cmd->add_option("--config", preprocess_config_path, "Path to preprocessing JSON config")
+      ->required();
+  preprocess_cmd->add_option("--runs-dir", preprocess_runs_dir, "Runs directory")->required();
+  preprocess_cmd->add_option("--project-root", preprocess_project_root, "Project root");
+  preprocess_cmd->add_option("--run-id", preprocess_run_id, "Optional run-id override");
+  preprocess_cmd->add_flag("--stdin", preprocess_config_from_stdin,
+                           "Read preprocessing JSON from stdin (use with --config -)");
+
   auto resume_cmd = app.add_subcommand("resume", "Resume an existing run from a resumable phase");
   resume_cmd->add_option("--run-dir", resume_run_dir, "Existing run directory")
       ->required();
@@ -92,6 +108,12 @@ int main(int argc, char *argv[]) {
     return run_command(config_path, input_dir, runs_dir, project_root,
                        run_id_override, dry_run,
                        max_frames, max_tiles, config_from_stdin);
+  }
+
+  if (preprocess_cmd->parsed()) {
+    return preprocess_command(preprocess_config_path, preprocess_runs_dir,
+                              preprocess_project_root, preprocess_run_id,
+                              preprocess_config_from_stdin);
   }
 
   if (resume_cmd->parsed()) {
@@ -111,10 +133,15 @@ int main(int argc, char *argv[]) {
   std::string run_id_override;
   std::string resume_run_dir;
   std::string resume_from_phase = "PCC";
+  std::string preprocess_config_path;
+  std::string preprocess_runs_dir;
+  std::string preprocess_project_root;
+  std::string preprocess_run_id;
   bool dry_run = false;
   int max_frames = 0;
   int max_tiles = 0;
   bool config_from_stdin = false;
+  bool preprocess_config_from_stdin = false;
 
   for (int i = 2; i < argc; ++i) {
     std::string arg = argv[i];
@@ -159,6 +186,22 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     return resume_command(resume_run_dir, resume_from_phase);
+  }
+
+  if (command == "preprocess") {
+    preprocess_config_path = config_path;
+    preprocess_runs_dir = runs_dir;
+    preprocess_project_root = project_root;
+    preprocess_run_id = run_id_override;
+    preprocess_config_from_stdin = config_from_stdin;
+    if (preprocess_config_path.empty() || preprocess_runs_dir.empty()) {
+      std::cerr << "Error: preprocess requires --config and --runs-dir"
+                << std::endl;
+      return 1;
+    }
+    return preprocess_command(preprocess_config_path, preprocess_runs_dir,
+                              preprocess_project_root, preprocess_run_id,
+                              preprocess_config_from_stdin);
   }
 
   print_usage();

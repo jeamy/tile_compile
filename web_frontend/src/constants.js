@@ -90,4 +90,13 @@ export const API_ENDPOINTS = {
     run: "/api/tools/pcc/run",
     saveCorrected: "/api/tools/pcc/save-corrected",
   },
+  preprocessing: {
+    defaults: "/api/tools/preprocessing/defaults",
+    parameters: "/api/tools/preprocessing/parameters",
+    scan: "/api/tools/preprocessing/scan",
+    run: "/api/tools/preprocessing/run",
+    cancel: "/api/tools/preprocessing/cancel",
+    status: (jobId = "") => `/api/tools/preprocessing/status?job_id=${encodeURIComponent(String(jobId || ""))}`,
+    report: (jobId = "") => `/api/tools/preprocessing/report?job_id=${encodeURIComponent(String(jobId || ""))}`,
+  },
 };

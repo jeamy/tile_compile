@@ -17,6 +17,10 @@ export class ApiClient {
     return this._request("POST", path, body);
   }
 
+  async patch(path, body) {
+    return this._request("PATCH", path, body);
+  }
+
   ws(path, onEvent, onError) {
     const wsUrl = this._toWsUrl(path);
     const socket = new WebSocket(wsUrl);

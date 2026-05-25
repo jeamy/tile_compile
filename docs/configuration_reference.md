@@ -41,6 +41,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 20. [Stacking](#20-stacking)
 21. [Validation](#21-validation)
 22. [Runtime Limits](#22-runtime-limits)
+23. [Raw Stack / Preprocessing](#23-raw-stack--preprocessing)
 
 ---
 
@@ -2871,6 +2872,118 @@ Die Schema-Dateien (`tile_compile.schema.json`, `tile_compile.schema.yaml`) defi
 - **Beispiel-Config:** `tile_compile_cpp/tile_compile.yaml`
 
 ---
+
+## 23. Raw Stack / Preprocessing
+
+Raw Stack ist ein separater Preprocessing-Prozess und gehoert nicht zum normalen `tile_compile.yaml`-Hauptstrang. Die Konfiguration wird ueber die Preprocessing-API und den Raw-Stack-Parametereditor verwendet:
+
+- `GET /api/tools/preprocessing/defaults`
+- `GET /api/tools/preprocessing/parameters`
+- `PATCH /api/tools/preprocessing/parameters`
+- `POST /api/tools/preprocessing/run`
+
+Der Prozess teilt Code und Algorithmen mit Tile-Compile, erscheint aber nicht im normalen Run Studio oder normalen Parameter Studio.
+
+### `preprocessing.mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `linear_prestack` |
+| **Werte** | `linear_prestack` |
+
+**Zweck:** Aktiviert den klassischen linearen Pre-Stack-Pfad ohne Tile-Grid, Tile-Rekonstruktion, Synthetic Frames oder State Clustering.
+
+### Input und CFA/Mono
+
+| Parameter | Typ | Default | Zweck |
+|-----------|-----|---------|-------|
+| `lights_dir` | string | `""` | Light-/Raw-Eingabeordner; in der GUI 1:1 ueber `Input & Scan`-Controls. |
+| `bias_dir`, `darks_dir`, `flats_dir`, `darkflats_dir` | string | `""` | Kalibrierordner. |
+| `input_mode` | string | `auto` | `auto`, `cfa_osc`, `mono`. |
+| `raw_formats` | string | `tile_compile` | Nutzt denselben Raw-/FITS-Importumfang wie Tile-Compile. |
+| `bayer_pattern` | string | `auto` | Bayer-Pattern aus Header oder explizit `RGGB`, `GBRG`, `GRBG`, `BGGR`. |
+| `cfa_mode` | string | `tile_compile` | CFA-/OSC-Behandlung ueber Tile-Compile-Logik. |
+| `mono_mode` | string | `auto` | Mono ohne kuenstliche RGB-/Bayer-Annahmen. |
+| `registration_reference` | string | `best_quality` | Referenzframe-Auswahl. |
+
+### `calibration.*`
+
+| Parameter | Typ | Default |
+|-----------|-----|---------|
+| `calibration.use_bias` | boolean | `false` |
+| `calibration.use_dark` | boolean | `false` |
+| `calibration.use_flat` | boolean | `false` |
+| `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`, `darkflat_use_master` | boolean | `false` |
+| `calibration.dark_auto_select` | boolean | `true` |
+| `calibration.dark_match_use_temp` | boolean | `false` |
+| `calibration.dark_match_exposure_tolerance_percent` | number | `8.0` |
+| `calibration.dark_match_temp_tolerance_c` | number | `3.0` |
+| `calibration.bias_master`, `dark_master`, `flat_master`, `darkflat_master` | string | `""` |
+| `calibration.pattern` | string | `*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz` |
+
+### Quality und Stacking
+
+| Parameter | Typ | Default | Werte |
+|-----------|-----|---------|-------|
+| `quality_filter.mode` | string | `auto` | `auto`, `strict`, `relaxed`, `off` |
+| `quality_filter.min_stars` | integer | `30` | >= 0 |
+| `quality_filter.max_fwhm_sigma` | number | `2.0` | > 0 |
+| `quality_filter.max_eccentricity` | number | `0.65` | 0 - 1 |
+| `quality_filter.min_correlation` | number | `0.75` | 0 - 1 |
+| `quality_filter.manual_overrides` | object | `{}` | Optionale Frame-Overrides nach Index oder Dateiname, z. B. `"0": {"include": false}`. |
+| `rejection.method` | string | `sigma` | `sigma`, `median`, `winsor` |
+| `rejection.low`, `rejection.high` | number | `3.0` | > 0 |
+| `stacking.normalization` | string | `addscale` | `addscale`, `background`, `median`, `none` |
+| `stacking.weighting` | string | `quality` | `quality`, `uniform` |
+
+### Postprocess und HMS
+
+| Parameter | Typ | Default |
+|-----------|-----|---------|
+| `postprocess.astrometry` | boolean | `true` |
+| `postprocess.bge` | boolean | `true` |
+| `postprocess.pcc` | boolean | `true` |
+| `postprocess.hypermetric_stretch` | boolean | `true` |
+
+HMS ist per Default aktiv. Die Detailparameter entsprechen dem normalen Tile-Compile-HMS-Vertrag und sind im Raw-Stack-Screen nur im Parametereditor editierbar:
+
+| Parameter | Typ | Default |
+|-----------|-----|---------|
+| `hypermetric_stretch.require_successful_pcc` | boolean | `true` |
+| `hypermetric_stretch.mode` | string | `ready_to_use` |
+| `hypermetric_stretch.sensor_profile` | string | `rec709` |
+| `hypermetric_stretch.fallback_profile` | string | `rec709` |
+| `hypermetric_stretch.adaptive_anchor` | boolean | `true` |
+| `hypermetric_stretch.target_bg` | number | `0.15` |
+| `hypermetric_stretch.protect_b` | number | `6.0` |
+| `hypermetric_stretch.convergence_power` | number | `3.5` |
+| `hypermetric_stretch.log_d_mode` | string | `auto` |
+| `hypermetric_stretch.fixed_log_d` | number | `2.0` |
+| `hypermetric_stretch.color_strategy` | string | `fixed` |
+| `hypermetric_stretch.fixed_color_strategy` | number | `0.0` |
+| `hypermetric_stretch.color_grip` | number | `1.0` |
+| `hypermetric_stretch.shadow_convergence` | number | `0.0` |
+| `hypermetric_stretch.linear_expansion` | number | `0.0` |
+| `hypermetric_stretch.write_channels` | boolean | `false` |
+| `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
+
+### Report
+
+| Parameter | Typ | Default |
+|-----------|-----|---------|
+| `report.detailed` | boolean | `true` |
+| `report.formats` | list | `[json, markdown, html]` |
+
+Raw Stack schreibt Reportdaten unter `artifacts/preprocess/`:
+
+- `preprocessing_report.json`
+- `preprocessing_report.md`
+- `preprocessing_report.html`
+- `frame_quality.csv`
+- `rejected_frames.txt`
+- `events.jsonl`
+- `artifacts_manifest.json`
 
 ## Anhang A — Funktionsdetails für alle Optionen
 

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="de">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Raw Stack</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script type="module" src="shell.js"></script>
+  <script src="theme.js" defer></script>
+  <script type="module" src="tooltips.js"></script>
+</head>
+
+<body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro">Raw-Stack-Preprocessing von Lights bis Stack mit optionaler Kalibrierung, Quality Filtering und
+      Postprocess.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2>Raw Stack</h2>
+        <p class="ps-sub">Separater Preprocessing-Prozess: Input, Calibration, Quality, Stack, Astrometry, BGE, PCC und
+          HyperMetric Stretch.</p>
+
+        <div class="ps-section">
+          <div class="ps-row">
+            <label data-i18n="ui.field.input_dirs">Eingabeordner</label>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="inp-dirs" data-control="input_scan.input_dirs"
+                title="Mehrere Input-Ordner fuer den Scan setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="inp-dirs-browse-btn" type="button"
+                title="Input-Ordner per Verzeichnisdialog auswaehlen.">Browse…</button>
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="inp-dirs-add-btn" type="button"
+                title="Aktuell ausgewaehlten Eingabeordner in die Run-Queue uebernehmen.">+</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="ui.field.pattern">Dateimuster</label>
+            <input class="ps-input" type="text" value="*.fits" id="inp-pattern" data-control="input_scan.pattern"
+              title="Dateimuster fuer Input-Scan setzen.">
+          </div>
+          <div class="ps-row">
+            <label id="input-scan-label-runs-dir" data-i18n="ui.field.runs_dir">Ausgabeordner</label>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="scan-runs-dir" data-control="input_scan.runs_dir"
+                data-i18n-title="ui.tooltip.dashboard.runs_dir" title="Run-Ausgabeordner waehlen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="scan-runs-dir-browse-btn" type="button"
+                title="Runs-Ordner auswaehlen.">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label id="input-scan-label-run-name" data-i18n="ui.field.run_name">Run Name</label>
+            <div class="ps-inline-stack">
+              <input class="ps-input" type="text" value="" id="scan-run-name" data-control="input_scan.run_name"
+                data-i18n-title="ui.tooltip.dashboard.run_name" title="Freien Run-Namen setzen.">
+              <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code>
+                erzeugt.</span>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="page.raw_stack.label_frames_min">Frames Minimum</label>
+            <input class="ps-input ps-short" type="number" value="30" id="inp-frames-min" data-control="scan.frames_min"
+              title="Mindestanzahl Frames fuer Scan-Bewertung.">
+            <span class="ps-hint">Guardrail: unterhalb wird Reduced-/Emergency-Mode relevant.</span>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="ui.field.max_frames">Max. Frames</label>
+            <input class="ps-input ps-short" type="number" value="0" id="inp-maxframes"
+              data-control="input_scan.max_frames" title="Maximale Anzahl Frames fuer den Input-Scan (0=unbegrenzt).">
+            <span class="ps-hint">(0 = unbegrenzt)</span>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="ui.field.sort">Sortierung</label>
+            <select class="ps-select" id="inp-sort" data-control="input_scan.sort"
+              title="Sortierreihenfolge der Inputdateien.">
+              <option>numeric</option>
+              <option>name</option>
+              <option>date</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="ui.field.color_mode">Farbmodus</label>
+            <select class="ps-select" id="inp-colormode" data-control="input_scan.color_mode_confirm"
+              title="Farbmodus bestaetigen (OSC/MONO).">
+              <option>OSC</option>
+              <option selected>MONO</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="ui.field.bayer_pattern">Bayer-Pattern</label>
+            <select class="ps-select" id="inp-bayer" data-control="input_scan.bayer_pattern"
+              title="Bayer-Pattern explizit setzen oder auto aus Header nutzen.">
+              <option selected>auto (aus FITS-Header)</option>
+              <option>RGGB</option>
+              <option>GBRG</option>
+              <option>GRBG</option>
+              <option>BGGR</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label data-i18n="page.raw_stack.label_checksums">Checksummen</label>
+            <input type="checkbox" id="inp-checksums" data-control="input_scan.with_checksums"
+              title="Optionalen Checksummen-Scan aktivieren."> <span class="ps-hint">MD5/SHA beim Scan berechnen</span>
+          </div>
+        </div>
+
+        <div class="ps-section" data-queue-section="run">
+          <div id="raw-stack-run-queue-title" class="ps-section-title">Run-Queue</div>
+          <div class="ps-sub" style="margin-bottom:12px;">Fuege Eingabeordner nur mit <code>+</code> explizit zur
+            Run-Queue hinzu. Fuer <code>MONO</code> kann ein Filter frei zugeordnet werden, fuer <code>OSC</code> wird
+            automatisch <code>OSC</code> gesetzt.</div>
+          <div class="ps-queue-block">
+            <div class="ps-queue-head">
+              <div>Filter</div>
+              <div>Input Dir</div>
+              <div>Pattern</div>
+              <div>Run Label</div>
+              <div>Aktiv</div>
+              <div></div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select">
+                  <option selected value="">-</option>
+                  <option>L</option>
+                  <option>R</option>
+                  <option>G</option>
+                  <option>B</option>
+                  <option>Ha</option>
+                </select></div>
+              <div class="ps-queue-cell">
+                <div class="ps-inline-cluster"><input class="ps-input" type="text" value=""
+                    placeholder="Verzeichnis waehlen"><button class="ps-btn ps-btn-secondary ps-btn-compact"
+                    type="button">Browse…</button></div>
+              </div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value=""
+                  placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              <div class="ps-queue-actions"><button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn"
+                  type="button" title="Queue-Eintrag entfernen.">-</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div id="raw-stack-calibration-title" class="ps-section-title">Kalibrierung</div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-bias" data-control="input_scan.calibration.use_bias"
+              title="Bias-Kalibrierung aktivieren/deaktivieren."> <label for="cal-bias">Bias</label>
+            <select class="ps-select" id="cal-bias-source" data-control="input_scan.calibration.bias_use_master"
+              style="width:190px;">
+              <option value="false" selected>Bias-Ordner</option>
+              <option value="true">Master Bias Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir"
+                data-control="input_scan.calibration.bias_dir" placeholder="Bias-Ordner oder Master-Bias-Datei"
+                title="Bias-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="cal-bias-browse" type="button">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-dark" data-control="input_scan.calibration.use_dark"
+              title="Dark-Kalibrierung aktivieren/deaktivieren."> <label for="cal-dark">Dark</label>
+            <select class="ps-select" id="cal-dark-source" data-control="input_scan.calibration.dark_use_master"
+              style="width:190px;">
+              <option value="false" selected>Darks-Ordner</option>
+              <option value="true">Master Dark Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir"
+                data-control="input_scan.calibration.darks_dir" placeholder="Dark-Ordner oder Master-Dark-Datei"
+                title="Dark-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="cal-dark-browse" type="button">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-flat" data-control="input_scan.calibration.use_flat"
+              title="Flat-Kalibrierung aktivieren/deaktivieren."> <label for="cal-flat">Flat</label>
+            <select class="ps-select" id="cal-flat-source" data-control="input_scan.calibration.flat_use_master"
+              style="width:190px;">
+              <option value="false" selected>Flats-Ordner</option>
+              <option value="true">Master Flat Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir"
+                data-control="input_scan.calibration.flats_dir" placeholder="Flat-Ordner oder Master-Flat-Datei"
+                title="Flat-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="cal-flat-browse" type="button">Browse…</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="ps-section">
+          <div id="raw-stack-quality-title" class="ps-section-title">Quality</div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="raw-stack-quality-mode">Mode</label><select id="raw-stack-quality-mode"
+                class="ps-select">
+                <option value="auto">auto</option>
+                <option value="strict">strict</option>
+                <option value="relaxed">relaxed</option>
+                <option value="off">off</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-min-stars">Min stars</label><input id="raw-stack-min-stars"
+                class="ps-input" type="number" value="30"></div>
+            <div class="ps-row"><label for="raw-stack-min-corr">Min correlation</label><input id="raw-stack-min-corr"
+                class="ps-input" type="number" step="0.01" value="0.75"></div>
+            <div class="ps-row"><label for="raw-stack-fwhm-sigma">Max FWHM sigma</label><input id="raw-stack-fwhm-sigma"
+                class="ps-input" type="number" step="0.1" value="2.0"></div>
+            <div class="ps-row"><label for="raw-stack-ecc">Max eccentricity</label><input id="raw-stack-ecc"
+                class="ps-input" type="number" step="0.01" value="0.65"></div>
+          </div>
+          <div id="raw-stack-quality-result" class="ps-note" style="margin-top:8px;"></div>
+        </section>
+
+        <section class="ps-section">
+          <div id="raw-stack-stack-title" class="ps-section-title">Stack</div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="raw-stack-rejection">Rejection</label><select id="raw-stack-rejection"
+                class="ps-select">
+                <option value="sigma">sigma</option>
+                <option value="median">median</option>
+                <option value="winsor">winsor</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-rej-low">Low</label><input id="raw-stack-rej-low" class="ps-input"
+                type="number" step="0.1" value="3.0"></div>
+            <div class="ps-row"><label for="raw-stack-rej-high">High</label><input id="raw-stack-rej-high"
+                class="ps-input" type="number" step="0.1" value="3.0"></div>
+            <div class="ps-row"><label for="raw-stack-normalization">Normalization</label><select
+                id="raw-stack-normalization" class="ps-select">
+                <option value="addscale">addscale</option>
+                <option value="background">background</option>
+                <option value="median">median</option>
+                <option value="none">none</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-weighting">Weighting</label><select id="raw-stack-weighting"
+                class="ps-select">
+                <option value="quality">quality</option>
+                <option value="uniform">uniform</option>
+              </select></div>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div id="raw-stack-postprocess-title" class="ps-section-title">Postprocess</div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="raw-stack-astrometry">Astrometry</label><select id="raw-stack-astrometry"
+                class="ps-select">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-bge">BGE</label><select id="raw-stack-bge" class="ps-select">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-pcc">PCC</label><select id="raw-stack-pcc" class="ps-select">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select></div>
+            <div class="ps-row"><label for="raw-stack-hms">HyperMetric Stretch</label><select id="raw-stack-hms"
+                class="ps-select">
+                <option value="true" selected>true</option>
+                <option value="false">false</option>
+              </select></div>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div id="raw-stack-parameters-title" class="ps-section-title">Parameters</div>
+          <div class="ps-actions" style="margin-bottom:8px;">
+            <button id="raw-stack-load-defaults" class="ps-btn ps-btn-secondary" type="button" data-i18n="page.raw_stack.btn_defaults">Defaults</button>
+            <button id="raw-stack-validate-params" class="ps-btn ps-btn-secondary" type="button" data-i18n="ui.button.validate">Validate</button>
+            <button id="raw-stack-reset-defaults" class="ps-btn ps-btn-secondary" type="button" data-i18n="ui.button.reset_default">Reset</button>
+            <span id="raw-stack-validate-status" style="font-size:13px;font-weight:600;"></span>
+          </div>
+          <div id="raw-stack-validate-details" style="display:none;font-size:13px;margin-bottom:8px;"></div>
+          <div id="raw-stack-parameter-groups" class="ps-grid-2" style="margin-bottom:12px;"></div>
+          <textarea id="raw-stack-config-json" class="ps-input ps-wide" rows="12" spellcheck="false"></textarea>
+        </section>
+
+        <section class="ps-section">
+          <div id="raw-stack-monitor-title" class="ps-section-title">Monitor</div>
+          <div id="raw-stack-phase-list" class="ps-grid-3"></div>
+          <div class="ps-actions" style="margin-top:10px;">
+            <button id="raw-stack-open-report" class="ps-btn ps-btn-secondary" type="button" data-i18n="ui.button.report">Report</button>
+          </div>
+          <div id="raw-stack-artifacts" class="ps-note" style="margin-top:8px;"></div>
+          <div id="raw-stack-log"
+            style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:220px;overflow:auto;margin-top:10px;white-space:pre-wrap;">
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-actions">
+            <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()"
+              title="Input-Scan starten.">Scan</button>
+            <button id="raw-stack-start" class="ps-btn" type="button" data-i18n="ui.button.run_start">Start</button>
+            <button id="raw-stack-cancel" class="ps-btn ps-btn-secondary" type="button" data-i18n="ui.button.stop">Cancel</button>
+            <span id="raw-stack-status-chip" class="shell-status-chip shell-status-chip-check">idle</span>
+          </div>
+
+          <div class="ps-result" id="scan-result" data-control="input_scan.scan_results" style="display:none;">
+            <div class="ps-result-title">Scan-Ergebnis</div>
+            <div class="ps-kv" style="margin-bottom:10px;">
+              <strong>Status</strong><span id="scan-summary-status">-</span>
+              <strong>Input Path</strong><span id="scan-summary-input-path">-</span>
+              <strong>Frames entdeckt</strong><span id="scan-summary-frames">0</span>
+              <strong>Color Mode</strong><span id="scan-summary-color-mode">-</span>
+              <strong>Mode Kandidaten</strong><span id="scan-summary-candidates">-</span>
+              <strong>Bildgroesse</strong><span id="scan-summary-size">-</span>
+              <strong>Bayer Pattern</strong><span id="scan-summary-bayer">-</span>
+              <strong>User-Bestaetigung</strong><span id="scan-summary-confirm">nein</span>
+              <strong>Fehler</strong><span id="scan-summary-errors">0</span>
+              <strong>Warnungen</strong><span id="scan-summary-warnings">0</span>
+            </div>
+            <div id="raw-stack-frame-table" style="margin-bottom:10px;overflow:auto;"></div>
+            <div class="ps-section-title" style="margin-bottom:6px;">Rohdaten</div>
+            <pre id="scan-result-body"
+              style="margin:0;font-family:monospace;font-size:12px;white-space:pre-wrap;"></pre>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+    <p id="scan-note" class="footer-note">Raw Stack ist ein separater Preprocessing-Prozess und erscheint nicht im
+      normalen Tile-Compile-Studio.</p>
+  </main>
+  <script type="module" src="src/app.js?v=13"></script>
+</body>
+
+</html>

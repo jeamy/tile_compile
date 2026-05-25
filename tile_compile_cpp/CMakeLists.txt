@@ -438,6 +438,7 @@ set(LIB_SOURCES
     src/reconstruction/tile_normalization.cpp
     src/reconstruction/tile_weight_profile_diagnostics.cpp
     src/pipeline/adaptive_tile_grid.cpp
+    src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
     src/astrometry/gaia_catalog.cpp
     src/astrometry/photometric_color_cal.cpp
@@ -481,6 +482,9 @@ add_executable(tile_compile_runner
     apps/runner_phase_metrics.cpp
     apps/runner_phase_local_metrics.cpp
     apps/runner_phase_registration.cpp
+    apps/runner_phase_preprocess_pipeline.cpp
+    apps/runner_phase_quality_analysis.cpp
+    apps/runner_preprocess.cpp
     apps/runner_shared.cpp
     apps/runner_resume.cpp
 )
@@ -541,6 +545,7 @@ if(BUILD_TESTS)
             tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
+            tests/test_preprocessing_contract.cpp
             tests/test_registration_cascade.cpp
             tests/test_registration_new_features.cpp
             tests/test_registration_outlier_utils.cpp

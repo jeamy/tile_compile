@@ -240,6 +240,11 @@ bool spawn_subprocess(const std::vector<std::string>& args,
     return true;
 }
 
+void terminate_spawned_process(int pid, int signal) {
+    if (pid <= 0) return;
+    kill(static_cast<pid_t>(pid), signal);
+}
+
 /// @brief Implements wait for process.
 /// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -256,11 +261,11 @@ int wait_for_process(BackgroundProcess& proc) {
 
         if (proc.cancelled.load()) {
             if (!term_sent) {
-                kill(-static_cast<pid_t>(proc.pid.load()), SIGTERM);
+                terminate_spawned_process(proc.pid.load(), SIGTERM);
                 term_sent = true;
                 term_wait_cycles = 0;
             } else if (++term_wait_cycles >= SIGKILL_AFTER_CYCLES) {
-                kill(-static_cast<pid_t>(proc.pid.load()), SIGKILL);
+                terminate_spawned_process(proc.pid.load(), SIGKILL);
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(term_sent ? 150 : 100));
@@ -528,13 +533,19 @@ bool SubprocessManager::cancel(const std::string& job_id) {
     std::lock_guard<std::mutex> lk(_procs_mutex);
     auto it = _procs.find(job_id);
     if (it == _procs.end()) return _store.cancel(job_id);
-    it->second->cancelled.store(true);
-#ifndef _WIN32
-    if (it->second->pid.load() > 0) {
-        kill(-static_cast<pid_t>(it->second->pid.load()), SIGTERM);
-    }
-#endif
+    auto proc = it->second;
     _store.cancel(job_id);
+#ifndef _WIN32
+    std::thread([proc]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        proc->cancelled.store(true);
+        if (proc->pid.load() > 0) {
+            terminate_spawned_process(proc->pid.load(), SIGTERM);
+        }
+    }).detach();
+#else
+    proc->cancelled.store(true);
+#endif
     return true;
 }
 

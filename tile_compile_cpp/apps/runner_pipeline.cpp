@@ -2107,31 +2107,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (px > max_tile_px)
           max_tile_px = px;
       }
-      const size_t budget =
-          static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
-          1024ull * 1024ull;
-      // Bytes per frame per worker (R+G+B tile crops).
-      const size_t bytes_per_frame_per_worker = max_tile_px * sizeof(float) * 3u;
-      if (bytes_per_frame_per_worker > 0) {
-        // How many frames fit across all workers simultaneously?
-        const size_t total_frame_budget =
-            static_cast<size_t>(budget * 0.8) /
-            (bytes_per_frame_per_worker * static_cast<size_t>(std::max(1, parallel_tiles)));
-        if (total_frame_budget < 1) {
-          // Even 1 frame per worker doesn't fit — fall back to 1 worker.
-          parallel_tiles = 1;
-          frame_sub_batch_size = static_cast<size_t>(n_usable_frames);
-          std::cout << "[Phase 6] OSC memory cap: budget too small, using 1 worker"
-                    << std::endl;
-        } else if (total_frame_budget < static_cast<size_t>(n_usable_frames)) {
-          frame_sub_batch_size = total_frame_budget;
-          std::cout << "[Phase 6] OSC sub-batch: " << parallel_tiles
-                    << " workers × " << frame_sub_batch_size
-                    << " frames/batch (budget "
-                    << (budget / (1024 * 1024)) << " MB, "
-                    << (bytes_per_frame_per_worker / (1024 * 1024))
-                    << " MB/frame/worker)" << std::endl;
-        }
+      const auto batch_plan = tile_compile::runner::compute_memory_capped_frame_sub_batch(
+          static_cast<size_t>(n_usable_frames), max_tile_px, 3, parallel_tiles,
+          cfg.runtime_limits.memory_budget);
+      parallel_tiles = batch_plan.effective_workers;
+      frame_sub_batch_size = batch_plan.frame_sub_batch_size > 0
+                                 ? batch_plan.frame_sub_batch_size
+                                 : static_cast<size_t>(n_usable_frames);
+      if (batch_plan.budget_too_small_for_requested_workers) {
+        std::cout << "[Phase 6] OSC memory cap: budget too small, using 1 worker"
+                  << std::endl;
+      } else if (batch_plan.sub_batch_limited) {
+        std::cout << "[Phase 6] OSC sub-batch: " << parallel_tiles
+                  << " workers × " << frame_sub_batch_size
+                  << " frames/batch (budget "
+                  << (batch_plan.memory_budget_bytes / (1024 * 1024)) << " MB, "
+                  << (batch_plan.bytes_per_frame_per_worker / (1024 * 1024))
+                  << " MB/frame/worker)" << std::endl;
       }
     }
 
