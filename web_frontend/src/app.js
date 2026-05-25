@@ -2075,6 +2075,9 @@ function renderScanSummary(prefix, summary) {
   setText($(`${prefix}-confirm`), data.requires_user_confirmation ? t("ui.value.yes", "ja") : t("ui.value.no", "nein"));
   setText($(`${prefix}-errors`), errorCountText);
   setText($(`${prefix}-warnings`), warningCountText);
+  if (prefix === "scan-summary") {
+    rawStackRenderScanFrameTable(data.frames, data.frames_total, data.frames_truncated);
+  }
   return data;
 }
 
@@ -7246,6 +7249,15 @@ function rawStackNormalizeDefaultsConfig(config) {
     per_frame_cosmetic_correction_sigma: 5,
     ...(normalized.stacking || {}),
   };
+  normalized.tile = {
+    size_factor: 32,
+    min_size: 64,
+    max_divisor: 6,
+    overlap_fraction: 0.25,
+    star_min_count: 10,
+    star_soft_count: 10,
+    ...(normalized.tile || {}),
+  };
   normalized.runtime_limits = {
     parallel_workers: 4,
     memory_budget: 512,
@@ -7306,6 +7318,10 @@ async function rawStackConfigFromLoadedTileConfig() {
       if (typeof bge.enabled === "boolean") nextPostprocess.bge = bge.enabled;
       out.bge = { ...bge };
     }
+    const tile = config.tile;
+    if (tile && typeof tile === "object" && !Array.isArray(tile)) {
+      out.tile = { ...tile };
+    }
     const pcc = config.pcc;
     if (pcc && typeof pcc === "object" && !Array.isArray(pcc) && typeof pcc.enabled === "boolean") {
       nextPostprocess.pcc = pcc.enabled;
@@ -7326,7 +7342,7 @@ async function rawStackConfigFromLoadedTileConfig() {
 function rawStackMergeConfigPatch(config, patch) {
   if (!patch || typeof patch !== "object") return config;
   const next = { ...config };
-  ["runtime_limits", "stacking", "rejection", "postprocess", "astrometry", "bge", "pcc", "hypermetric_stretch"].forEach((key) => {
+  ["runtime_limits", "stacking", "rejection", "postprocess", "astrometry", "bge", "tile", "pcc", "hypermetric_stretch"].forEach((key) => {
     if (patch[key] && typeof patch[key] === "object" && !Array.isArray(patch[key])) {
       next[key] = { ...(next[key] || {}), ...patch[key] };
     }
@@ -7344,6 +7360,12 @@ function rawStackParameterOptions(path) {
     "quality_filter.mode": ["auto", "strict", "relaxed", "off"],
     "stacking.normalization": ["background", "median", "addscale", "none"],
     "stacking.weighting": ["quality", "uniform"],
+    "bge.sample_estimator": ["quantile", "biweight", "median"],
+    "bge.grid.insufficient_cell_strategy": ["radius_expand", "discard", "nearest"],
+    "bge.fit.method": ["rbf", "poly", "spline", "bicubic", "modeled_mask_mesh"],
+    "bge.fit.robust_loss": ["huber", "tukey"],
+    "bge.fit.rbf_phi": ["multiquadric", "gaussian", "thin_plate"],
+    "bge.autotune.strategy": ["extended", "conservative"],
     "hypermetric_stretch.mode": ["ready_to_use", "scientific"],
     "hypermetric_stretch.sensor_profile": ["rec709", "Sony IMX415"],
     "hypermetric_stretch.fallback_profile": ["rec709", "Sony IMX415"],
@@ -7624,16 +7646,46 @@ function rawStackSetManualOverride(index, filename, include) {
   if (el) el.value = JSON.stringify(next, null, 2);
 }
 
-function rawStackRenderFrameTable(rows) {
-  const host = $("raw-stack-frame-table");
+function rawStackFrameName(frame) {
+  if (typeof frame === "string") return frame;
+  if (frame && typeof frame === "object") {
+    return String(frame.filename || frame.path || frame.file || frame.name || "");
+  }
+  return "";
+}
+
+function rawStackRenderScanFrameTable(frames, total = 0, truncated = false) {
+  const host = $("raw-stack-scan-frame-table");
   if (!host) return;
-  if (!Array.isArray(rows) || rows.length === 0) {
+  const list = Array.isArray(frames) ? frames : [];
+  if (list.length === 0) {
     host.innerHTML = "";
     return;
   }
-  host.innerHTML = `<div class="ps-section-title" style="margin-bottom:6px;">Verwendete Frames (${rows.length})</div><table class="ps-table" style="min-width:820px;">
+  const totalText = Number(total) > 0 ? Number(total) : list.length;
+  const suffix = truncated ? ` / ${escapeRunMonitorHtml(totalText)} angezeigt gekuerzt` : String(totalText);
+  host.innerHTML = `<div class="ps-section-title" style="margin-bottom:6px;">Scan-Frames (${suffix})</div><table class="ps-table" style="min-width:640px;">
+    <thead><tr><th>Index</th><th>Frame</th></tr></thead>
+    <tbody>${list.map((frame, idx) => `<tr>
+      <td>${idx}</td>
+      <td>${escapeRunMonitorHtml(rawStackFrameName(frame) || "-")}</td>
+    </tr>`).join("")}</tbody>
+  </table>`;
+}
+
+function rawStackRenderFrameTable(rows) {
+  const host = $("raw-stack-used-frame-table");
+  if (!host) return;
+  const usedRows = Array.isArray(rows)
+    ? rows.filter((row) => String(row.included || "0") === "1")
+    : [];
+  if (usedRows.length === 0) {
+    host.innerHTML = "";
+    return;
+  }
+  host.innerHTML = `<div class="ps-section-title" style="margin-bottom:6px;">Tatsaechlich genutzte Frames (${usedRows.length})</div><table class="ps-table" style="min-width:820px;">
     <thead><tr><th>Use</th><th>Index</th><th>Frame</th><th>Stars</th><th>FWHM</th><th>ECC</th><th>CC</th><th>Score</th><th>Reason</th></tr></thead>
-    <tbody>${rows.map((row) => {
+    <tbody>${usedRows.map((row) => {
       const included = String(row.included || "0") === "1";
       const index = String(row.index || "0");
       const filename = String(row.filename || "");

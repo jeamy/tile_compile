@@ -113,6 +113,15 @@ void validate_preprocessing_config(const nlohmann::json& cfg) {
     if (grip < 0.0 || grip > 1.0) throw std::runtime_error("preprocessing.hypermetric_stretch.color_grip must be in [0,1]");
     if (hms.value("output_rgb", std::string()).empty()) throw std::runtime_error("preprocessing.hypermetric_stretch.output_rgb must not be empty");
 
+    if (cfg.contains("tile") && cfg["tile"].is_object()) {
+        const auto tile = object_at(cfg, "tile");
+        if (number_at(tile, "size_factor", 1.0) < 1.0) throw std::runtime_error("preprocessing.tile.size_factor must be >= 1");
+        if (number_at(tile, "min_size", 1.0) < 1.0) throw std::runtime_error("preprocessing.tile.min_size must be >= 1");
+        if (number_at(tile, "max_divisor", 1.0) < 1.0) throw std::runtime_error("preprocessing.tile.max_divisor must be >= 1");
+        const double overlap = number_at(tile, "overlap_fraction", 0.0);
+        if (overlap < 0.0 || overlap > 0.5) throw std::runtime_error("preprocessing.tile.overlap_fraction must be in [0,0.5]");
+    }
+
     const auto runtime = object_at(cfg, "runtime_limits");
     if (number_at(runtime, "parallel_workers", 0.0) < 1.0) throw std::runtime_error("preprocessing.runtime_limits.parallel_workers must be >= 1");
     if (number_at(runtime, "memory_budget", 0.0) < 1.0) throw std::runtime_error("preprocessing.runtime_limits.memory_budget must be >= 1");

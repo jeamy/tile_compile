@@ -234,6 +234,18 @@ void validate(const Config& config) {
           "preprocessing.report.formats entries must be json, markdown, or html");
     }
   }
+  if (config.tile.size_factor < 1) {
+    throw ValidationError("preprocessing.tile.size_factor must be >= 1");
+  }
+  if (config.tile.min_size < 1) {
+    throw ValidationError("preprocessing.tile.min_size must be >= 1");
+  }
+  if (config.tile.max_divisor < 1) {
+    throw ValidationError("preprocessing.tile.max_divisor must be >= 1");
+  }
+  if (config.tile.overlap_fraction < 0.0f || config.tile.overlap_fraction > 0.5f) {
+    throw ValidationError("preprocessing.tile.overlap_fraction must be in [0,0.5]");
+  }
   if (config.runtime_limits.parallel_workers < 1) {
     throw ValidationError("preprocessing.runtime_limits.parallel_workers must be >= 1");
   }

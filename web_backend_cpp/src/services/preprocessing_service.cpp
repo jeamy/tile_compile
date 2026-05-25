@@ -95,6 +95,14 @@ nlohmann::json default_config() {
             {"pcc", true},
             {"hypermetric_stretch", true},
         }},
+        {"tile", {
+            {"size_factor", 32},
+            {"min_size", 64},
+            {"max_divisor", 6},
+            {"overlap_fraction", 0.25},
+            {"star_min_count", 10},
+            {"star_soft_count", 10},
+        }},
         {"hypermetric_stretch", {
             {"require_successful_pcc", true},
             {"mode", "ready_to_use"},
@@ -134,6 +142,7 @@ nlohmann::json parameter_groups() {
         {{"id", "quality_filter"}, {"label", "Quality Filter"}, {"paths", {"quality_filter.mode", "quality_filter.min_stars", "quality_filter.max_fwhm_sigma", "quality_filter.max_eccentricity", "quality_filter.min_correlation", "quality_filter.manual_overrides"}}},
         {{"id", "stacking"}, {"label", "Stacking"}, {"paths", {"rejection.method", "rejection.low", "rejection.high", "rejection.max_iters", "rejection.min_fraction", "stacking.normalization", "stacking.weighting", "stacking.cosmetic_correction", "stacking.cosmetic_correction_sigma", "stacking.per_frame_cosmetic_correction", "stacking.per_frame_cosmetic_correction_sigma"}}},
         {{"id", "postprocess"}, {"label", "Postprocess"}, {"paths", {"postprocess.astrometry", "postprocess.bge", "postprocess.pcc", "postprocess.hypermetric_stretch"}}},
+        {{"id", "bge_tile"}, {"label", "BGE / Tile"}, {"paths", {"bge.sample_quantile", "bge.sample_estimator", "bge.min_sample_bg_value", "bge.structure_thresh_percentile", "bge.min_tiles_per_cell", "bge.min_valid_sample_fraction_for_apply", "bge.min_valid_samples_for_apply", "bge.mask.star_dilate_px", "bge.mask.sat_dilate_px", "bge.grid.N_g", "bge.grid.G_min_px", "bge.grid.G_max_fraction", "bge.grid.insufficient_cell_strategy", "bge.fit.method", "bge.fit.robust_loss", "bge.fit.huber_delta", "bge.fit.irls_max_iterations", "bge.fit.irls_tolerance", "bge.fit.polynomial_order", "bge.fit.rbf_phi", "bge.fit.rbf_mu_factor", "bge.fit.rbf_lambda", "bge.fit.rbf_epsilon", "bge.autotune.enabled", "bge.autotune.max_evals", "bge.autotune.holdout_fraction", "bge.autotune.alpha_flatness", "bge.autotune.beta_roughness", "bge.autotune.strategy", "bge.tile_weight_lambda_structure", "tile.size_factor", "tile.min_size", "tile.max_divisor", "tile.overlap_fraction", "tile.star_min_count", "tile.star_soft_count"}}},
         {{"id", "hypermetric_stretch"}, {"label", "HyperMetric Stretch"}, {"paths", {"hypermetric_stretch.require_successful_pcc", "hypermetric_stretch.mode", "hypermetric_stretch.sensor_profile", "hypermetric_stretch.fallback_profile", "hypermetric_stretch.adaptive_anchor", "hypermetric_stretch.target_bg", "hypermetric_stretch.protect_b", "hypermetric_stretch.convergence_power", "hypermetric_stretch.log_d_mode", "hypermetric_stretch.fixed_log_d", "hypermetric_stretch.color_strategy", "hypermetric_stretch.fixed_color_strategy", "hypermetric_stretch.color_grip", "hypermetric_stretch.shadow_convergence", "hypermetric_stretch.linear_expansion", "hypermetric_stretch.write_channels", "hypermetric_stretch.output_rgb"}}},
         {{"id", "report"}, {"label", "Report"}, {"paths", {"report.detailed", "report.formats"}}},
         {{"id", "runtime_limits"}, {"label", "Runtime Limits"}, {"paths", {"runtime_limits.parallel_workers", "runtime_limits.memory_budget"}}},

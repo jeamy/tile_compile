@@ -131,9 +131,11 @@ struct Config {
   PostprocessConfig postprocess;
   bool has_astrometry_config = false;
   bool has_bge_config = false;
+  bool has_tile_config = false;
   bool has_pcc_config = false;
   config::AstrometryConfig astrometry;
   config::BGEConfig bge;
+  config::TileConfig tile;
   config::PCCConfig pcc;
   HyperMetricStretchConfig hypermetric_stretch;
   ReportConfig report;

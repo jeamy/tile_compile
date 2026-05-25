@@ -17,6 +17,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
+#include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -259,6 +260,16 @@ prep::Config parse_preprocessing_config(const json& j) {
     cfg.bge.tile_weight_lambda_structure =
         json_float(b, "tile_weight_lambda_structure", cfg.bge.tile_weight_lambda_structure);
   }
+  if (j.contains("tile") && j["tile"].is_object()) {
+    const auto& t = j["tile"];
+    cfg.has_tile_config = true;
+    cfg.tile.size_factor = json_int(t, "size_factor", cfg.tile.size_factor);
+    cfg.tile.min_size = json_int(t, "min_size", cfg.tile.min_size);
+    cfg.tile.max_divisor = json_int(t, "max_divisor", cfg.tile.max_divisor);
+    cfg.tile.overlap_fraction = json_float(t, "overlap_fraction", cfg.tile.overlap_fraction);
+    cfg.tile.star_min_count = json_int(t, "star_min_count", cfg.tile.star_min_count);
+    cfg.tile.star_soft_count = json_int(t, "star_soft_count", cfg.tile.star_soft_count);
+  }
   if (j.contains("pcc") && j["pcc"].is_object()) {
     const auto& p = j["pcc"];
     cfg.has_pcc_config = true;
@@ -410,6 +421,14 @@ json config_to_json(const prep::Config& cfg) {
           {"bge", cfg.postprocess.bge},
           {"pcc", cfg.postprocess.pcc},
           {"hypermetric_stretch", cfg.postprocess.hypermetric_stretch},
+      }},
+      {"tile", {
+          {"size_factor", cfg.tile.size_factor},
+          {"min_size", cfg.tile.min_size},
+          {"max_divisor", cfg.tile.max_divisor},
+          {"overlap_fraction", cfg.tile.overlap_fraction},
+          {"star_min_count", cfg.tile.star_min_count},
+          {"star_soft_count", cfg.tile.star_soft_count},
       }},
       {"hypermetric_stretch", {
           {"require_successful_pcc", cfg.hypermetric_stretch.require_successful_pcc},
@@ -1034,26 +1053,49 @@ void add_artifact(json& artifacts,
   artifacts.push_back({{"type", type}, {"phase", phase}, {"path", path.string()}});
 }
 
-TileGrid build_preprocess_bge_grid(int rows, int cols, int n_g = 32) {
-  const int min_dim = std::min(rows, cols);
-  const int g_res = min_dim / std::max(1, n_g);
-  const int tile_size = std::max(64, g_res);
+float accepted_median_fwhm(const runner::QualityAnalysisContext& qa) {
+  std::vector<float> values;
+  values.reserve(qa.accepted_indices.size());
+  for (int idx : qa.accepted_indices) {
+    if (idx < 0 || static_cast<size_t>(idx) >= qa.records.size()) continue;
+    const float fwhm = qa.records[static_cast<size_t>(idx)].fwhm;
+    if (std::isfinite(fwhm) && fwhm > 0.0f) values.push_back(fwhm);
+  }
+  return median_value(std::move(values));
+}
+
+TileGrid build_preprocess_bge_grid(int rows,
+                                   int cols,
+                                   const config::TileConfig& tile_cfg,
+                                   float seeing_fwhm) {
+  if (!(seeing_fwhm > 0.0f) || !std::isfinite(seeing_fwhm)) {
+    seeing_fwhm = 3.0f;
+  }
+  const int tmin = std::max(16, tile_cfg.min_size);
+  const int divisor = std::max(1, tile_cfg.max_divisor);
+  int tmax = std::max(1, std::min(rows, cols) / divisor);
+  if (tmax < tmin) tmax = tmin;
+
+  const float requested = static_cast<float>(std::max(1, tile_cfg.size_factor)) *
+                          seeing_fwhm;
+  int tile_size = static_cast<int>(
+      std::floor(std::min(std::max(requested, static_cast<float>(tmin)),
+                          static_cast<float>(tmax))));
+  if (tile_size < tmin) tile_size = tmin;
+
+  const float overlap =
+      std::min(0.5f, std::max(0.0f, tile_cfg.overlap_fraction));
   TileGrid grid;
   grid.tile_size = tile_size;
-  grid.overlap_fraction = 0.0f;
-  grid.rows = (rows + tile_size - 1) / tile_size;
-  grid.cols = (cols + tile_size - 1) / tile_size;
-  for (int gy = 0; gy < grid.rows; ++gy) {
-    for (int gx = 0; gx < grid.cols; ++gx) {
-      Tile t;
-      t.x = gx * tile_size;
-      t.y = gy * tile_size;
-      t.width = std::min(tile_size, cols - t.x);
-      t.height = std::min(tile_size, rows - t.y);
-      t.row = gy;
-      t.col = gx;
-      if (t.width > 0 && t.height > 0) grid.tiles.push_back(t);
-    }
+  grid.overlap_fraction = overlap;
+  grid.rows = 0;
+  grid.cols = 0;
+  grid.tiles = tile_compile::pipeline::build_initial_tile_grid(cols, rows,
+                                                               tile_size,
+                                                               overlap);
+  for (const auto& t : grid.tiles) {
+    grid.rows = std::max(grid.rows, t.row + 1);
+    grid.cols = std::max(grid.cols, t.col + 1);
   }
   return grid;
 }
@@ -1104,6 +1146,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     const std::string& run_id,
     const prep::Config& cfg,
     const PreprocessStackResult& stack,
+    const runner::QualityAnalysisContext& qa,
     const fs::path& run_dir,
     core::EventEmitter& emitter,
     std::ostream& event_out) {
@@ -1209,7 +1252,9 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     auto rgb = io::read_fits_rgb(current_rgb);
     config::BGEConfig bge_source = cfg.has_bge_config ? cfg.bge : default_preprocess_bge_config();
     if (!cfg.has_bge_config) bge_source.enabled = true;
-    TileGrid grid = build_preprocess_bge_grid(rgb.R.rows(), rgb.R.cols(), bge_source.grid.N_g);
+    const float seeing_fwhm = accepted_median_fwhm(qa);
+    TileGrid grid = build_preprocess_bge_grid(rgb.R.rows(), rgb.R.cols(),
+                                             cfg.tile, seeing_fwhm);
     std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
     image::BGEConfig bge_cfg = runner::to_image_bge_config(bge_source);
     bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
@@ -1219,8 +1264,54 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     const bool ok = image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                        tile_metrics, grid, bge_cfg, &diag);
     result.bge_diag_path = artifact_dir / "bge_diagnostics.json";
-    core::write_text(result.bge_diag_path,
-                     runner::bge_diag_to_json(diag, true, true, true).dump(2));
+    json bge_diag_json = runner::bge_diag_to_json(diag, true, true, true);
+    bge_diag_json["local_metrics_tiles"] = static_cast<int>(tile_metrics.size());
+    bge_diag_json["bge_grid_tiles"] = static_cast<int>(grid.tiles.size());
+    bge_diag_json["preprocess_bge_tile_size"] = grid.tile_size;
+    bge_diag_json["preprocess_bge_overlap_fraction"] = grid.overlap_fraction;
+    bge_diag_json["preprocess_bge_seeing_fwhm"] = seeing_fwhm;
+    bge_diag_json["config"] = {
+        {"sample_quantile", bge_source.sample_quantile},
+        {"sample_estimator", bge_source.sample_estimator},
+        {"min_sample_bg_value", bge_source.min_sample_bg_value},
+        {"structure_thresh_percentile", bge_source.structure_thresh_percentile},
+        {"min_tiles_per_cell", bge_source.min_tiles_per_cell},
+        {"min_valid_sample_fraction_for_apply",
+         bge_source.min_valid_sample_fraction_for_apply},
+        {"min_valid_samples_for_apply", bge_source.min_valid_samples_for_apply},
+        {"tile_weight_lambda_structure", bge_source.tile_weight_lambda_structure},
+        {"mask", {
+            {"star_dilate_px", bge_source.mask.star_dilate_px},
+            {"sat_dilate_px", bge_source.mask.sat_dilate_px},
+        }},
+        {"grid", {
+            {"N_g", bge_source.grid.N_g},
+            {"G_min_px", bge_source.grid.G_min_px},
+            {"G_max_fraction", bge_source.grid.G_max_fraction},
+            {"insufficient_cell_strategy", bge_source.grid.insufficient_cell_strategy},
+        }},
+        {"fit", {
+            {"method", bge_source.fit.method},
+            {"robust_loss", bge_source.fit.robust_loss},
+            {"huber_delta", bge_source.fit.huber_delta},
+            {"irls_max_iterations", bge_source.fit.irls_max_iterations},
+            {"irls_tolerance", bge_source.fit.irls_tolerance},
+            {"polynomial_order", bge_source.fit.polynomial_order},
+            {"rbf_phi", bge_source.fit.rbf_phi},
+            {"rbf_mu_factor", bge_source.fit.rbf_mu_factor},
+            {"rbf_lambda", bge_source.fit.rbf_lambda},
+            {"rbf_epsilon", bge_source.fit.rbf_epsilon},
+        }},
+        {"autotune", {
+            {"enabled", bge_source.autotune.enabled},
+            {"max_evals", bge_source.autotune.max_evals},
+            {"holdout_fraction", bge_source.autotune.holdout_fraction},
+            {"alpha_flatness", bge_source.autotune.alpha_flatness},
+            {"beta_roughness", bge_source.autotune.beta_roughness},
+            {"strategy", bge_source.autotune.strategy},
+        }},
+    };
+    core::write_text(result.bge_diag_path, bge_diag_json.dump(2));
     add_artifact(result.artifacts, "bge_diagnostics", "BGE", result.bge_diag_path);
     if (ok) {
       result.bge_rgb_path = output_dir / "stacked_rgb_bge.fits";
@@ -1663,7 +1754,7 @@ int preprocess_command(const std::string& config_path,
     const PreprocessStackResult stack =
         run_preprocess_stacking(run_id, cfg, pp, qa, run_dir, emitter, event_out);
     const PreprocessPostprocessResult post =
-        run_preprocess_postprocess(run_id, cfg, stack, run_dir, emitter, event_out);
+        run_preprocess_postprocess(run_id, cfg, stack, qa, run_dir, emitter, event_out);
 
     emitter.phase_start(run_id, prep::phase_to_string(prep::Phase::REPORT), event_out);
     write_report_and_manifest(run_dir, run_id, cfg, pp, qa, stack, post);
