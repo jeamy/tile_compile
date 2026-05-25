@@ -826,22 +826,21 @@ bool run_preprocess_pipeline(
                 const bool is_identity =
                     (W - registration::identity_warp()).cwiseAbs().maxCoeff() < 1e-5f;
                 if (is_identity) {
-                    std::lock_guard<std::mutex> lk(prewarp_mutex);
                     out.prewarped_frames.store(fi, img);
                 } else {
                     Matrix2Df warped = image::apply_global_warp(
                         img, W, out.color_mode, image_height, image_width);
-                    std::lock_guard<std::mutex> lk(prewarp_mutex);
                     out.prewarped_frames.store(fi, warped);
                 }
+                out.frame_has_data[fi] = 1;
             }
         } catch (const std::exception& e) {
+            out.frame_has_data[fi] = 0;
             std::lock_guard<std::mutex> lk(prewarp_mutex);
             emitter.warning(run_id,
                 "REGISTRATION: prewarp failed for frame " +
                 out.effective_frames[fi].filename().string() + ": " + e.what(),
                 log_file);
-            out.frame_has_data[fi] = 0;
         }
         const size_t done = prewarp_done.fetch_add(1) + 1;
         if (done % std::max<size_t>(1, n_registered / 20) == 0 || done == static_cast<size_t>(n_registered)) {

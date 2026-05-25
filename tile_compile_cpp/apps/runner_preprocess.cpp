@@ -440,21 +440,23 @@ json config_to_json(const prep::Config& cfg) {
 
 std::vector<metrics::FrameStarMetrics> measure_stars_for_quality(
     const runner::PreprocessPipelineContext& ctx) {
-  std::vector<metrics::FrameStarMetrics> out(ctx.effective_frames.size());
+  const size_t n = ctx.effective_frames.size();
+  std::vector<metrics::FrameStarMetrics> out(n);
   int ref_stars = 0;
   if (ctx.reference_frame_index >= 0 &&
-      static_cast<size_t>(ctx.reference_frame_index) < ctx.effective_frames.size() &&
+      static_cast<size_t>(ctx.reference_frame_index) < n &&
       ctx.prewarped_frames.has_data(static_cast<size_t>(ctx.reference_frame_index))) {
     const auto ref = ctx.prewarped_frames.load(static_cast<size_t>(ctx.reference_frame_index));
     out[static_cast<size_t>(ctx.reference_frame_index)] = metrics::measure_frame_stars(ref, 0);
     ref_stars = out[static_cast<size_t>(ctx.reference_frame_index)].star_count;
   }
-  for (size_t i = 0; i < ctx.effective_frames.size(); ++i) {
-    if (static_cast<int>(i) == ctx.reference_frame_index) continue;
-    if (!ctx.prewarped_frames.has_data(i)) continue;
+  const int workers = default_parallel_workers(n, 0);
+  parallel_for_indices(n, workers, [&](size_t i) {
+    if (static_cast<int>(i) == ctx.reference_frame_index) return;
+    if (!ctx.prewarped_frames.has_data(i)) return;
     const auto img = ctx.prewarped_frames.load(i);
     out[i] = metrics::measure_frame_stars(img, ref_stars);
-  }
+  });
   return out;
 }
 
@@ -743,16 +745,32 @@ PreprocessStackResult run_preprocess_stacking(
   Matrix2Df linear_wsum;
   for (size_t batch_start = 0; batch_start < accepted.size(); batch_start += linear_sub_batch) {
     const size_t batch_end = std::min(batch_start + linear_sub_batch, accepted.size());
-    std::vector<Matrix2Df> batch_frames;
-    std::vector<float> batch_weights;
-    batch_frames.reserve(batch_end - batch_start);
-    batch_weights.reserve(batch_end - batch_start);
-    for (size_t i = batch_start; i < batch_end; ++i) {
+    const size_t batch_size = batch_end - batch_start;
+    std::vector<Matrix2Df> batch_frames(batch_size);
+    std::vector<float> batch_weights(batch_size);
+    std::vector<bool> batch_valid(batch_size, false);
+    const int load_workers = default_parallel_workers(batch_size, 0);
+    parallel_for_indices(batch_size, load_workers, [&](size_t bi) {
+      const size_t i = batch_start + bi;
       Matrix2Df frame = pp.prewarped_frames.load(static_cast<size_t>(accepted[i]));
       if (frame.rows() == rows && frame.cols() == cols) {
-        batch_frames.push_back(std::move(frame));
-        batch_weights.push_back(i < weights.size() ? weights[i] : 1.0f);
+        batch_frames[bi]  = std::move(frame);
+        batch_weights[bi] = i < weights.size() ? weights[i] : 1.0f;
+        batch_valid[bi]   = true;
       }
+    });
+    {
+      size_t out_idx = 0;
+      for (size_t bi = 0; bi < batch_size; ++bi) {
+        if (!batch_valid[bi]) continue;
+        if (out_idx != bi) {
+          batch_frames[out_idx]  = std::move(batch_frames[bi]);
+          batch_weights[out_idx] = batch_weights[bi];
+        }
+        ++out_idx;
+      }
+      batch_frames.resize(out_idx);
+      batch_weights.resize(out_idx);
     }
     if (batch_frames.empty()) continue;
     int batch_rejected = 0;
@@ -1044,9 +1062,11 @@ std::vector<TileMetrics> measure_bge_tile_metrics(const Matrix2Df& R,
                                                   const Matrix2Df& G,
                                                   const Matrix2Df& B,
                                                   const TileGrid& grid) {
-  std::vector<TileMetrics> out;
-  out.reserve(grid.tiles.size());
-  for (const Tile& t : grid.tiles) {
+  const size_t n_tiles = grid.tiles.size();
+  std::vector<TileMetrics> out(n_tiles);
+  const int workers = default_parallel_workers(n_tiles, 0);
+  parallel_for_indices(n_tiles, workers, [&](size_t ti) {
+    const Tile& t = grid.tiles[ti];
     Matrix2Df tile(t.height, t.width);
     for (int y = 0; y < t.height; ++y) {
       for (int x = 0; x < t.width; ++x) {
@@ -1060,8 +1080,8 @@ std::vector<TileMetrics> measure_bge_tile_metrics(const Matrix2Df& R,
     if (!std::isfinite(tm.gradient_energy)) tm.gradient_energy = 0.0f;
     if (!std::isfinite(tm.quality_score)) tm.quality_score = 1.0f;
     if (tm.star_count <= 0) tm.type = TileType::STRUCTURE;
-    out.push_back(tm);
-  }
+    out[ti] = tm;
+  });
   return out;
 }
 
