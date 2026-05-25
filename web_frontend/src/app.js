@@ -7674,7 +7674,7 @@ function rawStackFrameName(frame) {
 function rawStackRenderScanFrameTable(frames, total = 0, truncated = false) {
   const host = $("raw-stack-scan-frame-table");
   if (!host) return;
-  const list = Array.isArray(frames) ? frames : [];
+  const list = Array.isArray(frames) ? frames.filter((frame) => rawStackFrameName(frame).trim()) : [];
   if (list.length === 0) {
     host.innerHTML = "";
     return;
