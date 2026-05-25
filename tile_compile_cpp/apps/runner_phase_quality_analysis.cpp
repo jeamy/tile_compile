@@ -63,31 +63,28 @@ float compute_eccentricity(float fwhm_x, float fwhm_y) {
     return 1.0f - mn / mx;
 }
 
-float measure_clip_fraction(const Matrix2Df& img) {
-    if (img.size() <= 0) return 0.0f;
+float measure_clip_fraction_ptr(const float* data, int rows, int cols) {
+    if (data == nullptr || rows <= 0 || cols <= 0) return 0.0f;
     float min_v = std::numeric_limits<float>::infinity();
     float max_v = -std::numeric_limits<float>::infinity();
     size_t finite = 0;
-    for (int y = 0; y < img.rows(); ++y) {
-        for (int x = 0; x < img.cols(); ++x) {
-            const float v = img(y, x);
-            if (!std::isfinite(v)) continue;
-            min_v = std::min(min_v, v);
-            max_v = std::max(max_v, v);
-            ++finite;
-        }
+    const size_t total = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+    for (size_t i = 0; i < total; ++i) {
+        const float v = data[i];
+        if (!std::isfinite(v)) continue;
+        min_v = std::min(min_v, v);
+        max_v = std::max(max_v, v);
+        ++finite;
     }
     if (finite == 0) return 0.0f;
 
     const float hi_threshold = max_v <= 1.25f ? 0.999f : max_v - std::max(1e-6f, std::fabs(max_v) * 1e-5f);
     const float lo_threshold = min_v >= -0.01f ? 0.0f : min_v + std::max(1e-6f, std::fabs(min_v) * 1e-5f);
     size_t clipped = 0;
-    for (int y = 0; y < img.rows(); ++y) {
-        for (int x = 0; x < img.cols(); ++x) {
-            const float v = img(y, x);
-            if (!std::isfinite(v)) continue;
-            if (v <= lo_threshold || v >= hi_threshold) ++clipped;
-        }
+    for (size_t i = 0; i < total; ++i) {
+        const float v = data[i];
+        if (!std::isfinite(v)) continue;
+        if (v <= lo_threshold || v >= hi_threshold) ++clipped;
     }
     return static_cast<float>(clipped) / static_cast<float>(finite);
 }
@@ -264,7 +261,10 @@ bool run_quality_analysis(
             r.snr_estimate      = estimate_snr(fm.gradient_energy, fm.noise);
             r.quality_score     = fm.quality_score;
             if (pipeline_ctx.prewarped_frames.has_data(i)) {
-                r.clip_fraction = measure_clip_fraction(pipeline_ctx.prewarped_frames.load(i));
+                r.clip_fraction = measure_clip_fraction_ptr(
+                    pipeline_ctx.prewarped_frames.frame_data(i),
+                    pipeline_ctx.prewarped_frames.rows(),
+                    pipeline_ctx.prewarped_frames.cols());
             }
         }
 
@@ -408,6 +408,7 @@ bool run_quality_analysis(
 
     // Rewrite CSV with final filter decision
     write_frame_quality_csv(out.csv_path, out.records);
+    pipeline_ctx.prewarped_frames.clear_mappings();
 
     // Write quality_analysis.json
     const core::json qa_json = build_quality_json(out, qf, mode);

@@ -547,7 +547,11 @@ std::pair<float, float> mean_stddev(const std::vector<float>& values) {
 float reduce_pixel(std::vector<float>& values,
                    const std::vector<float>& weights,
                    const prep::RejectionConfig& rejection,
-                   int& rejected_samples) {
+                   int& rejected_samples,
+                   std::vector<float>& kept_values,
+                   std::vector<float>& kept_weights,
+                   std::vector<float>& next_values,
+                   std::vector<float>& next_weights) {
   if (values.empty()) return 0.0f;
   const std::string method = rejection.method;
   if (method == "median") {
@@ -573,8 +577,8 @@ float reduce_pixel(std::vector<float>& values,
     return weighted_mean(values, weights);
   }
 
-  std::vector<float> kept_values;
-  std::vector<float> kept_weights;
+  kept_values.clear();
+  kept_weights.clear();
   kept_values.reserve(values.size());
   kept_weights.reserve(weights.size());
   for (size_t i = 0; i < values.size(); ++i) {
@@ -591,8 +595,8 @@ float reduce_pixel(std::vector<float>& values,
     if (sigma <= 0.0f || !std::isfinite(sigma)) break;
     const float lo = mean - rejection.low * sigma;
     const float hi = mean + rejection.high * sigma;
-    std::vector<float> next_values;
-    std::vector<float> next_weights;
+    next_values.clear();
+    next_weights.clear();
     next_values.reserve(kept_values.size());
     next_weights.reserve(kept_weights.size());
     int iter_rejected = 0;
@@ -607,8 +611,8 @@ float reduce_pixel(std::vector<float>& values,
     }
     if (iter_rejected == 0 || next_values.empty() || next_values.size() < min_keep) break;
     rejected_samples += iter_rejected;
-    kept_values = std::move(next_values);
-    kept_weights = std::move(next_weights);
+    kept_values.swap(next_values);
+    kept_weights.swap(next_weights);
   }
   if (kept_values.empty()) return weighted_mean(values, weights);
   return weighted_mean(kept_values, kept_weights);
@@ -633,13 +637,22 @@ Matrix2Df stack_frame_planes(const std::vector<Matrix2Df>& frames,
                        [&](size_t row_idx) {
     const int y = static_cast<int>(row_idx);
     std::vector<float> values;
+    std::vector<float> kept_values;
+    std::vector<float> kept_weights;
+    std::vector<float> next_values;
+    std::vector<float> next_weights;
     values.reserve(frames.size());
+    kept_values.reserve(frames.size());
+    kept_weights.reserve(frames.size());
+    next_values.reserve(frames.size());
+    next_weights.reserve(frames.size());
     int rejected_local = 0;
     int64_t total_local = 0;
     for (int x = 0; x < cols; ++x) {
       values.clear();
       for (const auto& frame : frames) values.push_back(frame(y, x));
-      stacked(y, x) = reduce_pixel(values, weights, rejection, rejected_local);
+      stacked(y, x) = reduce_pixel(values, weights, rejection, rejected_local,
+                                   kept_values, kept_weights, next_values, next_weights);
       total_local += static_cast<int64_t>(frames.size());
     }
     rejected_total.fetch_add(rejected_local, std::memory_order_relaxed);
@@ -648,6 +661,53 @@ Matrix2Df stack_frame_planes(const std::vector<Matrix2Df>& frames,
       std::lock_guard<std::mutex> lock(progress_mutex);
       row_progress(y, rows);
     }
+  });
+  rejected_samples += rejected_total.load(std::memory_order_relaxed);
+  total_samples += sample_total.load(std::memory_order_relaxed);
+  return stacked;
+}
+
+Matrix2Df stack_frame_ptrs(const std::vector<const float*>& frames,
+                           int rows,
+                           int cols,
+                           const std::vector<float>& weights,
+                           const prep::RejectionConfig& rejection,
+                           int workers,
+                           int& rejected_samples,
+                           int64_t& total_samples) {
+  if (frames.empty() || rows <= 0 || cols <= 0) return {};
+  Matrix2Df stacked(rows, cols);
+  std::atomic<int> rejected_total{0};
+  std::atomic<int64_t> sample_total{0};
+  parallel_for_indices(static_cast<size_t>(rows),
+                       default_parallel_workers(static_cast<size_t>(rows), workers),
+                       [&](size_t row_idx) {
+    const int y = static_cast<int>(row_idx);
+    const size_t row_off = static_cast<size_t>(y) * static_cast<size_t>(cols);
+    std::vector<float> values;
+    std::vector<float> kept_values;
+    std::vector<float> kept_weights;
+    std::vector<float> next_values;
+    std::vector<float> next_weights;
+    values.reserve(frames.size());
+    kept_values.reserve(frames.size());
+    kept_weights.reserve(frames.size());
+    next_values.reserve(frames.size());
+    next_weights.reserve(frames.size());
+    int rejected_local = 0;
+    int64_t total_local = 0;
+    for (int x = 0; x < cols; ++x) {
+      values.clear();
+      const size_t offset = row_off + static_cast<size_t>(x);
+      for (const float* frame : frames) {
+        values.push_back(frame ? frame[offset] : std::numeric_limits<float>::quiet_NaN());
+      }
+      stacked(y, x) = reduce_pixel(values, weights, rejection, rejected_local,
+                                   kept_values, kept_weights, next_values, next_weights);
+      total_local += static_cast<int64_t>(frames.size());
+    }
+    rejected_total.fetch_add(rejected_local, std::memory_order_relaxed);
+    sample_total.fetch_add(total_local, std::memory_order_relaxed);
   });
   rejected_samples += rejected_total.load(std::memory_order_relaxed);
   total_samples += sample_total.load(std::memory_order_relaxed);
@@ -765,42 +825,29 @@ PreprocessStackResult run_preprocess_stacking(
   for (size_t batch_start = 0; batch_start < accepted.size(); batch_start += linear_sub_batch) {
     const size_t batch_end = std::min(batch_start + linear_sub_batch, accepted.size());
     const size_t batch_size = batch_end - batch_start;
-    std::vector<Matrix2Df> batch_frames(batch_size);
-    std::vector<float> batch_weights(batch_size);
-    std::vector<bool> batch_valid(batch_size, false);
-    const int load_workers = default_parallel_workers(batch_size, 0);
-    parallel_for_indices(batch_size, load_workers, [&](size_t bi) {
-      const size_t i = batch_start + bi;
-      Matrix2Df frame = pp.prewarped_frames.load(static_cast<size_t>(accepted[i]));
-      if (frame.rows() == rows && frame.cols() == cols) {
-        batch_frames[bi]  = std::move(frame);
-        batch_weights[bi] = i < weights.size() ? weights[i] : 1.0f;
-        batch_valid[bi]   = true;
-      }
-    });
-    {
-      size_t out_idx = 0;
-      for (size_t bi = 0; bi < batch_size; ++bi) {
-        if (!batch_valid[bi]) continue;
-        if (out_idx != bi) {
-          batch_frames[out_idx]  = std::move(batch_frames[bi]);
-          batch_weights[out_idx] = batch_weights[bi];
-        }
-        ++out_idx;
-      }
-      batch_frames.resize(out_idx);
-      batch_weights.resize(out_idx);
+    std::vector<const float*> batch_frames;
+    std::vector<float> batch_weights;
+    batch_frames.reserve(batch_size);
+    batch_weights.reserve(batch_size);
+    for (size_t i = batch_start; i < batch_end; ++i) {
+      const float* frame_ptr =
+          pp.prewarped_frames.frame_data(static_cast<size_t>(accepted[i]));
+      if (frame_ptr == nullptr) continue;
+      batch_frames.push_back(frame_ptr);
+      batch_weights.push_back(i < weights.size() ? weights[i] : 1.0f);
     }
     if (batch_frames.empty()) continue;
     int batch_rejected = 0;
     int64_t batch_total = 0;
-    Matrix2Df batch_stack = stack_frame_planes(batch_frames, batch_weights, cfg.rejection,
-                                               cfg.runtime_limits.parallel_workers,
-                                               batch_rejected, batch_total, nullptr);
+    Matrix2Df batch_stack = stack_frame_ptrs(batch_frames, rows, cols, batch_weights,
+                                             cfg.rejection,
+                                             cfg.runtime_limits.parallel_workers,
+                                             batch_rejected, batch_total);
     result.rejected_samples += batch_rejected;
     result.total_samples += batch_total;
     accumulate_batch_stack(batch_stack, static_cast<float>(batch_frames.size()),
                            linear_accum, linear_wsum);
+    pp.prewarped_frames.clear_mappings();
     emitter.phase_progress(run_id, prep::phase_to_string(prep::Phase::STACKING),
                            0.45f * static_cast<float>(batch_end) /
                                static_cast<float>(accepted.size()),
@@ -925,6 +972,7 @@ PreprocessStackResult run_preprocess_stacking(
         accumulate_batch_stack(batch_R, batch_weight, accum_R, wsum_R);
         accumulate_batch_stack(batch_G, batch_weight, accum_G, wsum_G);
         accumulate_batch_stack(batch_B, batch_weight, accum_B, wsum_B);
+        pp.prewarped_frames.clear_mappings();
         emitter.phase_progress(run_id, prep::phase_to_string(prep::Phase::STACKING),
                                0.45f + 0.55f * static_cast<float>(batch_end) /
                                            static_cast<float>(accepted.size()),

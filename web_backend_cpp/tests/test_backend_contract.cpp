@@ -191,14 +191,18 @@ int main(int argc, char** argv) {
         {
             bool found_report_ok = false;
             bool found_stretch_ok = false;
+            bool found_bge_skipped = false;
             for (const auto& p : preprocessing_run_status["phases"]) {
                 if (p["phase"].get<std::string>() == "REPORT" && p["status"].get<std::string>() == "ok")
                     found_report_ok = true;
                 if (p["phase"].get<std::string>() == "HYPERMETRIC_STRETCH" && p["status"].get<std::string>() == "ok")
                     found_stretch_ok = true;
+                if (p["phase"].get<std::string>() == "BGE" && p["status"].get<std::string>() == "skipped")
+                    found_bge_skipped = true;
             }
             expect_true(found_report_ok, "preprocessing run status REPORT phase ok");
             expect_true(found_stretch_ok, "preprocessing run status HYPERMETRIC_STRETCH enabled by default");
+            expect_true(found_bge_skipped, "preprocessing run status preserves BGE skipped event");
         }
 
         const auto preprocessing_patch = harness.patch_json("/api/tools/preprocessing/parameters", {

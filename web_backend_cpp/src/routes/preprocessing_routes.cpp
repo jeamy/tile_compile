@@ -323,10 +323,10 @@ void register_preprocessing_routes(CrowApp& app,
             {"FRAME_FILTERING",     "FRAME_FILTERING"},
         };
 
-        // Parse preprocessing events.jsonl to get live phase/progress
+        // Parse preprocessing events.jsonl to get phase/progress. This also
+        // applies to finished jobs so skipped phases remain visible instead of
+        // being flattened into synthetic ok states.
         auto enrich_with_live = [&](nlohmann::json result, const nlohmann::json& job_json) -> nlohmann::json {
-            const std::string s = result.value("status", std::string());
-            if (s != "running") return result;
             const nlohmann::json& data = job_json.contains("data") && job_json["data"].is_object()
                 ? job_json["data"] : nlohmann::json::object();
             const std::string run_dir_str = data.value("run_dir", std::string());
@@ -357,7 +357,7 @@ void register_preprocessing_routes(CrowApp& app,
                     } else if (type == "phase_end") {
                         const std::string st = ev.value("status", "ok");
                         phase_status[phase] = (st == "ok" || st == "skipped") ? st : "failed";
-                        phase_pct[phase] = (st == "ok") ? 1.0 : phase_pct[phase];
+                        phase_pct[phase] = (st == "ok" || st == "skipped") ? 1.0 : phase_pct[phase];
                         if (current_phase == phase) current_phase = "";
                     } else if (type == "phase_progress") {
                         phase_status[phase] = "running";
@@ -372,6 +372,10 @@ void register_preprocessing_routes(CrowApp& app,
                     for (auto& ph : phases) {
                         const std::string pname = ph.value("phase", std::string());
                         if (phase_status.count(pname)) {
+                            const std::string existing = ph.value("status", std::string());
+                            if (existing == "skipped" && phase_status[pname] == "ok") {
+                                continue;
+                            }
                             ph["status"] = phase_status[pname];
                             ph["pct"] = phase_pct.count(pname) ? phase_pct[pname] : 0.0;
                         }
@@ -379,17 +383,16 @@ void register_preprocessing_routes(CrowApp& app,
                 }
                 if (!current_phase.empty()) {
                     result["current_phase"] = current_phase;
-                    // compute progress: fraction of phases done
-                    if (phases.is_array() && !phases.empty()) {
-                        int done = 0;
-                        double cur_pct = 0.0;
-                        for (const auto& ph : phases) {
-                            const std::string st = ph.value("status", std::string());
-                            if (st == "ok" || st == "skipped") ++done;
-                            else if (st == "running") cur_pct = ph.value("pct", 0.0);
-                        }
-                        result["progress"] = (done + cur_pct) / static_cast<double>(phases.size());
+                }
+                if (phases.is_array() && !phases.empty()) {
+                    int done = 0;
+                    double cur_pct = 0.0;
+                    for (const auto& ph : phases) {
+                        const std::string st = ph.value("status", std::string());
+                        if (st == "ok" || st == "skipped") ++done;
+                        else if (st == "running") cur_pct = ph.value("pct", 0.0);
                     }
+                    result["progress"] = (done + cur_pct) / static_cast<double>(phases.size());
                 }
             } catch (...) {}
             return result;

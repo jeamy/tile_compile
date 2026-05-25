@@ -7140,7 +7140,20 @@ async function bindPccPage() {
 }
 
 function rawStackBool(id) {
-  return String($(id)?.value || "false") === "true";
+  const el = $(id);
+  if (!el) return false;
+  if (el.type === "checkbox") return Boolean(el.checked);
+  return String(el.value || "false") === "true";
+}
+
+function rawStackSetBool(id, value) {
+  const el = $(id);
+  if (!el) return;
+  if (el.type === "checkbox") {
+    el.checked = Boolean(value);
+  } else {
+    el.value = String(Boolean(value));
+  }
 }
 
 function rawStackNumber(id, fallback) {
@@ -7502,10 +7515,10 @@ function rawStackApplyConfig(config) {
   rawStackSetSelect("raw-stack-normalization", s.normalization || "addscale");
   rawStackSetSelect("raw-stack-weighting", s.weighting || "quality");
   const p = c.postprocess || {};
-  rawStackSetSelect("raw-stack-astrometry", p.astrometry !== false);
-  rawStackSetSelect("raw-stack-bge", p.bge !== false);
-  rawStackSetSelect("raw-stack-pcc", p.pcc !== false);
-  rawStackSetSelect("raw-stack-hms", p.hypermetric_stretch !== false);
+  rawStackSetBool("raw-stack-astrometry", p.astrometry !== false);
+  rawStackSetBool("raw-stack-bge", p.bge !== false);
+  rawStackSetBool("raw-stack-pcc", p.pcc !== false);
+  rawStackSetBool("raw-stack-hms", p.hypermetric_stretch !== false);
   if ($("raw-stack-config-json")) {
     $("raw-stack-config-json").value = JSON.stringify(c, null, 2);
   }

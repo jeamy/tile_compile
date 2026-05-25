@@ -1,6 +1,8 @@
 # Raw Stack – GUI-Dokumentation
 
-Raw Stack ist ein eigenstaendiger Menuepunkt in der Tile-Compile-GUI fuer lineares Preprocessing von FITS-Lights bis zum gestackten Bild. Der Prozess laeuft vollstaendig getrennt vom normalen Tile-Compile Run Studio. Er teilt Algorithmen, Artefaktinfrastruktur und den Run-Monitor, startet aber als separater Tool-Runner und erscheint weder in der normalen Phasenliste noch im Parameter Studio.
+Raw Stack ist ein eigenstaendiger Menuepunkt in der Tile-Compile-GUI fuer lineares Preprocessing von FITS-Lights bis zum gestackten Bild. Der Prozess laeuft vollstaendig getrennt vom normalen Tile-Compile Run Studio. Er teilt Algorithmen, Artefaktinfrastruktur, Run-Monitor und Parameter-Studio-Bedienlogik, startet aber als separater Tool-Runner und erscheint nicht in der normalen Tile-Compile-Phasenliste.
+
+Die Parametereingabe erfolgt im Raw-Stack-Menue ueber sichtbare Felder und den Abschnitt **Parameters**. Dieser Abschnitt ist wie das Parameter Studio aufgebaut: gruppierte Parameter, editierbare Werte, JSON-Editor, Validate und Reset. Raw Stack nutzt dabei eine eigene Preprocessing-Konfiguration; Parameter koennen aber aus einer geladenen Tile-Compile-YAML uebernommen werden, sofern sie fuer Raw Stack relevant sind.
 
 ---
 
@@ -148,6 +150,8 @@ Loest das WCS (World Coordinate System) des gestackten Bilds via ASTAP. Ergebnis
 
 Extrahiert und subtrahiert Hintergrundgradienten aus dem RGB-Stack. Erzeugt `outputs/stacked_rgb_bge.fits` und `artifacts/preprocess/bge_diagnostics.json`. Nur bei vorhandenem RGB-Stack aktiv.
 
+BGE verwendet die aus Tile Compile bekannte BGE-Konfiguration (`bge.*`) und die seeing-basierte Tile-Geometrie (`tile.*`). Bei OSC/CFA wird die FWHM auf die volle Debayer-Skala bezogen, damit die Sampling-Geometrie mit Tile Compile vergleichbar bleibt. Die effektiven BGE- und Tile-Parameter werden in `bge_diagnostics.json` protokolliert.
+
 ### PCC – Photometric Color Calibration
 
 Kalibriert die Farbkanaele des RGB-Stacks photometrisch auf Basis von Sternfarben aus dem WCS. Erfordert erfolgreiche Astrometry. Erzeugt `outputs/stacked_rgb_pcc.fits` und `artifacts/preprocess/pcc_diagnostics.json`.
@@ -180,14 +184,44 @@ Streckt den linearen RGB-Stack nichtlinear in den visuell darstellbaren Bereich.
 
 ## Bereich: Parameters (Parametereditor)
 
-Der Parameters-Bereich zeigt die Preprocessing-Parameter gruppiert nach Backend-Schema und enthaelt darunter den JSON-Parametereditor fuer die vollstaendige effektive Konfiguration. Er ermoeglicht die Bearbeitung aller Parameter, die nicht als eigene Formularfelder sichtbar sind.
+Der Parameters-Bereich zeigt die Preprocessing-Parameter gruppiert nach Backend-Schema und enthaelt darunter den JSON-Parametereditor fuer die vollstaendige effektive Konfiguration. Er ermoeglicht die Bearbeitung aller Parameter, die nicht als eigene Formularfelder sichtbar sind. Bedienung und Struktur entsprechen dem Parameter Studio, aber die gespeicherten Werte gehoeren zur separaten Raw-Stack-Konfiguration.
 
 **Schaltflaechen:**
 - **Defaults**: Laedt die gespeicherte Preprocessing-Konfiguration vom Backend (`GET /api/tools/preprocessing/parameters`).
 - **Validate**: Sendet die aktuelle JSON-Konfiguration zur Validierung ans Backend und speichert sie fuer weitere Raw-Stack-Starts (`PATCH /api/tools/preprocessing/parameters`).
 - **Reset**: Setzt den Editor auf die Backend-Defaults zurueck (`GET /api/tools/preprocessing/defaults`).
 
-**Prioritaet beim Start**: Werte aus den sichtbaren Formularfeldern (Postprocess-Schalter, Quality, Stack, Kalibrierung) ueberschreiben die entsprechenden JSON-Werte im Editor. HMS-Details, Dark-Matching-Toleranzen, Reportformate und andere erweiterte Parameter kommen ausschliesslich aus dem Editor.
+**Prioritaet beim Start**: Werte aus den sichtbaren Formularfeldern (Postprocess-Schalter, Quality, Stack, Kalibrierung) ueberschreiben die entsprechenden JSON-Werte im Editor. HMS-Details, BGE/Tile-Parameter, Dark-Matching-Toleranzen, Reportformate und andere erweiterte Parameter kommen ausschliesslich aus dem Editor.
+
+### Uebernahme aus geladener Tile-Compile-YAML
+
+Beim Laden der Raw-Stack-Defaults liest die GUI die aktuell geladene Tile-Compile-Konfiguration und uebernimmt nur Parameter, die im Raw-Stack-Prozess sinnvoll und implementiert sind. Sichtbare Raw-Stack-Felder koennen diese Werte anschliessend wieder ueberschreiben.
+
+| Quelle in Tile Compile | Ziel in Raw Stack | Hinweis |
+|------------------------|-------------------|---------|
+| `runtime_limits.parallel_workers` | `runtime_limits.parallel_workers` | steuert Parallelisierung |
+| `runtime_limits.memory_budget` | `runtime_limits.memory_budget` | steuert speicherschonende Sub-Batches |
+| `normalization.mode` | `stacking.normalization` | nur `background`, `median`, `addscale`, `none` |
+| `stacking.weighting` | `stacking.weighting` | nur `quality`, `uniform` |
+| `stacking.cosmetic_correction` | `stacking.cosmetic_correction` | finale kosmetische Korrektur |
+| `stacking.cosmetic_correction_sigma` | `stacking.cosmetic_correction_sigma` | Sigma fuer finale Korrektur |
+| `stacking.per_frame_cosmetic_correction` | `stacking.per_frame_cosmetic_correction` | kosmetische Korrektur vor Warp/Stack |
+| `stacking.per_frame_cosmetic_correction_sigma` | `stacking.per_frame_cosmetic_correction_sigma` | Sigma fuer Per-Frame-Korrektur |
+| `stacking.sigma_clip.sigma_low` | `rejection.low` | Sigma-Rejection unten |
+| `stacking.sigma_clip.sigma_high` | `rejection.high` | Sigma-Rejection oben |
+| `stacking.sigma_clip.max_iters` | `rejection.max_iters` | iterative Sigma-Clips |
+| `stacking.sigma_clip.min_fraction` | `rejection.min_fraction` | Mindestanteil verbleibender Samples |
+| `astrometry.*` | `astrometry.*` | inkl. `enabled`, ASTAP-Pfade, Suchradius |
+| `astrometry.enabled` | `postprocess.astrometry` | setzt den Postprocess-Schalter vor |
+| `bge.*` | `bge.*` | vollstaendige BGE-Konfiguration |
+| `bge.enabled` | `postprocess.bge` | setzt den Postprocess-Schalter vor |
+| `tile.*` | `tile.*` | Tile-Geometrie fuer BGE-Sampling |
+| `pcc.*` | `pcc.*` | vollstaendige PCC-Konfiguration |
+| `pcc.enabled` | `postprocess.pcc` | setzt den Postprocess-Schalter vor |
+| `hypermetric_stretch.*` | `hypermetric_stretch.*` | vollstaendige HMS-Konfiguration |
+| `hypermetric_stretch.enabled` | `postprocess.hypermetric_stretch` | falls vorhanden, setzt den HMS-Schalter vor |
+
+Nicht uebernommen werden Tile-Compile-spezifische Phasenparameter wie Tile Reconstruction, State Clustering, Synthetic Frames, Common Overlap oder normale Run-Studio-Resume-/Template-Metadaten. Raw Stack nutzt davon nur die gemeinsamen Algorithmen und die oben genannten, kompatiblen Parameter.
 
 **Alle Parametergruppen** (sichtbar im Editor und im separaten Parameter-Studio-Tab):
 
@@ -200,8 +234,10 @@ Der Parameters-Bereich zeigt die Preprocessing-Parameter gruppiert nach Backend-
 | `quality_filter` | `mode`, `min_stars`, `max_fwhm_sigma`, `max_eccentricity`, `min_correlation`, `manual_overrides` |
 | `stacking` | `rejection.method`, `rejection.low/high`, `stacking.normalization`, `stacking.weighting` |
 | `postprocess` | `astrometry`, `bge`, `pcc`, `hypermetric_stretch` |
+| `bge_tile` | `bge.*`, `tile.*` fuer BGE-Sampling und Surface-Fit |
 | `hypermetric_stretch` | alle HMS-Detailparameter |
 | `report` | `report.detailed`, `report.formats` |
+| `runtime_limits` | `runtime_limits.parallel_workers`, `runtime_limits.memory_budget` |
 
 ---
 

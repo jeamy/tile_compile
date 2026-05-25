@@ -590,7 +590,8 @@ bool run_preprocess_pipeline(
     shim_cfg.global_metrics.clamp[1]           =  3.0f;
     shim_cfg.global_metrics.adaptive_weights   = false;
     shim_cfg.global_metrics.weight_exponent_scale = 1.0f;
-    shim_cfg.runtime_limits.parallel_workers   = 0; // auto
+    shim_cfg.runtime_limits.parallel_workers   =
+        std::max(1, cfg.runtime_limits.parallel_workers);
 
     PhaseMetricsContext metrics_ctx;
     if (!run_phase_channel_split_normalization_global_metrics(
@@ -679,8 +680,7 @@ bool run_preprocess_pipeline(
     std::atomic<size_t> reg_done{0};
     std::mutex reg_mutex;
 
-    const int reg_workers = std::max(1, static_cast<int>(
-        std::thread::hardware_concurrency() / 2));
+    const int reg_workers = std::max(1, cfg.runtime_limits.parallel_workers);
 
     auto register_frame = [&](size_t fi) {
         if (static_cast<int>(fi) == out.reference_frame_index) return;

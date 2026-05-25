@@ -1,6 +1,8 @@
 # Raw Stack – GUI Documentation
 
-Raw Stack is a standalone menu item in the Tile-Compile GUI for linear preprocessing of FITS light frames through to a stacked image. The process runs completely separately from the normal Tile-Compile Run Studio. It shares algorithms, artifact infrastructure, and the Run Monitor, but launches as a separate tool runner and does not appear in the normal phase list or Parameter Studio.
+Raw Stack is a standalone menu item in the Tile-Compile GUI for linear preprocessing of FITS light frames through to a stacked image. The process runs completely separately from the normal Tile-Compile Run Studio. It shares algorithms, artifact infrastructure, the Run Monitor, and Parameter Studio interaction patterns, but launches as a separate tool runner and does not appear in the normal Tile-Compile phase list.
+
+Parameter input happens in the Raw Stack menu through visible form fields and the **Parameters** section. This section is structured like Parameter Studio: grouped parameters, editable values, JSON editor, Validate, and Reset. Raw Stack uses its own preprocessing configuration; relevant parameters can still be imported from a loaded Tile-Compile YAML.
 
 ---
 
@@ -148,6 +150,8 @@ Solves the WCS (World Coordinate System) of the stacked image via ASTAP. Result:
 
 Extracts and subtracts background gradients from the RGB stack. Produces `outputs/stacked_rgb_bge.fits` and `artifacts/preprocess/bge_diagnostics.json`. Only active when an RGB stack is available.
 
+BGE uses the same BGE configuration (`bge.*`) and seeing-based tile geometry (`tile.*`) known from Tile Compile. For OSC/CFA data, FWHM is mapped to the full debayer scale so the sampling geometry remains comparable to Tile Compile. The effective BGE and tile parameters are written to `bge_diagnostics.json`.
+
 ### PCC – Photometric Color Calibration
 
 Photometrically calibrates the color channels of the RGB stack based on star colors from the WCS. Requires successful astrometry. Produces `outputs/stacked_rgb_pcc.fits` and `artifacts/preprocess/pcc_diagnostics.json`.
@@ -180,14 +184,44 @@ Non-linearly stretches the linear RGB stack into the visually displayable range.
 
 ## Section: Parameters (Parameter Editor)
 
-The JSON Parameter Editor displays the complete effective preprocessing configuration. It allows editing all parameters that are not exposed as individual form fields.
+The Parameters section displays the preprocessing parameters grouped by backend schema and includes the JSON editor for the complete effective configuration. It allows editing all parameters that are not exposed as individual form fields. Interaction and structure follow Parameter Studio, but the stored values belong to the separate Raw Stack configuration.
 
 **Buttons:**
 - **Defaults**: Loads the default configuration from the backend (`GET /api/tools/preprocessing/defaults`).
 - **Validate**: Sends the current JSON configuration to the backend for validation (`PATCH /api/tools/preprocessing/parameters`).
 - **Reset**: Resets the editor to the stored defaults.
 
-**Priority at start**: Values from visible form fields (postprocess toggles, quality, stacking, calibration) override the corresponding JSON values in the editor. HMS details, dark matching tolerances, report formats, and other advanced parameters come exclusively from the editor.
+**Priority at start**: Values from visible form fields (postprocess toggles, quality, stacking, calibration) override the corresponding JSON values in the editor. HMS details, BGE/tile parameters, dark matching tolerances, report formats, and other advanced parameters come exclusively from the editor.
+
+### Import from loaded Tile-Compile YAML
+
+When Raw Stack defaults are loaded, the GUI reads the currently loaded Tile-Compile configuration and imports only parameters that are meaningful and implemented for the Raw Stack process. Visible Raw Stack fields can still override these values afterwards.
+
+| Source in Tile Compile | Target in Raw Stack | Notes |
+|------------------------|---------------------|-------|
+| `runtime_limits.parallel_workers` | `runtime_limits.parallel_workers` | controls parallelism |
+| `runtime_limits.memory_budget` | `runtime_limits.memory_budget` | controls memory-aware sub-batches |
+| `normalization.mode` | `stacking.normalization` | only `background`, `median`, `addscale`, `none` |
+| `stacking.weighting` | `stacking.weighting` | only `quality`, `uniform` |
+| `stacking.cosmetic_correction` | `stacking.cosmetic_correction` | final cosmetic correction |
+| `stacking.cosmetic_correction_sigma` | `stacking.cosmetic_correction_sigma` | sigma for final correction |
+| `stacking.per_frame_cosmetic_correction` | `stacking.per_frame_cosmetic_correction` | cosmetic correction before warp/stack |
+| `stacking.per_frame_cosmetic_correction_sigma` | `stacking.per_frame_cosmetic_correction_sigma` | sigma for per-frame correction |
+| `stacking.sigma_clip.sigma_low` | `rejection.low` | lower sigma rejection |
+| `stacking.sigma_clip.sigma_high` | `rejection.high` | upper sigma rejection |
+| `stacking.sigma_clip.max_iters` | `rejection.max_iters` | iterative sigma clipping |
+| `stacking.sigma_clip.min_fraction` | `rejection.min_fraction` | minimum remaining sample fraction |
+| `astrometry.*` | `astrometry.*` | includes `enabled`, ASTAP paths, search radius |
+| `astrometry.enabled` | `postprocess.astrometry` | presets the postprocess toggle |
+| `bge.*` | `bge.*` | complete BGE configuration |
+| `bge.enabled` | `postprocess.bge` | presets the postprocess toggle |
+| `tile.*` | `tile.*` | tile geometry for BGE sampling |
+| `pcc.*` | `pcc.*` | complete PCC configuration |
+| `pcc.enabled` | `postprocess.pcc` | presets the postprocess toggle |
+| `hypermetric_stretch.*` | `hypermetric_stretch.*` | complete HMS configuration |
+| `hypermetric_stretch.enabled` | `postprocess.hypermetric_stretch` | if present, presets the HMS toggle |
+
+Tile-Compile-specific phase parameters such as Tile Reconstruction, State Clustering, Synthetic Frames, Common Overlap, or normal Run Studio resume/template metadata are not imported. Raw Stack only uses the shared algorithms and the compatible parameters listed above.
 
 **All parameter groups** (visible in the editor and in the separate Parameter Studio tab):
 
@@ -200,8 +234,10 @@ The JSON Parameter Editor displays the complete effective preprocessing configur
 | `quality_filter` | `mode`, `min_stars`, `max_fwhm_sigma`, `max_eccentricity`, `min_correlation` |
 | `stacking` | `rejection.method`, `rejection.low/high`, `stacking.normalization`, `stacking.weighting` |
 | `postprocess` | `astrometry`, `bge`, `pcc`, `hypermetric_stretch` |
+| `bge_tile` | `bge.*`, `tile.*` for BGE sampling and surface fitting |
 | `hypermetric_stretch` | all HMS detail parameters |
 | `report` | `report.detailed`, `report.formats` |
+| `runtime_limits` | `runtime_limits.parallel_workers`, `runtime_limits.memory_budget` |
 
 ---
 

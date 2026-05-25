@@ -566,6 +566,8 @@ public:
   /// Extract a tile into an existing matrix to avoid repeated allocations.
   bool extract_tile_into(size_t fi, const Tile &t, Matrix2Df &out,
                          int offset_x = 0, int offset_y = 0) const;
+  /// Release all currently mapped frame views without deleting cached files.
+  void clear_mappings() const;
 
   /// Whether a frame has been stored for `fi`.
   bool has_data(size_t fi) const;
@@ -582,7 +584,6 @@ public:
 private:
   const float *mapped_frame_ptr(size_t fi) const;
   void invalidate_mapping(size_t fi);
-  void clear_mappings();
   std::filesystem::path frame_path(size_t fi) const;
 
   std::filesystem::path cache_dir_;

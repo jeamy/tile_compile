@@ -1336,11 +1336,12 @@ void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-void DiskCacheFrameStore::clear_mappings() {
+void DiskCacheFrameStore::clear_mappings() const {
   std::vector<void *> views;
   {
     std::lock_guard<std::mutex> lock(mapped_mutex_);
     views.swap(mapped_views_);
+    mapped_views_.assign(has_data_.size(), nullptr);
   }
   for (void *view : views) {
     unmap_view(view, frame_bytes_);
@@ -1384,6 +1385,7 @@ void DiskCacheFrameStore::cleanup() {
     fs::remove_all(cache_dir_, ec);
   }
   has_data_.clear();
+  mapped_views_.clear();
   cache_dir_.clear();
   rows_ = 0;
   cols_ = 0;
