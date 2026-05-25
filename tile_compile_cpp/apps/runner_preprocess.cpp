@@ -1146,6 +1146,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     const std::string& run_id,
     const prep::Config& cfg,
     const PreprocessStackResult& stack,
+    const runner::PreprocessPipelineContext& pp,
     const runner::QualityAnalysisContext& qa,
     const fs::path& run_dir,
     core::EventEmitter& emitter,
@@ -1252,7 +1253,10 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     auto rgb = io::read_fits_rgb(current_rgb);
     config::BGEConfig bge_source = cfg.has_bge_config ? cfg.bge : default_preprocess_bge_config();
     if (!cfg.has_bge_config) bge_source.enabled = true;
-    const float seeing_fwhm = accepted_median_fwhm(qa);
+    float seeing_fwhm = accepted_median_fwhm(qa);
+    if (pp.color_mode == tile_compile::ColorMode::OSC && seeing_fwhm > 0.0f) {
+      seeing_fwhm *= 2.0f;
+    }
     TileGrid grid = build_preprocess_bge_grid(rgb.R.rows(), rgb.R.cols(),
                                              cfg.tile, seeing_fwhm);
     std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
@@ -1754,7 +1758,7 @@ int preprocess_command(const std::string& config_path,
     const PreprocessStackResult stack =
         run_preprocess_stacking(run_id, cfg, pp, qa, run_dir, emitter, event_out);
     const PreprocessPostprocessResult post =
-        run_preprocess_postprocess(run_id, cfg, stack, qa, run_dir, emitter, event_out);
+        run_preprocess_postprocess(run_id, cfg, stack, pp, qa, run_dir, emitter, event_out);
 
     emitter.phase_start(run_id, prep::phase_to_string(prep::Phase::REPORT), event_out);
     write_report_and_manifest(run_dir, run_id, cfg, pp, qa, stack, post);
