@@ -7876,8 +7876,9 @@ async function bindRawStackPage() {
   $("raw-stack-start")?.addEventListener("click", async () => {
     try {
       const cfg = currentConfig();
-      const runName = sanitizeRunName(suggestRunNameFromInputs([cfg.lights_dir]));
-      const cfgWithName = runName ? { ...cfg, run_name: "rs_" + runName } : cfg;
+      const explicitName = sanitizeRunName($("scan-run-name")?.value || "");
+      const runName = explicitName || ("rs_" + (sanitizeRunName(suggestRunNameFromInputs([cfg.lights_dir])) || "run"));
+      const cfgWithName = { ...cfg, run_name: runName };
       setStatusChip(chip, "starting…", "running");
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.preprocessing.run, cfgWithName),
