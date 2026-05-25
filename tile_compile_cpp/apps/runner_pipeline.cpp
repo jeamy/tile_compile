@@ -5711,8 +5711,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     } else if (!have_rgb) {
       emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
                         {{"reason", "no_rgb_data"}}, log_file);
-    } else if (cfg.hypermetric_stretch.require_successful_pcc &&
-               !have_successful_pcc) {
+    } else if (!have_wcs) {
+      emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
+                        {{"reason", "missing_successful_astrometry"}},
+                        log_file);
+    } else if (!have_successful_pcc) {
       emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "skipped",
                         {{"reason", "missing_successful_pcc"},
                          {"require_successful_pcc", true}},
@@ -5792,7 +5795,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              {"shadow_convergence", hms_diag.shadow_convergence},
              {"black_clip_percent", hms_diag.black_clip_percent},
              {"white_clip_percent", hms_diag.white_clip_percent},
-             {"input_stage", have_successful_pcc ? "pcc" : "linear_no_pcc"}},
+             {"input_stage", "pcc"}},
             log_file);
       } catch (const std::exception &e) {
         emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",

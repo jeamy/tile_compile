@@ -2050,7 +2050,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   };
 }
 
-function renderScanSummary(prefix, summary) {
+function renderScanSummary(prefix, summary, options = {}) {
   const data = summarizeScanResult(summary);
   const status = !data.has_scan
     ? t("ui.status.scan_none", "Kein Scan")
@@ -2076,7 +2076,11 @@ function renderScanSummary(prefix, summary) {
   setText($(`${prefix}-errors`), errorCountText);
   setText($(`${prefix}-warnings`), warningCountText);
   if (prefix === "scan-summary") {
-    rawStackRenderScanFrameTable(data.frames, data.frames_total, data.frames_truncated);
+    if (options?.renderFrameTable === true) {
+      rawStackRenderScanFrameTable(data.frames, data.frames_total, data.frames_truncated);
+    } else {
+      rawStackRenderScanFrameTable([]);
+    }
   }
   return data;
 }
@@ -7730,6 +7734,12 @@ async function rawStackLoadFrameQuality(runId) {
   rawStackRenderFrameTable(rawStackParseCsv(payload?.text || ""));
 }
 
+async function rawStackLoadCompletedScanFrames() {
+  const latest = await api.get(API_ENDPOINTS.scan.latest);
+  const summary = summarizeScanResult(latest);
+  rawStackRenderScanFrameTable(summary.frames, summary.frames_total, summary.frames_truncated);
+}
+
 const RAW_STACK_PHASE_ORDER = [
   "INPUT_SCAN","CALIBRATION","CFA_CHANNEL_PREP","REFERENCE_SELECTION",
   "REGISTRATION","QUALITY_ANALYSIS","FRAME_FILTERING","STACKING",
@@ -7850,8 +7860,9 @@ async function bindRawStackPage() {
       setStatusChip(chip, s || "idle", "check");
     }
 
-    // frame_quality.csv nach Laufende laden
+    // Frame-Tabellen erst nach Laufende laden.
     if (!isRunning && runId) {
+      rawStackLoadCompletedScanFrames().catch(() => {});
       rawStackLoadFrameQuality(runId).catch(() => {});
     }
 
@@ -7945,6 +7956,8 @@ async function bindRawStackPage() {
       const runName = explicitName || ("rs_" + (sanitizeRunName(suggestRunNameFromInputs([cfg.lights_dir])) || "run"));
       const cfgWithName = { ...cfg, run_name: runName };
       setStatusChip(chip, "starting…", "running");
+      rawStackRenderScanFrameTable([]);
+      rawStackRenderFrameTable([]);
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.preprocessing.run, cfgWithName),
         { fallbackPath: cfg.lights_dir },

@@ -1385,6 +1385,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     }
   }
 
+  bool have_successful_pcc = false;
   emitter.phase_start(run_id, prep::phase_to_string(prep::Phase::PCC), event_out);
   if (!cfg.postprocess.pcc) {
     add_phase_result(result.phases, "PCC", "skipped", {{"reason", "disabled"}});
@@ -1429,6 +1430,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
       core::write_text(result.pcc_diag_path, pcc_diag.dump(2));
       add_artifact(result.artifacts, "pcc_diagnostics", "PCC", result.pcc_diag_path);
       if (pcc.success) {
+        have_successful_pcc = true;
         result.pcc_rgb_path = output_dir / "stacked_rgb_pcc.fits";
         io::write_fits_rgb(result.pcc_rgb_path, rgb.R, rgb.G, rgb.B,
                            io::read_fits_header(current_rgb));
@@ -1454,11 +1456,19 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     add_phase_result(result.phases, "HYPERMETRIC_STRETCH", "skipped", {{"reason", "disabled"}});
     emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::HYPERMETRIC_STRETCH), "skipped",
                       result.phases.back(), event_out);
+  } else if (!have_wcs) {
+    add_phase_result(result.phases, "HYPERMETRIC_STRETCH", "skipped",
+                     {{"reason", "missing_successful_astrometry"}});
+    emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::HYPERMETRIC_STRETCH), "skipped",
+                      result.phases.back(), event_out);
+  } else if (!have_successful_pcc) {
+    add_phase_result(result.phases, "HYPERMETRIC_STRETCH", "skipped",
+                     {{"reason", "missing_successful_pcc"},
+                      {"require_successful_pcc", true}});
+    emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::HYPERMETRIC_STRETCH), "skipped",
+                      result.phases.back(), event_out);
   } else {
-    // Choose best available RGB input: pcc > bge > plain rgb stack
-    const fs::path hms_input = !result.pcc_rgb_path.empty()  ? result.pcc_rgb_path
-                             : !result.bge_rgb_path.empty()  ? result.bge_rgb_path
-                             : stack.stacked_rgb_path;
+    const fs::path hms_input = result.pcc_rgb_path;
     if (hms_input.empty()) {
       add_phase_result(result.phases, "HYPERMETRIC_STRETCH", "skipped", {{"reason", "no_rgb_input"}});
       emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::HYPERMETRIC_STRETCH), "skipped",
