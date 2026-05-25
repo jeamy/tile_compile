@@ -699,6 +699,94 @@ local_metrics:
     background_weight: 0.3
 ```
 
+## Raw Stack / Preprocessing
+
+Raw Stack verwendet eine separate Preprocessing-Konfiguration ueber die GUI/API, nicht den normalen `tile_compile.yaml`-Hauptstrang. Eingabeordner und Kalibrierframes werden in der GUI 1:1 wie in `Input & Scan` gewaehlt.
+
+### CFA/OSC mit Kalibrierung und Default-Postprocess
+
+```json
+{
+  "mode": "linear_prestack",
+  "lights_dir": "/data/session/lights",
+  "bias_dir": "/data/session/bias",
+  "darks_dir": "/data/session/darks",
+  "flats_dir": "/data/session/flats",
+  "input_mode": "cfa_osc",
+  "raw_formats": "tile_compile",
+  "bayer_pattern": "auto",
+  "cfa_mode": "tile_compile",
+  "calibration": {
+    "use_bias": true,
+    "use_dark": true,
+    "use_flat": true,
+    "dark_auto_select": true
+  },
+  "quality_filter": {
+    "mode": "auto",
+    "min_stars": 30,
+    "max_fwhm_sigma": 2.0,
+    "max_eccentricity": 0.65,
+    "min_correlation": 0.75
+  },
+  "rejection": {
+    "method": "sigma",
+    "low": 3.0,
+    "high": 3.0
+  },
+  "stacking": {
+    "normalization": "addscale",
+    "weighting": "quality"
+  },
+  "postprocess": {
+    "astrometry": true,
+    "bge": true,
+    "pcc": true,
+    "hypermetric_stretch": true
+  },
+  "hypermetric_stretch": {
+    "require_successful_pcc": true,
+    "mode": "ready_to_use",
+    "sensor_profile": "rec709",
+    "fallback_profile": "rec709",
+    "target_bg": 0.15,
+    "output_rgb": "stacked_rgb_hms.fits"
+  },
+  "report": {
+    "detailed": true,
+    "formats": ["json", "markdown", "html"]
+  }
+}
+```
+
+### Mono ohne Kalibrierframes
+
+```json
+{
+  "mode": "linear_prestack",
+  "lights_dir": "/data/session/mono_lights",
+  "input_mode": "mono",
+  "raw_formats": "tile_compile",
+  "bayer_pattern": "auto",
+  "mono_mode": "auto",
+  "quality_filter": {
+    "mode": "relaxed",
+    "min_stars": 15,
+    "min_correlation": 0.65
+  },
+  "stacking": {
+    "normalization": "median",
+    "weighting": "quality"
+  },
+  "postprocess": {
+    "astrometry": true,
+    "bge": true,
+    "pcc": true,
+    "hypermetric_stretch": true
+  }
+}
+```
+
 ---
 
 Diese Beispiele basieren jetzt auf den aktiven Parametern von Code und Schema (`v3.3.9`-Stand) und sind enger an die gepflegten Repository-Profile angelehnt.

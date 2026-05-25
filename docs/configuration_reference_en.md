@@ -40,6 +40,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 20. [Stacking](#20-stacking)
 21. [Validation](#21-validation)
 22. [Runtime Limits](#22-runtime-limits)
+23. [Raw Stack / Preprocessing](#23-raw-stack--preprocessing)
 
 ---
 
@@ -1914,6 +1915,118 @@ resume path. Exceeding the limit aborts the run with
 **Note:** If requested backend is unavailable (missing OpenCV modules or hardware), the pipeline falls back to CPU with a warning.
 
 ---
+
+## 23. Raw Stack / Preprocessing
+
+Raw Stack is a separate preprocessing process and is not part of the normal `tile_compile.yaml` main pipeline. Its configuration is used through the preprocessing API and the Raw Stack parameter editor:
+
+- `GET /api/tools/preprocessing/defaults`
+- `GET /api/tools/preprocessing/parameters`
+- `PATCH /api/tools/preprocessing/parameters`
+- `POST /api/tools/preprocessing/run`
+
+The process shares code and algorithms with Tile-Compile but does not appear in the normal Run Studio or the normal Parameter Studio.
+
+### `preprocessing.mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Default** | `linear_prestack` |
+| **Values** | `linear_prestack` |
+
+**Purpose:** Enables the classic linear pre-stack path without tile grid generation, tile reconstruction, synthetic frames, or state clustering.
+
+### Input and CFA/Mono
+
+| Parameter | Type | Default | Purpose |
+|-----------|------|---------|---------|
+| `lights_dir` | string | `""` | Light/raw input directory; in the GUI this is handled by the same controls as `Input & Scan`. |
+| `bias_dir`, `darks_dir`, `flats_dir`, `darkflats_dir` | string | `""` | Calibration directories. |
+| `input_mode` | string | `auto` | `auto`, `cfa_osc`, `mono`. |
+| `raw_formats` | string | `tile_compile` | Uses the same raw/FITS input scope as Tile-Compile. |
+| `bayer_pattern` | string | `auto` | Header-derived Bayer pattern or explicit `RGGB`, `GBRG`, `GRBG`, `BGGR`. |
+| `cfa_mode` | string | `tile_compile` | CFA/OSC handling through Tile-Compile logic. |
+| `mono_mode` | string | `auto` | Mono path without forced RGB/Bayer assumptions. |
+| `registration_reference` | string | `best_quality` | Reference frame selection. |
+
+### `calibration.*`
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `calibration.use_bias` | boolean | `false` |
+| `calibration.use_dark` | boolean | `false` |
+| `calibration.use_flat` | boolean | `false` |
+| `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`, `darkflat_use_master` | boolean | `false` |
+| `calibration.dark_auto_select` | boolean | `true` |
+| `calibration.dark_match_use_temp` | boolean | `false` |
+| `calibration.dark_match_exposure_tolerance_percent` | number | `8.0` |
+| `calibration.dark_match_temp_tolerance_c` | number | `3.0` |
+| `calibration.bias_master`, `dark_master`, `flat_master`, `darkflat_master` | string | `""` |
+| `calibration.pattern` | string | `*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz` |
+
+### Quality and Stacking
+
+| Parameter | Type | Default | Values |
+|-----------|------|---------|--------|
+| `quality_filter.mode` | string | `auto` | `auto`, `strict`, `relaxed`, `off` |
+| `quality_filter.min_stars` | integer | `30` | >= 0 |
+| `quality_filter.max_fwhm_sigma` | number | `2.0` | > 0 |
+| `quality_filter.max_eccentricity` | number | `0.65` | 0 - 1 |
+| `quality_filter.min_correlation` | number | `0.75` | 0 - 1 |
+| `quality_filter.manual_overrides` | object | `{}` | Optional frame overrides by index or filename, e.g. `"0": {"include": false}`. |
+| `rejection.method` | string | `sigma` | `sigma`, `median`, `winsor` |
+| `rejection.low`, `rejection.high` | number | `3.0` | > 0 |
+| `stacking.normalization` | string | `addscale` | `addscale`, `background`, `median`, `none` |
+| `stacking.weighting` | string | `quality` | `quality`, `uniform` |
+
+### Postprocess and HMS
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `postprocess.astrometry` | boolean | `true` |
+| `postprocess.bge` | boolean | `true` |
+| `postprocess.pcc` | boolean | `true` |
+| `postprocess.hypermetric_stretch` | boolean | `true` |
+
+HMS is enabled by default. Its detailed parameters match the normal Tile-Compile HMS contract and are only editable in the Raw Stack parameter editor:
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `hypermetric_stretch.require_successful_pcc` | boolean | `true` |
+| `hypermetric_stretch.mode` | string | `ready_to_use` |
+| `hypermetric_stretch.sensor_profile` | string | `rec709` |
+| `hypermetric_stretch.fallback_profile` | string | `rec709` |
+| `hypermetric_stretch.adaptive_anchor` | boolean | `true` |
+| `hypermetric_stretch.target_bg` | number | `0.15` |
+| `hypermetric_stretch.protect_b` | number | `6.0` |
+| `hypermetric_stretch.convergence_power` | number | `3.5` |
+| `hypermetric_stretch.log_d_mode` | string | `auto` |
+| `hypermetric_stretch.fixed_log_d` | number | `2.0` |
+| `hypermetric_stretch.color_strategy` | string | `fixed` |
+| `hypermetric_stretch.fixed_color_strategy` | number | `0.0` |
+| `hypermetric_stretch.color_grip` | number | `1.0` |
+| `hypermetric_stretch.shadow_convergence` | number | `0.0` |
+| `hypermetric_stretch.linear_expansion` | number | `0.0` |
+| `hypermetric_stretch.write_channels` | boolean | `false` |
+| `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
+
+### Report
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `report.detailed` | boolean | `true` |
+| `report.formats` | list | `[json, markdown, html]` |
+
+Raw Stack writes report data under `artifacts/preprocess/`:
+
+- `preprocessing_report.json`
+- `preprocessing_report.md`
+- `preprocessing_report.html`
+- `frame_quality.csv`
+- `rejected_frames.txt`
+- `events.jsonl`
+- `artifacts_manifest.json`
 
 ## Appendix A — Functional details for all options
 

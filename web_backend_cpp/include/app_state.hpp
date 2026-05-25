@@ -24,5 +24,6 @@ struct AppState {
     std::string active_config_revision_id;
     std::string last_scan_input_path;
     nlohmann::json ui_state = nlohmann::json::object();
+    nlohmann::json preprocessing_parameters = nlohmann::json::object();
     bool ui_state_loaded = false;
 };

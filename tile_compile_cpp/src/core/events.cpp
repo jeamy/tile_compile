@@ -172,4 +172,36 @@ void emit_event(const std::string& type, const std::string& run_id,
     out.flush();
 }
 
+void EventEmitter::phase_start(const std::string& run_id, const std::string& phase_name,
+                               std::ostream& out) {
+    json event = base_event("phase_start", run_id);
+    event["phase"] = -1;
+    event["phase_name"] = phase_name;
+    emit(event, out);
+}
+
+void EventEmitter::phase_progress(const std::string& run_id, const std::string& phase_name,
+                                  float progress, const std::string& message, std::ostream& out) {
+    json event = base_event("phase_progress", run_id);
+    event["phase"] = -1;
+    event["phase_name"] = phase_name;
+    event["current"] = static_cast<int>(progress * 100);
+    event["total"] = 100;
+    event["progress"] = progress;
+    event["substep"] = message;
+    emit(event, out);
+}
+
+void EventEmitter::phase_end(const std::string& run_id, const std::string& phase_name,
+                             const std::string& status, const json& extra, std::ostream& out) {
+    json event = base_event("phase_end", run_id);
+    event["phase"] = -1;
+    event["phase_name"] = phase_name;
+    event["status"] = status;
+    for (auto& [key, value] : extra.items()) {
+        event[key] = value;
+    }
+    emit(event, out);
+}
+
 } // namespace tile_compile::core

@@ -70,6 +70,13 @@ HttpResponse http_request(const std::string& method,
             headers = curl_slist_append(headers, "Content-Type: application/json");
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         }
+    } else if (method == "PATCH") {
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
+        if (body.has_value()) {
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body->c_str());
+            headers = curl_slist_append(headers, "Content-Type: application/json");
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        }
     }
 
     CURLcode rc = curl_easy_perform(curl);
@@ -222,14 +229,46 @@ nlohmann::json BackendHarness::post_json(const std::string& path, const nlohmann
     return parsed;
 }
 
+nlohmann::json BackendHarness::patch_json(const std::string& path, const nlohmann::json& payload) const {
+    HttpResponse response = http_request("PATCH", base_url() + path, payload.dump());
+    auto parsed = nlohmann::json::parse(response.body, nullptr, false);
+    if (parsed.is_discarded()) throw TestFailure("invalid JSON response for " + path + ": " + response.body);
+    parsed["_http_status"] = response.status_code;
+    return parsed;
+}
+
 nlohmann::json BackendHarness::wait_for_job(const std::string& job_id, double timeout_s) const {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(static_cast<int>(timeout_s * 1000.0));
     nlohmann::json last_payload = nlohmann::json::object();
+    std::string last_invalid_body;
+    std::string last_request_error;
     while (std::chrono::steady_clock::now() < deadline) {
-        last_payload = get_json("/api/jobs/" + job_id);
+        const std::string path = "/api/jobs/" + job_id;
+        HttpResponse response;
+        try {
+            response = get(path);
+        } catch (const TestFailure& e) {
+            last_request_error = e.what();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+        auto parsed = nlohmann::json::parse(response.body, nullptr, false);
+        if (parsed.is_discarded()) {
+            last_invalid_body = response.body;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+        parsed["_http_status"] = response.status_code;
+        last_payload = parsed;
         const std::string state = last_payload.value("state", "");
         if (state == "ok" || state == "error" || state == "cancelled") return last_payload;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!last_invalid_body.empty()) {
+        throw TestFailure("job did not return valid JSON in time: " + last_invalid_body);
+    }
+    if (!last_request_error.empty()) {
+        throw TestFailure("job polling failed: " + last_request_error + "\nbackend log:\n" + slurp_file(_log_path));
     }
     throw TestFailure("job did not finish in time: " + last_payload.dump(2));
 }

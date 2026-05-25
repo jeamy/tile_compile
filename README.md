@@ -20,6 +20,7 @@ While the methodology was originally conceived to address the specific challenge
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow - How the System Works](docs/process_flow/data_flow_user_description_en.md)
 - Full documentation site: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
+- Raw Stack GUI guide (English): [docs/raw_stack_gui_en.md](docs/raw_stack_gui_en.md)
 
 ## Paper Example Data Sources
 
@@ -534,6 +535,18 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
+## v0.2.9 (2026-05-25)
+
+**Raw Stack preprocessing pipeline:**
+- New standalone Raw Stack UI: preprocessing from FITS light frames to final stacked image, separate from the Tile-Compile run studio.
+- Pipeline covers: Calibration, CFA/Mono Prep, Registration, Quality Filtering, Stacking, Astrometry, BGE, PCC, HyperMetric Stretch.
+- All parameters (sigma-clip, rejection, weighting, BGE, PCC, Astrometry, HMS) are taken from the Parameter Studio config — nothing is hardcoded.
+- See [docs/raw_stack_gui_en.md](docs/raw_stack_gui_en.md) for GUI documentation.
+
+## v0.2.8 (2026-05-23)
+
+-- HMS Bug fixes
+
 ## v0.2.7 (2026-05-22)
 
 **implementationHMS:**
@@ -736,6 +749,17 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 - First public release
 
 ## Changelog
+
+### (2026-05-25)
+
+**Raw Stack preprocessing pipeline (`v0.2.8`):**
+
+- Added a new standalone Raw Stack page in GUI2 for end-to-end preprocessing of FITS light frames through to a stacked and post-processed image, running fully separately from the normal Tile-Compile run studio.
+- The pipeline covers all phases: Calibration (Bias/Dark/Flat), CFA/Mono Prep, Registration, Quality Analysis, Frame Filtering, Stacking (Sigma/Median/Winsor), Astrometry (ASTAP), Background Gradient Extraction (BGE), Photometric Color Calibration (PCC), and HyperMetric Stretch.
+- All configurable parameters (sigma-clip, rejection method, stacking weighting, BGE, PCC, Astrometry, and HyperMetric Stretch) are taken directly from the Parameter Studio configuration — no hardcoded values.
+- Output scaling correctly restores background and scale after stacking to produce accurate pixel values.
+- Raw Stack UI cleanup: removed Run Monitor button, added full i18n coverage for all labels and buttons.
+- See [docs/raw_stack_gui_en.md](docs/raw_stack_gui_en.md) for the full GUI reference.
 
 ### (2026-05-22) 
 

@@ -352,6 +352,48 @@ int compute_adaptive_worker_count(
   return std::max(1, std::min(workers, io_cap));
 }
 
+FrameSubBatchPlan compute_memory_capped_frame_sub_batch(
+    size_t frame_count,
+    size_t pixels_per_worker,
+    int channels,
+    int requested_workers,
+    int memory_budget_mb) {
+  FrameSubBatchPlan plan;
+  plan.frame_sub_batch_size = frame_count;
+  plan.effective_workers = std::max(1, requested_workers);
+  plan.memory_budget_bytes =
+      static_cast<uint64_t>(std::max(1, memory_budget_mb)) * 1024ull * 1024ull;
+  plan.bytes_per_frame_per_worker =
+      static_cast<uint64_t>(pixels_per_worker) *
+      static_cast<uint64_t>(std::max(1, channels)) * sizeof(float);
+
+  if (frame_count == 0 || pixels_per_worker == 0 ||
+      plan.bytes_per_frame_per_worker == 0) {
+    plan.frame_sub_batch_size = 0;
+    return plan;
+  }
+
+  const uint64_t denominator =
+      plan.bytes_per_frame_per_worker *
+      static_cast<uint64_t>(std::max(1, plan.effective_workers));
+  if (denominator == 0) return plan;
+
+  const size_t total_frame_budget =
+      static_cast<size_t>((plan.memory_budget_bytes * 8ull / 10ull) / denominator);
+  if (total_frame_budget < 1) {
+    plan.effective_workers = 1;
+    plan.frame_sub_batch_size = frame_count;
+    plan.budget_too_small_for_requested_workers = true;
+    return plan;
+  }
+
+  if (total_frame_budget < frame_count) {
+    plan.frame_sub_batch_size = total_frame_budget;
+    plan.sub_batch_limited = true;
+  }
+  return plan;
+}
+
 /// @brief Implements message indicates disk full.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -1459,6 +1501,14 @@ void RunnerFrameCache::cleanup() {
   std::lock_guard<std::mutex> lock(proxy_mutex_);
   has_registration_proxy_.clear();
   registration_proxies_.clear();
+}
+
+int default_parallel_workers(size_t items, int requested_workers) {
+  const unsigned hw = std::thread::hardware_concurrency();
+  const int hardware_limit = hw == 0 ? 4 : static_cast<int>(std::max(1u, hw / 2u));
+  const int requested = requested_workers > 0 ? requested_workers : hardware_limit;
+  const int limit = std::min(hardware_limit, requested);
+  return std::max(1, std::min<int>(limit, static_cast<int>(std::max<size_t>(1, items))));
 }
 
 } // namespace tile_compile::runner

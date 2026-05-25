@@ -17,12 +17,17 @@ public:
     void run_end(const std::string& run_id, bool success, const std::string& status, std::ostream& out);
     
     void phase_start(const std::string& run_id, Phase phase, const std::string& name, std::ostream& out);
+    void phase_start(const std::string& run_id, const std::string& phase_name, std::ostream& out);
     void phase_progress(const std::string& run_id, Phase phase, float progress, 
+                        const std::string& message, std::ostream& out);
+    void phase_progress(const std::string& run_id, const std::string& phase_name, float progress,
                         const std::string& message, std::ostream& out);
     void phase_progress_counts(const std::string& run_id, Phase phase, int current, int total,
                                const std::string& substep, const std::string& pass,
                                std::ostream& out);
     void phase_end(const std::string& run_id, Phase phase, const std::string& status,
+                   const json& extra, std::ostream& out);
+    void phase_end(const std::string& run_id, const std::string& phase_name, const std::string& status,
                    const json& extra, std::ostream& out);
     
     void frame_processed(const std::string& run_id, Phase phase, int frame_idx, 

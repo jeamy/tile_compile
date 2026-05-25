@@ -33,6 +33,7 @@ public:
     HttpResponse post(const std::string& path, const nlohmann::json& payload) const;
     nlohmann::json get_json(const std::string& path) const;
     nlohmann::json post_json(const std::string& path, const nlohmann::json& payload) const;
+    nlohmann::json patch_json(const std::string& path, const nlohmann::json& payload) const;
     nlohmann::json wait_for_job(const std::string& job_id, double timeout_s = 10.0) const;
 
     std::filesystem::path create_run(const std::string& run_id,

@@ -15,6 +15,8 @@
 #include <ostream>
 #include <streambuf>
 #include <string>
+#include <thread>
+#include <atomic>
 #include <vector>
 
 namespace tile_compile::runner {
@@ -61,6 +63,57 @@ int compute_adaptive_worker_count(
     const config::Config &cfg, size_t task_count,
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
+
+/// Determine default parallel workers for CPU bound tasks without memory capping.
+int default_parallel_workers(size_t items, int requested_workers = 0);
+
+/// Simple parallel-for loop over indices [0, count).
+template <typename Fn>
+void parallel_for_indices(size_t count, int workers, Fn fn) {
+  if (count == 0) return;
+  workers = std::max(1, std::min<int>(workers, static_cast<int>(count)));
+  if (workers == 1) {
+    for (size_t i = 0; i < count; ++i) fn(i);
+    return;
+  }
+  std::atomic<size_t> next{0};
+  std::vector<std::thread> threads;
+  threads.reserve(static_cast<size_t>(workers));
+  for (int w = 0; w < workers; ++w) {
+    threads.emplace_back([&]() {
+      while (true) {
+        const size_t i = next.fetch_add(1);
+        if (i >= count) break;
+        fn(i);
+      }
+    });
+  }
+  for (auto& t : threads) {
+    if (t.joinable()) t.join();
+  }
+}
+
+
+/// Memory-budget plan for frame sub-batching.
+///
+/// This mirrors the Tile Compile OSC reconstruction rule:
+/// `workers * sub_batch * pixels_per_worker * channels * sizeof(float)` should
+/// fit into 80% of `runtime_limits.memory_budget`.
+struct FrameSubBatchPlan {
+  size_t frame_sub_batch_size = 0;
+  int effective_workers = 1;
+  uint64_t memory_budget_bytes = 0;
+  uint64_t bytes_per_frame_per_worker = 0;
+  bool budget_too_small_for_requested_workers = false;
+  bool sub_batch_limited = false;
+};
+
+FrameSubBatchPlan compute_memory_capped_frame_sub_batch(
+    size_t frame_count,
+    size_t pixels_per_worker,
+    int channels,
+    int requested_workers,
+    int memory_budget_mb);
 
 /// Resolve the PCC aperture FWHM used by auto-radius photometry.
 ///
