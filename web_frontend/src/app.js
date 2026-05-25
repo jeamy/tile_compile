@@ -7303,9 +7303,8 @@ async function rawStackConfigFromLoadedTileConfig() {
     }
     const bge = config.bge;
     if (bge && typeof bge === "object" && !Array.isArray(bge)) {
-      const bgeEnabled = typeof bge.enabled === "boolean" ? bge.enabled : true;
-      nextPostprocess.bge = bgeEnabled;
-      out.bge = { ...bge, enabled: bgeEnabled };
+      if (typeof bge.enabled === "boolean") nextPostprocess.bge = bge.enabled;
+      out.bge = { ...bge };
     }
     const pcc = config.pcc;
     if (pcc && typeof pcc === "object" && !Array.isArray(pcc) && typeof pcc.enabled === "boolean") {
