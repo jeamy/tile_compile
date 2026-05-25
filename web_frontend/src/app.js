@@ -7302,9 +7302,10 @@ async function rawStackConfigFromLoadedTileConfig() {
       out.astrometry = { ...astrometry };
     }
     const bge = config.bge;
-    if (bge && typeof bge === "object" && !Array.isArray(bge) && typeof bge.enabled === "boolean") {
-      nextPostprocess.bge = bge.enabled;
-      out.bge = { ...bge };
+    if (bge && typeof bge === "object" && !Array.isArray(bge)) {
+      const bgeEnabled = typeof bge.enabled === "boolean" ? bge.enabled : true;
+      nextPostprocess.bge = bgeEnabled;
+      out.bge = { ...bge, enabled: bgeEnabled };
     }
     const pcc = config.pcc;
     if (pcc && typeof pcc === "object" && !Array.isArray(pcc) && typeof pcc.enabled === "boolean") {
@@ -7876,9 +7877,11 @@ async function bindRawStackPage() {
   $("raw-stack-start")?.addEventListener("click", async () => {
     try {
       const cfg = currentConfig();
+      const runName = sanitizeRunName(suggestRunNameFromInputs([cfg.lights_dir]));
+      const cfgWithName = runName ? { ...cfg, run_name: "rs_" + runName } : cfg;
       setStatusChip(chip, "starting…", "running");
       const accepted = await withPathGrantRetry(
-        () => api.post(API_ENDPOINTS.preprocessing.run, cfg),
+        () => api.post(API_ENDPOINTS.preprocessing.run, cfgWithName),
         { fallbackPath: cfg.lights_dir },
       );
       currentJobId = accepted.job_id || "";

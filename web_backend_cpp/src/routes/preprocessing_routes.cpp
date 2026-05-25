@@ -6,8 +6,11 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <random>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -228,8 +231,28 @@ void register_preprocessing_routes(CrowApp& app,
         if (!resolved) return error;
         effective_config["lights_dir"] = resolved->string();
 
-        const auto now = std::chrono::system_clock::now().time_since_epoch().count() % 100000000;
-        const std::string run_id = "preprocessing_" + std::to_string(now);
+        const auto now_tp = std::chrono::system_clock::now();
+        const auto now_tt = std::chrono::system_clock::to_time_t(now_tp);
+        std::tm tm_buf{};
+        localtime_r(&now_tt, &tm_buf);
+        std::ostringstream ts_ss;
+        ts_ss << std::put_time(&tm_buf, "%Y%m%d_%H%M%S");
+        const std::string timestamp = ts_ss.str();
+        std::string raw_run_name = body.value("run_name", effective_config.value("run_name", std::string()));
+        std::string base_name;
+        if (!raw_run_name.empty()) {
+            for (char& ch : raw_run_name) {
+                bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                          (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-';
+                if (!ok) ch = '_';
+            }
+            while (!raw_run_name.empty() && raw_run_name.front() == '_') raw_run_name.erase(raw_run_name.begin());
+            while (!raw_run_name.empty() && raw_run_name.back() == '_') raw_run_name.pop_back();
+            base_name = raw_run_name.empty() ? "rs_run" : raw_run_name;
+        } else {
+            base_name = "rs_run";
+        }
+        const std::string run_id = base_name + "_" + timestamp;
         const fs::path run_dir = state->runtime.runs_dir / run_id;
         std::vector<std::string> args = {
             state->runtime.runner_exe,
