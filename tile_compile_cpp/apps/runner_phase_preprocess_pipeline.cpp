@@ -234,10 +234,10 @@ bool build_calib_masters(const preprocessing::Config& cfg,
             auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "bias_dir empty: " + dir.string(); return false; }
             if (!load_average_master(frames, rows, cols, out.bias, err)) return false;
-            artifact["bias"] = {{
+            artifact["bias"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}
-            }};
+            };
         }
         out.have_bias = true;
     }
@@ -253,10 +253,10 @@ bool build_calib_masters(const preprocessing::Config& cfg,
             auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "darks_dir empty: " + dir.string(); return false; }
             if (!load_average_master(frames, rows, cols, out.dark, err)) return false;
-            artifact["dark"] = {{
+            artifact["dark"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}, {"bias_corrected", out.have_bias}
-            }};
+            };
             if (cfg.calibration.dark_auto_select) {
                 out.dark_frames = frames;
                 out.dark_auto_select = true;
@@ -278,10 +278,10 @@ bool build_calib_masters(const preprocessing::Config& cfg,
             auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "flats_dir empty: " + dir.string(); return false; }
             if (!load_average_master(frames, rows, cols, out.flat, err)) return false;
-            artifact["flat"] = {{
+            artifact["flat"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}
-            }};
+            };
         }
         // normalize flat to median
         std::vector<float> samples;
@@ -323,10 +323,10 @@ bool build_calib_masters(const preprocessing::Config& cfg,
                     if (std::isfinite(mean) && std::fabs(mean) > kFlatFloor) {
                         out.flat -= darkflat_master / mean;
                     }
-                    artifact["darkflat"] = {{
+                    artifact["darkflat"] = {
                         {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                         {"master", false}
-                    }};
+                    };
                 }
             }
         }
@@ -510,7 +510,7 @@ bool run_preprocess_pipeline(
     } else {
         // Build master frames (bias, dark, flat)
         PrepCalibMasters cal_masters;
-        nlohmann::json cal_artifact;
+        nlohmann::json cal_artifact = nlohmann::json::object();
         std::string cal_err;
         if (!build_calib_masters(cfg, proj_root, image_height, image_width,
                                  cal_masters, cal_artifact, cal_err)) {

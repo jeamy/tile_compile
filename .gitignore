@@ -79,6 +79,7 @@ Thumbs.db
 .vscode/
 .kiro/
 .windsurf/
+.claude
 
 *.tar.gz
 
