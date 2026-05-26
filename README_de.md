@@ -545,6 +545,9 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Versionen
 
+## v0.2.A (2026-05-26)
+- Calibration Bug fixes
+
 ## v0.2.9 (25.05.2026)
 
 **Raw-Stack-Preprocessing-Pipeline:**

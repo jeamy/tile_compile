@@ -535,6 +535,9 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
+## v0.2.A (2026-05-26)
+- Calibration Bug fixes
+
 ## v0.2.9 (2026-05-25)
 
 **Raw Stack preprocessing pipeline:**
