@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -105,6 +107,7 @@ Matrix2Df make_proxy(const Matrix2Df& img, ColorMode mode,
 // ---------------------------------------------------------------------------
 
 constexpr float kFlatFloor = 1.0e-6f;
+constexpr double kGainMatchTolerance = 0.25;
 
 bool load_average_master(const std::vector<fs::path>& paths,
                          int expected_rows, int expected_cols,
@@ -203,6 +206,38 @@ std::optional<double> header_temperature(const io::FitsHeader& hdr) {
     return std::nullopt;
 }
 
+std::optional<double> header_gain(const io::FitsHeader& hdr) {
+    if (auto v = hdr.get_double("GAIN")) return *v;
+    if (auto v = hdr.get_int("GAIN")) return static_cast<double>(*v);
+    if (auto v = hdr.get_string("GAIN")) {
+        char* end = nullptr;
+        errno = 0;
+        const double parsed = std::strtod(v->c_str(), &end);
+        if (errno == 0 && end != v->c_str() && end && *end == '\0' &&
+            std::isfinite(parsed)) {
+            return parsed;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<double> median_gain_for_paths(const std::vector<fs::path>& paths) {
+    std::vector<float> gains;
+    gains.reserve(std::min<size_t>(paths.size(), 10));
+    const size_t n = std::min<size_t>(paths.size(), 10);
+    for (size_t i = 0; i < n; ++i) {
+        try {
+            const io::FitsHeader hdr = io::read_fits_header(paths[i]);
+            if (auto gain = header_gain(hdr); gain && std::isfinite(*gain)) {
+                gains.push_back(static_cast<float>(*gain));
+            }
+        } catch (...) {
+        }
+    }
+    if (gains.empty()) return std::nullopt;
+    return static_cast<double>(core::median_of(gains));
+}
+
 bool build_calib_masters(const preprocessing::Config& cfg,
                          const fs::path& proj_root,
                          int rows, int cols,
@@ -245,6 +280,7 @@ bool build_calib_masters(const preprocessing::Config& cfg,
         if (cfg.calibration.dark_use_master || !cfg.calibration.dark_master.empty()) {
             out.dark = load_master_file(resolve(cfg.calibration.dark_master), rows, cols, err);
             if (!err.empty()) return false;
+            out.dark_frames = {resolve(cfg.calibration.dark_master)};
             artifact["dark"] = {{"source", resolve(cfg.calibration.dark_master).string()},
                                 {"master", true},
                                 {"bias_corrected", false}};
@@ -253,12 +289,12 @@ bool build_calib_masters(const preprocessing::Config& cfg,
             auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "darks_dir empty: " + dir.string(); return false; }
             if (!load_average_master(frames, rows, cols, out.dark, err)) return false;
+            out.dark_frames = frames;
             artifact["dark"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}, {"bias_corrected", out.have_bias}
             };
             if (cfg.calibration.dark_auto_select) {
-                out.dark_frames = frames;
                 out.dark_auto_select = true;
                 artifact["dark"]["auto_select"] = true;
             }
@@ -340,24 +376,57 @@ bool select_dark_for_light(const preprocessing::Config& cfg,
                            int rows,
                            int cols,
                            Matrix2Df& dark_out,
-                           std::string& detail) {
+                           std::string& detail,
+                           std::string& err) {
+    const auto light_gain = header_gain(light_hdr);
     if (!cal.dark_auto_select || cal.dark_frames.empty()) {
+        if (cal.have_dark) {
+            if (!light_gain) {
+                err = "light GAIN header missing; cannot safely apply dark calibration";
+                return false;
+            }
+            const auto dark_gain = median_gain_for_paths(cal.dark_frames);
+            if (!dark_gain) {
+                err = "dark GAIN header missing; cannot safely apply dark calibration";
+                return false;
+            }
+            if (std::fabs(*dark_gain - *light_gain) > kGainMatchTolerance) {
+                err = "dark calibration rejected: light GAIN=" +
+                      std::to_string(*light_gain) + ", dark GAIN=" +
+                      std::to_string(*dark_gain);
+                return false;
+            }
+        }
         dark_out = cal.dark;
         return cal.have_dark;
     }
     const auto light_exp = header_exposure(light_hdr);
     const auto light_temp = header_temperature(light_hdr);
+    if (!light_gain) {
+        err = "light GAIN header missing; cannot safely auto-select darks";
+        return false;
+    }
     if (!light_exp) {
-        detail = "light exposure missing; using global dark master";
-        dark_out = cal.dark;
-        return cal.have_dark;
+        err = "light exposure missing; cannot safely auto-select darks";
+        return false;
     }
     const double tol_frac =
         static_cast<double>(cfg.calibration.dark_match_exposure_tolerance_percent) / 100.0;
     std::vector<fs::path> selected;
+    int gain_missing = 0;
+    int gain_mismatch = 0;
     for (const auto& p : cal.dark_frames) {
         io::FitsHeader hdr;
         try { hdr = io::read_fits_header(p); } catch (...) { continue; }
+        const auto dark_gain = header_gain(hdr);
+        if (!dark_gain) {
+            ++gain_missing;
+            continue;
+        }
+        if (std::fabs(*dark_gain - *light_gain) > kGainMatchTolerance) {
+            ++gain_mismatch;
+            continue;
+        }
         const auto dark_exp = header_exposure(hdr);
         if (!dark_exp) continue;
         const double exp_tol = std::max(1.0e-9, std::fabs(*light_exp) * tol_frac);
@@ -373,15 +442,18 @@ bool select_dark_for_light(const preprocessing::Config& cfg,
         selected.push_back(p);
     }
     if (selected.empty()) {
-        detail = "no exposure/temp matched darks; using global dark master";
-        dark_out = cal.dark;
-        return cal.have_dark;
+        err = "no dark frames matched light GAIN=" + std::to_string(*light_gain) +
+              ", exposure/temp constraints";
+        if (gain_mismatch > 0 || gain_missing > 0) {
+            err += " (gain_mismatch=" + std::to_string(gain_mismatch) +
+                   ", gain_missing=" + std::to_string(gain_missing) + ")";
+        }
+        return false;
     }
-    std::string err;
-    if (!load_average_master(selected, rows, cols, dark_out, err)) {
-        detail = err + "; using global dark master";
-        dark_out = cal.dark;
-        return cal.have_dark;
+    std::string load_err;
+    if (!load_average_master(selected, rows, cols, dark_out, load_err)) {
+        err = load_err + "; failed to build selected dark master";
+        return false;
     }
     if (cal.have_bias) dark_out -= cal.bias;
     detail = "matched dark frames: " + std::to_string(selected.size());
@@ -539,9 +611,17 @@ bool run_preprocess_pipeline(
                 Matrix2Df selected_dark;
                 Matrix2Df* selected_dark_ptr = nullptr;
                 std::string dark_detail;
+                std::string dark_error;
                 if (select_dark_for_light(cfg, cal_masters, hdr, image_height, image_width,
-                                          selected_dark, dark_detail)) {
+                                          selected_dark, dark_detail, dark_error)) {
                     selected_dark_ptr = &selected_dark;
+                } else if (cal_masters.have_dark) {
+                    emitter.phase_end(run_id, pname(preprocessing::Phase::CALIBRATION), "error",
+                                      {{"error", dark_error},
+                                       {"frame", frames[i].filename().string()}},
+                                      log_file);
+                    emitter.run_end(run_id, false, "error", log_file);
+                    return false;
                 }
                 apply_calib_to_frame(img, cal_masters, selected_dark_ptr);
                 hdr.set("CALIBRAT", true);

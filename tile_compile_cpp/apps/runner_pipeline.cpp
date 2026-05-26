@@ -99,6 +99,7 @@ constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
 constexpr float kCalibrationFlatFloor = 1.0e-6f;
 constexpr double kCalibrationGainMismatchWarningAbs = 0.25;
+constexpr double kCalibrationGainMatchTolerance = 0.25;
 
 struct CalibrationMaster {
   Matrix2Df data;
@@ -268,6 +269,40 @@ void warn_if_gain_mismatch(const std::vector<fs::path> &light_frames,
       log_file);
 }
 
+bool require_gain_match(const std::vector<fs::path> &light_frames,
+                        const std::vector<fs::path> &calibration_frames,
+                        const std::string &calibration_label,
+                        core::json &artifact_step,
+                        std::string &error_out) {
+  const auto light_gain =
+      sample_header_median(light_frames, 10, extract_gain_value);
+  const auto calibration_gain =
+      sample_header_median(calibration_frames, 10, extract_gain_value);
+  if (!light_gain) {
+    error_out = "Calibration " + calibration_label +
+                " rejected: light GAIN header is missing";
+    return false;
+  }
+  if (!calibration_gain) {
+    error_out = "Calibration " + calibration_label +
+                " rejected: calibration GAIN header is missing";
+    artifact_step["light_gain"] = *light_gain;
+    return false;
+  }
+  artifact_step["light_gain"] = *light_gain;
+  artifact_step["calibration_gain"] = *calibration_gain;
+  const double diff = std::fabs(*light_gain - *calibration_gain);
+  if (diff <= kCalibrationGainMatchTolerance) {
+    return true;
+  }
+  artifact_step["gain_mismatch_error"] = true;
+  error_out = "Calibration " + calibration_label +
+              " rejected: lights use GAIN " + std::to_string(*light_gain) +
+              ", calibration uses GAIN " +
+              std::to_string(*calibration_gain);
+  return false;
+}
+
 /// @brief Resolves config path.
 /// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -397,8 +432,10 @@ std::vector<fs::path> select_dark_inputs(
   const size_t sample_count = std::min<size_t>(10, lights.size());
   std::vector<float> light_exposures;
   std::vector<float> light_temps;
+  std::vector<float> light_gains;
   light_exposures.reserve(sample_count);
   light_temps.reserve(sample_count);
+  light_gains.reserve(sample_count);
   for (size_t i = 0; i < sample_count; ++i) {
     try {
       const io::FitsHeader hdr = io::read_fits_header(lights[i]);
@@ -410,14 +447,27 @@ std::vector<fs::path> select_dark_inputs(
           light_temps.push_back(static_cast<float>(*temp));
         }
       }
+      if (auto gain = extract_gain_value(hdr)) {
+        light_gains.push_back(static_cast<float>(*gain));
+      }
     } catch (const std::exception &) {
     }
   }
 
+  if (light_gains.empty()) {
+    selection_info["used_all_candidates"] = false;
+    selection_info["fallback_reason"] = "light_gain_unknown";
+    selection_info["matched_count"] = 0;
+    return {};
+  }
+  const float light_gain_median = core::median_of(light_gains);
+  selection_info["light_gain"] = light_gain_median;
+
   if (light_exposures.empty()) {
-    selection_info["used_all_candidates"] = true;
+    selection_info["used_all_candidates"] = false;
     selection_info["fallback_reason"] = "light_exposure_unknown";
-    return all_darks;
+    selection_info["matched_count"] = 0;
+    return {};
   }
 
   const float light_exposure_median = core::median_of(light_exposures);
@@ -434,6 +484,8 @@ std::vector<fs::path> select_dark_inputs(
   matched.reserve(all_darks.size());
   int missing_exposure = 0;
   int missing_temp = 0;
+  int missing_gain = 0;
+  int gain_mismatch = 0;
   const float exposure_tolerance =
       std::max(0.0f, cfg.dark_match_exposure_tolerance_percent) / 100.0f;
   for (const auto &path : all_darks) {
@@ -441,6 +493,16 @@ std::vector<fs::path> select_dark_inputs(
     try {
       hdr = io::read_fits_header(path);
     } catch (const std::exception &) {
+      continue;
+    }
+    const auto dark_gain = extract_gain_value(hdr);
+    if (!dark_gain || !std::isfinite(*dark_gain)) {
+      ++missing_gain;
+      continue;
+    }
+    if (std::fabs(*dark_gain - light_gain_median) >
+        kCalibrationGainMatchTolerance) {
+      ++gain_mismatch;
       continue;
     }
     const auto dark_exposure = extract_exposure_seconds(hdr);
@@ -470,6 +532,9 @@ std::vector<fs::path> select_dark_inputs(
   }
 
   selection_info["missing_exposure_headers"] = missing_exposure;
+  selection_info["missing_gain_headers"] = missing_gain;
+  selection_info["gain_mismatch_count"] = gain_mismatch;
+  selection_info["gain_tolerance_abs"] = kCalibrationGainMatchTolerance;
   if (require_temp) {
     selection_info["missing_temperature_headers"] = missing_temp;
     selection_info["temperature_tolerance_c"] =
@@ -484,9 +549,9 @@ std::vector<fs::path> select_dark_inputs(
     return matched;
   }
 
-  selection_info["used_all_candidates"] = true;
+  selection_info["used_all_candidates"] = false;
   selection_info["fallback_reason"] = "no_matching_darks";
-  return all_darks;
+  return {};
 }
 
 /// @brief Resolves calibration master.
@@ -645,6 +710,18 @@ bool run_scan_input_calibration(
       const auto all_darks = discover_calibration_frames(dark_dir, cal.pattern);
       selected_dark_inputs =
           select_dark_inputs(all_darks, input_frames, cal, dark_selection);
+      if (selected_dark_inputs.empty()) {
+        out.artifact["steps"]["dark"]["selection"] = dark_selection;
+        error_out =
+            "Calibration dark rejected: no dark frames matched light GAIN and exposure";
+        if (dark_selection.contains("light_gain")) {
+          error_out += " (light GAIN " +
+                       std::to_string(
+                           dark_selection["light_gain"].get<double>()) +
+                       ")";
+        }
+        return false;
+      }
       if (dark_selection.value("used_all_candidates", false) &&
           dark_selection.contains("fallback_reason")) {
         emitter.warning(
@@ -666,8 +743,10 @@ bool run_scan_input_calibration(
     out.artifact["steps"]["dark"]["input_count"] =
         static_cast<int>(dark_master.input_frames.size());
     out.artifact["steps"]["dark"]["selection"] = dark_selection;
-    warn_if_gain_mismatch(input_frames, dark_master.input_frames, "dark", run_id,
-                          emitter, log_file, out.artifact["steps"]["dark"]);
+    if (!require_gain_match(input_frames, dark_master.input_frames, "dark",
+                            out.artifact["steps"]["dark"], error_out)) {
+      return false;
+    }
     const bool dark_needs_bias_correction =
         cal.use_bias && !cal.dark_already_bias_corrected;
     out.artifact["steps"]["dark"]["bias_corrected_before_apply"] =
