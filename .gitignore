@@ -80,6 +80,7 @@ Thumbs.db
 .kiro/
 .windsurf/
 .claude
+.devin
 
 *.tar.gz
 
