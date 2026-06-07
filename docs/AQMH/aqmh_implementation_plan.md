@@ -118,7 +118,7 @@ If a future top-level `method` config key is added, it must remain consistent wi
 
 Add parsing and `to_yaml()` serialization for the new `aqmh:` subtree, mirroring the pattern used for `local_metrics`. All fields must have the defaults from Step 1.1 as fallback. If the `aqmh:` key is absent from the YAML, `AqmhConfig` keeps all defaults (so existing configs remain valid).
 
-For region extraction, use `diagnostics.q_region` as the finite canvas-valid quality quantile threshold. Convert `diagnostics.r_morph_canvas_px` to map pixels with `r_morph_map = max(1, round(r_morph_canvas_px / storage.resolution_divisor))` whenever morphology runs on a stored/downscaled map. This keeps the morphological footprint stable when `resolution_divisor` changes.
+For region extraction, use `diagnostics.q_region` as the finite canvas-valid quality quantile threshold. If morphology runs on the full-resolution `Q_map`, use `diagnostics.r_morph_canvas_px` directly. Convert to working-map pixels with `r_morph_work_px = max(1, round(r_morph_canvas_px / storage.resolution_divisor))` only when morphology runs on a stored/downscaled map. This keeps the morphological footprint stable when `resolution_divisor` changes.
 
 Also update:
 
@@ -176,6 +176,8 @@ Run the existing config unit tests. Confirm `AqmhConfig` is zero-initialized cor
 #include <vector>
 
 namespace tile_compile::metrics {
+
+inline constexpr float eps_aqmh = 1.0e-6f;
 
 struct AqmhQualityMapDiagnostics {
     float sharpness_p50 = std::numeric_limits<float>::quiet_NaN();
@@ -306,6 +308,9 @@ static cv::Mat masked_local_median(const cv::Mat& src,
                                    const cv::Mat& valid,
                                    int R);
 static float finite_median(const cv::Mat& src);
+static float finite_canvas_quantile(const Matrix2Df& src,
+                                    const CanvasMask& common_valid_mask,
+                                    float q);
 static cv::Mat mask_aware_upsample(const cv::Mat& src,
                                    const cv::Mat& valid,
                                    int out_w,
@@ -316,7 +321,7 @@ static cv::Mat local_mad_approx_or_exact(const cv::Mat& src,
                                          int R);
 ```
 
-All local-map helpers must preserve NaN for pixels where the valid-count denominator is zero. For fewer than three valid pixels, robust scale returns `eps_aqmh` and variance returns zero. `finite_median` is a scalar helper over all finite pixels in a matrix; return NaN when no finite pixels are available. `robust_zscore_map` should reuse the same finite-pixel collection logic.
+All local-map helpers must preserve NaN for pixels where the valid-count denominator is zero. For fewer than three valid pixels, robust scale returns `eps_aqmh` and variance returns zero. `finite_median` is a scalar helper over all finite pixels in a matrix; return NaN when no finite pixels are available. `finite_canvas_quantile` collects only finite values whose canvas mask is valid and applies the deterministic quantile convention from the methodology. `robust_zscore_map` should reuse the same finite-pixel collection logic.
 
 Canvas-invalid pixels must never be represented as numeric zero inside these helpers. Numeric zero is a valid sample value; invalid support is represented only by the finite/valid mask and NaN payloads.
 
@@ -870,16 +875,16 @@ Extract quality regions from `aqmh_result.q_map` for diagnostics whenever `cfg.a
 float tau_region = finite_canvas_quantile(aqmh_result.q_map,
                                           common_valid_mask,
                                           cfg.aqmh.diagnostics.q_region);
-int r_morph_map = std::max(1, lround(
-    static_cast<float>(cfg.aqmh.diagnostics.r_morph_canvas_px) /
-    static_cast<float>(cfg.aqmh.storage.resolution_divisor)));
+int r_morph_px = cfg.aqmh.diagnostics.r_morph_canvas_px;
 auto regions = extract_aqmh_quality_regions(aqmh_result.q_map,
                                             common_valid_mask,
                                             tau_region,
-                                            r_morph_map);
+                                            r_morph_px);
 aqmh_frame_diag["n_regions"] = regions.size();
 aqmh_regions_artifact["frames"][fi]["regions"] = regions;
 ```
+
+This code uses the full-resolution `aqmh_result.q_map`, so the morphology radius is the canvas-space radius directly. Divide by `storage.resolution_divisor` only if region extraction is deliberately run on a stored/downscaled map read from cache.
 
 Write `aqmh_regions.json` alongside `aqmh_metrics.json`. If a future config disables region extraction, write `n_regions = 0` or omit the field consistently in both metrics and report generation.
 

@@ -19,7 +19,7 @@ method = classic_tile_compile
 method = aqmh
 ```
 
-There is no hybrid method in the first implementation. AQMH must not expose Classic tile weighting, Classic tile fallback, or hybrid lower-bound behavior as AQMH controls.
+There is no combined AQMH/Classic method in the first implementation. AQMH must not expose Classic tile weighting or Classic fallback behavior as AQMH controls.
 
 Shared frontend/backend infrastructure remains useful:
 
@@ -120,16 +120,16 @@ The following can remain common UI/backend infrastructure:
 | Local quality model | block/tile scalar quality | dense per-pixel quality map |
 | Reconstruction weight | Classic local/tile weight | `G_f * Q_map_f(x,y)` |
 | Missing AQMH maps | not applicable | unsupported/zero AQMH output plus warning |
-| Hybrid mode | not part of AQMH | not implemented |
+| Combined AQMH/Classic mode | not part of AQMH | not implemented |
 | Cache pressure | mainly frames/intermediates | frame cache plus AQMH map cache |
 | Diagnostics | local/tile metrics | map statistics, regions, cache stats |
 | Report heatmaps | Classic local metrics | AQMH quality/artifact heatmaps |
 
 ### 3.3 What Must Not Happen
 
-- No `aqmh.reconstruction.mode = tile`.
-- No `aqmh.reconstruction.mode = hybrid`.
-- No `aqmh.reconstruction.fallback_to_tile`.
+- No AQMH tile-weighting mode.
+- No combined AQMH/Classic reconstruction mode.
+- No AQMH fallback to Classic tile weights.
 - No automatic fallback from AQMH reconstruction to Classic tile weights.
 - No UI label implying AQMH is “Classic plus dense maps”.
 
@@ -249,7 +249,7 @@ Implementation:
 | Experimental | `cherry_pick.*` |
 
 4. Hide Classic local/tile-only controls when the user is editing an AQMH-only preset, unless they are still needed by shared preprocessing or report-block layout.
-5. Do not show `hybrid`, `tile mode`, or `fallback_to_tile`.
+5. Do not show combined AQMH/Classic modes, tile-weighting modes, or Classic fallback controls.
 
 ### Milestone F3 — Dashboard
 
@@ -301,7 +301,7 @@ AQMH storage
 ( ) Full resolution: resolution_divisor=1, float32
 ```
 
-Do not enable AQMH automatically. Do not present Hybrid as an option.
+Do not enable AQMH automatically. Do not present any combined AQMH/Classic mode as an option.
 
 ### Milestone F5 — Run Monitor
 
@@ -481,7 +481,7 @@ Use labels:
 Avoid labels:
 
 - `AQMH tile mode`
-- `Hybrid AQMH`
+- `AQMH/Classic combined mode`
 - `Classic fallback`
 - `Dense map mode`
 
@@ -495,7 +495,7 @@ Do not expose internal mathematical symbols such as `Phi_snr`, `Psi_s`, or `P_ac
 
 1. Method selector can switch between Classic and AQMH.
 2. Parameter Studio shows AQMH fields only in AQMH category/method context.
-3. No Hybrid/Tile/Fallback AQMH controls are rendered.
+3. No combined AQMH/Classic, tile-weighting, or Classic-fallback AQMH controls are rendered.
 4. Dashboard badge shows `AQMH` when AQMH is enabled.
 5. AQMH cache estimate is computed from scan dimensions and frame count.
 6. Run Monitor maps AQMH status to AQMH labels.
@@ -522,7 +522,7 @@ Do not expose internal mathematical symbols such as `Phi_snr`, `Psi_s`, or `P_ac
 ## 9. Implementation Order
 
 1. Add method metadata to config/status.
-2. Remove Hybrid/Tile/Fallback AQMH controls from schema/UI plans.
+2. Remove combined AQMH/Classic, tile-weighting, and Classic-fallback AQMH controls from schema/UI plans.
 3. Add AQMH artifact contract.
 4. Add status `aqmh` block.
 5. Add Parameter Studio AQMH category.
@@ -538,7 +538,7 @@ Do not expose internal mathematical symbols such as `Phi_snr`, `Psi_s`, or `P_ac
 
 Do not implement the following for the first frontend pass:
 
-- Hybrid AQMH.
+- Combined AQMH/Classic reconstruction.
 - AQMH fallback to Classic Tile Compile.
 - AQMH `tile` mode.
 - A single run that silently switches between AQMH and Classic reconstruction.

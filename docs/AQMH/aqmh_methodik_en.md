@@ -166,7 +166,7 @@ No explicit global rescaling of `Phi_sharp_s` is applied here. The per-scale rob
 
 `Phi_snr_s(x,y) = mu_s(x,y) / max(sigma_s(x,y), eps_aqmh)`
 
-The clamp is applied only for the mean term; MAD uses the raw signed residuals to preserve noise scale estimation accuracy. `B_s` is a deterministic masked median over the same valid local support `W_s_valid(x,y)` used by the other local statistics. If `W_s_valid(x,y)` is empty, the signal is invalid under §2.3.4. If fewer than three valid pixels are available, implementations may fall back to `mean(max(I_s(p), 0))`, but must set the diagnostic flag `scene_dependent_snr = true`.
+The clamp is applied only for the mean term. The SNR noise scale `sigma_s` uses the raw finite pixel values `I_s(p)` in the local support, not the background-subtracted or clamped signal term, so noise scale estimation is not biased by positive-signal clipping. `B_s` is a deterministic masked median over the same valid local support `W_s_valid(x,y)` used by the other local statistics. If `W_s_valid(x,y)` is empty, the signal is invalid under §2.3.4. If fewer than three valid pixels are available, implementations may fall back to `mean(max(I_s(p), 0))`, but must set the diagnostic flag `scene_dependent_snr = true`.
 
 Scene-dependence guard: `Phi_snr_s` is a local support-quality proxy, not a source detector. The background-centered definition is intended to reduce source-content bias; fallback to the non-centered mean is allowed only as a diagnostic-marked degraded path.
 
