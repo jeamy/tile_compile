@@ -1,6 +1,6 @@
 # AQMH — Frontend Integration Investigation and Implementation Plan
 
-**Version:** v0.1.0 (2026-06-06)  
+**Version:** v0.2.0 (2026-06-07)
 **Scope:** GUI2 / `web_frontend`, C++ web backend / `web_backend_cpp`, report integration  
 **Related documents:**
 - `docs/AQMH/aqmh_methodik_en.md`
@@ -10,56 +10,58 @@
 
 ## 1. Executive Summary
 
-AQMH should be integrated into the GUI as an **optional mode of the existing Tile Compile pipeline**, not as a separate workflow and not as a separate top-level pipeline type.
+AQMH and Classic Tile Compile are separate reconstruction methods. The frontend must treat them as independent methods that can share infrastructure, but not as variants of the same algorithm.
 
-The user-facing flow remains:
+User-facing method choices:
 
-1. Input scan
-2. Configuration / Parameter Studio
-3. Run start
-4. Run Monitor
-5. Stats / report
-6. Optional resume
+```text
+method = classic_tile_compile
+method = aqmh
+```
 
-AQMH changes the semantics and diagnostics of two existing phases:
+There is no hybrid method in the first implementation. AQMH must not expose Classic tile weighting, Classic tile fallback, or hybrid lower-bound behavior as AQMH controls.
 
-- `LOCAL_METRICS`: computes classic tile metrics and, when enabled, AQMH dense quality maps.
-- `TILE_RECONSTRUCTION`: reconstructs tiles with classic tile weights, AQMH dense-map weights, or AQMH hybrid weights depending on `aqmh.reconstruction.mode`.
+Shared frontend/backend infrastructure remains useful:
 
-The Run Monitor should **not** switch to a different phase list. It should show the same canonical phase sequence and add AQMH badges/substatus where applicable.
+- input scan
+- configuration editing and validation
+- run start API
+- run directory/history model
+- artifact list and report generation
+- common log/event transport
+
+AQMH-specific frontend behavior is required for:
+
+- method selection
+- AQMH config controls
+- AQMH run monitor stages
+- AQMH cache and memory warnings
+- AQMH artifacts and reports
 
 ---
 
-## 2. Investigation Results
+## 2. Current UI Investigation
 
-### 2.1 Current Frontend Structure
+### 2.1 Frontend Surfaces
 
-The active GUI consists of static pages under `web_frontend/`, with most behavior centralized in:
+| UI surface | File | Current responsibility | AQMH impact |
+|---|---|---|---|
+| Dashboard | `web_frontend/index.html`, `web_frontend/src/app.js` | Start overview, queue, validation, pipeline preview | Add method badge/selector and AQMH storage estimate |
+| Input & Scan | `web_frontend/input-scan.html` | Input directory, scan options, scan summary | No input-file changes; optionally show AQMH cache estimate after scan |
+| Parameter Studio | `web_frontend/parameter-studio.html` | Full config editor | Add AQMH category and method-aware field visibility |
+| Wizard | `web_frontend/wizard.html` | Guided setup | Add explicit method choice: Classic vs AQMH |
+| Run Monitor | `web_frontend/run-monitor.html` | Phase progress, logs, artifacts, resume controls | Show method-specific stages/status |
+| History / comparison | `web_frontend/history-tools.html` | Run selection and comparison | Tag runs by method and expose AQMH metrics |
+| Report generation | `tile_compile_cpp/scripts/generate_report.py` | HTML report from artifacts | Add independent AQMH report section |
 
-- `web_frontend/src/app.js`
-- `web_frontend/src/api.js`
-- `web_frontend/src/constants.js`
+### 2.2 Backend Status Model
 
-Relevant pages:
-
-| UI surface | File | Current responsibility |
-|---|---|---|
-| Dashboard | `web_frontend/index.html`, `web_frontend/src/app.js` | Start-oriented overview, input queue, validation guardrails, pipeline preview |
-| Input & Scan | `web_frontend/input-scan.html` | Input directory selection, scan options, scan summary |
-| Parameter Studio | `web_frontend/parameter-studio.html` | Full config editing, category-filtered dynamic parameter editor, validation |
-| Wizard | `web_frontend/wizard.html` | Guided run setup and preset application |
-| Run Monitor | `web_frontend/run-monitor.html` | Phase progress, log, artifacts, resume controls, stats/report actions |
-| History / comparison | `web_frontend/history-tools.html` and shared app logic | Run selection, status comparison, report navigation |
-| Report viewer/generation | `tile_compile_cpp/scripts/generate_report.py`, backend stats endpoints | HTML report generation from artifacts |
-
-### 2.2 Current Backend Status Model
-
-Run status is derived from run directory events and artifacts in:
+Status is derived from run directory events and artifacts in:
 
 - `web_backend_cpp/src/services/run_inspector.cpp`
 - `web_backend_cpp/include/services/run_inspector.hpp`
 
-The canonical phase list is hard-coded in `PHASE_ORDER`:
+The current canonical phase list is Classic-oriented:
 
 ```text
 SCAN_INPUT
@@ -82,71 +84,84 @@ PCC
 HYPERMETRIC_STRETCH
 ```
 
-The frontend has a matching `RUN_MONITOR_PHASE_ORDER` in `web_frontend/src/app.js`. It also groups dashboard pipeline phases via `DASHBOARD_PIPELINE_GROUPS`.
+The frontend mirrors this with `RUN_MONITOR_PHASE_ORDER` in `web_frontend/src/app.js` and dashboard grouping via `DASHBOARD_PIPELINE_GROUPS`.
 
-### 2.3 Consequence for AQMH
+### 2.3 Consequence
 
-Adding new top-level phases such as `AQMH_MAPS` or `DENSE_RECONSTRUCTION` would require coordinated changes in:
+AQMH should not be hidden as “extra detail” inside Classic `LOCAL_METRICS` and `TILE_RECONSTRUCTION` rows. That would misrepresent the method and create the false impression that AQMH depends on Classic tile metrics.
 
-- backend `PHASE_ORDER`
-- frontend `RUN_MONITOR_PHASE_ORDER`
-- dashboard grouping
-- resume phase handling
-- progress computation
-- i18n phase labels
-- tests for status/resume/progress
+The correct model is:
 
-This is unnecessary. AQMH is best represented as **substatus inside existing phases**.
+- shared preprocessing stages may be displayed the same way
+- method-specific reconstruction stages must be displayed according to the selected method
+- AQMH stages should be named AQMH stages in status, monitor, history, and reports
 
 ---
 
-## 3. What Stays the Same
+## 3. Method Boundary
 
-### 3.1 Pipeline Flow
+### 3.1 What Is Shared
 
-The frontend should keep the same pipeline flow and phase list for classic and AQMH runs.
+The following can remain common UI/backend infrastructure:
 
-No changes are needed to the high-level user journey:
+- input scan and validation
+- FITS/calibration file handling
+- registration/prewarp status
+- common-overlap/canvas mask status
+- run start/resume mechanics
+- artifact listing
+- report-generation trigger
+- history storage
 
-- scan input
-- edit/validate config
-- start run
-- monitor run
-- generate stats/report
-- resume from existing phases
+### 3.2 What Is Different
 
-### 3.2 Input & Scan
+| Area | Classic Tile Compile | AQMH |
+|---|---|---|
+| Local quality model | block/tile scalar quality | dense per-pixel quality map |
+| Reconstruction weight | Classic local/tile weight | `G_f * Q_map_f(x,y)` |
+| Missing AQMH maps | not applicable | unsupported/zero AQMH output plus warning |
+| Hybrid mode | not part of AQMH | not implemented |
+| Cache pressure | mainly frames/intermediates | frame cache plus AQMH map cache |
+| Diagnostics | local/tile metrics | map statistics, regions, cache stats |
+| Report heatmaps | Classic local metrics | AQMH quality/artifact heatmaps |
 
-AQMH does not require different input files, calibration files, FITS selection, Bayer selection, color mode detection, or scan rules.
+### 3.3 What Must Not Happen
 
-The Input & Scan page should remain unchanged for the first implementation. Optional later enhancement: after a scan, show an AQMH storage estimate if `aqmh.enabled = true` in the current config.
+- No `aqmh.reconstruction.mode = tile`.
+- No `aqmh.reconstruction.mode = hybrid`.
+- No `aqmh.reconstruction.fallback_to_tile`.
+- No automatic fallback from AQMH reconstruction to Classic tile weights.
+- No UI label implying AQMH is “Classic plus dense maps”.
 
-### 3.3 Run Start API
+---
 
-Run start should continue to use the existing backend route:
+## 4. Configuration Model
 
-```text
-POST /api/runs/start
+### 4.1 Top-Level Method
+
+Add a top-level method selector in config:
+
+```yaml
+method: classic_tile_compile  # classic_tile_compile | aqmh
 ```
 
-The only AQMH-specific input is the YAML config content already passed to the backend.
+Alternative if a top-level method key is too invasive for the first implementation:
 
-### 3.4 Resume Semantics
+```yaml
+aqmh:
+  enabled: false
+```
 
-Resume should continue to use existing phases. AQMH recomputation follows the same affected phase boundaries:
+Frontend interpretation must still be method-based:
 
-- resume from `LOCAL_METRICS` to recompute AQMH maps and local metrics
-- resume from `TILE_RECONSTRUCTION` to reuse maps and rerun reconstruction
+```text
+aqmh.enabled = false -> method classic_tile_compile
+aqmh.enabled = true  -> method aqmh
+```
 
-No new resume target is required for AQMH.
+### 4.2 AQMH Config
 
----
-
-## 4. What Changes With AQMH
-
-### 4.1 Configuration
-
-The config gains:
+AQMH config exposed to the UI:
 
 ```yaml
 aqmh:
@@ -162,9 +177,6 @@ aqmh:
     resolution_divisor: 2
     dtype: float32
     max_resident_maps: 2
-  reconstruction:
-    mode: dense_map
-    fallback_to_tile: true
   cherry_pick:
     enabled: false
     k_min: 3
@@ -175,139 +187,84 @@ aqmh:
     r_morph_canvas_px: 6
 ```
 
-The frontend should not manually hard-code all AQMH fields if the dynamic Parameter Studio can read them from schema/defaults. Hard-coded UI should be limited to curated convenience controls in Dashboard/Wizard.
+There is no AQMH reconstruction mode field in the first implementation. AQMH reconstruction always means AQMH dense-map weighted reconstruction.
 
-### 4.2 Artifacts
+### 4.3 Validation Contract
 
-AQMH adds optional artifacts:
+The frontend should rely on backend/schema validation for numeric constraints:
 
-| Artifact | Purpose |
-|---|---|
-| `aqmh_metrics.json` | Per-frame and per-tile dense-map diagnostics |
-| `aqmh_regions.json` | Optional binary quality region diagnostics |
-| `cache/aqmh/aqmh_luma_000000.bin` | Map cache files, not usually opened directly by users |
-| AQMH report charts | Rendered by stats/report generation |
-
-### 4.3 Monitoring
-
-AQMH should enrich the same phase rows:
-
-| Phase | Classic display | AQMH display |
-|---|---|---|
-| `LOCAL_METRICS` | tile quality metrics | tile metrics + AQMH map compute/cache write progress |
-| `TILE_RECONSTRUCTION` | tile-weighted reconstruction | dense/hybrid/tile AQMH mode, cache read stats, resident-map bound |
-
-### 4.4 Runtime Cost Expectations
-
-The UI should set expectations:
-
-- `LOCAL_METRICS` may become significantly slower because it computes dense maps.
-- `TILE_RECONSTRUCTION` may become slower because it performs per-pixel map lookups.
-- Disk usage increases because quality maps are cached.
-- RAM must remain bounded by `aqmh.storage.max_resident_maps`.
+- `aqmh.pyramid.scales in [1,8]`
+- `aqmh.storage.resolution_divisor in {1,2,4}`
+- `aqmh.storage.dtype in {"float32","uint8"}` initially
+- `aqmh.storage.max_resident_maps in [0,16]`
+- `aqmh.cherry_pick.k_min >= 1`
+- `aqmh.cherry_pick.k_frac in (0,1]`
+- `aqmh.diagnostics.tau_artifact in [0,1]`
+- `aqmh.diagnostics.q_region in [0,1]`
+- `aqmh.diagnostics.r_morph_canvas_px >= 1`
 
 ---
 
 ## 5. Frontend Implementation Plan
 
-### Milestone F1 — Schema, Defaults, and Validation Contract
+### Milestone F1 — Method Selection Contract
 
-**Goal:** Make AQMH config visible and valid through existing config APIs.
+**Goal:** The UI and backend can identify whether a run is Classic or AQMH.
 
-Required backend/CLI prerequisites:
+Backend contract:
 
-1. Add `aqmh.*` to `tile_compile_cpp/tile_compile.yaml`.
-2. Add `aqmh.*` to `tile_compile_cpp/tile_compile.schema.yaml`.
-3. Add `aqmh.*` to generated/embedded JSON schema.
-4. Ensure `tile_compile_cli dump-default-config` includes AQMH defaults.
-5. Ensure `tile_compile_cli validate-config` validates:
-   - `aqmh.pyramid.scales in [1,8]`
-   - `aqmh.storage.resolution_divisor in {1,2,4}`
-   - `aqmh.storage.dtype in {"float32","uint8"}` initially
-   - `aqmh.storage.max_resident_maps in [0,16]`
-   - `aqmh.reconstruction.mode in {"dense_map","tile","hybrid"}`
-   - `aqmh.diagnostics.tau_artifact in [0,1]`
-   - `aqmh.diagnostics.q_region in [0,1]`
-   - `aqmh.diagnostics.r_morph_canvas_px >= 1`
+```json
+{
+  "method": "aqmh",
+  "aqmh": {
+    "enabled": true
+  }
+}
+```
 
-Frontend impact:
+Rules:
 
-- Existing `/api/config/schema`, `/api/config/defaults`, `/api/config/validate` continue to work.
-- Parameter Studio can render AQMH fields once schema/defaults exist.
+- Missing method on old runs means `classic_tile_compile`.
+- `aqmh.enabled=true` means `method=aqmh`.
+- The frontend must not infer AQMH from the existence of cache files alone.
 
-### Milestone F2 — Parameter Studio AQMH Category
+### Milestone F2 — Parameter Studio
 
-**Goal:** Make AQMH editable in the full parameter UI.
-
-Files:
-
-- `web_frontend/parameter-studio.html`
-- `web_frontend/src/app.js`
-- `web_frontend/i18n/de.json`
-- `web_frontend/i18n/en.json`
+**Goal:** Make AQMH editable without mixing it into Classic local/tile controls.
 
 Implementation:
 
-1. Add category button:
-
-```html
-<button id="parameter-category-aqmh"
-        data-control="parameter.category.aqmh"
-        data-category="aqmh">
-  AQMH
-</button>
-```
-
-2. Ensure dynamic editor groups `aqmh.*` under the AQMH category.
-3. Add search keywords:
-   - dense map
-   - quality map
-   - AQMH
-   - artifact
-   - cache
-   - resident maps
-4. Add field help text for high-risk fields:
-   - `aqmh.enabled`
-   - `aqmh.storage.resolution_divisor`
-   - `aqmh.storage.max_resident_maps`
-   - `aqmh.reconstruction.mode`
-   - `aqmh.cherry_pick.enabled`
-
-Recommended UI grouping:
+1. Add a method/category selector:
+   - `Classic Tile Compile`
+   - `AQMH`
+2. Add AQMH category button when schema contains `aqmh`.
+3. Group AQMH fields:
 
 | Group | Fields |
 |---|---|
-| Core | `enabled`, `reconstruction.mode`, `fallback_to_tile` |
+| Core | `enabled` or top-level `method` |
 | Storage | `resolution_divisor`, `dtype`, `max_resident_maps` |
 | Pyramid | `scales`, `base_window_px`, `w_sharp`, `w_snr`, `k_artifact`, `frac_artifact_max` |
 | Diagnostics | `tau_artifact`, `q_region`, `r_morph_canvas_px` |
 | Experimental | `cherry_pick.*` |
 
-### Milestone F3 — Dashboard AQMH Summary
+4. Hide Classic local/tile-only controls when the user is editing an AQMH-only preset, unless they are still needed by shared preprocessing or report-block layout.
+5. Do not show `hybrid`, `tile mode`, or `fallback_to_tile`.
 
-**Goal:** Surface AQMH state without making the dashboard more complex.
+### Milestone F3 — Dashboard
 
-Files:
+**Goal:** Make the selected method obvious before a run starts.
 
-- `web_frontend/index.html`
-- `web_frontend/src/app.js`
+Display:
 
-Add a compact dashboard panel or status row:
+| Field | Classic | AQMH |
+|---|---|---|
+| Method badge | `Classic Tile Compile` | `AQMH` |
+| Quality model | local/block scalar | dense quality maps |
+| Reconstruction | Classic weighted stack | AQMH pixel-wise weighted stack |
+| Cache estimate | normal run cache | AQMH map cache estimate |
 
-| Field | Display |
-|---|---|
-| AQMH state | `Off`, `dense_map`, `hybrid`, `tile` |
-| Storage | `1/4-area float32`, `full float32`, etc. |
-| Memory bound | `max resident maps: N` |
-| Estimated cache | after scan, approximate `map_bytes * frame_count` |
-
-Behavior:
-
-- If `aqmh.enabled = false`, show a quiet `AQMH off` badge.
-- If `aqmh.enabled = true`, show an active badge and storage warning if needed.
-- If scan data has frame count / dimensions, compute approximate cache size.
-
-Cache estimate:
+AQMH cache estimate:
 
 ```text
 stored_width  = ceil(width / resolution_divisor)
@@ -318,67 +275,82 @@ total_cache   = bytes_per_map * frame_count * map_stream_count
 
 First implementation can assume `map_stream_count = 1` (`luma`).
 
-Guardrail warnings:
+Warnings:
 
-- `resolution_divisor = 1` and many frames: warn about disk usage.
-- `max_resident_maps > 4`: warn about RAM.
-- `cherry_pick.enabled = true`: warn that pixel-level frame selection is active.
+- `resolution_divisor = 1` and many frames: large disk usage.
+- `max_resident_maps > 4`: possible RAM pressure.
+- `cherry_pick.enabled = true`: pixel-level frame selection active.
 
-### Milestone F4 — Wizard AQMH Step
+### Milestone F4 — Wizard
 
-**Goal:** Provide a safe guided way to enable AQMH.
+**Goal:** Provide an explicit, safe method choice.
 
-Files:
-
-- `web_frontend/wizard.html`
-- `web_frontend/src/app.js`
-
-Add an optional advanced step:
+Wizard step:
 
 ```text
-Quality weighting
-[ ] Enable AQMH dense quality maps
+Reconstruction method
+(*) Classic Tile Compile
+( ) AQMH
+```
 
-Mode:
-(*) dense_map  [recommended for artifact suppression]
-( ) hybrid     [diagnostic/A-B; does not veto artifacts below tile baseline]
-( ) tile       [classic reconstruction while still computing AQMH diagnostics]
+If AQMH is selected:
 
-Storage:
+```text
+AQMH storage
 (*) Conservative: resolution_divisor=2, float32, max_resident_maps=2
 ( ) Full resolution: resolution_divisor=1, float32
 ```
 
-Do not enable AQMH automatically. The user should explicitly opt in.
+Do not enable AQMH automatically. Do not present Hybrid as an option.
 
-### Milestone F5 — Run Monitor AQMH Awareness
+### Milestone F5 — Run Monitor
 
-**Goal:** Keep the same phase UI, add AQMH-specific detail.
+**Goal:** Show method-specific progress without pretending AQMH is Classic tile reconstruction.
 
-Files:
+Keep shared preprocessing rows where they are truly shared. For method-specific rows, use a method-aware display.
 
-- `web_frontend/run-monitor.html`
-- `web_frontend/src/app.js`
-- `web_backend_cpp/src/services/run_inspector.cpp`
-- `web_backend_cpp/include/services/run_inspector.hpp`
+The Run Monitor must make cache-backed execution visible. AQMH is expected to process hundreds of frames; the UI must not imply that frame or map data is resident as a full run. Show per-stage cache/residency signals where available:
 
-Do not change:
+| Stage | Required UI signal |
+|---|---|
+| Shared preprocessing | frame-store/cache progress if available |
+| AQMH maps | maps computed/written, bytes written, current worker count |
+| AQMH reconstruction | resident maps observed/configured, frame/map cache hits, bytes read |
+| AQMH diagnostics | summary artifact size, no raw-map inline rendering |
 
-- `PHASE_ORDER`
-- `RUN_MONITOR_PHASE_ORDER`
-- `DASHBOARD_PIPELINE_GROUPS`
+Recommended AQMH stage labels:
 
-Add optional AQMH status payload to `/api/runs/:id/status`:
+```text
+AQMH_MAPS
+AQMH_RECONSTRUCTION
+AQMH_DIAGNOSTICS
+```
+
+If backend phase names cannot be changed immediately, the frontend may temporarily map existing runner events to AQMH labels:
+
+| Backend event | AQMH display label |
+|---|---|
+| `LOCAL_METRICS` with `method=aqmh` | `AQMH_MAPS` |
+| `TILE_RECONSTRUCTION` with `method=aqmh` | `AQMH_RECONSTRUCTION` |
+
+This mapping is a compatibility layer only. The UI text should still say AQMH.
+
+AQMH status payload:
 
 ```json
 {
+  "method": "aqmh",
   "aqmh": {
     "enabled": true,
-    "mode": "dense_map",
     "storage": {
       "resolution_divisor": 2,
       "dtype": "float32",
       "max_resident_maps": 2
+    },
+    "maps": {
+      "computed": 143,
+      "total": 300,
+      "stream": "luma"
     },
     "cache": {
       "bytes_written": 7200000000,
@@ -387,142 +359,85 @@ Add optional AQMH status payload to `/api/runs/:id/status`:
       "cache_hits": 1100,
       "cache_misses": 100,
       "max_resident_maps_observed": 2
-    },
-    "maps": {
-      "computed": 143,
-      "total": 300,
-      "stream": "luma"
     }
   }
 }
 ```
 
-The backend can derive this from:
+Run Monitor display:
 
-- `config.yaml`
-- `artifacts/aqmh_metrics.json`
-- cache directory stats
-- phase event payloads
-
-Frontend display:
-
-1. Header badge:
-   - `AQMH off`
-   - `AQMH dense_map`
-   - `AQMH hybrid`
-   - `AQMH tile`
-2. `LOCAL_METRICS` row subtext:
-   - `AQMH maps 143/300`
-   - `cache written 3.4 GB`
-3. `TILE_RECONSTRUCTION` row subtext:
-   - `dense_map`
-   - `cache hits 91%`
-   - `resident maps 2/2`
-4. Artifact list:
-   - show `aqmh_metrics.json`
-   - show `aqmh_regions.json`
-   - hide raw map cache files by default or group them under “Cache”.
+- header badge: `AQMH`
+- map progress: `AQMH maps 143/300`
+- cache written/read
+- cache hit rate
+- resident maps observed vs configured
+- warnings for cache misses and unsupported pixels
 
 ### Milestone F6 — Artifacts and Viewer
 
-**Goal:** Make AQMH artifacts easy to inspect.
+AQMH artifacts:
 
-Existing artifact list is populated by:
+| Artifact | Purpose |
+|---|---|
+| `artifacts/aqmh_metrics.json` | Per-frame, block-level, cache, and timing diagnostics |
+| `artifacts/aqmh_regions.json` | Optional quality-region diagnostics |
+| `cache/aqmh/aqmh_luma_000000.bin` | Raw map cache, hidden/grouped by default |
 
-- `GET /api/runs/:id/artifacts`
-- `GET /api/runs/:id/artifacts/view`
+Frontend behavior:
 
-Implementation:
-
-1. Ensure backend artifact listing includes:
-   - `artifacts/aqmh_metrics.json`
-   - `artifacts/aqmh_regions.json`
-2. Add friendly labels in the frontend:
-   - `AQMH Metrics`
-   - `AQMH Regions`
-3. For large AQMH metrics files, avoid rendering huge arrays inline if they exceed current viewer limits.
-4. Optionally add summary extraction in backend:
-   - mode
-   - map count
-   - artifact fraction p50/p90
-   - cache bytes
+- Show friendly labels: `AQMH Metrics`, `AQMH Regions`.
+- Group raw map cache files under `AQMH cache`.
+- Avoid inline rendering of huge JSON arrays.
+- Prefer backend-provided summaries for large artifacts.
 
 ### Milestone F7 — Report Integration
 
-**Goal:** Add AQMH diagnostics to generated stats/report.
-
-Files:
-
-- `tile_compile_cpp/scripts/generate_report.py`
-- frontend report i18n files
-
-Add `_gen_aqmh_metrics(artifacts_dir, aqmh, tile_grid)`:
+Add an independent AQMH report section.
 
 Charts:
 
-1. Mean AQMH quality per tile
-2. Artifact fraction per tile
-3. `aqmh_vs_tile_delta` heatmap
-4. Per-frame `map_mean`
-5. Per-frame `artifact_frac`
-6. Optional cache/timing table
+1. AQMH quality heatmap per report block.
+2. AQMH artifact fraction heatmap per report block.
+3. Per-frame `map_mean`.
+4. Per-frame `artifact_frac`.
+5. AQMH cache/timing table.
+6. Optional AQMH-vs-Classic comparison only when both methods were run as separate runs.
 
-Behavior:
+The AQMH report section must not be nested under Classic local metrics.
 
-- If `aqmh_metrics.json` is absent, silently skip section.
-- If present, add section after Local Metrics or Reconstruction.
-- If `aqmh_regions.json` exists, add region count summary.
+### Milestone F8 — History and Comparison
 
-### Milestone F8 — History / Run Comparison
+History tags:
 
-**Goal:** Make AQMH runs identifiable in history and comparison tools.
-
-Display tags:
-
-- `classic`
-- `AQMH dense_map`
-- `AQMH hybrid`
-- `AQMH tile diagnostics`
+- `Classic Tile Compile`
+- `AQMH`
+- `AQMH cherry-pick`
 
 Comparison fields:
 
 | Metric | Source |
 |---|---|
-| AQMH enabled/mode | `config.yaml` or `aqmh_metrics.json.config` |
-| cache size | `aqmh_metrics.json.cache_stats` |
-| map compute time | `aqmh_metrics.json.timing.map_compute_s` |
-| dense reconstruction time | `aqmh_metrics.json.timing.dense_reconstruction_s` |
+| method | status/config/artifact metadata |
+| AQMH cache size | `aqmh_metrics.json.cache_stats` |
+| AQMH map compute time | `aqmh_metrics.json.timing.map_compute_s` |
+| AQMH reconstruction time | `aqmh_metrics.json.timing.aqmh_reconstruction_s` |
 | mean artifact fraction | `aqmh_metrics.json.frames[].artifact_frac` |
+
+AQMH-vs-Classic comparison is a cross-run comparison, not a single AQMH run mode.
 
 ---
 
-## 6. Backend Contract for Frontend
+## 6. Backend Event Contract
 
-### 6.1 Status Endpoint
-
-Extend existing status output with optional `aqmh`.
-
-Rules:
-
-- Missing `aqmh` means classic or unknown old run.
-- `aqmh.enabled = false` should be shown as classic.
-- Frontend must not fail if fields are missing.
-
-### 6.2 Events
-
-The runner should emit ordinary phase events, not new phases.
-
-Recommended additional payload fields:
-
-For `LOCAL_METRICS`:
+The runner should eventually emit AQMH-specific method stage events:
 
 ```json
 {
   "type": "phase_progress",
-  "phase_name": "LOCAL_METRICS",
+  "phase_name": "AQMH_MAPS",
   "progress": 0.42,
   "payload": {
-    "aqmh_enabled": true,
+    "method": "aqmh",
     "aqmh_maps_done": 126,
     "aqmh_maps_total": 300,
     "aqmh_cache_bytes_written": 3020000000
@@ -530,142 +445,92 @@ For `LOCAL_METRICS`:
 }
 ```
 
-For `TILE_RECONSTRUCTION`:
-
 ```json
 {
   "type": "phase_progress",
-  "phase_name": "TILE_RECONSTRUCTION",
+  "phase_name": "AQMH_RECONSTRUCTION",
   "progress": 0.58,
   "payload": {
-    "aqmh_enabled": true,
-    "aqmh_mode": "dense_map",
+    "method": "aqmh",
     "aqmh_cache_hits": 2400,
     "aqmh_cache_misses": 180,
-    "aqmh_max_resident_maps_observed": 2
+    "aqmh_max_resident_maps_observed": 2,
+    "aqmh_unsupported_pixels": 0
   }
 }
 ```
 
-Existing Run Monitor log formatting can summarize these payloads later, but the first version can simply surface them in status/artifact summaries.
+Compatibility rule:
 
-### 6.3 Artifacts
-
-`aqmh_metrics.json` should include:
-
-```json
-{
-  "schema_version": 1,
-  "config": {
-    "storage": {},
-    "pyramid": {},
-    "reconstruction": {},
-    "cherry_pick": {},
-    "diagnostics": {}
-  },
-  "frames": [],
-  "tiles": [],
-  "cache_stats": {},
-  "timing": {}
-}
-```
-
-This lets the frontend and report generator avoid re-parsing `config.yaml` for every summary.
+- If the backend initially emits `LOCAL_METRICS` / `TILE_RECONSTRUCTION`, the frontend may remap the labels for AQMH runs.
+- The payload must still include `method: "aqmh"` or equivalent status metadata.
 
 ---
 
 ## 7. UX Requirements
 
-### 7.1 Copy and Labels
+Use labels:
 
-Use user-facing labels:
+- `AQMH`
+- `AQMH dense quality maps`
+- `AQMH pixel-wise reconstruction`
+- `AQMH cache`
+- `Resident maps`
+- `Pixel-level frame selection`
 
-- “AQMH dense quality maps”
-- “Dense map weighting”
-- “Hybrid AQMH weighting”
-- “Classic tile weighting”
-- “AQMH cache”
-- “Resident maps”
+Avoid labels:
 
-Avoid exposing method terms such as `Phi_snr`, `Psi_s`, or `P_actual` in normal UI. These belong in advanced diagnostics/report.
+- `AQMH tile mode`
+- `Hybrid AQMH`
+- `Classic fallback`
+- `Dense map mode`
 
-### 7.2 Warnings
-
-Show warnings for:
-
-- `cherry_pick.enabled = true`
-  - text: “Pixel-level frame selection active.”
-- `resolution_divisor = 1` with large frame counts
-  - text: “Full-resolution AQMH maps may require significant disk space.”
-- `max_resident_maps` high enough to exceed likely RAM budget
-  - text: “Resident map cache may increase memory use.”
-
-### 7.3 Defaults
-
-Recommended safe UI defaults:
-
-```yaml
-aqmh:
-  enabled: false
-  reconstruction:
-    mode: dense_map
-    fallback_to_tile: true
-  storage:
-    resolution_divisor: 2
-    dtype: float32
-    max_resident_maps: 2
-```
-
-Do not default-enable AQMH until validation datasets confirm stable behavior.
+Do not expose internal mathematical symbols such as `Phi_snr`, `Psi_s`, or `P_actual` in normal UI. These belong in advanced diagnostics/reports.
 
 ---
 
 ## 8. Testing Plan
 
-### 8.1 Frontend Unit/DOM Tests
+### 8.1 Frontend Tests
 
-Where existing test infrastructure allows:
-
-1. Parameter Studio renders AQMH category when schema contains `aqmh`.
-2. AQMH search terms find AQMH fields.
-3. Dashboard badge changes from `AQMH off` to `AQMH dense_map`.
-4. Run Monitor renders AQMH status block when status contains `aqmh`.
-5. Run Monitor remains classic when status lacks `aqmh`.
+1. Method selector can switch between Classic and AQMH.
+2. Parameter Studio shows AQMH fields only in AQMH category/method context.
+3. No Hybrid/Tile/Fallback AQMH controls are rendered.
+4. Dashboard badge shows `AQMH` when AQMH is enabled.
+5. AQMH cache estimate is computed from scan dimensions and frame count.
+6. Run Monitor maps AQMH status to AQMH labels.
+7. Missing `aqmh` metadata on old runs displays as Classic/unknown without crashing.
 
 ### 8.2 Backend Contract Tests
 
-Add tests in `web_backend_cpp/tests`:
-
-1. Status endpoint returns classic-compatible JSON when no AQMH artifacts exist.
-2. Status endpoint includes `aqmh.enabled/mode` when config enables AQMH.
+1. Status endpoint includes `method`.
+2. AQMH status includes `aqmh.maps`, `aqmh.cache`, and storage config when AQMH is enabled.
 3. Artifact listing includes `aqmh_metrics.json` and `aqmh_regions.json`.
-4. AQMH cache files are not spammed as primary user artifacts, or are grouped/filtered if listed.
+4. Raw AQMH cache files are grouped or hidden from the primary artifact list.
+5. AQMH cache misses surface as AQMH warnings, not Classic fallback states.
 
 ### 8.3 Integration Tests
 
-1. Classic run still shows unchanged phase list.
-2. AQMH run shows same phase list plus AQMH badges.
-3. AQMH run can generate report with AQMH section.
-4. Resume from `LOCAL_METRICS` recomputes AQMH diagnostics.
-5. Resume from `TILE_RECONSTRUCTION` reuses existing AQMH cache if metadata matches.
+1. Classic run shows Classic method label and Classic phase labels.
+2. AQMH run shows AQMH method label and AQMH stage labels.
+3. AQMH run generates report with independent AQMH section.
+4. Resume/retry of AQMH map computation updates AQMH map progress.
+5. Resume/retry of AQMH reconstruction reuses valid AQMH cache metadata.
 
 ---
 
 ## 9. Implementation Order
 
-Recommended order:
-
-1. Backend/CLI schema + config validation for `aqmh.*`
-2. `aqmh_metrics.json` and `aqmh_regions.json` artifact contract
-3. `/api/runs/:id/status` optional `aqmh` block
-4. Parameter Studio AQMH category
-5. Run Monitor AQMH badge/substatus
-6. Dashboard AQMH summary and storage estimate
-7. Wizard AQMH guided toggle
-8. Report generator AQMH section
-9. History/comparison AQMH tags
-
-This order keeps the frontend dependent on stable backend contracts rather than duplicating inference logic.
+1. Add method metadata to config/status.
+2. Remove Hybrid/Tile/Fallback AQMH controls from schema/UI plans.
+3. Add AQMH artifact contract.
+4. Add status `aqmh` block.
+5. Add Parameter Studio AQMH category.
+6. Add Dashboard method badge and AQMH cache estimate.
+7. Add Wizard method choice.
+8. Add Run Monitor AQMH label mapping/status panel.
+9. Add AQMH report section.
+10. Add History/Comparison tags.
 
 ---
 
@@ -673,10 +538,11 @@ This order keeps the frontend dependent on stable backend contracts rather than 
 
 Do not implement the following for the first frontend pass:
 
-- A separate AQMH run type.
-- New top-level phases in the Run Monitor.
-- A separate AQMH-only start button.
-- Direct visualization of full AQMH map cache files in the Run Monitor.
+- Hybrid AQMH.
+- AQMH fallback to Classic Tile Compile.
+- AQMH `tile` mode.
+- A single run that silently switches between AQMH and Classic reconstruction.
+- Direct visualization of raw full AQMH map cache files in the Run Monitor.
 - Default-enabled AQMH.
 - Default-enabled cherry-pick.
 
@@ -684,16 +550,13 @@ Do not implement the following for the first frontend pass:
 
 ## 11. Summary
 
-AQMH should feel like a more advanced quality-weighting mode inside Tile Compile, not like a second application.
+AQMH should feel like a separate reconstruction method inside the same application, not like a Classic Tile Compile option.
 
 The stable frontend contract is:
 
-- same input flow
-- same phase flow
-- same run start
-- same resume model
-- extra AQMH config
-- extra AQMH diagnostics
-- extra AQMH report section
-
-The only automatic Run Monitor “switch” should be visual: when `aqmh.enabled` is detected, show AQMH-specific badges and submetrics inside the existing `LOCAL_METRICS` and `TILE_RECONSTRUCTION` phases.
+- shared input and run infrastructure
+- explicit method selection
+- independent AQMH configuration
+- AQMH-specific monitor labels/status
+- AQMH-specific artifacts and reports
+- Classic only as a separately run comparison baseline

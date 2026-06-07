@@ -3,46 +3,53 @@
 **Status:** Exploratory specification — not yet normative  
 **Version:** v0.1.0 (2026-06-05)  
 **Last revised:** 2026-06-05  
-**Relation to core:** Proposed extension to the mandatory core of v3.3.9
+**Relation to core:** Independent reconstruction method; may reuse shared preprocessing infrastructure
 
 ---
 
 ## 0. Motivation and Objective
 
-### 0.1 Limitation of the Fixed Tile Grid
+### 0.1 Motivation
 
-The mandatory reconstruction core (v3.3.9, §5.4–§5.7) partitions every registered frame into a **regular rectangular tile grid**. For each tile `t` and frame `f`, a single scalar quality score `Q_{f,t,c}^{local}` and a single weight `L_{f,t,c}` are assigned to the entire tile.
+AQMH is a separate quality-map-based stacking method. It is motivated by the observation that local image quality is often spatially heterogeneous: a satellite trail, cloud edge, registration remnant, or hot-pixel cluster can affect a small region of a registered frame while the remaining frame area is still useful.
 
-This design has two well-understood structural limitations:
+Any method that assigns one local scalar quality value to a large spatial block has two structural limitations:
 
-1. **Intra-tile heterogeneity:** A single satellite trail, cloud edge, or hot-pixel cluster that covers only 5% of a tile degrades the quality score for the entire tile, discarding the remaining 95% of good data at full weight.
+1. **Intra-region heterogeneity:** A small contaminated area can influence the quality assigned to a much larger region.
 
-2. **Tile boundary artifacts:** Because the quality weight is constant within a tile, reconstruction quality can jump discontinuously at tile boundaries if neighboring tiles receive significantly different weights, even with OLA windowing.
+2. **Block-boundary discontinuities:** If weights are constant inside coarse spatial blocks, reconstruction quality can jump at block boundaries.
 
 ### 0.2 AQMH Objective
 
-The Adaptive Quality Mask Harvesting method replaces the per-tile scalar weight with a **continuous, pixel-resolved quality weight field** `Q_map_{f,c}(x,y)` computed for every frame. The reconstruction then performs a **pixel-wise weighted mean** instead of a tile-wise weighted mean.
+The Adaptive Quality Mask Harvesting method computes a **continuous, pixel-resolved quality weight field** `Q_map_{f,c}(x,y)` for every frame. The reconstruction then performs a **pixel-wise weighted mean** using AQMH weights only.
 
 Core objectives:
 
-1. Extract the usable fraction of every frame at pixel resolution — not at tile granularity.
-2. Eliminate tile boundary weight discontinuities from the final stack.
-3. Model quality heterogeneity within tiles via a multi-scale analysis pyramid.
-4. Remain compatible with the deterministic weighted-mean reconstruction invariants of the v3.3.9 mandatory core in default AQMH mode.
-5. Degrade gracefully to the existing tile-level method when the dense map provides no additional information.
+1. Extract the usable fraction of every frame at pixel resolution.
+2. Avoid spatial block-boundary weight discontinuities in the final stack.
+3. Model local quality heterogeneity via a multi-scale analysis pyramid.
+4. Preserve deterministic weighted-mean reconstruction, canvas exclusion, and non-hallucination invariants.
+5. Function independently of Classic Tile Compile. Classic outputs may be used only as external comparison baselines, not as AQMH inputs or fallbacks.
 
-### 0.3 Relation to the Mandatory Core
+### 0.3 Independence and Shared Infrastructure
 
-AQMH is an **optional extension** in the sense of §9 of v3.3.9. It does not replace:
+AQMH is an **independent reconstruction method**. It may reuse shared pipeline infrastructure, but its quality model and reconstruction weights are not derived from Classic Tile Compile local/tile metrics.
 
-- Registration (phases 1–2)
-- Global normalization (phase 4)
-- Global metrics and weights `G_{f,c}` (phase 5)
-- Tile geometry definition (phase 6, still used as a spatial unit for metric computation)
-- Common-overlap mask definition (phase 7)
-- State-based clustering and synthetic frames (phases 10–11)
+Shared infrastructure may include:
 
-AQMH extends **phase 8 (local metrics)** and **phase 9 (tile reconstruction)** only. The output of AQMH — a pixel-resolved weight field per frame — feeds into a modified reconstruction accumulator that replaces the constant `L_{f,t,c}` but preserves the support-aware reconstruction invariants.
+- input scan and frame selection
+- calibration and registration/prewarping
+- global photometric normalization
+- common-overlap/canvas-valid mask
+- run management, logging, artifacts, reports, and UI plumbing
+
+The AQMH algorithm itself consists of:
+
+- AQMH dense quality-map computation
+- AQMH pixel-wise weighted reconstruction
+- AQMH diagnostics and optional region extraction
+
+Classic Tile Compile and AQMH must be runnable independently. Enabling or disabling one method must not change the mathematical definition of the other.
 
 ---
 
@@ -52,21 +59,21 @@ AQMH extends **phase 8 (local metrics)** and **phase 9 (tile reconstruction)** o
 
 The method models per-pixel observational quality as the product of two separable components:
 
-- **Frame-level quality:** the global atmospheric state of frame `f`, captured by `G_{f,c}` (unchanged from v3.3.9 §5.3).
+- **Frame-level quality:** the global atmospheric state of frame `f`, captured by `G_{f,c}`. `G_{f,c}` is an AQMH input derived from shared global frame diagnostics and normalization; it is not a Classic tile/local metric.
 - **Spatial quality field:** the continuous quality distribution within the frame, captured by `Q_map_{f,c}(x,y)`.
 
 The effective pixel weight is:
 
-`W_{f,c}^{dense}(x,y) = G_{f,c} * Q_map_{f,c}(x,y)`
+`W_{f,c}^{aqmh}(x,y) = G_{f,c} * Q_map_{f,c}(x,y)`
 
 ### 1.2 Invariants (Binding)
 
-The following invariants from v3.3.9 remain binding for default AQMH reconstruction modes (`dense_map`, `tile`, and `hybrid`). The optional cherry-pick mode is an explicit opt-in deviation and is governed separately by §5.3.
+The following invariants are binding for AQMH reconstruction. The optional cherry-pick mode is an explicit opt-in deviation and is governed separately by §5.3.
 
 1. **No frame selection:** Entire frames must not be removed based on quality.
 2. **Conditional photometric linearity:** Once the deterministic weights have been computed, the final reconstruction remains `R(p) = sum_f w_f(p) * I_f(p) / sum_f w_f(p)` with `w_f(p) >= 0`. AQMH must not apply nonlinear intensity transforms to the samples entering the accumulator.
 3. **Determinism:** All quality map computations must be deterministic and reproducible.
-4. **Canvas exclusion:** Canvas-invalid pixels contribute zero to all accumulators regardless of their `Q_map` value.
+4. **Canvas exclusion:** Canvas-invalid pixels are excluded from all AQMH accumulators and statistics. They are written as zero/unsupported only in final output arrays.
 5. **No hallucination:** AQMH outputs are weights and masks only. It does not generate or predict pixel intensities.
 
 ### 1.3 Notation
@@ -74,7 +81,6 @@ The following invariants from v3.3.9 remain binding for default AQMH reconstruct
 - `f` frame index
 - `c` channel index
 - `(x, y)` pixel coordinates in the registered canvas
-- `t` tile index (retained from v3.3.9 for spatial reference)
 - `Q_map_{f,c}(x,y)` per-pixel quality field, `∈ [0, 1]`
 - `D_s` downscale factor at pyramid scale `s`
 - `P` configured maximum number of pyramid scales
@@ -82,7 +88,7 @@ The following invariants from v3.3.9 remain binding for default AQMH reconstruct
 - `P_actual = |S_actual|` actual number of computed pyramid scales used for fusion
 - `R_s` spatial radius of the local analysis window at scale `s`
 - `Psi_s(x,y)` quality contribution at scale `s`
-- `W_{f,c}^{dense}(x,y)` effective dense pixel weight
+- `W_{f,c}^{aqmh}(x,y)` effective AQMH pixel weight
 - `B_s(x,y; R)` masked local background operator at scale `s`
 
 ### 1.4 Deterministic Statistics Convention
@@ -90,6 +96,20 @@ The following invariants from v3.3.9 remain binding for default AQMH reconstruct
 All medians, MADs, and quantiles in AQMH are computed over finite values only and over the explicitly stated valid support (for example `W_s_valid` or canvas-valid pixels). If the support is empty, the statistic is invalid and the fallback rules in §2.3.4 apply.
 
 For deterministic reproducibility, sort finite values in ascending numeric order. The median is the middle value for odd sample counts and the arithmetic mean of the two middle values for even sample counts. MAD uses the same median convention on `|x - median(x)|`. Quantiles use linear interpolation between sorted samples with index `q * (n - 1)`, clamped to `[0, n-1]`; for `n = 1`, the only sample is returned.
+
+### 1.5 Canvas Exclusion Contract
+
+Canvas-invalid pixels are outside the observed data domain. They are not zero-valued samples, not background samples, not low-quality samples, and not padding. They must not influence AQMH in any phase.
+
+Binding rules:
+
+1. Canvas-invalid source pixels are converted to invalid/NaN before AQMH map computation.
+2. Downsampling uses a valid-count denominator; invalid pixels do not contribute value or weight.
+3. Local statistics, filters, medians, MADs, Laplacian responses, artifact fractions, z-score populations, and quantiles operate only on finite canvas-valid support.
+4. Upsampling from scale space to canvas space is mask-aware; invalid scale samples do not interpolate into valid canvas pixels.
+5. Reconstruction iterates only over canvas-valid output pixels, and the frame sample set `V_c^I(p)` contains only finite, canvas-valid source samples.
+6. Diagnostics and region extraction use canvas-valid support only. Raw invalid-canvas area may be present in arrays for shape compatibility, but it must be excluded from all statistics.
+7. The final `Q_map` canvas guard sets invalid canvas pixels to exactly zero as an output convention only. That zero must never be fed back as a data sample into AQMH statistics.
 
 ---
 
@@ -101,7 +121,7 @@ For each frame `f` and channel `c`, a dense quality map `Q_map_{f,c}` is compute
 
 ### 2.2 Input Data
 
-The input to AQMH is the normalized frame `I_{f,c}(x,y)` as defined in v3.3.9 §5.2. The common-overlap canvas mask from §5.5 (binding) applies: canvas-invalid pixels are excluded from all quality map accumulators.
+The input to AQMH is the registered, prewarped, photometrically normalized frame `I_{f,c}(x,y)` produced by shared preprocessing. The common-overlap canvas mask applies: canvas-invalid pixels are excluded from all quality map accumulators.
 
 ### 2.3 Multi-Scale Pyramid
 
@@ -132,9 +152,9 @@ For each pixel `(x,y)` in the downscaled domain, compute the following **three q
 
 ##### (a) Local Sharpness Signal `Phi_sharp`
 
-`Phi_sharp_s(x,y) = Var_{p in W_s_valid(x,y)}(Lap(I_s)(p))`
+`Phi_sharp_s(x,y) = Var_{p in W_s_valid(x,y)}(Lap_valid(I_s)(p))`
 
-where `Lap` is the Laplacian response and `Var` is the local variance of finite, valid Laplacian values. Result is clamped to `[0, +inf)` (non-negative).
+where `Lap_valid` is the masked valid-support Laplacian response and `Var` is the local variance of finite, valid Laplacian values. `Lap_valid` must not use mirrored, replicated, zero-filled, or canvas-invalid neighbors. If the center pixel is invalid or the finite stencil support is insufficient for a deterministic Laplacian estimate, the response is invalid. Result is clamped to `[0, +inf)` (non-negative).
 
 No explicit global rescaling of `Phi_sharp_s` is applied here. The per-scale robust z-score in §2.3.3 is invariant to any global multiplicative scaling (`z(a*Phi) = z(Phi)` for `a > 0`), so a `sigma_Lap`-based normalization at this step would have no effect on `Psi_s` and is intentionally omitted. Implementations that need a well-conditioned intermediate may rescale `Phi_sharp_s` locally for numerical reasons, but must not rely on it changing the result.
 
@@ -178,7 +198,7 @@ where:
 
 Binding constraint: `Psi_s(x,y) ∈ [0, 1]` for all finite inputs. The sigmoid term is strictly positive, but the multiplicative artifact gate may set `Psi_s` to exactly zero.
 
-**Within-frame relativity (binding clarification):** Because `z(Phi_sharp_s)` and `z(Phi_snr_s)` are normalized per frame (median/MAD computed over that frame's pixels at scale `s`), the **sigmoid factor of `Q_map` is a within-frame relative quality field**, not an absolute cross-frame quality measurement. Two frames of differing global seeing produce similarly distributed sigmoid factors, each self-normalized. Consequently, in the dense reconstruction weight `W_{f,c}^{dense} = G_{f,c} * Q_map_{f,c}` (§1.1, §4.3):
+**Within-frame relativity (binding clarification):** Because `z(Phi_sharp_s)` and `z(Phi_snr_s)` are normalized per frame (median/MAD computed over that frame's pixels at scale `s`), the **sigmoid factor of `Q_map` is a within-frame relative quality field**, not an absolute cross-frame quality measurement. Two frames of differing global seeing produce similarly distributed sigmoid factors, each self-normalized. Consequently, in the AQMH reconstruction weight `W_{f,c}^{aqmh} = G_{f,c} * Q_map_{f,c}` (§1.1, §4.3):
 
 - **Between-frame** discrimination at a given pixel is carried by the global weight `G_{f,c}` and by the **absolute** artifact gate `Phi_artifact_s` (which is not z-scored and can drive `Q_map` toward zero in any frame independently of other frames).
 - **Within-frame** spatial discrimination (which regions of a single frame are sharper / cleaner) is carried by the sigmoid factor.
@@ -191,13 +211,15 @@ All local statistics are computed over finite, canvas-valid pixels only. Let `W_
 
 If `|W_s_valid(x,y)| = 0`, all per-scale signals at `(x,y)` are marked invalid and the fused `Q_map` value is later set to zero by the canvas guard. If `|W_s_valid(x,y)| > 0` but fewer than three valid pixels are available, robust scale estimates fall back to `eps_aqmh` and local variance estimates fall back to zero. For the `Phi_snr_s` signal, the background-centering fallback rule in §2.3.2(b) is more specific and takes precedence.
 
-The default boundary mode for convolution-like operations (`Lap`, `blur`, and local windows) is valid-only masked evaluation. Implementations must not mirror or replicate canvas-invalid pixels into the statistic.
+The default boundary mode for convolution-like operations (`Lap_valid`, `blur`, local windows, and morphology support masks) is valid-only masked evaluation. Implementations must not mirror, replicate, zero-fill, or otherwise synthesize canvas-invalid pixels into the statistic. If a library primitive cannot express this support rule directly, implementations must compute numerator and valid-support denominator separately or use an explicit masked operator.
 
 ### 2.4 Multi-Scale Fusion
 
-Let `S_actual` be the ordered set of scales that are actually computed after applying the omission rule in §2.3.1, and let `P_actual = |S_actual|`. Upsample each computed `Psi_s` to the full canvas resolution using bilinear interpolation:
+Let `S_actual` be the ordered set of scales that are actually computed after applying the omission rule in §2.3.1, and let `P_actual = |S_actual|`. Upsample each computed `Psi_s` to the full canvas resolution using mask-aware bilinear interpolation:
 
-`Psi_s^{up}(x,y) = upsample(Psi_s, D_s)`
+`Psi_s^{up}(x,y) = upsample_valid(Psi_s, valid_s, D_s)`
+
+where `valid_s` is the finite valid-support mask of `Psi_s`. `upsample_valid` interpolates the numerator `Psi_s * valid_s` and the support mask `valid_s` separately, then divides by the interpolated support. If the interpolated support is zero at a canvas pixel, `Psi_s^{up}` is invalid at that pixel. Invalid scale samples must not be treated as zero during interpolation because that would depress neighboring valid canvas pixels.
 
 Fuse via **geometric mean** over the `P_actual` computed scales:
 
@@ -211,13 +233,15 @@ Geometric mean is chosen over arithmetic mean because it requires **all scales t
 
 **Canvas guard (binding):** For all canvas-invalid pixels `p`, set `Q_map_{f,c}(p) = 0` unconditionally after fusion, overriding any computed value.
 
-### 2.5 Relationship to Tile-Level Quality Scores
+If any computed scale is invalid at a canvas-valid pixel because there is no valid scale support after mask-aware upsampling, that scale contributes a zero-veto at that pixel. This is distinct from canvas-invalid pixels, which are excluded and zeroed only by the final canvas guard.
 
-For compatibility and diagnostics, the per-tile quality score `Q_{f,t,c}^{aqmh}` is derived as the spatial median of `Q_map_{f,c}` over the tile `t`:
+### 2.5 Block-Level Diagnostic Summaries
 
-`Q_{f,t,c}^{aqmh} = median_{p in t, canvas-valid} Q_map_{f,c}(p)`
+For reports and visual summaries, AQMH may derive block-level diagnostic values by aggregating `Q_map_{f,c}` over a display block `b`:
 
-This value is reported in diagnostics alongside the v3.3.9 tile score `Q_{f,t,c}^{local}` for comparison. It does **not** replace the v3.3.9 score in the mandatory core.
+`Q_{f,b,c}^{aqmh} = median_{p in b, canvas-valid} Q_map_{f,c}(p)`
+
+The block grid is a reporting/visualization aid only. It is not part of the AQMH reconstruction weight model, and it must not introduce block-constant weights into the AQMH accumulator.
 
 ---
 
@@ -231,7 +255,16 @@ Recommended storage: on the existing `DiskCacheFrameStore` or a parallel quality
 
 ### 3.2 Memory Budget
 
-At full resolution, one map requires `W * H * 4` bytes. For a 24 Mpx sensor with 300 frames and 3 channels, the total budget is approximately `24e6 * 4 * 300 * 3 ≈ 86 GB`.
+At full resolution, one map requires `W * H * 4` bytes. For a 24 Mpx sensor with 300 frames and 3 channels, the full uncompressed **on-disk working set** would be approximately `24e6 * 4 * 300 * 3 ≈ 86 GB`.
+
+This number is **not** a permitted RAM budget. AQMH must never assume that all frames, all prewarped frames, or all quality maps are resident in memory. Like the rest of Tile Compile, AQMH is designed for hundreds of frames and must be implemented as a streaming, disk-cache-backed method in every stage.
+
+Binding memory invariant:
+
+1. At AQMH map-computation time, each worker may hold only the current source frame, its current pyramid temporaries, and the current output map.
+2. After a frame's `Q_map` has been computed, it must be written to the AQMH map cache promptly and its full-resolution working buffers must be released.
+3. AQMH reconstruction must read frames and maps through bounded providers/caches. The number of resident source frames and resident full-resolution maps must be bounded by explicit memory limits and must not scale with frame count.
+4. A valid implementation must be able to process hundreds of frames without OOM by trading memory for disk IO.
 
 Therefore, the following compression strategies are supported:
 
@@ -240,35 +273,45 @@ Therefore, the following compression strategies are supported:
 | Full resolution float32 | No compression | Optional |
 | 1/4 area float32 | Downscale by 2 in each axis | **Default** |
 | uint8 quantization | Map scaled to `[0, 255]` | Optional |
-| Tile-compressed float16 | Per-tile float16 sub-blocks | Future optional; only valid when explicitly implemented |
+| Block-compressed float16 | Per-block float16 sub-blocks | Future optional; only valid when explicitly implemented |
 
 **Normative default:** Store `Q_map` at `1/4` area resolution (factor-2 downscale in each axis, `resolution_divisor = 2`). The map is upscaled to full resolution on demand during reconstruction via bilinear interpolation.
 
 ### 3.3 Disk Cache Lifecycle
 
-Quality maps are written during phase 8.AQMH (see pipeline overview §4) and consumed during phase 9.AQMH. Maps are invalidated when the source prewarped frame is invalidated, when the common-overlap mask changes, or when any **map-affecting** AQMH configuration changes (`pyramid`, `storage`, or map format version). Reconstruction-only settings such as `reconstruction.mode` and `fallback_to_tile` must not invalidate map cache entries. Implementations should store and validate a cache metadata hash covering only map-affecting inputs.
+Quality maps are written during AQMH map computation and consumed during AQMH reconstruction. Maps are invalidated when the source prewarped frame is invalidated, when the common-overlap mask changes, or when any **map-affecting** AQMH configuration changes (`pyramid`, `storage`, or map format version). Reconstruction-only settings must not invalidate map cache entries. Implementations should store and validate a cache metadata hash covering only map-affecting inputs.
+
+The cache is not an optimization; it is part of the AQMH execution model. Implementations must use cache-backed access for all large per-frame data products:
+
+| Stage | Large data | Required access pattern |
+|---|---|---|
+| Shared preprocessing | calibrated/registered/prewarped frames | disk-backed frame store; bounded resident frame set |
+| AQMH map computation | source frame, pyramid buffers, output map | one frame per worker; write-through map cache |
+| AQMH reconstruction | source frames and `Q_map` files | bounded frame/map read cache; no full-run preload |
+| AQMH diagnostics/report | metrics and summaries | aggregate JSON/statistics; raw maps remain cache artifacts |
 
 ---
 
 ## 4. Pipeline Integration
 
-### 4.1 Modified Pipeline Phases
+### 4.1 AQMH Processing Stages
 
-The AQMH extension modifies the pipeline in two phases:
+AQMH has its own algorithmic stages. A concrete application may schedule these stages inside existing runner phases for engineering convenience, but that scheduling is not part of the mathematical method.
 
 ```
-Phase 8:   LOCAL_METRICS
-  8.a  [AQMH] Dense quality map computation     ← new
-  8.b  [v3.3.9] Tile metrics, z-scores, reg.    ← unchanged
+AQMH_MAPS
+  Compute dense per-frame quality maps Q_map
 
-Phase 9:   TILE_RECONSTRUCTION
-  9.a  [AQMH] Pixel-wise weighted stacking      ← replaces constant-weight tile reconstruction
-  9.b  [v3.3.9] Support-aware OLA               ← unchanged (windowing, accumulators)
+AQMH_RECONSTRUCTION
+  Perform pixel-wise weighted stacking with W_aqmh = G * Q_map
+
+AQMH_DIAGNOSTICS
+  Emit quality-map, reconstruction, and optional region artifacts
 ```
 
-All other phases (0–7 and 10–18) are unchanged.
+Shared preprocessing and postprocessing stages may be reused, but Classic Tile Compile local metrics and tile reconstruction are not AQMH stages.
 
-### 4.2 Phase 8.a: Dense Map Computation
+### 4.2 AQMH Map Computation
 
 For each frame `f` and channel `c` with `frame_has_data[f] = true`:
 
@@ -281,63 +324,41 @@ For each frame `f` and channel `c` with `frame_has_data[f] = true`:
 4. Upsample all `Psi_s` to canvas resolution (§2.4).
 5. Compute fused `Q_map_{f,c}` via geometric mean (§2.4).
 6. Apply canvas guard: set canvas-invalid pixels to zero.
-7. Write `Q_map_{f,c}` to quality-map disk cache (at configured storage resolution).
+7. Write `Q_map_{f,c}` to the AQMH quality-map disk cache (at configured storage resolution).
 
-### 4.3 Phase 9.a: Pixel-Wise Weighted Reconstruction
+### 4.3 AQMH Pixel-Wise Weighted Reconstruction
 
-For each tile `t` and pixel `p` in the canvas-valid support:
+For each pixel `p` in the canvas-valid support:
 
 Define the finite intensity sample set:
 
-`V_{t,c}^{I}(p) = { f | I_{f,c}(p) is finite AND canvas-valid }`
+`V_c^{I}(p) = { f | I_{f,c}(p) is finite AND canvas-valid }`
 
 Define the map-available sample set:
 
-`V_{t,c}^{map}(p) = { f in V_{t,c}^{I}(p) | Q_map_{f,c}(p) is finite }`
+`V_c^{map}(p) = { f in V_c^{I}(p) | Q_map_{f,c}(p) is finite }`
 
-For each `f in V_{t,c}^{I}(p)`, the effective pixel weight in `dense_map` mode is:
+For each `f in V_c^{I}(p)`, the effective AQMH pixel weight is:
 
-`w_{f,c}^{dense}(p) = G_{f,c} * Q_map_{f,c}(p)` when `f in V_{t,c}^{map}(p)`
+`w_{f,c}^{aqmh}(p) = G_{f,c} * Q_map_{f,c}(p)` when `f in V_c^{map}(p)`
 
-`w_{f,c}^{dense}(p) = G_{f,c} * L_{f,t,c}` when the map is unavailable and `fallback_to_tile = true`
+`w_{f,c}^{aqmh}(p) = 0` when the map sample is unavailable or non-finite
 
-`w_{f,c}^{dense}(p) = 0` when the map is unavailable and `fallback_to_tile = false`
+No Classic Tile Compile local/tile weight is used as an AQMH fallback.
+
+Canvas-invalid output pixels are not reconstructed. They are written as unsupported/zero without evaluating frame samples, map samples, sigma clipping, or denominator fallback. Canvas-invalid source pixels are never members of `V_c^I(p)`.
 
 The reconstructed pixel value is:
 
-`R_{t,c}^{dense}(p) = sum_{f in V^I} w_{f,c}^{dense}(p) * I_{f,c}(p) / sum_{f in V^I} w_{f,c}^{dense}(p)`
+`R_c^{aqmh}(p) = sum_{f in V^I} w_{f,c}^{aqmh}(p) * I_{f,c}(p) / sum_{f in V^I} w_{f,c}^{aqmh}(p)`
 
-**Weight fallback (binding):** Before applying the `eps_weight` fallback, implementations must distinguish finite map samples from unavailable map samples. A finite zero is a valid map sample and is an explicit veto, not a missing value. If `sum_f max(w_{f,c}^{dense}(p), 0) <= eps_weight`, fallback behavior depends on why the sum is zero:
+**Unsupported-pixel handling (binding):** Before applying any numerical denominator guard, implementations must distinguish finite map samples from unavailable map samples. A finite zero is a valid map sample and is an explicit veto, not a missing value. If `sum_f max(w_{f,c}^{aqmh}(p), 0) <= eps_weight`, fallback behavior depends on why the sum is zero:
 
-1. If at least one finite map sample exists at `p` (`V_{t,c}^{map}(p) != empty`) and all dense weights are zero because the available maps explicitly veto the pixel (`Q_map = 0`), the output pixel is marked unsupported/zero for that reconstruction tile. Do **not** replace the explicit zero-veto by an unweighted mean.
-2. If no finite map sample exists at `p`, or all nonzero weights are unavailable because of IO/cache failure, replace all weights over `V_{t,c}^{I}(p)` by 1 and fall back to the unweighted valid mean (identical semantics to v3.3.9 §5.7 tile-level fallback).
-3. If sigma clipping removes all samples after a nonzero pre-clip weight sum, use the existing v3.3.9 sigma-clipping keep-floor and fallback semantics.
+1. If at least one finite map sample exists at `p` (`V_c^{map}(p) != empty`) and all AQMH weights are zero because the available maps explicitly veto the pixel (`Q_map = 0`), the output pixel is marked unsupported/zero. Do **not** replace the explicit zero-veto by an unweighted mean.
+2. If no finite map sample exists at `p`, or all map samples are unavailable because of IO/cache failure, the output pixel is marked unsupported/zero and the run emits an AQMH cache/map-availability warning. AQMH must not silently switch to Classic Tile Compile weights.
+3. If sigma clipping removes all samples after a nonzero pre-clip weight sum, use the AQMH sigma-clipping keep-floor and denominator-guard semantics defined for pixel-wise weighted reconstruction.
 
-**Sigma clipping:** Iterative weighted sigma clipping (v3.3.9 §5.7) applies with `w_{f,c}^{dense}(p)` in place of `w_{f,t,c}`. The keep-floor `min_fraction` and `N_eff` / `D_eff` guards are unchanged.
-
-### 4.4 Map-Unavailability Fallback (All Modes)
-
-When AQMH is enabled but the quality map for a given frame/channel is unavailable (IO error, invalid cache entry, frame skipped), reconstruction falls back to the v3.3.9 tile-level weight for that frame/channel/tile, **independently of the reconstruction mode**:
-
-`w_{f,c}(p) = G_{f,c} * L_{f,t,c}   (AQMH map unavailable)`
-
-This ensures AQMH never blocks reconstruction.
-
-Partial maps are handled at pixel granularity: if a map is available but `Q_map_{f,c}(p)` is non-finite for a canvas-valid pixel, that sample uses the tile-level fallback weight at `p`; finite map values continue to use dense weights. A finite zero is not “unavailable”; it is an explicit veto.
-
-### 4.5 Reconstruction Modes (Binding)
-
-The three default (non-cherry-pick) reconstruction modes differ only in how the per-pixel weight is formed from `Q_map` and the tile weight `L_{f,t,c}`. In all modes the global weight `G_{f,c}` is applied and the unavailability fallback of §4.4 holds.
-
-| Mode | Per-pixel weight (map available and finite) | Purpose |
-|---|---|---|
-| `tile` | `w_{f,c}(p) = G_{f,c} * L_{f,t,c}` | v3.3.9-equivalent; ignores `Q_map` (useful for A/B baselines while still emitting AQMH diagnostics) |
-| `dense_map` | `w_{f,c}(p) = G_{f,c} * Q_map_{f,c}(p)` | full pixel-resolved weighting |
-| `hybrid` | `w_{f,c}(p) = G_{f,c} * max(Q_map_{f,c}(p), L_{f,t,c})` | diagnostic/conservative mode; tile weight as a **lower bound** on the dense weight |
-
-**Distinctness (binding):** `hybrid` is **not** equivalent to `dense_map` with `fallback_to_tile = true`. In `dense_map`, the tile weight is used *only* when the map sample is missing/non-finite; where a finite map sample exists it fully replaces the tile weight (and may suppress a pixel toward zero). In `hybrid`, a finite map sample never drops the weight below the tile baseline `G_{f,c} * L_{f,t,c}`; the `max` guarantees that AQMH can only *raise* confidence in already tile-trusted regions, never veto them below the tile level.
-
-**Artifact caveat (binding):** Because `hybrid` prevents dense-map down-weighting below the tile baseline, it does **not** provide AQMH artifact veto semantics. It is a conservative diagnostic/A-B mode for early validation, not the default artifact-suppression mode. Artifact-sensitive runs must use `dense_map`.
+**Sigma clipping:** Iterative weighted sigma clipping applies with `w_{f,c}^{aqmh}(p)`. The keep-floor `min_fraction` and `N_eff` / `D_eff` guards are AQMH reconstruction parameters and must be deterministic.
 
 ---
 
@@ -353,7 +374,7 @@ From the fused `Q_map_{f,c}`, extract binary regions by thresholding:
 
 1. Compute the per-frame threshold: `tau_f = quantile(Q_map_{f,c}, q_region)` over finite, canvas-valid pixels only, with normative default `q_region = 0.75`.
 2. Binary mask: `M_f(x,y) = 1 iff Q_map_{f,c}(x,y) >= tau_f AND canvas-valid`.
-3. Apply morphological opening with radius `r_morph_canvas_px` to remove isolated noise regions. The normative default is a **canvas-equivalent radius of 6 px**, which corresponds to 3 px at the default `resolution_divisor = 2`. If region extraction is run on a stored/downscaled map, use `r_morph_map = max(1, round(r_morph_canvas_px / resolution_divisor))`.
+3. Apply morphological opening with radius `r_morph_canvas_px` to remove isolated noise regions. The normative default is a **canvas-equivalent radius of 6 px**, which corresponds to 3 px at the default `resolution_divisor = 2`. If region extraction is run on a stored/downscaled map, use `r_morph_map = max(1, round(r_morph_canvas_px / resolution_divisor))`. Morphology is constrained to the canvas-valid support: invalid canvas pixels are outside the domain, not zero-valued background pixels, and the final region mask is always intersected with the canvas-valid mask.
 4. Extract connected components; label each component with:
    - `Area_r`: pixel count
    - `MeanQ_r`: mean quality score over the region
@@ -368,11 +389,11 @@ When `aqmh.cherry_pick.enabled = true`, per-pixel stacking uses only the **top-K
 
 `K(p) = min(N_valid(p), max(k_min, floor(k_frac * N_valid(p))))`
 
-where `N_valid(p) = |V_{t,c}^{I}(p)|` is the number of finite intensity samples at pixel `p` (the intensity sample set of §4.3), and with normative defaults `k_min = 3`, `k_frac = 0.3`.
+where `N_valid(p) = |V_c^{I}(p)|` is the number of finite intensity samples at pixel `p` (the intensity sample set of §4.3), and with normative defaults `k_min = 3`, `k_frac = 0.3`.
 
-For each pixel `p`, sort `V_{t,c}^{I}(p)` by the cross-frame calibrated score `S_f(p) = G_{f,c} * Q_map_{f,c}(p)` descending and retain only the top-`K(p)` frames. Frames with unavailable/non-finite maps receive `S_f(p) = G_{f,c} * L_{f,t,c}` when `fallback_to_tile = true`, otherwise `S_f(p) = 0`. Weighted reconstruction proceeds over this reduced set.
+For each pixel `p`, sort `V_c^{I}(p)` by the cross-frame calibrated score `S_f(p) = G_{f,c} * Q_map_{f,c}(p)` descending and retain only the top-`K(p)` frames. Frames with unavailable/non-finite maps receive `S_f(p) = 0`. Weighted reconstruction proceeds over this reduced set.
 
-**Warning (binding):** Cherry-pick mode violates the v3.3.9 no-frame-selection invariant at pixel level, even though it does not discard entire frames. It must only be used when explicitly enabled by the user and must be clearly flagged in diagnostic output. Default is `disabled`.
+**Warning (binding):** Cherry-pick mode violates the default AQMH no-frame-selection invariant at pixel level, even though it does not discard entire frames. It must only be used when explicitly enabled by the user and must be clearly flagged in diagnostic output. Default is `disabled`.
 
 ---
 
@@ -394,22 +415,21 @@ For each processed frame `f`, the following scalar diagnostics are written to `a
 
 If the referenced diagnostic scale is omitted by the small-image scale rule (§2.3.1), the corresponding diagnostic field is written as `NaN` or `null` and the artifact must also record that the scale was unavailable. With normative defaults, `sharpness_p50` is normally available because scale 0 has `D=1`; `snr_p50` may be unavailable when scale 1 is omitted.
 
-### 6.2 Per-Tile Diagnostics
+### 6.2 Block-Level Diagnostics
 
-For each tile `t`, the following values are reported alongside the existing v3.3.9 tile metrics:
+For each report block `b`, the following values may be reported:
 
-- `aqmh_q_median`: `Q_{f,t,c}^{aqmh}` as defined in §2.5
-- `aqmh_q_p10`, `aqmh_q_p90`: 10th and 90th percentile within the tile
-- `aqmh_artifact_frac`: fraction of pixels in the tile with `Q_map < tau_artifact`
-- `aqmh_vs_tile_delta`: `Q_{f,t,c}^{aqmh} - Q_{f,t,c}^{local}` (diagnostic for intra-tile heterogeneity)
+- `aqmh_q_median`: `Q_{f,b,c}^{aqmh}` as defined in §2.5
+- `aqmh_q_p10`, `aqmh_q_p90`: 10th and 90th percentile within the block
+- `aqmh_artifact_frac`: fraction of pixels in the block with `Q_map < tau_artifact`
 
 ### 6.3 Heatmaps
 
-For integration into the existing report generator (`tile_compile_cpp/scripts/generate_report.py`, function `_gen_local_metrics`), AQMH emits additional spatial heatmap entries for the `aqmh_metrics.json` artifact:
+For integration into the report generator, AQMH emits spatial heatmap entries for the `aqmh_metrics.json` artifact:
 
-- Mean `Q_map` per tile, per frame (available as a new tab in the local metrics report section)
-- Artifact fraction heatmap per tile
-- `aqmh_vs_tile_delta` heatmap (reveals tiles with high intra-tile variance)
+- Mean `Q_map` per report block, per frame
+- Artifact fraction heatmap per report block
+- Optional AQMH-vs-Classic comparison heatmaps only when both methods were run separately on the same input set
 
 ---
 
@@ -418,11 +438,12 @@ For integration into the existing report generator (`tile_compile_cpp/scripts/ge
 ### 7.1 Top-Level Switch
 
 ```yaml
+method: aqmh              # optional explicit method key: classic_tile_compile | aqmh
 aqmh:
   enabled: false        # default: disabled until validated
 ```
 
-When `enabled: false`, all AQMH computations are skipped and the pipeline is identical to v3.3.9.
+When `aqmh.enabled: false`, all AQMH computations are skipped. If the implementation does not yet support an explicit top-level `method` key, runtime status must still expose the derived method: `aqmh.enabled = false` means `classic_tile_compile`, and `aqmh.enabled = true` means `aqmh`.
 
 ### 7.2 Pyramid Configuration
 
@@ -447,18 +468,9 @@ aqmh:
     max_resident_maps: 2    # bounded read-through cache during reconstruction; 0 disables
 ```
 
-The storage default (`resolution_divisor = 2`, `dtype = float32`) corresponds to the **1/4-area float32** strategy in §3.2. `max_resident_maps` bounds how many full-resolution maps may be held in RAM simultaneously during phase 9.a; it must not scale with frame count.
+The storage default (`resolution_divisor = 2`, `dtype = float32`) corresponds to the **1/4-area float32** strategy in §3.2. `max_resident_maps` bounds how many full-resolution maps may be held in RAM simultaneously during AQMH reconstruction; it must not scale with frame count.
 
-### 7.4 Reconstruction Configuration
-
-```yaml
-aqmh:
-  reconstruction:
-    mode: dense_map         # dense_map | tile | hybrid (default: dense_map)
-    fallback_to_tile: true  # fall back to tile weights when map unavailable (default: true)
-```
-
-### 7.5 Cherry-Pick Mode
+### 7.4 Cherry-Pick Mode
 
 ```yaml
 aqmh:
@@ -468,7 +480,7 @@ aqmh:
     k_frac: 0.30
 ```
 
-### 7.6 Diagnostics Configuration
+### 7.5 Diagnostics Configuration
 
 ```yaml
 aqmh:
@@ -507,16 +519,16 @@ All `eps_aqmh` constants default to `1e-6` unless otherwise specified.
 
 ## 9. Validation Requirements
 
-When AQMH is enabled, all mandatory v3.3.9 validation tests (§7.3) remain binding. Additionally:
+When AQMH is enabled, the following validation requirements apply:
 
 1. **Map range:** `Q_map_{f,c}(p) ∈ [0, 1]` for all finite canvas-valid pixels.
 2. **Canvas guard:** `Q_map_{f,c}(p) = 0` for all canvas-invalid pixels.
 3. **Determinism:** Identical registered frames and canvas masks produce identical quality maps.
-4. **Fallback coverage:** Every pixel with `V_{t,c}^{I}(p) = ∅` returns zero/unsupported; every pixel with no finite map samples but finite intensity samples returns the weight-fallback unweighted mean; no NaN/Inf in output.
-5. **Explicit zero-veto:** If finite maps exist at a pixel and all available dense-map weights are zero, the output remains unsupported/zero and must not be replaced by an unweighted mean.
-6. **Tile compatibility:** `Q_{f,t,c}^{aqmh}` matches `median(Q_map)` within floating-point tolerance.
-7. **No structural injection:** Seam scores and FWHM must not worsen vs. the v3.3.9 tile-weight baseline on the same dataset.
-8. **Artifact detection:** Known satellite-contaminated frames show elevated `artifact_frac > 0.01` for at least the contaminated tiles.
+4. **Unsupported coverage:** Every pixel with `V_c^{I}(p) = empty` returns zero/unsupported; every pixel with finite intensity samples but no finite AQMH map samples returns zero/unsupported with an AQMH warning; no NaN/Inf in output.
+5. **Explicit zero-veto:** If finite maps exist at a pixel and all available AQMH weights are zero, the output remains unsupported/zero and must not be replaced by an unweighted mean.
+6. **Block diagnostic consistency:** `Q_{f,b,c}^{aqmh}` matches `median(Q_map over b)` within floating-point tolerance.
+7. **No structural injection:** Seam scores, FWHM, and background RMS must not regress against an AQMH-disabled control run beyond the documented validation tolerance on the same dataset.
+8. **Artifact detection:** Known satellite-contaminated frames show elevated `artifact_frac > 0.01` for at least the contaminated report blocks.
 9. **Scale omission:** For an input where `P_actual < P` (for example `min(W,H) < 64` with defaults), fusion uses `P_actual` as the geometric-mean denominator, omitted scales are recorded in diagnostics, and unavailable diagnostic scales are written as `NaN`/`null`.
 10. **Cherry-pick flag:** When `cherry_pick.enabled = true`, the output artifact `aqmh_metrics.json` must contain `cherry_pick_active: true` and the pipeline log must emit a `WARNING` level message.
 
@@ -524,14 +536,14 @@ When AQMH is enabled, all mandatory v3.3.9 validation tests (§7.3) remain bindi
 
 ## 10. Scope Boundary
 
-### Mandatory Core (Unchanged)
+### Shared Infrastructure
 
-- Registration, normalization, global metrics, tile geometry, tile reconstruction OLA semantics, clustering, final stack
+- Input scan, calibration, registration/prewarping, global normalization, common-overlap mask, run management, logging, reports
 
-### AQMH Extension (Optional)
+### AQMH Method
 
-- Dense quality map computation (phase 8.a)
-- Pixel-wise weighted reconstruction (phase 9.a, when `mode = dense_map` or `mode = hybrid`; diagnostics-only AQMH map generation when `mode = tile`)
+- Dense quality map computation
+- Pixel-wise weighted AQMH reconstruction
 - Adaptive region extraction (§5)
 - Cherry-pick stacking (§5.3, explicit opt-in only)
 - AQMH diagnostic artifacts
@@ -540,4 +552,4 @@ When AQMH is enabled, all mandatory v3.3.9 validation tests (§7.3) remain bindi
 
 ## 11. Core Statement
 
-AQMH preserves deterministic weighted-mean reconstruction, canvas exclusion, and the non-hallucination invariants of the v3.3.9 mandatory core. It extends the expressiveness of the local weight model from a per-tile scalar field to a continuous per-pixel quality field. Every pixel that enters the reconstruction accumulator does so with a deterministic non-negative weight that reflects both global atmospheric conditions and local spatial quality — without artificial tile boundaries and without discarding usable data due to intra-tile heterogeneity.
+AQMH is an independent deterministic weighted-mean reconstruction method. It uses a continuous per-pixel quality field rather than block-constant local weights. Every pixel that enters the reconstruction accumulator does so with a deterministic non-negative AQMH weight that reflects both global atmospheric conditions and local spatial quality, without artificial block boundaries and without relying on Classic Tile Compile weights or fallback behavior.

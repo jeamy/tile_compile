@@ -3,7 +3,7 @@
 **Version:** v0.1.0 (2026-06-05)  
 **Target codebase:** `tile_compile_cpp` (C++20, OpenCV 4.11, Eigen 3.x)  
 **Methodology reference:** `docs/AQMH/aqmh_methodik_en.md`  
-**Prerequisite:** Familiarity with the v3.3.9 pipeline in `tile_compile_cpp/apps/runner_pipeline.cpp`
+**Prerequisite:** Familiarity with the runner infrastructure in `tile_compile_cpp/apps/runner_pipeline.cpp`
 
 ---
 
@@ -15,26 +15,36 @@ The implementation is organized into **7 milestones**, each independently testab
 Milestone 1  Configuration types and YAML parsing
 Milestone 2  Dense quality map computation (core algorithm)
 Milestone 3  Quality map disk cache
-Milestone 4  Phase 8.a integration (LOCAL_METRICS extension)
-Milestone 5  Pixel-wise reconstruction (Phase 9.a)
+Milestone 4  AQMH map-computation integration
+Milestone 5  AQMH pixel-wise reconstruction
 Milestone 6  Diagnostics and report integration
 Milestone 7  Validation, tests, and documentation
 ```
 
 ### Non-Negotiable Resource Constraint
 
-AQMH must be implemented as a **streaming, cache-backed extension**. The pipeline must never keep all prewarped frames or all full-resolution quality maps resident in RAM. For large datasets, AQMH quality maps are potentially as large as the input frames themselves, so the implementation must treat them as disk-backed working data.
+AQMH must be implemented as a **streaming, cache-backed method**. The pipeline must never keep all prewarped frames or all full-resolution quality maps resident in RAM. For large datasets, AQMH quality maps are potentially as large as the input frames themselves, so the implementation must treat them as disk-backed working data.
 
 Binding implementation rules:
 
-1. Compute at most one frame's AQMH map per worker at a time.
-2. Persist the map immediately to `QualityMapCache`.
-3. Release the full-resolution working map before the worker advances to the next frame.
-4. During reconstruction, load only the map subset needed for the current reconstruction batch/tile worker, or use a bounded LRU cache.
-5. The number of resident maps must be bounded by configuration-derived memory budget, not by frame count.
-6. Cache misses must fall back deterministically according to `aqmh.reconstruction.fallback_to_tile`; they must not trigger whole-run recomputation unless explicitly requested.
+1. Every phase that touches large per-frame data must use a disk-backed provider/cache. No AQMH phase may require all frames or all maps in RAM.
+2. Compute at most one frame's AQMH map per worker at a time.
+3. Persist the map immediately to `QualityMapCache`.
+4. Release the full-resolution working map before the worker advances to the next frame.
+5. During reconstruction, load only the frame/map subset needed for the current reconstruction chunk/batch through bounded read caches.
+6. The number of resident frames and resident maps must be bounded by configuration-derived memory budget, not by frame count.
+7. Cache misses must be handled deterministically inside AQMH: affected samples receive zero AQMH weight, affected pixels become unsupported if no finite AQMH map sample remains, and the run emits a cache/map-availability warning. Cache misses must not trigger whole-run recomputation unless explicitly requested.
 
 For a 24 Mpx image, one float32 quality map is about 96 MB at full resolution, about 24 MB at the default 1/4-area storage resolution, and about 6 MB if stored as uint8 at 1/4-area resolution. With 300 frames, full-resolution float32 maps would be about 29 GB for one channel and about 86 GB for three channels. Therefore, full in-memory map retention is forbidden.
+
+Per-stage caching requirements:
+
+| Stage | Required cache behavior |
+|---|---|
+| Input/preprocessing | use existing frame stores; AQMH must not introduce a full-frame preload |
+| AQMH map computation | read one source frame per worker, write `Q_map` immediately, release temporaries |
+| AQMH reconstruction | stream source frames and maps via bounded providers; no eager full-run preload |
+| Diagnostics/report | consume summary artifacts; raw map files remain grouped cache artifacts |
 
 ---
 
@@ -69,11 +79,6 @@ struct AqmhStorageConfig {
     int         max_resident_maps  = 2;   // bounded read cache; 0 disables
 };
 
-struct AqmhReconstructionConfig {
-    std::string mode              = "dense_map"; // dense_map | tile | hybrid
-    bool        fallback_to_tile  = true;
-};
-
 struct AqmhDiagnosticsConfig {
     float tau_artifact       = 0.20f;
     float q_region           = 0.75f;
@@ -90,13 +95,20 @@ struct AqmhConfig {
     bool                    enabled      = false;
     AqmhPyramidConfig       pyramid;
     AqmhStorageConfig       storage;
-    AqmhReconstructionConfig reconstruction;
     AqmhCherryPickConfig    cherry_pick;
     AqmhDiagnosticsConfig   diagnostics;
 };
 ```
 
 Add `AqmhConfig aqmh;` as a member of `struct Config`.
+
+The first implementation may keep `aqmh.enabled` as the config switch, but run status and artifacts must expose a derived method field:
+
+```cpp
+method = cfg.aqmh.enabled ? "aqmh" : "classic_tile_compile";
+```
+
+If a future top-level `method` config key is added, it must remain consistent with `aqmh.enabled`.
 
 ---
 
@@ -129,7 +141,6 @@ In the config validator, add:
 - `aqmh.cherry_pick.k_min >= 1`.
 - `aqmh.cherry_pick.k_frac` must be in `(0, 1]`.
 - `aqmh.cherry_pick.enabled = true` must emit a runtime `WARNING` log entry when the pipeline starts AQMH work.
-- `aqmh.reconstruction.mode` must be one of `{"dense_map", "tile", "hybrid"}`.
 - `aqmh.diagnostics.tau_artifact` must be in `[0, 1]`.
 - `aqmh.diagnostics.q_region` must be in `[0, 1]`.
 - `aqmh.diagnostics.r_morph_canvas_px` must be `>= 1`.
@@ -228,10 +239,12 @@ static cv::Mat mask_aware_downsample(const cv::Mat& src,
 
 Downscale by integer factor `D` using `cv::resize` with `INTER_AREA`. For the mask-aware denominator: compute the mean only over finite pixels in each `D×D` block. If all pixels in a block are NaN, the output pixel is NaN.
 
-Implementation note: the simplest correct approach is to:
-1. Replace NaN with 0, compute `cv::resize(src_zeroed, ..., INTER_AREA)`.
+Implementation note: the simplest correct approach is numerator/denominator filtering:
+1. Build a numerator image `src_num` where invalid/NaN pixels are temporarily set to `0` only for the numerator sum, then compute `cv::resize(src_num, ..., INTER_AREA)`.
 2. Build a `valid_mask_f` image with `1.0f` for finite pixels and `0.0f` otherwise, then compute `cv::resize(valid_mask_f, ..., INTER_AREA)` to get the valid fraction per downsampled pixel.
-3. Divide the area-averaged zero-filled image by `max(valid_fraction, eps_aqmh)`; set pixels where `valid_fraction <= 0` to NaN.
+3. Divide the area-averaged numerator by `max(valid_fraction, eps_aqmh)`; set pixels where `valid_fraction <= 0` to NaN.
+
+The temporary numerator zero is not a data sample. It is valid only because the denominator correction removes invalid pixels from the mean.
 
 #### Sub-step 2.2.3 — Local Laplacian sharpness signal `Phi_sharp`
 
@@ -239,10 +252,12 @@ Implementation note: the simplest correct approach is to:
 static cv::Mat compute_phi_sharp(const cv::Mat& img_s, int R);
 ```
 
-1. Compute `lap = cv::Laplacian(img_s, CV_32F, 3)`.
+1. Compute `lap = masked_laplacian(img_s)`.
 2. Compute local variance of `lap` in a `(2R+1)×(2R+1)` window using masked sums, not raw `cv::boxFilter` over NaNs:
    `local_var = E[x^2] - E[x]^2`.
 3. Clamp to `[0, +inf)` and return as `Phi_sharp_s`.
+
+Do not call `cv::Laplacian` directly on an image containing NaNs or canvas-filled zeros. OpenCV boundary handling and NaN propagation are not the AQMH support model. `masked_laplacian` must ignore invalid neighbors and return NaN when the center pixel is invalid or the finite stencil support is insufficient.
 
 No global `sigma_lap` rescaling is applied (methodology §2.3.2(a)): the subsequent robust z-score in `robust_zscore_map` (Sub-step 2.2.6) is invariant to global scaling, so such a step would not change the result.
 
@@ -283,12 +298,18 @@ Implement these helpers before the three signal functions:
 
 ```cpp
 static cv::Mat finite_mask_f32(const cv::Mat& src);
+static cv::Mat finite_mask_u8(const cv::Mat& src);
+static cv::Mat masked_laplacian(const cv::Mat& src);
 static cv::Mat masked_box_sum(const cv::Mat& src, const cv::Mat& valid, int R);
 static cv::Mat masked_box_mean(const cv::Mat& src, const cv::Mat& valid, int R);
 static cv::Mat masked_local_median(const cv::Mat& src,
                                    const cv::Mat& valid,
                                    int R);
 static float finite_median(const cv::Mat& src);
+static cv::Mat mask_aware_upsample(const cv::Mat& src,
+                                   const cv::Mat& valid,
+                                   int out_w,
+                                   int out_h);
 static cv::Mat local_mad_approx_or_exact(const cv::Mat& src,
                                          const cv::Mat& center,
                                          const cv::Mat& valid,
@@ -296,6 +317,10 @@ static cv::Mat local_mad_approx_or_exact(const cv::Mat& src,
 ```
 
 All local-map helpers must preserve NaN for pixels where the valid-count denominator is zero. For fewer than three valid pixels, robust scale returns `eps_aqmh` and variance returns zero. `finite_median` is a scalar helper over all finite pixels in a matrix; return NaN when no finite pixels are available. `robust_zscore_map` should reuse the same finite-pixel collection logic.
+
+Canvas-invalid pixels must never be represented as numeric zero inside these helpers. Numeric zero is a valid sample value; invalid support is represented only by the finite/valid mask and NaN payloads.
+
+`mask_aware_upsample` must upsample `src * valid` and `valid` separately with `cv::INTER_LINEAR`, then divide numerator by support where support is positive. Output pixels with zero interpolated support are NaN. Do not call `cv::resize(src, ...)` directly on `Psi_s`, because invalid scale samples would otherwise be treated as zeros or propagate NaNs into valid neighbors.
 
 Use one deterministic order-statistics convention everywhere: sort finite values ascending; median is the center value for odd counts and the arithmetic mean of the two center values for even counts; MAD uses that same median convention; quantiles use linear interpolation at `q * (n - 1)`, clamped to the sample range.
 
@@ -321,7 +346,9 @@ static cv::Mat compute_psi_s(const cv::Mat& phi_sharp,
 3. `combined = w_sharp * z_sharp + w_snr * z_snr`.
 4. `sigmoid_val = 1.0f / (1.0f + exp(-combined))` (element-wise via `cv::exp`).
 5. `psi_s = sigmoid_val * phi_artifact`.
-6. Clamp to `[0, 1]`. Set NaN pixels to 0.
+6. Clamp finite values to `[0, 1]`. Preserve NaN pixels as invalid support; do not convert them to zero here.
+
+Only a finite numeric zero is an explicit AQMH veto. NaN means unavailable support and is handled by mask-aware upsampling/fusion.
 
 #### Sub-step 2.2.8 — Multi-scale loop and geometric mean fusion
 
@@ -358,8 +385,8 @@ for (int s = 0; s < cfg.scales; ++s) {
     cv::Mat psi_s = compute_psi_s(phi_sharp, phi_snr, phi_artifact,
                                    cfg.w_sharp, cfg.w_snr);
 
-    cv::Mat psi_up;
-    cv::resize(psi_s, psi_up, {W, H}, 0, 0, cv::INTER_LINEAR);
+    cv::Mat psi_valid = finite_mask_f32(psi_s);
+    cv::Mat psi_up = mask_aware_upsample(psi_s, psi_valid, W, H);
     psi_upscaled.push_back(psi_up);
 }
 
@@ -379,11 +406,13 @@ if (psi_upscaled.empty()) {
 cv::Mat log_sum = cv::Mat::zeros(H, W, CV_32F);
 cv::Mat zero_veto = cv::Mat::zeros(H, W, CV_8U);
 for (const auto& p : psi_upscaled) {
+    cv::Mat finite = finite_mask_u8(p);
     // OpenCV comparisons return a CV_8U mask with 255 for true pixels.
     // Bitwise OR and setTo(mask) intentionally use nonzero-as-true semantics.
-    zero_veto |= (p <= 0.0f);
+    zero_veto |= (~finite) | (p <= 0.0f);
     cv::Mat log_p;
     cv::log(cv::max(p, eps_aqmh), log_p);
+    log_p.setTo(0.0f, ~finite); // invalid samples are vetoed via zero_veto, not accumulated as NaN
     log_sum += log_p;
 }
 log_sum /= static_cast<float>(psi_upscaled.size());
@@ -420,10 +449,13 @@ Write the following tests (using the existing test framework — check `tile_com
 2. **Injected hot pixel:** Frame with one bright outlier → pixels in the outlier's `R_s`-neighborhood at scale 0 should have `Q_map < Q_map` of the clean region at that scale.
 3. **Canvas mask:** All-invalid canvas mask → entire `Q_map = 0`.
 4. **Half-canvas mask:** Left half invalid → left half of `Q_map = 0`, right half `> 0`.
-5. **Satellite stripe:** Frame with a bright horizontal stripe → `Q_map` reduced in stripe region (`artifact_frac` elevated).
-6. **Determinism:** Two calls with identical inputs return bit-identical results.
-7. **Zero-veto:** A scale map with exact zero produces exact zero in the fused map.
-8. **Tiny valid window:** Fewer than three valid pixels never produce NaN/Inf.
+5. **Canvas non-infiltration:** Left half canvas-invalid contains extreme values (`1e9`), right half is constant valid data. The right-half `Q_map` must match the same run with the invalid half replaced by any other values, within float tolerance.
+6. **Masked Laplacian boundary:** A valid region adjacent to canvas-invalid pixels must not show artificial sharpness solely because the invalid side contains NaN/zero/extreme values.
+7. **Mask-aware upsample:** Invalid coarse-scale samples must not depress neighboring valid full-resolution `Psi_s^{up}` values; only zero finite samples may veto.
+8. **Satellite stripe:** Frame with a bright horizontal stripe → `Q_map` reduced in stripe region (`artifact_frac` elevated).
+9. **Determinism:** Two calls with identical inputs return bit-identical results.
+10. **Zero-veto:** A scale map with exact finite zero produces exact zero in the fused map.
+11. **Tiny valid window:** Fewer than three valid pixels never produce NaN/Inf.
 
 ---
 
@@ -505,7 +537,7 @@ private:
 - `uint8` support: quantize `[0,1]` → `[0,255]` on write, dequantize on read.
 - `float16` support: reject at validation until IEEE half conversion is implemented and tested. Do not silently write float32 when `dtype=float16`.
 - Handle all file errors with a `false` return (never throw).
-- Include a tiny sidecar metadata file (`aqmh_cache.json`) containing full size, stored size, dtype, resolution divisor, map stream id (`luma` for the first OSC/proxy implementation or channel id for per-channel maps), AQMH map format version, hash of the AQMH pyramid/storage config, and hash of the common-overlap mask. Do not include reconstruction-only settings (`mode`, `fallback_to_tile`, cherry-pick) in the map-cache hash. `read` must reject entries whose map-affecting metadata do not match the current run.
+- Include a tiny sidecar metadata file (`aqmh_cache.json`) containing full size, stored size, dtype, resolution divisor, map stream id (`luma` for the first OSC/proxy implementation or channel id for per-channel maps), AQMH map format version, hash of the AQMH pyramid/storage config, and hash of the common-overlap mask. Do not include reconstruction-only settings or cherry-pick settings in the map-cache hash. `read` must reject entries whose map-affecting metadata do not match the current run.
 
 ---
 
@@ -517,21 +549,21 @@ private:
 2. **Missing file:** `read(999)` on empty cache returns empty `Matrix2Df`.
 3. **Resolution round-trip:** Write at `resolution_divisor=2`, check that read-back map is `full_w × full_h`.
 4. **Metadata mismatch:** Changing full dimensions, dtype, or divisor causes `read` to return an empty matrix rather than silently using stale data.
-5. **Config/mask mismatch:** Changing pyramid config, storage config, map format version, or common-overlap mask invalidates old cache entries. Changing reconstruction-only settings does not.
+5. **Config/mask mismatch:** Changing pyramid config, storage config, map format version, or common-overlap mask invalidates old cache entries. Changing reconstruction-only or diagnostics-only settings does not.
 6. **LRU bound:** Reading many maps through `read_cached` never leaves more than `max_resident_maps` maps resident.
 
 ---
 
-## Milestone 4 — Phase 8.a Integration
+## Milestone 4 — AQMH Map-Stage Integration
 
-**Goal:** `run_phase_local_metrics` computes and stores `Q_map` for each frame when `aqmh.enabled = true`.  
+**Goal:** the runner computes and stores `Q_map` for each frame when `aqmh.enabled = true`. The first implementation may host this in `run_phase_local_metrics` for infrastructure reuse, but AQMH map computation remains a separate method stage.
 **Files modified:** `runner_phase_local_metrics.cpp`, `runner_phase_local_metrics.hpp`  
 **Files created:** 0  
 **Breakage risk:** Low — all new code is gated behind `cfg.aqmh.enabled`
 
 ---
 
-### Step 4.1 — Extend `run_phase_local_metrics` signature
+### Step 4.1 — Expose the AQMH quality-map cache to downstream stages
 
 **File:** `tile_compile_cpp/apps/runner_phase_local_metrics.hpp`
 
@@ -550,11 +582,11 @@ Add `#include <memory>` to `runner_phase_local_metrics.hpp` if it is not already
 
 ---
 
-### Step 4.2 — Add AQMH computation block inside the worker lambda
+### Step 4.2 — Add AQMH map computation block
 
 **File:** `tile_compile_cpp/apps/runner_phase_local_metrics.cpp`
 
-Inside `local_metrics_worker`, after loading the prewarped frame for `fi` and before or after the existing tile-metrics loop:
+Inside the AQMH map computation block, after loading the prewarped frame for `fi`:
 
 ```cpp
 if (cfg.aqmh.enabled && frame_has_data[fi] && aqmh_cache) {
@@ -584,7 +616,7 @@ Thread-safety note: `QualityMapCache::write` must be thread-safe. One file per f
 
 Channel note: for MONO this computes one map per frame. For OSC, the first implementation should compute one luminance/proxy map per frame and reuse it for RGB reconstruction after debayer/channel split; per-channel maps can be added later.
 
-Also update stale comments in this file that still label `LOCAL_METRICS` as Phase 5; the current pipeline phase number is 8.
+Also update stale comments in this file so they describe AQMH map computation as its own method stage.
 
 ---
 
@@ -623,16 +655,16 @@ Add a mini-run integration test (using existing test infrastructure):
 
 ---
 
-## Milestone 5 — Pixel-Wise Reconstruction (Phase 9.a)
+## Milestone 5 — AQMH Pixel-Wise Reconstruction
 
-**Goal:** When `aqmh.enabled = true` and `aqmh.reconstruction.mode = "dense_map"`, the tile reconstruction uses per-pixel weights from `Q_map` instead of the constant `L_{f,t,c}`.  
-**Files modified:** `reconstruction.cpp` (or a new overload), `runner_pipeline.cpp`  
-**Files created:** Optionally a new `.cpp` for the dense-weight variant  
-**Breakage risk:** Medium — modifies reconstruction path, but only when `mode = "dense_map"`
+**Goal:** When `aqmh.enabled = true`, reconstruction uses AQMH per-pixel weights from `Q_map`. It must not use Classic Tile Compile local/tile weights as a mode, lower bound, or fallback.
+**Files modified:** `runner_pipeline.cpp`, reconstruction headers as needed
+**Files created:** `src/reconstruction/reconstruction_aqmh.cpp`
+**Breakage risk:** Medium — adds an independent AQMH reconstruction path gated by `aqmh.enabled`
 
 ---
 
-### Step 5.1 — New function signature for dense-weight reconstruction
+### Step 5.1 — New function signature for AQMH reconstruction
 
 **File:** `tile_compile_cpp/include/tile_compile/reconstruction/reconstruction.hpp`
 
@@ -642,57 +674,61 @@ Add:
 namespace tile_compile::metrics {
 class QualityMapCache;
 }
+namespace tile_compile::io {
+class FrameProvider;
+}
 
-/// Pixel-wise weighted reconstruction using per-frame dense quality maps.
+/// Pixel-wise AQMH reconstruction using per-frame dense quality maps.
+/// frame_provider provides prewarped/normalized source frames on demand.
 /// q_map_cache provides full-canvas AQMH maps on demand.
-/// A missing or invalid cache entry signals fallback to tile_weights[f][t].
-ReconstructTilesResult reconstruct_tiles_dense_weights(
-    const std::vector<Matrix2Df>&          frames,
-    const TileGrid&                        grid,
-    const std::vector<std::vector<float>>& tile_weights,   // fallback
+/// Missing or invalid map samples receive zero AQMH weight.
+ReconstructTilesResult reconstruct_aqmh_weighted(
+    io::FrameProvider&                     frame_provider,
     metrics::QualityMapCache*              q_map_cache,    // nullable AQMH maps
     const std::vector<float>&              global_weights, // G_{f,c}
-    const std::vector<bool>&               dead_tile_mask,
-    const ReconstructionConfig&            cfg,
-    const config::AqmhReconstructionConfig& aqmh_cfg);
+    const CanvasMask&                      common_valid_mask,
+    const ReconstructionConfig&            cfg);
 ```
+
+`FrameProvider` may be an adapter around the existing prewarped frame store. It must expose bounded, cache-backed frame access and must not materialize all frames in memory.
 
 ---
 
-### Step 5.2 — Implement `reconstruct_tiles_dense_weights`
+### Step 5.2 — Implement `reconstruct_aqmh_weighted`
 
 **File:** `tile_compile_cpp/src/reconstruction/reconstruction_aqmh.cpp` (new file)
 
-Per-tile loop (mirrors existing `reconstruct_tiles_parallel`):
+Use tiles or strips only as work-partitioning chunks. The AQMH weight model itself is pixel-wise and must not consume Classic tile weights.
 
 ```
-For each tile t (parallel):
-  For each pixel (x,y) in tile t:
+For each reconstruction chunk (parallel):
+  For each pixel (x,y) in the chunk:
+    if !common_valid_mask(x,y): R(x,y) = 0; continue
     V = { f | I_f(x,y) is finite AND canvas-valid }
     if V is empty: R(x,y) = 0; continue
 
     bool any_finite_map_sample = false
     For each f in V:
-      q_map = q_map_for_frame_f_loaded_for_this_tile_or_batch
+      q_map = q_map_for_frame_f_loaded_for_this_chunk_or_batch
       if q_map is full-size AND q_map(x,y) is finite:
         any_finite_map_sample = true
         w_f(x,y) = global_weights[f] * q_map(x,y)  // q_map may be 0: explicit veto
-      else if aqmh_cfg.fallback_to_tile:
-        w_f(x,y) = global_weights[f] * tile_weights[f][t]
       else:
         w_f(x,y) = 0
 
     if sum(w_f) <= eps_weight:
       if any_finite_map_sample:
-        R(x,y) = 0  // explicit dense-map zero-veto; do not unweighted-fallback
+        R(x,y) = 0  // explicit AQMH zero-veto; do not unweighted-fallback
         continue
       else:
-        w_f = 1 for all f in V  // missing-map fallback
+        R(x,y) = 0  // no AQMH map support; do not fall back to Classic weights
+        mark pixel/run diagnostic as unsupported due to missing AQMH maps
+        continue
 
     R(x,y) = weighted_sigma_clip_pixel(I_f(x,y), w_f, V, sigma_clip_cfg)
 ```
 
-`weighted_sigma_clip_pixel` reuses the existing `sigma_clip_weighted_tile` logic but operates on a single pixel rather than a full tile matrix. Extract a helper from `reconstruction.cpp`:
+`weighted_sigma_clip_pixel` may reuse deterministic sigma-clipping helper logic from existing reconstruction code, but it must be parameterized as pixel-wise AQMH code and must not depend on Classic tile weights. Extract a helper if useful:
 
 ```cpp
 static float sigma_clip_pixel(
@@ -701,62 +737,44 @@ static float sigma_clip_pixel(
     const SigmaClipConfig& cfg);
 ```
 
-The helper must preserve the existing `min_fraction`, `N_eff` / `D_eff`, and `eps_weight` semantics from `sigma_clip_weighted_tile_with_fallback` after the explicit dense-map zero-veto has been handled. Do not introduce a separate clipping policy for AQMH.
+The helper must preserve deterministic `min_fraction`, `N_eff` / `D_eff`, and `eps_weight` semantics after explicit AQMH zero-veto has been handled. Do not introduce a separate clipping policy for AQMH unless the methodology is updated.
 
-Performance note: do not call `read_cached(fi)` inside the innermost pixel loop. At the start of a tile or reconstruction batch, resolve the needed frame maps once into lightweight local references/pointers, subject to the bounded LRU cache. The pixel loop may then perform direct map lookups.
+Performance note: do not call frame or map cache reads inside the innermost pixel loop. At the start of a chunk or reconstruction batch, resolve the needed source-frame and quality-map references through bounded caches. The pixel loop may then perform direct lookups into those resident chunk-local references.
 
 ---
 
-### Step 5.3 — Provide Q-maps to reconstruction without unbounded preload
+### Step 5.3 — Provide frames and Q-maps without unbounded preload
 
 **File:** `tile_compile_cpp/apps/runner_pipeline.cpp`
 
-Before the `TILE_RECONSTRUCTION` phase, do **not** eagerly load all maps for large runs. Use one of these two bounded strategies:
+Before AQMH reconstruction, do **not** eagerly load all frames or all maps. The required path is a bounded provider/cache path:
 
-1. Small-run path: if `N_frames * full_map_bytes <= aqmh_memory_budget`, optionally raise `max_resident_maps` for this run or warm the bounded cache.
-2. Large-run path: pass `QualityMapCache*` into `reconstruct_tiles_dense_weights` and let reconstruction call `read_cached(fi)`.
+1. Pass a cache-backed frame provider for prewarped/normalized source frames.
+2. Pass `QualityMapCache*` for AQMH maps.
+3. Let reconstruction request the frame/map subset needed for the current chunk or batch.
+4. Enforce resident frame and resident map limits independently.
 
-The large-run path is the required default unless a memory-budget check proves the eager path is safe.
-
-Small-run pseudocode for optional cache warming:
-
-```cpp
-if (cfg.aqmh.enabled && aqmh_cache) {
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-        if (frame_has_data[fi]) {
-            aqmh_cache->read_cached(fi);  // bounded by max_resident_maps
-        }
-    }
-}
-```
-
-Large-run pseudocode:
+Required pseudocode:
 
 ```cpp
-recon_result = reconstruction::reconstruct_tiles_dense_weights(
-    channel_frames, grid, tile_weights, aqmh_cache.get(),
-    global_weights, dead_tile_mask, recon_cfg, cfg.aqmh.reconstruction);
+recon_result = reconstruction::reconstruct_aqmh_weighted(
+    prewarped_frame_provider, aqmh_cache.get(), global_weights,
+    common_valid_mask, recon_cfg);
 ```
 
 ---
 
-### Step 5.4 — Branch on `aqmh.reconstruction.mode` in reconstruction call
+### Step 5.4 — Select the independent AQMH reconstruction path
 
 ```cpp
 ReconstructTilesResult recon_result;
-if (cfg.aqmh.enabled &&
-    cfg.aqmh.reconstruction.mode == "tile") {
-    // AQMH maps/diagnostics may have been computed in LOCAL_METRICS,
-    // but reconstruction intentionally stays v3.3.9-equivalent.
-    recon_result = reconstruction::reconstruct_tiles_parallel(
-        channel_frames, grid, tile_weights, dead_tile_mask, recon_cfg);
-} else if (cfg.aqmh.enabled &&
-           (cfg.aqmh.reconstruction.mode == "dense_map" ||
-            cfg.aqmh.reconstruction.mode == "hybrid") &&
-           aqmh_cache) {
-    recon_result = reconstruction::reconstruct_tiles_dense_weights(
-        channel_frames, grid, tile_weights, aqmh_cache.get(),
-        global_weights, dead_tile_mask, recon_cfg, cfg.aqmh.reconstruction);
+if (cfg.aqmh.enabled) {
+    if (!aqmh_cache) {
+        throw std::runtime_error("AQMH enabled but AQMH quality-map cache is unavailable");
+    }
+    recon_result = reconstruction::reconstruct_aqmh_weighted(
+        prewarped_frame_provider, aqmh_cache.get(), global_weights,
+        common_valid_mask, recon_cfg);
 } else {
     recon_result = reconstruction::reconstruct_tiles_parallel(
         channel_frames, grid, tile_weights, dead_tile_mask, recon_cfg);
@@ -765,64 +783,37 @@ if (cfg.aqmh.enabled &&
 
 ---
 
-### Step 5.5 — Hybrid mode
+### Step 5.5 — Reconstruction integration tests
 
-When `mode = "hybrid"`, the tile weight acts as a **lower bound** on the dense weight (methodology §4.5). Where a finite map sample exists:
-
-`w_f(x,y) = G_f * max(Q_map_f(x,y), L_{f,t})`
-
-Where the map sample is missing/non-finite, the §4.4 unavailability fallback applies:
-
-`w_f(x,y) = G_f * L_{f,t}`   (if `fallback_to_tile = true`)
-
-This is intentionally **distinct** from `dense_map` with `fallback_to_tile = true`: in `dense_map`, a finite map sample fully replaces `L_{f,t}` and may suppress the pixel toward zero; in `hybrid`, the `max` guarantees the weight never drops below the tile baseline `G_f * L_{f,t}`. `hybrid` is conservative/diagnostic and must not be treated as an artifact-veto mode. Implement the per-pixel weight selection inside `reconstruct_tiles_dense_weights`, branching on `aqmh_cfg.mode`:
-
-```cpp
-float w_dense = global_weights[f] * q_val;          // q_val = map sample
-float w_tile  = global_weights[f] * tile_weights[f][t];
-float w_f;
-if (aqmh_cfg.mode == "hybrid")
-    w_f = std::max(w_dense, w_tile);
-else // dense_map
-    w_f = w_dense;
-```
-
-Do not introduce an implicit `alpha_hybrid` blend; that behavior is not part of the methodology and would add an undocumented tuning parameter.
-
----
-
-### Step 5.6 — Reconstruction integration tests
-
-1. **Equivalence test (mode=tile):** With `mode = "tile"`, AQMH reconstruction output must be numerically identical to the existing `reconstruct_tiles_parallel` output on the same data.
-2. **Synthetic artifact test:** Frame 0 has a bright stripe; `Q_map[0]` has zeros in stripe region. AQMH result must show reduced stripe contribution vs. equal-weight stack.
-3. **Fallback test:** All cache reads miss or return invalid maps; reconstruction must fall back to tile weights and produce same result as `mode = "tile"`.
-4. **Canvas guard:** Canvas-invalid pixel in every frame → output `R(x,y) = 0`.
-5. **Dense-map zero-veto:** If finite maps exist at a pixel and all dense weights are zero, the output stays unsupported/zero and must not fall through to the unweighted fallback.
-6. **Hybrid lower-bound:** With `mode = "hybrid"`, a low map sample (`Q_map < L_{f,t}`) must yield `w_f = G_f * L_{f,t}` (tile baseline), and a high map sample (`Q_map > L_{f,t}`) must yield `w_f = G_f * Q_map`. The per-frame weight must never drop below the tile baseline where a finite map sample exists.
-7. **Memory bound:** Reconstruction with hundreds of frames must stay below the configured resident-map limit.
+1. **Synthetic artifact test:** Frame 0 has a bright stripe; `Q_map[0]` has zeros in stripe region. AQMH result must show reduced stripe contribution vs. equal-weight stack.
+2. **Missing-map support test:** All cache reads miss or return invalid maps; AQMH output pixels become unsupported/zero and the run emits an AQMH warning. The implementation must not fall back to Classic tile weights.
+3. **Canvas guard:** Canvas-invalid pixel in every frame -> output `R(x,y) = 0`.
+4. **AQMH zero-veto:** If finite maps exist at a pixel and all AQMH weights are zero, the output stays unsupported/zero and must not fall through to an unweighted fallback.
+5. **Finite-map weighting:** With finite map samples, per-frame weights equal `G_f * Q_map_f(x,y)` exactly within float tolerance.
+6. **Memory bound:** Reconstruction with hundreds of frames must stay below the configured resident-map limit.
 
 ---
 
 ## Performance Expectations
 
-The classic v3.3.9 path computes local metrics once per frame/tile and then reconstructs each tile with scalar per-frame/tile weights. AQMH adds dense per-frame map computation plus per-pixel weight lookup during reconstruction.
+AQMH computes dense per-frame maps plus per-pixel weight lookup during reconstruction. Classic Tile Compile can be run separately as a performance and quality baseline, but it is not an AQMH mode or fallback.
 
-Expected cost relative to classic tile reconstruction:
+Expected cost relative to a separate Classic Tile Compile baseline:
 
-| Stage | Classic tile path | AQMH path | Expected difference |
+| Stage | Classic baseline | AQMH path | Expected difference |
 |---|---:|---:|---|
-| Local quality analysis | Per frame × tile | Per frame × pyramid scale × local windows | AQMH usually `2x-6x` slower for the local-metrics phase |
-| Reconstruction weighting | One scalar weight per frame/tile | One map lookup and branch per frame/pixel | AQMH reconstruction usually `1.2x-2.5x` slower |
+| Local quality analysis | Per frame × report block/tile | Per frame × pyramid scale × local windows | AQMH usually `2x-6x` slower for the quality-analysis stage |
+| Reconstruction weighting | One scalar weight per frame/block | One map lookup and branch per frame/pixel | AQMH reconstruction usually `1.2x-2.5x` slower |
 | Disk IO | Prewarped frames and artifacts | Plus AQMH map writes/reads | Can dominate if storage is slow |
 | RAM pressure | Mostly frame/tile batches | Frame/tile batches plus bounded map cache | Must remain bounded by `max_resident_maps` |
 | Total pipeline | Baseline | Baseline plus AQMH overhead | Typical end-to-end `1.3x-3x`; worst case `>4x` on slow disks or high worker counts |
 
 For a rough 24 Mpx, 300-frame mono run:
 
-- Classic local metrics may be on the order of minutes, depending on tile count and star detection cost.
+- Classic baseline local metrics may be on the order of minutes, depending on block count and star detection cost.
 - AQMH map generation adds several full-frame image-processing passes per frame and scale. With four scales, expect roughly `10-25` full-frame-equivalent passes per frame after downscaling is accounted for.
 - Default 1/4-area float32 map storage writes about `24 MB * 300 = 7.2 GB` for mono, or about `21.6 GB` for three independent channel maps.
-- If reconstruction reads every map repeatedly per tile, IO can become catastrophic. Therefore reconstruction must either use a bounded resident-map cache or schedule work frame-major/map-batch-aware enough to avoid rereading the same map for every tile.
+- If reconstruction reads every map repeatedly per spatial chunk, IO can become catastrophic. Therefore reconstruction must either use a bounded resident-map cache or schedule work frame-major/map-batch-aware enough to avoid rereading the same map for every chunk.
 
 Performance acceptance targets for the first implementation:
 
@@ -830,7 +821,7 @@ Performance acceptance targets for the first implementation:
 2. AQMH enabled, mono 24 Mpx / 300 frames: no OOM with `resolution_divisor=2`, `max_resident_maps=2`, and the configured reconstruction memory budget.
 3. Map generation throughput should be reported as frames/minute and megapixels/second.
 4. Reconstruction diagnostics should report AQMH cache hit rate, cache miss count, bytes read, bytes written, and max resident maps.
-5. If AQMH total runtime exceeds `3x` classic runtime on the same dataset, diagnostics must identify whether CPU map generation, reconstruction map reads, or disk IO is the bottleneck.
+5. If AQMH total runtime exceeds `3x` a separate Classic baseline runtime on the same dataset, diagnostics must identify whether CPU map generation, reconstruction map reads, or disk IO is the bottleneck.
 
 ---
 
@@ -863,14 +854,13 @@ aqmh_frame_diag["scene_dependent_snr"] =
 aqmh_frame_diag["omitted_scales"] = aqmh_result.diagnostics.omitted_scales;
 ```
 
-Collect per-tile derived metrics (§6.2):
+Collect report-block derived metrics (§6.2):
 
 ```cpp
-for (size_t ti = 0; ti < tiles.size(); ++ti) {
-    float aqmh_median = tile_median_of_q_map(aqmh_result.q_map, tiles[ti]);
-    aqmh_tile_diag[ti]["aqmh_q_median"] = aqmh_median;
-    aqmh_tile_diag[ti]["aqmh_vs_tile_delta"] =
-        aqmh_median - local_metrics[fi][ti].quality_score;
+for (size_t bi = 0; bi < report_blocks.size(); ++bi) {
+    float aqmh_median = block_median_of_q_map(aqmh_result.q_map,
+                                              report_blocks[bi]);
+    aqmh_block_diag[bi]["aqmh_q_median"] = aqmh_median;
 }
 ```
 
@@ -898,14 +888,14 @@ Write to `run_dir / "artifacts" / "aqmh_metrics.json"` at the end of the phase.
 The artifact should contain:
 
 - `schema_version`
-- `config` subset (`storage`, `pyramid`, `reconstruction`, `cherry_pick`, `diagnostics`)
+- `config` subset (`storage`, `pyramid`, `cherry_pick`, `diagnostics`)
 - `frames[]`
-- `tiles[]`
-- tile-indexed arrays sufficient for heatmap generation
+- `report_blocks[]`
+- block-indexed arrays sufficient for heatmap generation
 - `cache_dir`
 - `map_storage_resolution`
 - `cache_stats` (`bytes_written`, `bytes_read`, `read_count`, `cache_hits`, `cache_misses`, `max_resident_maps_observed`)
-- `timing` (`map_compute_s`, `map_write_s`, `map_read_s`, `dense_reconstruction_s`)
+- `timing` (`map_compute_s`, `map_write_s`, `map_read_s`, `aqmh_reconstruction_s`)
 
 ---
 
@@ -925,14 +915,14 @@ log_file << "[AQMH] WARNING: cherry_pick mode enabled — pixel-level frame "
 
 **File:** `tile_compile_cpp/scripts/generate_report.py`
 
-Add a new `_gen_aqmh_metrics` function modeled after `_gen_local_metrics`. It reads `aqmh_metrics.json` and generates:
+Add a new `_gen_aqmh_metrics` function. It reads `aqmh_metrics.json` and generates:
 
-1. **Tile heatmap:** mean `aqmh_q_median` per tile (using `svg_spatial_tile_heatmap`, colormap `"viridis"`).
-2. **Artifact fraction heatmap:** per-tile `artifact_frac` (colormap `"inferno"`, reversed — high artifact = red).
-3. **Delta heatmap:** `aqmh_vs_tile_delta` per tile (colormap `"coolwarm"` — diverging around 0).
+1. **AQMH quality heatmap:** mean `aqmh_q_median` per report block (colormap `"viridis"`).
+2. **Artifact fraction heatmap:** per-block `artifact_frac` (colormap `"inferno"`, reversed — high artifact = red).
+3. **Optional comparison heatmap:** AQMH-vs-Classic deltas only when both methods were run separately and a comparison artifact exists.
 4. **Per-frame timeseries:** `map_mean` and `artifact_frac` over frame index.
 
-Integrate the section into the main report generation function alongside the existing `_gen_local_metrics` section.
+Integrate the section into the main report generation function as an AQMH section, not as part of local/tile metrics.
 
 If `aqmh_metrics.json` is absent, report generation must silently skip the AQMH section so baseline runs remain unchanged.
 
@@ -952,26 +942,27 @@ Create `tile_compile_cpp/tests/test_aqmh_validation.cpp`:
 |---|---|
 | Map range | `all(Q_map ∈ [0,1])` for all finite canvas-valid pixels |
 | Canvas guard | `all(Q_map == 0)` at canvas-invalid pixels |
+| Canvas exclusion | Changing source values only in canvas-invalid pixels does not change any canvas-valid AQMH map value, diagnostic statistic, region, or reconstructed pixel |
 | Determinism | Two calls return bit-identical results |
-| Fallback and zero-veto coverage | Missing/non-finite maps with finite intensities use the configured fallback path; finite all-zero maps produce unsupported/zero output without NaN/Inf |
-| Tile compatibility | `Q_{f,t}^{aqmh}` matches `median(Q_map over tile)` within `1e-5` |
+| Missing-map and zero-veto coverage | Missing/non-finite maps with finite intensities produce unsupported/zero AQMH output with a warning; finite all-zero maps produce unsupported/zero output without NaN/Inf |
+| Block diagnostic consistency | `Q_{f,b}^{aqmh}` matches `median(Q_map over report block)` within `1e-5` |
 | No structural injection | FWHM of point source does not increase vs. no-AQMH baseline |
-| Artifact detection | Satellite frame has `artifact_frac > 0.01` in contaminated tiles |
+| Artifact detection | Satellite frame has `artifact_frac > 0.01` in contaminated report blocks |
 | Scale omission | Small input with `P_actual < P` records omitted scales, writes unavailable scale diagnostics as NaN/null, and fuses with denominator `P_actual` |
 | Morph radius scaling | Changing `resolution_divisor` converts `r_morph_canvas_px` to the expected map-space radius |
 | Cherry-pick flag | `cherry_pick_active=true` present in artifact JSON when enabled |
 | Explicit zero-veto | Finite all-zero maps at a pixel produce unsupported/zero output, not unweighted mean |
-| Missing-map fallback | Missing/non-finite maps with finite intensities fall back to tile weights or unweighted mean per fallback rules |
-| Cherry-pick ranking | Cherry-pick sorts by `G_f * Q_map_f(p)` (or tile fallback score), not raw frame-relative `Q_map` alone |
+| No Classic fallback | Missing/non-finite maps with finite intensities never fall back to Classic tile weights or unweighted mean |
+| Cherry-pick ranking | Cherry-pick sorts by `G_f * Q_map_f(p)`, not raw frame-relative `Q_map` alone |
 
 ---
 
-### Step 7.2 — Regression test against v3.3.9 baseline
+### Step 7.2 — Regression test against separate baseline runs
 
 Add to the existing CI / mini-run test:
 
-1. Run the same dataset with `aqmh.enabled = false` → record FWHM, background RMS, tile seam score.
-2. Run with `aqmh.enabled = true`, `mode = "dense_map"`.
+1. Run the same dataset with `aqmh.enabled = false` as a separate baseline run -> record FWHM, background RMS, and seam score.
+2. Run with `aqmh.enabled = true`.
 3. Assert: FWHM does not increase by more than 5%; background RMS does not increase; seam score does not increase.
 4. (Aspirational, not blocking) Assert: FWHM decreases by at least 1% on a dataset with known intra-frame artifacts.
 
@@ -1025,9 +1016,9 @@ Milestone 2  (quality map algorithm)
     |
     +---> Milestone 3  (disk cache)
     |           |
-    |     Milestone 4  (phase 8.a integration)
+    |     Milestone 4  (AQMH map integration)
     |           |
-    |     Milestone 5  (phase 9.a reconstruction)
+    |     Milestone 5  (AQMH reconstruction)
     |           |
     |     Milestone 6  (diagnostics & report)
     |           |
