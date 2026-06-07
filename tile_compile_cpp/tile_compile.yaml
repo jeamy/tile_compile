@@ -147,6 +147,27 @@ local_metrics:
   structure_mode:
     background_weight: 0.3
     metric_weight: 0.7
+aqmh:
+  enabled: false
+  pyramid:
+    scales: 4
+    base_window_px: 4
+    w_sharp: 0.6
+    w_snr: 0.4
+    k_artifact: 5.0
+    frac_artifact_max: 0.10
+  storage:
+    resolution_divisor: 2
+    dtype: float32
+    max_resident_maps: 2
+  cherry_pick:
+    enabled: false
+    k_min: 3
+    k_frac: 0.30
+  diagnostics:
+    tau_artifact: 0.20
+    q_region: 0.75
+    r_morph_canvas_px: 6
 log_level: info
 normalization:
   enabled: true
