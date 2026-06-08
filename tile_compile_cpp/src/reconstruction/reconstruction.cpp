@@ -1,4 +1,5 @@
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/tile_grid_key.hpp"
 
 #include <opencv2/opencv.hpp>
@@ -130,6 +131,27 @@ TileOverlaps compute_tile_overlaps(
 
 bool same_shape(const Matrix2Df& m, int rows, int cols) {
     return m.rows() == rows && m.cols() == cols;
+}
+
+bool canvas_valid_at(const std::vector<uint8_t>& mask, int width, int height,
+                     int x, int y) {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return false;
+    }
+    if (mask.empty()) {
+        return true;
+    }
+    const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(width) +
+                       static_cast<size_t>(x);
+    return idx < mask.size() && mask[idx] != 0;
+}
+
+float aqmh_global_weight(const VectorXf& global_weights, size_t fi) {
+    if (fi >= static_cast<size_t>(global_weights.size())) {
+        return 1.0f;
+    }
+    const float w = global_weights[static_cast<Eigen::Index>(fi)];
+    return (std::isfinite(w) && w > 0.0f) ? w : 0.0f;
 }
 
 /// @brief Implements select wiener quality target.
@@ -289,6 +311,187 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
 }
 
 } // namespace
+
+AqmhReconstructionResult reconstruct_aqmh_weighted(
+    size_t frame_count, const AqmhFrameLoader& load_frame,
+    metrics::QualityMapCache* q_map_cache, const VectorXf& global_weights,
+    const std::vector<uint8_t>& canvas_mask, int width, int height,
+    const AqmhReconstructionConfig& cfg) {
+    AqmhReconstructionResult result;
+    result.output = Matrix2Df::Zero(height, width);
+    result.weight_sum = Matrix2Df::Zero(height, width);
+    if (frame_count == 0 || load_frame == nullptr || q_map_cache == nullptr ||
+        width <= 0 || height <= 0) {
+        return result;
+    }
+
+    Matrix2Df accum = Matrix2Df::Zero(height, width);
+    Matrix2Df finite_map_count = Matrix2Df::Zero(height, width);
+    Matrix2Df positive_weight_count = Matrix2Df::Zero(height, width);
+
+    auto valid_canvas_pixels = [&]() -> uint64_t {
+        uint64_t n = 0;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (canvas_valid_at(canvas_mask, width, height, x, y)) {
+                    ++n;
+                }
+            }
+        }
+        return n;
+    };
+    const uint64_t valid_px = valid_canvas_pixels();
+
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+        Matrix2Df frame;
+        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
+            continue;
+        }
+        Matrix2Df q_map = q_map_cache->read_cached(fi);
+        if (!same_shape(q_map, height, width)) {
+            result.missing_map_samples += valid_px;
+            continue;
+        }
+        const float gw = aqmh_global_weight(global_weights, fi);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (!canvas_valid_at(canvas_mask, width, height, x, y)) {
+                    continue;
+                }
+                const float q = q_map(y, x);
+                if (!std::isfinite(q)) {
+                    ++result.missing_map_samples;
+                    continue;
+                }
+                finite_map_count(y, x) += 1.0f;
+                ++result.finite_map_samples;
+                const float w = gw * std::max(q, 0.0f);
+                if (!(w > cfg.eps_weight) || !is_valid_sample(frame(y, x))) {
+                    continue;
+                }
+                positive_weight_count(y, x) += 1.0f;
+                accum(y, x) += w * frame(y, x);
+                result.weight_sum(y, x) += w;
+            }
+        }
+    }
+
+    Matrix2Df mean = Matrix2Df::Zero(height, width);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (result.weight_sum(y, x) > cfg.eps_weight) {
+                mean(y, x) = accum(y, x) / result.weight_sum(y, x);
+            }
+        }
+    }
+
+    Matrix2Df var_accum = Matrix2Df::Zero(height, width);
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+        Matrix2Df frame;
+        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
+            continue;
+        }
+        Matrix2Df q_map = q_map_cache->read_cached(fi);
+        if (!same_shape(q_map, height, width)) {
+            continue;
+        }
+        const float gw = aqmh_global_weight(global_weights, fi);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (!canvas_valid_at(canvas_mask, width, height, x, y) ||
+                    result.weight_sum(y, x) <= cfg.eps_weight ||
+                    !is_valid_sample(frame(y, x))) {
+                    continue;
+                }
+                const float q = q_map(y, x);
+                if (!std::isfinite(q)) {
+                    continue;
+                }
+                const float w = gw * std::max(q, 0.0f);
+                if (w > cfg.eps_weight) {
+                    const float d = frame(y, x) - mean(y, x);
+                    var_accum(y, x) += w * d * d;
+                }
+            }
+        }
+    }
+
+    Matrix2Df clipped_accum = Matrix2Df::Zero(height, width);
+    Matrix2Df clipped_weight_sum = Matrix2Df::Zero(height, width);
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+        Matrix2Df frame;
+        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
+            continue;
+        }
+        Matrix2Df q_map = q_map_cache->read_cached(fi);
+        if (!same_shape(q_map, height, width)) {
+            continue;
+        }
+        const float gw = aqmh_global_weight(global_weights, fi);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (!canvas_valid_at(canvas_mask, width, height, x, y) ||
+                    result.weight_sum(y, x) <= cfg.eps_weight ||
+                    !is_valid_sample(frame(y, x))) {
+                    continue;
+                }
+                const float q = q_map(y, x);
+                if (!std::isfinite(q)) {
+                    continue;
+                }
+                const float w = gw * std::max(q, 0.0f);
+                if (!(w > cfg.eps_weight)) {
+                    continue;
+                }
+                const float sigma =
+                    std::sqrt(std::max(var_accum(y, x) / result.weight_sum(y, x),
+                                       0.0f));
+                const float lo = mean(y, x) - cfg.sigma_low * sigma;
+                const float hi = mean(y, x) + cfg.sigma_high * sigma;
+                if (sigma <= static_cast<float>(kSigmaClipEpsVar) ||
+                    (frame(y, x) >= lo && frame(y, x) <= hi)) {
+                    clipped_accum(y, x) += w * frame(y, x);
+                    clipped_weight_sum(y, x) += w;
+                }
+            }
+        }
+    }
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (!canvas_valid_at(canvas_mask, width, height, x, y)) {
+                result.output(y, x) = 0.0f;
+                result.weight_sum(y, x) = 0.0f;
+                continue;
+            }
+            if (finite_map_count(y, x) > 0.0f &&
+                positive_weight_count(y, x) <= 0.0f) {
+                result.output(y, x) = 0.0f;
+                result.weight_sum(y, x) = 0.0f;
+                ++result.unsupported_pixels;
+                ++result.zero_veto_pixels;
+                continue;
+            }
+            if (result.weight_sum(y, x) <= cfg.eps_weight) {
+                result.output(y, x) = 0.0f;
+                result.weight_sum(y, x) = 0.0f;
+                ++result.unsupported_pixels;
+                continue;
+            }
+            const float min_kept =
+                std::max(0.0f, cfg.min_fraction) * result.weight_sum(y, x);
+            if (clipped_weight_sum(y, x) > cfg.eps_weight &&
+                clipped_weight_sum(y, x) >= min_kept) {
+                result.output(y, x) =
+                    clipped_accum(y, x) / clipped_weight_sum(y, x);
+                result.weight_sum(y, x) = clipped_weight_sum(y, x);
+            } else {
+                result.output(y, x) = mean(y, x);
+            }
+        }
+    }
+    return result;
+}
 
 /// @brief Implements reconstruct tiles.
 /// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation

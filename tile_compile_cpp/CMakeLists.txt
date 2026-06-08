@@ -429,6 +429,7 @@ set(LIB_SOURCES
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
     src/metrics/aqmh_quality_map.cpp
+    src/metrics/aqmh_quality_map_cache.cpp
     src/reconstruction/reconstruction.cpp
     src/reconstruction/memory_budget.cpp
     src/reconstruction/dead_tile_detector.cpp
@@ -559,6 +560,8 @@ if(BUILD_TESTS)
             tests/test_reconstruction_parallel.cpp
             tests/test_hypermetric_stretch.cpp
             tests/test_aqmh_quality_map.cpp
+            tests/test_aqmh_quality_map_cache.cpp
+            tests/test_aqmh_reconstruction.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

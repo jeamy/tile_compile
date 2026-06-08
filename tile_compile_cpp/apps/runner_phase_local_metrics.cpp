@@ -2,6 +2,8 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
 
@@ -11,6 +13,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -20,6 +24,74 @@ namespace tile_compile::runner {
 
 namespace core = tile_compile::core;
 namespace metrics = tile_compile::metrics;
+
+namespace {
+
+float quantile_from_sorted(const std::vector<float> &sorted, float q) {
+  if (sorted.empty())
+    return std::numeric_limits<float>::quiet_NaN();
+  const float clamped_q = std::clamp(q, 0.0f, 1.0f);
+  const float pos = clamped_q * static_cast<float>(sorted.size() - 1);
+  const size_t lo = static_cast<size_t>(std::floor(pos));
+  const size_t hi = std::min(sorted.size() - 1, lo + 1);
+  const float t = pos - static_cast<float>(lo);
+  return sorted[lo] * (1.0f - t) + sorted[hi] * t;
+}
+
+struct AqmhFrameDiag {
+  size_t frame_index = 0;
+  bool written = false;
+  float map_mean = std::numeric_limits<float>::quiet_NaN();
+  float map_p10 = std::numeric_limits<float>::quiet_NaN();
+  float map_p50 = std::numeric_limits<float>::quiet_NaN();
+  float map_p90 = std::numeric_limits<float>::quiet_NaN();
+  float artifact_frac = std::numeric_limits<float>::quiet_NaN();
+  float sharpness_p50 = std::numeric_limits<float>::quiet_NaN();
+  float snr_p50 = std::numeric_limits<float>::quiet_NaN();
+  bool scene_dependent_snr = false;
+  std::vector<int> omitted_scales;
+};
+
+AqmhFrameDiag summarize_aqmh_map(size_t fi, const Matrix2Df &q_map,
+                                 const std::vector<uint8_t> &valid_mask,
+                                 int mask_width, int mask_height,
+                                 float tau_artifact) {
+  AqmhFrameDiag diag;
+  diag.frame_index = fi;
+  std::vector<float> values;
+  values.reserve(static_cast<size_t>(q_map.size()));
+  double sum = 0.0;
+  size_t artifact_count = 0;
+  for (int y = 0; y < q_map.rows(); ++y) {
+    for (int x = 0; x < q_map.cols(); ++x) {
+      const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(mask_width) +
+                         static_cast<size_t>(x);
+      if (x >= mask_width || y >= mask_height || idx >= valid_mask.size() ||
+          valid_mask[idx] == 0) {
+        continue;
+      }
+      const float v = q_map(y, x);
+      if (!std::isfinite(v))
+        continue;
+      values.push_back(v);
+      sum += v;
+      if (v <= tau_artifact)
+        ++artifact_count;
+    }
+  }
+  if (values.empty())
+    return diag;
+  std::sort(values.begin(), values.end());
+  diag.map_mean = static_cast<float>(sum / values.size());
+  diag.map_p10 = quantile_from_sorted(values, 0.10f);
+  diag.map_p50 = quantile_from_sorted(values, 0.50f);
+  diag.map_p90 = quantile_from_sorted(values, 0.90f);
+  diag.artifact_frac =
+      static_cast<float>(artifact_count) / static_cast<float>(values.size());
+  return diag;
+}
+
+} // namespace
 
 /// @brief Runs phase local metrics.
 /// @details Part of the local tile-metrics and local-weights phase implementation; this helper keeps the implementation
@@ -41,10 +113,12 @@ bool run_phase_local_metrics(
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
-    std::vector<float> &tile_fwhm_median, int tile_offset_x,
+    std::vector<float> &tile_fwhm_median,
+    std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache, int tile_offset_x,
     int tile_offset_y) {
   (void)tile_offset_x;
   (void)tile_offset_y;
+  out_aqmh_cache.reset();
 
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
     emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS",
@@ -195,6 +269,186 @@ bool run_phase_local_metrics(
                 << (lm_error.empty() ? "unknown_error" : lm_error)
                 << std::endl;
       return false;
+    }
+
+    std::vector<AqmhFrameDiag> aqmh_frame_diag(frames.size());
+    if (cfg.aqmh.enabled) {
+      if (common_mask_width <= 0 || common_mask_height <= 0 ||
+          common_valid_mask.size() !=
+              static_cast<size_t>(common_mask_width) *
+                  static_cast<size_t>(common_mask_height)) {
+        const std::string error = "AQMH requires a valid full-canvas common mask";
+        emitter.phase_end(run_id, Phase::LOCAL_METRICS, "error",
+                          {{"error", error}}, log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error during AQMH map computation: " << error
+                  << std::endl;
+        return false;
+      }
+
+      if (cfg.aqmh.cherry_pick.enabled) {
+        log_file << "[AQMH] WARNING: cherry_pick mode enabled; AQMH maps are "
+                    "computed independently of Classic tile weights."
+                 << std::endl;
+      }
+
+      const std::string mask_hash = metrics::compute_aqmh_canvas_mask_hash(
+          common_valid_mask, common_mask_width, common_mask_height);
+      out_aqmh_cache = std::make_unique<metrics::QualityMapCache>(
+          run_dir / "cache" / "aqmh", "luma", common_mask_width,
+          common_mask_height, cfg.aqmh.pyramid, cfg.aqmh.storage, mask_hash);
+
+      const int aqmh_workers = compute_adaptive_worker_count(
+          cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
+      std::cout << "[AQMH] Using " << aqmh_workers
+                << " parallel workers for quality-map computation" << std::endl;
+
+      std::atomic<size_t> aqmh_next{0};
+      std::atomic<size_t> aqmh_done{0};
+      std::atomic<size_t> aqmh_written{0};
+      std::atomic<bool> aqmh_failed{false};
+      std::mutex aqmh_error_mutex;
+      std::mutex aqmh_progress_mutex;
+      std::mutex aqmh_write_mutex;
+      std::string aqmh_error;
+
+      auto aqmh_worker = [&]() {
+        while (true) {
+          const size_t fi = aqmh_next.fetch_add(1);
+          if (fi >= frames.size())
+            break;
+          try {
+            AqmhFrameDiag diag;
+            diag.frame_index = fi;
+            if (frame_has_data[fi]) {
+              Matrix2Df frame = prewarped_frames.load(fi);
+              if (frame.rows() == common_mask_height &&
+                  frame.cols() == common_mask_width) {
+                if (apply_normalization_to_tiles && fi < norm_scales.size() &&
+                    frame.size() > 0) {
+                  image::apply_normalization_inplace(
+                      frame, norm_scales[fi], detected_mode,
+                      detected_bayer_str, 0, 0);
+                }
+                const auto aqmh_result = metrics::compute_aqmh_quality_map(
+                    frame, common_valid_mask, common_mask_width,
+                    common_mask_height, cfg.aqmh.pyramid);
+                {
+                  std::lock_guard<std::mutex> lock(aqmh_write_mutex);
+                  out_aqmh_cache->write(fi, aqmh_result.q_map);
+                }
+                diag = summarize_aqmh_map(
+                    fi, aqmh_result.q_map, common_valid_mask,
+                    common_mask_width, common_mask_height,
+                    cfg.aqmh.diagnostics.tau_artifact);
+                diag.written = true;
+                diag.sharpness_p50 = aqmh_result.diagnostics.sharpness_p50;
+                diag.snr_p50 = aqmh_result.diagnostics.snr_p50;
+                diag.scene_dependent_snr =
+                    aqmh_result.diagnostics.scene_dependent_snr;
+                diag.omitted_scales = aqmh_result.diagnostics.omitted_scales;
+                aqmh_written.fetch_add(1, std::memory_order_relaxed);
+              }
+            }
+            aqmh_frame_diag[fi] = std::move(diag);
+          } catch (const std::exception &e) {
+            aqmh_failed.store(true, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(aqmh_error_mutex);
+            if (aqmh_error.empty())
+              aqmh_error = e.what();
+          } catch (...) {
+            aqmh_failed.store(true, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(aqmh_error_mutex);
+            if (aqmh_error.empty())
+              aqmh_error = "unknown_error";
+          }
+
+          const size_t done = aqmh_done.fetch_add(1) + 1;
+          if (done % 2 == 0 || done == frames.size()) {
+            const float p =
+                frames.empty() ? 1.0f
+                               : static_cast<float>(done) /
+                                     static_cast<float>(frames.size());
+            std::lock_guard<std::mutex> lock(aqmh_progress_mutex);
+            emitter.phase_progress(
+                run_id, Phase::LOCAL_METRICS, p,
+                "aqmh_maps " + std::to_string(done) + "/" +
+                    std::to_string(frames.size()) + " written=" +
+                    std::to_string(aqmh_written.load(std::memory_order_relaxed)) +
+                    " workers=" + std::to_string(aqmh_workers),
+                log_file);
+          }
+        }
+      };
+
+      if (aqmh_workers > 1) {
+        std::vector<std::thread> workers;
+        workers.reserve(static_cast<size_t>(aqmh_workers));
+        for (int w = 0; w < aqmh_workers; ++w)
+          workers.emplace_back(aqmh_worker);
+        for (auto &worker : workers) {
+          if (worker.joinable())
+            worker.join();
+        }
+      } else {
+        aqmh_worker();
+      }
+
+      if (aqmh_failed.load(std::memory_order_relaxed)) {
+        emitter.phase_end(
+            run_id, Phase::LOCAL_METRICS, "error",
+            {{"error", aqmh_error.empty() ? "unknown_error" : aqmh_error}},
+            log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error during AQMH map computation: "
+                  << (aqmh_error.empty() ? "unknown_error" : aqmh_error)
+                  << std::endl;
+        return false;
+      }
+
+      core::json aqmh_artifact;
+      aqmh_artifact["enabled"] = true;
+      aqmh_artifact["map_stream_id"] = out_aqmh_cache->map_stream_id();
+      aqmh_artifact["cache_dir"] = out_aqmh_cache->cache_dir().string();
+      aqmh_artifact["full_width"] = out_aqmh_cache->full_width();
+      aqmh_artifact["full_height"] = out_aqmh_cache->full_height();
+      aqmh_artifact["stored_width"] = out_aqmh_cache->stored_width();
+      aqmh_artifact["stored_height"] = out_aqmh_cache->stored_height();
+      aqmh_artifact["dtype"] = cfg.aqmh.storage.dtype;
+      aqmh_artifact["resolution_divisor"] =
+          cfg.aqmh.storage.resolution_divisor;
+      aqmh_artifact["frames_total"] = static_cast<uint64_t>(frames.size());
+      aqmh_artifact["frames_written"] =
+          static_cast<uint64_t>(aqmh_written.load(std::memory_order_relaxed));
+      aqmh_artifact["diagnostics"] = core::json::array();
+      for (const auto &diag : aqmh_frame_diag) {
+        core::json jd;
+        jd["frame_index"] = static_cast<uint64_t>(diag.frame_index);
+        jd["written"] = diag.written;
+        jd["map_mean"] = diag.map_mean;
+        jd["map_p10"] = diag.map_p10;
+        jd["map_p50"] = diag.map_p50;
+        jd["map_p90"] = diag.map_p90;
+        jd["artifact_frac"] = diag.artifact_frac;
+        jd["sharpness_p50"] = diag.sharpness_p50;
+        jd["snr_p50"] = diag.snr_p50;
+        jd["scene_dependent_snr"] = diag.scene_dependent_snr;
+        jd["omitted_scales"] = diag.omitted_scales;
+        aqmh_artifact["diagnostics"].push_back(jd);
+      }
+      const auto cache_stats = out_aqmh_cache->stats();
+      aqmh_artifact["cache_stats"] = {
+          {"bytes_written", cache_stats.bytes_written},
+          {"bytes_read", cache_stats.bytes_read},
+          {"write_count", cache_stats.write_count},
+          {"read_count", cache_stats.read_count},
+          {"cache_hits", cache_stats.cache_hits},
+          {"cache_misses", cache_stats.cache_misses},
+          {"max_resident_maps_observed",
+           static_cast<uint64_t>(cache_stats.max_resident_maps_observed)}};
+      std::filesystem::create_directories(run_dir / "artifacts");
+      core::write_text(run_dir / "artifacts" / "aqmh_metrics.json",
+                       aqmh_artifact.dump(2));
     }
 
     std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);

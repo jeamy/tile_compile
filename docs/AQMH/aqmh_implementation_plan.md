@@ -772,19 +772,18 @@ recon_result = reconstruction::reconstruct_aqmh_weighted(
 ### Step 5.4 — Select the independent AQMH reconstruction path
 
 ```cpp
-ReconstructTilesResult recon_result;
 if (cfg.aqmh.enabled) {
     if (!aqmh_cache) {
         throw std::runtime_error("AQMH enabled but AQMH quality-map cache is unavailable");
     }
     recon_result = reconstruction::reconstruct_aqmh_weighted(
         prewarped_frame_provider, aqmh_cache.get(), global_weights,
-        common_valid_mask, recon_cfg);
-} else {
-    recon_result = reconstruction::reconstruct_tiles_parallel(
-        channel_frames, grid, tile_weights, dead_tile_mask, recon_cfg);
+        common_valid_mask, aqmh_recon_cfg);
 }
 ```
+
+Classic Tile Compile remains in its own runner branch. It is not an AQMH mode,
+fallback, or lower-bound path.
 
 ---
 

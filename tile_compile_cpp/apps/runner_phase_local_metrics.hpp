@@ -6,8 +6,13 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/normalization.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace tile_compile::metrics {
+class QualityMapCache;
+}
 
 namespace tile_compile::runner {
 
@@ -38,7 +43,8 @@ bool run_phase_local_metrics(
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
-    std::vector<float> &tile_fwhm_median, int tile_offset_x = 0,
-    int tile_offset_y = 0);
+    std::vector<float> &tile_fwhm_median,
+    std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
+    int tile_offset_x = 0, int tile_offset_y = 0);
 
 } // namespace tile_compile::runner

@@ -4,7 +4,13 @@
 #include "tile_compile/core/types.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <vector>
+
+namespace tile_compile::metrics {
+class QualityMapCache;
+}
 
 namespace tile_compile::reconstruction {
 
@@ -42,6 +48,41 @@ struct ReconstructTilesResult {
     size_t allocated_frame_batch_bytes            = 0;
     size_t allocated_tile_batch_bytes             = 0;
 };
+
+struct AqmhReconstructionConfig {
+    float sigma_low = 3.0f;
+    float sigma_high = 3.0f;
+    float min_fraction = 0.5f;
+    float eps_weight = 1.0e-6f;
+};
+
+struct AqmhReconstructionResult {
+    Matrix2Df output;
+    Matrix2Df weight_sum;
+    uint64_t unsupported_pixels = 0;
+    uint64_t finite_map_samples = 0;
+    uint64_t missing_map_samples = 0;
+    uint64_t zero_veto_pixels = 0;
+};
+
+using AqmhFrameLoader = std::function<bool(size_t, Matrix2Df&)>;
+
+// Independent AQMH reconstruction path.
+//
+// The implementation is streaming: it calls `load_frame` and `q_map_cache`
+// per frame/pass and never requires all source frames or quality maps in RAM.
+// Missing maps contribute zero AQMH weight. Finite all-zero map support is an
+// explicit AQMH veto and remains unsupported/zero; there is no Classic
+// tile-weight fallback.
+AqmhReconstructionResult reconstruct_aqmh_weighted(
+    size_t frame_count,
+    const AqmhFrameLoader& load_frame,
+    metrics::QualityMapCache* q_map_cache,
+    const VectorXf& global_weights,
+    const std::vector<uint8_t>& canvas_mask,
+    int width,
+    int height,
+    const AqmhReconstructionConfig& cfg);
 
 // Parallel implementation — replaces reconstruct_tiles() for new callers.
 // dead_tile_mask must have the same size as grid.tiles; pass all-false to
