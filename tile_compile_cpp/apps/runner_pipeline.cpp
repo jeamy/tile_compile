@@ -4701,7 +4701,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (cfg.stacking.cosmetic_correction) {
       const float cosmetic_sigma = cfg.stacking.cosmetic_correction_sigma;
       recon = image::cosmetic_correction(recon, cosmetic_sigma, true);
-      if (detected_mode == ColorMode::OSC) {
+      const bool have_rgb_recon =
+          detected_mode == ColorMode::OSC && recon_R.size() == recon.size() &&
+          recon_G.size() == recon.size() && recon_B.size() == recon.size() &&
+          recon_R.size() > 0;
+      if (have_rgb_recon) {
         recon_R = image::cosmetic_correction(recon_R, cosmetic_sigma, true);
         recon_G = image::cosmetic_correction(recon_G, cosmetic_sigma, true);
         recon_B = image::cosmetic_correction(recon_B, cosmetic_sigma, true);
@@ -4709,7 +4713,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+        cfg.chroma_denoise.apply_stage == "post_stack_linear" &&
+        recon_R.size() == recon.size() && recon_G.size() == recon.size() &&
+        recon_B.size() == recon.size() && recon_R.size() > 0) {
       reconstruction::chroma_denoise_rgb_inplace(
           recon_R, recon_G, recon_B, cfg.chroma_denoise);
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
