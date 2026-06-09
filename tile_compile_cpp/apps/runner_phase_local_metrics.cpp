@@ -303,6 +303,10 @@ bool run_phase_local_metrics(
       std::cout << "[AQMH] Using " << aqmh_workers
                 << " parallel workers for quality-map computation" << std::endl;
 
+      // Reset progress for AQMH sub-phase
+      emitter.phase_start(run_id, Phase::LOCAL_METRICS,
+                          "aqmh_maps", log_file);
+
       std::atomic<size_t> aqmh_next{0};
       std::atomic<size_t> aqmh_done{0};
       std::atomic<size_t> aqmh_written{0};

@@ -238,8 +238,8 @@ struct AqmhPyramidConfig {
   int base_window_px = 4;
   float w_sharp = 0.6f;
   float w_snr = 0.4f;
-  float k_artifact = 5.0f;
-  float frac_artifact_max = 0.10f;
+  float k_artifact = 3.0f;
+  float frac_artifact_max = 0.25f;
 };
 
 struct AqmhStorageConfig {
@@ -261,7 +261,7 @@ struct AqmhCherryPickConfig {
 };
 
 struct AqmhConfig {
-  bool enabled = false;
+  bool enabled = true;
   AqmhPyramidConfig pyramid;
   AqmhStorageConfig storage;
   AqmhCherryPickConfig cherry_pick;

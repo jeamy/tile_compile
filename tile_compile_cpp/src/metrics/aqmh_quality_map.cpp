@@ -247,9 +247,11 @@ Matrix2Df phi_artifact(const Matrix2Df &img, int r, float k_artifact,
           ++outliers;
       }
       const float frac = static_cast<float>(outliers) / values.size();
-      out(y, x) =
-          std::clamp(1.0f - frac / std::max(frac_artifact_max, eps_aqmh), 0.0f,
-                     1.0f);
+      // Mindest-Quality von 0.01 beibehalten, damit glatte Regionen nicht auf 0 fallen
+      constexpr float min_quality = 0.01f;
+      out(y, x) = std::clamp(
+          min_quality + (1.0f - min_quality) * (1.0f - frac / std::max(frac_artifact_max, eps_aqmh)),
+          min_quality, 1.0f);
     }
   }
   return out;
@@ -389,7 +391,7 @@ AqmhQualityMapResult compute_aqmh_quality_map(
       bool veto = false;
       for (const Matrix2Df &psi : psi_full_res) {
         const float v = psi(y, x);
-        if (!finite(v) || v <= eps_aqmh) {
+        if (!finite(v) || v <= 0.0f) {
           veto = true;
           break;
         }

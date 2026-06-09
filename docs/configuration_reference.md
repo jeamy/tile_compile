@@ -6,7 +6,8 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 **Schema-Version:** v3  
 **Referenz:** Methodik v3.3
 
-**Dokumentationsstand (2026-03-30):**
+**Dokumentationsstand (2026-06-09):**
+- `aqmh.*` vollständig dokumentiert (alle 4 Sub-Blöcke: `pyramid`, `storage`, `cherry_pick`, `diagnostics`).
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
 - `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -31,6 +32,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
+12b. [AQMH (Adaptive Quality Map Harvesting)](#12b-aqmh-adaptive-quality-map-harvesting) **NEU**
 13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer (automatische Phase)](#15-debayer-automatische-phase)
@@ -1370,6 +1372,218 @@ Niedriger FWHM = besser → wird negiert. Höchstes Gewicht = dominiert die loka
 | **Default** | `1.0` |
 
 **Zweck:** Exponent-Skala für lokales Gewicht `L_{f,t} = exp(k_local * Q_local)`. Default `1.0`; Werte `> 1` erhöhen lokale Differenzierung, `< 1` weichen sie ab. Symmetrisch zu `global_metrics.weight_exponent_scale`.
+
+---
+
+## 12b. AQMH (Adaptive Quality Map Harvesting)
+
+AQMH ist ein unabhängiger, pixelgenauer Rekonstruktionspfad, der anstelle des tile-basierten OLA-Stackings eingesetzt werden kann. Für jeden Frame wird eine Qualitätskarte (Quality Map) berechnet, die Schärfe- und SNR-Informationen kombiniert. Die Rekonstruktion erfolgt pixelweise als gewichteter Mittelwert über alle Frames mit AQMH-Gewichten.
+
+> **Experimentell.** Bei `aqmh.enabled: true` ersetzt AQMH die Tile-OLA-Rekonstruktion vollständig. Logs erscheinen unter `[AQMH]`.
+
+### `aqmh.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert den AQMH-Rekonstruktionspfad. Bei `false` wird die klassische Tile-OLA-Rekonstruktion verwendet.
+
+---
+
+### `aqmh.pyramid.*` — Pyramiden-Qualitätsmetriken
+
+Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
+
+#### `aqmh.pyramid.scales`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 1 – 8 |
+| **Default** | `4` |
+
+**Zweck:** Anzahl der Pyramidenstufen für die Multiskalenanalyse. Mehr Stufen erfassen mehr Raumfrequenzen, erhöhen aber die Rechenzeit.
+
+---
+
+#### `aqmh.pyramid.base_window_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `4` |
+
+**Zweck:** Fenstergröße in Pixeln auf der untersten Pyramidenstufe für lokale Metrikberechnung.
+
+---
+
+#### `aqmh.pyramid.w_sharp`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Default** | `0.6` |
+
+**Zweck:** Gewicht der Schärfemetrik im kombinierten Qualitätsindex `Q = w_sharp * Q_sharp + w_snr * Q_snr`. Zusammen mit `w_snr` bestimmt dies die relative Bedeutung von Schärfe vs. Signal-Rausch-Verhältnis.
+
+---
+
+#### `aqmh.pyramid.w_snr`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Default** | `0.4` |
+
+**Zweck:** Gewicht der SNR-Metrik im kombinierten Qualitätsindex. Erhöhen bei stark verrauschten Daten mit hohem Frame-Qualitätsgefälle.
+
+---
+
+#### `aqmh.pyramid.k_artifact`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `3.0` |
+
+**Zweck:** MAD-Multiplikator für die Artefakt-Erkennung. Pixel, deren lokale Varianz `k_artifact * MAD` überschreiten, werden als Artefakt markiert und erhalten reduziertes AQMH-Gewicht.
+
+- **Höher (z.B. 7–10):** Toleranter gegenüber Ausreißern — mehr Pixel erhalten normales Gewicht
+- **Niedriger (z.B. 3–4):** Aggressivere Artefakt-Unterdrückung
+
+---
+
+#### `aqmh.pyramid.frac_artifact_max`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Zweck:** Maximaler tolerierter Artefakt-Anteil pro Auswertungsfenster. Fenster mit mehr Artefakten als `frac_artifact_max` werden vollständig verworfen (kein AQMH-Beitrag).
+
+- **Erhöhen (z.B. 0.30–0.40):** Bei bekannten, tolerierbaren Artefakten (z.B. Satellitenspuren)
+- **Verringern:** Strengere Qualitätsgates
+
+---
+
+### `aqmh.storage.*` — Speicherung der Qualitätskarten
+
+#### `aqmh.storage.resolution_divisor`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Werte** | `1`, `2`, `4` |
+| **Default** | `2` |
+
+**Zweck:** Auflösungsfaktor für die gespeicherten Qualitätskarten. `2` = halbe Auflösung (empfohlen, reduziert Speicherbedarf um Faktor 4). `1` = volle Auflösung.
+
+---
+
+#### `aqmh.storage.dtype`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `float32`, `uint8` |
+| **Default** | `"float32"` |
+
+**Zweck:** Datentyp für gecachte Qualitätskarten. `float32` ist präzise, `uint8` spart Speicherplatz (8-bit Quantisierung der Qualitätswerte).
+
+---
+
+#### `aqmh.storage.max_resident_maps`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 0 – 16 |
+| **Default** | `2` |
+
+**Zweck:** Maximale Anzahl gleichzeitig im RAM gehaltener Qualitätskarten. Begrenzt den RAM-Verbrauch im Streaming-Betrieb. `0` = keine Begrenzung.
+
+---
+
+### `aqmh.cherry_pick.*` — Frame-Selektion
+
+#### `aqmh.cherry_pick.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert selektives Stacking — nur die qualitativ besten Frames werden für die AQMH-Rekonstruktion herangezogen. Nützlich bei großen Frame-Mengen mit stark variierender Qualität (z.B. mit Wolken durchsetzte Sessions).
+
+---
+
+#### `aqmh.cherry_pick.k_min`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `3` |
+
+**Zweck:** Mindestanzahl Frames, die auch beim Cherry-Picking immer einbezogen werden. Verhindert Unterbestimmung bei kleinen Datensätzen.
+
+---
+
+#### `aqmh.cherry_pick.k_frac`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.30` |
+
+**Zweck:** Anteil der besten Frames (nach AQMH-Qualität sortiert), der für das Cherry-Pick-Stacking verwendet wird. `0.30` = die besten 30% der Frames.
+
+---
+
+### `aqmh.diagnostics.*` — Diagnose-Ausgaben
+
+#### `aqmh.diagnostics.tau_artifact`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.20` |
+
+**Zweck:** Schwellenwert für die Artefakt-Diagnose im Ausgabe-Artefakt (`artifacts/aqmh.json`). Pixel mit Artefaktwahrscheinlichkeit > `tau_artifact` werden in der Diagnose als problematisch markiert.
+
+---
+
+#### `aqmh.diagnostics.q_region`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.75` |
+
+**Zweck:** Quantil für regionale Qualitätsstatistiken in der AQMH-Diagnose. `0.75` = 75. Perzentil der Qualitätswerte im Diagnose-Output.
+
+---
+
+#### `aqmh.diagnostics.r_morph_canvas_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `6` |
+
+**Zweck:** Morphologischer Radius in Canvas-Pixeln für die regionale Diagnosekarte. Bestimmt die räumliche Glättung bei der Erstellung der diagnostischen Qualitätskarten-Übersicht.
 
 ---
 

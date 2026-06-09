@@ -49,6 +49,7 @@
                 <button id="parameter-category-debayer" data-control="parameter.category.debayer" data-category="debayer" data-tooltip="Debayer-Parameter bearbeiten.">Debayer</button>
                 <button id="parameter-category-astrometry" data-control="parameter.category.astrometry" data-category="astrometry" data-tooltip="Astrometry-Parameter bearbeiten.">Astrometry</button>
                 <button id="parameter-category-bge" data-control="parameter.category.bge" data-category="bge" data-tooltip="BGE-Parameter bearbeiten.">BGE</button>
+                <button id="parameter-category-aqmh" data-control="parameter.category.aqmh" data-category="aqmh" data-tooltip="AQMH-Parameter bearbeiten.">AQMH</button>
                 <button id="parameter-category-pcc" data-control="parameter.category.pcc" data-category="pcc" data-tooltip="PCC-Parameter bearbeiten.">PCC</button>
                 <button id="parameter-category-stacking" data-control="parameter.category.stacking" data-category="stacking" data-tooltip="Stacking-Parameter bearbeiten.">Stacking</button>
                 <button id="parameter-category-runtime" data-control="parameter.category.runtime_limits" data-category="runtime_limits" data-tooltip="Runtime-Limits bearbeiten.">Runtime Limits</button>
@@ -236,6 +237,43 @@
               <div class="ps-row" data-path="bge.autotune.beta_roughness">
                 <label for="parameter-bge-autotune-beta">bge.autotune.beta_roughness</label>
                 <input id="parameter-bge-autotune-beta" class="ps-input ps-short" type="number" step="0.01" value="0.08" title="Gewicht fuer Roughness im BGE-Autotune-Ziel.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="aqmh">
+              <div class="ps-section-title">AQMH</div>
+              <div class="ps-row" data-path="aqmh.enabled">
+                <label for="parameter-aqmh-enabled">aqmh.enabled</label>
+                <select id="parameter-aqmh-enabled" data-control="parameter.aqmh.enabled" class="ps-select" title="Adaptive Quality Map Harvesting aktivieren.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-tag">Experimentell</span>
+              </div>
+              <div class="ps-row" data-path="aqmh.pyramid.k_artifact">
+                <label for="parameter-aqmh-k-artifact">aqmh.pyramid.k_artifact</label>
+                <input id="parameter-aqmh-k-artifact" data-control="parameter.aqmh.pyramid.k_artifact" class="ps-input ps-short" type="number" step="0.1" value="3.0" title="MAD-Multiplikator fuer Artifact-Erkennung.">
+                <span class="ps-hint">Hoeher = toleranter gegenueber Ausreissern.</span>
+              </div>
+              <div class="ps-row" data-path="aqmh.pyramid.frac_artifact_max">
+                <label for="parameter-aqmh-frac-artifact">aqmh.pyramid.frac_artifact_max</label>
+                <input id="parameter-aqmh-frac-artifact" data-control="parameter.aqmh.pyramid.frac_artifact_max" class="ps-input ps-short" type="number" step="0.05" value="0.25" title="Maximaler tolerierter Outlier-Anteil pro Fenster.">
+                <span class="ps-hint">Bei Artefakten: 0.30–0.40 erhoehen.</span>
+              </div>
+              <div class="ps-row" data-path="aqmh.cherry_pick.enabled">
+                <label for="parameter-aqmh-cherry-enabled">aqmh.cherry_pick.enabled</label>
+                <select id="parameter-aqmh-cherry-enabled" data-control="parameter.aqmh.cherry_pick.enabled" class="ps-select" title="Nur beste Frames stacken.">
+                  <option>true</option>
+                  <option selected>false</option>
+                </select>
+              </div>
+              <div class="ps-row" data-path="aqmh.cherry_pick.k_frac">
+                <label for="parameter-aqmh-cherry-frac">aqmh.cherry_pick.k_frac</label>
+                <input id="parameter-aqmh-cherry-frac" data-control="parameter.aqmh.cherry_pick.k_frac" class="ps-input ps-short" type="number" step="0.05" value="0.30" title="Anteil der besten Frames fuer Cherry-Pick.">
+              </div>
+              <div class="ps-row" data-path="aqmh.cherry_pick.k_min">
+                <label for="parameter-aqmh-cherry-min">aqmh.cherry_pick.k_min</label>
+                <input id="parameter-aqmh-cherry-min" data-control="parameter.aqmh.cherry_pick.k_min" class="ps-input ps-short" type="number" value="3" title="Mindestanzahl Frames im Cherry-Pick-Modus.">
               </div>
             </div>
 
