@@ -6,7 +6,8 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
-**Documentation status (2026-03-30):**
+**Documentation status (2026-06-09):**
+- `aqmh.*` fully documented (all 4 sub-blocks: `pyramid`, `storage`, `cherry_pick`, `diagnostics`).
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -30,6 +31,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
+12b. [AQMH (Adaptive Quality Map Harvesting)](#12b-aqmh-adaptive-quality-map-harvesting) **NEW**
 13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer (automatic phase)](#15-debayer-automatic-phase)
@@ -987,6 +989,218 @@ Local quality metrics.
 | **Default** | `1.0` |
 
 **Purpose:** Exponent scale for local weight `L_{f,t} = exp(k_local * Q_local)`. Default `1.0`; values `> 1` increase local differentiation, `< 1` soften it. Symmetric to `global_metrics.weight_exponent_scale`.
+
+---
+
+## 12b. AQMH (Adaptive Quality Map Harvesting)
+
+AQMH is an independent, per-pixel reconstruction path that can replace the tile-based OLA stacking. For each frame a quality map is computed combining sharpness and SNR information. Reconstruction is performed as a per-pixel weighted average using AQMH weights.
+
+> **Experimental.** When `aqmh.enabled: true`, AQMH fully replaces the tile-OLA reconstruction. Logs appear under `[AQMH]`.
+
+### `aqmh.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enables the AQMH reconstruction path. When `false`, the classic tile-OLA reconstruction is used.
+
+---
+
+### `aqmh.pyramid.*` — Pyramid quality metrics
+
+Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
+
+#### `aqmh.pyramid.scales`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | 1 – 8 |
+| **Default** | `4` |
+
+**Purpose:** Number of pyramid levels for the multi-scale analysis. More levels capture more spatial frequencies at the cost of compute time.
+
+---
+
+#### `aqmh.pyramid.base_window_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | 1 |
+| **Default** | `4` |
+
+**Purpose:** Window size in pixels at the lowest pyramid level for local metric computation.
+
+---
+
+#### `aqmh.pyramid.w_sharp`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | 0 |
+| **Default** | `0.6` |
+
+**Purpose:** Weight of the sharpness metric in the combined quality index `Q = w_sharp * Q_sharp + w_snr * Q_snr`. Together with `w_snr` it controls the relative importance of sharpness vs. SNR.
+
+---
+
+#### `aqmh.pyramid.w_snr`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | 0 |
+| **Default** | `0.4` |
+
+**Purpose:** Weight of the SNR metric in the combined quality index. Increase for heavily noisy data with large inter-frame quality spread.
+
+---
+
+#### `aqmh.pyramid.k_artifact`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >0 |
+| **Default** | `3.0` |
+
+**Purpose:** MAD multiplier for artifact detection. Pixels whose local variance exceeds `k_artifact * MAD` are flagged as artifacts and receive reduced AQMH weight.
+
+- **Higher (e.g. 7–10):** More tolerant of outliers — more pixels receive normal weight
+- **Lower (e.g. 3–4):** More aggressive artifact suppression
+
+---
+
+#### `aqmh.pyramid.frac_artifact_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Purpose:** Maximum tolerated artifact fraction per evaluation window. Windows with more artifacts than `frac_artifact_max` are discarded entirely (no AQMH contribution).
+
+- **Increase (e.g. 0.30–0.40):** When known tolerable artifacts are present (e.g. satellite trails)
+- **Decrease:** Stricter quality gates
+
+---
+
+### `aqmh.storage.*` — Quality map storage
+
+#### `aqmh.storage.resolution_divisor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Values** | `1`, `2`, `4` |
+| **Default** | `2` |
+
+**Purpose:** Resolution reduction factor for stored quality maps. `2` = half resolution (recommended, reduces storage by factor 4). `1` = full resolution.
+
+---
+
+#### `aqmh.storage.dtype`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `float32`, `uint8` |
+| **Default** | `"float32"` |
+
+**Purpose:** Data type for cached quality maps. `float32` is precise; `uint8` saves disk space (8-bit quantisation of quality values).
+
+---
+
+#### `aqmh.storage.max_resident_maps`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | 0 – 16 |
+| **Default** | `2` |
+
+**Purpose:** Maximum number of quality maps held simultaneously in RAM. Caps memory use during streaming operation. `0` = unlimited.
+
+---
+
+### `aqmh.cherry_pick.*` — Frame selection
+
+#### `aqmh.cherry_pick.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enables selective stacking — only the highest-quality frames are used for AQMH reconstruction. Useful for large datasets with strongly varying quality (e.g. sessions interrupted by clouds).
+
+---
+
+#### `aqmh.cherry_pick.k_min`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | 1 |
+| **Default** | `3` |
+
+**Purpose:** Minimum number of frames always included even in cherry-pick mode. Prevents under-determination on small datasets.
+
+---
+
+#### `aqmh.cherry_pick.k_frac`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.30` |
+
+**Purpose:** Fraction of best frames (sorted by AQMH quality) used for cherry-pick stacking. `0.30` = best 30% of frames.
+
+---
+
+### `aqmh.diagnostics.*` — Diagnostic outputs
+
+#### `aqmh.diagnostics.tau_artifact`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.20` |
+
+**Purpose:** Threshold for artifact diagnostics written to `artifacts/aqmh.json`. Pixels with artifact probability > `tau_artifact` are flagged as problematic in the diagnostic output.
+
+---
+
+#### `aqmh.diagnostics.q_region`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.75` |
+
+**Purpose:** Quantile for regional quality statistics in the AQMH diagnostic output. `0.75` = 75th percentile of quality values.
+
+---
+
+#### `aqmh.diagnostics.r_morph_canvas_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | 1 |
+| **Default** | `6` |
+
+**Purpose:** Morphological radius in canvas pixels for the regional diagnostic map. Controls spatial smoothing when generating the diagnostic quality-map overview.
 
 ---
 

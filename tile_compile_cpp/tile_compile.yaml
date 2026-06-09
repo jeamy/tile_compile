@@ -1,3 +1,12 @@
+aqmh:
+  cherry_pick:
+    enabled: true
+    k_frac: 0.5
+    k_min: 10
+  enabled: true
+  pyramid:
+    frac_artifact_max: 0.25
+    k_artifact: 3
 assumptions:
   frames_min: 30
   frames_reduced_threshold: 120
@@ -6,8 +15,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/lux/.local/share/tile_compile/astap
+  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/mux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:
@@ -123,7 +132,7 @@ hypermetric_stretch:
   require_successful_pcc: true
   sensor_profile: rec709
   shadow_convergence: 0
-  target_bg: 0.15
+  target_bg: 0.12
   write_channels: false
 input:
   max_frames: 0

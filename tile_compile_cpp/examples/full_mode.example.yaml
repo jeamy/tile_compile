@@ -261,6 +261,28 @@ hypermetric_stretch:
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 
+aqmh:
+  enabled: true # Experimentell: ersetzt Tile-OLA durch pixelgenaue AQMH-Rekonstruktion
+  pyramid:
+    scales: 4            # Pyramidenstufen fuer Multiskalenanalyse
+    base_window_px: 4    # Fenstergrösse auf unterster Pyramidenstufe
+    w_sharp: 0.6         # Gewicht Schaerfe-Metrik im Qualitaetsindex
+    w_snr: 0.4           # Gewicht SNR-Metrik im Qualitaetsindex
+    k_artifact: 3.0      # MAD-Multiplikator Artefakt-Erkennung (hoeher = toleranter)
+    frac_artifact_max: 0.25 # max. Artefaktanteil pro Fenster (0.30-0.40 bei Satellitenspuren)
+  storage:
+    resolution_divisor: 2   # 1|2|4 – halbe Aufloesung empfohlen (RAM-Einsparung x4)
+    dtype: float32          # float32|uint8
+    max_resident_maps: 2    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
+  cherry_pick:
+    enabled: false  # true: nur beste k_frac*N Frames stacken
+    k_min: 3        # Mindestanzahl Frames im Cherry-Pick-Modus
+    k_frac: 0.30    # Anteil bester Frames (0.30 = beste 30%)
+  diagnostics:
+    tau_artifact: 0.20      # Schwelle fuer Artefakt-Diagnose in artifacts/aqmh.json
+    q_region: 0.75          # Quantil fuer regionale Qualitaetsstatistiken
+    r_morph_canvas_px: 6    # Morphologischer Radius fuer diagnostische Qualitaetskarte
+
 stacking:
   method: rej # rej|average
   sigma_clip:

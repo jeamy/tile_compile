@@ -47,6 +47,17 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `reject_scale_max`
   - rejected registration frames are logged as `warning` events in
     `logs/run_events.jsonl` and summarized in `phase_end(REGISTRATION)` extras.
+- `aqmh.*` (Adaptive Quality Map Harvesting, Experimentell)
+  - **Experimentell**: ersetzt die Tile-OLA-Rekonstruktion durch einen unabhängigen, pixelgenauen AQMH-Pfad.
+  - Für jeden Frame wird eine Qualitätskarte (Schärfe + SNR, Laplacian-Pyramide) berechnet.
+  - `aqmh.enabled: true` aktiviert AQMH; `false` fällt auf klassisches Tile-OLA zurück.
+  - `pyramid.*`: steuert Pyramidenstufen, Fenstergröße, Gewichtung Schärfe/SNR, Artefakt-Gate.
+    - `k_artifact`: MAD-Multiplikator — höher = toleranter gegenüber Ausreißern (Default 5.0)
+    - `frac_artifact_max`: max. Artefaktanteil pro Fenster (auf 0.30–0.40 erhöhen bei Satellitenspuren)
+  - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint8), `max_resident_maps` — RAM-Budget für Quality-Map-Cache.
+  - `cherry_pick.*`: selektives Stacking — nur beste `k_frac` Frames (Default disabled; `k_min` schützt vor Unterbestimmung).
+  - `diagnostics.*`: Schwellen für `artifacts/aqmh.json` Diagnose-Output.
+  - Logs erscheinen unter `[AQMH]`; Ergebnis in `artifacts/aqmh.json`.
 - `bge.*` (Background Gradient Extraction, v3.3 §6.3)
   - **NEW in v3.3**: Optional pre-PCC background gradient removal
   - Removes large-scale gradients (light pollution, moonlight, airglow) before color calibration

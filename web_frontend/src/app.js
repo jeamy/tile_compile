@@ -4070,6 +4070,24 @@ function createEmptyRunPhaseSnapshot() {
   return snapshot;
 }
 
+const CLASSIC_ONLY_PHASES = ["STATE_CLUSTERING", "SYNTHETIC_FRAMES"];
+
+function isAqmhEnabled() {
+  const config = uiState.configObject;
+  if (!config || typeof config !== "object") return true;
+  const aqmhEnabled = config?.aqmh?.enabled;
+  if (typeof aqmhEnabled === "boolean") return aqmhEnabled;
+  if (typeof aqmhEnabled === "string") return aqmhEnabled.toLowerCase() === "true";
+  return true;
+}
+
+function getEffectivePhaseOrder() {
+  if (isAqmhEnabled()) {
+    return RUN_MONITOR_PHASE_ORDER.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase));
+  }
+  return RUN_MONITOR_PHASE_ORDER;
+}
+
 function normalizeRunMonitorPhaseName(raw) {
   return String(raw || "").trim().toUpperCase();
 }
@@ -4101,7 +4119,7 @@ function phaseStateBadgeText(statusRaw) {
 
 function orderedRunPhaseEntries(snapshotRaw) {
   const snapshot = snapshotRaw && typeof snapshotRaw === "object" ? snapshotRaw : {};
-  return RUN_MONITOR_PHASE_ORDER.map((phase) => {
+  return getEffectivePhaseOrder().map((phase) => {
     const entry = snapshot[phase];
     return {
       phase,
@@ -4157,10 +4175,11 @@ function updateRunPhaseSnapshot(runIdRaw, phaseNameRaw, status, pctRaw) {
 
 function syntheticRunPhaseEntries(stateRaw) {
   const state = String(stateRaw || "pending").trim().toLowerCase();
+  const phaseOrder = getEffectivePhaseOrder();
   if (["ok", "completed", "done", "finished"].includes(state)) {
-    return RUN_MONITOR_PHASE_ORDER.map((phase) => ({ phase, status: "done", pct: 100 }));
+    return phaseOrder.map((phase) => ({ phase, status: "done", pct: 100 }));
   }
-  return RUN_MONITOR_PHASE_ORDER.map((phase) => ({ phase, status: "pending", pct: 0 }));
+  return phaseOrder.map((phase) => ({ phase, status: "pending", pct: 0 }));
 }
 
 function findRunMonitorPhaseRow(runIdRaw, phaseNameRaw) {

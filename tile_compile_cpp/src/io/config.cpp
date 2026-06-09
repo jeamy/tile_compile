@@ -539,6 +539,58 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.local_metrics.k_local = lm["k_local"].as<float>();
   }
 
+  if (node["aqmh"]) {
+    auto a = node["aqmh"];
+    if (a["enabled"])
+      cfg.aqmh.enabled = a["enabled"].as<bool>();
+    if (a["pyramid"]) {
+      auto p = a["pyramid"];
+      if (p["scales"])
+        cfg.aqmh.pyramid.scales = p["scales"].as<int>();
+      if (p["base_window_px"])
+        cfg.aqmh.pyramid.base_window_px = p["base_window_px"].as<int>();
+      if (p["w_sharp"])
+        cfg.aqmh.pyramid.w_sharp = p["w_sharp"].as<float>();
+      if (p["w_snr"])
+        cfg.aqmh.pyramid.w_snr = p["w_snr"].as<float>();
+      if (p["k_artifact"])
+        cfg.aqmh.pyramid.k_artifact = p["k_artifact"].as<float>();
+      if (p["frac_artifact_max"])
+        cfg.aqmh.pyramid.frac_artifact_max =
+            p["frac_artifact_max"].as<float>();
+    }
+    if (a["storage"]) {
+      auto s = a["storage"];
+      if (s["resolution_divisor"])
+        cfg.aqmh.storage.resolution_divisor =
+            s["resolution_divisor"].as<int>();
+      if (s["dtype"])
+        cfg.aqmh.storage.dtype = s["dtype"].as<std::string>();
+      if (s["max_resident_maps"])
+        cfg.aqmh.storage.max_resident_maps =
+            s["max_resident_maps"].as<int>();
+    }
+    if (a["cherry_pick"]) {
+      auto cp = a["cherry_pick"];
+      if (cp["enabled"])
+        cfg.aqmh.cherry_pick.enabled = cp["enabled"].as<bool>();
+      if (cp["k_min"])
+        cfg.aqmh.cherry_pick.k_min = cp["k_min"].as<int>();
+      if (cp["k_frac"])
+        cfg.aqmh.cherry_pick.k_frac = cp["k_frac"].as<float>();
+    }
+    if (a["diagnostics"]) {
+      auto d = a["diagnostics"];
+      if (d["tau_artifact"])
+        cfg.aqmh.diagnostics.tau_artifact = d["tau_artifact"].as<float>();
+      if (d["q_region"])
+        cfg.aqmh.diagnostics.q_region = d["q_region"].as<float>();
+      if (d["r_morph_canvas_px"])
+        cfg.aqmh.diagnostics.r_morph_canvas_px =
+            d["r_morph_canvas_px"].as<int>();
+    }
+  }
+
   if (node["synthetic"]) {
     auto s = node["synthetic"];
     if (s["weighting"])
@@ -1050,6 +1102,28 @@ YAML::Node Config::to_yaml() const {
   node["local_metrics"]["structure_mode"]["metric_weight"] =
       local_metrics.structure_mode.metric_weight;
 
+  node["aqmh"]["enabled"] = aqmh.enabled;
+  node["aqmh"]["pyramid"]["scales"] = aqmh.pyramid.scales;
+  node["aqmh"]["pyramid"]["base_window_px"] = aqmh.pyramid.base_window_px;
+  node["aqmh"]["pyramid"]["w_sharp"] = aqmh.pyramid.w_sharp;
+  node["aqmh"]["pyramid"]["w_snr"] = aqmh.pyramid.w_snr;
+  node["aqmh"]["pyramid"]["k_artifact"] = aqmh.pyramid.k_artifact;
+  node["aqmh"]["pyramid"]["frac_artifact_max"] =
+      aqmh.pyramid.frac_artifact_max;
+  node["aqmh"]["storage"]["resolution_divisor"] =
+      aqmh.storage.resolution_divisor;
+  node["aqmh"]["storage"]["dtype"] = aqmh.storage.dtype;
+  node["aqmh"]["storage"]["max_resident_maps"] =
+      aqmh.storage.max_resident_maps;
+  node["aqmh"]["cherry_pick"]["enabled"] = aqmh.cherry_pick.enabled;
+  node["aqmh"]["cherry_pick"]["k_min"] = aqmh.cherry_pick.k_min;
+  node["aqmh"]["cherry_pick"]["k_frac"] = aqmh.cherry_pick.k_frac;
+  node["aqmh"]["diagnostics"]["tau_artifact"] =
+      aqmh.diagnostics.tau_artifact;
+  node["aqmh"]["diagnostics"]["q_region"] = aqmh.diagnostics.q_region;
+  node["aqmh"]["diagnostics"]["r_morph_canvas_px"] =
+      aqmh.diagnostics.r_morph_canvas_px;
+
   node["synthetic"]["weighting"] = synthetic.weighting;
   node["synthetic"]["frames_min"] = synthetic.frames_min;
   node["synthetic"]["frames_max"] = synthetic.frames_max;
@@ -1488,6 +1562,54 @@ void Config::validate() const {
     throw ValidationError("local_metrics.k_local must be > 0");
   }
 
+  if (aqmh.pyramid.scales < 1 || aqmh.pyramid.scales > 8) {
+    throw ValidationError("aqmh.pyramid.scales must be in [1,8]");
+  }
+  if (aqmh.pyramid.base_window_px < 1) {
+    throw ValidationError("aqmh.pyramid.base_window_px must be >= 1");
+  }
+  if (aqmh.pyramid.w_sharp < 0.0f || aqmh.pyramid.w_snr < 0.0f ||
+      aqmh.pyramid.w_sharp + aqmh.pyramid.w_snr <= 0.0f) {
+    throw ValidationError(
+        "aqmh.pyramid.w_sharp and w_snr must be non-negative with positive sum");
+  }
+  if (aqmh.pyramid.k_artifact <= 0.0f) {
+    throw ValidationError("aqmh.pyramid.k_artifact must be > 0");
+  }
+  if (!is_between_0_1(aqmh.pyramid.frac_artifact_max) ||
+      aqmh.pyramid.frac_artifact_max <= 0.0f) {
+    throw ValidationError("aqmh.pyramid.frac_artifact_max must be in (0,1]");
+  }
+  if (aqmh.storage.resolution_divisor != 1 &&
+      aqmh.storage.resolution_divisor != 2 &&
+      aqmh.storage.resolution_divisor != 4) {
+    throw ValidationError("aqmh.storage.resolution_divisor must be 1, 2, or 4");
+  }
+  if (aqmh.storage.dtype != "float32" && aqmh.storage.dtype != "uint8") {
+    throw ValidationError("aqmh.storage.dtype must be 'float32' or 'uint8'");
+  }
+  if (aqmh.storage.max_resident_maps < 0 ||
+      aqmh.storage.max_resident_maps > 16) {
+    throw ValidationError("aqmh.storage.max_resident_maps must be in [0,16]");
+  }
+  if (aqmh.cherry_pick.k_min < 1) {
+    throw ValidationError("aqmh.cherry_pick.k_min must be >= 1");
+  }
+  if (!is_between_0_1(aqmh.cherry_pick.k_frac) ||
+      aqmh.cherry_pick.k_frac <= 0.0f) {
+    throw ValidationError("aqmh.cherry_pick.k_frac must be in (0,1]");
+  }
+  if (!is_between_0_1(aqmh.diagnostics.tau_artifact)) {
+    throw ValidationError("aqmh.diagnostics.tau_artifact must be in [0,1]");
+  }
+  if (!is_between_0_1(aqmh.diagnostics.q_region)) {
+    throw ValidationError("aqmh.diagnostics.q_region must be in [0,1]");
+  }
+  if (aqmh.diagnostics.r_morph_canvas_px < 1) {
+    throw ValidationError(
+        "aqmh.diagnostics.r_morph_canvas_px must be >= 1");
+  }
+
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
     throw ValidationError(
         "assumptions.frames_reduced_threshold must be >= assumptions.frames_min "
@@ -1884,6 +2006,12 @@ std::string get_schema_json() {
                       "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0},"tau_local":{"type":"number","exclusiveMinimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
+    "aqmh": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8},"base_window_px":{"type":"integer","minimum":1},"w_sharp":{"type":"number","minimum":0},"w_snr":{"type":"number","minimum":0},"k_artifact":{"type":"number","exclusiveMinimum":0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
+                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
+                      "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean"},"k_min":{"type":"integer","minimum":1},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
+                      "diagnostics":{"type":"object","properties":{"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
     "synthetic": { "type":"object",
       "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
                       "frames_min":{"type":"integer","minimum":1},

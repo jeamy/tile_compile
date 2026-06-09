@@ -4,8 +4,9 @@
 
 This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
 
-## Update Status (2026-03-30)
+## Update Status (2026-06-09)
 
+- AQMH (`aqmh.*`) fully documented with practical examples.
 - HyperMetric Stretch (`hypermetric_stretch.*`) is documented as an optional post-PCC phase with `ready_to_use` and `scientific` modes.
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
 - New BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented.
@@ -30,6 +31,78 @@ registration:
 stacking:
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
+```
+
+---
+
+## AQMH (Adaptive Quality Map Harvesting) - Experimental
+
+**When to enable:**
+- High-quality sessions with strongly varying frame quality (seeing, clouds)
+- When tile seams or OLA artifacts are visible
+- As an alternative to the classic tile-OLA reconstruction
+
+**Standard configuration (recommended):**
+
+```yaml
+aqmh:
+  enabled: true
+  pyramid:
+    scales: 4
+    base_window_px: 4
+    w_sharp: 0.6        # sharpness weight in quality index
+    w_snr: 0.4          # SNR weight in quality index
+    k_artifact: 3.0     # MAD multiplier for artifact detection
+    frac_artifact_max: 0.25  # max artifact fraction per window
+  storage:
+    resolution_divisor: 2   # half-resolution for quality map cache
+    dtype: float32
+    max_resident_maps: 2
+  cherry_pick:
+    enabled: false
+  diagnostics:
+    tau_artifact: 0.20
+    q_region: 0.75
+    r_morph_canvas_px: 6
+```
+
+**More tolerant of artifacts (satellites, clouds):**
+
+```yaml
+aqmh:
+  enabled: true
+  pyramid:
+    k_artifact: 5.0
+    frac_artifact_max: 0.35
+```
+
+**Cherry-pick mode (stack only best 30% of frames):**
+
+```yaml
+aqmh:
+  enabled: true
+  cherry_pick:
+    enabled: true
+    k_min: 5      # include at least 5 frames
+    k_frac: 0.30  # best 30%
+```
+
+**Memory-efficient (large sessions, limited RAM):**
+
+```yaml
+aqmh:
+  enabled: true
+  storage:
+    resolution_divisor: 4   # quarter-resolution maps
+    dtype: uint8            # 8-bit quantisation
+    max_resident_maps: 2
+```
+
+**Disable AQMH (revert to classic tile-OLA):**
+
+```yaml
+aqmh:
+  enabled: false
 ```
 
 ---

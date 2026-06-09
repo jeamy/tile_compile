@@ -13,6 +13,7 @@
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
@@ -1705,6 +1706,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::vector<float> tile_mean_dy;
   std::vector<float> tile_quality_median;
   std::vector<uint8_t> tile_is_star;
+  std::unique_ptr<tile_compile::metrics::QualityMapCache> aqmh_cache;
   std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
   Matrix2Df recon;
   Matrix2Df recon_R;
@@ -2057,7 +2059,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             tile_common_valid,
             prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
             false, emitter, log_file, local_metrics, local_weights,
-            tile_quality_median, tile_is_star, tile_fwhm_median,
+            tile_quality_median, tile_is_star, tile_fwhm_median, aqmh_cache,
             canvas_tile_offset_x, canvas_tile_offset_y)) {
       return 1;
     }
@@ -2159,6 +2161,113 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
+
+    runner::SyntheticWeightingDecision synthetic_weighting_decision;
+    synthetic_weighting_decision.requested_weighting = cfg.synthetic.weighting;
+    synthetic_weighting_decision.effective_weighting =
+        cfg.aqmh.enabled ? "global" : cfg.synthetic.weighting;
+    const auto tile_window_cache = build_tile_window_cache(tiles_phase56);
+    const float eps_ws = kEpsWeightSum;
+
+    if (cfg.aqmh.enabled) {
+      if (!aqmh_cache) {
+        const std::string err =
+            "AQMH enabled but AQMH quality-map cache is unavailable";
+        cv::setNumThreads(prev_cv_threads_recon);
+        emitter.phase_end(run_id, Phase::TILE_RECONSTRUCTION, "error",
+                          {{"error", err}}, log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error during AQMH TILE_RECONSTRUCTION: " << err
+                  << std::endl;
+        return 1;
+      }
+
+      reconstruction::AqmhReconstructionConfig aqmh_recon_cfg;
+      aqmh_recon_cfg.sigma_low = cfg.stacking.sigma_clip.sigma_low;
+      aqmh_recon_cfg.sigma_high = cfg.stacking.sigma_clip.sigma_high;
+      aqmh_recon_cfg.min_fraction = cfg.stacking.sigma_clip.min_fraction;
+      aqmh_recon_cfg.eps_weight = kEpsWeight;
+
+      auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &out) -> bool {
+        if (fi >= frames.size() || fi >= frame_has_data.size() ||
+            frame_has_data[fi] == 0u) {
+          return false;
+        }
+        out = prewarped_frames.load(fi);
+        return out.rows() == canvas_height && out.cols() == canvas_width;
+      };
+
+      std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
+                << frames.size() << " frame slots" << std::endl;
+      const auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+          frames.size(), aqmh_frame_loader, aqmh_cache.get(), global_weights,
+          common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg);
+
+      recon = aqmh_recon.output;
+      weight_sum = aqmh_recon.weight_sum;
+      if (osc_mode) {
+        // AQMH currently reconstructs the registered mosaic/luma stream. Leave
+        // RGB planes empty so DEBAYER uses the normal mosaic debayer fallback.
+        recon_R.resize(0, 0);
+        recon_G.resize(0, 0);
+        recon_B.resize(0, 0);
+      }
+
+      cv::setNumThreads(prev_cv_threads_recon);
+
+      const auto aqmh_cache_stats = aqmh_cache->stats();
+      core::json artifact;
+      artifact["method"] = "aqmh";
+      artifact["num_frames"] = static_cast<int>(frames.size());
+      artifact["canvas_width"] = canvas_width;
+      artifact["canvas_height"] = canvas_height;
+      artifact["map_stream_id"] = aqmh_cache->map_stream_id();
+      artifact["cache_dir"] = aqmh_cache->cache_dir().string();
+      artifact["unsupported_pixels"] = aqmh_recon.unsupported_pixels;
+      artifact["zero_veto_pixels"] = aqmh_recon.zero_veto_pixels;
+      artifact["finite_map_samples"] = aqmh_recon.finite_map_samples;
+      artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
+      artifact["sigma_low"] = aqmh_recon_cfg.sigma_low;
+      artifact["sigma_high"] = aqmh_recon_cfg.sigma_high;
+      artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;
+      artifact["eps_weight"] = aqmh_recon_cfg.eps_weight;
+      artifact["classic_tile_weights_used"] = false;
+      artifact["fallback_to_classic"] = false;
+      artifact["cache_stats"] = {
+          {"bytes_written", aqmh_cache_stats.bytes_written},
+          {"bytes_read", aqmh_cache_stats.bytes_read},
+          {"write_count", aqmh_cache_stats.write_count},
+          {"read_count", aqmh_cache_stats.read_count},
+          {"cache_hits", aqmh_cache_stats.cache_hits},
+          {"cache_misses", aqmh_cache_stats.cache_misses},
+          {"max_resident_maps_observed",
+           static_cast<uint64_t>(aqmh_cache_stats.max_resident_maps_observed)}};
+      core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
+                       artifact.dump(2));
+
+      emitter.phase_end(
+          run_id, Phase::TILE_RECONSTRUCTION, "ok",
+          {
+              {"method", "aqmh"},
+              {"duration_s",
+               std::chrono::duration<double>(
+                   std::chrono::steady_clock::now() -
+                   tile_reconstruction_started_at)
+                   .count()},
+              {"output",
+               (run_dir / "outputs" / "reconstructed_L.fit").string()},
+              {"unsupported_pixels", aqmh_recon.unsupported_pixels},
+              {"zero_veto_pixels", aqmh_recon.zero_veto_pixels},
+              {"missing_map_samples", aqmh_recon.missing_map_samples},
+              {"classic_tile_weights_used", false},
+          },
+          log_file);
+      weight_sum.resize(0, 0);
+      first_img.resize(0, 0);
+      if (abort_if_runtime_limit_exceeded("TILE_RECONSTRUCTION")) {
+        return 1;
+      }
+    } else {
 
     // Parallel processing configuration
     int parallel_tiles = cfg.runtime_limits.parallel_workers;
@@ -2277,7 +2386,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
-    const auto tile_window_cache = build_tile_window_cache(tiles_phase56);
     const auto tile_ola_coeff_cache = build_tile_ola_coeff_cache(
         tiles_phase56, tile_window_cache, common_valid_mask, canvas_width,
         canvas_height);
@@ -3174,7 +3282,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     cv::setNumThreads(prev_cv_threads_recon);
 
     bool overlap_normalized_on_device = false;
-    const float eps_ws = kEpsWeightSum;
     const float invalid_ws = std::numeric_limits<float>::quiet_NaN();
     if (osc_mode) {
       const bool norm_r = tile_reconstruction_ops.normalize_overlap_accum(
@@ -3528,15 +3635,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                        artifact.dump(2));
     }
 
-    const auto synthetic_weighting_decision =
-        runner::decide_synthetic_weighting(
-            cfg.synthetic.weighting,
-            static_cast<int>(boundary_diagnostics_raw.observed_pair_count),
-            boundary_diagnostics_raw.pair_mean_abs_diff_p95,
-            boundary_diagnostics_raw.pair_scale_ratio_deviation_p95,
-            boundary_post_background_delta_p95_abs,
-            boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95,
-            boundary_weight_profile_diagnostics.pair_correlation_p05);
+    synthetic_weighting_decision = runner::decide_synthetic_weighting(
+        cfg.synthetic.weighting,
+        static_cast<int>(boundary_diagnostics_raw.observed_pair_count),
+        boundary_diagnostics_raw.pair_mean_abs_diff_p95,
+        boundary_diagnostics_raw.pair_scale_ratio_deviation_p95,
+        boundary_post_background_delta_p95_abs,
+        boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95,
+        boundary_weight_profile_diagnostics.pair_correlation_p05);
     if (synthetic_weighting_decision.tile_seam_guard_triggered) {
       std::ostringstream msg;
       msg << "SYNTHETIC_FRAMES seam guard: fallback tile_weighted -> global"
@@ -3602,6 +3708,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (abort_if_runtime_limit_exceeded("TILE_RECONSTRUCTION")) {
       return 1;
     }
+    }
 
     // Phase 7: STATE_CLUSTERING (// Methodik v3 §10)
     emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
@@ -3615,7 +3722,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     int synthetic_skip_eligible_clusters = 0;
     std::vector<int> cluster_labels(static_cast<size_t>(frames.size()), 0);
     int n_clusters = 1;
-    if (skip_clustering_in_reduced) {
+    const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
+    if (skip_clustering_for_aqmh) {
+      use_synthetic_frames = false;
+      synthetic_skip_reason = "aqmh_independent_reconstruction";
+      emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
+                        {{"reason", synthetic_skip_reason},
+                         {"method", "aqmh"}},
+                        log_file);
+    } else if (skip_clustering_in_reduced) {
       use_synthetic_frames = false;
       synthetic_skip_reason = emergency_mode ? "emergency_mode"
                                              : "reduced_mode";
@@ -3628,7 +3743,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         log_file);
     }
 
-    if (!skip_clustering_in_reduced) {
+    if (!skip_clustering_in_reduced && !skip_clustering_for_aqmh) {
       // Build state vectors for clustering (v3.2 core vector):
       // [G_f, mean_local_quality, var_local_quality, B_f, sigma_f]
       const int n_frames_cluster = static_cast<int>(frames.size());
@@ -4586,7 +4701,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (cfg.stacking.cosmetic_correction) {
       const float cosmetic_sigma = cfg.stacking.cosmetic_correction_sigma;
       recon = image::cosmetic_correction(recon, cosmetic_sigma, true);
-      if (detected_mode == ColorMode::OSC) {
+      const bool have_rgb_recon =
+          detected_mode == ColorMode::OSC && recon_R.size() == recon.size() &&
+          recon_G.size() == recon.size() && recon_B.size() == recon.size() &&
+          recon_R.size() > 0;
+      if (have_rgb_recon) {
         recon_R = image::cosmetic_correction(recon_R, cosmetic_sigma, true);
         recon_G = image::cosmetic_correction(recon_G, cosmetic_sigma, true);
         recon_B = image::cosmetic_correction(recon_B, cosmetic_sigma, true);
@@ -4594,7 +4713,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+        cfg.chroma_denoise.apply_stage == "post_stack_linear" &&
+        recon_R.size() == recon.size() && recon_G.size() == recon.size() &&
+        recon_B.size() == recon.size() && recon_R.size() > 0) {
       reconstruction::chroma_denoise_rgb_inplace(
           recon_R, recon_G, recon_B, cfg.chroma_denoise);
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;

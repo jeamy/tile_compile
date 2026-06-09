@@ -4,8 +4,9 @@
 
 Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.3.
 
-## Änderungsstand (2026-03-30)
+## Änderungsstand (2026-06-09)
 
+- AQMH (`aqmh.*`) vollständig dokumentiert und mit praktischen Beispielen versehen.
 - HyperMetric Stretch (`hypermetric_stretch.*`) ist als optionale Post-PCC-Phase mit `ready_to_use`- und `scientific`-Modus dokumentiert.
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
 - Neue BGE-Apply-Grenzwerte `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` dokumentiert.
@@ -30,6 +31,78 @@ registration:
 stacking:
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
+```
+
+---
+
+## AQMH (Adaptive Quality Map Harvesting) - Experimentell
+
+**Wann aktivieren:**
+- Hochwertige Sessions mit stark variierender Frame-Qualität (Seeing, Wolken)
+- Wenn Tile-Seams oder OLA-Artefakte sichtbar sind
+- Als Alternative zur klassischen Tile-OLA-Rekonstruktion
+
+**Standard-Konfiguration (empfohlen):**
+
+```yaml
+aqmh:
+  enabled: true
+  pyramid:
+    scales: 4
+    base_window_px: 4
+    w_sharp: 0.6        # Schärfe-Gewicht im Qualitätsindex
+    w_snr: 0.4          # SNR-Gewicht im Qualitätsindex
+    k_artifact: 3.0     # MAD-Multiplikator für Artefakt-Erkennung
+    frac_artifact_max: 0.25  # max. Artefaktanteil pro Fenster
+  storage:
+    resolution_divisor: 2   # halbe Auflösung für Qualitätskarten-Cache
+    dtype: float32
+    max_resident_maps: 2
+  cherry_pick:
+    enabled: false
+  diagnostics:
+    tau_artifact: 0.20
+    q_region: 0.75
+    r_morph_canvas_px: 6
+```
+
+**Toleranter gegenüber Artefakten (Satelliten, Wolken):**
+
+```yaml
+aqmh:
+  enabled: true
+  pyramid:
+    k_artifact: 5.0
+    frac_artifact_max: 0.35
+```
+
+**Cherry-Pick-Modus (nur beste 30% der Frames stacken):**
+
+```yaml
+aqmh:
+  enabled: true
+  cherry_pick:
+    enabled: true
+    k_min: 5      # mindestens 5 Frames
+    k_frac: 0.30  # beste 30%
+```
+
+**Speichersparend (große Sessions, RAM-knapp):**
+
+```yaml
+aqmh:
+  enabled: true
+  storage:
+    resolution_divisor: 4   # Viertel-Auflösung für Maps
+    dtype: uint8            # 8-bit Quantisierung
+    max_resident_maps: 2
+```
+
+**AQMH deaktivieren (zurück zu klassischer Tile-OLA):**
+
+```yaml
+aqmh:
+  enabled: false
 ```
 
 ---

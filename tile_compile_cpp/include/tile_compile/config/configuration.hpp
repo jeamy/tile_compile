@@ -233,6 +233,41 @@ struct LocalMetricsConfig {
   float k_local = 1.0f; // §5.5.6: L_{f,t} = exp(k_local * Q^local), symmetric with k_global
 };
 
+struct AqmhPyramidConfig {
+  int scales = 4;
+  int base_window_px = 4;
+  float w_sharp = 0.6f;
+  float w_snr = 0.4f;
+  float k_artifact = 3.0f;
+  float frac_artifact_max = 0.25f;
+};
+
+struct AqmhStorageConfig {
+  int resolution_divisor = 2;
+  std::string dtype = "float32";
+  int max_resident_maps = 2;
+};
+
+struct AqmhDiagnosticsConfig {
+  float tau_artifact = 0.20f;
+  float q_region = 0.75f;
+  int r_morph_canvas_px = 6;
+};
+
+struct AqmhCherryPickConfig {
+  bool enabled = false;
+  int k_min = 3;
+  float k_frac = 0.30f;
+};
+
+struct AqmhConfig {
+  bool enabled = true;
+  AqmhPyramidConfig pyramid;
+  AqmhStorageConfig storage;
+  AqmhCherryPickConfig cherry_pick;
+  AqmhDiagnosticsConfig diagnostics;
+};
+
 struct SyntheticConfig {
   struct ClusteringConfig {
     std::string mode = "kmeans";
@@ -419,6 +454,7 @@ struct Config {
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
   LocalMetricsConfig local_metrics;
+  AqmhConfig aqmh;
   SyntheticConfig synthetic;
   AstrometryConfig astrometry;
   BGEConfig bge;

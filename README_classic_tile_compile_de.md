@@ -1,111 +1,26 @@
 # Tile-Compile
 
-Tile-Compile ist ein Toolkit für hochwertige astronomische Bildrekonstruktion aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen. Die Standard-Rekonstruktionsmethode ist **AQMH (Adaptive Quality Map Harvesting)** — ein pixelgenauer, qualitätskarten-basierter Ansatz, der das tile-basierte Overlap-Add-Stacking durch einen physikalisch optimalen pixelweisen gewichteten Mittelwert ersetzt.
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer image stacks (Methodik v3.3).
 
-> **Classic Tile-Compile (TBQR):** Die ursprüngliche tile-basierte Qualitätsrekonstruktions-Methodik ist weiterhin verfügbar und vollständig unterstützt. Siehe [Classic Tile-Compile README (EN)](README_classic_tile_compile_en.md) und [Classic Tile-Compile README (DE)](README_classic_tile_compile_de.md). Mit `aqmh.enabled: false` wird auf die klassische TILE_RECONSTRUCTION zurückgefügt.
+Wir stellen eine neuartige Methodik zur Rekonstruktion hochwertiger astronomischer Bilder aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen vor. Konventionelle Stacking-Methoden beruhen häufig auf einer binären Frame-Auswahl ("Lucky Imaging"), wodurch erhebliche Teile der gesammelten Frames verworfen werden. Unser Ansatz, **Tile-Based Quality Reconstruction (TBQR)**, ersetzt diese starre Frame-Auswahl durch ein robustes räumlich-zeitliches Qualitätsmodell. Indem wir Frames in lokale Tiles zerlegen und die Qualität entlang zweier orthogonaler Achsen modellieren — globale atmosphärische Transparenz/Rauschen und lokale strukturelle Schärfe — rekonstruieren wir ein Signal, das an jedem Pixel physikalisch und statistisch optimal ist. Wir zeigen, dass diese Methode die volle photometrische Tiefe des Datensatzes bewahrt und zugleich eine überlegene Auflösungsverbesserung gegenüber traditionellen Referenz-Stacks erzielt.
+
+Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Herausforderungen von Kurzzeitbelichtungsdaten moderner Smart-Teleskope (z.B. DWARF, Seestar) zu adressieren, macht ihre architektonische Flexibilität sie ebenso leistungsfähig für konventionelle astronomische Setups. Der umfangreiche Satz abstimmbarer Parameter — von adaptiver Tile-Größe und Kreuzkorrelationsschwellen bis hin zu ausgefeilter Clustering-Logik — ermöglicht eine präzise Optimierung der Pipeline für ein breites Spektrum optischer Systeme und atmosphärischer Bedingungen.
+
+> **Praxis-Hinweis:** Die Pipeline ist in erster Linie für Datensätze mit vielen nutzbaren Frames optimiert. Bei sehr kleinen Frame-Anzahlen oder bei stark gemischter Frame-Qualität innerhalb eines Stacks können in schwierigen Fällen sichtbare Kachelmuster auftreten. Dem kann man häufig entgegenwirken, indem man verschiedene Konfigurationseinstellungen testet (insbesondere Parameter für Registrierung, Tile-Geometrie und Rekonstruktion). Siehe dazu die Beispielprofile unter `tile_compile_cpp/examples/` sowie `tile_compile_cpp/examples/README.md`.
 
 > **Hinweis:** Dies ist experimentelle Software, die primär für die Verarbeitung von Bildern von Smart-Teleskopen entwickelt wurde (z.B. DWARF, Seestar, ZWO SeeStar, usw.). Obwohl sie für die allgemeine astronomische Bildverarbeitung konzipiert ist, wurde sie für die spezifischen Eigenschaften und Herausforderungen von Smart-Teleskop-Daten optimiert.
 
-## AQMH — Adaptive Quality Map Harvesting (Standard)
+## Dokumentation (v3.3)
 
-AQMH ist ab v0.3.0 der Standard-Rekonstruktionspfad. Für jeden Eingabe-Frame wird eine **dichte Qualitätskarte** `Q_map_{f,c}(x,y)` mittels einer **4-stufigen Laplacian-Pyramide** berechnet, die Schärfe- und SNR-Metriken pixelgenau kombiniert. Das finale Bild wird als **pixelweiser gewichteter Mittelwert** rekonstruiert — effektives Gewicht `W = G_{f,c} * Q_map_{f,c}(x,y)`, wobei `G_{f,c}` das globale Frame-Gewicht aus der geteilten Vorverarbeitung ist. Kein Tile-Raster, keine OLA-Nähte.
-
-> **Normative Spezifikation:** [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
-
-### Funktionsweise
-
-```
-Für jeden Frame f, Kanal c:
-  Für jede Pyramidenstufe s (D_s = 4^s, Fenster R_s = 4 px in downskalierten Pixeln):
-    1. I_{f,c} um D_s herunterskalieren (maskenbasierter Flächenmittelwert)
-    2. Pro Fenster berechnen:
-         Phi_sharp    = lokale Varianz des maskierten Laplacian (Schärfe)
-         Phi_snr      = lokales SNR = mu / max(1.4826*MAD, eps)
-         Phi_artifact = 1 - clip(Ausreißer-Anteil / frac_artifact_max, 0, 1)
-    3. Psi_s = sigmoid(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr)) * Phi_artifact
-       (z = robuster z-Score; Artefakt-Gate multiplikativ — eine schlechte Stufe sperrt den Pixel)
-    4. Psi_s auf Canvas-Auflösung hochskalieren (maskenbasiertes bilineares Upsampling)
-  Q_map_{f,c} = geometrisches Mittel über alle Stufen(Psi_s)  # alle Stufen müssen zustimmen
-  Q_map im Disk-Cache ablegen (Standard: 1/4-Fläche float32)
-
-Rekonstruktion (pro canvas-gültigem Pixel p):
-  W_{f,c}(p) = G_{f,c} * Q_map_{f,c}(p)
-  R_c(p) = sum_f( W_{f,c}(p) * I_{f,c}(p) ) / sum_f( W_{f,c}(p) )
-```
-
-### Wichtigste Parameter (`aqmh.*`)
-
-| Parameter | Standard | Beschreibung |
-|-----------|----------|--------------|
-| `aqmh.enabled` | `true` | AQMH aktivieren (false = klassische TILE_RECONSTRUCTION) |
-| `aqmh.pyramid.scales` | `4` | Pyramidenstufen für Multiskalenanalyse |
-| `aqmh.pyramid.base_window_px` | `4` | Fenstergröße auf unterster Pyramidenstufe |
-| `aqmh.pyramid.w_sharp` | `0.6` | Schärfe-Gewicht im Qualitätsindex |
-| `aqmh.pyramid.w_snr` | `0.4` | SNR-Gewicht im Qualitätsindex |
-| `aqmh.pyramid.k_artifact` | `3.0` | MAD-Multiplikator für Artefakt-Erkennung (höher = toleranter) |
-| `aqmh.pyramid.frac_artifact_max` | `0.25` | Max. Artefaktanteil pro Fenster vor Verwerfen |
-| `aqmh.storage.resolution_divisor` | `2` | Auflösung Qualitätskarten-Cache (1/2/4) |
-| `aqmh.storage.dtype` | `float32` | Cache-Datentyp (`float32` oder `uint8`) |
-| `aqmh.storage.max_resident_maps` | `2` | Max. gleichzeitig im RAM gehaltene Qualitätskarten |
-| `aqmh.cherry_pick.enabled` | `false` | Nur beste Frames stacken |
-| `aqmh.cherry_pick.k_frac` | `0.30` | Anteil bester Frames (0.30 = beste 30%) |
-| `aqmh.cherry_pick.k_min` | `3` | Mindestanzahl immer einbezogener Frames |
-| `aqmh.diagnostics.tau_artifact` | `0.20` | Artefakt-Schwelle für `artifacts/aqmh.json` |
-| `aqmh.diagnostics.q_region` | `0.75` | Quantil für regionale Qualitätsstatistiken |
-| `aqmh.diagnostics.r_morph_canvas_px` | `6` | Morphologischer Radius für diagnostische Qualitätskarte |
-
-Vollständige Parameterdokumentation: [Konfigurationsreferenz — §12b AQMH](docs/configuration_reference.md)  
-Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md)  
-Normative Spezifikation: [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
-
-### Wann AQMH, wann Classic?
-
-| Situation | Empfehlung |
-|-----------|------------|
-| Standard / die meisten Sessions | **AQMH** (standardmäßig aktiv) |
-| Sichtbare Tile-Nähte oder OLA-Artefakte | **AQMH** eliminiert Nähte vollständig |
-| Stark variierende Frame-Qualität (Seeing, Wolken) | **AQMH** mit `cherry_pick.enabled: true` |
-| Große Sessions, RAM-begrenzt | **AQMH** mit `storage.resolution_divisor: 4`, `dtype: uint8` |
-| Satellitenspuren / kosmetische Probleme | **AQMH** mit `k_artifact: 5.0`, `frac_artifact_max: 0.35` |
-| Forschung mit TBQR Tile-gewichteter OLA | Classic (`aqmh.enabled: false`) |
-
-### Minimale AQMH-Konfiguration
-
-```yaml
-aqmh:
-  enabled: true          # Standard — kann weggelassen werden
-  pyramid:
-    k_artifact: 3.0      # Standard
-    frac_artifact_max: 0.25  # Standard
-```
-
-### AQMH deaktivieren (zurück zu Classic)
-
-```yaml
-aqmh:
-  enabled: false
-```
-
-## Dokumentation
-
-- **AQMH Methodik (normativ):** [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
-- **AQMH Parameterdokumentation:** [Konfigurationsreferenz — §12b AQMH](docs/configuration_reference.md)
-- **AQMH Praxisbeispiele:** [Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md)
-- Konfigurationsreferenz (vollständig): [Konfigurationsreferenz](docs/configuration_reference.md)
-- Englisches README: [English README](README.md)
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.9](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
+- Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](docs/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
+- Prozessfluss (Implementierung): [Process flow (German)](docs/process_flow/README_de.md)
+- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
 - GUI2 Paketierung und Start: [GUI2 README](packaging/gui2/README.md)
+- Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 - Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
-- Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
-
-### Classic Tile-Compile (TBQR) Dokumentation
-
-- Classic README (DE): [README_classic_tile_compile_de.md](README_classic_tile_compile_de.md)
-- Classic README (EN): [README_classic_tile_compile_en.md](README_classic_tile_compile_en.md)
-- Normative TBQR-Methodik: [Tile-Based Quality Reconstruction Methodology v3.3.9](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
-- Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](docs/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
-- Prozessfluss (Implementierung): [Process flow (German)](docs/process_flow/README_de.md)
 
 ## Datenquellen Für Das Paper-Beispiel
 
@@ -116,17 +31,15 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
 - Lights optional **kalibrieren** (Bias/Dark/Flat)
 - Frames mit robuster 6-stufiger Kaskade **registrieren**
-- **globale Qualitätsmetriken** berechnen (Transparenz, SNR, Gewichte)
-- **AQMH-Qualitätskarten** pro Frame berechnen (Schärfe + SNR, Laplacian-Pyramide)
-- Bild via **pixelweisem AQMH-gewichteten Mittelwert** (Standard) oder tile-gewichteter OLA (Classic) **rekonstruieren**
-- optional nur die besten Frames per **Cherry-Pick** für die AQMH-Rekonstruktion verwenden
-- optional Frame-„Zustände“ clustern und synthetische Frames erstellen
-- Ergebnis via **Sigma-Clip** oder gewichtetem Averaging **stacken**
+- **globale und lokale (Tile-)Qualitätsmetriken** berechnen
+- Bild via tile-gewichteter Overlap-Add-Rekonstruktion erzeugen
+- optional Frame-"Zustände" clustern und synthetische Frames erstellen
+- Ergebnis via **Sigma-Clip** stacken
 - OSC-Daten **debayern**
 - **Astrometrie** (ASTAP/WCS) ausführen
 - optionale **Background Gradient Extraction** (BGE, vor PCC) ausführen
 - **photometrische Farbkalibrierung** (PCC) anwenden
-- finale Ausgaben plus **Diagnose-Artefakte** (inkl. `artifacts/aqmh.json`) schreiben
+- finale Ausgaben plus **Diagnose-Artefakte** (JSON) schreiben
 
 ## Aktive Komponenten
 
@@ -138,7 +51,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
 ## Pipeline-Phasen
 
-Im praktischen Einsatz ist der Gesamtworkflow bewusst einfach gehalten: Eingabedaten und eine überschaubare Konfiguration angeben — die Pipeline arbeitet automatisch von der AQMH-Rekonstruktion über Astrometrie und BGE bis zum PCC-Endergebnis.
+Im praktischen Einsatz ist der Gesamtworkflow bewusst einfach gehalten: Nach der Auswahl der Eingabedaten und einiger überschaubarer Konfigurationsparameter arbeitet die Pipeline den Datensatz automatisch vom Stacking über Astrometrie und optionale Hintergrundbehandlung bis hin zum PCC-Endergebnis ab. Für einen normalen Lauf sind keine komplizierten manuellen Zwischenschritte erforderlich. Gleichzeitig bleibt das System bis ins Detail konfigurierbar, sodass sich jede Phase bei Bedarf sehr fein anpassen lässt, etwa für Registrierung, Tile-Geometrie, Rekonstruktion, Stacking oder die nachgelagerte Verarbeitung.
 
 | ID | Phase | Beschreibung |
 |----|-------|-------------|
@@ -148,10 +61,10 @@ Im praktischen Einsatz ist der Gesamtworkflow bewusst einfach gehalten: Eingabed
 | 3 | CHANNEL_SPLIT | Metadatenphase (Kanalmodell) |
 | 4 | NORMALIZATION | Lineare hintergrundbasierte Normalisierung |
 | 5 | GLOBAL_METRICS | Globale Frame-Metriken und Gewichte |
-| 6 | TILE_GRID | Adaptive Tile-Geometrie (wird von klassischer TILE_RECONSTRUCTION genutzt) |
+| 6 | TILE_GRID | Adaptive Tile-Geometrie |
 | 7 | COMMON_OVERLAP | Gemeinsamer datentragender Overlap (globale/tile-lokale Masken) |
-| 8 | LOCAL_METRICS | Lokale Tile-Metriken + **AQMH-Qualitätskarten-Berechnung** |
-| 9 | TILE_RECONSTRUCTION | **AQMH pixelweise gewichtete Rekonstruktion** (Standard) oder tile-OLA (Classic) |
+| 8 | LOCAL_METRICS | Lokale Tile-Metriken und lokale Gewichte |
+| 9 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add Rekonstruktion |
 | 10 | STATE_CLUSTERING | Optionales Zustands-Clustering |
 | 11 | SYNTHETIC_FRAMES | Optionale Erzeugung synthetischer Frames |
 | 12 | STACKING | Finales lineares Stacking |
@@ -527,7 +440,6 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `global_registration.json`
   - `local_metrics.json`
   - `tile_reconstruction.json`
-  - `aqmh.json` (AQMH-Qualitätsdiagnostik — Artefaktanteile, regionale Qualitätsstatistiken)
   - `state_clustering.json`
   - `synthetic_frames.json`
   - `bge.json`
@@ -632,15 +544,6 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 
 ## Versionen
-
-## v0.3.0 (2026-06-09)
-
-**AQMH als Standard-Rekonstruktionsmethode:**
-- AQMH (Adaptive Quality Map Harvesting) ist jetzt der Standard-Rekonstruktionspfad (`aqmh.enabled: true`).
-- Die klassische TILE_RECONSTRUCTION ist weiterhin verfügbar über `aqmh.enabled: false`.
-- Alle Beispielprofile mit `aqmh:`-Block aktualisiert.
-- Vollständige AQMH-Parameterdokumentation in Konfigurationsreferenz und Praxisbeispielen ergänzt.
-- `k_artifact`-Default auf `3.0`, `frac_artifact_max`-Default auf `0.25` geändert.
 
 ## v0.2.A (2026-05-26)
 - Calibration Bug fixes
@@ -859,16 +762,6 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Erste öffentliche Version
 
 ## Changelog
-
-### (09.06.2026)
-
-**Umstellung auf AQMH als Standard-Rekonstruktionsmethode:**
-- AQMH (Adaptive Quality Map Harvesting) ist jetzt der Standard-Rekonstruktionspfad. Mit `aqmh.enabled: false` wird auf die klassische TILE_RECONSTRUCTION zurückgeschaltet.
-- Normative Spezifikation: [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
-- Alle Beispiel-YAML-Profile mit `aqmh:`-Konfigurationsblock aktualisiert.
-- Vollständige AQMH-Parameterdokumentation in Konfigurationsreferenz und Praxisbeispielen ergänzt.
-- `k_artifact`-Implementierungsstandard auf `3.0`, `frac_artifact_max` auf `0.25` geändert.
-- Haupt-READMEs umstrukturiert; klassische TBQR-Dokumentation in `README_classic_tile_compile_en.md` / `README_classic_tile_compile_de.md` erhalten.
 
 ### (25.05.2026)
 
