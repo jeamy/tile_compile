@@ -39,6 +39,24 @@ std::vector<float> finite_values(const Matrix2Df &m) {
   return values;
 }
 
+// Stack-allocated window buffer — avoids heap allocation in hot path.
+// Max window diameter = 2*R+1; R_max=4 => 9x9=81 values.
+constexpr int kMaxWindowR = 8;
+constexpr int kMaxWindowN = (2 * kMaxWindowR + 1) * (2 * kMaxWindowR + 1);
+
+struct WindowBuf {
+  std::array<float, kMaxWindowN> data{};
+  int n = 0;
+  void clear() { n = 0; }
+  void push(float v) { data[static_cast<size_t>(n++)] = v; }
+  bool empty() const { return n == 0; }
+  int size() const { return n; }
+  float *begin() { return data.data(); }
+  float *end() { return data.data() + n; }
+  const float *begin() const { return data.data(); }
+  const float *end() const { return data.data() + n; }
+};
+
 float median_of(std::vector<float> values) {
   if (values.empty())
     return nan_value();
@@ -86,24 +104,6 @@ float mad_of(const std::vector<float> &values, float center) {
     dev.push_back(std::abs(v - center));
   return median_of(std::move(dev));
 }
-
-// Stack-allocated window buffer — avoids heap allocation in hot path.
-// Max window diameter = 2*R+1; R_max=4 => 9x9=81 values.
-constexpr int kMaxWindowR = 8;
-constexpr int kMaxWindowN = (2 * kMaxWindowR + 1) * (2 * kMaxWindowR + 1);
-
-struct WindowBuf {
-  std::array<float, kMaxWindowN> data{};
-  int n = 0;
-  void clear() { n = 0; }
-  void push(float v) { data[static_cast<size_t>(n++)] = v; }
-  bool empty() const { return n == 0; }
-  int size() const { return n; }
-  float *begin() { return data.data(); }
-  float *end() { return data.data() + n; }
-  const float *begin() const { return data.data(); }
-  const float *end() const { return data.data() + n; }
-};
 
 void fill_window(const Matrix2Df &m, int cx, int cy, int r, WindowBuf &buf) {
   buf.clear();
