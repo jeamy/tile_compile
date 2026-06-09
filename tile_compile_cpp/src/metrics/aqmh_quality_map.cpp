@@ -1,8 +1,11 @@
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <numeric>
+#include <thread>
 
 namespace tile_compile::metrics {
 namespace {
@@ -49,6 +52,29 @@ float median_of(std::vector<float> values) {
   return med;
 }
 
+float median_buf(WindowBuf &buf) {
+  if (buf.empty())
+    return nan_value();
+  const int n = buf.size();
+  const int mid = n / 2;
+  std::nth_element(buf.begin(), buf.begin() + mid, buf.end());
+  float med = buf.data[static_cast<size_t>(mid)];
+  if (n % 2 == 0) {
+    std::nth_element(buf.begin(), buf.begin() + mid - 1, buf.end());
+    med = 0.5f * (med + buf.data[static_cast<size_t>(mid - 1)]);
+  }
+  return med;
+}
+
+float mad_buf(WindowBuf &buf, float center, WindowBuf &tmp) {
+  if (buf.empty() || !finite(center))
+    return nan_value();
+  tmp.clear();
+  for (int i = 0; i < buf.size(); ++i)
+    tmp.push(std::abs(buf.data[static_cast<size_t>(i)] - center));
+  return median_buf(tmp);
+}
+
 float finite_median(const Matrix2Df &m) { return median_of(finite_values(m)); }
 
 float mad_of(const std::vector<float> &values, float center) {
@@ -61,20 +87,36 @@ float mad_of(const std::vector<float> &values, float center) {
   return median_of(std::move(dev));
 }
 
-std::vector<float> window_values(const Matrix2Df &m, int cx, int cy, int r) {
-  std::vector<float> values;
+// Stack-allocated window buffer — avoids heap allocation in hot path.
+// Max window diameter = 2*R+1; R_max=4 => 9x9=81 values.
+constexpr int kMaxWindowR = 8;
+constexpr int kMaxWindowN = (2 * kMaxWindowR + 1) * (2 * kMaxWindowR + 1);
+
+struct WindowBuf {
+  std::array<float, kMaxWindowN> data{};
+  int n = 0;
+  void clear() { n = 0; }
+  void push(float v) { data[static_cast<size_t>(n++)] = v; }
+  bool empty() const { return n == 0; }
+  int size() const { return n; }
+  float *begin() { return data.data(); }
+  float *end() { return data.data() + n; }
+  const float *begin() const { return data.data(); }
+  const float *end() const { return data.data() + n; }
+};
+
+void fill_window(const Matrix2Df &m, int cx, int cy, int r, WindowBuf &buf) {
+  buf.clear();
   const int rows = static_cast<int>(m.rows());
   const int cols = static_cast<int>(m.cols());
-  for (int yy = std::max(0, cy - r); yy <= std::min(rows - 1, cy + r);
-       ++yy) {
-    for (int xx = std::max(0, cx - r); xx <= std::min(cols - 1, cx + r);
-         ++xx) {
+  const int r_clamped = std::min(r, kMaxWindowR);
+  for (int yy = std::max(0, cy - r_clamped); yy <= std::min(rows - 1, cy + r_clamped); ++yy) {
+    for (int xx = std::max(0, cx - r_clamped); xx <= std::min(cols - 1, cx + r_clamped); ++xx) {
       const float v = m(yy, xx);
       if (finite(v))
-        values.push_back(v);
+        buf.push(v);
     }
   }
-  return values;
 }
 
 Matrix2Df canvas_masked_frame(const Matrix2Df &frame,
@@ -155,21 +197,25 @@ Matrix2Df masked_laplacian(const Matrix2Df &img) {
 Matrix2Df local_variance(const Matrix2Df &m, int r) {
   Matrix2Df out(m.rows(), m.cols());
   out.setConstant(nan_value());
+  WindowBuf buf;
   for (int y = 0; y < m.rows(); ++y) {
     for (int x = 0; x < m.cols(); ++x) {
-      const auto values = window_values(m, x, y, r);
-      if (values.empty())
+      fill_window(m, x, y, r, buf);
+      if (buf.empty())
         continue;
-      if (values.size() < 3) {
+      if (buf.size() < 3) {
         out(y, x) = 0.0f;
         continue;
       }
-      const double mean =
-          std::accumulate(values.begin(), values.end(), 0.0) / values.size();
+      double mean = 0.0;
+      for (int i = 0; i < buf.size(); ++i) mean += buf.data[static_cast<size_t>(i)];
+      mean /= buf.size();
       double var = 0.0;
-      for (float v : values)
-        var += (v - mean) * (v - mean);
-      out(y, x) = static_cast<float>(var / values.size());
+      for (int i = 0; i < buf.size(); ++i) {
+        const double d = buf.data[static_cast<size_t>(i)] - mean;
+        var += d * d;
+      }
+      out(y, x) = static_cast<float>(var / buf.size());
     }
   }
   return out;
@@ -178,26 +224,27 @@ Matrix2Df local_variance(const Matrix2Df &m, int r) {
 Matrix2Df phi_snr(const Matrix2Df &img, int r, bool &scene_dependent) {
   Matrix2Df out(img.rows(), img.cols());
   out.setConstant(nan_value());
+  WindowBuf buf, tmp;
   for (int y = 0; y < img.rows(); ++y) {
     for (int x = 0; x < img.cols(); ++x) {
-      const auto values = window_values(img, x, y, r);
-      if (values.empty())
+      fill_window(img, x, y, r, buf);
+      if (buf.empty())
         continue;
       float signal = 0.0f;
       float sigma = eps_aqmh;
-      if (values.size() >= 3) {
-        const float bg = median_of(values);
+      if (buf.size() >= 3) {
+        const float bg = median_buf(buf);
         double sum = 0.0;
-        for (float v : values)
-          sum += std::max(v - bg, 0.0f);
-        signal = static_cast<float>(sum / values.size());
-        sigma = std::max(1.4826f * mad_of(values, bg), eps_aqmh);
+        for (int i = 0; i < buf.size(); ++i)
+          sum += std::max(buf.data[static_cast<size_t>(i)] - bg, 0.0f);
+        signal = static_cast<float>(sum / buf.size());
+        sigma = std::max(1.4826f * mad_buf(buf, bg, tmp), eps_aqmh);
       } else {
         scene_dependent = true;
         double sum = 0.0;
-        for (float v : values)
-          sum += std::max(v, 0.0f);
-        signal = static_cast<float>(sum / values.size());
+        for (int i = 0; i < buf.size(); ++i)
+          sum += std::max(buf.data[static_cast<size_t>(i)], 0.0f);
+        signal = static_cast<float>(sum / buf.size());
       }
       out(y, x) = signal / sigma;
     }
@@ -205,16 +252,43 @@ Matrix2Df phi_snr(const Matrix2Df &img, int r, bool &scene_dependent) {
   return out;
 }
 
+// Separable box filter: O(W*H*R) instead of O(W*H*R²)
 Matrix2Df local_mean(const Matrix2Df &m, int r) {
-  Matrix2Df out(m.rows(), m.cols());
+  const int rows = static_cast<int>(m.rows());
+  const int cols = static_cast<int>(m.cols());
+  // Horizontal pass
+  Matrix2Df hsum(rows, cols);
+  Matrix2Df hcnt(rows, cols);
+  hsum.setConstant(0.0f);
+  hcnt.setConstant(0.0f);
+  for (int y = 0; y < rows; ++y) {
+    double s = 0.0;
+    int c = 0;
+    for (int x = 0; x <= std::min(r, cols - 1); ++x) {
+      const float v = m(y, x);
+      if (finite(v)) { s += v; ++c; }
+    }
+    for (int x = 0; x < cols; ++x) {
+      hsum(y, x) = static_cast<float>(s);
+      hcnt(y, x) = static_cast<float>(c);
+      const int xadd = x + r + 1;
+      if (xadd < cols) { const float v = m(y, xadd); if (finite(v)) { s += v; ++c; } }
+      const int xrem = x - r;
+      if (xrem >= 0) { const float v = m(y, xrem); if (finite(v)) { s -= v; --c; } }
+    }
+  }
+  // Vertical pass
+  Matrix2Df out(rows, cols);
   out.setConstant(nan_value());
-  for (int y = 0; y < m.rows(); ++y) {
-    for (int x = 0; x < m.cols(); ++x) {
-      const auto values = window_values(m, x, y, r);
-      if (values.empty())
-        continue;
-      out(y, x) = static_cast<float>(
-          std::accumulate(values.begin(), values.end(), 0.0) / values.size());
+  for (int x = 0; x < cols; ++x) {
+    double s = 0.0, c = 0.0;
+    for (int y = 0; y <= std::min(r, rows - 1); ++y) { s += hsum(y, x); c += hcnt(y, x); }
+    for (int y = 0; y < rows; ++y) {
+      if (c > 0.0) out(y, x) = static_cast<float>(s / c);
+      const int yadd = y + r + 1;
+      if (yadd < rows) { s += hsum(yadd, x); c += hcnt(yadd, x); }
+      const int yrem = y - r;
+      if (yrem >= 0) { s -= hsum(yrem, x); c -= hcnt(yrem, x); }
     }
   }
   return out;
@@ -234,19 +308,20 @@ Matrix2Df phi_artifact(const Matrix2Df &img, int r, float k_artifact,
 
   Matrix2Df out(img.rows(), img.cols());
   out.setConstant(nan_value());
+  WindowBuf buf, tmp;
   for (int y = 0; y < img.rows(); ++y) {
     for (int x = 0; x < img.cols(); ++x) {
-      const auto values = window_values(hp, x, y, r);
-      if (values.empty())
+      fill_window(hp, x, y, r, buf);
+      if (buf.empty())
         continue;
-      const float center = median_of(values);
-      const float tau = std::max(1.4826f * mad_of(values, center), eps_aqmh);
+      const float center = median_buf(buf);
+      const float tau = std::max(1.4826f * mad_buf(buf, center, tmp), eps_aqmh);
       int outliers = 0;
-      for (float v : values) {
-        if (std::abs(v) > k_artifact * tau)
+      for (int i = 0; i < buf.size(); ++i) {
+        if (std::abs(buf.data[static_cast<size_t>(i)]) > k_artifact * tau)
           ++outliers;
       }
-      const float frac = static_cast<float>(outliers) / values.size();
+      const float frac = static_cast<float>(outliers) / buf.size();
       // Mindest-Quality von 0.01 beibehalten, damit glatte Regionen nicht auf 0 fallen
       constexpr float min_quality = 0.01f;
       out(y, x) = std::clamp(
