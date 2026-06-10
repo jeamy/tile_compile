@@ -325,28 +325,161 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         return result;
     }
 
-    Matrix2Df accum = Matrix2Df::Zero(height, width);
-    Matrix2Df finite_map_count = Matrix2Df::Zero(height, width);
+    // --- Pass 1: Welford online weighted mean + variance in one scan ----------
+    // Welford accumulators (West 1979 / Chan 1983 weighted variant):
+    //   W    = sum of weights
+    //   mean = current weighted mean
+    //   M2   = sum of w_i * (x_i - mean_{i-1}) * (x_i - mean_i)
+    // Variance = M2 / W  (biased, suitable for sigma clipping)
+    // This replaces the original separate mean-pass and variance-pass,
+    // halving the number of frame/map disk-IO operations.
+    //
+    // Cherry-pick pre-pass: if cfg.cherry_pick is true, we first collect the
+    // per-pixel score S_f(p) = G_f * Q_map_f(p) for all frames (one pass),
+    // then determine the K(p) threshold per pixel, then run the Welford pass
+    // only over the selected frames (second pass).  For normal operation the
+    // cherry_pick pre-pass is skipped entirely.
+
+    // Helper: per-pixel top-K score threshold map.
+    // top_k_threshold(p) = the K-th largest score at pixel p (inclusive).
+    // Frames with score < threshold are excluded from reconstruction at p.
+    // An all-zero threshold map means "use all frames" (cherry_pick disabled).
+    Matrix2Df top_k_threshold = Matrix2Df::Zero(height, width);
+
+    if (cfg.cherry_pick) {
+        // Pre-pass: accumulate per-pixel score lists.
+        // We store compressed score maps: for each pixel we need the sorted
+        // top-K scores, but frame_count can be large.  We use a per-pixel
+        // nth_element approach: accumulate all finite scores into a
+        // frame_count-length buffer (one per pixel is too large), so instead
+        // we do a streaming selection via a small per-pixel max-heap of size K.
+        // For memory efficiency we process all frames first and build score
+        // maps, then find per-pixel thresholds.
+        //
+        // Memory bound: frame_count * width * height * 4B can be large.
+        // We therefore build an explicit per-pixel sorted vector only for
+        // the score threshold, not for intermediate storage.
+        //
+        // Practical approach: accumulate a compact per-pixel N_valid count and
+        // a sorted per-pixel score list using a single score matrix per frame
+        // (O(frame_count * W * H) total storage, same as keeping all maps —
+        // but we release each score matrix immediately after updating the
+        // per-pixel sorted selection structures).
+        //
+        // To stay within the memory budget we use a row-major approach:
+        // build a per-pixel score buffer by streaming frames, keeping only
+        // two arrays: a N_valid count and a threshold accumulator using
+        // a per-pixel partial sort.  We allocate a vector<float> of length
+        // frame_count per-pixel only lazily via a 2D ragged structure — this
+        // is only acceptable for small images.  For large images (> 4 Mpx)
+        // we fall back to a simpler approach: threshold = K-th smallest of
+        // the global per-frame G_f weight (pixel-independent), which is
+        // still better than no cherry-pick.
+        //
+        // For correctness the spec (§5.3) requires per-pixel top-K.
+        // Implementation: collect all scores into a transposed buffer, then
+        // nth_element per pixel. We limit this to images up to
+        // kCherryPickMaxPixels; beyond that use a global threshold.
+        constexpr int64_t kCherryPickMaxPixels = 8L * 1024 * 1024; // 8 Mpx
+        const int64_t total_px = static_cast<int64_t>(width) * static_cast<int64_t>(height);
+
+        if (total_px <= kCherryPickMaxPixels) {
+            // Per-pixel cherry-pick: collect scores[fi][y*width+x].
+            std::vector<std::vector<float>> scores(frame_count);
+            for (size_t fi = 0; fi < frame_count; ++fi) {
+                scores[fi].assign(static_cast<size_t>(width * height), 0.0f);
+            }
+            for (size_t fi = 0; fi < frame_count; ++fi) {
+                Matrix2Df q_map = q_map_cache->read_cached(fi);
+                if (!same_shape(q_map, height, width)) continue;
+                const float gw = aqmh_global_weight(global_weights, fi);
+                for (int y = 0; y < height; ++y) {
+                    const float* q_ptr = q_map.data() + y * width;
+                    float* s_ptr = scores[fi].data() + y * width;
+                    for (int x = 0; x < width; ++x) {
+                        const float q = q_ptr[x];
+                        s_ptr[x] = (std::isfinite(q) && q > 0.0f) ? gw * q : 0.0f;
+                    }
+                }
+            }
+            // Per-pixel: compute K(p) and find the K-th largest score.
+            std::vector<float> pixel_scores(frame_count);
+            for (int y = 0; y < height; ++y) {
+                for (int x = 0; x < width; ++x) {
+                    if (!canvas_valid_at(canvas_mask, width, height, x, y)) continue;
+                    int n_valid = 0;
+                    for (size_t fi = 0; fi < frame_count; ++fi) {
+                        const float s = scores[fi][static_cast<size_t>(y * width + x)];
+                        pixel_scores[fi] = s;
+                        if (s > 0.0f) ++n_valid;
+                    }
+                    const int K = std::min(n_valid,
+                        std::max(cfg.cherry_pick_k_min,
+                                 static_cast<int>(std::floor(
+                                     cfg.cherry_pick_k_frac * static_cast<float>(n_valid)))));
+                    if (K <= 0 || K >= n_valid) {
+                        top_k_threshold(y, x) = 0.0f; // use all
+                        continue;
+                    }
+                    // nth_element: pivot at position (n_valid - K) in ascending order.
+                    // The threshold is the value at that position.
+                    std::vector<float> valid_scores;
+                    valid_scores.reserve(static_cast<size_t>(n_valid));
+                    for (size_t fi = 0; fi < frame_count; ++fi)
+                        if (pixel_scores[fi] > 0.0f) valid_scores.push_back(pixel_scores[fi]);
+                    const size_t kth_idx = static_cast<size_t>(
+                        std::max(0, static_cast<int>(valid_scores.size()) - K));
+                    std::nth_element(valid_scores.begin(),
+                                     valid_scores.begin() + static_cast<long>(kth_idx),
+                                     valid_scores.end());
+                    top_k_threshold(y, x) = valid_scores[kth_idx];
+                }
+            }
+        } else {
+            // Large image fallback: global per-frame score threshold.
+            // Use K = max(k_min, floor(k_frac * frame_count)).
+            const int n_frames_int = static_cast<int>(frame_count);
+            const int K = std::max(cfg.cherry_pick_k_min,
+                static_cast<int>(std::floor(cfg.cherry_pick_k_frac *
+                                            static_cast<float>(n_frames_int))));
+            std::vector<float> gw_scores(frame_count);
+            for (size_t fi = 0; fi < frame_count; ++fi)
+                gw_scores[fi] = aqmh_global_weight(global_weights, fi);
+            const size_t kth_idx = static_cast<size_t>(
+                std::max(0, static_cast<int>(frame_count) - K));
+            std::vector<float> sorted_gw = gw_scores;
+            std::nth_element(sorted_gw.begin(),
+                             sorted_gw.begin() + static_cast<long>(kth_idx),
+                             sorted_gw.end());
+            const float global_thr = sorted_gw[kth_idx];
+            // Apply uniform threshold to all valid canvas pixels.
+            for (int y = 0; y < height; ++y)
+                for (int x = 0; x < width; ++x)
+                    if (canvas_valid_at(canvas_mask, width, height, x, y))
+                        top_k_threshold(y, x) = global_thr;
+        }
+    }
+
+    Matrix2Df welford_W   = Matrix2Df::Zero(height, width); // == result.weight_sum after pass 1
+    Matrix2Df welford_mean= Matrix2Df::Zero(height, width);
+    Matrix2Df welford_M2  = Matrix2Df::Zero(height, width);
+    Matrix2Df finite_map_count      = Matrix2Df::Zero(height, width);
     Matrix2Df positive_weight_count = Matrix2Df::Zero(height, width);
 
     auto valid_canvas_pixels = [&]() -> uint64_t {
         uint64_t n = 0;
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                if (canvas_valid_at(canvas_mask, width, height, x, y)) {
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                if (canvas_valid_at(canvas_mask, width, height, x, y))
                     ++n;
-                }
-            }
-        }
         return n;
     };
     const uint64_t valid_px = valid_canvas_pixels();
 
     for (size_t fi = 0; fi < frame_count; ++fi) {
         Matrix2Df frame;
-        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
+        if (!load_frame(fi, frame) || !same_shape(frame, height, width))
             continue;
-        }
         Matrix2Df q_map = q_map_cache->read_cached(fi);
         if (!same_shape(q_map, height, width)) {
             result.missing_map_samples += valid_px;
@@ -354,109 +487,161 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         }
         const float gw = aqmh_global_weight(global_weights, fi);
         for (int y = 0; y < height; ++y) {
+            const float* frame_ptr  = frame.data()      + y * width;
+            const float* q_map_ptr  = q_map.data()      + y * width;
+            float* fin_ptr  = finite_map_count.data()      + y * width;
+            float* pos_ptr  = positive_weight_count.data() + y * width;
+            float* W_ptr    = welford_W.data()    + y * width;
+            float* mean_ptr = welford_mean.data() + y * width;
+            float* M2_ptr   = welford_M2.data()   + y * width;
+
             for (int x = 0; x < width; ++x) {
-                if (!canvas_valid_at(canvas_mask, width, height, x, y)) {
+                if (!canvas_mask.empty() && canvas_mask[y * width + x] == 0)
                     continue;
-                }
-                const float q = q_map(y, x);
+                const float q = q_map_ptr[x];
                 if (!std::isfinite(q)) {
                     ++result.missing_map_samples;
                     continue;
                 }
-                finite_map_count(y, x) += 1.0f;
+                fin_ptr[x] += 1.0f;
                 ++result.finite_map_samples;
                 const float w = gw * std::max(q, 0.0f);
-                if (!(w > cfg.eps_weight) || !is_valid_sample(frame(y, x))) {
+                if (!(w > cfg.eps_weight) || !is_valid_sample(frame_ptr[x]))
                     continue;
+                // Cherry-pick gate: skip this frame at this pixel if its score
+                // is below the per-pixel K-th threshold.
+                if (cfg.cherry_pick) {
+                    const float score = gw * std::max(q, 0.0f);
+                    const float thr = top_k_threshold.data()[y * width + x];
+                    if (thr > 0.0f && score < thr)
+                        continue;
                 }
-                positive_weight_count(y, x) += 1.0f;
-                accum(y, x) += w * frame(y, x);
-                result.weight_sum(y, x) += w;
+                pos_ptr[x] += 1.0f;
+                // Welford update
+                const float W_new  = W_ptr[x] + w;
+                const float delta  = frame_ptr[x] - mean_ptr[x];
+                const float mean_new = mean_ptr[x] + (w / W_new) * delta;
+                const float delta2 = frame_ptr[x] - mean_new;
+                M2_ptr[x]   += w * delta * delta2;
+                W_ptr[x]     = W_new;
+                mean_ptr[x]  = mean_new;
             }
         }
     }
+    // Expose weight_sum from pass 1.
+    result.weight_sum = welford_W;
 
-    Matrix2Df mean = Matrix2Df::Zero(height, width);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            if (result.weight_sum(y, x) > cfg.eps_weight) {
-                mean(y, x) = accum(y, x) / result.weight_sum(y, x);
-            }
-        }
-    }
+    // --- Cherry-pick K-map diagnostics ----------------------------------------
+    // positive_weight_count(y,x) = number of frames that contributed a positive
+    // AQMH weight at pixel (x,y) in the Welford pass — after cherry-pick filtering
+    // (or equal to N_valid when cherry_pick is disabled).
+    // Store this as the K-map and compute aggregate stats.
+    if (cfg.cherry_pick) {
+        result.cherry_pick_per_pixel_mode =
+            (static_cast<int64_t>(width) * static_cast<int64_t>(height) <=
+             static_cast<int64_t>(8L * 1024 * 1024));
+        result.cherry_pick_k_map = Matrix2Df::Zero(height, width);
 
-    Matrix2Df var_accum = Matrix2Df::Zero(height, width);
-    for (size_t fi = 0; fi < frame_count; ++fi) {
-        Matrix2Df frame;
-        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
-            continue;
-        }
-        Matrix2Df q_map = q_map_cache->read_cached(fi);
-        if (!same_shape(q_map, height, width)) {
-            continue;
-        }
-        const float gw = aqmh_global_weight(global_weights, fi);
+        // total valid frames per pixel = finite_map_count (all frames with a
+        // finite Q map value, before cherry-pick filtering).
+        // K-active pixels: those where positive_weight_count < finite_map_count.
+        uint64_t n_canvas_valid = 0;
+        uint64_t n_active = 0;
+        double k_sum = 0.0;
+        std::vector<float> k_vals;
+        k_vals.reserve(static_cast<size_t>(width * height / 4));
+        int k_min_obs = std::numeric_limits<int>::max();
+        int k_max_obs = 0;
+
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
-                if (!canvas_valid_at(canvas_mask, width, height, x, y) ||
-                    result.weight_sum(y, x) <= cfg.eps_weight ||
-                    !is_valid_sample(frame(y, x))) {
+                if (!canvas_valid_at(canvas_mask, width, height, x, y))
                     continue;
-                }
-                const float q = q_map(y, x);
-                if (!std::isfinite(q)) {
-                    continue;
-                }
-                const float w = gw * std::max(q, 0.0f);
-                if (w > cfg.eps_weight) {
-                    const float d = frame(y, x) - mean(y, x);
-                    var_accum(y, x) += w * d * d;
+                ++n_canvas_valid;
+                const float k = positive_weight_count(y, x);
+                const float n_all = finite_map_count(y, x);
+                result.cherry_pick_k_map(y, x) = k;
+                if (k > 0.0f && n_all > k) {
+                    // Cherry-pick was active at this pixel (fewer frames used).
+                    ++n_active;
+                    k_sum += k;
+                    k_vals.push_back(k);
+                    const int ki = static_cast<int>(k);
+                    if (ki < k_min_obs) k_min_obs = ki;
+                    if (ki > k_max_obs) k_max_obs = ki;
                 }
             }
         }
+
+        result.cherry_pick_active_frac =
+            n_canvas_valid > 0
+                ? static_cast<float>(n_active) / static_cast<float>(n_canvas_valid)
+                : 0.0f;
+        result.cherry_pick_mean_k =
+            n_active > 0 ? static_cast<float>(k_sum / n_active) : 0.0f;
+        if (!k_vals.empty()) {
+            std::nth_element(k_vals.begin(),
+                             k_vals.begin() + static_cast<long>(k_vals.size() / 2),
+                             k_vals.end());
+            result.cherry_pick_median_k = k_vals[k_vals.size() / 2];
+            result.cherry_pick_k_min_observed = k_min_obs;
+            result.cherry_pick_k_max_observed = k_max_obs;
+        }
     }
 
-    Matrix2Df clipped_accum = Matrix2Df::Zero(height, width);
+    // --- Pass 2: sigma-clipped accumulate (reads frames/maps a second time) --
+    Matrix2Df clipped_accum      = Matrix2Df::Zero(height, width);
     Matrix2Df clipped_weight_sum = Matrix2Df::Zero(height, width);
+
     for (size_t fi = 0; fi < frame_count; ++fi) {
         Matrix2Df frame;
-        if (!load_frame(fi, frame) || !same_shape(frame, height, width)) {
+        if (!load_frame(fi, frame) || !same_shape(frame, height, width))
             continue;
-        }
         Matrix2Df q_map = q_map_cache->read_cached(fi);
-        if (!same_shape(q_map, height, width)) {
+        if (!same_shape(q_map, height, width))
             continue;
-        }
         const float gw = aqmh_global_weight(global_weights, fi);
         for (int y = 0; y < height; ++y) {
+            const float* frame_ptr  = frame.data()      + y * width;
+            const float* q_map_ptr  = q_map.data()      + y * width;
+            const float* W_ptr      = welford_W.data()  + y * width;
+            const float* mean_ptr   = welford_mean.data()+ y * width;
+            const float* M2_ptr     = welford_M2.data() + y * width;
+            float* ca_ptr  = clipped_accum.data()      + y * width;
+            float* cw_ptr  = clipped_weight_sum.data() + y * width;
+
             for (int x = 0; x < width; ++x) {
-                if (!canvas_valid_at(canvas_mask, width, height, x, y) ||
-                    result.weight_sum(y, x) <= cfg.eps_weight ||
-                    !is_valid_sample(frame(y, x))) {
+                if ((!canvas_mask.empty() && canvas_mask[y * width + x] == 0) ||
+                    W_ptr[x] <= cfg.eps_weight ||
+                    !is_valid_sample(frame_ptr[x]))
                     continue;
-                }
-                const float q = q_map(y, x);
-                if (!std::isfinite(q)) {
+                const float q = q_map_ptr[x];
+                if (!std::isfinite(q))
                     continue;
-                }
                 const float w = gw * std::max(q, 0.0f);
-                if (!(w > cfg.eps_weight)) {
+                if (!(w > cfg.eps_weight))
                     continue;
+                // Cherry-pick gate (same threshold as pass 1).
+                if (cfg.cherry_pick) {
+                    const float thr = top_k_threshold.data()[y * width + x];
+                    if (thr > 0.0f && w < thr)
+                        continue;
                 }
-                const float sigma =
-                    std::sqrt(std::max(var_accum(y, x) / result.weight_sum(y, x),
-                                       0.0f));
-                const float lo = mean(y, x) - cfg.sigma_low * sigma;
-                const float hi = mean(y, x) + cfg.sigma_high * sigma;
+                const float sigma = std::sqrt(
+                    std::max(M2_ptr[x] / W_ptr[x], 0.0f));
+                const float lo = mean_ptr[x] - cfg.sigma_low  * sigma;
+                const float hi = mean_ptr[x] + cfg.sigma_high * sigma;
+                const float v  = frame_ptr[x];
                 if (sigma <= static_cast<float>(kSigmaClipEpsVar) ||
-                    (frame(y, x) >= lo && frame(y, x) <= hi)) {
-                    clipped_accum(y, x) += w * frame(y, x);
-                    clipped_weight_sum(y, x) += w;
+                    (v >= lo && v <= hi)) {
+                    ca_ptr[x] += w * v;
+                    cw_ptr[x] += w;
                 }
             }
         }
     }
 
+    // --- Final pixel assembly --------------------------------------------------
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             if (!canvas_valid_at(canvas_mask, width, height, x, y)) {
@@ -486,7 +671,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                     clipped_accum(y, x) / clipped_weight_sum(y, x);
                 result.weight_sum(y, x) = clipped_weight_sum(y, x);
             } else {
-                result.output(y, x) = mean(y, x);
+                result.output(y, x) = welford_mean(y, x);
             }
         }
     }
@@ -541,16 +726,23 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
             const int x_begin = std::max(0, tile.x);
             const int x_end = std::min(w, tile.x + tile.width);
             for (int y = y_begin; y < y_end; ++y) {
+                int ly = y - tile.y;
+                if (ly < 0 || ly >= static_cast<int>(wy.size())) continue;
+                float win_y = wy[static_cast<size_t>(ly)];
+                
+                const float* frame_ptr = frames[f].data() + y * w;
+                float* res_ptr = result.data() + y * w;
+                float* w_ptr = weight_sum.data() + y * w;
+                
                 for (int x = x_begin; x < x_end; ++x) {
-                    int ly = y - tile.y;
                     int lx = x - tile.x;
-                    if (ly < 0 || lx < 0 || ly >= static_cast<int>(wy.size()) || lx >= static_cast<int>(wx.size())) continue;
-                    float win = wy[static_cast<size_t>(ly)] * wx[static_cast<size_t>(lx)];
+                    if (lx < 0 || lx >= static_cast<int>(wx.size())) continue;
+                    float win = win_y * wx[static_cast<size_t>(lx)];
                     float ww = weight * win;
-                    const float v = frames[f](y, x);
+                    const float v = frame_ptr[x];
                     if (!is_valid_sample(v)) continue;
-                    result(y, x) += v * ww;
-                    weight_sum(y, x) += ww;
+                    res_ptr[x] += v * ww;
+                    w_ptr[x] += ww;
                 }
             }
         }

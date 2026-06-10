@@ -67,6 +67,20 @@ int phase_order_index(const std::string& phase_name) {
     return static_cast<int>(std::distance(PHASE_ORDER.begin(), it));
 }
 
+bool is_aqmh_classic_only_phase(const std::string& phase_name) {
+    return phase_name == "STATE_CLUSTERING" || phase_name == "SYNTHETIC_FRAMES";
+}
+
+std::vector<std::string> effective_phase_order(const std::optional<bool>& aqmh_enabled) {
+    if (!aqmh_enabled.value_or(false)) return PHASE_ORDER;
+    std::vector<std::string> phases;
+    phases.reserve(PHASE_ORDER.size());
+    for (const auto& phase : PHASE_ORDER) {
+        if (!is_aqmh_classic_only_phase(phase)) phases.push_back(phase);
+    }
+    return phases;
+}
+
 /// @brief Clamps progress.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -76,6 +90,15 @@ double clamp_progress(const nlohmann::json& value) {
     if (v < 0.0) return 0.0;
     if (v > 1.0) return 1.0;
     return v;
+}
+
+bool json_bool_value(const nlohmann::json& object, const std::string& key, bool fallback) {
+    if (!object.contains(key)) return fallback;
+    const auto& value = object.at(key);
+    if (value.is_boolean()) return value.get<bool>();
+    if (value.is_number_integer()) return value.get<int>() != 0;
+    if (value.is_number_unsigned()) return value.get<unsigned int>() != 0;
+    return fallback;
 }
 
 /// @brief Implements overall progress.
@@ -153,6 +176,27 @@ std::string read_run_color_mode(const fs::path& run_dir) {
     return detected;
 }
 
+/// @brief Reads aqmh enabled flag from run config.yaml.
+/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
+std::optional<bool> read_run_aqmh_enabled(const fs::path& run_dir) {
+    fs::path config_path = run_dir / "config.yaml";
+    std::ifstream f(config_path);
+    if (f) {
+        try {
+            YAML::Node root = YAML::Load(f);
+            if (root["aqmh"] && root["aqmh"].IsMap() && root["aqmh"]["enabled"]) {
+                return root["aqmh"]["enabled"].as<bool>();
+            }
+            if (root["data"] && root["data"].IsMap() && root["data"]["aqmh"] &&
+                root["data"]["aqmh"].IsMap() && root["data"]["aqmh"]["enabled"]) {
+                return root["data"]["aqmh"]["enabled"].as<bool>();
+            }
+        } catch (...) {}
+    }
+    return std::nullopt;
+}
+
 /// @brief Extracts run id from events.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -220,7 +264,11 @@ bool run_id_matches_queue_item(const std::string& run_id, const std::string& ite
 void ensure_phase_array(nlohmann::json& status) {
     if (status.contains("phases") && status["phases"].is_array()) return;
     status["phases"] = nlohmann::json::array();
-    for (const auto& phase : PHASE_ORDER) {
+    std::optional<bool> aqmh_enabled;
+    if (status.contains("aqmh_enabled")) {
+        aqmh_enabled = json_bool_value(status, "aqmh_enabled", false);
+    }
+    for (const auto& phase : effective_phase_order(aqmh_enabled)) {
         status["phases"].push_back(nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}});
     }
 }
@@ -496,17 +544,22 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
+    const auto aqmh_enabled_opt = read_run_aqmh_enabled(run_dir);
+    const auto phase_order = effective_phase_order(aqmh_enabled_opt);
+    nlohmann::json aqmh_enabled_json = nullptr;
+    if (aqmh_enabled_opt.has_value()) aqmh_enabled_json = aqmh_enabled_opt.value();
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
         {"exists", fs::exists(run_dir)},
         {"status", "unknown"},
         {"color_mode", read_run_color_mode(run_dir)},
+        {"aqmh_enabled", aqmh_enabled_json},
         {"current_phase", nullptr},
         {"progress", 0.0},
         {"phases", nlohmann::json::array()},
         {"events", nlohmann::json::array()},
     };
-    for (const auto& phase : PHASE_ORDER) {
+    for (const auto& phase : phase_order) {
         result["phases"].push_back(nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}});
     }
 
@@ -514,7 +567,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     if (!event_file) return result;
 
     nlohmann::json phases = nlohmann::json::object();
-    for (const auto& phase : PHASE_ORDER) phases[phase] = {{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
+    for (const auto& phase : phase_order) phases[phase] = {{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
     std::deque<nlohmann::json> events_tail;
@@ -537,6 +590,9 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (events_tail.size() > 200) events_tail.pop_front();
         std::string event_type = ev.value("type", std::string());
         std::string phase_name = phase_name_from_event(ev);
+        if (aqmh_enabled_opt.value_or(false) && is_aqmh_classic_only_phase(phase_name)) {
+            return true;
+        }
         if (!phase_name.empty()) {
             nlohmann::json* phase_state = nullptr;
             if (phases.contains(phase_name)) phase_state = &phases[phase_name];
@@ -623,8 +679,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         }
 
         if (event_type == "resume_end") {
-            bool success = ev.value("success", false);
-            if (!success && ev.contains("payload") && ev["payload"].is_object()) success = ev["payload"].value("success", false);
+            bool success = json_bool_value(ev, "success", false);
+            if (!success && ev.contains("payload") && ev["payload"].is_object()) success = json_bool_value(ev["payload"], "success", false);
             run_status = success ? "completed" : "failed";
             if (success) {
                 if (!resume_from_phase.empty()) {
@@ -645,7 +701,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         }
 
         if (event_type == "run_end") {
-            run_status = ev.value("success", false) ? "completed" : "failed";
+            run_status = json_bool_value(ev, "success", false) ? "completed" : "failed";
         }
         return true;
     });
@@ -674,7 +730,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     }
 
     nlohmann::json phase_list = nlohmann::json::array();
-    for (const auto& phase : PHASE_ORDER) phase_list.push_back(phases[phase]);
+    for (const auto& phase : phase_order) phase_list.push_back(phases[phase]);
     for (auto it = extra_phases.begin(); it != extra_phases.end(); ++it) phase_list.push_back(it.value());
     double progress = overall_progress(phase_list, current_phase, progress_map);
     if (run_status == "completed") progress = 1.0;

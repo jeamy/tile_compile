@@ -2187,6 +2187,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       aqmh_recon_cfg.sigma_high = cfg.stacking.sigma_clip.sigma_high;
       aqmh_recon_cfg.min_fraction = cfg.stacking.sigma_clip.min_fraction;
       aqmh_recon_cfg.eps_weight = kEpsWeight;
+      aqmh_recon_cfg.cherry_pick = cfg.aqmh.cherry_pick.enabled;
+      aqmh_recon_cfg.cherry_pick_k_min = cfg.aqmh.cherry_pick.k_min;
+      aqmh_recon_cfg.cherry_pick_k_frac = cfg.aqmh.cherry_pick.k_frac;
 
       auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &out) -> bool {
         if (fi >= frames.size() || fi >= frame_has_data.size() ||
@@ -2233,6 +2236,47 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["eps_weight"] = aqmh_recon_cfg.eps_weight;
       artifact["classic_tile_weights_used"] = false;
       artifact["fallback_to_classic"] = false;
+      // Cherry-pick diagnostics
+      artifact["cherry_pick_enabled"] = cfg.aqmh.cherry_pick.enabled;
+      if (cfg.aqmh.cherry_pick.enabled) {
+        artifact["cherry_pick_k_min_cfg"] = cfg.aqmh.cherry_pick.k_min;
+        artifact["cherry_pick_k_frac_cfg"] = cfg.aqmh.cherry_pick.k_frac;
+        artifact["cherry_pick_per_pixel_mode"] = aqmh_recon.cherry_pick_per_pixel_mode;
+        artifact["cherry_pick_active_frac"] = aqmh_recon.cherry_pick_active_frac;
+        artifact["cherry_pick_mean_k"] = aqmh_recon.cherry_pick_mean_k;
+        artifact["cherry_pick_median_k"] = aqmh_recon.cherry_pick_median_k;
+        artifact["cherry_pick_k_min_observed"] = aqmh_recon.cherry_pick_k_min_observed;
+        artifact["cherry_pick_k_max_observed"] = aqmh_recon.cherry_pick_k_max_observed;
+        // Downsampled K-map for visualization: emit a compact flat array at
+        // 1/8 linear resolution (max 200x200 grid) so the JSON stays small.
+        const int kmap_divisor = std::max(1, std::max(canvas_width, canvas_height) / 200);
+        const int kmap_w = std::max(1, (canvas_width  + kmap_divisor - 1) / kmap_divisor);
+        const int kmap_h = std::max(1, (canvas_height + kmap_divisor - 1) / kmap_divisor);
+        if (!aqmh_recon.cherry_pick_k_map.size()) {
+          artifact["cherry_pick_k_heatmap"] = nullptr;
+        } else {
+          core::json kmap_arr = core::json::array();
+          for (int oy = 0; oy < kmap_h; ++oy) {
+            for (int ox = 0; ox < kmap_w; ++ox) {
+              double sum = 0.0;
+              int cnt = 0;
+              for (int y = oy * kmap_divisor;
+                   y < std::min(canvas_height, (oy + 1) * kmap_divisor); ++y) {
+                for (int x = ox * kmap_divisor;
+                     x < std::min(canvas_width, (ox + 1) * kmap_divisor); ++x) {
+                  const float v = aqmh_recon.cherry_pick_k_map(y, x);
+                  if (v > 0.0f) { sum += v; ++cnt; }
+                }
+              }
+              kmap_arr.push_back(cnt > 0 ? static_cast<float>(sum / cnt) : 0.0f);
+            }
+          }
+          artifact["cherry_pick_k_heatmap"] = {
+              {"width", kmap_w}, {"height", kmap_h},
+              {"divisor", kmap_divisor}, {"values", std::move(kmap_arr)}
+          };
+        }
+      }
       artifact["cache_stats"] = {
           {"bytes_written", aqmh_cache_stats.bytes_written},
           {"bytes_read", aqmh_cache_stats.bytes_read},
@@ -2260,6 +2304,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               {"zero_veto_pixels", aqmh_recon.zero_veto_pixels},
               {"missing_map_samples", aqmh_recon.missing_map_samples},
               {"classic_tile_weights_used", false},
+              {"cherry_pick_enabled", cfg.aqmh.cherry_pick.enabled},
+              {"cherry_pick_active_frac", aqmh_recon.cherry_pick_active_frac},
+              {"cherry_pick_mean_k", aqmh_recon.cherry_pick_mean_k},
           },
           log_file);
       weight_sum.resize(0, 0);
@@ -4954,11 +5001,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (!aqmh_metrics_str.empty()) {
           try {
             const auto am = core::json::parse(aqmh_metrics_str);
-            if (am.contains("frames") && am["frames"].is_array() &&
-                !am["frames"].empty()) {
+            if (am.contains("diagnostics") && am["diagnostics"].is_array() &&
+                !am["diagnostics"].empty()) {
               double sum_mean = 0.0, sum_frac = 0.0;
               int n = 0;
-              for (const auto &fr : am["frames"]) {
+              for (const auto &fr : am["diagnostics"]) {
                 if (fr.contains("map_mean") && fr["map_mean"].is_number()) {
                   sum_mean += fr["map_mean"].get<double>();
                   ++n;
@@ -4971,7 +5018,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               if (n > 0) {
                 const double mean_map = sum_mean / n;
                 double var_map = 0.0;
-                for (const auto &fr : am["frames"]) {
+                for (const auto &fr : am["diagnostics"]) {
                   if (fr.contains("map_mean") && fr["map_mean"].is_number()) {
                     const double d = fr["map_mean"].get<double>() - mean_map;
                     var_map += d * d;
@@ -5238,7 +5285,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         const double ratio =
             tile_analysis_runtime_seconds / stacking_runtime_seconds;
         runtime_limits_artifact["tile_analysis_to_stack_ratio"] = ratio;
+        // For AQMH the tile_analysis timer spans AQMH map computation which is
+        // much longer than classic tile analysis; ratio check is not meaningful.
+        const bool ratio_check_applicable = !cfg.aqmh.enabled;
         const bool ratio_ok =
+            !ratio_check_applicable ||
             ratio <= cfg.runtime_limits.tile_analysis_max_factor_vs_stack;
         runtime_limits_artifact["tile_analysis_ratio_ok"] = ratio_ok;
         if (!ratio_ok) {
@@ -5251,7 +5302,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               log_file);
         }
         // Anforderung 7.2: always warn when ratio > 10.
-        if (ratio > 10.0 && ratio_ok) {
+        if (ratio_check_applicable && ratio > 10.0 && ratio_ok) {
           emitter.warning(
               run_id,
               "TILE_RECONSTRUCTION took " + std::to_string(ratio) +

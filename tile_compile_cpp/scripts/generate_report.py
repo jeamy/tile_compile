@@ -1166,6 +1166,136 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
     return pngs, evals, explanations
 
 
+def _plot_k_heatmap(heatmap: dict, title: str, out: Path) -> bool:
+    """Render a downsampled cherry-pick K-map from tile_reconstruction.json."""
+    if plt is None or not heatmap:
+        return False
+    w = heatmap.get("width", 0)
+    h = heatmap.get("height", 0)
+    values = heatmap.get("values", [])
+    if w <= 0 or h <= 0 or len(values) < w * h:
+        return False
+    arr = np.asarray(values[: w * h], dtype=np.float64).reshape(h, w)
+    # Mask zeros (canvas-invalid or unused)
+    arr = np.where(arr > 0, arr, np.nan)
+    fig, ax = plt.subplots(figsize=(8, max(3.0, 8 * h / max(1, w))), dpi=150)
+    im = ax.imshow(arr, cmap="plasma", aspect="auto", interpolation="nearest",
+                   vmin=1)
+    cb = fig.colorbar(im, ax=ax, shrink=0.8)
+    cb.set_label("frames used (K)", fontsize=9)
+    ax.set_xlabel("x (downsampled)", fontsize=9)
+    ax.set_ylabel("y (downsampled)", fontsize=9)
+    ax.set_title(title, fontsize=10)
+    ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
+def _gen_aqmh_cherry_pick(
+    artifacts_dir: Path, recon: dict
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """Generate cherry-pick diagnostics section for AQMH runs."""
+    pngs: list[str] = []
+    evals: list[str] = []
+    explanations: dict[str, str] = {}
+
+    enabled = recon.get("cherry_pick_enabled", False)
+    if not enabled:
+        evals.append("cherry_pick: disabled")
+        return pngs, evals, explanations
+
+    evals.append("cherry_pick: ENABLED ⚠ (pixel-level frame selection active)")
+
+    # Config
+    k_min_cfg = recon.get("cherry_pick_k_min_cfg", "?")
+    k_frac_cfg = recon.get("cherry_pick_k_frac_cfg", "?")
+    per_pixel = recon.get("cherry_pick_per_pixel_mode", False)
+    evals.append(f"  k_min={k_min_cfg}, k_frac={k_frac_cfg}")
+    evals.append(f"  mode: {'per-pixel' if per_pixel else 'global fallback (large image)'}")
+
+    # Stats
+    active_frac = recon.get("cherry_pick_active_frac", None)
+    mean_k = recon.get("cherry_pick_mean_k", None)
+    median_k = recon.get("cherry_pick_median_k", None)
+    k_min_obs = recon.get("cherry_pick_k_min_observed", None)
+    k_max_obs = recon.get("cherry_pick_k_max_observed", None)
+    n_frames = recon.get("num_frames", 0)
+
+    if active_frac is not None:
+        evals.append(f"  active pixels (K < N_valid): {active_frac * 100:.1f}%")
+    if mean_k is not None and median_k is not None:
+        evals.append(f"  frames used: mean K={mean_k:.1f}, median K={median_k:.0f}")
+    if k_min_obs is not None and k_max_obs is not None:
+        evals.append(f"  K range: [{k_min_obs}, {k_max_obs}] (of {n_frames} total frames)")
+
+    # K-map heatmap
+    heatmap = recon.get("cherry_pick_k_heatmap")
+    if isinstance(heatmap, dict):
+        fn = "aqmh_cherry_pick_k_heatmap.png"
+        w = heatmap.get("width", 0)
+        h = heatmap.get("height", 0)
+        divisor = heatmap.get("divisor", 1)
+        if _plot_k_heatmap(
+            heatmap,
+            f"Cherry-Pick: frames used per pixel (K)\n"
+            f"(downsampled ×{divisor}, plasma=more frames)",
+            _fig_path(artifacts_dir, fn),
+        ):
+            pngs.append(fn)
+            explanations[fn] = (
+                "<h4>Cherry-Pick K-Map</h4>"
+                "<p>Zeigt, wie viele Frames pro Pixel für die Rekonstruktion "
+                "verwendet wurden. Helle Bereiche = mehr Frames, dunkle = weniger.</p>"
+                "<p><b>Interpretation:</b></p>"
+                "<ul>"
+                "<li><span class='good'>Gleichmäßig hell:</span> Cherry-Pick hat kaum "
+                "Einfluss — fast alle Frames werden überall verwendet.</li>"
+                "<li><span class='neutral'>Dunkle Flecken:</span> Regionen, in denen "
+                "viele Frames eine schlechte Q-Map hatten und daher ausgeschlossen wurden. "
+                "Typisch bei Satellitenspuren, Wolkenrändern oder Seeing-Spitzen.</li>"
+                "<li><span class='bad'>Sehr niedrige K-Werte (&lt; 5):</span> Wenig statistische "
+                "Stabilität — Sigma-Clipping kann hier nicht zuverlässig arbeiten. "
+                "k_min sollte erhöht werden.</li>"
+                "<li>Die Karte ist räumlich heruntergesampelt "
+                f"(Faktor {divisor}×{divisor}) für kompaktes JSON.</li>"
+                "</ul>"
+                "<p><b>Warnung:</b> Cherry-pick verletzt das AQMH No-Frame-Selection-Invariant "
+                "auf Pixel-Ebene. Nur verwenden wenn explizit gewünscht.</p>"
+            )
+
+    # K distribution histogram from heatmap values
+    if isinstance(heatmap, dict):
+        values_flat = [v for v in heatmap.get("values", []) if v and v > 0]
+        fn = "aqmh_cherry_pick_k_hist.png"
+        if _plot_histogram(
+            values_flat,
+            "Cherry-Pick: K distribution (frames used per pixel)",
+            "K (frames used)",
+            _fig_path(artifacts_dir, fn),
+            color="#ff79c6",
+            bins=max(10, min(60, int(k_max_obs or 60) - int(k_min_obs or 0) + 1)),
+        ):
+            pngs.append(fn)
+            explanations[fn] = (
+                "<h4>K-Verteilung</h4>"
+                "<p>Histogramm der Anzahl verwendeter Frames pro Pixel (K) über alle "
+                "Canvas-validen Pixel.</p>"
+                "<p><b>Interpretation:</b></p>"
+                "<ul>"
+                "<li><span class='good'>Schmaler Peak:</span> Cherry-Pick wirkt gleichmäßig — "
+                "ähnliche K-Werte überall.</li>"
+                "<li><span class='neutral'>Breite Verteilung:</span> Unterschiedliche "
+                "Frame-Nutzung je nach Bildbereich. Erwartet bei inhomogenen Bedingungen.</li>"
+                "<li>Der Peak bei kleinen K-Werten zeigt betroffene Randbereiche oder "
+                "stark kontaminierte Regionen.</li>"
+                "</ul>"
+            )
+
+    return pngs, evals, explanations
+
+
 def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
@@ -2172,6 +2302,14 @@ def generate_report(run_dir: Path) -> Path:
     if recon:
         rc_pngs, rc_evals, rc_expl = _gen_reconstruction(artifacts_dir, recon, tg)
         sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
+
+    # 6b. AQMH Cherry-Pick diagnostics (only shown when method=aqmh and cherry_pick enabled)
+    if recon and recon.get("method") == "aqmh":
+        cp_pngs, cp_evals, cp_expl = _gen_aqmh_cherry_pick(artifacts_dir, recon)
+        sections.append(("AQMH Cherry-Pick", _make_card_html(
+            "Cherry-pick frame selection", cp_pngs, cp_evals,
+            "warn" if recon.get("cherry_pick_enabled") else "ok",
+            explanations=cp_expl)))
 
     # 7. State Clustering
     if cl:

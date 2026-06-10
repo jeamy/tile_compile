@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
@@ -50,6 +51,36 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(found_skipped, "state clustering phase present");
+
+        const auto aqmh_run_dir = harness.create_run("aqmh_hides_classic_phases", {
+            {{"ts", "2026-03-10T11:10:00Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
+            {{"ts", "2026-03-10T11:10:01Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T11:10:02Z"}, {"type", "phase_start"}, {"phase_name", "SYNTHETIC_FRAMES"}},
+            {{"ts", "2026-03-10T11:10:03Z"}, {"type", "phase_end"}, {"phase_name", "SYNTHETIC_FRAMES"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T11:10:04Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        {
+            std::ofstream config(aqmh_run_dir / "config.yaml");
+            config << "aqmh:\n  enabled: true\n"
+                   << "data:\n  color_mode: OSC\n";
+        }
+
+        const auto aqmh_status = harness.get_json("/api/runs/aqmh_hides_classic_phases/status");
+        expect_equal(aqmh_status["_http_status"].get<long>(), 200L, "aqmh status code");
+        expect_true(aqmh_status["aqmh_enabled"].is_boolean(), "aqmh flag is boolean");
+        expect_true(aqmh_status["aqmh_enabled"].get<bool>(), "aqmh flag parsed from root config");
+        bool found_aqmh_local_metrics = false;
+        bool found_aqmh_state_clustering = false;
+        bool found_aqmh_synthetic_frames = false;
+        for (const auto& item : aqmh_status["phases"]) {
+            const std::string phase = item.value("phase", "");
+            if (phase == "LOCAL_METRICS") found_aqmh_local_metrics = true;
+            if (phase == "STATE_CLUSTERING") found_aqmh_state_clustering = true;
+            if (phase == "SYNTHETIC_FRAMES") found_aqmh_synthetic_frames = true;
+        }
+        expect_true(found_aqmh_local_metrics, "aqmh metrics phase present");
+        expect_true(!found_aqmh_state_clustering, "aqmh hides state clustering");
+        expect_true(!found_aqmh_synthetic_frames, "aqmh hides synthetic frames");
 
         harness.create_run("completed_without_run_end", {
             {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},

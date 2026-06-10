@@ -72,7 +72,7 @@
   "param.hypermetric_stretch.target_bg.label": "Zielhintergrund",
   "param.hypermetric_stretch.write_channels.label": "Kanäle schreiben",
   "phase.astrometry": "Astrometrie",
-  "phase.aqmh_quality_maps": "AQMH-Qualitätskarten",
+  "phase.aqmh_quality_maps": "AQMH-Metriken",
   "phase.bge": "BGE",
   "phase.channel_split": "Kanal-Splitting",
   "phase.common_overlap": "Gemeinsamer Overlap",

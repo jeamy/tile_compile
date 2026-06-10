@@ -298,16 +298,15 @@ static std::vector<StarPoint> detect_stars_with_threshold(
       const float v = row[x];
       if (v < thresh)
         continue;
+      if (v <= row[x - 1] || v <= row[x + 1])
+        continue;
+        
       bool is_max = true;
       for (int dy = -1; dy <= 1 && is_max; ++dy) {
+        if (dy == 0) continue; // Already checked horizontal neighbors
         const float *r2 = img.data() + static_cast<size_t>(y + dy) * w;
-        for (int dx = -1; dx <= 1; ++dx) {
-          if (dx == 0 && dy == 0)
-            continue;
-          if (r2[x + dx] >= v) {
-            is_max = false;
-            break;
-          }
+        if (r2[x - 1] >= v || r2[x] >= v || r2[x + 1] >= v) {
+          is_max = false;
         }
       }
       if (!is_max)

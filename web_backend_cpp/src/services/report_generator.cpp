@@ -423,6 +423,17 @@ bool json_bool_or(const json& obj, const char* key, bool fallback = false) {
     return fallback;
 }
 
+/// Returns nullopt when key is absent or null, otherwise the bool value.
+std::optional<bool> json_optional_bool(const json& obj, const char* key) {
+    if (!obj.is_object() || !obj.contains(key) || obj.at(key).is_null()) return std::nullopt;
+    const auto& value = obj.at(key);
+    try {
+        if (value.is_boolean()) return value.get<bool>();
+        if (value.is_number_integer()) return value.get<long long>() != 0;
+    } catch (...) {}
+    return std::nullopt;
+}
+
 /// @brief Implements json double array.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -2704,26 +2715,50 @@ std::optional<ReportSection> gen_bge(const json& bge) {
 /// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_validation(const json& val) {
     if (!val.is_object() || val.empty()) return std::nullopt;
+    const bool is_aqmh = json_string_or(val, "method", "classic_tile_compile") == "aqmh";
     const double improvement = json_number_or(val, "fwhm_improvement_percent", 0.0);
-    const double tw_var = json_number_or(val, "tile_weight_variance", 0.0);
-    const double pattern_ratio = json_number_or(val, "tile_pattern_ratio", 0.0);
-    const bool fwhm_ok = json_bool_or(val, "fwhm_improvement_ok", false);
-    const bool tw_ok = json_bool_or(val, "tile_weight_variance_ok", false);
-    const bool pattern_ok = json_bool_or(val, "tile_pattern_ok", false);
+    const auto fwhm_ok_opt = json_optional_bool(val, "fwhm_improvement_ok");
 
     std::vector<std::string> labels;
     std::vector<double> values;
     std::vector<std::string> colors;
+
+    // FWHM: always shown, but informational (cyan) when not evaluated (AQMH without star detection)
     labels.push_back("FWHM improvement");
     values.push_back(improvement);
-    colors.push_back(fwhm_ok ? "#4ade80" : "#f87171");
-    labels.push_back("Tile weight variance");
-    values.push_back(tw_var * 100.0);
-    colors.push_back(tw_ok ? "#4ade80" : "#f87171");
-    if (val.contains("tile_pattern_ratio")) {
-        labels.push_back("Tile pattern ratio");
-        values.push_back(pattern_ratio);
-        colors.push_back(pattern_ok ? "#4ade80" : "#f87171");
+    if (!fwhm_ok_opt.has_value()) {
+        colors.push_back("#22d3ee");  // cyan = informational
+    } else {
+        colors.push_back(*fwhm_ok_opt ? "#4ade80" : "#f87171");
+    }
+
+    if (!is_aqmh) {
+        const double tw_var = json_number_or(val, "tile_weight_variance", 0.0);
+        const double pattern_ratio = json_number_or(val, "tile_pattern_ratio", 0.0);
+        const bool tw_ok = json_bool_or(val, "tile_weight_variance_ok", false);
+        const bool pattern_ok = json_bool_or(val, "tile_pattern_ok", false);
+        labels.push_back("Tile weight variance");
+        values.push_back(tw_var * 100.0);
+        colors.push_back(tw_ok ? "#4ade80" : "#f87171");
+        if (val.contains("tile_pattern_ratio")) {
+            labels.push_back("Tile pattern ratio");
+            values.push_back(pattern_ratio);
+            colors.push_back(pattern_ok ? "#4ade80" : "#f87171");
+        }
+    } else {
+        // AQMH-specific quality metrics
+        const double map_var = json_number_or(val, "aqmh_map_mean_variance", -1.0);
+        const double artifact_avg = json_number_or(val, "aqmh_artifact_frac_avg", -1.0);
+        if (map_var >= 0.0) {
+            labels.push_back("AQMH map variance");
+            values.push_back(map_var * 1000.0);
+            colors.push_back(map_var > 1e-5 ? "#4ade80" : "#fb923c");
+        }
+        if (artifact_avg >= 0.0) {
+            labels.push_back("AQMH artifact frac");
+            values.push_back(artifact_avg * 100.0);
+            colors.push_back(artifact_avg < 0.3 ? "#4ade80" : "#f87171");
+        }
     }
 
     std::vector<ChartBlock> charts = {{
@@ -2731,7 +2766,9 @@ std::optional<ReportSection> gen_validation(const json& val) {
         explain_panel(
             "Validierungschecks",
             {
-                "Die Balken zeigen die wichtigsten numerischen Endkontrollen des Ergebnisses, z. B. FWHM-Verbesserung, Tile-Weight-Varianz und optional den Tile-Pattern-Check.",
+                is_aqmh
+                    ? "AQMH-Modus: FWHM ist informativ (kein Pass/Fail). Stattdessen werden AQMH-spezifische Qualitätsmetriken aus den Qualitätskarten angezeigt."
+                    : "Die Balken zeigen die wichtigsten numerischen Endkontrollen des Ergebnisses, z. B. FWHM-Verbesserung, Tile-Weight-Varianz und optional den Tile-Pattern-Check.",
                 "Die Farbe macht sofort sichtbar, welche Checks bestanden und welche fehlgeschlagen sind."
             },
             {
@@ -2741,14 +2778,33 @@ std::optional<ReportSection> gen_validation(const json& val) {
             }
         )
     }};
-    std::vector<std::string> evals = {
-        "seeing FWHM: " + json_string_or(val, "seeing_fwhm_median", "?"),
-        "output FWHM: " + json_string_or(val, "output_fwhm_median", "?"),
-        "FWHM improvement: " + format_number(improvement, 1) + "% " + (fwhm_ok ? std::string("OK") : std::string("FAIL")),
-        "tile weight variance: " + format_number(tw_var, 4) + " " + (tw_ok ? std::string("OK") : std::string("FAIL"))
-    };
-    if (val.contains("tile_pattern_ratio")) {
-        evals.push_back("tile pattern ratio: " + format_number(pattern_ratio, 3) + " " + (pattern_ok ? std::string("OK") : std::string("FAIL")));
+
+    std::vector<std::string> evals;
+    evals.push_back("seeing FWHM: " + json_string_or(val, "seeing_fwhm_median", "?"));
+    evals.push_back("output FWHM: " + json_string_or(val, "output_fwhm_median", "?"));
+    if (!fwhm_ok_opt.has_value()) {
+        evals.push_back("FWHM improvement: " + format_number(improvement, 1) + "% (informational)");
+    } else {
+        evals.push_back("FWHM improvement: " + format_number(improvement, 1) + "% " + (*fwhm_ok_opt ? std::string("OK") : std::string("FAIL")));
+    }
+    if (!is_aqmh) {
+        const double tw_var = json_number_or(val, "tile_weight_variance", 0.0);
+        const double pattern_ratio = json_number_or(val, "tile_pattern_ratio", 0.0);
+        const bool tw_ok = json_bool_or(val, "tile_weight_variance_ok", false);
+        const bool pattern_ok = json_bool_or(val, "tile_pattern_ok", false);
+        evals.push_back("tile weight variance: " + format_number(tw_var, 4) + " " + (tw_ok ? std::string("OK") : std::string("FAIL")));
+        if (val.contains("tile_pattern_ratio")) {
+            evals.push_back("tile pattern ratio: " + format_number(pattern_ratio, 3) + " " + (pattern_ok ? std::string("OK") : std::string("FAIL")));
+        }
+    } else {
+        const double map_avg = json_number_or(val, "aqmh_map_mean_avg", -1.0);
+        const double map_var = json_number_or(val, "aqmh_map_mean_variance", -1.0);
+        const double artifact_avg = json_number_or(val, "aqmh_artifact_frac_avg", -1.0);
+        const int n_eval = static_cast<int>(json_number_or(val, "aqmh_frames_evaluated", 0.0));
+        if (map_avg >= 0.0) evals.push_back("AQMH map mean avg: " + format_number(map_avg, 4));
+        if (map_var >= 0.0) evals.push_back("AQMH map mean variance: " + format_number(map_var, 6));
+        if (artifact_avg >= 0.0) evals.push_back("AQMH artifact frac avg: " + format_number(artifact_avg, 3));
+        if (n_eval > 0) evals.push_back("AQMH frames evaluated: " + std::to_string(n_eval));
     }
     return ReportSection{"Validation", make_card_html("Quality validation", charts, evals, infer_status(evals))};
 }

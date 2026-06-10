@@ -1,6 +1,6 @@
 aqmh:
   cherry_pick:
-    enabled: true
+    enabled: false
     k_frac: 0.5
     k_min: 50
   diagnostics:

@@ -3378,7 +3378,7 @@ function localizedRunMonitorPhaseName(phaseRaw) {
   if (!phase) return "";
   if ((phase === "LOCAL_METRICS" || phase === "AQMH_QUALITY_MAPS") &&
       isAqmhEnabled()) {
-    return t("phase.aqmh_quality_maps", "AQMH Quality Maps");
+    return t("phase.aqmh_quality_maps", "AQMH metrics");
   }
   return t(`phase.${phase.toLowerCase()}`, phase);
 }
@@ -4072,7 +4072,7 @@ function runMonitorSelectedPhase() {
 
 function createEmptyRunPhaseSnapshot() {
   const snapshot = {};
-  RUN_MONITOR_PHASE_ORDER.forEach((phase) => {
+  getEffectivePhaseOrder().forEach((phase) => {
     snapshot[phase] = { phase, status: "pending", pct: 0 };
   });
   return snapshot;
@@ -4939,7 +4939,10 @@ async function loadRunStatus(runId) {
     uiState.runMonitorAqmhEnabled = null;
     uiState.runMonitorAqmhRunId = "";
   }
-  if (typeof uiState.runMonitorAqmhEnabled !== "boolean") {
+  if (typeof status?.aqmh_enabled === "boolean") {
+    uiState.runMonitorAqmhEnabled = status.aqmh_enabled;
+    uiState.runMonitorAqmhRunId = normalizedRunId;
+  } else if (typeof uiState.runMonitorAqmhEnabled !== "boolean") {
     await loadRunMonitorCurrentConfig({ render: false }).catch(() => {});
   }
   setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
@@ -5139,6 +5142,31 @@ function connectRunMonitorStream(runId) {
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
         if (eventPhase) setPhaseRow(eventPhase, eventStatus, eventPct);
       }
+      // Cherry-pick stats: show panel when TILE_RECONSTRUCTION phase_end arrives
+      // with cherry_pick_enabled = true in the payload.
+      if (event?.type === "phase_end" &&
+          (eventPhase === "TILE_RECONSTRUCTION" || eventPhase === "AQMH_RECONSTRUCTION")) {
+        const cpEnabled = payload.cherry_pick_enabled ?? false;
+        const cpPanel = document.getElementById("monitor-aqmh-cherry-pick-panel");
+        const cpStats = document.getElementById("monitor-aqmh-cherry-pick-stats");
+        if (cpPanel && cpStats) {
+          if (cpEnabled) {
+            const activeFrac = payload.cherry_pick_active_frac;
+            const meanK = payload.cherry_pick_mean_k;
+            const nFrames = payload.num_frames ?? "?";
+            let html = "";
+            if (typeof activeFrac === "number")
+              html += `<div><span class="ps-kv-key">Active pixels</span><span class="ps-kv-val">${(activeFrac * 100).toFixed(1)}%</span></div>`;
+            if (typeof meanK === "number")
+              html += `<div><span class="ps-kv-key">Mean K used</span><span class="ps-kv-val">${meanK.toFixed(1)} / ${nFrames} frames</span></div>`;
+            html += `<div style="margin-top:6px;font-size:11px;color:#f59e0b;">Pixel-level frame selection active. See report for K-map heatmap.</div>`;
+            cpStats.innerHTML = html;
+            cpPanel.style.display = "block";
+          } else {
+            cpPanel.style.display = "none";
+          }
+        }
+      }
       if (eventType === "resume_start") {
         const resumePhase =
           payload.from_phase ||
@@ -5151,6 +5179,10 @@ function connectRunMonitorStream(runId) {
       }
       if (event?.type === "run_status" && event?.payload?.phases) {
         uiState.runProcessStatus = String(event?.payload?.status || event?.state || "").trim().toLowerCase();
+        if (typeof event?.payload?.aqmh_enabled === "boolean") {
+          uiState.runMonitorAqmhEnabled = event.payload.aqmh_enabled;
+          uiState.runMonitorAqmhRunId = normalizeRunIdPath(runId);
+        }
         setRunPhaseSnapshot(runId, event.payload.phases);
         if (Array.isArray(event?.payload?.queue)) uiState.currentRunQueue = event.payload.queue;
         if (event?.payload?.run_dir) uiState.currentRunDir = String(event.payload.run_dir || uiState.currentRunDir || "");

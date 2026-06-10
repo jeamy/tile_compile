@@ -177,9 +177,9 @@ Scene-dependence guard: `Phi_snr_s` is a local support-quality proxy, not a sour
 1. Compute the high-pass residual `hp_s(x,y) = I_s(x,y) - blur(I_s, R_s)(x,y)`, where `blur(I_s, R_s)(x,y)` is the masked local mean of `I_s` over `W_s_valid(x,y)`.
 2. Compute the local robust scale `tau_s(x,y) = max(1.4826 * MAD_{p in W_s_valid(x,y)}(hp_s(p)), eps_aqmh)`.
 3. Compute the local outlier fraction: `frac_out_s(x,y) = |{p in W_s_valid(x,y) : |hp_s(p)| > k_artifact * tau_s(x,y)}| / |W_s_valid(x,y)|`  
-   with normative default `k_artifact = 5.0`.
+   with normative default `k_artifact = 3.0`.
 4. `Phi_artifact_s(x,y) = 1 - clip(frac_out_s(x,y) / frac_artifact_max, 0, 1)`  
-   with normative default `frac_artifact_max = 0.10`.
+   with normative default `frac_artifact_max = 0.25`.
 
 `Phi_artifact_s = 1` indicates a clean region; `Phi_artifact_s = 0` indicates that at least `frac_artifact_max` (default 10%) of pixels in the window are outliers.
 
@@ -460,8 +460,8 @@ aqmh:
     base_window_px: 4   # window radius R_s in downscaled pixels (default: 4)
     w_sharp: 0.6        # sharpness weight in per-scale sigmoid (default: 0.6)
     w_snr: 0.4          # SNR weight in per-scale sigmoid (default: 0.4)
-    k_artifact: 5.0     # outlier detection threshold (default: 5.0)
-    frac_artifact_max: 0.10  # artifact gate threshold (default: 0.10)
+    k_artifact: 3.0     # outlier detection threshold (default: 5.0)
+    frac_artifact_max: 0.25  # artifact gate threshold (default: 0.10)
 ```
 
 ### 7.3 Storage Configuration
@@ -508,8 +508,8 @@ All `eps_aqmh` constants default to `1e-6` unless otherwise specified.
 | Parameter | Default | Description |
 |---|---|---|
 | `eps_aqmh` | `1e-6` | Denominator guard for all AQMH divisions |
-| `k_artifact` | `5.0` | Outlier sigma multiplier |
-| `frac_artifact_max` | `0.10` | Maximum tolerated outlier fraction per window |
+| `k_artifact` | `3.0` | Outlier sigma multiplier |
+| `frac_artifact_max` | `0.25` | Maximum tolerated outlier fraction per window |
 | `w_sharp` | `0.6` | Sharpness weight in per-scale quality sigmoid |
 | `w_snr` | `0.4` | SNR weight in per-scale quality sigmoid |
 | `P` | `4` | Maximum number of pyramid scales; actual count may be lower due to the omission rule in §2.3.1 |

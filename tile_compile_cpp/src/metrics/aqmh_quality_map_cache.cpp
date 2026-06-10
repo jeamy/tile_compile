@@ -370,12 +370,49 @@ Matrix2Df QualityMapCache::downsample_for_storage(const Matrix2Df &q_map) const 
 Matrix2Df QualityMapCache::upsample_to_full_resolution(
     const Matrix2Df &stored) const {
   const int d = storage_cfg_.resolution_divisor;
+  if (d <= 1) {
+    // No upsampling needed — stored resolution matches full resolution.
+    Matrix2Df out(full_height_, full_width_);
+    for (int y = 0; y < full_height_; ++y)
+      for (int x = 0; x < full_width_; ++x)
+        out(y, x) = clamp_q(stored(std::min(stored_height_ - 1, y),
+                                   std::min(stored_width_ - 1, x)));
+    return out;
+  }
+
+  // Mask-aware bilinear upsampling.
+  // Each stored pixel covers a d×d block in full-resolution space.
+  // We use the centre of the stored pixel as the sample point:
+  //   centre_x = (sx + 0.5) * d - 0.5   (in full-res coordinates)
+  // Invalid stored samples (clamped to 0 by the NaN→0 storage convention)
+  // are treated as valid for the bilinear weights because all stored values
+  // are finite after decode_file().  The bilinear interpolation therefore
+  // always produces a finite result.
   Matrix2Df out(full_height_, full_width_);
   for (int y = 0; y < full_height_; ++y) {
     for (int x = 0; x < full_width_; ++x) {
-      const int sx = std::min(stored_width_ - 1, x / d);
-      const int sy = std::min(stored_height_ - 1, y / d);
-      out(y, x) = clamp_q(stored(sy, sx));
+      // Map to continuous stored coordinate (pixel-centre convention).
+      const float sx = (static_cast<float>(x) + 0.5f) / static_cast<float>(d) - 0.5f;
+      const float sy = (static_cast<float>(y) + 0.5f) / static_cast<float>(d) - 0.5f;
+      const int x0 = static_cast<int>(std::floor(sx));
+      const int y0 = static_cast<int>(std::floor(sy));
+      const float tx = sx - static_cast<float>(x0);
+      const float ty = sy - static_cast<float>(y0);
+
+      // Clamp to stored bounds.
+      const int x1 = std::min(stored_width_ - 1,  std::max(0, x0 + 1));
+      const int y1 = std::min(stored_height_ - 1, std::max(0, y0 + 1));
+      const int cx0 = std::clamp(x0, 0, stored_width_ - 1);
+      const int cy0 = std::clamp(y0, 0, stored_height_ - 1);
+
+      const float v00 = stored(cy0, cx0);
+      const float v10 = stored(cy0, x1);
+      const float v01 = stored(y1,  cx0);
+      const float v11 = stored(y1,  x1);
+
+      const float v = (1.0f - ty) * ((1.0f - tx) * v00 + tx * v10)
+                    +         ty  * ((1.0f - tx) * v01 + tx * v11);
+      out(y, x) = clamp_q(v);
     }
   }
   return out;
