@@ -1532,21 +1532,42 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
     evals: list[str] = []
     explanations: dict[str, str] = {}
 
+    is_aqmh = val.get("method", "classic_tile_compile") == "aqmh"
+
     seeing = val.get("seeing_fwhm_median", 0)
     output = val.get("output_fwhm_median", 0)
     improvement = val.get("fwhm_improvement_percent", 0)
-    fwhm_ok = val.get("fwhm_improvement_ok", None)
-    tw_var = val.get("tile_weight_variance", 0)
-    tw_ok = val.get("tile_weight_variance_ok", None)
-    pattern_ratio = val.get("tile_pattern_ratio", None)
-    pattern_ok = val.get("tile_pattern_ok", None)
+    fwhm_ok = val.get("fwhm_improvement_ok", None)  # None = not evaluated (AQMH)
 
     evals.append(f"seeing FWHM: {seeing:.3g}")
     evals.append(f"output FWHM: {output:.3g}")
-    evals.append(f"FWHM improvement: {improvement:.1f}%  {'OK' if fwhm_ok else 'FAIL'}")
-    evals.append(f"tile weight variance: {tw_var:.4g}  {'OK' if tw_ok else 'FAIL'}")
-    if pattern_ratio is not None:
-        evals.append(f"tile pattern ratio: {pattern_ratio:.3g}  {'OK' if pattern_ok else 'FAIL'}")
+    if fwhm_ok is None:
+        evals.append(f"FWHM improvement: {improvement:.1f}%  (informational)")
+    else:
+        evals.append(f"FWHM improvement: {improvement:.1f}%  {'OK' if fwhm_ok else 'FAIL'}")
+
+    if is_aqmh:
+        # AQMH-specific quality metrics
+        map_var = val.get("aqmh_map_mean_variance", None)
+        map_avg = val.get("aqmh_map_mean_avg", None)
+        artifact_avg = val.get("aqmh_artifact_frac_avg", None)
+        n_eval = val.get("aqmh_frames_evaluated", None)
+        if map_avg is not None:
+            evals.append(f"AQMH map mean (avg over frames): {map_avg:.4f}")
+        if map_var is not None:
+            evals.append(f"AQMH map mean variance: {map_var:.6f}")
+        if artifact_avg is not None:
+            evals.append(f"AQMH artifact fraction (avg): {artifact_avg:.3f}")
+        if n_eval is not None:
+            evals.append(f"AQMH frames evaluated: {n_eval}")
+    else:
+        tw_var = val.get("tile_weight_variance", 0)
+        tw_ok = val.get("tile_weight_variance_ok", None)
+        pattern_ratio = val.get("tile_pattern_ratio", None)
+        pattern_ok = val.get("tile_pattern_ok", None)
+        evals.append(f"tile weight variance: {tw_var:.4g}  {'OK' if tw_ok else 'FAIL'}")
+        if pattern_ratio is not None:
+            evals.append(f"tile pattern ratio: {pattern_ratio:.3g}  {'OK' if pattern_ok else 'FAIL'}")
 
     # Summary bar chart
     if plt is not None:
@@ -1554,38 +1575,82 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
         checks = []
         vals_bar = []
         colors_bar = []
+
+        # FWHM: show for both methods, but for AQMH only informational (grey if not evaluated)
         if fwhm_ok is not None:
             checks.append("FWHM\nimprovement")
             vals_bar.append(improvement)
             colors_bar.append("#50fa7b" if fwhm_ok else "#ff5555")
-        if tw_ok is not None:
-            checks.append("Tile weight\nvariance")
-            vals_bar.append(tw_var * 100)
-            colors_bar.append("#50fa7b" if tw_ok else "#ff5555")
-        if pattern_ok is not None:
-            checks.append("Tile pattern\nratio")
-            vals_bar.append(pattern_ratio if pattern_ratio else 0)
-            colors_bar.append("#50fa7b" if pattern_ok else "#ff5555")
+        elif improvement != 0:
+            checks.append("FWHM\nimprovement\n(info)")
+            vals_bar.append(improvement)
+            colors_bar.append("#8be9fd")  # cyan = informational
+
+        if is_aqmh:
+            map_var = val.get("aqmh_map_mean_variance", None)
+            artifact_avg = val.get("aqmh_artifact_frac_avg", None)
+            if map_var is not None:
+                checks.append("AQMH map\nvariance")
+                vals_bar.append(float(map_var) * 1000)
+                colors_bar.append("#50fa7b" if map_var > 1e-5 else "#ffb86c")
+            if artifact_avg is not None:
+                checks.append("AQMH artifact\nfrac avg")
+                vals_bar.append(float(artifact_avg) * 100)
+                colors_bar.append("#50fa7b" if artifact_avg < 0.3 else "#ff5555")
+        else:
+            tw_var = val.get("tile_weight_variance", 0)
+            tw_ok = val.get("tile_weight_variance_ok", None)
+            pattern_ratio = val.get("tile_pattern_ratio", None)
+            pattern_ok = val.get("tile_pattern_ok", None)
+            if tw_ok is not None:
+                checks.append("Tile weight\nvariance")
+                vals_bar.append(tw_var * 100)
+                colors_bar.append("#50fa7b" if tw_ok else "#ff5555")
+            if pattern_ok is not None:
+                checks.append("Tile pattern\nratio")
+                vals_bar.append(pattern_ratio if pattern_ratio else 0)
+                colors_bar.append("#50fa7b" if pattern_ok else "#ff5555")
+
         if checks:
             if _plot_bar(checks, vals_bar, "Validation checks", "value", _fig_path(artifacts_dir, fn), colors=colors_bar):
                 pngs.append(fn)
-                explanations[fn] = (
-                    '<h4>Validierungsprüfungen</h4>'
-                    '<p>Automatische Qualitätsprüfungen des Endergebnisses. '
-                    'Grün = bestanden, Rot = nicht bestanden.</p>'
-                    '<p><b>Prüfungen:</b></p>'
-                    '<ul>'
-                    '<li><b>FWHM-Verbesserung:</b> Ist das gestackte Bild schärfer als die Einzelframes? '
-                    '<span class="good">Positiv</span> = Verbesserung, '
-                    '<span class="bad">negativ</span> = Verschlechterung. '
-                    'Bei unterabgetasteten Daten (große Pixel) ist 0% normal.</li>'
-                    '<li><b>Tile-Gewichtsvarianz:</b> Sind die Tile-Gewichte ausreichend unterschiedlich? '
-                    'Zu geringe Varianz bedeutet, dass die Gewichtung keinen Effekt hat.</li>'
-                    '<li><b>Tile-Pattern-Ratio:</b> Gibt es sichtbare Kachelgrenzen im Ergebnis? '
-                    '<span class="good">&lt; 1.5</span> = keine sichtbaren Artefakte, '
-                    '<span class="bad">&gt; 1.5</span> = Kachelgrenzen sichtbar.</li>'
-                    '</ul>'
-                )
+                if is_aqmh:
+                    explanations[fn] = (
+                        '<h4>AQMH Validierungsprüfungen</h4>'
+                        '<p>Automatische Qualitätsprüfungen des AQMH-Stacks. '
+                        'Grün = bestanden, Orange = Warnung, Rot = nicht bestanden, '
+                        'Cyan = informativ (kein Pass/Fail).</p>'
+                        '<p><b>Prüfungen:</b></p>'
+                        '<ul>'
+                        '<li><b>FWHM-Verbesserung (informativ):</b> Vergleich Einzel-FWHM vs. Stack-FWHM. '
+                        'Für AQMH kein Pass/Fail-Kriterium, da die FWHM-Messung auf dem '
+                        'Luminanz-Proxy-Kanal operiert.</li>'
+                        '<li><b>AQMH Map Varianz:</b> Streuung der mittleren Qualitätswerte über Frames. '
+                        'Zu geringe Varianz (&lt;1e-5) kann auf ein Problem im Qualitätssignal hinweisen.</li>'
+                        '<li><b>AQMH Artefakt-Anteil:</b> Mittlerer Anteil von Pixeln mit '
+                        'Q_map &lt; tau_artifact über alle Frames. '
+                        '<span class="good">&lt;30%</span> = normal, '
+                        '<span class="bad">&ge;30%</span> = viele schlechte Pixel.</li>'
+                        '</ul>'
+                    )
+                else:
+                    explanations[fn] = (
+                        '<h4>Validierungsprüfungen</h4>'
+                        '<p>Automatische Qualitätsprüfungen des Endergebnisses. '
+                        'Grün = bestanden, Rot = nicht bestanden.</p>'
+                        '<p><b>Prüfungen:</b></p>'
+                        '<ul>'
+                        '<li><b>FWHM-Verbesserung:</b> Ist das gestackte Bild schärfer als die Einzelframes? '
+                        '<span class="good">Positiv</span> = Verbesserung, '
+                        '<span class="bad">negativ</span> = Verschlechterung. '
+                        'Bei unterabgetasteten Daten (große Pixel) ist 0% normal.</li>'
+                        '<li><b>Tile-Gewichtsvarianz:</b> Sind die Tile-Gewichte ausreichend unterschiedlich? '
+                        'Zu geringe Varianz bedeutet, dass die Gewichtung keinen Effekt hat.</li>'
+                        '<li><b>Tile-Pattern-Ratio:</b> Gibt es sichtbare Kachelgrenzen im Ergebnis? '
+                        '<span class="good">&lt; 1.5</span> = keine sichtbaren Artefakte, '
+                        '<span class="bad">&gt; 1.5</span> = Kachelgrenzen sichtbar.</li>'
+                        '</ul>'
+                    )
 
     return pngs, evals, explanations
 

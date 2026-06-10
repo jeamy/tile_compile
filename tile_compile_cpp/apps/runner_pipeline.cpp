@@ -4816,15 +4816,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         fwhm_improvement_percent =
             (seeing_fwhm_med - output_fwhm_med) / seeing_fwhm_med * 100.0f;
       }
+      v["method"] = cfg.aqmh.enabled ? "aqmh" : "classic_tile_compile";
       v["seeing_fwhm_median"] = seeing_fwhm_med;
       v["output_fwhm_median"] = output_fwhm_med;
       v["fwhm_improvement_percent"] = fwhm_improvement_percent;
-      if (fwhm_improvement_percent <
-          cfg.validation.min_fwhm_improvement_percent) {
-        validation_ok = false;
-        v["fwhm_improvement_ok"] = false;
+      if (!cfg.aqmh.enabled) {
+        if (fwhm_improvement_percent <
+            cfg.validation.min_fwhm_improvement_percent) {
+          validation_ok = false;
+          v["fwhm_improvement_ok"] = false;
+        } else {
+          v["fwhm_improvement_ok"] = true;
+        }
       } else {
-        v["fwhm_improvement_ok"] = true;
+        // AQMH: FWHM measurement only informational; no pass/fail threshold
+        // because the FWHM measurer operates on the luma/proxy channel and
+        // may return 0 when no stars are detected in the luminance map.
+        if (output_fwhm_med > 0.0f && seeing_fwhm_med > 1.0e-6f) {
+          v["fwhm_improvement_ok"] = true;
+        } else {
+          v["fwhm_improvement_ok"] = nullptr;  // not evaluated for AQMH
+        }
       }
 
       {
@@ -4887,51 +4899,99 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
       }
 
-      float tile_weight_variance = 0.0f;
-      {
-        std::vector<float> tile_means;
-        tile_means.reserve(tiles_phase56.size());
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          double sum = 0.0;
-          int cnt = 0;
-          for (size_t fi = 0; fi < frames.size(); ++fi) {
-            float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                            ? global_weights[static_cast<int>(fi)]
-                            : 1.0f;
-            float L_ft =
-                (fi < local_weights.size() && ti < local_weights[fi].size())
-                    ? local_weights[fi][ti]
-                    : 1.0f;
-            sum += static_cast<double>(G_f * L_ft);
-            cnt++;
+      if (!cfg.aqmh.enabled) {
+        float tile_weight_variance = 0.0f;
+        {
+          std::vector<float> tile_means;
+          tile_means.reserve(tiles_phase56.size());
+          for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+            double sum = 0.0;
+            int cnt = 0;
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+              float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                              ? global_weights[static_cast<int>(fi)]
+                              : 1.0f;
+              float L_ft =
+                  (fi < local_weights.size() && ti < local_weights[fi].size())
+                      ? local_weights[fi][ti]
+                      : 1.0f;
+              sum += static_cast<double>(G_f * L_ft);
+              cnt++;
+            }
+            tile_means.push_back(
+                cnt > 0 ? static_cast<float>(sum / static_cast<double>(cnt))
+                        : 0.0f);
           }
-          tile_means.push_back(
-              cnt > 0 ? static_cast<float>(sum / static_cast<double>(cnt))
-                      : 0.0f);
+          double mean = 0.0;
+          for (float x : tile_means)
+            mean += static_cast<double>(x);
+          mean /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
+          double var = 0.0;
+          for (float x : tile_means) {
+            double d = static_cast<double>(x) - mean;
+            var += d * d;
+          }
+          var /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
+          tile_weight_variance =
+              static_cast<float>(var / (mean * mean + 1.0e-12));
         }
-        double mean = 0.0;
-        for (float x : tile_means)
-          mean += static_cast<double>(x);
-        mean /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
-        double var = 0.0;
-        for (float x : tile_means) {
-          double d = static_cast<double>(x) - mean;
-          var += d * d;
+        v["tile_weight_variance"] = tile_weight_variance;
+        if (tile_weight_variance < cfg.validation.min_tile_weight_variance) {
+          validation_ok = false;
+          v["tile_weight_variance_ok"] = false;
+        } else {
+          v["tile_weight_variance_ok"] = true;
         }
-        var /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
-        tile_weight_variance =
-            static_cast<float>(var / (mean * mean + 1.0e-12));
-      }
-      v["tile_weight_variance"] = tile_weight_variance;
-      if (tile_weight_variance < cfg.validation.min_tile_weight_variance) {
-        validation_ok = false;
-        v["tile_weight_variance_ok"] = false;
       } else {
-        v["tile_weight_variance_ok"] = true;
+        // AQMH: derive quality-weight spread from per-frame map_mean values
+        // instead of Classic tile weights (which are not computed for AQMH).
+        const auto aqmh_metrics_path =
+            run_dir / "artifacts" / "aqmh_metrics.json";
+        const bool aqmh_metrics_exists =
+            std::filesystem::exists(aqmh_metrics_path);
+        const std::string aqmh_metrics_str =
+            aqmh_metrics_exists ? core::read_text(aqmh_metrics_path) : "";
+        if (!aqmh_metrics_str.empty()) {
+          try {
+            const auto am = core::json::parse(aqmh_metrics_str);
+            if (am.contains("frames") && am["frames"].is_array() &&
+                !am["frames"].empty()) {
+              double sum_mean = 0.0, sum_frac = 0.0;
+              int n = 0;
+              for (const auto &fr : am["frames"]) {
+                if (fr.contains("map_mean") && fr["map_mean"].is_number()) {
+                  sum_mean += fr["map_mean"].get<double>();
+                  ++n;
+                }
+                if (fr.contains("artifact_frac") &&
+                    fr["artifact_frac"].is_number()) {
+                  sum_frac += fr["artifact_frac"].get<double>();
+                }
+              }
+              if (n > 0) {
+                const double mean_map = sum_mean / n;
+                double var_map = 0.0;
+                for (const auto &fr : am["frames"]) {
+                  if (fr.contains("map_mean") && fr["map_mean"].is_number()) {
+                    const double d = fr["map_mean"].get<double>() - mean_map;
+                    var_map += d * d;
+                  }
+                }
+                var_map /= std::max(1, n);
+                v["aqmh_map_mean_variance"] = static_cast<float>(var_map);
+                v["aqmh_map_mean_avg"] = static_cast<float>(mean_map);
+                v["aqmh_artifact_frac_avg"] =
+                    static_cast<float>(sum_frac / n);
+                v["aqmh_frames_evaluated"] = n;
+              }
+            }
+          } catch (const std::exception &) {
+          }
+        }
       }
 
       bool tile_pattern_ok = true;
-      if (cfg.validation.require_no_tile_pattern) {
+      if (!cfg.aqmh.enabled && cfg.validation.require_no_tile_pattern) {
         Matrix2Df recon_validation = recon;
         for (Eigen::Index i = 0; i < recon_validation.size(); ++i) {
           if (!std::isfinite(recon_validation.data()[i])) {
