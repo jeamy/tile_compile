@@ -4203,15 +4203,33 @@ function resetRunPhaseSnapshot(runIdRaw) {
 function setRunPhaseSnapshot(runIdRaw, phases) {
   const runId = normalizeRunIdPath(runIdRaw);
   if (!runId) return;
-  const snapshot = resetRunPhaseSnapshot(runId);
+  // Merge server phases into existing snapshot rather than resetting first.
+  // This prevents a race where a live phase_progress update (which called
+  // updateRunPhaseSnapshot with the correct pct) is overwritten by a
+  // subsequent run_status event that carries a stale or lower pct value.
+  const snapshot = ensureRunPhaseSnapshot(runId);
   (Array.isArray(phases) ? phases : []).forEach((entry) => {
     const phaseName = normalizeRunMonitorPhaseName(entry?.phase);
-    if (!phaseName || !snapshot[phaseName]) return;
-    snapshot[phaseName] = {
-      phase: phaseName,
-      status: String(entry?.status || "pending").trim().toLowerCase() || "pending",
-      pct: normalizeRunMonitorPct(entry?.pct ?? entry?.progress ?? 0),
-    };
+    if (!phaseName) return;
+    const serverPct = normalizeRunMonitorPct(entry?.pct ?? entry?.progress ?? 0);
+    const serverStatus = String(entry?.status || "pending").trim().toLowerCase() || "pending";
+    if (!snapshot[phaseName]) {
+      // Phase exists on server but not yet in local snapshot — add it.
+      snapshot[phaseName] = { phase: phaseName, status: serverStatus, pct: serverPct };
+      return;
+    }
+    // Always accept server status (authoritative for phase lifecycle).
+    snapshot[phaseName].status = serverStatus;
+    // Only update pct from server when it is higher than the locally-tracked
+    // value.  This preserves higher-frequency phase_progress updates that
+    // arrived between two run_status polls.
+    if (serverPct > (snapshot[phaseName].pct ?? 0)) {
+      snapshot[phaseName].pct = serverPct;
+    }
+    // When the server says a phase is finished, always accept pct = 100.
+    if (serverStatus === "ok" || serverStatus === "skipped") {
+      snapshot[phaseName].pct = 100;
+    }
   });
 }
 
@@ -4220,7 +4238,12 @@ function updateRunPhaseSnapshot(runIdRaw, phaseNameRaw, status, pctRaw) {
   const phaseName = normalizeRunMonitorPhaseName(phaseNameRaw);
   if (!runId || !phaseName) return;
   const snapshot = ensureRunPhaseSnapshot(runId);
-  if (!snapshot[phaseName]) return;
+  // Create the entry if it doesn't exist yet (can happen when the first
+  // phase_progress arrives before the first run_status that normally seeds
+  // the snapshot via setRunPhaseSnapshot).
+  if (!snapshot[phaseName]) {
+    snapshot[phaseName] = { phase: phaseName, status: "pending", pct: 0 };
+  }
   snapshot[phaseName] = {
     phase: phaseName,
     status: String(status || "pending").trim().toLowerCase() || "pending",
@@ -4908,7 +4931,19 @@ function findReportArtifactPath(artifacts) {
 function setPhaseRow(phaseName, status, pctRaw) {
   updateRunPhaseSnapshot(uiState.currentRunId, phaseName, status, pctRaw);
   const row = findRunMonitorPhaseRow(uiState.currentRunId, phaseName);
-  if (!row) return;
+  if (!row) {
+    // Row not in DOM yet — snapshot was updated; schedule a render.
+    // Use a short timeout to coalesce multiple simultaneous setPhaseRow
+    // calls (e.g. parallel AQMH workers) into a single render pass.
+    if (!uiState._phaseRowRenderPending) {
+      uiState._phaseRowRenderPending = true;
+      setTimeout(() => {
+        uiState._phaseRowRenderPending = false;
+        renderRunMonitorPhaseLists();
+      }, 80);
+    }
+    return;
+  }
   applyPhaseRowState(row, status, pctRaw);
 }
 
