@@ -119,14 +119,19 @@ bool run_phase_local_metrics(
   (void)tile_offset_x;
   (void)tile_offset_y;
   out_aqmh_cache.reset();
+  const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
 
-    // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
-    emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS",
-                        log_file);
+  const std::string phase_display_name =
+      compute_classic_local_metrics ? "LOCAL_METRICS" : "AQMH_QUALITY_MAPS";
+
+  // Phase 5: Classic local metrics or AQMH quality maps.
+  emitter.phase_start(run_id, Phase::LOCAL_METRICS, phase_display_name,
+                      log_file);
 
     local_metrics.assign(frames.size(), {});
     local_weights.assign(frames.size(), {});
 
+  if (compute_classic_local_metrics) {
     const int local_metrics_workers = compute_adaptive_worker_count(
         cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
     std::cout << "[LOCAL_METRICS] Using " << local_metrics_workers
@@ -270,6 +275,14 @@ bool run_phase_local_metrics(
                 << std::endl;
       return false;
     }
+  } else {
+    local_metrics.clear();
+    local_weights.clear();
+    emitter.phase_progress(
+        run_id, Phase::LOCAL_METRICS, 0.0f,
+        "classic_local_metrics skipped: aqmh_independent_reconstruction",
+        log_file);
+  }
 
     std::vector<AqmhFrameDiag> aqmh_frame_diag(frames.size());
     if (cfg.aqmh.enabled) {
@@ -453,6 +466,21 @@ bool run_phase_local_metrics(
       std::filesystem::create_directories(run_dir / "artifacts");
       core::write_text(run_dir / "artifacts" / "aqmh_metrics.json",
                        aqmh_artifact.dump(2));
+    }
+
+    if (!compute_classic_local_metrics) {
+      emitter.phase_end(run_id, Phase::LOCAL_METRICS, "ok",
+                        {
+                            {"num_frames", static_cast<int>(frames.size())},
+                            {"num_tiles", static_cast<int>(tiles_phase56.size())},
+                            {"classic_tile_metrics_used", false},
+                            {"aqmh_enabled", cfg.aqmh.enabled},
+                        },
+                        log_file);
+      tile_quality_median.assign(tiles_phase56.size(), 0.0f);
+      tile_is_star.assign(tiles_phase56.size(), 0u);
+      tile_fwhm_median.assign(tiles_phase56.size(), 0.0f);
+      return true;
     }
 
     std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);

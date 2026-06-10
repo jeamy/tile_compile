@@ -105,6 +105,37 @@ TEST_CASE("aqmh_quality_map_cache_uint8_downsampled_readback_is_clamped") {
   std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("aqmh_quality_map_cache_uint16_roundtrip_is_low_loss") {
+  const auto dir = unique_cache_dir("aqmh_cache_uint16");
+  std::filesystem::remove_all(dir);
+  std::vector<uint8_t> mask(static_cast<size_t>(8 * 8), 1u);
+
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  storage.resolution_divisor = 1;
+  storage.dtype = "uint16";
+
+  tile_compile::metrics::QualityMapCache cache(
+      dir, "luma", 8, 8, pyramid, storage,
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(mask, 8, 8));
+  const auto q = make_q_map(8, 8, 0.1234f);
+  cache.write(0, q);
+
+  const auto read = cache.read(0);
+  REQUIRE(read.rows() == 8);
+  REQUIRE(read.cols() == 8);
+  for (int y = 0; y < 8; ++y) {
+    for (int x = 0; x < 8; ++x) {
+      REQUIRE(read(y, x) == Catch::Approx(q(y, x)).margin(8.0e-6f));
+    }
+  }
+  const auto stats = cache.stats();
+  REQUIRE(stats.bytes_written == static_cast<uint64_t>(8 * 8 * 2));
+  REQUIRE(stats.bytes_read == static_cast<uint64_t>(8 * 8 * 2));
+
+  std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("aqmh_quality_map_cache_invalidates_on_map_affecting_config_change") {
   const auto dir = unique_cache_dir("aqmh_cache_invalidate");
   std::filesystem::remove_all(dir);

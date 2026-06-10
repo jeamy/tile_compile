@@ -35,7 +35,7 @@ Binding implementation rules:
 6. The number of resident frames and resident maps must be bounded by configuration-derived memory budget, not by frame count.
 7. Cache misses must be handled deterministically inside AQMH: affected samples receive zero AQMH weight, affected pixels become unsupported if no finite AQMH map sample remains, and the run emits a cache/map-availability warning. Cache misses must not trigger whole-run recomputation unless explicitly requested.
 
-For a 24 Mpx image, one float32 quality map is about 96 MB at full resolution, about 24 MB at the default 1/4-area storage resolution, and about 6 MB if stored as uint8 at 1/4-area resolution. With 300 frames, full-resolution float32 maps would be about 29 GB for one channel and about 86 GB for three channels. Therefore, full in-memory map retention is forbidden.
+For a 24 Mpx image, one float32 quality map is about 96 MB at full resolution, about 24 MB at the default 1/4-area storage resolution, about 12 MB if stored as uint16 at 1/4-area resolution, and about 6 MB if stored as uint8 at 1/4-area resolution. With 300 frames, full-resolution float32 maps would be about 29 GB for one channel and about 86 GB for three channels. Therefore, full in-memory map retention is forbidden.
 
 Per-stage caching requirements:
 
@@ -75,7 +75,7 @@ struct AqmhPyramidConfig {
 
 struct AqmhStorageConfig {
     int         resolution_divisor = 2;   // linear divisor per axis: 1=full, 2=half width/height, 4=quarter width/height
-    std::string dtype              = "float32"; // float32 | float16 | uint8
+    std::string dtype              = "float32"; // float32 | uint16 | uint8
     int         max_resident_maps  = 2;   // bounded read cache; 0 disables
 };
 
@@ -136,7 +136,7 @@ In the config validator, add:
 - `aqmh.pyramid.base_window_px` must be `>= 1`.
 - `aqmh.pyramid.w_sharp >= 0`, `aqmh.pyramid.w_snr >= 0`, and their sum must be `> 0`.
 - `aqmh.storage.resolution_divisor` must be one of `{1, 2, 4}`.
-- `aqmh.storage.dtype` must be one of `{"float32", "uint8"}` for the first implementation. Accept `float16` only after IEEE half conversion is implemented and tested.
+- `aqmh.storage.dtype` must be one of `{"float32", "uint16", "uint8"}`. `uint16` is the recommended performance format when bit-identical float32 cache values are not required; it preserves exact zero/one and has a maximum quantization error of approximately `7.7e-6`.
 - `aqmh.storage.max_resident_maps` must be in `[0, 16]`; `0` disables the reconstruction read-through LRU cache.
 - `aqmh.cherry_pick.k_min >= 1`.
 - `aqmh.cherry_pick.k_frac` must be in `(0, 1]`.
@@ -539,8 +539,9 @@ private:
 - `write`: clamp `q_map` to `[0,1]`, downsample to `stored_w × stored_h` using `cv::INTER_AREA`, write to `{cache_dir}/aqmh_{map_stream_id}_{fi:06d}.bin`.
 - `read`: read binary, reshape to `stored_w × stored_h`, upsample to `full_w × full_h` using `cv::INTER_LINEAR`, clamp to `[0,1]`, return as `Matrix2Df`.
 - `read_cached`: keep at most `cfg.max_resident_maps` full-resolution maps resident. Evict least-recently-used entries before inserting a new map. If `max_resident_maps = 0`, delegate directly to `read`.
+- `uint16` support: quantize `[0,1]` → `[0,65535]` on write using nearest-integer rounding, dequantize on read with division by `65535.0`. This is not bit-identical to float32, but zero-veto (`0`) and full-quality (`1`) values remain exact.
 - `uint8` support: quantize `[0,1]` → `[0,255]` on write, dequantize on read.
-- `float16` support: reject at validation until IEEE half conversion is implemented and tested. Do not silently write float32 when `dtype=float16`.
+- `float16` support: not accepted until IEEE half conversion is implemented and tested. Do not silently write float32 when `dtype=float16`.
 - Handle all file errors with a `false` return (never throw).
 - Include a tiny sidecar metadata file (`aqmh_cache.json`) containing full size, stored size, dtype, resolution divisor, map stream id (`luma` for the first OSC/proxy implementation or channel id for per-channel maps), AQMH map format version, hash of the AQMH pyramid/storage config, and hash of the common-overlap mask. Do not include reconstruction-only settings or cherry-pick settings in the map-cache hash. `read` must reject entries whose map-affecting metadata do not match the current run.
 
@@ -550,7 +551,7 @@ private:
 
 **File:** `tile_compile_cpp/tests/test_aqmh_quality_map_cache.cpp` (create new)
 
-1. **Write/read round-trip:** Write a synthetic map, read back, max absolute difference `< 1e-5` (float32) or `< 0.005` (uint8).
+1. **Write/read round-trip:** Write a synthetic map, read back, max absolute difference `< 1e-5` (float32 and uint16) or `< 0.005` (uint8).
 2. **Missing file:** `read(999)` on empty cache returns empty `Matrix2Df`.
 3. **Resolution round-trip:** Write at `resolution_divisor=2`, check that read-back map is `full_w × full_h`.
 4. **Metadata mismatch:** Changing full dimensions, dtype, or divisor causes `read` to return an empty matrix rather than silently using stale data.
@@ -931,6 +932,24 @@ Integrate the section into the main report generation function as an AQMH sectio
 If `aqmh_metrics.json` is absent, report generation must silently skip the AQMH section so baseline runs remain unchanged.
 
 ---
+
+### Step 6.3 AQMH-Native BGE Inputs
+
+When `aqmh.enabled = true`, BGE must not depend on Classic `local_metrics.json`.
+If BGE is enabled after AQMH reconstruction:
+
+1. Use the reconstruction output canvas mask (`outputs/canvas_mask.fits`) as the BGE support domain.
+2. Use the post-reconstruction tile grid only as a sampling partition.
+3. Build BGE tile helpers directly from the reconstructed RGB/luma output:
+   - per-tile background = finite canvas-valid luma median,
+   - per-tile noise = MAD-based robust luma sigma,
+   - per-tile structure = mean local luma gradient over canvas-valid pixels.
+4. Mark the BGE artifact with `tile_metrics_source = "aqmh_output"`.
+5. Preserve `have_local_metrics = false` so reports do not imply Classic local metrics were used.
+
+For Classic runs, the existing `local_metrics.json` path remains unchanged and
+must report `tile_metrics_source = "classic_local_metrics"`.
+
 
 ## Milestone 7 — Validation, Tests, and Documentation
 

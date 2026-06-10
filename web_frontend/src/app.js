@@ -89,6 +89,8 @@ const uiState = {
   compareHistoryRunId: "",
   configYaml: "",
   configObject: null,
+  runMonitorAqmhEnabled: null,
+  runMonitorAqmhRunId: "",
   parameterDirty: {},
   runSocket: null,
   runLogLines: [],
@@ -254,6 +256,8 @@ const DASHBOARD_PIPELINE_GROUPS = [
   { key: "HMS", phases: ["HYPERMETRIC_STRETCH"] },
   { key: "DONE", phases: [] },
 ];
+
+const CLASSIC_ONLY_PHASES = ["STATE_CLUSTERING", "SYNTHETIC_FRAMES"];
 
 const RUN_MONITOR_PHASE_ORDER = [
   "SCAN_INPUT",
@@ -3372,6 +3376,10 @@ function localizedRunMonitorState(stateRaw) {
 function localizedRunMonitorPhaseName(phaseRaw) {
   const phase = String(phaseRaw || "").trim().toUpperCase();
   if (!phase) return "";
+  if ((phase === "LOCAL_METRICS" || phase === "AQMH_QUALITY_MAPS") &&
+      isAqmhEnabled()) {
+    return t("phase.aqmh_quality_maps", "AQMH Quality Maps");
+  }
   return t(`phase.${phase.toLowerCase()}`, phase);
 }
 
@@ -4070,15 +4078,52 @@ function createEmptyRunPhaseSnapshot() {
   return snapshot;
 }
 
-const CLASSIC_ONLY_PHASES = ["STATE_CLUSTERING", "SYNTHETIC_FRAMES"];
-
 function isAqmhEnabled() {
-  const config = uiState.configObject;
-  if (!config || typeof config !== "object") return true;
-  const aqmhEnabled = config?.aqmh?.enabled;
+  const inRunMonitor = Boolean($("monitor-phase-lists"));
+  if (inRunMonitor && typeof uiState.runMonitorAqmhEnabled === "boolean") {
+    return uiState.runMonitorAqmhEnabled;
+  }
+  const draftValue = currentDraftValueForPath("aqmh.enabled");
+  if (typeof draftValue === "boolean") return draftValue;
+  if (typeof draftValue === "string") return draftValue.toLowerCase() === "true";
+  if (typeof uiState.runMonitorAqmhEnabled === "boolean") {
+    return uiState.runMonitorAqmhEnabled;
+  }
+  const aqmhEnabled = uiState.configObject?.aqmh?.enabled;
   if (typeof aqmhEnabled === "boolean") return aqmhEnabled;
   if (typeof aqmhEnabled === "string") return aqmhEnabled.toLowerCase() === "true";
   return true;
+}
+
+function detectAqmhEnabledFromYaml(yamlText = "") {
+  const lines = String(yamlText || "").split(/\r?\n/);
+  let inAqmh = false;
+  let aqmhIndent = -1;
+  for (const rawLine of lines) {
+    const withoutComment = String(rawLine || "").replace(/\s+#.*$/, "");
+    if (!withoutComment.trim()) continue;
+    const indent = withoutComment.match(/^\s*/)?.[0]?.length || 0;
+    const trimmed = withoutComment.trim();
+    const methodMatch = trimmed.match(/^method:\s*([A-Za-z0-9_-]+)\s*$/);
+    if (methodMatch) {
+      const method = methodMatch[1].toLowerCase();
+      if (method === "aqmh") return true;
+      if (method === "classic_tile_compile") return false;
+    }
+    if (trimmed === "aqmh:") {
+      inAqmh = true;
+      aqmhIndent = indent;
+      continue;
+    }
+    if (inAqmh && indent <= aqmhIndent) {
+      inAqmh = false;
+    }
+    if (inAqmh) {
+      const enabledMatch = trimmed.match(/^enabled:\s*(true|false)\s*$/i);
+      if (enabledMatch) return enabledMatch[1].toLowerCase() === "true";
+    }
+  }
+  return null;
 }
 
 function getEffectivePhaseOrder() {
@@ -4088,8 +4133,18 @@ function getEffectivePhaseOrder() {
   return RUN_MONITOR_PHASE_ORDER;
 }
 
+function getEffectiveDashboardPipelineGroups() {
+  if (!isAqmhEnabled()) return DASHBOARD_PIPELINE_GROUPS;
+  return DASHBOARD_PIPELINE_GROUPS.map((group) => ({
+    ...group,
+    phases: group.phases.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase)),
+  }));
+}
+
 function normalizeRunMonitorPhaseName(raw) {
-  return String(raw || "").trim().toUpperCase();
+  const phase = String(raw || "").trim().toUpperCase();
+  if (phase === "AQMH_QUALITY_MAPS") return "LOCAL_METRICS";
+  return phase;
 }
 
 function normalizeRunMonitorPct(pctRaw) {
@@ -4872,6 +4927,7 @@ function updateRunMonitorSubtitle(runId, runStatus, currentPhase) {
 }
 
 async function loadRunStatus(runId) {
+  const normalizedRunId = normalizeRunIdPath(runId);
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
   uiState.currentRunQueue = Array.isArray(status?.queue) ? status.queue : [];
@@ -4879,6 +4935,13 @@ async function loadRunStatus(runId) {
   const fallbackScanColorMode = String(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
   uiState.currentRunColorMode = effectiveColorMode;
+  if (uiState.runMonitorAqmhRunId !== normalizedRunId) {
+    uiState.runMonitorAqmhEnabled = null;
+    uiState.runMonitorAqmhRunId = "";
+  }
+  if (typeof uiState.runMonitorAqmhEnabled !== "boolean") {
+    await loadRunMonitorCurrentConfig({ render: false }).catch(() => {});
+  }
   setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
   renderRunMonitorSummary(runId, status?.status || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
   setRunPhaseSnapshot(runId, status?.phases);
@@ -4999,24 +5062,37 @@ function setRunMonitorConfigEditor(yamlText = "", { source = "", revisionId = ""
   setRunMonitorConfigStatus(parts.join(" | "));
 }
 
-async function loadRunMonitorCurrentConfig() {
+async function loadRunMonitorCurrentConfig(options = {}) {
   if (!uiState.currentRunId) return;
+  const render = options?.render !== false;
   const current = await api.get(API_ENDPOINTS.runs.config(uiState.currentRunId));
   const sourcePath = String(current?.path || "").trim();
-  setRunMonitorConfigEditor(String(current?.config || ""), {
+  const yamlText = String(current?.config || "");
+  const aqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
+  uiState.runMonitorAqmhEnabled =
+    typeof aqmhEnabled === "boolean" ? aqmhEnabled : null;
+  uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
+  setRunMonitorConfigEditor(yamlText, {
     source: sourcePath || "run/config.yaml",
     revisionId: "",
   });
+  if (render) renderRunMonitorPhaseLists();
 }
 
 async function loadRunMonitorSelectedRevision() {
   const revisionId = String($("monitor-resume-config-revision")?.value || "").trim();
   if (!uiState.currentRunId || !revisionId) return;
   const revision = await api.get(API_ENDPOINTS.runs.configRevision(uiState.currentRunId, revisionId));
-  setRunMonitorConfigEditor(String(revision?.config || ""), {
+  const yamlText = String(revision?.config || "");
+  const aqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
+  uiState.runMonitorAqmhEnabled =
+    typeof aqmhEnabled === "boolean" ? aqmhEnabled : uiState.runMonitorAqmhEnabled;
+  uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
+  setRunMonitorConfigEditor(yamlText, {
     source: String(revision?.source || "run_revision").trim(),
     revisionId,
   });
+  renderRunMonitorPhaseLists();
 }
 
 function connectRunMonitorStream(runId) {
@@ -5244,7 +5320,15 @@ async function bindRunMonitor() {
   });
   $("monitor-resume-config-revision")?.addEventListener("change", updateResumeEnabled);
   resumePresetSelect?.addEventListener("change", updateResumeEnabled);
-  resumeEditor?.addEventListener("input", updateResumeEnabled);
+  resumeEditor?.addEventListener("input", () => {
+    const aqmhEnabled = detectAqmhEnabledFromYaml(runMonitorConfigEditorValue());
+    if (typeof aqmhEnabled === "boolean") {
+      uiState.runMonitorAqmhEnabled = aqmhEnabled;
+      uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
+      renderRunMonitorPhaseLists();
+    }
+    updateResumeEnabled();
+  });
 
   if (resumePresetSelect) {
     await bindPresetDirectoryControl({
@@ -5437,6 +5521,8 @@ async function bindRunMonitor() {
     uiState.currentRunQueue = [];
     uiState.runPhaseSnapshots = {};
     uiState.runMonitorSelectedBatchKey = "";
+    uiState.runMonitorAqmhEnabled = null;
+    uiState.runMonitorAqmhRunId = "";
     resetPhaseRows();
     renderArtifacts([]);
     setMonitorReportAvailable(false);
@@ -8380,7 +8466,8 @@ async function renderDashboardPipelinePreview(appState) {
 
   const currentPhase = String(status?.current_phase || "").trim().toUpperCase();
   if (phaseEntries.size === 0 && currentPhase) {
-    const currentGroupIndex = DASHBOARD_PIPELINE_GROUPS.findIndex((group) => group.phases.includes(currentPhase));
+    const groups = getEffectiveDashboardPipelineGroups();
+    const currentGroupIndex = groups.findIndex((group) => group.phases.includes(currentPhase));
     stepEls.forEach((el, index) => {
       const step = String(el.getAttribute("data-pipeline-step") || "").trim().toUpperCase();
       if (step === "DONE") {
@@ -8395,7 +8482,7 @@ async function renderDashboardPipelinePreview(appState) {
     return;
   }
 
-  DASHBOARD_PIPELINE_GROUPS.forEach((group) => {
+  getEffectiveDashboardPipelineGroups().forEach((group) => {
     const el = stepEls.find((node) => String(node.getAttribute("data-pipeline-step") || "").trim().toUpperCase() === group.key);
     if (!el) return;
     const summary = summarizeDashboardPipelineGroup(group, phaseEntries, status?.status, currentPhase);

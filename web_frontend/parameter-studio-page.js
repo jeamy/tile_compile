@@ -45,6 +45,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
   };
   const PHASE_MAP = {
     assumptions: "ASSUMPTIONS",
+    aqmh: "AQMH_QUALITY_MAPS",
     astrometry: "ASTROMETRY",
     bge: "BGE",
     calibration: "CALIBRATION",
@@ -70,6 +71,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
     run_dir: "SYSTEM",
     log_level: "SYSTEM",
   };
+  const AQMH_CLASSIC_ONLY_CATEGORIES = new Set(["local_metrics", "synthetic"]);
 
   const categoryListEl = document.getElementById("parameter-category-list");
   let categoryButtons = Array.from(document.querySelectorAll("#parameter-category-list button[data-category]"));
@@ -737,6 +739,10 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
         button.hidden = false;
         return;
       }
+      if (!categoryAllowedForCurrentMode(category)) {
+        button.hidden = true;
+        return;
+      }
       const hasDynamicEntries = dynamicCategories.has(category);
       const hasStaticEntries = Array.from(document.querySelectorAll(`.ps-parameter-group[data-category="${category}"]`))
         .some((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
@@ -777,8 +783,15 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
     categoryListEl.dataset.bound = "1";
     categoryListEl.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-category]");
-      if (!button) return;
+      if (!button || button.hidden) return;
       setCategory(button.dataset.category || "all");
+    });
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest(".ps-row[data-path='aqmh.enabled']");
+      if (!row && target.getAttribute("data-control") !== "parameter.aqmh.enabled") return;
+      setCategory(activeCategory);
     });
   }
 
@@ -877,8 +890,20 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
   }
 
   function staticGroupsForCategory(category) {
+    if (!categoryAllowedForCurrentMode(category)) return [];
     return Array.from(document.querySelectorAll(`.ps-parameter-group[data-category="${category}"]`))
       .filter((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
+  }
+
+  function currentAqmhEnabled() {
+    const field = document.querySelector(".ps-row[data-path='aqmh.enabled'] select, [data-control='parameter.aqmh.enabled']");
+    if (!field) return false;
+    return String(field.value || "").trim().toLowerCase() === "true";
+  }
+
+  function categoryAllowedForCurrentMode(category) {
+    const normalized = String(category || "").trim();
+    return !(currentAqmhEnabled() && AQMH_CLASSIC_ONLY_CATEGORIES.has(normalized));
   }
 
   function clearDynamicCategoryExtensions() {
@@ -987,6 +1012,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       ? new Set()
       : collectStaticPathsForCategory(category);
     const entries = paramEditorIndex
+      .filter((entry) => categoryAllowedForCurrentMode(entry.category))
       .filter((entry) => (category === "all" || entry.category === category) && !staticPaths.has(entry.path))
       .sort((a, b) => String(a.path).localeCompare(String(b.path)));
     const staticCount = staticPaths.size;
@@ -1097,6 +1123,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       updateExplainPanel(path);
       return;
     }
+    if (!categoryAllowedForCurrentMode(entry.category)) return;
     setCategory(entry.category || "all");
     clearSearchHits();
     const row = findRenderedRowByPath(path);
@@ -1118,7 +1145,9 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       clearSearchHits();
       return;
     }
-    const matches = paramEditorIndex.filter((entry) => String(entry.path || "").toLowerCase().includes(query));
+    const matches = paramEditorIndex
+      .filter((entry) => categoryAllowedForCurrentMode(entry.category))
+      .filter((entry) => String(entry.path || "").toLowerCase().includes(query));
     searchSummaryEl.innerHTML = `<b>${matches.length}</b> ${escapeHtml(textFor("page.parameter_studio.search.hits_for", "hits for"))} <code>${escapeHtml(queryRaw.trim())}</code>.`;
     const lines = matches.slice(0, 40).map((entry) => {
       const source = entry.source === "yaml_only"

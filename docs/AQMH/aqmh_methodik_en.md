@@ -272,7 +272,8 @@ Therefore, the following compression strategies are supported:
 |---|---|---|
 | Full resolution float32 | No compression | Optional |
 | 1/4 area float32 | Downscale by 2 in each axis | **Default** |
-| uint8 quantization | Map scaled to `[0, 255]` | Optional |
+| uint16 quantization | Map scaled to `[0, 65535]` | Optional, recommended performance format when bit-identical float32 cache values are not required |
+| uint8 quantization | Map scaled to `[0, 255]` | Optional, smaller cache with higher quantization error |
 | Block-compressed float16 | Per-block float16 sub-blocks | Future optional; only valid when explicitly implemented |
 
 **Normative default:** Store `Q_map` at `1/4` area resolution (factor-2 downscale in each axis, `resolution_divisor = 2`). The map is upscaled to full resolution on demand during reconstruction via bilinear interpolation.
@@ -307,9 +308,14 @@ AQMH_RECONSTRUCTION
 
 AQMH_DIAGNOSTICS
   Emit quality-map, reconstruction, and optional region artifacts
+
+AQMH_NATIVE_BGE_INPUTS
+  Optional postprocessing support: derive BGE sampling helpers from the AQMH
+  reconstruction output and canvas mask, not from Classic Tile Compile local
+  metrics.
 ```
 
-Shared preprocessing and postprocessing stages may be reused, but Classic Tile Compile local metrics and tile reconstruction are not AQMH stages.
+Shared preprocessing and postprocessing stages may be reused, but Classic Tile Compile local metrics and tile reconstruction are not AQMH stages. If BGE is enabled for an AQMH run, BGE tile-sampling helpers must be derived from the AQMH reconstruction output and the canvas-valid mask. They may contain per-tile background, robust noise, and gradient/structure estimates for BGE sampling only; they are not AQMH reconstruction weights and must not be read from `local_metrics.json`.
 
 ### 4.2 AQMH Map Computation
 
@@ -464,11 +470,12 @@ aqmh:
 aqmh:
   storage:
     resolution_divisor: 2   # linear divisor per axis: 1=full, 2=half-width/height (1/4 area), 4=quarter-width/height (1/16 area)
-    dtype: float32          # float32 | float16 | uint8 (default: float32)
+    dtype: float32          # float32 | uint16 | uint8 (default: float32)
     max_resident_maps: 2    # bounded read-through cache during reconstruction; 0 disables
 ```
 
 The storage default (`resolution_divisor = 2`, `dtype = float32`) corresponds to the **1/4-area float32** strategy in §3.2. `max_resident_maps` bounds how many full-resolution maps may be held in RAM simultaneously during AQMH reconstruction; it must not scale with frame count.
+`uint16` is the recommended performance cache format when bit-identical float32 cache values are not required. It quantizes `Q_map` to `[0,65535]`, preserves exact zero-veto and full-quality endpoints, and has a maximum quantization error of about `7.7e-6`.
 
 ### 7.4 Cherry-Pick Mode
 

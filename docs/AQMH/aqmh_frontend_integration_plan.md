@@ -175,7 +175,7 @@ aqmh:
     frac_artifact_max: 0.10
   storage:
     resolution_divisor: 2
-    dtype: float32
+    dtype: uint16
     max_resident_maps: 2
   cherry_pick:
     enabled: false
@@ -195,7 +195,7 @@ The frontend should rely on backend/schema validation for numeric constraints:
 
 - `aqmh.pyramid.scales in [1,8]`
 - `aqmh.storage.resolution_divisor in {1,2,4}`
-- `aqmh.storage.dtype in {"float32","uint8"}` initially
+- `aqmh.storage.dtype in {"float32","uint16","uint8"}`
 - `aqmh.storage.max_resident_maps in [0,16]`
 - `aqmh.cherry_pick.k_min >= 1`
 - `aqmh.cherry_pick.k_frac in (0,1]`
@@ -344,7 +344,7 @@ AQMH status payload:
     "enabled": true,
     "storage": {
       "resolution_divisor": 2,
-      "dtype": "float32",
+      "dtype": "uint16",
       "max_resident_maps": 2
     },
     "maps": {
@@ -404,6 +404,7 @@ Charts:
 6. Optional AQMH-vs-Classic comparison only when both methods were run as separate runs.
 
 The AQMH report section must not be nested under Classic local metrics.
+If BGE ran after AQMH, show `tile_metrics_source = aqmh_output` as an AQMH-native BGE input source. Do not label these helpers as Classic local metrics.
 
 ### Milestone F8 — History and Comparison
 

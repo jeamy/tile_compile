@@ -129,7 +129,7 @@
     "aqmh": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8},"base_window_px":{"type":"integer","minimum":1},"w_sharp":{"type":"number","minimum":0},"w_snr":{"type":"number","minimum":0},"k_artifact":{"type":"number","exclusiveMinimum":0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
-                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
+                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint16","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean"},"k_min":{"type":"integer","minimum":1},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
                       "diagnostics":{"type":"object","properties":{"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
     "synthetic": { "type":"object",

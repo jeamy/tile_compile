@@ -1585,8 +1585,10 @@ void Config::validate() const {
       aqmh.storage.resolution_divisor != 4) {
     throw ValidationError("aqmh.storage.resolution_divisor must be 1, 2, or 4");
   }
-  if (aqmh.storage.dtype != "float32" && aqmh.storage.dtype != "uint8") {
-    throw ValidationError("aqmh.storage.dtype must be 'float32' or 'uint8'");
+  if (aqmh.storage.dtype != "float32" && aqmh.storage.dtype != "uint16" &&
+      aqmh.storage.dtype != "uint8") {
+    throw ValidationError(
+        "aqmh.storage.dtype must be 'float32', 'uint16', or 'uint8'");
   }
   if (aqmh.storage.max_resident_maps < 0 ||
       aqmh.storage.max_resident_maps > 16) {
@@ -2009,7 +2011,7 @@ std::string get_schema_json() {
     "aqmh": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8},"base_window_px":{"type":"integer","minimum":1},"w_sharp":{"type":"number","minimum":0},"w_snr":{"type":"number","minimum":0},"k_artifact":{"type":"number","exclusiveMinimum":0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
-                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
+                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint16","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean"},"k_min":{"type":"integer","minimum":1},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
                       "diagnostics":{"type":"object","properties":{"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
     "synthetic": { "type":"object",

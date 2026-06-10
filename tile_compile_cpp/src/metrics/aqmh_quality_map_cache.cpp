@@ -26,6 +26,14 @@ float clamp_q(float v) {
   return std::clamp(v, 0.0f, 1.0f);
 }
 
+size_t dtype_bytes(const std::string &dtype) {
+  if (dtype == "float32")
+    return sizeof(float);
+  if (dtype == "uint16")
+    return sizeof(uint16_t);
+  return sizeof(uint8_t);
+}
+
 std::string make_config_hash(const config::AqmhPyramidConfig &pyramid,
                              const config::AqmhStorageConfig &storage,
                              int full_width, int full_height,
@@ -71,8 +79,10 @@ QualityMapCache::QualityMapCache(
     throw std::invalid_argument(
         "QualityMapCache resolution_divisor must be 1, 2, or 4");
   }
-  if (storage_cfg_.dtype != "float32" && storage_cfg_.dtype != "uint8") {
-    throw std::invalid_argument("QualityMapCache dtype must be float32 or uint8");
+  if (storage_cfg_.dtype != "float32" && storage_cfg_.dtype != "uint16" &&
+      storage_cfg_.dtype != "uint8") {
+    throw std::invalid_argument(
+        "QualityMapCache dtype must be float32, uint16, or uint8");
   }
   stored_width_ =
       std::max(1, (full_width_ + storage_cfg_.resolution_divisor - 1) /
@@ -113,6 +123,14 @@ void QualityMapCache::write(size_t fi, const Matrix2Df &q_map) {
         out.write(reinterpret_cast<const char *>(&v), sizeof(float));
       }
     }
+  } else if (storage_cfg_.dtype == "uint16") {
+    for (int y = 0; y < stored.rows(); ++y) {
+      for (int x = 0; x < stored.cols(); ++x) {
+        const uint16_t v = static_cast<uint16_t>(
+            std::lround(clamp_q(stored(y, x)) * 65535.0f));
+        out.write(reinterpret_cast<const char *>(&v), sizeof(uint16_t));
+      }
+    }
   } else {
     for (int y = 0; y < stored.rows(); ++y) {
       for (int x = 0; x < stored.cols(); ++x) {
@@ -130,8 +148,7 @@ void QualityMapCache::write(size_t fi, const Matrix2Df &q_map) {
   std::lock_guard<std::mutex> lock(mutex_);
   stats_.write_count += 1;
   stats_.bytes_written += static_cast<uint64_t>(
-      stored_width_ * stored_height_ *
-      (storage_cfg_.dtype == "float32" ? sizeof(float) : sizeof(uint8_t)));
+      stored_width_ * stored_height_ * dtype_bytes(storage_cfg_.dtype));
   auto it = resident_.find(fi);
   if (it != resident_.end()) {
     lru_.erase(it->second.second);
@@ -152,8 +169,7 @@ Matrix2Df QualityMapCache::read(size_t fi) const {
     std::lock_guard<std::mutex> lock(mutex_);
     stats_.read_count += 1;
     stats_.bytes_read += static_cast<uint64_t>(
-        stored_width_ * stored_height_ *
-        (storage_cfg_.dtype == "float32" ? sizeof(float) : sizeof(uint8_t)));
+        stored_width_ * stored_height_ * dtype_bytes(storage_cfg_.dtype));
   }
   return upsample_to_full_resolution(decoded);
 }
@@ -305,6 +321,16 @@ Matrix2Df QualityMapCache::decode_file(size_t fi) const {
         if (!in)
           return empty_matrix();
         stored(y, x) = clamp_q(v);
+      }
+    }
+  } else if (storage_cfg_.dtype == "uint16") {
+    for (int y = 0; y < stored_height_; ++y) {
+      for (int x = 0; x < stored_width_; ++x) {
+        uint16_t v = 0;
+        in.read(reinterpret_cast<char *>(&v), sizeof(uint16_t));
+        if (!in)
+          return empty_matrix();
+        stored(y, x) = static_cast<float>(v) / 65535.0f;
       }
     }
   } else {

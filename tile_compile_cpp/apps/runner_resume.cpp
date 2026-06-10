@@ -524,6 +524,102 @@ bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
   }
 }
 
+std::vector<TileMetrics> build_aqmh_bge_tile_metrics_from_rgb(
+    const TileGrid &grid, const tile_compile::Matrix2Df &R,
+    const tile_compile::Matrix2Df &G, const tile_compile::Matrix2Df &B,
+    const std::vector<uint8_t> &valid_mask, int mask_rows, int mask_cols) {
+  std::vector<TileMetrics> out;
+  out.reserve(grid.tiles.size());
+  const bool mask_ok =
+      mask_rows == R.rows() && mask_cols == R.cols() &&
+      G.rows() == R.rows() && B.rows() == R.rows() &&
+      G.cols() == R.cols() && B.cols() == R.cols() &&
+      valid_mask.size() == static_cast<size_t>(R.rows() * R.cols());
+
+  for (const auto &tile : grid.tiles) {
+    TileMetrics tm{};
+    tm.fwhm = 0.0f;
+    tm.roundness = 0.0f;
+    tm.contrast = 0.0f;
+    tm.sharpness = 0.0f;
+    tm.background = 0.0f;
+    tm.noise = 0.0f;
+    tm.gradient_energy = 0.0f;
+    tm.star_count = 0;
+    tm.type = TileType::STRUCTURE;
+    tm.quality_score = 0.0f;
+
+    const int x0 = std::max(0, tile.x);
+    const int y0 = std::max(0, tile.y);
+    const int x1 = std::min(tile.x + tile.width, static_cast<int>(R.cols()));
+    const int y1 = std::min(tile.y + tile.height, static_cast<int>(R.rows()));
+    if (x1 <= x0 || y1 <= y0 || !mask_ok) {
+      out.push_back(tm);
+      continue;
+    }
+
+    std::vector<float> values;
+    values.reserve(static_cast<size_t>((x1 - x0) * (y1 - y0)));
+    double gradient_sum = 0.0;
+    size_t gradient_count = 0;
+    for (int y = y0; y < y1; ++y) {
+      for (int x = x0; x < x1; ++x) {
+        const size_t idx =
+            static_cast<size_t>(y) * static_cast<size_t>(mask_cols) +
+            static_cast<size_t>(x);
+        if (valid_mask[idx] == 0) {
+          continue;
+        }
+        const float rv = R(y, x);
+        const float gv = G(y, x);
+        const float bv = B(y, x);
+        if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) {
+          continue;
+        }
+        const float luma = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+        if (!std::isfinite(luma)) {
+          continue;
+        }
+        values.push_back(luma);
+
+        const int xm = std::max(x0, x - 1);
+        const int xp = std::min(x1 - 1, x + 1);
+        const int ym = std::max(y0, y - 1);
+        const int yp = std::min(y1 - 1, y + 1);
+        const float l_xm =
+            0.2126f * R(y, xm) + 0.7152f * G(y, xm) + 0.0722f * B(y, xm);
+        const float l_xp =
+            0.2126f * R(y, xp) + 0.7152f * G(y, xp) + 0.0722f * B(y, xp);
+        const float l_ym =
+            0.2126f * R(ym, x) + 0.7152f * G(ym, x) + 0.0722f * B(ym, x);
+        const float l_yp =
+            0.2126f * R(yp, x) + 0.7152f * G(yp, x) + 0.0722f * B(yp, x);
+        if (std::isfinite(l_xm) && std::isfinite(l_xp) &&
+            std::isfinite(l_ym) && std::isfinite(l_yp)) {
+          gradient_sum += std::fabs(l_xp - l_xm) + std::fabs(l_yp - l_ym);
+          ++gradient_count;
+        }
+      }
+    }
+    if (!values.empty()) {
+      std::vector<float> median_values = values;
+      tm.background = tile_compile::core::median_of(median_values);
+      std::vector<float> noise_values = values;
+      tm.noise = tile_compile::core::robust_sigma_mad(noise_values);
+      tm.gradient_energy =
+          gradient_count > 0
+              ? static_cast<float>(gradient_sum /
+                                   static_cast<double>(gradient_count))
+              : 0.0f;
+      tm.contrast = tm.gradient_energy;
+      tm.sharpness = tm.gradient_energy;
+    }
+    out.push_back(tm);
+  }
+
+  return out;
+}
+
 tile_compile::image::HyperMetricStretchConfig to_image_hms_config(
     const tile_compile::config::HyperMetricStretchConfig &src) {
   tile_compile::image::HyperMetricStretchConfig dst;
@@ -1548,6 +1644,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   bool bge_have_bge_grid = false;
   bool bge_metrics_tiles_match = false;
   bool bge_tile_context_loaded = false;
+  std::string bge_tile_metrics_source = "none";
   bool seeing_fwhm_loaded = false;
   bool have_seeing_fwhm = false;
   double seeing_fwhm_median = 0.0;
@@ -1586,6 +1683,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         run_dir / "artifacts" / "tile_grid.json", bge_tile_grid, grid_err);
 
     bge_have_local_metrics = ok_local && !bge_tile_metrics.empty();
+    bge_tile_metrics_source =
+        bge_have_local_metrics ? "classic_local_metrics" : "none";
     bge_have_bge_grid = ok_grid && !bge_tile_grid.tiles.empty();
     bge_metrics_tiles_match =
         bge_have_local_metrics && bge_have_bge_grid &&
@@ -1667,39 +1766,51 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     load_bge_tile_context_if_needed();
-    const bool bge_have_tile_data = bge_have_local_metrics && bge_have_bge_grid;
 
     image::BGEDiagnostics bge_diag;
-    if (bge_have_tile_data && bge_metrics_tiles_match) {
-      image::BGEConfig bge_cfg =
-          tile_compile::runner::to_image_bge_config(cfg.bge);
-      std::string mask_error;
-      const int rows = static_cast<int>(rgb.R.rows());
-      const int cols = static_cast<int>(rgb.R.cols());
-      if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
-          rgb.B.rows() != rows || rgb.G.cols() != cols ||
-          rgb.B.cols() != cols) {
-        mask_error = "invalid RGB dimensions";
-        emitter.phase_end(run_id, Phase::BGE, "error",
-                          {{"reason", "output_canvas_mask_invalid"},
-                           {"error", mask_error}},
-                          log_file);
-        return false;
-      }
-      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-              bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
-              bge_cfg.common_mask_cols, mask_error)) {
-        emitter.phase_end(run_id, Phase::BGE, "error",
-                          {{"reason", "output_canvas_mask_invalid"},
-                           {"error", mask_error}},
-                          log_file);
-        return false;
-      }
-      std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
-                << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
-                << ")" << std::endl;
+    image::BGEConfig bge_cfg =
+        tile_compile::runner::to_image_bge_config(cfg.bge);
+    std::string mask_error;
+    const int rows = static_cast<int>(rgb.R.rows());
+    const int cols = static_cast<int>(rgb.R.cols());
+    if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
+        rgb.B.rows() != rows || rgb.G.cols() != cols ||
+        rgb.B.cols() != cols) {
+      mask_error = "invalid RGB dimensions";
+      emitter.phase_end(run_id, Phase::BGE, "error",
+                        {{"reason", "output_canvas_mask_invalid"},
+                         {"error", mask_error}},
+                        log_file);
+      return false;
+    }
+    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+            run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+            bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
+            bge_cfg.common_mask_cols, mask_error)) {
+      emitter.phase_end(run_id, Phase::BGE, "error",
+                        {{"reason", "output_canvas_mask_invalid"},
+                         {"error", mask_error}},
+                        log_file);
+      return false;
+    }
+    std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
+              << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
+              << ")" << std::endl;
 
+    if (cfg.aqmh.enabled && !bge_have_local_metrics && bge_have_bge_grid) {
+      bge_tile_metrics = build_aqmh_bge_tile_metrics_from_rgb(
+          bge_tile_grid, rgb.R, rgb.G, rgb.B, bge_cfg.common_valid_mask,
+          bge_cfg.common_mask_rows, bge_cfg.common_mask_cols);
+      bge_tile_metrics_source = "aqmh_output";
+    }
+
+    const bool bge_have_tile_metrics = !bge_tile_metrics.empty();
+    const bool bge_have_tile_data = bge_have_tile_metrics && bge_have_bge_grid;
+    bge_metrics_tiles_match =
+        bge_have_tile_data &&
+        (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
+
+    if (bge_have_tile_data && bge_metrics_tiles_match) {
       Matrix2Df R_bge = rgb.R;
       Matrix2Df G_bge = rgb.G;
       Matrix2Df B_bge = rgb.B;
@@ -1719,6 +1830,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     core::json bge_artifact = tile_compile::runner::bge_diag_to_json(
         bge_diag, cfg.bge.enabled, bge_have_tile_data, bge_metrics_tiles_match);
     bge_artifact["have_local_metrics"] = bge_have_local_metrics;
+    bge_artifact["have_tile_metrics"] = bge_have_tile_metrics;
+    bge_artifact["tile_metrics_source"] = bge_tile_metrics_source;
     bge_artifact["have_bge_grid"] = bge_have_bge_grid;
     bge_artifact["local_metrics_tiles"] = static_cast<int>(bge_tile_metrics.size());
     bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());

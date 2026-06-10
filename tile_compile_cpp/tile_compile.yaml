@@ -2,11 +2,23 @@ aqmh:
   cherry_pick:
     enabled: true
     k_frac: 0.5
-    k_min: 10
+    k_min: 50
+  diagnostics:
+    q_region: 0.75
+    r_morph_canvas_px: 6
+    tau_artifact: 0.2
   enabled: true
   pyramid:
+    base_window_px: 4
     frac_artifact_max: 0.25
     k_artifact: 3
+    scales: 4
+    w_sharp: 0.6
+    w_snr: 0.4
+  storage:
+    dtype: float32
+    max_resident_maps: 2
+    resolution_divisor: 2
 assumptions:
   frames_min: 30
   frames_reduced_threshold: 120
@@ -15,8 +27,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/mux/.local/share/tile_compile/astap
+  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:
@@ -132,7 +144,7 @@ hypermetric_stretch:
   require_successful_pcc: true
   sensor_profile: rec709
   shadow_convergence: 0
-  target_bg: 0.12
+  target_bg: 0.15
   write_channels: false
 input:
   max_frames: 0
@@ -174,14 +186,14 @@ pcc:
   aperture_radius_px: 8
   apply_attenuation: false
   background_model: plane
-  background_neutralization_mode: always
+  background_neutralization_mode: auto
   chroma_strength: 0.85
   enabled: true
   k_max: 2.4
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 3
-  max_residual_rms: 0.9
+  max_residual_rms: 0.7
   min_aperture_px: 4
   min_stars: 10
   radii_mode: auto_fwhm
@@ -214,7 +226,7 @@ registration:
   star_topk: 80
   transform_model: affine
   use_astrometry: true
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_m66_galaxy_background_balanced
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -225,17 +237,18 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
+    - m66
     - galaxy
     - background_gradient
     - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+  id: m66_galaxy_background_balanced
+  intent: OSC-Galaxienfeld wie M66 mit Fokus auf robuster Hotpixel-Unterdrueckung, neutralem Hintergrund und ohne ueberaggressives Chroma-Suppression-Preset.
+  priority: balanced_color_background_and_defect_rejection
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - M66 / M65 / NGC 3628 und aehnliche broadband-Galaxienfelder mit schwachem Hintergrundgradient
+    - wenn ein nebula-/IC434-orientiertes Preset zu gruener oder zu flacher Galaxiendynamik fuehrt
+    - wenn fixe RGB-Speckles trotz Sigma-Clipping sichtbar bleiben
+  title: M66 Galaxy Background Balanced
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
