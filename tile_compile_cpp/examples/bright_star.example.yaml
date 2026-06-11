@@ -18,7 +18,7 @@ bge:
     holdout_fraction: 0.25
     max_evals: 24
     strategy: conservative
-  enabled: true
+  enabled: false
   fit:
     huber_delta: 1.5
     irls_max_iterations: 10

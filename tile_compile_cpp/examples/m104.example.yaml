@@ -138,7 +138,7 @@ astrometry:
   search_radius: 183
 
 bge:
-  enabled: true
+  enabled: false
   tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true

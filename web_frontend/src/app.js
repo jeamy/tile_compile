@@ -4251,6 +4251,14 @@ function updateRunPhaseSnapshot(runIdRaw, phaseNameRaw, status, pctRaw) {
   };
 }
 
+function isRunPhaseSnapshotTerminal(runIdRaw, phaseNameRaw) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  const phaseName = normalizeRunMonitorPhaseName(phaseNameRaw);
+  const entry = runId && phaseName ? uiState.runPhaseSnapshots?.[runId]?.[phaseName] : null;
+  const status = normalizedRunPhaseStatus(entry?.status || "");
+  return status === "done" || status === "skipped" || status === "error";
+}
+
 function syntheticRunPhaseEntries(stateRaw) {
   const state = String(stateRaw || "pending").trim().toLowerCase();
   const phaseOrder = getEffectivePhaseOrder();
@@ -5175,7 +5183,12 @@ function connectRunMonitorStream(runId) {
         event?.pct ??
         0;
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
-        if (eventPhase) setPhaseRow(eventPhase, eventStatus, eventPct);
+        const isStalePhaseReplay =
+          (event?.type === "phase_progress" || event?.type === "phase_start")
+          && Number.isFinite(eventTsMs)
+          && eventTsMs < (streamOpenedAtMs - 1000)
+          && isRunPhaseSnapshotTerminal(runId, eventPhase);
+        if (eventPhase && !isStalePhaseReplay) setPhaseRow(eventPhase, eventStatus, eventPct);
       }
       // Cherry-pick stats: show panel when TILE_RECONSTRUCTION phase_end arrives
       // with cherry_pick_enabled = true in the payload.

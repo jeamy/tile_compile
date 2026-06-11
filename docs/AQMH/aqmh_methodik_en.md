@@ -21,7 +21,7 @@ Any method that assigns one local scalar quality value to a large spatial block 
 
 ### 0.2 AQMH Objective
 
-The Adaptive Quality Mask Harvesting method computes a **continuous, pixel-resolved quality weight field** `Q_map_{f,c}(x,y)` for every frame. The reconstruction then performs a **pixel-wise weighted mean** using AQMH weights only.
+The Adaptive Quality Mask Harvesting method computes a **continuous per-pixel quality weight field** `Q_map_{f,c}(x,y)` for every frame. The reconstruction then performs a **pixel-wise quality-weighted mean** using AQMH weights only: each output pixel is reconstructed from the frame samples at that same pixel position, weighted by the corresponding AQMH quality value.
 
 Core objectives:
 

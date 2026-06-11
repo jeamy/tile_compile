@@ -82,6 +82,26 @@ int main(int argc, char** argv) {
         expect_true(!found_aqmh_state_clustering, "aqmh hides state clustering");
         expect_true(!found_aqmh_synthetic_frames, "aqmh hides synthetic frames");
 
+        harness.create_run("aqmh_hides_classic_phases_from_events", {
+            {{"ts", "2026-03-10T11:20:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
+            {{"ts", "2026-03-10T11:20:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}, {"aqmh_enabled", true}},
+            {{"ts", "2026-03-10T11:20:02Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
+            {{"ts", "2026-03-10T11:20:03Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T11:20:04Z"}, {"type", "phase_start"}, {"phase_name", "SYNTHETIC_FRAMES"}},
+            {{"ts", "2026-03-10T11:20:05Z"}, {"type", "phase_end"}, {"phase_name", "SYNTHETIC_FRAMES"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T11:20:06Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+
+        const auto aqmh_event_status = harness.get_json("/api/runs/aqmh_hides_classic_phases_from_events/status");
+        expect_equal(aqmh_event_status["_http_status"].get<long>(), 200L, "event-derived aqmh status code");
+        expect_true(aqmh_event_status["aqmh_enabled"].is_boolean(), "event-derived aqmh flag is boolean");
+        expect_true(aqmh_event_status["aqmh_enabled"].get<bool>(), "aqmh flag inferred from events");
+        for (const auto& item : aqmh_event_status["phases"]) {
+            const std::string phase = item.value("phase", "");
+            expect_true(phase != "STATE_CLUSTERING", "event-derived aqmh hides state clustering");
+            expect_true(phase != "SYNTHETIC_FRAMES", "event-derived aqmh hides synthetic frames");
+        }
+
         harness.create_run("completed_without_run_end", {
             {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
             {{"ts", "2026-03-10T11:30:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},

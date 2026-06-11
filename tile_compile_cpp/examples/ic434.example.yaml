@@ -192,7 +192,7 @@ astrometry:
 # ============================================================================
 
 bge:
-  enabled: true
+  enabled: false
   
   # Autotune: Balanced strategy with emphasis on flatness
   autotune:

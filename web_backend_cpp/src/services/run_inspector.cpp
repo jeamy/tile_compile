@@ -49,13 +49,18 @@ bool visit_jsonl(const fs::path& path,
 /// @brief Implements phase name from event.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-std::string phase_name_from_event(const nlohmann::json& ev) {
+std::string raw_phase_name_from_event(const nlohmann::json& ev) {
     if (ev.contains("phase_name") && ev["phase_name"].is_string()) return ev["phase_name"].get<std::string>();
     if (ev.contains("phase")) {
         if (ev["phase"].is_string()) return ev["phase"].get<std::string>();
         if (ev["phase"].is_number_integer()) return std::to_string(ev["phase"].get<int>());
     }
     return "";
+}
+
+std::string phase_name_from_event(const nlohmann::json& ev) {
+    const std::string phase_name = raw_phase_name_from_event(ev);
+    return phase_name == "AQMH_QUALITY_MAPS" ? std::string("LOCAL_METRICS") : phase_name;
 }
 
 /// @brief Implements phase order index.
@@ -99,6 +104,37 @@ bool json_bool_value(const nlohmann::json& object, const std::string& key, bool 
     if (value.is_number_integer()) return value.get<int>() != 0;
     if (value.is_number_unsigned()) return value.get<unsigned int>() != 0;
     return fallback;
+}
+
+std::optional<bool> json_optional_bool_value(const nlohmann::json& object, const std::string& key) {
+    if (!object.contains(key)) return std::nullopt;
+    const auto& value = object.at(key);
+    if (value.is_boolean() || value.is_number_integer() || value.is_number_unsigned()) {
+        return json_bool_value(object, key, false);
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> read_run_aqmh_enabled_from_events(const fs::path& event_file) {
+    std::optional<bool> detected;
+    visit_jsonl(event_file, [&](const nlohmann::json& ev) {
+        if (auto value = json_optional_bool_value(ev, "aqmh_enabled")) {
+            detected = value;
+            return false;
+        }
+        if (ev.contains("payload") && ev["payload"].is_object()) {
+            if (auto value = json_optional_bool_value(ev["payload"], "aqmh_enabled")) {
+                detected = value;
+                return false;
+            }
+        }
+        if (raw_phase_name_from_event(ev) == "AQMH_QUALITY_MAPS") {
+            detected = true;
+            return false;
+        }
+        return true;
+    });
+    return detected;
 }
 
 /// @brief Implements overall progress.
@@ -544,7 +580,11 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
-    const auto aqmh_enabled_opt = read_run_aqmh_enabled(run_dir);
+    auto event_file = find_event_file(run_dir);
+    auto aqmh_enabled_opt = read_run_aqmh_enabled(run_dir);
+    if (!aqmh_enabled_opt && event_file) {
+        aqmh_enabled_opt = read_run_aqmh_enabled_from_events(*event_file);
+    }
     const auto phase_order = effective_phase_order(aqmh_enabled_opt);
     nlohmann::json aqmh_enabled_json = nullptr;
     if (aqmh_enabled_opt.has_value()) aqmh_enabled_json = aqmh_enabled_opt.value();
@@ -563,7 +603,6 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         result["phases"].push_back(nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}});
     }
 
-    auto event_file = find_event_file(run_dir);
     if (!event_file) return result;
 
     nlohmann::json phases = nlohmann::json::object();

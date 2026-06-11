@@ -181,7 +181,7 @@ astrometry:
   search_radius: 183
 
 bge:
-  enabled: true
+  enabled: false
   # IC434/Horsehead: preserve real H-alpha nebulosity while suppressing
   # large-scale chromatic sky gradients. Use robust sky sampling and a smooth
   # RBF surface instead of poly3, because the previous run fitted R/B almost
