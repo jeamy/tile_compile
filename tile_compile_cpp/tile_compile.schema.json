@@ -1,8 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "tile_compile v3 config",
+  "title": "tile_compile v4 config",
   "type": "object",
   "properties": {
+    "method": {"type":"string","enum":["aqmh","classic_tile_compile"],"default":"aqmh","description":"Reconstruction method: 'aqmh' (AQMH First default) or 'classic_tile_compile'. If missing, defaults to 'aqmh'."},
     "pipeline": { "type":"object",
       "properties": { "mode":{"type":"string","enum":["production","test"]},
                       "abort_on_fail":{"type":"boolean"} } },
@@ -126,8 +127,8 @@
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}},
                       "k_local":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation, <1 softens it."} } },
-    "aqmh": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
+    "aqmh": { "type":"object","description":"AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually.",
+      "properties": { "enabled":{"type":"boolean","description":"Runtime flag derived from Config.method. true when method='aqmh', false when method='classic_tile_compile'."},
                       "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8},"base_window_px":{"type":"integer","minimum":1},"w_sharp":{"type":"number","minimum":0},"w_snr":{"type":"number","minimum":0},"k_artifact":{"type":"number","exclusiveMinimum":0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4]},"dtype":{"type":"string","enum":["float32","uint16","uint8"]},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean"},"k_min":{"type":"integer","minimum":1},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}}},

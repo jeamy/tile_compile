@@ -65,7 +65,10 @@
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:20px;">
           <div class="ps-section">
             <div style="font-size:20px;font-weight:700;margin-bottom:8px;" data-i18n="page.dashboard.guided_run">Run</div>
-            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-i18n="page.dashboard.guided_steps">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+              <span id="dashboard-method-badge" style="font-size:14px;font-weight:600;color:#fff;background:#15808d;padding:4px 10px;border-radius:6px;" data-i18n="method.aqmh">AQMH</span>
+              <span style="font-size:13px;color:var(--muted);" data-i18n="page.dashboard.guided_steps">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</span>
+            </div>
             <div class="ps-chip-row" style="margin-bottom:12px;">
               <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" data-i18n="ui.mode.simple" data-i18n-title="ui.tooltip.dashboard.guided_mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
               <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" data-i18n="ui.mode.advanced" data-i18n-title="ui.tooltip.dashboard.guided_mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und Run-Queue anzeigen.">Erweitert</button>
@@ -183,7 +186,8 @@
             <span style="color:var(--muted);">→</span>
             <span data-pipeline-step="REG" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">REG</span>
             <span style="color:var(--muted);">→</span>
-            <span data-pipeline-step="TILES" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">TILES</span>
+            <span data-pipeline-step="AQMH" data-method="aqmh" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">AQMH</span>
+            <span data-pipeline-step="TILES" data-method="classic_tile_compile" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;" hidden>TILES</span>
             <span style="color:var(--muted);">→</span>
             <span data-pipeline-step="STACK" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">STACK</span>
             <span style="color:var(--muted);">→</span>

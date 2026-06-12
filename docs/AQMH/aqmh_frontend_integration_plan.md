@@ -544,7 +544,6 @@ Do not implement the following for the first frontend pass:
 - AQMH `tile` mode.
 - A single run that silently switches between AQMH and Classic reconstruction.
 - Direct visualization of raw full AQMH map cache files in the Run Monitor.
-- Default-enabled AQMH.
 - Default-enabled cherry-pick.
 
 ---

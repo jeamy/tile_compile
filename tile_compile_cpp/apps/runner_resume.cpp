@@ -1683,8 +1683,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         run_dir / "artifacts" / "tile_grid.json", bge_tile_grid, grid_err);
 
     bge_have_local_metrics = ok_local && !bge_tile_metrics.empty();
-    bge_tile_metrics_source =
-        bge_have_local_metrics ? "classic_local_metrics" : "none";
+    // Set BGE tile metrics source based on reconstruction method
+    if (cfg.method == "aqmh") {
+        bge_tile_metrics_source = "aqmh_output";
+    } else {
+        bge_tile_metrics_source = bge_have_local_metrics ? "classic_local_metrics" : "none";
+    }
     bge_have_bge_grid = ok_grid && !bge_tile_grid.tiles.empty();
     bge_metrics_tiles_match =
         bge_have_local_metrics && bge_have_bge_grid &&

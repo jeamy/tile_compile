@@ -1,0 +1,122 @@
+# Classic Tile Compile Mode Configuration
+# This is the legacy Tile Compile pipeline without AQMH.
+# Use this configuration for the classic tile-based reconstruction method.
+
+method: classic_tile_compile
+
+aqmh:
+  enabled: false
+
+pipeline:
+  mode: production
+  abort_on_fail: true
+
+output:
+  registered_dir: registered
+  write_registered_frames: false
+  crop_to_nonzero_bbox: true
+
+data:
+  image_width: 0
+  image_height: 0
+  color_mode: OSC
+  bayer_pattern: GBRG
+  linear_required: true
+
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: strict
+
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 5.0
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 2.0
+
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range:
+    - 5
+    - 10
+
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  transform_model: similarity
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_dist_bin_px: 5.0
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  reject_shift_px_min: 100.0
+  reject_shift_median_multiplier: 5.0
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+
+tile:
+  size_px: 256
+  overlap_px: 32
+  rejection_threshold: 0.5
+  max_tiles: 0
+  cluster_threshold: 0.85
+  scale: 1
+  optimization:
+    iterations: 3
+    convergence_threshold: 0.001
+
+local_metrics:
+  enabled: true
+  anomaly_rejection: true
+  min_structures: 50
+  max_anomalies: 0.3
+
+stacking:
+  method: rej
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+  output_stretch: false
+  cosmetic_correction: false
+  per_frame_cosmetic_correction: false
+
+astrometry:
+  enabled: false
+
+bge:
+  enabled: false
+
+pcc:
+  enabled: false
+
+hypermetric_stretch:
+  enabled: false
+
+validation:
+  input_dir:
+  output_dir:
+  check_light_frames: true
+  check_master_frames: true
+  require_matching_cameras: true
+
+runtime_limits:
+  memory_budget: 32
+  parallel_workers: 0
+  acceleration_backend: auto

@@ -124,7 +124,7 @@ Also update:
 
 - `tile_compile_cpp/tile_compile.schema.yaml`
 - `tile_compile_cpp/tile_compile.schema.json`
-- `tile_compile_cpp/tile_compile.yaml` defaults, with `aqmh.enabled: false`
+- `tile_compile_cpp/tile_compile.yaml` defaults, with `aqmh.enabled: true` (AQMH-first)
 
 ---
 

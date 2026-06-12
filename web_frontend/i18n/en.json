@@ -1127,5 +1127,6 @@
   "param.validation.min_tile_weight_variance.label": "Min Tile Weight Variance",
   "param.validation.min_tile_weight_variance.short_help": "Minimum local tile-weight variance sanity threshold. Range: >= 0. Default: 0.05.",
   "param.validation.require_no_tile_pattern.label": "Require No Tile Pattern",
-  "param.validation.require_no_tile_pattern.short_help": "Enforce tile-pattern detector check. Default: true."
-}
+  "param.validation.require_no_tile_pattern.short_help": "Enforce tile-pattern detector check. Default: true.",
+  "method.aqmh": "AQMH",
+  "method.classic_tile_compile": "Tile Compile Classic"

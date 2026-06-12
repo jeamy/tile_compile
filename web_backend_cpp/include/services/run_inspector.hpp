@@ -2,10 +2,18 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <optional>
 #include <nlohmann/json.hpp>
 #include "job_store.hpp"
 
 namespace fs = std::filesystem;
+
+/// @brief Normalizes a phase event name based on the reconstruction method.
+/// For AQMH method, certain Classic phases are hidden and others are relabeled.
+std::string normalizePhaseEvent(const std::string& event, const std::string& method);
+
+/// @brief Returns the method-aware pipeline phase order for computing run status and progress.
+std::vector<std::string> getPhaseOrderForMethod(const std::string& method);
 
 /// @brief Canonical pipeline phase order used to compute run status and progress.
 static const std::vector<std::string> PHASE_ORDER = {

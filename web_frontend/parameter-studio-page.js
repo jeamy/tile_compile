@@ -91,7 +91,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
   const staticRows = Array.from(document.querySelectorAll(".ps-section.ps-parameter-group .ps-row"));
   let localeMessages = {};
   let schemaCategoryOrder = [];
-  let activeCategory = "all";
+  let activeCategory = "aqmh";
   let activeExplainPath = "registration.star_topk";
 
   function refreshCategoryButtons() {

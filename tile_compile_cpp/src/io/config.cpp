@@ -38,6 +38,20 @@ std::string normalize_acceleration_backend(std::string value) {
   return value;
 }
 
+/// @brief Normalizes the reconstruction method and derived flags.
+/// @details Ensures that Config::method is always set and AqmhConfig::enabled is derived from it.
+/// This is the single source of truth for method determination. If method is missing, it defaults to "aqmh".
+void normalizeMethod(Config &config) {
+  if (config.method.empty()) {
+    config.method = "aqmh";
+  }
+  if (config.method == "aqmh") {
+    config.aqmh.enabled = true;
+  } else if (config.method == "classic_tile_compile") {
+    config.aqmh.enabled = false;
+  }
+}
+
 /// @brief Reads float pair.
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -171,6 +185,10 @@ Config Config::load(const fs::path &path) {
 /// artifact, and error-handling semantics expected by callers.
 Config Config::from_yaml(const YAML::Node &node) {
   Config cfg;
+
+  if (node["method"]) {
+    cfg.method = node["method"].as<std::string>();
+  }
 
   if (node["pipeline"]) {
     auto p = node["pipeline"];
@@ -904,6 +922,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
   }
 
+  normalizeMethod(cfg);
+
   return cfg;
 }
 
@@ -927,6 +947,8 @@ void Config::save(const fs::path &path) const {
 /// artifact, and error-handling semantics expected by callers.
 YAML::Node Config::to_yaml() const {
   YAML::Node node;
+
+  node["method"] = method;
 
   node["pipeline"]["mode"] = pipeline.mode;
   node["pipeline"]["abort_on_fail"] = pipeline.abort_on_fail;
@@ -1278,6 +1300,10 @@ YAML::Node Config::to_yaml() const {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 void Config::validate() const {
+  if (method != "aqmh" && method != "classic_tile_compile") {
+    throw ValidationError("method must be 'aqmh' or 'classic_tile_compile'");
+  }
+
   if (pipeline.mode != "production" && pipeline.mode != "test") {
     throw ValidationError("pipeline.mode must be 'production' or 'test'");
   }
@@ -1859,6 +1885,17 @@ void Config::validate() const {
 }
 
 /// @brief Implements get schema json.
+/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
+std::string getEffectiveMethod(const Config& config) {
+    const char* forceClassic = std::getenv("FORCE_CLASSIC");
+    if (forceClassic && std::string(forceClassic) == "1") {
+        return "classic_tile_compile";
+    }
+    return config.method;
+}
+
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.

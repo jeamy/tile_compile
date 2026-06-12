@@ -261,7 +261,7 @@ struct AqmhCherryPickConfig {
 };
 
 struct AqmhConfig {
-  bool enabled = true;
+  bool enabled = true; // Runtime-Flag, wird aus Config::method abgeleitet via normalizeMethod()
   AqmhPyramidConfig pyramid;
   AqmhStorageConfig storage;
   AqmhCherryPickConfig cherry_pick;
@@ -440,6 +440,7 @@ struct RuntimeLimitsConfig {
 };
 
 struct Config {
+  std::string method = "aqmh"; // aqmh | classic_tile_compile
   PipelineConfig pipeline;
   OutputConfig output;
   DataConfig data;
@@ -472,6 +473,8 @@ struct Config {
 
   void validate() const;
 };
+
+std::string getEffectiveMethod(const Config& config);
 
 std::string get_schema_json();
 

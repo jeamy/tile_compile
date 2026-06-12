@@ -63,6 +63,45 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
     return phase_name == "AQMH_QUALITY_MAPS" ? std::string("LOCAL_METRICS") : phase_name;
 }
 
+std::string normalizePhaseEvent(const std::string& event, const std::string& method) {
+    if (method == "aqmh") {
+        if (event == "LOCAL_METRICS" || 
+            event == "STATE_CLUSTERING" || 
+            event == "SYNTHETIC_FRAMES") {
+            return ""; // Ausblenden
+        }
+        if (event == "AQMH_QUALITY_MAPS") return "AQMH_MAPS";
+        if (event == "TILE_RECONSTRUCTION") return "AQMH_RECONSTRUCTION";
+    }
+    return event; // Unverändert
+}
+
+std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
+    if (method == "aqmh") {
+        return {
+            "SCAN_INPUT",
+            "CHANNEL_SPLIT",
+            "NORMALIZATION",
+            "GLOBAL_METRICS",
+            "TILE_GRID",
+            "REGISTRATION",
+            "PREWARP",
+            "COMMON_OVERLAP",
+            "AQMH_MAPS",
+            "AQMH_RECONSTRUCTION",
+            "AQMH_DIAGNOSTICS",
+            "STACKING",
+            "DEBAYER",
+            "ASTROMETRY",
+            "BGE",
+            "PCC",
+            "HYPERMETRIC_STRETCH"
+        };
+    }
+    // Classic or unknown method: use original phase order
+    return PHASE_ORDER;
+}
+
 /// @brief Implements phase order index.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -215,6 +254,20 @@ std::string read_run_color_mode(const fs::path& run_dir) {
 /// @brief Reads aqmh enabled flag from run config.yaml.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
+std::optional<std::string> read_run_method(const fs::path& run_dir) {
+    fs::path config_path = run_dir / "config.yaml";
+    std::ifstream f(config_path);
+    if (f) {
+        try {
+            YAML::Node root = YAML::Load(f);
+            if (root["method"] && root["method"].IsScalar()) {
+                return root["method"].as<std::string>();
+            }
+        } catch (...) {}
+    }
+    return std::nullopt;
+}
+
 std::optional<bool> read_run_aqmh_enabled(const fs::path& run_dir) {
     fs::path config_path = run_dir / "config.yaml";
     std::ifstream f(config_path);
@@ -581,19 +634,23 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 /// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
     auto event_file = find_event_file(run_dir);
+    auto method_opt = read_run_method(run_dir);
     auto aqmh_enabled_opt = read_run_aqmh_enabled(run_dir);
     if (!aqmh_enabled_opt && event_file) {
         aqmh_enabled_opt = read_run_aqmh_enabled_from_events(*event_file);
     }
-    const auto phase_order = effective_phase_order(aqmh_enabled_opt);
-    nlohmann::json aqmh_enabled_json = nullptr;
-    if (aqmh_enabled_opt.has_value()) aqmh_enabled_json = aqmh_enabled_opt.value();
+    
+    // Determine effective method: prefer explicit method from config, default to aqmh
+    std::string effective_method = method_opt.value_or("aqmh");
+    
+    const auto phase_order = getPhaseOrderForMethod(effective_method);
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
         {"exists", fs::exists(run_dir)},
         {"status", "unknown"},
+        {"method", effective_method},
+        {"aqmh_enabled", effective_method == "aqmh"},
         {"color_mode", read_run_color_mode(run_dir)},
-        {"aqmh_enabled", aqmh_enabled_json},
         {"current_phase", nullptr},
         {"progress", 0.0},
         {"phases", nlohmann::json::array()},
@@ -629,9 +686,16 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (events_tail.size() > 200) events_tail.pop_front();
         std::string event_type = ev.value("type", std::string());
         std::string phase_name = phase_name_from_event(ev);
-        if (aqmh_enabled_opt.value_or(false) && is_aqmh_classic_only_phase(phase_name)) {
-            return true;
+        
+        // Normalize phase name based on method
+        std::string normalized_phase = normalizePhaseEvent(phase_name, effective_method);
+        if (normalized_phase.empty()) {
+            return true; // Skip/hide this phase for the current method
         }
+        if (normalized_phase != phase_name) {
+            phase_name = normalized_phase; // Use normalized name
+        }
+        
         if (!phase_name.empty()) {
             nlohmann::json* phase_state = nullptr;
             if (phases.contains(phase_name)) phase_state = &phases[phase_name];
@@ -816,6 +880,7 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
             {"run_id", run_id},
             {"modified", iso_utc_from_file_time(modified_time)},
             {"status", status.value("status", "unknown")},
+            {"method", status.value("method", "aqmh")},
         });
     }
     // Sort once after collecting all entries (newest first).

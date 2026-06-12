@@ -5627,8 +5627,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
       bge_tile_grid_cache = bge_tile_grid;
 
-      std::string bge_tile_metrics_source =
-          bge_tile_metrics_cache.empty() ? "none" : "classic_local_metrics";
+      std::string bge_tile_metrics_source;
+      // Set BGE tile metrics source based on reconstruction method
+      if (cfg.method == "aqmh") {
+        bge_tile_metrics_source = "aqmh_output";
+      } else {
+        bge_tile_metrics_source = bge_tile_metrics_cache.empty() ? "none" : "classic_local_metrics";
+      }
       auto build_aqmh_bge_tile_metrics =
           [&](const TileGrid &grid, const std::vector<uint8_t> &valid_mask,
               int mask_rows, int mask_cols) {
@@ -5749,12 +5754,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cout << "[BGE] Using reconstruction output canvas mask (" << cols
                 << "x" << rows << ")" << std::endl;
 
-      if (cfg.aqmh.enabled && bge_tile_metrics_cache.empty() &&
+      if (cfg.method == "aqmh" && bge_tile_metrics_cache.empty() &&
           !bge_tile_grid.tiles.empty()) {
         bge_tile_metrics_cache = build_aqmh_bge_tile_metrics(
             bge_tile_grid, bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
             bge_cfg.common_mask_cols);
-        bge_tile_metrics_source = "aqmh_output";
       }
 
       // BGE requires method-specific tile sampling helpers.

@@ -144,6 +144,19 @@
             </div>
           </div>
 
+          <div class="ps-section">
+            <div class="ps-section-title">Reconstruction method</div>
+            <div class="ps-row">
+              <input type="radio" name="method" id="method-aqmh" value="aqmh" checked data-control="method" onclick="saveMethodToState('aqmh')" title="AQMH is the default reconstruction method with dense quality maps.">
+              <label for="method-aqmh">AQMH</label>
+            </div>
+            <div class="ps-row">
+              <input type="radio" name="method" id="method-classic" value="classic_tile_compile" data-control="method" onclick="saveMethodToState('classic_tile_compile')" title="Select Tile Compile Classic for the previous Classic pipeline.">
+              <label for="method-classic">Tile Compile Classic</label>
+            </div>
+            <div class="ps-hint" style="margin-top:8px;">AQMH is the default reconstruction method.<br>Select Tile Compile Classic for the previous Classic pipeline.</div>
+          </div>
+
           <div class="ps-actions">
             <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan starten</button>
             <button id="wizard-nav-next" data-control="wizard.nav.next" class="ps-btn ps-btn-secondary" title="Zum naechsten Wizard-Schritt.">Weiter zu Preset/Validation</button>

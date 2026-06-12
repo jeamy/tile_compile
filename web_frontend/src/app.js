@@ -1148,6 +1148,7 @@ function setConfigDraft(yamlText) {
   uiState.configYaml = value;
   writeServerUiStateValue(CONFIG_DRAFT_KEY, uiState.configYaml);
   refreshRunReadyIndicators();
+  updateDashboardMethodUI();
 }
 
 function getConfigValidationState() {
@@ -3377,7 +3378,7 @@ function localizedRunMonitorPhaseName(phaseRaw) {
   const phase = String(phaseRaw || "").trim().toUpperCase();
   if (!phase) return "";
   if ((phase === "LOCAL_METRICS" || phase === "AQMH_QUALITY_MAPS") &&
-      isAqmhEnabled()) {
+      isAqmhMethod()) {
     return t("phase.aqmh_quality_maps", "AQMH metrics");
   }
   return t(`phase.${phase.toLowerCase()}`, phase);
@@ -4078,24 +4079,72 @@ function createEmptyRunPhaseSnapshot() {
   return snapshot;
 }
 
+// LEGACY: isAqmhEnabled() - now delegates to isAqmhMethod() for method-first approach
+// Kept for backward compatibility with existing code
 function isAqmhEnabled() {
-  const inRunMonitor = Boolean($("monitor-phase-lists"));
-  if (inRunMonitor && typeof uiState.runMonitorAqmhEnabled === "boolean") {
-    return uiState.runMonitorAqmhEnabled;
-  }
-  const draftValue = currentDraftValueForPath("aqmh.enabled");
-  if (typeof draftValue === "boolean") return draftValue;
-  if (typeof draftValue === "string") return draftValue.toLowerCase() === "true";
-  if (typeof uiState.runMonitorAqmhEnabled === "boolean") {
-    return uiState.runMonitorAqmhEnabled;
-  }
-  const aqmhEnabled = uiState.configObject?.aqmh?.enabled;
-  if (typeof aqmhEnabled === "boolean") return aqmhEnabled;
-  if (typeof aqmhEnabled === "string") return aqmhEnabled.toLowerCase() === "true";
-  return true;
+  return isAqmhMethod();
 }
 
+// NEW: Method-first approach (AQMH-First v0.3.0)
+function currentMethod() {
+  // Priority: 1. Run-Monitor-Status, 2. Draft method, 3. Config method, 4. YAML method, 5. UI-State, 6. Default
+  const runMethod = currentRunStatus?.method;
+  if (runMethod && ["aqmh", "classic_tile_compile"].includes(runMethod)) {
+    return runMethod;
+  }
+  const draftMethod = currentDraftValueForPath("method");
+  if (draftMethod && ["aqmh", "classic_tile_compile"].includes(draftMethod)) {
+    return draftMethod;
+  }
+  const configMethod = currentConfig?.method || detectMethodFromYaml(currentConfigYaml);
+  if (configMethod && ["aqmh", "classic_tile_compile"].includes(configMethod)) {
+    return configMethod;
+  }
+  const urlMethod = getUrlHashParam("method");
+  if (urlMethod && ["aqmh", "classic_tile_compile"].includes(urlMethod)) {
+    return urlMethod;
+  }
+  const storedMethod = readUiStateValue("tileCompile.method") ||
+                       localStorage.getItem("tileCompile.method");
+  if (storedMethod && ["aqmh", "classic_tile_compile"].includes(storedMethod)) {
+    return storedMethod;
+  }
+  return "aqmh";
+}
+
+function isAqmhMethod() {
+  return currentMethod() === "aqmh";
+}
+
+// Save method to URL-Hash and localStorage
+function saveMethodToState(method) {
+  setUrlHashParam("method", method);
+  writeUiStateValue("tileCompile.method", method);
+  localStorage.setItem("tileCompile.method", method);
+}
+
+function detectMethodFromYaml(yamlText = "") {
+  const lines = String(yamlText || "").split(/\r?\n/);
+  for (const rawLine of lines) {
+    const withoutComment = String(rawLine || "").replace(/\s+#.*$/, "");
+    const trimmed = withoutComment.trim();
+    const methodMatch = trimmed.match(/^method:\s*([A-Za-z0-9_-]+)\s*$/);
+    if (methodMatch) {
+      const method = methodMatch[1].toLowerCase();
+      if (["aqmh", "classic_tile_compile"].includes(method)) {
+        return method;
+      }
+    }
+  }
+  return null;
+}
+
+// LEGACY: detectAqmhEnabledFromYaml - kept for backward compatibility during transition
 function detectAqmhEnabledFromYaml(yamlText = "") {
+  const method = detectMethodFromYaml(yamlText);
+  if (method === "aqmh") return true;
+  if (method === "classic_tile_compile") return false;
+  
   const lines = String(yamlText || "").split(/\r?\n/);
   let inAqmh = false;
   let aqmhIndent = -1;
@@ -4104,12 +4153,6 @@ function detectAqmhEnabledFromYaml(yamlText = "") {
     if (!withoutComment.trim()) continue;
     const indent = withoutComment.match(/^\s*/)?.[0]?.length || 0;
     const trimmed = withoutComment.trim();
-    const methodMatch = trimmed.match(/^method:\s*([A-Za-z0-9_-]+)\s*$/);
-    if (methodMatch) {
-      const method = methodMatch[1].toLowerCase();
-      if (method === "aqmh") return true;
-      if (method === "classic_tile_compile") return false;
-    }
     if (trimmed === "aqmh:") {
       inAqmh = true;
       aqmhIndent = indent;
@@ -4127,14 +4170,14 @@ function detectAqmhEnabledFromYaml(yamlText = "") {
 }
 
 function getEffectivePhaseOrder() {
-  if (isAqmhEnabled()) {
+  if (isAqmhMethod()) {
     return RUN_MONITOR_PHASE_ORDER.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase));
   }
   return RUN_MONITOR_PHASE_ORDER;
 }
 
 function getEffectiveDashboardPipelineGroups() {
-  if (!isAqmhEnabled()) return DASHBOARD_PIPELINE_GROUPS;
+  if (!isAqmhMethod()) return DASHBOARD_PIPELINE_GROUPS;
   return DASHBOARD_PIPELINE_GROUPS.map((group) => ({
     ...group,
     phases: group.phases.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase)),
@@ -6195,7 +6238,11 @@ async function bindHistoryPage() {
     compareRunSelect.innerHTML = [
       '<option value="">-</option>',
       ...compareCandidates.map(
-        (item) => `<option value="${item.run_id}">${item.status.toUpperCase()} ${item.run_id} | ${item.name}</option>`,
+        (item) => {
+          const method = item.method || "aqmh";
+          const methodTag = method === "aqmh" ? "AQMH" : "Tile Compile Classic";
+          return `<option value="${item.run_id}">[${methodTag}] ${item.status.toUpperCase()} ${item.run_id} | ${item.name}</option>`;
+        },
       ),
     ].join("");
     if (!compareCandidates.some((item) => item.run_id === uiState.compareHistoryRunId)) {
@@ -6269,7 +6316,9 @@ async function bindHistoryPage() {
       .slice(0, 50)
       .map((item) => {
         const active = item.run_id === uiState.selectedHistoryRunId ? " is-active" : "";
-        return `<li><button class="${active}" data-run-id="${item.run_id}">${item.status.toUpperCase()} ${item.run_id} | ${item.name}</button></li>`;
+        const method = item.method || "aqmh";
+        const methodTag = method === "aqmh" ? "AQMH" : "Tile Compile Classic";
+        return `<li><button class="${active}" data-run-id="${item.run_id}"><span style="font-size:11px;color:#555;">[${methodTag}]</span> ${item.status.toUpperCase()} ${item.run_id} | ${item.name}</button></li>`;
       })
       .join("");
     list.querySelectorAll("button[data-run-id]").forEach((btn) => {
@@ -8448,6 +8497,36 @@ function dashboardPipelineStepElements() {
   return Array.from(document.querySelectorAll("#dashboard-pipeline-preview [data-pipeline-step]"));
 }
 
+function updateDashboardMethodUI() {
+  const method = currentMethod();
+  const isAqmh = isAqmhMethod();
+  
+  // Update Method Badge
+  const badge = document.getElementById("dashboard-method-badge");
+  if (badge) {
+    badge.textContent = isAqmh ? "AQMH" : "Tile Compile Classic";
+    badge.style.background = isAqmh ? "#15808d" : "#7c3aed";
+    badge.setAttribute("data-i18n", isAqmh ? "method.aqmh" : "method.classic_tile_compile");
+  }
+  
+  // Update Pipeline Preview: show AQMH or TILES
+  const aqmhEl = document.querySelector("[data-pipeline-step='AQMH'][data-method='aqmh']");
+  const tilesEl = document.querySelector("[data-pipeline-step='TILES'][data-method='classic_tile_compile']");
+  
+  if (aqmhEl && tilesEl) {
+    aqmhEl.hidden = !isAqmh;
+    tilesEl.hidden = isAqmh;
+    // Ensure the visible element has the correct text
+    if (isAqmh) {
+      aqmhEl.textContent = "AQMH";
+      tilesEl.textContent = "TILES";
+    } else {
+      aqmhEl.textContent = "AQMH";
+      tilesEl.textContent = "TILES";
+    }
+  }
+}
+
 function setDashboardPipelineStepVisual(el, state, pct = 0) {
   if (!el) return;
   const normalized = String(state || "pending").trim().toLowerCase();
@@ -8650,6 +8729,7 @@ async function bindDashboard() {
     renderDashboardScanKpis(summary, quality?.score ?? 0);
     renderDashboardLastRunKpi(appState);
     await renderDashboardPipelinePreview(appState);
+    updateDashboardMethodUI();
     renderScanSummary("dashboard-scan", summary);
     applyDetectedColorModeToSelect($("dashboard-color-mode"), summary);
     applyDetectedColorModeToSelect($("inp-colormode"), summary);
@@ -8726,6 +8806,7 @@ async function bindDashboard() {
         clearParameterDirtyState();
         preview();
         clearConfigValidationState();
+        updateDashboardMethodUI();
         const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
         await renderDashboardDerivedGuardrails(appStateNow);
         setFooter("Preset fuer Guided Run aktualisiert.");

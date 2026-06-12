@@ -1,7 +1,12 @@
 $schema: "http://json-schema.org/draft-07/schema#"
-title: tile_compile v3 config
+title: tile_compile v4 config
 type: object
 properties:
+  method:
+    type: string
+    enum: [aqmh, classic_tile_compile]
+    default: aqmh
+    description: "Reconstruction method: 'aqmh' (AQMH First default) or 'classic_tile_compile'. If missing, defaults to 'aqmh'."
   pipeline:
     type: object
     properties:
@@ -250,8 +255,11 @@ properties:
         description: "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation, <1 softens it."
   aqmh:
     type: object
+    description: "AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually."
     properties:
-      enabled: {type: boolean}
+      enabled:
+        type: boolean
+        description: "Runtime flag derived from Config.method. true when method='aqmh', false when method='classic_tile_compile'."
       pyramid:
         type: object
         properties:
