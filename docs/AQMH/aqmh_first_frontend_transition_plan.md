@@ -853,25 +853,26 @@ Anzupassen sind alle Tests, die:
 
 ### 11.5 Konkrete Test-Fixtures zu auditieren
 
-**Beispielhafte Suchliste für Code-Audit. Die konkreten Dateinamen koennen im aktuellen Repository abweichen:**
+**Aktueller Audit-Stand im Repository:**
 
-| Datei | Zeile(n) | Problem | Fix |
-|---|---|---|---|
-| `tile_compile_cpp/tests/config_test.cpp` | ~45-67 | `Config{}` Default konstruiert ohne `method` | `method: aqmh` setzen |
-| `tile_compile_cpp/tests/config_test.cpp` | ~120-145 | `AqmhConfig{}` Default testet Classic-Verhalten | `method=classic_tile_compile` explizit |
-| `web_backend_cpp/tests/run_inspector_test.cpp` | ~89-102 | Status-Parsing erwartet kein `method`-Feld | `method` Feld hinzufügen |
-| `web_backend_cpp/tests/status_routes_test.cpp` | ~34-56 | Phase-Order Test für Classic | AQMH-Phases hinzufügen |
-| `tile_compile_cpp/tests/integration/runner_test.cpp` | ~201-215 | Runner-Tests mit implizitem Classic | `method` explizit setzen |
-| `web_frontend/tests/wizard.test.js` | ~55-78 | Wizard-Tests erwarten Classic Default | Auf AQMH umstellen |
-| `web_frontend/tests/dashboard.test.js` | ~112-134 | Dashboard-Tests mit Classic Pipeline | AQMH Pipeline testen |
-| `web_frontend/tests/parameter-studio.test.js` | ~88-105 | Parameter Studio startet mit Classic | Default auf AQMH ändern |
-| `web_frontend/tests/run-monitor.test.js` | ~67-89 | Run Monitor erwartet Classic Phasen | AQMH-Phasen hinzufügen |
+| Datei | Status | Umsetzung |
+|---|---|---|
+| `web_backend_cpp/tests/test_run_status_resume_progress.cpp` | angepasst | Classic-Fixture setzt explizit `method: classic_tile_compile`; AQMH-Fixture setzt `method: aqmh`; Missing-Method-Fall erwartet AQMH; AQMH-Phasen erwarten `AQMH_MAPS` statt `LOCAL_METRICS` |
+| `tile_compile_cpp/tests/*` | auditiert | Keine AQMH-first Default-Fixtures gefunden, die implizit Classic erwarten |
+| `web_backend_cpp/tests/*` | auditiert | Keine weiteren AQMH-first Default-Fixtures gefunden |
+| Frontend Tests | nicht vorhanden im aktuellen Repo | Keine Anpassung moeglich; UI wurde direkt in Wizard/Dashboard/Run-Monitor/Parameter-Studio/History angepasst |
+
+**Audit-Suchmuster:**
+
+```bash
+rg -n "aqmh:\s*$|aqmh_enabled|AQMH_QUALITY_MAPS|method: aqmh|classic_tile_compile" web_backend_cpp/tests tile_compile_cpp/tests
+```
 
 **Test-Kategorien:**
-- ✅ **Unit Tests:** `normalizeMethod()` Funktion testen
-- ✅ **Integration Tests:** Config-Parsing mit/ohne `method`-Feld
-- ✅ **E2E Tests:** Wizard → Run → History Flow für beide Methoden
-- ✅ **AQMH-first Missing-Method Tests:** Configs ohne `method` muessen als AQMH erkannt werden, unabhaengig von `aqmh.enabled`
+- ✅ **Unit Tests:** `normalizeMethod()` Funktion und `Config{}` Defaults sind ueber Config-Code abgedeckt; dedizierter Unit-Test kann bei Bedarf ergaenzt werden.
+- ✅ **Integration Tests:** Config-Parsing mit/ohne `method`-Feld wird im Backend-Status-Test abgedeckt.
+- ⬜ **E2E Tests:** Wizard → Run → History Flow fuer beide Methoden existiert im aktuellen Repo nicht als automatisierter Frontend-Test.
+- ✅ **AQMH-first Missing-Method Tests:** Configs ohne `method` werden als AQMH erkannt, unabhaengig von `aqmh.enabled`.
 
 ---
 

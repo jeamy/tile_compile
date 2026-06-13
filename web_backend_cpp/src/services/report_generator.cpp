@@ -11,12 +11,13 @@
 #include <cstdint>
 #include <ctime>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <optional>
-#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -25,6 +26,7 @@
 namespace {
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 
 struct BasicStats {
     int n = 0;
@@ -1367,6 +1369,203 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
     }
     out << "</svg>";
     return out.str();
+}
+
+
+std::string svg_matrix_heatmap(const std::vector<double>& values,
+                               int cols,
+                               int rows,
+                               const std::string& title,
+                               const std::string& label,
+                               const std::string& cmap = "viridis",
+                               double lo = 0.0,
+                               double hi = 1.0,
+                               int width = 760,
+                               int height = 520) {
+    if (cols <= 0 || rows <= 0 || values.size() < static_cast<size_t>(cols * rows)) {
+        return svg_message(title, "No matrix data", width, height);
+    }
+    const double x0 = 44.0;
+    const double y0 = 56.0;
+    const double max_panel_w = 620.0;
+    const double max_panel_h = 400.0;
+    const double cell = std::max(1.0, std::min(max_panel_w / cols, max_panel_h / rows));
+    const double panel_w = cols * cell;
+    const double panel_h = rows * cell;
+    const double cbx = x0 + panel_w + 26.0;
+    const double cbw = 16.0;
+    if (!(hi > lo)) {
+        std::vector<double> finite;
+        finite.reserve(values.size());
+        for (double v : values) if (std::isfinite(v)) finite.push_back(v);
+        if (!finite.empty()) {
+            const auto stats = basic_stats(finite);
+            lo = stats.min;
+            hi = stats.max;
+        }
+    }
+    const bool flat_map = !(hi > lo);
+    std::ostringstream out;
+    out << svg_begin(width, height, title);
+    out << "<text x=\"24\" y=\"28\" class=\"svg-title\">" << html_escape(title) << "</text>";
+    out << "<rect x=\"" << x0 << "\" y=\"" << y0 << "\" width=\"" << panel_w << "\" height=\"" << panel_h
+        << "\" fill=\"#0f172a\" stroke=\"#475569\"/>";
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            const double v = values[static_cast<size_t>(y * cols + x)];
+            if (!std::isfinite(v)) continue;
+            const double t = flat_map ? 0.5 : std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
+            out << "<rect x=\"" << (x0 + x * cell) << "\" y=\"" << (y0 + y * cell)
+                << "\" width=\"" << std::ceil(cell) << "\" height=\"" << std::ceil(cell)
+                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
+        }
+    }
+    if (flat_map) {
+        out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
+            << "\" fill=\"" << colormap_hex(cmap, 0.5) << "\"/>";
+    } else {
+        for (int i = 0; i < 64; ++i) {
+            const double t = static_cast<double>(i) / 63.0;
+            const double y = y0 + panel_h - t * panel_h;
+            out << "<rect x=\"" << cbx << "\" y=\"" << y << "\" width=\"" << cbw << "\" height=\"" << (panel_h / 63.0 + 1.0)
+                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
+        }
+    }
+    out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
+        << "\" fill=\"none\" class=\"svg-axis\"/>";
+    out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
+        << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
+    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
+        << "\" class=\"svg-tick\">" << html_escape(format_number(flat_map ? lo : hi, 2)) << "</text>";
+    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
+        << "\" class=\"svg-tick\">" << html_escape(format_number(lo, 2)) << "</text>";
+    out << "</svg>";
+    return out.str();
+}
+
+std::optional<double> finite_json_number(const json& j, const std::string& key) {
+    if (!j.contains(key) || !j[key].is_number()) return std::nullopt;
+    const double value = j[key].get<double>();
+    if (!std::isfinite(value)) return std::nullopt;
+    return value;
+}
+
+std::vector<double> json_diag_values(const json& diagnostics, const std::string& key) {
+    std::vector<double> values;
+    if (!diagnostics.is_array()) return values;
+    for (const auto& item : diagnostics) {
+        if (!item.is_object() || !item.value("written", true)) continue;
+        if (auto value = finite_json_number(item, key)) values.push_back(*value);
+    }
+    return values;
+}
+
+fs::path aqmh_cache_dir(const fs::path& run_dir, const json& metrics) {
+    const std::string raw = json_string_or(metrics, "cache_dir", "");
+    if (!raw.empty()) {
+        fs::path path(raw);
+        if (path.is_absolute()) return path;
+        return run_dir / path;
+    }
+    return run_dir / "cache" / "aqmh";
+}
+
+std::vector<fs::path> aqmh_cache_files(const fs::path& cache_dir, const std::string& stream_id) {
+    std::vector<fs::path> files;
+    std::error_code ec;
+    if (!fs::is_directory(cache_dir, ec) || ec) return files;
+    const std::string prefix = "aqmh_" + (stream_id.empty() ? std::string() : stream_id + "_");
+    for (const auto& entry : fs::directory_iterator(cache_dir, ec)) {
+        if (ec) break;
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0 && entry.path().extension() == ".bin") files.push_back(entry.path());
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+std::optional<std::vector<double>> read_aqmh_cache_map(const fs::path& path, int width, int height, const std::string& dtype) {
+    if (width <= 0 || height <= 0) return std::nullopt;
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return std::nullopt;
+    std::vector<double> out;
+    out.reserve(static_cast<size_t>(width * height));
+    for (int i = 0; i < width * height; ++i) {
+        if (dtype == "float32") {
+            float v = 0.0f;
+            in.read(reinterpret_cast<char*>(&v), sizeof(float));
+            if (!in) return std::nullopt;
+            out.push_back(std::clamp(static_cast<double>(v), 0.0, 1.0));
+        } else if (dtype == "uint16") {
+            uint16_t v = 0;
+            in.read(reinterpret_cast<char*>(&v), sizeof(uint16_t));
+            if (!in) return std::nullopt;
+            out.push_back(static_cast<double>(v) / 65535.0);
+        } else if (dtype == "uint8") {
+            uint8_t v = 0;
+            in.read(reinterpret_cast<char*>(&v), sizeof(uint8_t));
+            if (!in) return std::nullopt;
+            out.push_back(static_cast<double>(v) / 255.0);
+        } else {
+            return std::nullopt;
+        }
+    }
+    return out;
+}
+
+struct AqmhMapAggregate {
+    int count = 0;
+    std::vector<double> mean;
+    std::vector<double> stddev;
+    std::vector<double> artifact_frequency;
+    std::vector<double> min_map;
+    std::vector<std::pair<std::string, std::vector<double>>> examples;
+};
+
+AqmhMapAggregate aggregate_aqmh_maps(const std::vector<fs::path>& files,
+                                     int width,
+                                     int height,
+                                     const std::string& dtype,
+                                     double artifact_threshold) {
+    AqmhMapAggregate agg;
+    const size_t n = static_cast<size_t>(width * height);
+    if (n == 0) return agg;
+    std::vector<double> sum(n, 0.0), sumsq(n, 0.0), artifacts(n, 0.0), min_map(n, 1.0);
+    std::vector<std::tuple<double, std::string, std::vector<double>>> examples;
+    for (const auto& path : files) {
+        auto maybe_map = read_aqmh_cache_map(path, width, height, dtype);
+        if (!maybe_map) continue;
+        const auto& values = *maybe_map;
+        double mean = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            const double v = values[i];
+            mean += v;
+            sum[i] += v;
+            sumsq[i] += v * v;
+            if (v < artifact_threshold) artifacts[i] += 1.0;
+            min_map[i] = std::min(min_map[i], v);
+        }
+        mean /= static_cast<double>(n);
+        examples.emplace_back(mean, path.stem().string(), values);
+        ++agg.count;
+    }
+    if (agg.count == 0) return agg;
+    agg.mean.resize(n);
+    agg.stddev.resize(n);
+    agg.artifact_frequency.resize(n);
+    agg.min_map = std::move(min_map);
+    for (size_t i = 0; i < n; ++i) {
+        agg.mean[i] = sum[i] / agg.count;
+        const double variance = std::max(0.0, (sumsq[i] / agg.count) - agg.mean[i] * agg.mean[i]);
+        agg.stddev[i] = std::sqrt(variance);
+        agg.artifact_frequency[i] = artifacts[i] / agg.count;
+    }
+    std::sort(examples.begin(), examples.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
+    for (size_t idx : {size_t{0}, examples.size() / 2, examples.size() - 1}) {
+        if (idx < examples.size()) agg.examples.push_back({std::get<1>(examples[idx]), std::get<2>(examples[idx])});
+    }
+    return agg;
 }
 
 /// @brief Renders kv table.
@@ -2724,6 +2923,92 @@ std::optional<ReportSection> gen_bge(const json& bge) {
     return ReportSection{"Background Gradient Extraction (BGE)", make_card_html("BGE diagnostics", charts, evals, infer_status(evals))};
 }
 
+std::optional<ReportSection> gen_aqmh_metrics(const fs::path& run_dir, const json& metrics, const json& regions) {
+    if (!metrics.is_object() || metrics.empty()) return std::nullopt;
+    std::vector<ChartBlock> charts;
+    std::vector<std::string> evals;
+    const json diagnostics = metrics.contains("diagnostics") ? metrics["diagnostics"] : json::array();
+    const auto map_means = json_diag_values(diagnostics, "map_mean");
+    const auto map_p10 = json_diag_values(diagnostics, "map_p10");
+    const auto map_p50 = json_diag_values(diagnostics, "map_p50");
+    const auto map_p90 = json_diag_values(diagnostics, "map_p90");
+    const auto artifact_fracs = json_diag_values(diagnostics, "artifact_frac");
+
+    evals.push_back("frames total: " + std::to_string(static_cast<int>(json_number_or(metrics, "frames_total", 0.0))) +
+                    ", written: " + std::to_string(static_cast<int>(json_number_or(metrics, "frames_written", 0.0))));
+    evals.push_back("cache: " + std::to_string(static_cast<int>(json_number_or(metrics, "stored_width", 0.0))) + "x" +
+                    std::to_string(static_cast<int>(json_number_or(metrics, "stored_height", 0.0))) + " " +
+                    json_string_or(metrics, "dtype", "?") + " (full " +
+                    std::to_string(static_cast<int>(json_number_or(metrics, "full_width", 0.0))) + "x" +
+                    std::to_string(static_cast<int>(json_number_or(metrics, "full_height", 0.0))) + ")");
+    if (!map_means.empty()) {
+        const auto stats = basic_stats(map_means);
+        evals.push_back("map_mean: min=" + format_number(stats.min, 4) +
+                        ", median=" + format_number(stats.median, 4) +
+                        ", max=" + format_number(stats.max, 4) +
+                        ", mean=" + format_number(stats.mean, 4));
+    }
+    if (!artifact_fracs.empty()) {
+        const auto stats = basic_stats(artifact_fracs);
+        evals.push_back("artifact_fraction: min=" + format_number(stats.min * 100.0, 1) + "%" +
+                        ", median=" + format_number(stats.median * 100.0, 1) + "%" +
+                        ", max=" + format_number(stats.max * 100.0, 1) + "%" +
+                        ", mean=" + format_number(stats.mean * 100.0, 1) + "%");
+    }
+    if (regions.is_object() && regions.contains("summary")) {
+        const auto& summary = regions["summary"];
+        evals.push_back("regions: total=" + std::to_string(static_cast<int>(json_number_or(summary, "total_regions", 0.0))) +
+                        ", avg_size=" + format_number(json_number_or(summary, "avg_region_size_px", 0.0), 1) + "px");
+    }
+
+    const int stored_w = static_cast<int>(json_number_or(metrics, "stored_width", 0.0));
+    const int stored_h = static_cast<int>(json_number_or(metrics, "stored_height", 0.0));
+    const std::string dtype = json_string_or(metrics, "dtype", "");
+    const std::string stream_id = json_string_or(metrics, "map_stream_id", "luma");
+    const fs::path cache_dir = aqmh_cache_dir(run_dir, metrics);
+    const auto files = aqmh_cache_files(cache_dir, stream_id);
+    const double artifact_threshold = 0.2;
+    const auto agg = aggregate_aqmh_maps(files, stored_w, stored_h, dtype, artifact_threshold);
+    evals.push_back("cache maps read: " + std::to_string(agg.count) + " from " + cache_dir.string());
+    if (agg.count > 0) {
+        charts.push_back({svg_matrix_heatmap(agg.mean, stored_w, stored_h, "AQMH mean quality map", "Q mean", "viridis", 0.0, 1.0),
+                          "<h4>AQMH mean quality map</h4><p>Mittlere AQMH-Qualitaet pro gespeicherter Pixelposition ueber alle geschriebenen Frames.</p>"});
+        const auto std_stats = basic_stats(agg.stddev);
+        charts.push_back({svg_matrix_heatmap(agg.stddev, stored_w, stored_h, "AQMH quality standard deviation", "Q std", "magma", 0.0, std::max(0.05, std_stats.p99)),
+                          "<h4>AQMH quality standard deviation</h4><p>Raeumliche Streuung der AQMH-Qualitaet. Helle Bereiche variieren ueber Frames staerker.</p>"});
+        charts.push_back({svg_matrix_heatmap(agg.artifact_frequency, stored_w, stored_h, "AQMH artifact frequency map", "artifact frequency", "inferno", 0.0, 1.0),
+                          "<h4>AQMH artifact frequency map</h4><p>Anteil der Frames, in denen Q_map unter 0.20 liegt.</p>"});
+        charts.push_back({svg_matrix_heatmap(agg.min_map, stored_w, stored_h, "AQMH minimum quality map", "Q min", "viridis", 0.0, 1.0),
+                          "<h4>AQMH minimum quality map</h4><p>Schlechtester beobachteter AQMH-Qualitaetswert pro gespeicherter Pixelposition.</p>"});
+        for (const auto& [label, values] : agg.examples) {
+            charts.push_back({svg_matrix_heatmap(values, stored_w, stored_h, "AQMH quality map example: " + label, "Q", "viridis", 0.0, 1.0),
+                              "<h4>AQMH quality map example</h4><p>Einzelne gespeicherte AQMH-Qualitaetskarte: <code>" + html_escape(label) + "</code>.</p>"});
+        }
+    }
+
+    std::vector<std::vector<double>> metric_rows;
+    std::vector<std::string> metric_labels;
+    for (const auto& entry : std::vector<std::pair<std::string, std::vector<double>>>{{"map_p10", map_p10}, {"map_p50", map_p50}, {"map_p90", map_p90}, {"map_mean", map_means}, {"artifact_frac", artifact_fracs}}) {
+        if (!entry.second.empty()) {
+            metric_labels.push_back(entry.first);
+            metric_rows.push_back(entry.second);
+        }
+    }
+    if (!metric_rows.empty()) {
+        size_t cols = 0;
+        for (const auto& row : metric_rows) cols = std::max(cols, row.size());
+        std::vector<double> matrix(metric_rows.size() * cols, std::numeric_limits<double>::quiet_NaN());
+        for (size_t y = 0; y < metric_rows.size(); ++y) {
+            for (size_t x = 0; x < metric_rows[y].size(); ++x) matrix[y * cols + x] = metric_rows[y][x];
+        }
+        charts.push_back({svg_matrix_heatmap(matrix, static_cast<int>(cols), static_cast<int>(metric_rows.size()), "AQMH frame metric matrix", "frame metrics", "viridis", 0.0, 1.0, 760, 300),
+                          "<h4>AQMH Frame Metric Matrix</h4><p>Kompakte Heatmap der AQMH-Frame-Diagnostik aus <code>aqmh_metrics.json</code>.</p>"});
+    }
+
+    return ReportSection{"AQMH Metrics", make_card_html("AQMH quality metrics", charts, evals, infer_status(evals))};
+}
+
+
 /// @brief Generates validation.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -2897,6 +3182,8 @@ std::string build_report_html(const fs::path& run_dir,
                               const json& syn,
                               const json& bge,
                               const json& val,
+                              const json& aqmh_metrics,
+                              const json& aqmh_regions,
                               const json& common_overlap,
                               const std::string& config_yaml,
                               const std::string& locale) {
@@ -2933,6 +3220,7 @@ std::string build_report_html(const fs::path& run_dir,
     add(gen_registration(reg));
     add(gen_local_metrics(lm, tg));
     add(gen_reconstruction(recon, tg));
+    add(gen_aqmh_metrics(run_dir, aqmh_metrics, aqmh_regions));
     add(gen_clustering(cl));
     add(gen_synthetic(syn));
     add(gen_bge(bge));
@@ -3042,12 +3330,15 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
         const json syn = read_json_if_exists(artifacts_dir / "synthetic_frames.json");
         const json bge = read_json_if_exists(artifacts_dir / "bge.json");
         const json val = read_json_if_exists(artifacts_dir / "validation.json");
+        const json aqmh_metrics = read_json_if_exists(artifacts_dir / "aqmh_metrics.json");
+        const json aqmh_regions = read_json_if_exists(artifacts_dir / "aqmh_regions.json");
         const json common_overlap = read_json_if_exists(artifacts_dir / "common_overlap.json");
         const std::string config_yaml = read_text(run_dir / "config.yaml");
 
         const std::string report_html = build_report_html(run_dir, status, artifacts_before, events,
                                                           norm, gm, tg, reg, lm, recon, cl,
-                                                          syn, bge, val, common_overlap, config_yaml, locale);
+                                                          syn, bge, val, aqmh_metrics, aqmh_regions,
+                                                          common_overlap, config_yaml, locale);
 
         std::ofstream report_out(report_path, std::ios::binary);
         if (!report_out) {

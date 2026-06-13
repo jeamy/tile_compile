@@ -1797,8 +1797,125 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
     return pngs, evals, explanations
 
 
+def _aqmh_cache_dir(artifacts_dir: Path, aqmh_metrics: dict) -> Path:
+    raw = str(aqmh_metrics.get("cache_dir", "")).strip()
+    if raw:
+        path = Path(raw)
+        if path.is_absolute():
+            return path
+        return (artifacts_dir.parent / path).resolve()
+    return artifacts_dir.parent / "cache" / "aqmh"
+
+
+def _read_aqmh_cache_map(path: Path, width: int, height: int, dtype: str) -> np.ndarray | None:
+    if width <= 0 or height <= 0 or not path.exists():
+        return None
+    dtype_map = {
+        "float32": np.dtype("<f4"),
+        "uint16": np.dtype("<u2"),
+        "uint8": np.dtype("u1"),
+    }
+    np_dtype = dtype_map.get(dtype)
+    if np_dtype is None:
+        return None
+    expected = width * height
+    try:
+        arr = np.fromfile(path, dtype=np_dtype, count=expected)
+    except Exception:
+        return None
+    if arr.size != expected:
+        return None
+    arr = arr.astype(np.float32, copy=False).reshape((height, width))
+    if dtype == "uint16":
+        arr = arr / np.float32(65535.0)
+    elif dtype == "uint8":
+        arr = arr / np.float32(255.0)
+    return np.clip(arr, 0.0, 1.0)
+
+
+def _aqmh_cache_files(cache_dir: Path, stream_id: str) -> list[Path]:
+    if not cache_dir.is_dir():
+        return []
+    pattern = f"aqmh_{stream_id}_*.bin" if stream_id else "aqmh_*.bin"
+    return sorted(cache_dir.glob(pattern))
+
+
+def _aqmh_cache_aggregate(
+    cache_dir: Path,
+    stream_id: str,
+    width: int,
+    height: int,
+    dtype: str,
+    artifact_threshold: float,
+) -> dict[str, Any]:
+    files = _aqmh_cache_files(cache_dir, stream_id)
+    if not files:
+        return {"files": [], "count": 0}
+    sum_map = np.zeros((height, width), dtype=np.float64)
+    sumsq_map = np.zeros((height, width), dtype=np.float64)
+    artifact_count = np.zeros((height, width), dtype=np.float64)
+    min_map: np.ndarray | None = None
+    max_map: np.ndarray | None = None
+    examples: list[tuple[float, Path, np.ndarray]] = []
+    count = 0
+    for path in files:
+        arr = _read_aqmh_cache_map(path, width, height, dtype)
+        if arr is None:
+            continue
+        arr64 = arr.astype(np.float64, copy=False)
+        sum_map += arr64
+        sumsq_map += arr64 * arr64
+        artifact_count += (arr64 < artifact_threshold)
+        min_map = arr64.copy() if min_map is None else np.minimum(min_map, arr64)
+        max_map = arr64.copy() if max_map is None else np.maximum(max_map, arr64)
+        examples.append((float(np.nanmean(arr64)), path, arr.copy()))
+        count += 1
+    if count == 0:
+        return {"files": files, "count": 0}
+    mean_map = sum_map / count
+    variance = np.maximum((sumsq_map / count) - (mean_map * mean_map), 0.0)
+    examples.sort(key=lambda item: item[0])
+    chosen_examples = []
+    for idx in sorted({0, len(examples) // 2, len(examples) - 1}):
+        mean_value, path, arr = examples[idx]
+        chosen_examples.append({"label": path.stem, "mean": mean_value, "map": arr})
+    return {
+        "files": files,
+        "count": count,
+        "mean": mean_map,
+        "std": np.sqrt(variance),
+        "artifact_frequency": artifact_count / count,
+        "min": min_map,
+        "max": max_map,
+        "examples": chosen_examples,
+    }
+
+
+def _plot_aqmh_map(arr: np.ndarray, title: str, path: Path, *, cmap: str = "viridis", vmin: float = 0.0, vmax: float = 1.0) -> bool:
+    if plt is None or arr is None or arr.size == 0:
+        return False
+    try:
+        fig, ax = plt.subplots(figsize=(7.2, 5.2), dpi=150)
+        im = ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="upper", interpolation="nearest")
+        ax.set_title(title, fontsize=10)
+        ax.set_xlabel("x", fontsize=9)
+        ax.set_ylabel("y", fontsize=9)
+        ax.tick_params(labelsize=8)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        fig.tight_layout()
+        fig.savefig(path, bbox_inches="tight")
+        plt.close(fig)
+        return True
+    except Exception:
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+        return False
+
+
 def _gen_aqmh_metrics(artifacts_dir: Path, aqmh_metrics: dict, aqmh_regions: dict) -> tuple[list[str], list[str], dict[str, str]]:
-    """Generate standalone AQMH metrics section with quality heatmaps and statistics."""
+    """Generate standalone AQMH metrics section with quality-map heatmaps and statistics."""
     pngs: list[str] = []
     evals: list[str] = []
     explanations: dict[str, str] = {}
@@ -1807,79 +1924,125 @@ def _gen_aqmh_metrics(artifacts_dir: Path, aqmh_metrics: dict, aqmh_regions: dic
         evals.append("no aqmh_metrics.json data")
         return pngs, evals, explanations
 
-    # Extract summary statistics
-    summary = aqmh_metrics.get("summary", {})
-    per_frame = aqmh_metrics.get("per_frame", [])
-    
-    # Frame-level statistics
-    map_means = [f.get("map_mean", 0) for f in per_frame if isinstance(f, dict)]
-    artifact_fracs = [f.get("artifact_frac", 0) for f in per_frame if isinstance(f, dict)]
-    
+    diagnostics = aqmh_metrics.get("diagnostics", [])
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+    written_diags = [d for d in diagnostics if isinstance(d, dict) and d.get("written", True)]
+
+    def finite_diag_values(key: str) -> list[float]:
+        out: list[float] = []
+        for diag in written_diags:
+            try:
+                value = float(diag.get(key, np.nan))
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(value):
+                out.append(value)
+        return out
+
+    map_means = finite_diag_values("map_mean")
+    map_p10 = finite_diag_values("map_p10")
+    map_p50 = finite_diag_values("map_p50")
+    map_p90 = finite_diag_values("map_p90")
+    artifact_fracs = finite_diag_values("artifact_frac")
+
+    evals.append(f"frames: total={aqmh_metrics.get('frames_total', len(diagnostics))}, written={aqmh_metrics.get('frames_written', len(written_diags))}")
+    evals.append(
+        f"cache: {aqmh_metrics.get('stored_width', '?')}x{aqmh_metrics.get('stored_height', '?')} {aqmh_metrics.get('dtype', '?')} "
+        f"(full {aqmh_metrics.get('full_width', '?')}x{aqmh_metrics.get('full_height', '?')}, divisor={aqmh_metrics.get('resolution_divisor', '?')})"
+    )
     if map_means:
-        map_mean_stats = _basic_stats(map_means)
-        evals.append(f"map_mean: min={map_mean_stats.get('min', 0):.4f}, max={map_mean_stats.get('max', 0):.4f}, mean={map_mean_stats.get('mean', 0):.4f}")
-    
+        stats = _basic_stats(map_means)
+        evals.append(f"map_mean: min={stats.get('min', 0):.4f}, median={stats.get('median', 0):.4f}, max={stats.get('max', 0):.4f}, mean={stats.get('mean', 0):.4f}")
     if artifact_fracs:
-        artifact_stats = _basic_stats(artifact_fracs)
-        evals.append(f"artifact_fraction: min={_pct(artifact_stats.get('min', 0))}, max={_pct(artifact_stats.get('max', 0))}, mean={_pct(artifact_stats.get('mean', 0))}")
-    
-    # Regions summary
+        stats = _basic_stats(artifact_fracs)
+        evals.append(f"artifact_fraction: min={_pct(stats.get('min', 0))}, median={_pct(stats.get('median', 0))}, max={_pct(stats.get('max', 0))}, mean={_pct(stats.get('mean', 0))}")
+
     if aqmh_regions:
         regions_summary = aqmh_regions.get("summary", {})
         total_regions = regions_summary.get("total_regions", 0)
         avg_region_size = regions_summary.get("avg_region_size_px", 0)
-        evals.append(f"regions: total={total_regions}, avg_size={avg_region_size:.1f}px")
-    
-    # Generate heatmap for map_mean if matplotlib is available and we have data
-    if plt is not None and per_frame and map_means:
-        fn = "aqmh_map_mean_heatmap.png"
-        try:
-            fig, ax = plt.subplots(figsize=(10, 3), dpi=150)
-            frame_indices = list(range(len(map_means)))
-            ax.plot(frame_indices, map_means, 'o-', color='#7aa2f7', markersize=4, linewidth=1.5)
-            ax.set_title("AQMH Map Mean per Frame", fontsize=10)
-            ax.set_xlabel("Frame Index", fontsize=9)
-            ax.set_ylabel("Map Mean (normalized quality)", fontsize=9)
-            ax.set_ylim(0, 1)
-            ax.grid(True, alpha=0.3)
-            ax.tick_params(labelsize=8)
-            fig.tight_layout()
-            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
-            plt.close(fig)
-            pngs.append(fn)
-            explanations[fn] = (
-                '<h4>AQMH Map Mean Heatmap</h4>'
-                '<p>Durchschnittlicher Qualitätswert (map mean) pro Frame. '
-                'Höhere Werte = bessere Qualität. Rote Bereiche = schlechte Frames. '
-                'Das 50%-Quantil (Median) ist mit einer horizontalen Linie markiert.</p>'
-            )
-        except Exception:
-            pass
+        evals.append(f"regions: total={total_regions}, avg_size={float(avg_region_size or 0):.1f}px")
 
-    # Generate heatmap for artifact fraction if matplotlib is available
-    if plt is not None and per_frame and artifact_fracs:
-        fn = "aqmh_artifact_frac_heatmap.png"
-        try:
-            fig, ax = plt.subplots(figsize=(10, 3), dpi=150)
-            frame_indices = list(range(len(artifact_fracs)))
-            ax.plot(frame_indices, artifact_fracs, 'o-', color='#ff6b6b', markersize=4, linewidth=1.5)
-            ax.set_title("AQMH Artifact Fraction per Frame", fontsize=10)
-            ax.set_xlabel("Frame Index", fontsize=9)
-            ax.set_ylabel("Artifact Fraction", fontsize=9)
-            ax.set_ylim(0, 1)
-            ax.grid(True, alpha=0.3)
-            ax.tick_params(labelsize=8)
-            fig.tight_layout()
-            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
-            plt.close(fig)
-            pngs.append(fn)
-            explanations[fn] = (
-                '<h4>AQMH Artifact Fraction Heatmap</h4>'
-                '<p>Anteil von Pixeln mit Artefakten (Q_map &lt; tau_artifact) pro Frame. '
-                'Niedrigere Werte = weniger Artefakte = bessere Qualität.</p>'
-            )
-        except Exception:
-            pass
+    stored_width = int(aqmh_metrics.get("stored_width", 0) or 0)
+    stored_height = int(aqmh_metrics.get("stored_height", 0) or 0)
+    dtype = str(aqmh_metrics.get("dtype", "")).strip()
+    stream_id = str(aqmh_metrics.get("map_stream_id", "luma")).strip()
+    cache_dir = _aqmh_cache_dir(artifacts_dir, aqmh_metrics)
+    artifact_threshold = 0.2
+    aggregate = _aqmh_cache_aggregate(cache_dir, stream_id, stored_width, stored_height, dtype, artifact_threshold)
+    if aggregate.get("count", 0):
+        evals.append(f"cache maps read: {aggregate['count']} from {cache_dir}")
+        plot_specs = [
+            ("aqmh_quality_mean_map.png", "AQMH mean quality map", aggregate["mean"], "viridis", 0.0, 1.0,
+             "Mittlere AQMH-Qualitaet pro gespeicherter Pixelposition ueber alle geschriebenen Frames."),
+            ("aqmh_quality_std_map.png", "AQMH quality standard deviation", aggregate["std"], "magma", 0.0, max(0.05, float(np.nanpercentile(aggregate["std"], 99))),
+             "Raeumliche Streuung der AQMH-Qualitaet. Helle Bereiche variieren ueber Frames staerker."),
+            ("aqmh_artifact_frequency_map.png", "AQMH artifact frequency map", aggregate["artifact_frequency"], "inferno", 0.0, 1.0,
+             f"Anteil der Frames, in denen Q_map unter {artifact_threshold:.2f} liegt."),
+            ("aqmh_quality_min_map.png", "AQMH minimum quality map", aggregate["min"], "viridis", 0.0, 1.0,
+             "Schlechtester beobachteter AQMH-Qualitaetswert pro gespeicherter Pixelposition."),
+        ]
+        for fn, title, arr, cmap, vmin, vmax, explanation in plot_specs:
+            if _plot_aqmh_map(arr, title, _fig_path(artifacts_dir, fn), cmap=cmap, vmin=vmin, vmax=vmax):
+                pngs.append(fn)
+                explanations[fn] = f"<h4>{title}</h4><p>{explanation}</p>"
+        for example in aggregate.get("examples", []):
+            safe_label = str(example["label"]).replace("aqmh_", "")
+            fn = f"aqmh_quality_example_{safe_label}.png"
+            title = f"AQMH quality map example: {safe_label}"
+            if _plot_aqmh_map(example["map"], title, _fig_path(artifacts_dir, fn), cmap="viridis", vmin=0.0, vmax=1.0):
+                pngs.append(fn)
+                explanations[fn] = (
+                    f"<h4>{title}</h4>"
+                    f"<p>Einzelne gespeicherte AQMH-Qualitaetskarte, ausgewaehlt nach Frame-Mittelwert "
+                    f"(mean={example['mean']:.4f}).</p>"
+                )
+    else:
+        evals.append(f"cache maps read: 0 from {cache_dir}")
+
+    if plt is not None and written_diags:
+        metrics = []
+        labels = []
+        for label, values in [
+            ("map_p10", map_p10),
+            ("map_p50", map_p50),
+            ("map_p90", map_p90),
+            ("map_mean", map_means),
+            ("artifact_frac", artifact_fracs),
+        ]:
+            if values:
+                metrics.append(np.asarray(values, dtype=np.float64))
+                labels.append(label)
+        if metrics:
+            max_len = max(len(v) for v in metrics)
+            matrix = np.full((len(metrics), max_len), np.nan, dtype=np.float64)
+            for row, values in enumerate(metrics):
+                matrix[row, :len(values)] = values
+            fn = "aqmh_frame_metric_matrix.png"
+            try:
+                fig, ax = plt.subplots(figsize=(10.5, 2.6 + 0.35 * len(metrics)), dpi=150)
+                im = ax.imshow(matrix, aspect="auto", cmap="viridis", vmin=0.0, vmax=1.0, interpolation="nearest")
+                ax.set_title("AQMH frame metric matrix", fontsize=10)
+                ax.set_xlabel("Frame index", fontsize=9)
+                ax.set_yticks(range(len(labels)))
+                ax.set_yticklabels(labels, fontsize=8)
+                ax.tick_params(axis="x", labelsize=8)
+                fig.colorbar(im, ax=ax, fraction=0.025, pad=0.02)
+                fig.tight_layout()
+                fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+                plt.close(fig)
+                pngs.append(fn)
+                explanations[fn] = (
+                    '<h4>AQMH Frame Metric Matrix</h4>'
+                    '<p>Kompakte Heatmap der AQMH-Frame-Diagnostik. Jede Spalte ist ein Frame; '
+                    'jede Zeile ist eine Metrik aus <code>aqmh_metrics.json</code>.</p>'
+                )
+            except Exception:
+                try:
+                    plt.close(fig)
+                except Exception:
+                    pass
 
     return pngs, evals, explanations
 
