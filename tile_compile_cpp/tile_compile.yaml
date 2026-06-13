@@ -18,7 +18,7 @@ aqmh:
   storage:
     dtype: float32
     max_resident_maps: 4
-    resolution_divisor: 2
+    resolution_divisor: 1
 assumptions:
   frames_min: 30
   frames_reduced_threshold: 120

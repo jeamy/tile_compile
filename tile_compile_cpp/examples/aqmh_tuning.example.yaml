@@ -52,7 +52,7 @@ aqmh:
   
   # Storage configuration for quality maps
   storage:
-    resolution_divisor: 2      # Downscale factor for stored maps (1=full, 2=half, 4=quarter)
+    resolution_divisor: 1      # Downscale factor for stored maps (1=full, 2=half, 4=quarter)
     dtype: uint16             # Storage format: float32 (exact), uint16 (recommended), uint8 (compact)
     max_resident_maps: 2      # Maximum maps kept in memory simultaneously
   

@@ -214,12 +214,20 @@ json load_report_translations(const std::string& locale) {
 /// Pairs must be sorted longest-key-first to avoid partial matches.
 std::string apply_replacements(const std::string& text,
                                const std::vector<std::pair<std::string, std::string>>& pairs) {
+    std::array<std::vector<size_t>, 256> buckets;
+    for (size_t i = 0; i < pairs.size(); ++i) {
+        if (pairs[i].first.empty()) continue;
+        buckets[static_cast<unsigned char>(pairs[i].first.front())].push_back(i);
+    }
+
     std::string out;
     out.reserve(text.size());
     size_t pos = 0;
     while (pos < text.size()) {
         bool matched = false;
-        for (const auto& [needle, replacement] : pairs) {
+        const auto& candidates = buckets[static_cast<unsigned char>(text[pos])];
+        for (const size_t pair_idx : candidates) {
+            const auto& [needle, replacement] = pairs[pair_idx];
             if (needle.empty()) continue;
             if (text.compare(pos, needle.size(), needle) == 0) {
                 out.append(replacement);
@@ -1385,19 +1393,52 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
     if (cols <= 0 || rows <= 0 || values.size() < static_cast<size_t>(cols * rows)) {
         return svg_message(title, "No matrix data", width, height);
     }
+    constexpr int max_svg_heatmap_cols = 120;
+    constexpr int max_svg_heatmap_rows = 80;
+    std::vector<double> downsampled_values;
+    int render_cols = cols;
+    int render_rows = rows;
+    int sample_step = 1;
+    if (cols > max_svg_heatmap_cols || rows > max_svg_heatmap_rows) {
+        const int step_x = static_cast<int>(std::ceil(static_cast<double>(cols) / max_svg_heatmap_cols));
+        const int step_y = static_cast<int>(std::ceil(static_cast<double>(rows) / max_svg_heatmap_rows));
+        sample_step = std::max(1, std::max(step_x, step_y));
+        render_cols = (cols + sample_step - 1) / sample_step;
+        render_rows = (rows + sample_step - 1) / sample_step;
+        downsampled_values.assign(static_cast<size_t>(render_cols * render_rows),
+                                  std::numeric_limits<double>::quiet_NaN());
+        for (int by = 0; by < render_rows; ++by) {
+            for (int bx = 0; bx < render_cols; ++bx) {
+                double sum = 0.0;
+                int count = 0;
+                const int y_end = std::min(rows, (by + 1) * sample_step);
+                const int x_end = std::min(cols, (bx + 1) * sample_step);
+                for (int y = by * sample_step; y < y_end; ++y) {
+                    for (int x = bx * sample_step; x < x_end; ++x) {
+                        const double v = values[static_cast<size_t>(y * cols + x)];
+                        if (!std::isfinite(v)) continue;
+                        sum += v;
+                        ++count;
+                    }
+                }
+                if (count > 0) downsampled_values[static_cast<size_t>(by * render_cols + bx)] = sum / count;
+            }
+        }
+    }
+    const std::vector<double>& render_values = downsampled_values.empty() ? values : downsampled_values;
     const double x0 = 44.0;
     const double y0 = 56.0;
     const double max_panel_w = 620.0;
     const double max_panel_h = 400.0;
-    const double cell = std::max(1.0, std::min(max_panel_w / cols, max_panel_h / rows));
-    const double panel_w = cols * cell;
-    const double panel_h = rows * cell;
+    const double cell = std::max(1.0, std::min(max_panel_w / render_cols, max_panel_h / render_rows));
+    const double panel_w = render_cols * cell;
+    const double panel_h = render_rows * cell;
     const double cbx = x0 + panel_w + 26.0;
     const double cbw = 16.0;
     if (!(hi > lo)) {
         std::vector<double> finite;
-        finite.reserve(values.size());
-        for (double v : values) if (std::isfinite(v)) finite.push_back(v);
+        finite.reserve(render_values.size());
+        for (double v : render_values) if (std::isfinite(v)) finite.push_back(v);
         if (!finite.empty()) {
             const auto stats = basic_stats(finite);
             lo = stats.min;
@@ -1410,9 +1451,9 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
     out << "<text x=\"24\" y=\"28\" class=\"svg-title\">" << html_escape(title) << "</text>";
     out << "<rect x=\"" << x0 << "\" y=\"" << y0 << "\" width=\"" << panel_w << "\" height=\"" << panel_h
         << "\" fill=\"#0f172a\" stroke=\"#475569\"/>";
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            const double v = values[static_cast<size_t>(y * cols + x)];
+    for (int y = 0; y < render_rows; ++y) {
+        for (int x = 0; x < render_cols; ++x) {
+            const double v = render_values[static_cast<size_t>(y * render_cols + x)];
             if (!std::isfinite(v)) continue;
             const double t = flat_map ? 0.5 : std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
             out << "<rect x=\"" << (x0 + x * cell) << "\" y=\"" << (y0 + y * cell)
@@ -1435,6 +1476,11 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
         << "\" fill=\"none\" class=\"svg-axis\"/>";
     out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
         << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
+    if (sample_step > 1) {
+        out << "<text x=\"24\" y=\"" << (height - 16)
+            << "\" class=\"svg-note\">downsampled " << cols << "x" << rows
+            << " to " << render_cols << "x" << render_rows << "</text>";
+    }
     out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
         << "\" class=\"svg-tick\">" << html_escape(format_number(flat_map ? lo : hi, 2)) << "</text>";
     out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
@@ -1562,7 +1608,8 @@ AqmhMapAggregate aggregate_aqmh_maps(const std::vector<fs::path>& files,
         agg.artifact_frequency[i] = artifacts[i] / agg.count;
     }
     std::sort(examples.begin(), examples.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
-    for (size_t idx : {size_t{0}, examples.size() / 2, examples.size() - 1}) {
+    const std::array<size_t, 3> example_indices = {size_t{0}, examples.size() / 2, examples.size() - 1};
+    for (size_t idx : example_indices) {
         if (idx < examples.size()) agg.examples.push_back({std::get<1>(examples[idx]), std::get<2>(examples[idx])});
     }
     return agg;

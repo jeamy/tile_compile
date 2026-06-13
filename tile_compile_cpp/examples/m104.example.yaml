@@ -254,7 +254,7 @@ aqmh:
     k_artifact: 3.0
     frac_artifact_max: 0.25
   storage:
-    resolution_divisor: 2
+    resolution_divisor: 1
     dtype: float32
     max_resident_maps: 2
   cherry_pick:
