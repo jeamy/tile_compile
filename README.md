@@ -623,7 +623,7 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
-## v0.3.1 (2026-06-13)
+## v0.3.2 (2026-06-13)
 
 **AQMH-First as default:**
 - Top-level `method` field as single source of truth for reconstruction method (AQMH or Classic Tile Compile).
