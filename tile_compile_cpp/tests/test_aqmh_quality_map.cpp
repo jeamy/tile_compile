@@ -24,7 +24,9 @@ tile_compile::Matrix2Df make_gradient(int h, int w) {
 } // namespace
 
 TEST_CASE("aqmh_config_validates_q_region") {
+  // Config() default sets method="aqmh", so this tests AQMH validation
   tile_compile::config::Config cfg;
+  cfg.aqmh.enabled = true;
   cfg.aqmh.diagnostics.q_region = 0.75f;
   REQUIRE_NOTHROW(cfg.validate());
 

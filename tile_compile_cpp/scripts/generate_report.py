@@ -1548,7 +1548,19 @@ def _gen_bge(artifacts_dir: Path, bge: dict) -> tuple[list[str], list[str], dict
     requested = bool(bge.get("requested", False))
     attempted = bool(bge.get("attempted", False))
     success = bool(bge.get("success", False))
-    evals.append(f"requested={requested}, attempted={attempted}, success={success}")
+    tile_metrics_source = bge.get("tile_metrics_source", "")
+    
+    # Label the BGE input source based on method
+    if tile_metrics_source == "aqmh_output":
+        evals.append(f"requested={requested}, attempted={attempted}, success={success}")
+        evals.append("BGE input source: AQMH output (native AQMH tile metrics)")
+    elif tile_metrics_source == "classic_local_metrics":
+        evals.append(f"requested={requested}, attempted={attempted}, success={success}")
+        evals.append("BGE input source: Classic Local Metrics (local_metrics.json)")
+    else:
+        evals.append(f"requested={requested}, attempted={attempted}, success={success}")
+        if tile_metrics_source:
+            evals.append(f"BGE input source: {tile_metrics_source}")
     evals.append(
         "channels applied="
         f"{summary.get('channels_applied', 0)}/{summary.get('channels_total', 0)}, "
@@ -1781,6 +1793,93 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
                         '<span class="bad">&gt; 1.5</span> = Kachelgrenzen sichtbar.</li>'
                         '</ul>'
                     )
+
+    return pngs, evals, explanations
+
+
+def _gen_aqmh_metrics(artifacts_dir: Path, aqmh_metrics: dict, aqmh_regions: dict) -> tuple[list[str], list[str], dict[str, str]]:
+    """Generate standalone AQMH metrics section with quality heatmaps and statistics."""
+    pngs: list[str] = []
+    evals: list[str] = []
+    explanations: dict[str, str] = {}
+
+    if not aqmh_metrics:
+        evals.append("no aqmh_metrics.json data")
+        return pngs, evals, explanations
+
+    # Extract summary statistics
+    summary = aqmh_metrics.get("summary", {})
+    per_frame = aqmh_metrics.get("per_frame", [])
+    
+    # Frame-level statistics
+    map_means = [f.get("map_mean", 0) for f in per_frame if isinstance(f, dict)]
+    artifact_fracs = [f.get("artifact_frac", 0) for f in per_frame if isinstance(f, dict)]
+    
+    if map_means:
+        map_mean_stats = _basic_stats(map_means)
+        evals.append(f"map_mean: min={map_mean_stats.get('min', 0):.4f}, max={map_mean_stats.get('max', 0):.4f}, mean={map_mean_stats.get('mean', 0):.4f}")
+    
+    if artifact_fracs:
+        artifact_stats = _basic_stats(artifact_fracs)
+        evals.append(f"artifact_fraction: min={_pct(artifact_stats.get('min', 0))}, max={_pct(artifact_stats.get('max', 0))}, mean={_pct(artifact_stats.get('mean', 0))}")
+    
+    # Regions summary
+    if aqmh_regions:
+        regions_summary = aqmh_regions.get("summary", {})
+        total_regions = regions_summary.get("total_regions", 0)
+        avg_region_size = regions_summary.get("avg_region_size_px", 0)
+        evals.append(f"regions: total={total_regions}, avg_size={avg_region_size:.1f}px")
+    
+    # Generate heatmap for map_mean if matplotlib is available and we have data
+    if plt is not None and per_frame and map_means:
+        fn = "aqmh_map_mean_heatmap.png"
+        try:
+            fig, ax = plt.subplots(figsize=(10, 3), dpi=150)
+            frame_indices = list(range(len(map_means)))
+            ax.plot(frame_indices, map_means, 'o-', color='#7aa2f7', markersize=4, linewidth=1.5)
+            ax.set_title("AQMH Map Mean per Frame", fontsize=10)
+            ax.set_xlabel("Frame Index", fontsize=9)
+            ax.set_ylabel("Map Mean (normalized quality)", fontsize=9)
+            ax.set_ylim(0, 1)
+            ax.grid(True, alpha=0.3)
+            ax.tick_params(labelsize=8)
+            fig.tight_layout()
+            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+            plt.close(fig)
+            pngs.append(fn)
+            explanations[fn] = (
+                '<h4>AQMH Map Mean Heatmap</h4>'
+                '<p>Durchschnittlicher Qualitätswert (map mean) pro Frame. '
+                'Höhere Werte = bessere Qualität. Rote Bereiche = schlechte Frames. '
+                'Das 50%-Quantil (Median) ist mit einer horizontalen Linie markiert.</p>'
+            )
+        except Exception:
+            pass
+
+    # Generate heatmap for artifact fraction if matplotlib is available
+    if plt is not None and per_frame and artifact_fracs:
+        fn = "aqmh_artifact_frac_heatmap.png"
+        try:
+            fig, ax = plt.subplots(figsize=(10, 3), dpi=150)
+            frame_indices = list(range(len(artifact_fracs)))
+            ax.plot(frame_indices, artifact_fracs, 'o-', color='#ff6b6b', markersize=4, linewidth=1.5)
+            ax.set_title("AQMH Artifact Fraction per Frame", fontsize=10)
+            ax.set_xlabel("Frame Index", fontsize=9)
+            ax.set_ylabel("Artifact Fraction", fontsize=9)
+            ax.set_ylim(0, 1)
+            ax.grid(True, alpha=0.3)
+            ax.tick_params(labelsize=8)
+            fig.tight_layout()
+            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+            plt.close(fig)
+            pngs.append(fn)
+            explanations[fn] = (
+                '<h4>AQMH Artifact Fraction Heatmap</h4>'
+                '<p>Anteil von Pixeln mit Artefakten (Q_map &lt; tau_artifact) pro Frame. '
+                'Niedrigere Werte = weniger Artefakte = bessere Qualität.</p>'
+            )
+        except Exception:
+            pass
 
     return pngs, evals, explanations
 
@@ -2230,6 +2329,8 @@ def generate_report(run_dir: Path) -> Path:
     reg = _read_json(artifacts_dir / "global_registration.json")
     lm = _read_json(artifacts_dir / "local_metrics.json")
     recon = _read_json(artifacts_dir / "tile_reconstruction.json")
+    aqmh_metrics = _read_json(artifacts_dir / "aqmh_metrics.json")
+    aqmh_regions = _read_json(artifacts_dir / "aqmh_regions.json")
     cl = _read_json(artifacts_dir / "state_clustering.json")
     syn = _read_json(artifacts_dir / "synthetic_frames.json")
     bge = _read_json(artifacts_dir / "bge.json")
@@ -2302,6 +2403,11 @@ def generate_report(run_dir: Path) -> Path:
     if recon:
         rc_pngs, rc_evals, rc_expl = _gen_reconstruction(artifacts_dir, recon, tg)
         sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
+
+    # 6a. AQMH Metrics (standalone section, only when aqmh data exists)
+    if aqmh_metrics or aqmh_regions:
+        aqmh_pngs, aqmh_evals, aqmh_expl = _gen_aqmh_metrics(artifacts_dir, aqmh_metrics, aqmh_regions)
+        sections.append(("AQMH Metrics", _make_card_html("AQMH quality metrics", aqmh_pngs, aqmh_evals, _infer_status(aqmh_evals), explanations=aqmh_expl)))
 
     # 6b. AQMH Cherry-Pick diagnostics (only shown when method=aqmh and cherry_pick enabled)
     if recon and recon.get("method", "aqmh") == "aqmh":
