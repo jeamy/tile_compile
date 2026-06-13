@@ -280,17 +280,13 @@ std::string extract_between(const std::string& text, const std::string& begin, c
     return text.substr(content_pos, end_pos - content_pos);
 }
 
-std::string build_language_switch_script(const std::string& locale, const json& templates) {
+std::string build_language_switch_script(const std::string& locale) {
     std::ostringstream js;
     js << "<script>(function(){";
-    js << "const templates=" << escape_script_json(templates.dump()) << ";";
     js << "let current='" << html_escape(locale) << "';";
     js << "function setActive(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-report-lang')===current);});}";
-    js << "function bind(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.onclick=function(){setLanguage(btn.getAttribute('data-report-lang'));};});setActive();}";
-    js << "function setLanguage(lang){const tpl=templates[lang];if(!tpl)return;if(tpl.header!=null){const h=document.getElementById('report-header-content');if(h)h.innerHTML=tpl.header;}if(tpl.content!=null){const c=document.getElementById('report-content');if(c)c.innerHTML=tpl.content;}current=lang;try{localStorage.setItem('tile_compile_report_lang',lang);}catch(e){}bind();}";
-    js << "window.tileCompileReportSetLanguage=setLanguage;";
-    js << "bind();";
-    js << "try{const saved=localStorage.getItem('tile_compile_report_lang');if(saved&&saved!==current&&templates[saved])setLanguage(saved);}catch(e){}";
+    js << "document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.disabled=btn.getAttribute('data-report-lang')!==current;});";
+    js << "setActive();";
     js << "})();</script>";
     return js.str();
 }
@@ -1393,8 +1389,8 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
     if (cols <= 0 || rows <= 0 || values.size() < static_cast<size_t>(cols * rows)) {
         return svg_message(title, "No matrix data", width, height);
     }
-    constexpr int max_svg_heatmap_cols = 120;
-    constexpr int max_svg_heatmap_rows = 80;
+    constexpr int max_svg_heatmap_cols = 80;
+    constexpr int max_svg_heatmap_rows = 48;
     std::vector<double> downsampled_values;
     int render_cols = cols;
     int render_rows = rows;
@@ -1531,6 +1527,19 @@ std::vector<fs::path> aqmh_cache_files(const fs::path& cache_dir, const std::str
     return files;
 }
 
+std::vector<fs::path> sample_evenly(const std::vector<fs::path>& files, size_t max_count) {
+    if (max_count == 0 || files.size() <= max_count) return files;
+    std::vector<fs::path> sampled;
+    sampled.reserve(max_count);
+    for (size_t i = 0; i < max_count; ++i) {
+        const size_t idx = static_cast<size_t>(std::llround(
+            static_cast<double>(i) * static_cast<double>(files.size() - 1) /
+            static_cast<double>(max_count - 1)));
+        if (sampled.empty() || sampled.back() != files[idx]) sampled.push_back(files[idx]);
+    }
+    return sampled;
+}
+
 std::optional<std::vector<double>> read_aqmh_cache_map(const fs::path& path, int width, int height, const std::string& dtype) {
     if (width <= 0 || height <= 0) return std::nullopt;
     std::ifstream in(path, std::ios::binary);
@@ -1611,6 +1620,112 @@ AqmhMapAggregate aggregate_aqmh_maps(const std::vector<fs::path>& files,
     const std::array<size_t, 3> example_indices = {size_t{0}, examples.size() / 2, examples.size() - 1};
     for (size_t idx : example_indices) {
         if (idx < examples.size()) agg.examples.push_back({std::get<1>(examples[idx]), std::get<2>(examples[idx])});
+    }
+    return agg;
+}
+
+struct AqmhReportMapAggregate {
+    int count = 0;
+    int cols = 0;
+    int rows = 0;
+    std::vector<double> mean;
+    std::vector<double> artifact_frequency;
+    std::pair<std::string, std::vector<double>> example;
+};
+
+bool read_aqmh_value(std::ifstream& in, const std::string& dtype, double& out) {
+    if (dtype == "float32") {
+        float v = 0.0f;
+        in.read(reinterpret_cast<char*>(&v), sizeof(float));
+        if (!in) return false;
+        out = std::clamp(static_cast<double>(v), 0.0, 1.0);
+        return true;
+    }
+    if (dtype == "uint16") {
+        uint16_t v = 0;
+        in.read(reinterpret_cast<char*>(&v), sizeof(uint16_t));
+        if (!in) return false;
+        out = static_cast<double>(v) / 65535.0;
+        return true;
+    }
+    if (dtype == "uint8") {
+        uint8_t v = 0;
+        in.read(reinterpret_cast<char*>(&v), sizeof(uint8_t));
+        if (!in) return false;
+        out = static_cast<double>(v) / 255.0;
+        return true;
+    }
+    return false;
+}
+
+AqmhReportMapAggregate aggregate_aqmh_maps_streamed(const std::vector<fs::path>& files,
+                                                    int width,
+                                                    int height,
+                                                    const std::string& dtype,
+                                                    double artifact_threshold,
+                                                    int out_cols,
+                                                    int out_rows) {
+    AqmhReportMapAggregate agg;
+    if (width <= 0 || height <= 0 || out_cols <= 0 || out_rows <= 0) return agg;
+    agg.cols = out_cols;
+    agg.rows = out_rows;
+    const size_t out_n = static_cast<size_t>(out_cols * out_rows);
+    std::vector<double> sum(out_n, 0.0), artifact_sum(out_n, 0.0);
+    std::vector<uint64_t> samples(out_n, 0);
+    const size_t example_idx = files.empty() ? 0 : files.size() / 2;
+
+    for (size_t file_idx = 0; file_idx < files.size(); ++file_idx) {
+        std::ifstream in(files[file_idx], std::ios::binary);
+        if (!in) continue;
+        std::vector<double> example_sum;
+        std::vector<uint64_t> example_samples;
+        const bool capture_example = file_idx == example_idx;
+        if (capture_example) {
+            example_sum.assign(out_n, 0.0);
+            example_samples.assign(out_n, 0);
+        }
+
+        bool ok = true;
+        for (int y = 0; ok && y < height; ++y) {
+            const int by = std::min(out_rows - 1, static_cast<int>((static_cast<int64_t>(y) * out_rows) / height));
+            for (int x = 0; x < width; ++x) {
+                double v = 0.0;
+                if (!read_aqmh_value(in, dtype, v)) {
+                    ok = false;
+                    break;
+                }
+                const int bx = std::min(out_cols - 1, static_cast<int>((static_cast<int64_t>(x) * out_cols) / width));
+                const size_t bi = static_cast<size_t>(by * out_cols + bx);
+                sum[bi] += v;
+                artifact_sum[bi] += v < artifact_threshold ? 1.0 : 0.0;
+                samples[bi] += 1;
+                if (capture_example) {
+                    example_sum[bi] += v;
+                    example_samples[bi] += 1;
+                }
+            }
+        }
+        if (!ok) continue;
+        ++agg.count;
+        if (capture_example) {
+            agg.example.first = files[file_idx].stem().string();
+            agg.example.second.assign(out_n, std::numeric_limits<double>::quiet_NaN());
+            for (size_t i = 0; i < out_n; ++i) {
+                if (example_samples[i] > 0) {
+                    agg.example.second[i] = example_sum[i] / static_cast<double>(example_samples[i]);
+                }
+            }
+        }
+    }
+
+    if (agg.count == 0) return agg;
+    agg.mean.assign(out_n, std::numeric_limits<double>::quiet_NaN());
+    agg.artifact_frequency.assign(out_n, std::numeric_limits<double>::quiet_NaN());
+    for (size_t i = 0; i < out_n; ++i) {
+        if (samples[i] == 0) continue;
+        const double denom = static_cast<double>(samples[i]);
+        agg.mean[i] = sum[i] / denom;
+        agg.artifact_frequency[i] = artifact_sum[i] / denom;
     }
     return agg;
 }
@@ -3014,22 +3129,19 @@ std::optional<ReportSection> gen_aqmh_metrics(const fs::path& run_dir, const jso
     const std::string stream_id = json_string_or(metrics, "map_stream_id", "luma");
     const fs::path cache_dir = aqmh_cache_dir(run_dir, metrics);
     const auto files = aqmh_cache_files(cache_dir, stream_id);
-    const double artifact_threshold = 0.2;
-    const auto agg = aggregate_aqmh_maps(files, stored_w, stored_h, dtype, artifact_threshold);
-    evals.push_back("cache maps read: " + std::to_string(agg.count) + " from " + cache_dir.string());
+    constexpr size_t max_aqmh_report_maps = 8;
+    const auto sampled_files = sample_evenly(files, max_aqmh_report_maps);
+    const auto agg = aggregate_aqmh_maps_streamed(sampled_files, stored_w, stored_h, dtype, 0.2, 80, 48);
+    evals.push_back("cache maps streamed: " + std::to_string(agg.count) + "/" + std::to_string(files.size()) +
+                    " sampled from " + cache_dir.string());
     if (agg.count > 0) {
-        charts.push_back({svg_matrix_heatmap(agg.mean, stored_w, stored_h, "AQMH mean quality map", "Q mean", "viridis", 0.0, 1.0),
-                          "<h4>AQMH mean quality map</h4><p>Mittlere AQMH-Qualitaet pro gespeicherter Pixelposition ueber alle geschriebenen Frames.</p>"});
-        const auto std_stats = basic_stats(agg.stddev);
-        charts.push_back({svg_matrix_heatmap(agg.stddev, stored_w, stored_h, "AQMH quality standard deviation", "Q std", "magma", 0.0, std::max(0.05, std_stats.p99)),
-                          "<h4>AQMH quality standard deviation</h4><p>Raeumliche Streuung der AQMH-Qualitaet. Helle Bereiche variieren ueber Frames staerker.</p>"});
-        charts.push_back({svg_matrix_heatmap(agg.artifact_frequency, stored_w, stored_h, "AQMH artifact frequency map", "artifact frequency", "inferno", 0.0, 1.0),
-                          "<h4>AQMH artifact frequency map</h4><p>Anteil der Frames, in denen Q_map unter 0.20 liegt.</p>"});
-        charts.push_back({svg_matrix_heatmap(agg.min_map, stored_w, stored_h, "AQMH minimum quality map", "Q min", "viridis", 0.0, 1.0),
-                          "<h4>AQMH minimum quality map</h4><p>Schlechtester beobachteter AQMH-Qualitaetswert pro gespeicherter Pixelposition.</p>"});
-        for (const auto& [label, values] : agg.examples) {
-            charts.push_back({svg_matrix_heatmap(values, stored_w, stored_h, "AQMH quality map example: " + label, "Q", "viridis", 0.0, 1.0),
-                              "<h4>AQMH quality map example</h4><p>Einzelne gespeicherte AQMH-Qualitaetskarte: <code>" + html_escape(label) + "</code>.</p>"});
+        charts.push_back({svg_matrix_heatmap(agg.mean, agg.cols, agg.rows, "AQMH mean quality map", "Q mean", "viridis", 0.0, 1.0),
+                          "<h4>AQMH mean quality map</h4><p>Gestreamte, report-kleine Vorschau der mittleren AQMH-Qualitaet; die Full-Resolution-Cache-Maps werden dabei nicht im Speicher gehalten.</p>"});
+        charts.push_back({svg_matrix_heatmap(agg.artifact_frequency, agg.cols, agg.rows, "AQMH artifact frequency map", "artifact frequency", "inferno", 0.0, 1.0),
+                          "<h4>AQMH artifact frequency map</h4><p>Gestreamte Vorschau des Anteils niedriger AQMH-Qualitaetswerte.</p>"});
+        if (!agg.example.second.empty()) {
+            charts.push_back({svg_matrix_heatmap(agg.example.second, agg.cols, agg.rows, "AQMH quality map example: " + agg.example.first, "Q", "viridis", 0.0, 1.0),
+                              "<h4>AQMH quality map example</h4><p>Gestreamt heruntergerechnete AQMH-Qualitaetskarte: <code>" + html_escape(agg.example.first) + "</code>.</p>"});
         }
     }
 
@@ -3320,22 +3432,10 @@ std::string build_report_html(const fs::path& run_dir,
     html << "</main>__REPORT_LANGUAGE_SCRIPT__</body></html>";
     const std::string base_html = html.str();
     std::string localized = apply_report_translations(base_html, locale);
-    const std::string localized_de = apply_report_translations(base_html, "de");
-    const std::string localized_en = apply_report_translations(base_html, "en");
-    json templates = {
-        {"de", {
-            {"header", extract_between(localized_de, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
-            {"content", extract_between(localized_de, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
-        }},
-        {"en", {
-            {"header", extract_between(localized_en, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
-            {"content", extract_between(localized_en, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
-        }}
-    };
     const std::string marker = "__REPORT_LANGUAGE_SCRIPT__";
     const auto marker_pos = localized.find(marker);
     if (marker_pos != std::string::npos) {
-        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale, templates));
+        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale));
     }
     return localized;
 }
