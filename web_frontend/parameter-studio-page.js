@@ -247,6 +247,21 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
     return localeMessages[`param.${path}.label`] || path;
   }
 
+  function fallbackHelpForEntry(entry = {}, path = "") {
+    const normalizedPath = String(path || entry?.path || "").trim();
+    const label = labelForPath(normalizedPath);
+    const type = String(entry?.type || "").trim();
+    const range = computeRange(entry);
+    const details = [];
+    if (type) details.push(isGermanLocale() ? `Typ: ${type}` : `Type: ${type}`);
+    if (range) details.push(isGermanLocale() ? `Bereich: ${range}` : `Range: ${range}`);
+    const suffix = details.length > 0 ? ` ${details.join(", ")}.` : "";
+    if (isGermanLocale()) {
+      return `${label}: Konfigurationsparameter ${normalizedPath}.${suffix}`;
+    }
+    return `${label}: configuration parameter ${normalizedPath}.${suffix}`;
+  }
+
   function topLevelKeyForPath(path) {
     return String(path || "").split(".")[0] || "";
   }
@@ -256,8 +271,8 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
     return String(editorEntry?.category || fallback || "").trim() || fallback;
   }
 
-  function shortHelpForPath(path, fallback) {
-    return localeMessages[`param.${path}.short_help`] || fallback || "-";
+  function shortHelpForPath(path, fallback, entry = {}) {
+    return localeMessages[`param.${path}.short_help`] || fallback || fallbackHelpForEntry(entry, path);
   }
 
   function normalizeExplainText(value) {
@@ -651,8 +666,8 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       fetchJson("../tile_compile_cpp/tile_compile.schema.json").catch(() => ({})),
       fetchText("../tile_compile_cpp/tile_compile.schema.yaml").catch(() => ""),
       fetchJson("../api/config/defaults").catch(() => ({ config: {} })),
-      fetchText("../doc/v3/configuration_reference.md").catch(() => ""),
-      fetchText("../doc/v3/configuration_reference_en.md").catch(() => ""),
+      fetchText("../docs/configuration_reference.md").catch(() => fetchText("../doc/v3/configuration_reference.md")).catch(() => ""),
+      fetchText("../docs/configuration_reference_en.md").catch(() => fetchText("../doc/v3/configuration_reference_en.md")).catch(() => ""),
     ]);
     const katalogMap = parseParameterKatalog(katalogText);
     const apiSchemaMap = flattenSchema(apiSchemaJson);
@@ -808,7 +823,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       type: "-",
     };
     activeExplainPath = normalizedPath;
-    const shortHelp = shortHelpForPath(normalizedPath, entry.shortExplanation || entry.description || "-");
+    const shortHelp = shortHelpForPath(normalizedPath, entry.shortExplanation || entry.description || "", entry);
     setExplainField("parameter-explain-label", entry.label || normalizedPath);
     setExplainField("parameter-explain-path", normalizedPath);
     setExplainField("parameter-explain-category", entry.category || "-");
@@ -852,7 +867,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       }
       const hintEl = row.querySelector(".ps-hint");
       if (hintEl) {
-        const shortHelp = shortHelpForPath(path, entry.shortExplanation || entry.description || "");
+        const shortHelp = shortHelpForPath(path, entry.shortExplanation || entry.description || "", entry);
         if (shortHelp && shortHelp !== "-") hintEl.textContent = shortHelp;
       }
     });
@@ -954,11 +969,11 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
     if (localized) return localized;
     if (explainEntry.shortExplanation) return explainEntry.shortExplanation;
     if (explainEntry.description) return explainEntry.description;
-    if (isGermanLocale()) return entry?.shortExplanation || entry?.description || "-";
+    if (isGermanLocale()) return entry?.shortExplanation || entry?.description || fallbackHelpForEntry(explainEntry, path);
     const englishSafeFallback = [entry?.shortExplanation, entry?.description]
       .map((candidate) => normalizeExplainText(candidate))
       .find((candidate) => candidate && !looksGermanText(candidate));
-    return englishSafeFallback || "-";
+    return englishSafeFallback || fallbackHelpForEntry(explainEntry, path);
   }
 
   function inputControlHtml(entry, value, fieldId) {

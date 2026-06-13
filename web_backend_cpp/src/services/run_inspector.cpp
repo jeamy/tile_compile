@@ -68,12 +68,10 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
 
 std::string normalizePhaseEvent(const std::string& event, const std::string& method) {
     if (method == "aqmh") {
-        if (event == "LOCAL_METRICS" || 
-            event == "STATE_CLUSTERING" || 
-            event == "SYNTHETIC_FRAMES") {
+        if (event == "AQMH_QUALITY_MAPS" || event == "LOCAL_METRICS") return "AQMH_MAPS";
+        if (event == "STATE_CLUSTERING" || event == "SYNTHETIC_FRAMES") {
             return ""; // Ausblenden
         }
-        if (event == "AQMH_QUALITY_MAPS") return "AQMH_MAPS";
         if (event == "TILE_RECONSTRUCTION") return "AQMH_RECONSTRUCTION";
     }
     return event; // Unverändert
@@ -92,7 +90,6 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
             "COMMON_OVERLAP",
             "AQMH_MAPS",
             "AQMH_RECONSTRUCTION",
-            "AQMH_DIAGNOSTICS",
             "STACKING",
             "DEBAYER",
             "ASTROMETRY",
@@ -122,12 +119,7 @@ bool is_aqmh_classic_only_phase(const std::string& phase_name) {
 
 std::vector<std::string> effective_phase_order(const std::optional<bool>& aqmh_enabled) {
     if (!aqmh_enabled.value_or(false)) return PHASE_ORDER;
-    std::vector<std::string> phases;
-    phases.reserve(PHASE_ORDER.size());
-    for (const auto& phase : PHASE_ORDER) {
-        if (!is_aqmh_classic_only_phase(phase)) phases.push_back(phase);
-    }
-    return phases;
+    return getPhaseOrderForMethod("aqmh");
 }
 
 /// @brief Clamps progress.
@@ -668,7 +660,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     if (!event_file) return result;
 
     nlohmann::json phases = nlohmann::json::object();
-    for (const auto& phase : phase_order) phases[phase] = {{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
+    for (const auto& phase : phase_order) phases[phase] = nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
     std::deque<nlohmann::json> events_tail;
@@ -705,7 +697,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             nlohmann::json* phase_state = nullptr;
             if (phases.contains(phase_name)) phase_state = &phases[phase_name];
             else {
-                if (!extra_phases.contains(phase_name)) extra_phases[phase_name] = {{"phase", phase_name}, {"status", "pending"}, {"pct", 0.0}};
+                if (!extra_phases.contains(phase_name)) extra_phases[phase_name] = nlohmann::json{{"phase", phase_name}, {"status", "pending"}, {"pct", 0.0}};
                 phase_state = &extra_phases[phase_name];
             }
 

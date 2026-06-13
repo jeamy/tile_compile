@@ -1508,7 +1508,7 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | **Bereich** | 0 – 16 |
 | **Default** | `2` |
 
-**Zweck:** Maximale Anzahl gleichzeitig im RAM gehaltener Qualitätskarten. Begrenzt den RAM-Verbrauch im Streaming-Betrieb. `0` = keine Begrenzung.
+**Zweck:** Maximale Anzahl gleichzeitig im RAM gehaltener voll aufgelöster Qualitätskarten. Begrenzt den RAM-Verbrauch des Read-Cache während der AQMH-Rekonstruktion. `0` deaktiviert den residenten Read-Cache und liest Karten bei Bedarf direkt vom Cache-Speicher.
 
 ---
 

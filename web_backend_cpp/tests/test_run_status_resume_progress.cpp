@@ -110,7 +110,11 @@ int main(int argc, char** argv) {
         bool found_event_local_metrics = false;
         for (const auto& item : aqmh_event_status["phases"]) {
             const std::string phase = item.value("phase", "");
-            if (phase == "AQMH_MAPS") found_event_aqmh_maps = true;
+            if (phase == "AQMH_MAPS") {
+                found_event_aqmh_maps = true;
+                expect_equal(item["status"].get<std::string>(), "ok", "aqmh maps consumes local_metrics phase_end");
+                expect_equal(item["pct"].get<double>(), 1.0, "aqmh maps done pct", 1e-9);
+            }
             if (phase == "LOCAL_METRICS") found_event_local_metrics = true;
             expect_true(phase != "STATE_CLUSTERING", "event-derived aqmh hides state clustering");
             expect_true(phase != "SYNTHETIC_FRAMES", "event-derived aqmh hides synthetic frames");

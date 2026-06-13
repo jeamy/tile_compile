@@ -1125,7 +1125,7 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Range** | 0 – 16 |
 | **Default** | `2` |
 
-**Purpose:** Maximum number of quality maps held simultaneously in RAM. Caps memory use during streaming operation. `0` = unlimited.
+**Purpose:** Maximum number of full-resolution quality maps held simultaneously in RAM. Caps read-cache memory use during AQMH reconstruction. `0` disables the resident read cache and reads maps directly from cache storage when needed.
 
 ---
 

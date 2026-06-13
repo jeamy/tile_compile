@@ -275,10 +275,16 @@ properties:
           resolution_divisor:
             type: integer
             enum: [1, 2, 4]
+            description: "Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height."
           dtype:
             type: string
             enum: [float32, uint16, uint8]
-          max_resident_maps: {type: integer, minimum: 0, maximum: 16}
+            description: "Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."
+          max_resident_maps:
+            type: integer
+            minimum: 0
+            maximum: 16
+            description: "Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."
       cherry_pick:
         type: object
         properties:

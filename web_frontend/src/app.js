@@ -291,7 +291,6 @@ const AQMH_RUN_MONITOR_PHASE_ORDER = [
   "COMMON_OVERLAP",
   "AQMH_MAPS",
   "AQMH_RECONSTRUCTION",
-  "AQMH_DIAGNOSTICS",
   "STACKING",
   "DEBAYER",
   "ASTROMETRY",
@@ -3397,9 +3396,12 @@ function localizedRunMonitorState(stateRaw) {
 function localizedRunMonitorPhaseName(phaseRaw) {
   const phase = String(phaseRaw || "").trim().toUpperCase();
   if (!phase) return "";
-  if ((phase === "LOCAL_METRICS" || phase === "AQMH_QUALITY_MAPS") &&
+  if ((phase === "LOCAL_METRICS" || phase === "AQMH_QUALITY_MAPS" || phase === "AQMH_MAPS") &&
       isAqmhMethod()) {
-    return t("phase.aqmh_quality_maps", "AQMH metrics");
+    return t("phase.aqmh_maps", "AQMH maps");
+  }
+  if (phase === "AQMH_RECONSTRUCTION") {
+    return t("phase.aqmh_reconstruction", "AQMH reconstruction");
   }
   return t(`phase.${phase.toLowerCase()}`, phase);
 }
@@ -4105,30 +4107,65 @@ function isAqmhEnabled() {
   return isAqmhMethod();
 }
 
+const METHOD_UI_STATE_KEY = "tileCompile.method";
+
+function normalizeMethodValue(value) {
+  const method = String(value || "").trim().toLowerCase();
+  return ["aqmh", "classic_tile_compile"].includes(method) ? method : "";
+}
+
+function readHashParam(key) {
+  try {
+    const rawHash = String(window.location.hash || "").replace(/^#/, "");
+    return new URLSearchParams(rawHash).get(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeHashParam(key, value) {
+  try {
+    const params = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    if (value) params.set(key, value);
+    else params.delete(key);
+    const suffix = params.toString();
+    const nextUrl = `${window.location.pathname}${window.location.search}${suffix ? `#${suffix}` : ""}`;
+    window.history.replaceState(null, "", nextUrl);
+  } catch {
+    // URL hash persistence is optional; server UI state remains authoritative.
+  }
+}
+
 // NEW: Method-first approach (AQMH-First v0.3.0)
 function currentMethod() {
-  // Priority: 1. Run-Monitor-Status, 2. Draft method, 3. Config method, 4. YAML method, 5. UI-State, 6. Default
-  const runMethod = currentRunStatus?.method;
-  if (runMethod && ["aqmh", "classic_tile_compile"].includes(runMethod)) {
-    return runMethod;
-  }
-  const draftMethod = currentDraftValueForPath("method");
-  if (draftMethod && ["aqmh", "classic_tile_compile"].includes(draftMethod)) {
+  // Priority: 1. Draft method, 2. Config object/YAML, 3. URL/UI-State, 4. Default
+  const draftMethod = normalizeMethodValue(currentDraftValueForPath("method"));
+  if (draftMethod) {
     return draftMethod;
   }
-  const configMethod = currentConfig?.method || detectMethodFromYaml(currentConfigYaml);
-  if (configMethod && ["aqmh", "classic_tile_compile"].includes(configMethod)) {
+
+  const configMethod = normalizeMethodValue(uiState.configObject?.method);
+  if (configMethod) {
     return configMethod;
   }
-  const urlMethod = getUrlHashParam("method");
-  if (urlMethod && ["aqmh", "classic_tile_compile"].includes(urlMethod)) {
+
+  const yamlMethod = normalizeMethodValue(detectMethodFromYaml(uiState.configYaml || getConfigDraft()));
+  if (yamlMethod) {
+    return yamlMethod;
+  }
+
+  const urlMethod = normalizeMethodValue(readHashParam("method"));
+  if (urlMethod) {
     return urlMethod;
   }
-  const storedMethod = readUiStateValue("tileCompile.method") ||
-                       localStorage.getItem("tileCompile.method");
-  if (storedMethod && ["aqmh", "classic_tile_compile"].includes(storedMethod)) {
+
+  const storedMethod = normalizeMethodValue(
+    readServerUiStateValue(METHOD_UI_STATE_KEY) || localStorage.getItem(METHOD_UI_STATE_KEY),
+  );
+  if (storedMethod) {
     return storedMethod;
   }
+
   return "aqmh";
 }
 
@@ -4136,11 +4173,13 @@ function isAqmhMethod() {
   return currentMethod() === "aqmh";
 }
 
-// Save method to URL-Hash and localStorage
+// Save method to URL-Hash, server UI state, and localStorage
 function saveMethodToState(method) {
-  setUrlHashParam("method", method);
-  writeUiStateValue("tileCompile.method", method);
-  localStorage.setItem("tileCompile.method", method);
+  const normalized = normalizeMethodValue(method);
+  if (!normalized) return;
+  writeHashParam("method", normalized);
+  writeServerUiStateValue(METHOD_UI_STATE_KEY, normalized);
+  localStorage.setItem(METHOD_UI_STATE_KEY, normalized);
 }
 
 // Toggle AQMH storage profiles section visibility
@@ -4220,7 +4259,7 @@ function getEffectiveDashboardPipelineGroups() {
   return [
     { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
     { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
-    { key: "AQMH", phases: ["TILE_GRID", "AQMH_MAPS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"] },
+    { key: "AQMH", phases: ["TILE_GRID", "AQMH_MAPS", "AQMH_RECONSTRUCTION"] },
     { key: "STACK", phases: ["STACKING", "DEBAYER"] },
     { key: "ASTROM", phases: ["ASTROMETRY"] },
     { key: "BGE", phases: ["BGE"] },
@@ -4234,8 +4273,9 @@ function normalizeRunMonitorPhaseName(raw) {
   const phase = String(raw || "").trim().toUpperCase();
   if (phase === "AQMH_QUALITY_MAPS") return "AQMH_MAPS";
   if (isAqmhMethod()) {
+    if (phase === "LOCAL_METRICS") return "AQMH_MAPS";
     if (phase === "TILE_RECONSTRUCTION") return "AQMH_RECONSTRUCTION";
-    if (phase === "LOCAL_METRICS" || CLASSIC_ONLY_PHASES.includes(phase)) return "";
+    if (CLASSIC_ONLY_PHASES.includes(phase)) return "";
   }
   return phase;
 }
