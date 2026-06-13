@@ -633,6 +633,15 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Versionen
 
+## v0.3.1 (2026-06-13)
+
+**AQMH-First als Standard:**
+- Top-Level `method`-Feld als Single Source of Truth für die Rekonstruktionsmethode (AQMH oder Classic Tile Compile).
+- AQMH ist jetzt der Default ohne Migration bestehender Runs. Fehlendes `method`-Feld wird automatisch zu `aqmh`.
+- Frontend zeigt AQMH als vorselektierte Methode in Wizard, Dashboard und Parameter Studio.
+- Classic-Phasen (LOCAL_METRICS, STATE_CLUSTERING, SYNTHETIC_FRAMES) werden bei AQMH-Runs ausgeblendet.
+- Rollback-Mechanismen: `FORCE_CLASSIC=1` oder `--force-classic` für Notfälle.
+
 ## v0.3.0 (2026-06-09)
 
 **AQMH als Standard-Rekonstruktionsmethode:**
@@ -859,6 +868,20 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Erste öffentliche Version
 
 ## Changelog
+
+### (13.06.2026)
+
+**AQMH-First Implementation:**
+- Top-Level `method`-Feld als Single Source of Truth: `method: aqmh` oder `method: classic_tile_compile`.
+- Config-Normalisierung: Fehlendes `method` wird automatisch zu `aqmh`, `aqmh.enabled` wird davon abgeleitet.
+- Schema-Validierung für `method`-Feld mit Enum-Werten `aqmh` und `classic_tile_compile`.
+- Frontend: `currentMethod()`-API, AQMH als Default in Wizard, Dashboard, Parameter Studio.
+- Run Monitor: Classic-Phasen werden bei AQMH ausgeblendet (`LOCAL_METRICS`, `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`).
+- Rollback: `FORCE_CLASSIC=1` Environment-Variable und `--force-classic` CLI-Flag.
+- BGE: `tile_metrics_source` wird auf `aqmh_output` für AQMH-Runs gesetzt.
+- Reports: Eigenständiger AQMH-Abschnitt mit Quality-Map-Heatmaps.
+- History: Method-Tags für Filterung und Vergleich.
+- Dokumentation: [AQMH First Frontend Transition Plan v0.3.0](docs/AQMH/aqmh_first_frontend_transition_plan.md)
 
 ### (09.06.2026)
 

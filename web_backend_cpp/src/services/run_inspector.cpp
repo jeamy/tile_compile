@@ -46,6 +46,31 @@ bool visit_jsonl(const fs::path& path,
     return true;
 }
 
+std::string phase_name_from_id(int phase_id) {
+    switch (phase_id) {
+        case 0: return "SCAN_INPUT";
+        case 1: return "REGISTRATION";
+        case 2: return "PREWARP";
+        case 3: return "CHANNEL_SPLIT";
+        case 4: return "NORMALIZATION";
+        case 5: return "GLOBAL_METRICS";
+        case 6: return "TILE_GRID";
+        case 7: return "COMMON_OVERLAP";
+        case 8: return "LOCAL_METRICS";
+        case 9: return "TILE_RECONSTRUCTION";
+        case 10: return "STATE_CLUSTERING";
+        case 11: return "SYNTHETIC_FRAMES";
+        case 12: return "STACKING";
+        case 13: return "DEBAYER";
+        case 14: return "ASTROMETRY";
+        case 15: return "BGE";
+        case 16: return "PCC";
+        case 17: return "HYPERMETRIC_STRETCH";
+        case 18: return "DONE";
+        default: return "";
+    }
+}
+
 /// @brief Implements phase name from event.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -53,7 +78,7 @@ std::string raw_phase_name_from_event(const nlohmann::json& ev) {
     if (ev.contains("phase_name") && ev["phase_name"].is_string()) return ev["phase_name"].get<std::string>();
     if (ev.contains("phase")) {
         if (ev["phase"].is_string()) return ev["phase"].get<std::string>();
-        if (ev["phase"].is_number_integer()) return std::to_string(ev["phase"].get<int>());
+        if (ev["phase"].is_number_integer()) return phase_name_from_id(ev["phase"].get<int>());
     }
     return "";
 }
@@ -181,8 +206,13 @@ double overall_progress(const nlohmann::json& phases, const std::string& current
     int completed = 0;
     for (const auto& phase : PHASE_ORDER) {
         for (const auto& entry : phases) {
-            const std::string status = entry.value("status", std::string());
-            if (entry.value("phase", std::string()) == phase && (status == "ok" || status == "skipped")) {
+            const std::string status = entry.contains("status") && entry["status"].is_string()
+                ? entry["status"].get<std::string>()
+                : std::string();
+            const std::string entry_phase = entry.contains("phase") && entry["phase"].is_string()
+                ? entry["phase"].get<std::string>()
+                : std::string();
+            if (entry_phase == phase && (status == "ok" || status == "skipped")) {
                 ++completed;
                 break;
             }
@@ -193,7 +223,10 @@ double overall_progress(const nlohmann::json& phases, const std::string& current
         current_component = progress_map[current_phase].get<double>();
     } else if (!current_phase.empty()) {
         for (const auto& entry : phases) {
-            if (entry.value("phase", std::string()) == current_phase) {
+            const std::string entry_phase = entry.contains("phase") && entry["phase"].is_string()
+                ? entry["phase"].get<std::string>()
+                : std::string();
+            if (entry_phase == current_phase) {
                 current_component = entry.value("pct", 0.0);
                 break;
             }
@@ -203,6 +236,29 @@ double overall_progress(const nlohmann::json& phases, const std::string& current
     if (progress < 0.0) return 0.0;
     if (progress > 1.0) return 1.0;
     return progress;
+}
+
+void normalize_phase_list_for_status(nlohmann::json& phase_list) {
+    if (!phase_list.is_array()) return;
+    for (auto& item : phase_list) {
+        if (!item.is_object()) continue;
+        if (!item.contains("phase") || !item["phase"].is_string()) {
+            if (item.contains("phase") && item["phase"].is_number_integer()) {
+                const std::string phase_name = phase_name_from_id(item["phase"].get<int>());
+                item["phase"] = phase_name.empty() ? std::to_string(item["phase"].get<int>()) : phase_name;
+            } else if (item.contains("phase")) {
+                item["phase"] = item["phase"].dump();
+            } else {
+                item["phase"] = "";
+            }
+        }
+        if (!item.contains("status") || !item["status"].is_string()) {
+            item["status"] = "pending";
+        }
+        if (!item.contains("pct") || !item["pct"].is_number()) {
+            item["pct"] = 0.0;
+        }
+    }
 }
 
 /// @brief Reads run color mode.
@@ -683,17 +739,16 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (events_tail.size() > 200) events_tail.pop_front();
         std::string event_type = ev.value("type", std::string());
         std::string phase_name = phase_name_from_event(ev);
-        
-        // Normalize phase name based on method
-        std::string normalized_phase = normalizePhaseEvent(phase_name, effective_method);
-        if (normalized_phase.empty()) {
-            return true; // Skip/hide this phase for the current method
-        }
-        if (normalized_phase != phase_name) {
-            phase_name = normalized_phase; // Use normalized name
-        }
-        
+
         if (!phase_name.empty()) {
+            const std::string normalized_phase = normalizePhaseEvent(phase_name, effective_method);
+            if (normalized_phase.empty()) {
+                return true; // Skip/hide this phase for the current method
+            }
+            if (normalized_phase != phase_name) {
+                phase_name = normalized_phase;
+            }
+
             nlohmann::json* phase_state = nullptr;
             if (phases.contains(phase_name)) phase_state = &phases[phase_name];
             else {
@@ -832,6 +887,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json phase_list = nlohmann::json::array();
     for (const auto& phase : phase_order) phase_list.push_back(phases[phase]);
     for (auto it = extra_phases.begin(); it != extra_phases.end(); ++it) phase_list.push_back(it.value());
+    normalize_phase_list_for_status(phase_list);
     double progress = overall_progress(phase_list, current_phase, progress_map);
     if (run_status == "completed") progress = 1.0;
 

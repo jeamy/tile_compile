@@ -7,7 +7,7 @@
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
     ::setenv("FAKE_TILE_COMPILE_RUNNER_SLEEP_MS", "1500", 1);
-    BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
+        BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
     try {
         harness.start();
 

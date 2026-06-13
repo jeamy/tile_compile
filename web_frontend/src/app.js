@@ -4539,10 +4539,13 @@ function setMonitorResumeInfo(message = "") {
 }
 
 function applyRunMonitorResumePhaseAvailability(resumePhases) {
+  const defaultResumePhases = isAqmhMethod()
+    ? ["AQMH_MAPS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS", "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"]
+    : ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"];
   const allowed = new Set(
     Array.isArray(resumePhases) && resumePhases.length > 0
       ? resumePhases.map((phase) => String(phase || "").trim().toUpperCase()).filter(Boolean)
-      : ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"],
+      : defaultResumePhases,
   );
   uiState.runMonitorResumePhases = Array.from(allowed);
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
