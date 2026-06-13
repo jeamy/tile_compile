@@ -62,6 +62,10 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
     return raw_phase_name_from_event(ev);
 }
 
+} // namespace
+
+// Public functions declared in run_inspector.hpp
+
 std::string normalizePhaseEvent(const std::string& event, const std::string& method) {
     if (method == "aqmh") {
         if (event == "LOCAL_METRICS" || 
@@ -100,6 +104,8 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
     // Classic or unknown method: use original phase order
     return PHASE_ORDER;
 }
+
+namespace {
 
 /// @brief Implements phase order index.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
