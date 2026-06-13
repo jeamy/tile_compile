@@ -404,6 +404,7 @@ bool normalize_flat_master(Matrix2Df &flat, float &median_out,
 /// artifact, and error-handling semantics expected by callers.
 std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
                                                   const std::string &pattern) {
+
   auto frames = core::discover_frames(dir, pattern);
   frames.erase(
       std::remove_if(frames.begin(), frames.end(),
@@ -1073,6 +1074,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     proj_root = project_root.empty() ? core::resolve_project_root(cfg_path)
                                      : fs::path(project_root);
   }
+
+
+  cfg.method = config::getEffectiveMethod(cfg);
+  cfg.aqmh.enabled = cfg.method == "aqmh";
 
   auto frames = core::discover_frames(in_dir, "*");
   frames.erase(
@@ -4863,7 +4868,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         fwhm_improvement_percent =
             (seeing_fwhm_med - output_fwhm_med) / seeing_fwhm_med * 100.0f;
       }
-      v["method"] = cfg.aqmh.enabled ? "aqmh" : "classic_tile_compile";
+      v["method"] = cfg.method;
       v["seeing_fwhm_median"] = seeing_fwhm_med;
       v["output_fwhm_median"] = output_fwhm_med;
       v["fwhm_improvement_percent"] = fwhm_improvement_percent;

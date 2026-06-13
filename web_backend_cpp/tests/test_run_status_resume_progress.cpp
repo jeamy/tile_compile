@@ -34,11 +34,16 @@ int main(int argc, char** argv) {
         }
         expect_true(found_bge, "bge phase present");
 
-        harness.create_run("skipped_phase_run", {
+        const auto skipped_phase_run_dir = harness.create_run("skipped_phase_run", {
             {{"ts", "2026-03-10T11:00:00Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
             {{"ts", "2026-03-10T11:00:01Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
             {{"ts", "2026-03-10T11:00:02Z"}, {"type", "run_end"}, {"success", true}}
         }, "OSC");
+        {
+            std::ofstream config(skipped_phase_run_dir / "config.yaml");
+            config << "method: classic_tile_compile\n"
+                   << "data:\n  color_mode: OSC\n";
+        }
 
         const auto skipped_status = harness.get_json("/api/runs/skipped_phase_run/status");
         expect_equal(skipped_status["_http_status"].get<long>(), 200L, "skipped status code");
@@ -61,24 +66,28 @@ int main(int argc, char** argv) {
         }, "OSC");
         {
             std::ofstream config(aqmh_run_dir / "config.yaml");
-            config << "aqmh:\n  enabled: true\n"
+            config << "method: aqmh\n"
                    << "data:\n  color_mode: OSC\n";
         }
 
         const auto aqmh_status = harness.get_json("/api/runs/aqmh_hides_classic_phases/status");
         expect_equal(aqmh_status["_http_status"].get<long>(), 200L, "aqmh status code");
         expect_true(aqmh_status["aqmh_enabled"].is_boolean(), "aqmh flag is boolean");
-        expect_true(aqmh_status["aqmh_enabled"].get<bool>(), "aqmh flag parsed from root config");
+        expect_true(aqmh_status["aqmh_enabled"].get<bool>(), "aqmh flag derived from method");
+        expect_equal(aqmh_status["method"].get<std::string>(), "aqmh", "aqmh method parsed from config");
+        bool found_aqmh_maps = false;
         bool found_aqmh_local_metrics = false;
         bool found_aqmh_state_clustering = false;
         bool found_aqmh_synthetic_frames = false;
         for (const auto& item : aqmh_status["phases"]) {
             const std::string phase = item.value("phase", "");
+            if (phase == "AQMH_MAPS") found_aqmh_maps = true;
             if (phase == "LOCAL_METRICS") found_aqmh_local_metrics = true;
             if (phase == "STATE_CLUSTERING") found_aqmh_state_clustering = true;
             if (phase == "SYNTHETIC_FRAMES") found_aqmh_synthetic_frames = true;
         }
-        expect_true(found_aqmh_local_metrics, "aqmh metrics phase present");
+        expect_true(found_aqmh_maps, "aqmh maps phase present");
+        expect_true(!found_aqmh_local_metrics, "aqmh hides classic local metrics phase");
         expect_true(!found_aqmh_state_clustering, "aqmh hides state clustering");
         expect_true(!found_aqmh_synthetic_frames, "aqmh hides synthetic frames");
 
@@ -96,11 +105,17 @@ int main(int argc, char** argv) {
         expect_equal(aqmh_event_status["_http_status"].get<long>(), 200L, "event-derived aqmh status code");
         expect_true(aqmh_event_status["aqmh_enabled"].is_boolean(), "event-derived aqmh flag is boolean");
         expect_true(aqmh_event_status["aqmh_enabled"].get<bool>(), "aqmh flag inferred from events");
+        bool found_event_aqmh_maps = false;
+        bool found_event_local_metrics = false;
         for (const auto& item : aqmh_event_status["phases"]) {
             const std::string phase = item.value("phase", "");
+            if (phase == "AQMH_MAPS") found_event_aqmh_maps = true;
+            if (phase == "LOCAL_METRICS") found_event_local_metrics = true;
             expect_true(phase != "STATE_CLUSTERING", "event-derived aqmh hides state clustering");
             expect_true(phase != "SYNTHETIC_FRAMES", "event-derived aqmh hides synthetic frames");
         }
+        expect_true(found_event_aqmh_maps, "event-derived aqmh maps phase present");
+        expect_true(!found_event_local_metrics, "event-derived aqmh hides classic local metrics");
 
         harness.create_run("completed_without_run_end", {
             {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},

@@ -786,13 +786,6 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       if (!button || button.hidden) return;
       setCategory(button.dataset.category || "all");
     });
-    document.addEventListener("change", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const row = target.closest(".ps-row[data-path='aqmh.enabled']");
-      if (!row && target.getAttribute("data-control") !== "parameter.aqmh.enabled") return;
-      setCategory(activeCategory);
-    });
   }
 
   function setExplainField(id, value) {
@@ -895,15 +888,18 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       .filter((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
   }
 
-  function currentAqmhEnabled() {
-    const field = document.querySelector(".ps-row[data-path='aqmh.enabled'] select, [data-control='parameter.aqmh.enabled']");
-    if (!field) return false;
-    return String(field.value || "").trim().toLowerCase() === "true";
+  function currentParameterMethod() {
+    const hash = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    const fromHash = hash.get("method");
+    if (fromHash === "aqmh" || fromHash === "classic_tile_compile") return fromHash;
+    const fromStorage = localStorage.getItem("tileCompile.method");
+    if (fromStorage === "aqmh" || fromStorage === "classic_tile_compile") return fromStorage;
+    return "aqmh";
   }
 
   function categoryAllowedForCurrentMode(category) {
     const normalized = String(category || "").trim();
-    return !(currentAqmhEnabled() && AQMH_CLASSIC_ONLY_CATEGORIES.has(normalized));
+    return !(currentParameterMethod() === "aqmh" && AQMH_CLASSIC_ONLY_CATEGORIES.has(normalized));
   }
 
   function clearDynamicCategoryExtensions() {

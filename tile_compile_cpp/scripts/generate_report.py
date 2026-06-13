@@ -1662,7 +1662,7 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
     evals: list[str] = []
     explanations: dict[str, str] = {}
 
-    is_aqmh = val.get("method", "classic_tile_compile") == "aqmh"
+    is_aqmh = val.get("method", "aqmh") == "aqmh"
 
     seeing = val.get("seeing_fwhm_median", 0)
     output = val.get("output_fwhm_median", 0)
@@ -2304,7 +2304,7 @@ def generate_report(run_dir: Path) -> Path:
         sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
 
     # 6b. AQMH Cherry-Pick diagnostics (only shown when method=aqmh and cherry_pick enabled)
-    if recon and recon.get("method") == "aqmh":
+    if recon and recon.get("method", "aqmh") == "aqmh":
         cp_pngs, cp_evals, cp_expl = _gen_aqmh_cherry_pick(artifacts_dir, recon)
         sections.append(("AQMH Cherry-Pick", _make_card_html(
             "Cherry-pick frame selection", cp_pngs, cp_evals,

@@ -1587,6 +1587,20 @@ std::string render_bge_phase_details(const json& bge) {
         ? bge["config"] : json::object();
     const double min_fraction = json_number_or(cfg, "min_valid_sample_fraction_for_apply", 0.0);
     const int min_samples = static_cast<int>(json_number_or(cfg, "min_valid_samples_for_apply", 0.0));
+    
+    // Show tile metrics source (AQMH-first: aqmh_output vs classic_local_metrics)
+    std::string tile_metrics_source = json_string_or(bge, "tile_metrics_source", "");
+    if (!tile_metrics_source.empty()) {
+        std::string source_label;
+        if (tile_metrics_source == "aqmh_output") {
+            source_label = "AQMH output";
+        } else if (tile_metrics_source == "classic_local_metrics") {
+            source_label = "Classic Local Metrics";
+        } else {
+            source_label = tile_metrics_source;
+        }
+        html << "<p class=\"muted\">BGE input source: <strong>" << html_escape(source_label) << "</strong>.</p>";
+    }
 
     html << "<p class=\"muted\">BGE artifact summary: channels applied "
          << html_escape(json_string_or(summary, "channels_applied", "0")) << "/"
@@ -2715,7 +2729,7 @@ std::optional<ReportSection> gen_bge(const json& bge) {
 /// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_validation(const json& val) {
     if (!val.is_object() || val.empty()) return std::nullopt;
-    const bool is_aqmh = json_string_or(val, "method", "classic_tile_compile") == "aqmh";
+    const bool is_aqmh = json_string_or(val, "method", "aqmh") == "aqmh";
     const double improvement = json_number_or(val, "fwhm_improvement_percent", 0.0);
     const auto fwhm_ok_opt = json_optional_bool(val, "fwhm_improvement_ok");
 

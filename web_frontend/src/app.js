@@ -280,6 +280,26 @@ const RUN_MONITOR_PHASE_ORDER = [
   "HYPERMETRIC_STRETCH",
 ];
 
+const AQMH_RUN_MONITOR_PHASE_ORDER = [
+  "SCAN_INPUT",
+  "CHANNEL_SPLIT",
+  "NORMALIZATION",
+  "GLOBAL_METRICS",
+  "TILE_GRID",
+  "REGISTRATION",
+  "PREWARP",
+  "COMMON_OVERLAP",
+  "AQMH_MAPS",
+  "AQMH_RECONSTRUCTION",
+  "AQMH_DIAGNOSTICS",
+  "STACKING",
+  "DEBAYER",
+  "ASTROMETRY",
+  "BGE",
+  "PCC",
+  "HYPERMETRIC_STRETCH",
+];
+
 const PARAM_CONTROL_PATHS = {
   "parameter.registration.engine": "registration.engine",
   "parameter.registration.allow_rotation": "registration.allow_rotation",
@@ -1993,7 +2013,7 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
 
   const astapBin = storedTextValue(UI_STORAGE_KEYS.astrometryBinary, { absolute: true });
   const astapDataDir = storedTextValue(UI_STORAGE_KEYS.astrometryDataDir, { absolute: true });
-  
+
   const payload = {
     color_mode: colorMode,
     run_name: runName || undefined,
@@ -4123,6 +4143,50 @@ function saveMethodToState(method) {
   localStorage.setItem("tileCompile.method", method);
 }
 
+// Toggle AQMH storage profiles section visibility
+function toggleAqmhStorageProfiles(show) {
+  const section = document.getElementById("aqmh-storage-profiles-section");
+  if (section) {
+    section.style.display = show ? "block" : "none";
+  }
+}
+
+// Apply AQMH storage profile to config draft
+function applyAqmhStorageProfile(profile) {
+  const profiles = {
+    balanced: { resolution_divisor: 2, dtype: "uint16", max_resident_maps: 2 },
+    exact: { resolution_divisor: 2, dtype: "float32", max_resident_maps: 2 },
+    full: { resolution_divisor: 1, dtype: "float32", max_resident_maps: 2 },
+  };
+  const config = profiles[profile];
+  if (config && window.setConfigDraft) {
+    // Get current config and update AQMH storage settings
+    ensureConfigYaml().then((yaml) => {
+      try {
+        const configObj = yaml ? parseYamlToObject(yaml) : {};
+        if (!configObj.aqmh) configObj.aqmh = {};
+        if (!configObj.aqmh.storage) configObj.aqmh.storage = {};
+
+        configObj.aqmh.storage.resolution_divisor = config.resolution_divisor;
+        configObj.aqmh.storage.dtype = config.dtype;
+        configObj.aqmh.storage.max_resident_maps = config.max_resident_maps;
+
+        // Ensure method is set to aqmh
+        if (!configObj.method) configObj.method = "aqmh";
+        if (!configObj.aqmh.enabled) configObj.aqmh.enabled = true;
+
+        const newYaml = objectToYaml(configObj);
+        setConfigDraft(newYaml);
+        setFooter(`AQMH Storage Profile "${profile}" angewendet.`);
+      } catch (err) {
+        setFooter(`Fehler beim Anwenden des Profils: ${errorText(err)}`, true);
+      }
+    }).catch((err) => {
+      setFooter(`Fehler: ${errorText(err)}`, true);
+    });
+  }
+}
+
 function detectMethodFromYaml(yamlText = "") {
   const lines = String(yamlText || "").split(/\r?\n/);
   for (const rawLine of lines) {
@@ -4141,52 +4205,38 @@ function detectMethodFromYaml(yamlText = "") {
 
 // LEGACY: detectAqmhEnabledFromYaml - kept for backward compatibility during transition
 function detectAqmhEnabledFromYaml(yamlText = "") {
-  const method = detectMethodFromYaml(yamlText);
-  if (method === "aqmh") return true;
-  if (method === "classic_tile_compile") return false;
-  
-  const lines = String(yamlText || "").split(/\r?\n/);
-  let inAqmh = false;
-  let aqmhIndent = -1;
-  for (const rawLine of lines) {
-    const withoutComment = String(rawLine || "").replace(/\s+#.*$/, "");
-    if (!withoutComment.trim()) continue;
-    const indent = withoutComment.match(/^\s*/)?.[0]?.length || 0;
-    const trimmed = withoutComment.trim();
-    if (trimmed === "aqmh:") {
-      inAqmh = true;
-      aqmhIndent = indent;
-      continue;
-    }
-    if (inAqmh && indent <= aqmhIndent) {
-      inAqmh = false;
-    }
-    if (inAqmh) {
-      const enabledMatch = trimmed.match(/^enabled:\s*(true|false)\s*$/i);
-      if (enabledMatch) return enabledMatch[1].toLowerCase() === "true";
-    }
-  }
-  return null;
+  return detectMethodFromYaml(yamlText) !== "classic_tile_compile";
 }
 
 function getEffectivePhaseOrder() {
   if (isAqmhMethod()) {
-    return RUN_MONITOR_PHASE_ORDER.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase));
+    return AQMH_RUN_MONITOR_PHASE_ORDER;
   }
   return RUN_MONITOR_PHASE_ORDER;
 }
 
 function getEffectiveDashboardPipelineGroups() {
   if (!isAqmhMethod()) return DASHBOARD_PIPELINE_GROUPS;
-  return DASHBOARD_PIPELINE_GROUPS.map((group) => ({
-    ...group,
-    phases: group.phases.filter((phase) => !CLASSIC_ONLY_PHASES.includes(phase)),
-  }));
+  return [
+    { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
+    { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
+    { key: "AQMH", phases: ["TILE_GRID", "AQMH_MAPS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"] },
+    { key: "STACK", phases: ["STACKING", "DEBAYER"] },
+    { key: "ASTROM", phases: ["ASTROMETRY"] },
+    { key: "BGE", phases: ["BGE"] },
+    { key: "PCC", phases: ["PCC"] },
+    { key: "HMS", phases: ["HYPERMETRIC_STRETCH"] },
+    { key: "DONE", phases: [] },
+  ];
 }
 
 function normalizeRunMonitorPhaseName(raw) {
   const phase = String(raw || "").trim().toUpperCase();
-  if (phase === "AQMH_QUALITY_MAPS") return "LOCAL_METRICS";
+  if (phase === "AQMH_QUALITY_MAPS") return "AQMH_MAPS";
+  if (isAqmhMethod()) {
+    if (phase === "TILE_RECONSTRUCTION") return "AQMH_RECONSTRUCTION";
+    if (phase === "LOCAL_METRICS" || CLASSIC_ONLY_PHASES.includes(phase)) return "";
+  }
   return phase;
 }
 
@@ -5157,9 +5207,7 @@ async function loadRunMonitorCurrentConfig(options = {}) {
   const current = await api.get(API_ENDPOINTS.runs.config(uiState.currentRunId));
   const sourcePath = String(current?.path || "").trim();
   const yamlText = String(current?.config || "");
-  const aqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
-  uiState.runMonitorAqmhEnabled =
-    typeof aqmhEnabled === "boolean" ? aqmhEnabled : null;
+  uiState.runMonitorAqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
   uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
   setRunMonitorConfigEditor(yamlText, {
     source: sourcePath || "run/config.yaml",
@@ -5173,9 +5221,7 @@ async function loadRunMonitorSelectedRevision() {
   if (!uiState.currentRunId || !revisionId) return;
   const revision = await api.get(API_ENDPOINTS.runs.configRevision(uiState.currentRunId, revisionId));
   const yamlText = String(revision?.config || "");
-  const aqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
-  uiState.runMonitorAqmhEnabled =
-    typeof aqmhEnabled === "boolean" ? aqmhEnabled : uiState.runMonitorAqmhEnabled;
+  uiState.runMonitorAqmhEnabled = detectAqmhEnabledFromYaml(yamlText);
   uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
   setRunMonitorConfigEditor(yamlText, {
     source: String(revision?.source || "run_revision").trim(),
@@ -5444,12 +5490,9 @@ async function bindRunMonitor() {
   $("monitor-resume-config-revision")?.addEventListener("change", updateResumeEnabled);
   resumePresetSelect?.addEventListener("change", updateResumeEnabled);
   resumeEditor?.addEventListener("input", () => {
-    const aqmhEnabled = detectAqmhEnabledFromYaml(runMonitorConfigEditorValue());
-    if (typeof aqmhEnabled === "boolean") {
-      uiState.runMonitorAqmhEnabled = aqmhEnabled;
-      uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
-      renderRunMonitorPhaseLists();
-    }
+    uiState.runMonitorAqmhEnabled = detectAqmhEnabledFromYaml(runMonitorConfigEditorValue());
+    uiState.runMonitorAqmhRunId = normalizeRunIdPath(uiState.currentRunId);
+    renderRunMonitorPhaseLists();
     updateResumeEnabled();
   });
 
@@ -5542,6 +5585,13 @@ async function bindRunMonitor() {
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") closeArtifactViewer();
   });
+  const artifactGroupLabel = (item) => {
+    const explicit = String(item?.group_label || "").trim();
+    if (explicit) return explicit;
+    const relativePath = String(item?.relative_path || item?.path || item?.filename || "");
+    if (relativePath.startsWith("cache/aqmh/")) return "AQMH Quality Map Cache";
+    return t("page.run_monitor.artifacts", "Artefakte");
+  };
   const renderArtifacts = (items) => {
     if (!artifactList) return;
     const artifacts = (Array.isArray(items) ? items : []).filter(isDisplayArtifact);
@@ -5549,16 +5599,27 @@ async function bindRunMonitor() {
       artifactList.innerHTML = `<li><button>${escapeRunMonitorHtml(t("ui.message.monitor_no_artifacts", "Keine Artefakte gefunden"))}</button></li>`;
       return;
     }
-    artifactList.innerHTML = artifacts
-      .slice(0, 50)
-      .map((item) => {
+    const groups = new Map();
+    artifacts.forEach((item) => {
+      const label = artifactGroupLabel(item);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(item);
+    });
+    const html = [];
+    for (const [label, groupItems] of groups.entries()) {
+      html.push(`<li><button disabled style="font-weight:700;color:var(--muted);cursor:default;">${escapeRunMonitorHtml(label)} (${groupItems.length})</button></li>`);
+      groupItems.slice(0, 50).forEach((item) => {
         const filename = String(item?.filename || item?.relative_path || item?.path || "artifact");
         const relativePath = String(item?.relative_path || filename);
         const artifactPath = String(item?.relative_path || item?.filename || item?.path || "");
         const sizeText = formatBytes(item?.size_bytes);
-        return `<li><button data-artifact-path="${artifactPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
-      })
-      .join("");
+        html.push(`<li><button data-artifact-path="${artifactPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`);
+      });
+      if (groupItems.length > 50) {
+        html.push(`<li><button disabled style="color:var(--muted);cursor:default;">+${groupItems.length - 50} weitere Dateien</button></li>`);
+      }
+    }
+    artifactList.innerHTML = html.join("");
     artifactList.querySelectorAll("button[data-artifact-path]").forEach((btn) => {
       btn.addEventListener("click", () => {
         void openArtifactViewer(
@@ -6117,6 +6178,29 @@ async function bindHistoryPage() {
     const pct = numeric <= 1 ? numeric * 100 : numeric;
     return `${pct.toFixed(1)}%`;
   };
+  const readArtifactJson = async (runId, path) => {
+    try {
+      const payload = await api.get(API_ENDPOINTS.runs.artifactView(runId, path));
+      if (payload?.is_json && payload?.json && typeof payload.json === "object") return payload.json;
+    } catch {}
+    return null;
+  };
+  const aqmhMetricsFromValidation = (validation) => {
+    if (!validation || typeof validation !== "object") return null;
+    const method = String(validation.method || "aqmh").trim();
+    if (method !== "aqmh") return null;
+    return {
+      mapMeanAvg: Number(validation.aqmh_map_mean_avg),
+      mapMeanVariance: Number(validation.aqmh_map_mean_variance),
+      artifactFracAvg: Number(validation.aqmh_artifact_frac_avg),
+      framesEvaluated: Number(validation.aqmh_frames_evaluated),
+    };
+  };
+  const formatAqmhMetric = (value, digits = 3) => Number.isFinite(value) ? value.toFixed(digits) : "-";
+  const formatAqmhSummary = (metrics) => {
+    if (!metrics) return "AQMH: -";
+    return `AQMH map avg ${formatAqmhMetric(metrics.mapMeanAvg, 4)} | var ${formatAqmhMetric(metrics.mapMeanVariance, 6)} | artifact ${formatAqmhMetric(metrics.artifactFracAvg, 3)} | frames ${Number.isFinite(metrics.framesEvaluated) ? metrics.framesEvaluated : "-"}`;
+  };
   const clearHistoryDetails = (refs, summaryText = "-") => {
     setHistoryFieldValue(refs.runIdField, "-");
     setHistoryFieldValue(refs.statusField, "-");
@@ -6170,6 +6254,8 @@ async function bindHistoryPage() {
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
     const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
+    const validation = await readArtifactJson(runId, "artifacts/validation.json");
+    const aqmhMetrics = aqmhMetricsFromValidation(validation);
     const reportArtifactPath = findReportArtifactPath(artifacts);
     const resolvedReportPath = String(statsStatus?.report_path || "").trim()
       || (reportArtifactPath && runDir && runDir !== "-" ? `${runDir}/${reportArtifactPath}` : "");
@@ -6185,6 +6271,8 @@ async function bindHistoryPage() {
       progressValue,
       progressText: formatHistoryProgress(runStatus?.progress),
       artifactCount: artifacts.length,
+      aqmhMetrics,
+      aqmhSummary: formatAqmhSummary(aqmhMetrics),
       reportPath: resolvedReportPath || "-",
       statsOutputDir: resolvedStatsOutputDir || "",
       statsState: resolvedStatsState || "unknown",
@@ -6277,7 +6365,10 @@ async function bindHistoryPage() {
     const statusText = selectedSnapshot && snapshot && String(selectedSnapshot.status) === String(snapshot.status)
       ? `Status gleich (${snapshot.status})`
       : `Status ${selectedSnapshot?.status || "-"} vs ${snapshot?.status || "-"}`;
-    setHistoryFieldValue(compareSummaryField, `${statusText} | Δ Artefakte ${artifactDeltaText} | Δ Fortschritt ${progressDelta}`);
+    const aqmhText = selectedSnapshot?.aqmhMetrics || snapshot?.aqmhMetrics
+      ? ` | ${selectedSnapshot?.aqmhSummary || "AQMH: -"} vs ${snapshot?.aqmhSummary || "AQMH: -"}`
+      : "";
+    setHistoryFieldValue(compareSummaryField, `${statusText} | Δ Artefakte ${artifactDeltaText} | Δ Fortschritt ${progressDelta}${aqmhText}`);
   };
 
   const render = async () => {
@@ -8500,7 +8591,7 @@ function dashboardPipelineStepElements() {
 function updateDashboardMethodUI() {
   const method = currentMethod();
   const isAqmh = isAqmhMethod();
-  
+
   // Update Method Badge
   const badge = document.getElementById("dashboard-method-badge");
   if (badge) {
@@ -8508,11 +8599,11 @@ function updateDashboardMethodUI() {
     badge.style.background = isAqmh ? "#15808d" : "#7c3aed";
     badge.setAttribute("data-i18n", isAqmh ? "method.aqmh" : "method.classic_tile_compile");
   }
-  
+
   // Update Pipeline Preview: show AQMH or TILES
   const aqmhEl = document.querySelector("[data-pipeline-step='AQMH'][data-method='aqmh']");
   const tilesEl = document.querySelector("[data-pipeline-step='TILES'][data-method='classic_tile_compile']");
-  
+
   if (aqmhEl && tilesEl) {
     aqmhEl.hidden = !isAqmh;
     tilesEl.hidden = isAqmh;
@@ -8682,6 +8773,56 @@ async function renderDashboardDerivedGuardrails(appState) {
     "check",
     currentRunId ? "BGE/PCC nicht automatisch bewertet" : "BGE/PCC nicht geprüft (kein Run)",
   );
+
+  // AQMH-specific warnings (Section 5.2)
+  if (isAqmhMethod()) {
+    try {
+      const config = yaml ? parseYamlToObject(yaml) : null;
+      if (config) {
+        const aqmhConfig = config.aqmh || {};
+        const storage = aqmhConfig.storage || {};
+        const cherryPick = aqmhConfig.cherry_pick || {};
+
+        // Get frame count from input
+        const scanResult = appState?.scan || {};
+        const frameCount = scanResult.frame_count || 0;
+
+        const resolutionDivisor = storage.resolution_divisor || 2;
+        const maxResidentMaps = storage.max_resident_maps || 2;
+        const cherryPickEnabled = cherryPick.enabled || false;
+
+        // Warning 1: resolution_divisor=1 + frame_count > 50
+        if (resolutionDivisor === 1 && frameCount > 50) {
+          renderGuardrailRow(
+            $("dashboard-guardrail-aqmh-cache"),
+            "warning",
+            `Großer AQMH Cache erwartet (${frameCount} Frames bei full resolution). resolution_divisor=2 prüfen`,
+          );
+        }
+
+        // Warning 2: max_resident_maps > 4
+        if (maxResidentMaps > 4) {
+          renderGuardrailRow(
+            $("dashboard-guardrail-aqmh-memory"),
+            "warning",
+            `Hoher resident map count (${maxResidentMaps}). Möglicher RAM-Druck.`,
+          );
+        }
+
+        // Warning 3: cherry_pick enabled
+        if (cherryPickEnabled) {
+          renderGuardrailRow(
+            $("dashboard-guardrail-aqmh-cherrypick"),
+            "warning",
+            "Pixel-level frame selection aktiv (Cherry-Pick). Nicht Standard.",
+          );
+        }
+      }
+    } catch (err) {
+      // Ignore parsing errors
+    }
+  }
+
   updateDashboardRunStartState(configValidation);
 }
 

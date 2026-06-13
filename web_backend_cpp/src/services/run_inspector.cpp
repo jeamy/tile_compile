@@ -59,8 +59,7 @@ std::string raw_phase_name_from_event(const nlohmann::json& ev) {
 }
 
 std::string phase_name_from_event(const nlohmann::json& ev) {
-    const std::string phase_name = raw_phase_name_from_event(ev);
-    return phase_name == "AQMH_QUALITY_MAPS" ? std::string("LOCAL_METRICS") : phase_name;
+    return raw_phase_name_from_event(ev);
 }
 
 std::string normalizePhaseEvent(const std::string& event, const std::string& method) {
@@ -937,6 +936,7 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
                     for (auto& e : ARTIFACT_EXTS) {
                         if (ext == e) {
                             int64_t size_bytes = static_cast<int64_t>(fs::file_size(entry.path()));
+                            const bool is_aqmh_cache = rel.rfind("cache/aqmh/", 0) == 0;
                             items.push_back({
                                 {"path",          rel},
                                 {"relative_path", rel},
@@ -944,6 +944,8 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
                                 {"filename",      name},
                                 {"size",          size_bytes},
                                 {"size_bytes",    size_bytes},
+                                {"group",         is_aqmh_cache ? "aqmh_cache" : "artifacts"},
+                                {"group_label",   is_aqmh_cache ? "AQMH Quality Map Cache" : "Artifacts"},
                             });
                             break;
                         }

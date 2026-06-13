@@ -2,6 +2,7 @@
 #include "runner_preprocess.hpp"
 #include "runner_resume.hpp"
 
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -30,6 +31,7 @@ void print_usage() {
             << "  --max-tiles <n>       Limit number of tiles in Phase 5/6 (0 "
                "= no limit)\n"
             << "  --dry-run             Dry run (no actual processing)\n"
+            << "  --force-classic       Run new executions as classic_tile_compile\n"
             << std::endl;
 }
 
@@ -37,6 +39,14 @@ void print_usage() {
 /// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+void set_force_classic_env() {
+#ifdef _WIN32
+  _putenv_s("FORCE_CLASSIC", "1");
+#else
+  setenv("FORCE_CLASSIC", "1", 1);
+#endif
+}
+
 int run_command(const std::string &config_path, const std::string &input_dir,
                 const std::string &runs_dir, const std::string &project_root,
                 const std::string &run_id_override,
@@ -69,6 +79,7 @@ int main(int argc, char *argv[]) {
   int max_tiles = 0;
   bool config_from_stdin = false;
   bool preprocess_config_from_stdin = false;
+  bool force_classic = false;
 
   auto run_cmd = app.add_subcommand("run", "Run the pipeline");
   run_cmd->add_option("--config", config_path, "Path to config.yaml")
@@ -85,6 +96,8 @@ int main(int argc, char *argv[]) {
   run_cmd->add_flag("--dry-run", dry_run, "Dry run");
   run_cmd->add_flag("--stdin", config_from_stdin,
                     "Read config YAML from stdin (use with --config -)");
+  run_cmd->add_flag("--force-classic", force_classic,
+                    "Run this new execution as classic_tile_compile");
 
   auto preprocess_cmd = app.add_subcommand("preprocess", "Run the separate raw-preprocessing pipeline");
   preprocess_cmd->add_option("--config", preprocess_config_path, "Path to preprocessing JSON config")
@@ -105,6 +118,7 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(app, argc, argv);
 
   if (run_cmd->parsed()) {
+    if (force_classic) set_force_classic_env();
     return run_command(config_path, input_dir, runs_dir, project_root,
                        run_id_override, dry_run,
                        max_frames, max_tiles, config_from_stdin);
@@ -142,6 +156,7 @@ int main(int argc, char *argv[]) {
   int max_tiles = 0;
   bool config_from_stdin = false;
   bool preprocess_config_from_stdin = false;
+  bool force_classic = false;
 
   for (int i = 2; i < argc; ++i) {
     std::string arg = argv[i];
@@ -167,9 +182,12 @@ int main(int argc, char *argv[]) {
       dry_run = true;
     else if (arg == "--stdin")
       config_from_stdin = true;
+    else if (arg == "--force-classic")
+      force_classic = true;
   }
 
   if (command == "run") {
+    if (force_classic) set_force_classic_env();
     if (config_path.empty() || input_dir.empty() || runs_dir.empty()) {
       std::cerr << "Error: --config, --input-dir, and --runs-dir are required"
                 << std::endl;

@@ -147,14 +147,34 @@
           <div class="ps-section">
             <div class="ps-section-title">Reconstruction method</div>
             <div class="ps-row">
-              <input type="radio" name="method" id="method-aqmh" value="aqmh" checked data-control="method" onclick="saveMethodToState('aqmh')" title="AQMH is the default reconstruction method with dense quality maps.">
+              <input type="radio" name="method" id="method-aqmh" value="aqmh" checked data-control="method" onclick="saveMethodToState('aqmh'); toggleAqmhStorageProfiles(true);" title="AQMH is the default reconstruction method with dense quality maps.">
               <label for="method-aqmh">AQMH</label>
             </div>
             <div class="ps-row">
-              <input type="radio" name="method" id="method-classic" value="classic_tile_compile" data-control="method" onclick="saveMethodToState('classic_tile_compile')" title="Select Tile Compile Classic for the previous Classic pipeline.">
+              <input type="radio" name="method" id="method-classic" value="classic_tile_compile" data-control="method" onclick="saveMethodToState('classic_tile_compile'); toggleAqmhStorageProfiles(false);" title="Select Tile Compile Classic for the previous Classic pipeline.">
               <label for="method-classic">Tile Compile Classic</label>
             </div>
             <div class="ps-hint" style="margin-top:8px;">AQMH is the default reconstruction method.<br>Select Tile Compile Classic for the previous Classic pipeline.</div>
+          </div>
+
+          <div id="aqmh-storage-profiles-section" class="ps-section" style="display:block;">
+            <div class="ps-section-title">AQMH Storage Profile</div>
+            <div class="ps-row">
+              <input type="radio" name="aqmh_storage_profile" id="storage-profile-balanced" value="balanced" checked data-control="aqmh.storage.profile" onclick="applyAqmhStorageProfile('balanced')" title="Balanced profile: resolution_divisor=2, dtype=uint16, max_resident_maps=2. Recommended for most use cases.">
+              <label for="storage-profile-balanced">Balanced AQMH cache</label>
+              <span style="font-size:12px;color:var(--muted);margin-left:8px;">resolution_divisor=2, uint16, 2 maps</span>
+            </div>
+            <div class="ps-row">
+              <input type="radio" name="aqmh_storage_profile" id="storage-profile-exact" value="exact" data-control="aqmh.storage.profile" onclick="applyAqmhStorageProfile('exact')" title="Exact profile: resolution_divisor=2, dtype=float32, max_resident_maps=2. Higher precision, more disk space.">
+              <label for="storage-profile-exact">Exact AQMH cache</label>
+              <span style="font-size:12px;color:var(--muted);margin-left:8px;">resolution_divisor=2, float32, 2 maps</span>
+            </div>
+            <div class="ps-row">
+              <input type="radio" name="aqmh_storage_profile" id="storage-profile-full" value="full" data-control="aqmh.storage.profile" onclick="applyAqmhStorageProfile('full')" title="Full resolution profile: resolution_divisor=1, dtype=float32, max_resident_maps=2. Maximum quality, highest resource usage.">
+              <label for="storage-profile-full">Full resolution AQMH cache</label>
+              <span style="font-size:12px;color:var(--muted);margin-left:8px;">resolution_divisor=1, float32, 2 maps</span>
+            </div>
+            <div class="ps-hint" style="margin-top:8px;">Select a storage profile for AQMH quality maps. Balanced is recommended for most use cases.</div>
           </div>
 
           <div class="ps-actions">
