@@ -4544,7 +4544,9 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
     : ["ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"];
   const allowed = new Set(
     Array.isArray(resumePhases) && resumePhases.length > 0
-      ? resumePhases.map((phase) => String(phase || "").trim().toUpperCase()).filter(Boolean)
+      ? resumePhases
+          .map((phase) => normalizeRunMonitorPhaseName(phase) || String(phase || "").trim().toUpperCase())
+          .filter(Boolean)
       : defaultResumePhases,
   );
   uiState.runMonitorResumePhases = Array.from(allowed);

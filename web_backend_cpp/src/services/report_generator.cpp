@@ -1394,23 +1394,23 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
     std::vector<double> downsampled_values;
     int render_cols = cols;
     int render_rows = rows;
-    int sample_step = 1;
+    int sample_step_x = 1;
+    int sample_step_y = 1;
     if (cols > max_svg_heatmap_cols || rows > max_svg_heatmap_rows) {
-        const int step_x = static_cast<int>(std::ceil(static_cast<double>(cols) / max_svg_heatmap_cols));
-        const int step_y = static_cast<int>(std::ceil(static_cast<double>(rows) / max_svg_heatmap_rows));
-        sample_step = std::max(1, std::max(step_x, step_y));
-        render_cols = (cols + sample_step - 1) / sample_step;
-        render_rows = (rows + sample_step - 1) / sample_step;
+        sample_step_x = std::max(1, static_cast<int>(std::ceil(static_cast<double>(cols) / max_svg_heatmap_cols)));
+        sample_step_y = std::max(1, static_cast<int>(std::ceil(static_cast<double>(rows) / max_svg_heatmap_rows)));
+        render_cols = (cols + sample_step_x - 1) / sample_step_x;
+        render_rows = (rows + sample_step_y - 1) / sample_step_y;
         downsampled_values.assign(static_cast<size_t>(render_cols * render_rows),
                                   std::numeric_limits<double>::quiet_NaN());
         for (int by = 0; by < render_rows; ++by) {
             for (int bx = 0; bx < render_cols; ++bx) {
                 double sum = 0.0;
                 int count = 0;
-                const int y_end = std::min(rows, (by + 1) * sample_step);
-                const int x_end = std::min(cols, (bx + 1) * sample_step);
-                for (int y = by * sample_step; y < y_end; ++y) {
-                    for (int x = bx * sample_step; x < x_end; ++x) {
+                const int y_end = std::min(rows, (by + 1) * sample_step_y);
+                const int x_end = std::min(cols, (bx + 1) * sample_step_x);
+                for (int y = by * sample_step_y; y < y_end; ++y) {
+                    for (int x = bx * sample_step_x; x < x_end; ++x) {
                         const double v = values[static_cast<size_t>(y * cols + x)];
                         if (!std::isfinite(v)) continue;
                         sum += v;
@@ -1472,7 +1472,7 @@ std::string svg_matrix_heatmap(const std::vector<double>& values,
         << "\" fill=\"none\" class=\"svg-axis\"/>";
     out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
         << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
-    if (sample_step > 1) {
+    if (sample_step_x > 1 || sample_step_y > 1) {
         out << "<text x=\"24\" y=\"" << (height - 16)
             << "\" class=\"svg-note\">downsampled " << cols << "x" << rows
             << " to " << render_cols << "x" << render_rows << "</text>";

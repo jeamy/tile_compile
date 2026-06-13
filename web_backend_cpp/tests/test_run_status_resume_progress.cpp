@@ -122,6 +122,35 @@ int main(int argc, char** argv) {
         expect_true(found_event_aqmh_maps, "event-derived aqmh maps phase present");
         expect_true(!found_event_local_metrics, "event-derived aqmh hides classic local metrics");
 
+        const auto aqmh_reconstruction_run_dir = harness.create_run("aqmh_reconstruction_alias_status", {
+            {{"ts", "2026-03-10T11:25:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
+            {{"ts", "2026-03-10T11:25:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:25:02Z"}, {"type", "phase_start"}, {"phase_name", "TILE_RECONSTRUCTION"}},
+            {{"ts", "2026-03-10T11:25:03Z"}, {"type", "phase_end"}, {"phase_name", "TILE_RECONSTRUCTION"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:25:04Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        {
+            std::ofstream config(aqmh_reconstruction_run_dir / "config.yaml");
+            config << "method: aqmh\n"
+                   << "data:\n  color_mode: OSC\n";
+        }
+
+        const auto aqmh_reconstruction_status = harness.get_json("/api/runs/aqmh_reconstruction_alias_status/status");
+        expect_equal(aqmh_reconstruction_status["_http_status"].get<long>(), 200L, "aqmh reconstruction alias status code");
+        bool found_aqmh_reconstruction = false;
+        bool found_tile_reconstruction = false;
+        for (const auto& item : aqmh_reconstruction_status["phases"]) {
+            const std::string phase = item.value("phase", "");
+            if (phase == "AQMH_RECONSTRUCTION") {
+                found_aqmh_reconstruction = true;
+                expect_equal(item["status"].get<std::string>(), "ok", "aqmh reconstruction consumes tile reconstruction phase_end");
+                expect_equal(item["pct"].get<double>(), 1.0, "aqmh reconstruction done pct", 1e-9);
+            }
+            if (phase == "TILE_RECONSTRUCTION") found_tile_reconstruction = true;
+        }
+        expect_true(found_aqmh_reconstruction, "aqmh reconstruction phase present");
+        expect_true(!found_tile_reconstruction, "aqmh hides classic tile reconstruction phase");
+
         harness.create_run("completed_without_run_end", {
             {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
             {{"ts", "2026-03-10T11:30:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},
@@ -236,6 +265,57 @@ int main(int argc, char** argv) {
 
         const auto resumed_job = harness.wait_for_job(resumed["job_id"].get<std::string>(), 5.0);
         expect_equal(resumed_job["state"].get<std::string>(), "ok", "resume overlay job completes");
+
+        const auto aqmh_resume_overlay_run_dir = harness.create_run("aqmh_resume_overlay_alias", {
+            {{"ts", "2026-03-10T15:00:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
+            {{"ts", "2026-03-10T15:00:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T15:00:02Z"}, {"type", "phase_start"}, {"phase_name", "TILE_RECONSTRUCTION"}},
+            {{"ts", "2026-03-10T15:00:03Z"}, {"type", "phase_end"}, {"phase_name", "TILE_RECONSTRUCTION"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T15:00:04Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        {
+            std::ofstream config(aqmh_resume_overlay_run_dir / "config.yaml");
+            config << "method: aqmh\n"
+                   << "data:\n  color_mode: OSC\n";
+        }
+
+        const auto aqmh_resumed = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
+            {"from_phase", "TILE_RECONSTRUCTION"},
+            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
+            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"}
+        });
+        expect_equal(aqmh_resumed["_http_status"].get<long>(), 202L, "aqmh resume overlay launch status");
+
+        const auto aqmh_overlay_status = harness.get_json("/api/runs/aqmh_resume_overlay_alias/status");
+        expect_equal(aqmh_overlay_status["_http_status"].get<long>(), 200L, "aqmh resume overlay status code");
+        expect_equal(aqmh_overlay_status["status"].get<std::string>(), "running", "aqmh resume overlay run status");
+        expect_equal(aqmh_overlay_status["current_phase"].get<std::string>(), "AQMH_RECONSTRUCTION", "aqmh resume overlay current phase");
+        bool found_overlay_aqmh_maps = false;
+        bool found_overlay_aqmh_reconstruction = false;
+        bool found_overlay_stack = false;
+        for (const auto& item : aqmh_overlay_status["phases"]) {
+            if (item.value("phase", "") == "AQMH_MAPS") {
+                found_overlay_aqmh_maps = true;
+                expect_equal(item["status"].get<std::string>(), "ok", "aqmh resume overlay keeps earlier aqmh maps ok");
+                expect_equal(item["pct"].get<double>(), 1.0, "aqmh resume overlay maps pct", 1e-9);
+            }
+            if (item.value("phase", "") == "AQMH_RECONSTRUCTION") {
+                found_overlay_aqmh_reconstruction = true;
+                expect_equal(item["status"].get<std::string>(), "running", "aqmh resume overlay reconstruction status");
+                expect_equal(item["pct"].get<double>(), 0.0, "aqmh resume overlay reconstruction pct", 1e-9);
+            }
+            if (item.value("phase", "") == "STACKING") {
+                found_overlay_stack = true;
+                expect_equal(item["status"].get<std::string>(), "pending", "aqmh resume overlay resets later phases");
+                expect_equal(item["pct"].get<double>(), 0.0, "aqmh resume overlay resets later pct", 1e-9);
+            }
+        }
+        expect_true(found_overlay_aqmh_maps, "aqmh maps phase present after resume overlay");
+        expect_true(found_overlay_aqmh_reconstruction, "aqmh reconstruction phase present after resume overlay");
+        expect_true(found_overlay_stack, "stacking phase present after aqmh resume overlay");
+
+        const auto aqmh_resumed_job = harness.wait_for_job(aqmh_resumed["job_id"].get<std::string>(), 5.0);
+        expect_equal(aqmh_resumed_job["state"].get<std::string>(), "ok", "aqmh resume overlay job completes");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());
