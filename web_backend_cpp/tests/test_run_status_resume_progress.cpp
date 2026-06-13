@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
 
         harness.create_run("aqmh_hides_classic_phases_from_events", {
             {{"ts", "2026-03-10T11:20:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
-            {{"ts", "2026-03-10T11:20:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}, {"aqmh_enabled", true}},
+            {{"ts", "2026-03-10T11:20:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
             {{"ts", "2026-03-10T11:20:02Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
             {{"ts", "2026-03-10T11:20:03Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
             {{"ts", "2026-03-10T11:20:04Z"}, {"type", "phase_start"}, {"phase_name", "SYNTHETIC_FRAMES"}},
@@ -102,9 +102,10 @@ int main(int argc, char** argv) {
         }, "OSC");
 
         const auto aqmh_event_status = harness.get_json("/api/runs/aqmh_hides_classic_phases_from_events/status");
-        expect_equal(aqmh_event_status["_http_status"].get<long>(), 200L, "event-derived aqmh status code");
-        expect_true(aqmh_event_status["aqmh_enabled"].is_boolean(), "event-derived aqmh flag is boolean");
-        expect_true(aqmh_event_status["aqmh_enabled"].get<bool>(), "aqmh flag inferred from events");
+        expect_equal(aqmh_event_status["_http_status"].get<long>(), 200L, "default-method aqmh status code");
+        expect_true(aqmh_event_status["aqmh_enabled"].is_boolean(), "default-method aqmh flag is boolean");
+        expect_true(aqmh_event_status["aqmh_enabled"].get<bool>(), "missing method defaults to aqmh");
+        expect_equal(aqmh_event_status["method"].get<std::string>(), "aqmh", "missing method reports aqmh");
         bool found_event_aqmh_maps = false;
         bool found_event_local_metrics = false;
         for (const auto& item : aqmh_event_status["phases"]) {
