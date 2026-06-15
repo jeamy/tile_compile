@@ -111,7 +111,7 @@
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
-                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1}}},
+                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1},"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"star_count":{"type":"number","minimum":0,"maximum":1}}},
                       "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
     "tile": { "type":"object",
       "properties": { "size_factor":{"type":"integer","minimum":1},

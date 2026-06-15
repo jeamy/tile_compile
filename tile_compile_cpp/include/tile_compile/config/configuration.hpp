@@ -187,6 +187,9 @@ struct GlobalMetricsConfig {
     float background = 0.4f;
     float noise = 0.3f;
     float gradient = 0.3f;
+    float fwhm = 0.0f;
+    float roundness = 0.0f;
+    float star_count = 0.0f;
   } weights;
   std::array<float, 2> clamp{-3.0f, 3.0f};
   bool adaptive_weights = false;

@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 #include <algorithm>
 
@@ -209,15 +210,35 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     return m;
 }
 
-/// @brief Calculates global weights.
-/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
-                                   float w_bg, float w_noise, float w_grad,
-                                   float clamp_lo, float clamp_hi,
-                                   bool adaptive_weights,
-                                   float weight_exponent_scale) {
+float median_valid_or(const VectorXf& v, float fallback,
+                      bool require_positive) {
+    std::vector<float> vals;
+    vals.reserve(static_cast<size_t>(v.size()));
+    for (int i = 0; i < v.size(); ++i) {
+        const float x = v[i];
+        if (std::isfinite(x) && (!require_positive || x > 0.0f)) {
+            vals.push_back(x);
+        }
+    }
+    return vals.empty() ? fallback : core::median_of(vals);
+}
+
+void replace_invalid_with(VectorXf& v, float fallback,
+                          bool require_positive) {
+    for (int i = 0; i < v.size(); ++i) {
+        const float x = v[i];
+        if (!std::isfinite(x) || (require_positive && !(x > 0.0f))) {
+            v[i] = fallback;
+        }
+    }
+}
+
+VectorXf calculate_global_weights_impl(
+    const std::vector<FrameMetrics>& metrics,
+    const std::vector<FrameStarMetrics>* star_metrics,
+    float w_bg, float w_noise, float w_grad, float w_fwhm,
+    float w_roundness, float w_star_count, float clamp_lo, float clamp_hi,
+    bool adaptive_weights, float weight_exponent_scale) {
     int n = metrics.size();
     VectorXf weights(n);
     
@@ -231,6 +252,34 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     VectorXf bg_n = robust_normalize_median_mad(bg);
     VectorXf noise_n = robust_normalize_median_mad(noise);
     VectorXf grad_n = robust_normalize_median_mad(grad);
+
+    VectorXf fwhm_n = VectorXf::Zero(n);
+    VectorXf roundness_error_n = VectorXf::Zero(n);
+    VectorXf star_count_n = VectorXf::Zero(n);
+    if (star_metrics && static_cast<int>(star_metrics->size()) == n &&
+        (w_fwhm > 0.0f || w_roundness > 0.0f || w_star_count > 0.0f)) {
+        VectorXf fwhm(n), roundness_error(n), star_count(n);
+        for (int i = 0; i < n; ++i) {
+            const auto& sm = (*star_metrics)[static_cast<size_t>(i)];
+            fwhm[i] = sm.fwhm;
+            roundness_error[i] =
+                (std::isfinite(sm.roundness) && sm.roundness > 0.0f)
+                    ? std::fabs(1.0f - sm.roundness)
+                    : std::numeric_limits<float>::quiet_NaN();
+            star_count[i] = static_cast<float>(sm.star_count);
+        }
+        replace_invalid_with(
+            fwhm, median_valid_or(fwhm, 0.0f, true), true);
+        replace_invalid_with(
+            roundness_error, median_valid_or(roundness_error, 0.0f, false),
+            false);
+        replace_invalid_with(
+            star_count, median_valid_or(star_count, 0.0f, false), false);
+
+        fwhm_n = robust_normalize_median_mad(fwhm);
+        roundness_error_n = robust_normalize_median_mad(roundness_error);
+        star_count_n = robust_normalize_median_mad(star_count);
+    }
 
     // Methodik v3.3.9 §5.3.3: optional adaptive weighting must be based on a
     // deterministic predictive-utility criterion, not merely on Var(z(.)).
@@ -246,8 +295,12 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     // Tie-break / fallback:
     // - If utilities are degenerate or nearly tied, keep the static weights.
     // - Otherwise clip to [0.1, 0.7] and renormalize to sum 1.
-    if (adaptive_weights && n > 2) {
-        const std::array<float, 3> static_weights{w_bg, w_noise, w_grad};
+    const float base_weight_sum = w_bg + w_noise + w_grad;
+    if (adaptive_weights && n > 2 && base_weight_sum > 1.0e-12f) {
+        const std::array<float, 3> static_weights{
+            w_bg / base_weight_sum,
+            w_noise / base_weight_sum,
+            w_grad / base_weight_sum};
         const std::array<VectorXf, 3> signals{-bg_n, -noise_n, grad_n};
         std::array<float, 3> utility{0.0f, 0.0f, 0.0f};
 
@@ -288,14 +341,20 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
             a_grad = std::min(std::max(a_grad, kMinW), kMaxW);
 
             float s = a_bg + a_noise + a_grad;
-            w_bg = a_bg / s;
-            w_noise = a_noise / s;
-            w_grad = a_grad / s;
+            w_bg = (a_bg / s) * base_weight_sum;
+            w_noise = (a_noise / s) * base_weight_sum;
+            w_grad = (a_grad / s) * base_weight_sum;
         }
         // else: degenerate / near-tied utilities → keep static defaults
     }
 
-    VectorXf Q = w_bg * (-bg_n.array()) + w_noise * (-noise_n.array()) + w_grad * (grad_n.array());
+    VectorXf Q = VectorXf::Zero(n);
+    Q += w_bg * (-bg_n.array()).matrix();
+    Q += w_noise * (-noise_n.array()).matrix();
+    Q += w_grad * grad_n;
+    Q += w_fwhm * (-fwhm_n.array()).matrix();
+    Q += w_roundness * (-roundness_error_n.array()).matrix();
+    Q += w_star_count * star_count_n;
 
     // Apply exponent scale: G_f = exp(k · Q_f) where k = weight_exponent_scale.
     // k > 1 increases differentiation between good and bad frames.
@@ -309,6 +368,34 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     // Methodology v3 defines G_f = exp(Q_f) with clamping; the absolute scale is
     // meaningful for diagnostics and must not depend on the number of frames.
     return weights;
+}
+
+/// @brief Calculates global weights.
+/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
+VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
+                                   float w_bg, float w_noise, float w_grad,
+                                   float clamp_lo, float clamp_hi,
+                                   bool adaptive_weights,
+                                   float weight_exponent_scale) {
+    return calculate_global_weights_impl(metrics, nullptr, w_bg, w_noise,
+                                         w_grad, 0.0f, 0.0f, 0.0f,
+                                         clamp_lo, clamp_hi, adaptive_weights,
+                                         weight_exponent_scale);
+}
+
+VectorXf calculate_global_weights_with_stars(
+    const std::vector<FrameMetrics>& metrics,
+    const std::vector<FrameStarMetrics>& star_metrics,
+    float w_bg, float w_noise, float w_grad,
+    float w_fwhm, float w_roundness, float w_star_count,
+    float clamp_lo, float clamp_hi, bool adaptive_weights,
+    float weight_exponent_scale) {
+    return calculate_global_weights_impl(
+        metrics, &star_metrics, w_bg, w_noise, w_grad, w_fwhm, w_roundness,
+        w_star_count, clamp_lo, clamp_hi, adaptive_weights,
+        weight_exponent_scale);
 }
 
 struct PsfFit2D {

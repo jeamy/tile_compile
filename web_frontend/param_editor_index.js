@@ -331,7 +331,7 @@ window.PARAM_EDITOR_INDEX = [
     "path": "bge.structure_thresh_percentile",
     "source": "schema",
     "type": "number",
-    "yaml_default": 0.8
+    "yaml_default": 0.85
   },
   {
     "category": "calibration",
@@ -514,7 +514,7 @@ window.PARAM_EDITOR_INDEX = [
     "path": "chroma_denoise.chroma_bilateral.sigma_spatial",
     "source": "schema",
     "type": "number",
-    "yaml_default": 1.5
+    "yaml_default": 2
   },
   {
     "category": "chroma_denoise",
@@ -715,7 +715,16 @@ window.PARAM_EDITOR_INDEX = [
     "path": "global_metrics.weights.background",
     "source": "schema",
     "type": "number",
-    "yaml_default": 0.4
+    "yaml_default": 0.45
+  },
+  {
+    "category": "global_metrics",
+    "maximum": 1,
+    "minimum": 0,
+    "path": "global_metrics.weights.fwhm",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 0
   },
   {
     "category": "global_metrics",
@@ -733,7 +742,25 @@ window.PARAM_EDITOR_INDEX = [
     "path": "global_metrics.weights.noise",
     "source": "schema",
     "type": "number",
-    "yaml_default": 0.35
+    "yaml_default": 0.3
+  },
+  {
+    "category": "global_metrics",
+    "maximum": 1,
+    "minimum": 0,
+    "path": "global_metrics.weights.roundness",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 0
+  },
+  {
+    "category": "global_metrics",
+    "maximum": 1,
+    "minimum": 0,
+    "path": "global_metrics.weights.star_count",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 0
   },
   {
     "category": "input_scan",
@@ -971,7 +998,7 @@ window.PARAM_EDITOR_INDEX = [
     "path": "pcc.chroma_strength",
     "source": "yaml_only",
     "type": "number",
-    "yaml_default": 0.85
+    "yaml_default": 0.8
   },
   {
     "category": "pcc",
@@ -985,7 +1012,7 @@ window.PARAM_EDITOR_INDEX = [
     "path": "pcc.k_max",
     "source": "yaml_only",
     "type": "number",
-    "yaml_default": 2.4
+    "yaml_default": 1.5
   },
   {
     "category": "pcc",

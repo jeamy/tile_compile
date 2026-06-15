@@ -41,6 +41,26 @@ TEST_CASE("calculate_global_weights_are_positive_and_not_normalized") {
     REQUIRE(w.sum() != Catch::Approx(1.0f).epsilon(1e-5));
 }
 
+TEST_CASE("global star weights penalize worse fwhm") {
+    std::vector<tile_compile::FrameMetrics> ms(3);
+    ms[0] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ms[1] = {1.0f, 1.0f, 1.0f, 1.0f};
+    ms[2] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    std::vector<tile_compile::metrics::FrameStarMetrics> stars(3);
+    stars[0] = {8.0f, 8.0f, 8.0f, 1.0f, 8.0f, 100};
+    stars[1] = {10.0f, 10.0f, 10.0f, 1.0f, 10.0f, 100};
+    stars[2] = {14.0f, 14.0f, 14.0f, 1.0f, 14.0f, 100};
+
+    auto w = tile_compile::metrics::calculate_global_weights_with_stars(
+        ms, stars, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, -3.0f, 3.0f,
+        false, 1.0f);
+
+    REQUIRE(w.size() == 3);
+    REQUIRE(w[0] > w[1]);
+    REQUIRE(w[1] > w[2]);
+}
+
 TEST_CASE("adaptive global weights fall back to static weights on tied predictive utility") {
     std::vector<tile_compile::FrameMetrics> ms(5);
     ms[0] = {1.0f, 1.0f, 5.0f, 1.0f};

@@ -663,11 +663,12 @@ bool run_phase_channel_split_normalization_global_metrics(
     }
   }
 
-  out.global_weights = metrics::calculate_global_weights(
-      frame_metrics, cfg.global_metrics.weights.background,
+  out.global_weights = metrics::calculate_global_weights_with_stars(
+      frame_metrics, frame_star_metrics, cfg.global_metrics.weights.background,
       cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,
-      cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1],
-      cfg.global_metrics.adaptive_weights,
+      cfg.global_metrics.weights.fwhm, cfg.global_metrics.weights.roundness,
+      cfg.global_metrics.weights.star_count, cfg.global_metrics.clamp[0],
+      cfg.global_metrics.clamp[1], cfg.global_metrics.adaptive_weights,
       cfg.global_metrics.weight_exponent_scale);
   auto &global_weights = out.global_weights;
 
@@ -695,7 +696,10 @@ bool run_phase_channel_split_normalization_global_metrics(
     artifact["weights"] = {
         {"background", cfg.global_metrics.weights.background},
         {"noise", cfg.global_metrics.weights.noise},
-        {"gradient", cfg.global_metrics.weights.gradient}};
+        {"gradient", cfg.global_metrics.weights.gradient},
+        {"fwhm", cfg.global_metrics.weights.fwhm},
+        {"roundness", cfg.global_metrics.weights.roundness},
+        {"star_count", cfg.global_metrics.weights.star_count}};
     artifact["clamp"] = {cfg.global_metrics.clamp[0],
                           cfg.global_metrics.clamp[1]};
     artifact["adaptive_weights"] = cfg.global_metrics.adaptive_weights;

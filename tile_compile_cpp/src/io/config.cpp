@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <sstream>
 
 namespace tile_compile::config {
@@ -479,6 +480,12 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.global_metrics.weights.noise = w["noise"].as<float>();
       if (w["gradient"])
         cfg.global_metrics.weights.gradient = w["gradient"].as<float>();
+      if (w["fwhm"])
+        cfg.global_metrics.weights.fwhm = w["fwhm"].as<float>();
+      if (w["roundness"])
+        cfg.global_metrics.weights.roundness = w["roundness"].as<float>();
+      if (w["star_count"])
+        cfg.global_metrics.weights.star_count = w["star_count"].as<float>();
     }
     read_float_pair(gm["clamp"], cfg.global_metrics.clamp);
     if (gm["weight_exponent_scale"])
@@ -1087,6 +1094,11 @@ YAML::Node Config::to_yaml() const {
   node["global_metrics"]["weights"]["noise"] = global_metrics.weights.noise;
   node["global_metrics"]["weights"]["gradient"] =
       global_metrics.weights.gradient;
+  node["global_metrics"]["weights"]["fwhm"] = global_metrics.weights.fwhm;
+  node["global_metrics"]["weights"]["roundness"] =
+      global_metrics.weights.roundness;
+  node["global_metrics"]["weights"]["star_count"] =
+      global_metrics.weights.star_count;
   node["global_metrics"]["clamp"].push_back(global_metrics.clamp[0]);
   node["global_metrics"]["clamp"].push_back(global_metrics.clamp[1]);
 
@@ -1511,8 +1523,11 @@ void Config::validate() const {
     throw ValidationError("chroma_denoise.blend.amount must be in [0,1]");
   }
 
-  auto check_weight_sum = [](float a, float b, float c, const char *name) {
-    const float sum = a + b + c;
+  auto check_weight_sum = [](std::initializer_list<float> weights,
+                             const char *name) {
+    float sum = 0.0f;
+    for (const float w : weights)
+      sum += w;
     if (std::fabs(sum - 1.0f) > 1.0e-3f) {
       throw ValidationError(std::string(name) + " must sum to 1.0");
     }
@@ -1520,12 +1535,19 @@ void Config::validate() const {
 
   if (!is_between_0_1(global_metrics.weights.background) ||
       !is_between_0_1(global_metrics.weights.noise) ||
-      !is_between_0_1(global_metrics.weights.gradient)) {
+      !is_between_0_1(global_metrics.weights.gradient) ||
+      !is_between_0_1(global_metrics.weights.fwhm) ||
+      !is_between_0_1(global_metrics.weights.roundness) ||
+      !is_between_0_1(global_metrics.weights.star_count)) {
     throw ValidationError("global_metrics.weights.* must be between 0 and 1");
   }
-  check_weight_sum(global_metrics.weights.background,
-                   global_metrics.weights.noise,
-                   global_metrics.weights.gradient, "global_metrics.weights");
+  check_weight_sum({global_metrics.weights.background,
+                    global_metrics.weights.noise,
+                    global_metrics.weights.gradient,
+                    global_metrics.weights.fwhm,
+                    global_metrics.weights.roundness,
+                    global_metrics.weights.star_count},
+                   "global_metrics.weights");
   if (global_metrics.clamp[0] >= global_metrics.clamp[1]) {
     throw ValidationError(
         "global_metrics.clamp must be [min,max] with min < max");
@@ -1575,9 +1597,9 @@ void Config::validate() const {
     throw ValidationError(
         "local_metrics.spatial_regularization.tau_local must be > 0");
   }
-  check_weight_sum(local_metrics.star_mode.weights.fwhm,
-                   local_metrics.star_mode.weights.roundness,
-                   local_metrics.star_mode.weights.contrast,
+  check_weight_sum({local_metrics.star_mode.weights.fwhm,
+                    local_metrics.star_mode.weights.roundness,
+                    local_metrics.star_mode.weights.contrast},
                    "local_metrics.star_mode.weights");
   if (std::fabs(local_metrics.structure_mode.background_weight +
                 local_metrics.structure_mode.metric_weight - 1.0f) > 1.0e-3f) {
@@ -2030,7 +2052,7 @@ std::string get_schema_json() {
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
-                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1}}},
+                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1},"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"star_count":{"type":"number","minimum":0,"maximum":1}}},
                       "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
     "tile": { "type":"object",
       "properties": { "size_factor":{"type":"integer","minimum":1},
