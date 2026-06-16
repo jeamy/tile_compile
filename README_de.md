@@ -98,6 +98,7 @@ aqmh:
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 - Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
 - Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
+- **PI – KI-gestützte Empfehlungen:** [docs/PI/pi_ki_empfehlungen_de.md](docs/PI/pi_ki_empfehlungen_de.md)
 
 ### Classic Tile-Compile (TBQR) Dokumentation
 
@@ -619,6 +620,10 @@ ctest --output-on-failure
 ## Danksagung
 
 Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, Codex, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
+
+Das PI-Modul (Parameter Intelligence) verwendet folgende Packages:
+
+- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)** — KI-Agent-Framework für Parameteranalyse und Empfehlungen (v0.79.x)
 
 Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Siril-Skript übernommen:
 
