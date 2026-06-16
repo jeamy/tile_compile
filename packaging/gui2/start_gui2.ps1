@@ -30,6 +30,40 @@ function Open-BrowserIfEnabled {
   Start-Process $Url
 }
 
+function Start-AgentServiceIfAvailable {
+  if ($env:TILE_COMPILE_AI_AGENT_AUTOSTART -eq "0") {
+    Write-Info "PI AI sidecar autostart deaktiviert."
+    return $null
+  }
+  $AgentDir = Join-Path $InstallRoot "agent_service"
+  $PackageJson = Join-Path $AgentDir "package.json"
+  if (-not (Test-Path $PackageJson)) {
+    Write-Info "PI AI sidecar nicht gefunden: $AgentDir"
+    return $null
+  }
+  $npm = Get-Command npm -ErrorAction SilentlyContinue
+  if (-not $npm) {
+    Write-Info "WARNUNG: npm nicht gefunden; PI AI sidecar wird nicht gestartet."
+    return $null
+  }
+  $ServerJs = Join-Path $AgentDir "dist\server.js"
+  if (-not (Test-Path $ServerJs)) {
+    Write-Info "PI AI sidecar build fehlt; fuehre npm run build aus."
+    Push-Location $AgentDir
+    try {
+      & npm run build
+      if ($LASTEXITCODE -ne 0) {
+        Write-Info "WARNUNG: PI AI sidecar build fehlgeschlagen (ExitCode=$LASTEXITCODE); Backend startet ohne Sidecar."
+        return $null
+      }
+    } finally {
+      Pop-Location
+    }
+  }
+  Write-Info "Starte PI AI sidecar."
+  return Start-Process -FilePath "npm" -ArgumentList @("--prefix", $AgentDir, "start") -WorkingDirectory $InstallRoot -NoNewWindow -PassThru
+}
+
 function Sync-Payload {
   New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
   
@@ -47,7 +81,7 @@ function Sync-Payload {
   if ($IsUpdate) {
     # Selective update: only replace app directories, preserve user data
     # Remove old app directories
-    $AppDirs = @("web_frontend", "web_backend_cpp", "tile_compile_cpp")
+    $AppDirs = @("web_frontend", "web_backend_cpp", "tile_compile_cpp", "agent_service")
     foreach ($dir in $AppDirs) {
       $targetDir = Join-Path $InstallRoot $dir
       if (Test-Path $targetDir) {
@@ -99,6 +133,7 @@ $env:TILE_COMPILE_CONFIG = Join-Path $InstallRoot "tile_compile_cpp\tile_compile
 $env:TILE_COMPILE_SCHEMA = Join-Path $InstallRoot "tile_compile_cpp\tile_compile.schema.yaml"
 $env:TILE_COMPILE_PRESETS_DIR = Join-Path $InstallRoot "tile_compile_cpp\examples"
 $env:TILE_COMPILE_UI_DIR = Join-Path $InstallRoot "web_frontend"
+$env:TILE_COMPILE_AGENT_SERVICE_DIR = Join-Path $InstallRoot "agent_service"
 $AllowedRoots = @($InstallRoot, $env:USERPROFILE)
 if ($env:TEMP) { $AllowedRoots += $env:TEMP }
 if ($env:TMP -and $env:TMP -ne $env:TEMP) { $AllowedRoots += $env:TMP }
@@ -151,8 +186,10 @@ if ($env:TILE_COMPILE_GUI2_NO_BROWSER -ne "1") {
 }
 
 $backendProcess = $null
+$agentProcess = $null
 $exitCode = 0
 try {
+  $agentProcess = Start-AgentServiceIfAvailable
   $backendProcess = Start-Process -FilePath $BackendBin -WorkingDirectory $InstallRoot -NoNewWindow -PassThru
   Write-Info "Crow-Backend laeuft mit PID $($backendProcess.Id)."
   Wait-Process -Id $backendProcess.Id
@@ -165,6 +202,14 @@ try {
       Write-Info "Beende Crow-Backend."
       Stop-Process -Id $backendProcess.Id
       Wait-Process -Id $backendProcess.Id -ErrorAction SilentlyContinue
+    }
+  }
+  if ($agentProcess) {
+    $agentProcess.Refresh()
+    if (-not $agentProcess.HasExited) {
+      Write-Info "Beende PI AI sidecar."
+      Stop-Process -Id $agentProcess.Id
+      Wait-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue
     }
   }
 }

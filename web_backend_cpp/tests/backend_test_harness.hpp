@@ -45,6 +45,7 @@ public:
 
     const std::filesystem::path& fixture_root() const { return _fixture_root; }
     const std::filesystem::path& config_path() const { return _config_path; }
+    const std::filesystem::path& runtime_dir() const { return _runtime_dir; }
 
 private:
     std::string _backend_path;

@@ -12,6 +12,7 @@ const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const PRESETS_DIR_KEY = "gui2.presetsDir";
 const CALIBRATION_PATH_CACHE_KEY = "gui2.calibrationPathCache";
 const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
+const LAST_SCAN_AI_ANALYSIS_KEY = "gui2.scanAi.latestAnalysisId";
 const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
 const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
 const ASTROMETRY_INSTALL_JOB_KEY = "gui2.tools.astrometry.installJob";
@@ -134,6 +135,7 @@ let serverUiStateSaveTimer = null;
 let serverUiStateSavePromise = Promise.resolve();
 let configPatchRequestSeq = 0;
 let pendingScanConfigSync = Promise.resolve();
+let scanAiProviderAuthSources = new Map();
 const SERVER_UI_STATE_MIGRATION_KEYS = [
   CONFIG_DRAFT_KEY,
   CONFIG_VALIDATION_STATE_KEY,
@@ -2706,6 +2708,502 @@ function buildScanPayloadFromDirs(dirs, framesMin, withChecksums) {
   return payload;
 }
 
+function escapeAiHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function aiAnalysisPayload(analysis) {
+  return analysis?.data && analysis?.job ? analysis.data : analysis;
+}
+
+function aiAnalysisSummaryText(analysis) {
+  if (!analysis) return "";
+  if (analysis.status === "AI_DISABLED") return "AI deaktiviert.";
+  const confidence = Number(analysis.confidence);
+  const counts = [];
+  if (Number.isFinite(Number(analysis.validated_count))) counts.push(`${analysis.validated_count} valide`);
+  if (Number.isFinite(Number(analysis.rejected_count))) counts.push(`${analysis.rejected_count} verworfen`);
+  const suffix = counts.length ? ` (${counts.join(", ")})` : "";
+  const conf = Number.isFinite(confidence) ? ` Confidence ${confidence.toFixed(2)}.` : "";
+  return `${analysis.summary || "Analyse geladen."}${conf}${suffix}`;
+}
+
+function renderAiAnalysis(container, analysis, { selectable = false } = {}) {
+  if (!container) return;
+  if (!analysis || analysis.has_analysis === false) {
+    container.innerHTML = `<div class="ps-ai-summary">Keine KI-Analyse vorhanden.</div>`;
+    return;
+  }
+  const data = aiAnalysisPayload(analysis);
+  const validated = Array.isArray(data?.validated_updates) ? data.validated_updates : [];
+  const rejected = Array.isArray(data?.rejected_updates) ? data.rejected_updates : [];
+  const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
+  const summary = escapeAiHtml(aiAnalysisSummaryText(data));
+  const analysisId = escapeAiHtml(data?.analysis_id || analysis?.analysis_id || "");
+  const rows = [];
+  for (const update of validated) {
+    const path = escapeAiHtml(update.path || "");
+    const value = escapeAiHtml(JSON.stringify(update.value));
+    const reason = escapeAiHtml(update.reason || "");
+    const confidence = Number(update.confidence);
+    const meta = [
+      Number.isFinite(confidence) ? `conf ${confidence.toFixed(2)}` : "",
+      update.risk ? `risk ${update.risk}` : "",
+    ].filter(Boolean).join(" | ");
+    const checked = selectable ? " checked" : "";
+    const control = selectable
+      ? `<input type="checkbox" class="parameter-ai-update-check" data-ai-path="${path}"${checked}>`
+      : `<span></span>`;
+    rows.push(`<div class="ps-ai-update" data-ai-update-path="${path}">
+      ${control}
+      <div><code>${path}</code><div>${reason}</div></div>
+      <span>${value}${meta ? `<br>${escapeAiHtml(meta)}` : ""}</span>
+    </div>`);
+  }
+  for (const update of rejected) {
+    const path = escapeAiHtml(update.path || "");
+    const reason = escapeAiHtml(update.reject_reason || "rejected");
+    rows.push(`<div class="ps-ai-update is-rejected">
+      <span></span>
+      <div><code>${path}</code><div>${escapeAiHtml(update.reason || "")}</div></div>
+      <span>${reason}</span>
+    </div>`);
+  }
+  if (validated.length === 0 && rejected.length === 0 && recommendations.length > 0) {
+    for (const rec of recommendations) {
+      const path = escapeAiHtml(rec.path || "");
+      const value = escapeAiHtml(JSON.stringify(rec.value));
+      const reason = escapeAiHtml(rec.rationale || rec.reason || "");
+      const confidence = Number(rec.confidence);
+      const meta = [
+        Number.isFinite(confidence) ? `conf ${confidence.toFixed(2)}` : "",
+        rec.review_required ? "review required" : "",
+      ].filter(Boolean).join(" | ");
+      rows.push(`<div class="ps-ai-update is-rejected">
+        <span></span>
+        <div><code>${path}</code><div>${reason}</div></div>
+        <span>${value}${meta ? `<br>${escapeAiHtml(meta)}` : ""}<br>noch nicht gegen Config-Schema validiert</span>
+      </div>`);
+    }
+  }
+  container.innerHTML = `
+    <div class="ps-ai-summary" data-ai-analysis-id="${analysisId}">${summary}</div>
+    ${rows.join("") || `<div class="ps-ai-summary">Keine Empfehlungen im AI-Ergebnis.</div>`}
+  `;
+}
+
+async function loadScanAiConfig() {
+  return await api.get(API_ENDPOINTS.ai.config);
+}
+
+function scanAiModelValue(provider, model) {
+  const providerText = String(provider || "").trim();
+  const id = String(model?.id || model?.model || model || "").trim();
+  if (!providerText || !id) return "";
+  return id.startsWith(`${providerText}/`) ? id : `${providerText}/${id}`;
+}
+
+function populateScanAiModelSelect(modelsPayload, currentModel = "") {
+  const select = $("scan-ai-model");
+  if (!select) return;
+  const previous = String(currentModel || select.value || "").trim();
+  const options = [{ value: "", label: "Kein Modell ausgewaehlt" }];
+  const providers = Array.isArray(modelsPayload?.providers) ? modelsPayload.providers : [];
+  scanAiProviderAuthSources = new Map();
+  for (const providerEntry of providers) {
+    const provider = String(providerEntry?.provider || "").trim();
+    const authSource = String(providerEntry?.auth_source || "").trim();
+    if (provider && authSource) scanAiProviderAuthSources.set(provider, authSource);
+    const models = Array.isArray(providerEntry?.models) ? providerEntry.models : [];
+    for (const model of models) {
+      const value = scanAiModelValue(provider, model);
+      if (!value) continue;
+      options.push({
+        value,
+        label: `${provider}: ${model?.label || model?.name || model?.id || value}`,
+      });
+    }
+  }
+  if (previous && !options.some((item) => item.value === previous)) {
+    options.push({ value: previous, label: `${previous} (gespeichert)` });
+  }
+  select.innerHTML = options
+    .map((item) => `<option value="${escapeAiHtml(item.value)}">${escapeAiHtml(item.label)}</option>`)
+    .join("");
+  select.value = previous && options.some((item) => item.value === previous) ? previous : "";
+  updateScanAiKeyStatus();
+}
+
+function scanAiKeyStatusText(provider = String($("scan-ai-provider")?.value || "")) {
+  const source = scanAiProviderAuthSources.get(String(provider || "").trim()) || "";
+  if (source === "env") return "vorhanden (.env/Environment)";
+  if (source === "auth_storage") return "vorhanden (PI AuthStorage)";
+  if (source) return `vorhanden (${source})`;
+  return "nicht vorhanden";
+}
+
+function updateScanAiKeyStatus() {
+  const provider = String($("scan-ai-provider")?.value || "").trim();
+  const status = scanAiKeyStatusText(provider);
+  setText($("scan-ai-key-status"), provider ? status : "Provider waehlen");
+  const input = $("scan-ai-provider-key");
+  if (input) {
+    input.value = "";
+    input.placeholder = status.startsWith("vorhanden") ? status : "wird nie vorbelegt";
+    input.title = status.startsWith("vorhanden")
+      ? "API-Key ist vorhanden, wird aber aus Sicherheitsgruenden nicht angezeigt."
+      : "API-Key im PI AuthStorage speichern.";
+  }
+}
+
+async function saveScanAiConfigFromInputs() {
+  const enabled = Boolean($("scan-ai-enabled")?.checked);
+  const model = String($("scan-ai-model")?.value || "").trim();
+  const provider = model.includes("/") ? model.split("/")[0] : String($("scan-ai-provider")?.value || "").trim();
+  return await api.patch(API_ENDPOINTS.ai.config, { enabled, model, provider });
+}
+
+async function refreshScanAiConfigUi() {
+  const config = await loadScanAiConfig();
+  if ($("scan-ai-enabled")) $("scan-ai-enabled").checked = Boolean(config.enabled);
+  populateScanAiModelSelect(null, String(config.model || ""));
+  if ($("scan-ai-provider") && config.provider) $("scan-ai-provider").value = String(config.provider);
+  setText($("scan-ai-status"), config.enabled ? "aktiv" : "aus");
+  updateScanAiKeyStatus();
+  return config;
+}
+
+async function refreshScanAiModelsStatus(targetId = "scan-ai-status") {
+  const currentModel = String($("scan-ai-model")?.value || "").trim();
+  const models = await api.get(API_ENDPOINTS.ai.models);
+  if (models?.available === false) {
+    populateScanAiModelSelect(null, currentModel);
+    setText($(targetId), `Sidecar nicht erreichbar: ${models?.error?.message || "unbekannt"}`);
+    return models;
+  }
+  populateScanAiModelSelect(models, currentModel);
+  const providers = Array.isArray(models?.providers) ? models.providers.length : 0;
+  setText($(targetId), `Modelle geladen (${providers} Provider)`);
+  return models;
+}
+
+async function runScanAiAnalysisFromUi() {
+  const config = await saveScanAiConfigFromInputs();
+  let force = false;
+  if (!config.enabled) {
+    force = window.confirm("AI ist deaktiviert. Einmalige Analyse trotzdem starten?");
+    if (!force) {
+      setText($("scan-ai-status"), "AI deaktiviert.");
+      return;
+    }
+  }
+  setText($("scan-ai-status"), "Analyse initialisiert...");
+  if ($("scan-ai-analysis")) $("scan-ai-analysis").innerHTML = "";
+  const model = String($("scan-ai-model")?.value || "").trim();
+  const latestScan = await api.get(API_ENDPOINTS.scan.latest);
+  if (!latestScan?.has_scan) {
+    setText($("scan-ai-status"), "Bitte zuerst einen Scan ausfuehren.");
+    renderAiAnalysis($("scan-ai-analysis"), {
+      has_analysis: false,
+      message: "Kein Scan-Ergebnis fuer die AI-Analyse vorhanden.",
+    });
+    return;
+  }
+
+  // Fetch config schema so sidecar knows valid paths + types
+  setText($("scan-ai-status"), "Lade Config-Schema...");
+  let configSchema = null;
+  try {
+    const schemaRaw = await api.get(API_ENDPOINTS.config.schema);
+    if (schemaRaw && typeof schemaRaw === "object") {
+      configSchema = {};
+      const collectLeaves = (obj, prefix) => {
+        if (!obj || typeof obj !== "object") return;
+        if (prefix) {
+          const entry = {};
+          if (obj.type) entry.type = obj.type;
+          if (obj.enum) entry.enum = obj.enum;
+          if (obj.description) entry.desc = String(obj.description).substring(0, 120);
+          if (obj.default !== undefined) entry.default = obj.default;
+          if (obj.minimum !== undefined) entry.minimum = obj.minimum;
+          if (obj.maximum !== undefined) entry.maximum = obj.maximum;
+          if (Object.keys(entry).length) configSchema[prefix] = entry;
+        }
+        if (obj.properties) {
+          for (const [k, v] of Object.entries(obj.properties)) {
+            collectLeaves(v, prefix ? `${prefix}.${k}` : k);
+          }
+        }
+      };
+      collectLeaves(schemaRaw, "");
+    }
+  } catch (schemaErr) {
+    appendAiTrafficLog(`[${new Date().toISOString()}] WARN: Config-Schema nicht geladen: ${schemaErr.message}`);
+  }
+
+  // Fetch current config so AI can see current values
+  let baseConfig = null;
+  try {
+    baseConfig = await api.get(API_ENDPOINTS.config.current);
+    appendAiTrafficLog(`[${new Date().toISOString()}] base_config geladen`);
+  } catch (cfgErr) {
+    baseConfig = uiState.configObject || null;
+    appendAiTrafficLog(`[${new Date().toISOString()}] WARN: base_config nicht geladen: ${cfgErr.message}`);
+  }
+
+  let scanMetrics = null;
+  try {
+    setText($("scan-ai-status"), "Berechne Bildstatistiken...");
+    appendAiTrafficLog(`[${new Date().toISOString()}] START scan-metrics`);
+    const metricsStart = await api.post(API_ENDPOINTS.scan.metrics, {
+      input_path: latestScan.input_path || "",
+    });
+    appendAiTrafficLog(`[${new Date().toISOString()}] scan-metrics job_id=${metricsStart.job_id || ""}`);
+    if (metricsStart?.job_id) {
+      const metricsJob = await waitForJob(metricsStart.job_id, {
+        timeoutMs: 600000,
+        onTick: (job) => {
+          setText($("scan-ai-status"), `Berechne Bildstatistiken... (${job.state})`);
+          appendAiTrafficLog(`[${new Date().toISOString()}] scan-metrics state=${job.state}`);
+        },
+      });
+      if (metricsJob.state === "ok" && metricsJob.data?.result?.ok) {
+        scanMetrics = metricsJob.data.result;
+        const sampled = scanMetrics.sample_count ?? "?";
+        const total = scanMetrics.frames_total ?? latestScan.frames_detected ?? latestScan.frames_total ?? "?";
+        appendAiTrafficLog(`[${new Date().toISOString()}] scan-metrics complete: sampled=${sampled}/${total}`);
+        appendAiTrafficLog(`[${new Date().toISOString()}] scan-metrics aggregate=${JSON.stringify(scanMetrics.aggregate || {})}`);
+      } else {
+        appendAiTrafficLog(`[${new Date().toISOString()}] WARN: scan-metrics failed state=${metricsJob.state}`);
+      }
+    }
+  } catch (metricsErr) {
+    appendAiTrafficLog(`[${new Date().toISOString()}] WARN: scan_metrics nicht berechnet: ${metricsErr.message}`);
+  }
+
+  // Use SSE streaming for live progress updates
+  const payload = { force, scan_result: latestScan };
+  if (model) payload.model = model;
+  if (configSchema) payload.config_schema = configSchema;
+  if (baseConfig) payload.base_config = baseConfig;
+  if (scanMetrics) payload.scan_metrics = scanMetrics;
+
+  try {
+    const streamedResult = await streamAiAnalysis(payload, (event) => {
+      if (event.phase === "complete" && event.result) {
+        setText($("scan-ai-status"), "Analyse empfangen, validiere Empfehlungen...");
+      } else if (event.phase === "error") {
+        setText($("scan-ai-status"), `Fehler: ${event.message}`);
+      } else {
+        setText($("scan-ai-status"), `${event.message} ${event.progress ? `(${event.progress}%)` : ""}`);
+      }
+    });
+    // Store and validate the streamed result in the backend job store
+    let finalResult = streamedResult;
+    if (streamedResult && streamedResult.schema_version) {
+      try {
+        setText($("scan-ai-status"), "Validiere und speichere Empfehlungen...");
+        const stored = await api.post(API_ENDPOINTS.scan.analysisStore, {
+          analysis: streamedResult,
+          model: streamedResult?._meta?.model || model || "",
+          provider: streamedResult?._meta?.provider || "",
+        });
+        if (stored && stored.analysis_id) finalResult = stored;
+      } catch (storeErr) {
+        appendAiTrafficLog(`[${new Date().toISOString()}] WARN: Store failed: ${storeErr.message}`);
+      }
+    }
+    persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, finalResult?.analysis_id || "");
+    setText($("scan-ai-status"), `Analyse fertig. (${streamedResult?._meta?.streaming_duration_ms || 0}ms)`);
+    renderAiAnalysis($("scan-ai-analysis"), finalResult);
+  } catch (err) {
+    // Fallback to regular POST if streaming fails
+    const analysis = await api.post(API_ENDPOINTS.scan.analysis, payload);
+    if (analysis.status === "AI_DISABLED") {
+      setText($("scan-ai-status"), "AI deaktiviert.");
+    } else {
+      persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, analysis.analysis_id || "");
+      setText($("scan-ai-status"), "Analyse fertig.");
+    }
+    renderAiAnalysis($("scan-ai-analysis"), analysis);
+  }
+}
+
+async function streamAiAnalysis(payload, onEvent) {
+  // Try streaming endpoint first, fallback to regular POST
+  const baseUrl = window.location.origin;
+  const sidecarUrl = "http://127.0.0.1:3001";
+
+  // Log the request
+  const logEntry = `[${new Date().toISOString()}] POST ${sidecarUrl}/analyze/stream\nPayload: ${JSON.stringify(payload, null, 2).substring(0, 2000)}`;
+  appendAiTrafficLog(logEntry);
+
+  // Use sidecar directly for streaming (CORS might need adjustment)
+  const response = await fetch(`${sidecarUrl}/analyze/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorLog = `[${new Date().toISOString()}] ERROR: HTTP ${response.status}`;
+    appendAiTrafficLog(errorLog);
+    throw new Error(`Streaming failed: ${response.status}`);
+  }
+
+  appendAiTrafficLog(`[${new Date().toISOString()}] Connected, receiving stream...`);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  let eventCount = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const event = parseSseEvent(line);
+      if (!event) continue;
+
+      eventCount++;
+
+      if (event.event === "progress") {
+        onEvent({ phase: event.data.phase, message: event.data.message, progress: event.data.progress });
+      } else if (event.event === "complete") {
+        result = event.data;
+        const resultLog = `[${new Date().toISOString()}] COMPLETE: ${JSON.stringify(result, null, 2).substring(0, 1000)}`;
+        appendAiTrafficLog(resultLog);
+        onEvent({ phase: "complete", message: "Analysis complete", result: event.data });
+        return result;
+      } else if (event.event === "error") {
+        const errorLog = `[${new Date().toISOString()}] ERROR: ${event.data.message || "Unknown error"}`;
+        appendAiTrafficLog(errorLog);
+        onEvent({ phase: "error", message: event.data.message || "Unknown error" });
+        throw new Error(event.data.message);
+      }
+    }
+  }
+
+  return result;
+}
+
+function appendAiTrafficLog(message) {
+  const logEl = $("scan-ai-traffic-log");
+  if (!logEl) return;
+  const entry = document.createElement("div");
+  entry.className = "log-entry";
+  entry.textContent = message;
+  logEl.appendChild(entry);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function clearAiTrafficLog() {
+  const logEl = $("scan-ai-traffic-log");
+  if (logEl) logEl.innerHTML = "";
+}
+
+function resetAiAnalysisPanel() {
+  clearAiTrafficLog();
+  const analysisEl = $("scan-ai-analysis");
+  if (analysisEl) analysisEl.innerHTML = "";
+  setText($("scan-ai-status"), "");
+  persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, "");
+}
+
+function parseSseEvent(text) {
+  const lines = text.split("\n");
+  let event = null;
+  let data = null;
+
+  for (const line of lines) {
+    if (line.startsWith("event: ")) {
+      event = line.slice(7).trim();
+    } else if (line.startsWith("data: ")) {
+      const dataStr = line.slice(6).trim();
+      try {
+        data = JSON.parse(dataStr);
+      } catch {
+        data = dataStr;
+      }
+    }
+  }
+
+  return event ? { event, data } : null;
+}
+
+function bindScanAiPanel() {
+  if (!$("scan-ai-panel")) return;
+  void (async () => {
+    try {
+      const config = await refreshScanAiConfigUi();
+      await refreshScanAiModelsStatus();
+      if ($("scan-ai-model") && config.model) $("scan-ai-model").value = String(config.model || "");
+      const latest = await api.get(API_ENDPOINTS.scan.analysisLatest);
+      renderAiAnalysis($("scan-ai-analysis"), latest);
+    } catch (err) {
+      setText($("scan-ai-status"), `AI nicht geladen: ${errorText(err)}`);
+    }
+  })();
+
+  $("scan-ai-enabled")?.addEventListener("change", async () => {
+    try {
+      const saved = await saveScanAiConfigFromInputs();
+      setText($("scan-ai-status"), saved.enabled ? "aktiv" : "aus");
+    } catch (err) {
+      setText($("scan-ai-status"), `Speichern fehlgeschlagen: ${errorText(err)}`);
+    }
+  });
+  $("scan-ai-model")?.addEventListener("change", async () => {
+    try {
+      const provider = String($("scan-ai-model")?.value || "").split("/")[0] || "";
+      if (provider && $("scan-ai-provider")) {
+        $("scan-ai-provider").value = provider;
+        updateScanAiKeyStatus();
+      }
+      await saveScanAiConfigFromInputs();
+      setText($("scan-ai-status"), "Konfiguration gespeichert.");
+    } catch (err) {
+      setText($("scan-ai-status"), `Speichern fehlgeschlagen: ${errorText(err)}`);
+    }
+  });
+  $("scan-ai-refresh-models")?.addEventListener("click", () => {
+    void refreshScanAiModelsStatus().catch((err) => setText($("scan-ai-status"), errorText(err)));
+  });
+  $("scan-ai-provider")?.addEventListener("change", updateScanAiKeyStatus);
+  $("scan-ai-save-key")?.addEventListener("click", async () => {
+    const provider = String($("scan-ai-provider")?.value || "").trim();
+    const apiKey = String($("scan-ai-provider-key")?.value || "").trim();
+    if (!provider || !apiKey) {
+      setText($("scan-ai-status"), "Provider und API-Key erforderlich.");
+      return;
+    }
+    try {
+      await api.post(API_ENDPOINTS.ai.auth, { provider, api_key: apiKey });
+      scanAiProviderAuthSources.set(provider, "auth_storage");
+      $("scan-ai-provider-key").value = "";
+      updateScanAiKeyStatus();
+      setText($("scan-ai-status"), "API-Key gespeichert.");
+    } catch (err) {
+      setText($("scan-ai-status"), `Key speichern fehlgeschlagen: ${errorText(err)}`);
+    }
+  });
+  $("scan-ai-run")?.addEventListener("click", () => {
+    void runScanAiAnalysisFromUi().catch((err) => {
+      setText($("scan-ai-status"), `Analyse fehlgeschlagen: ${errorText(err)}`);
+    });
+  });
+}
+
 async function executeScanFlow({
   inputDirsId = "inp-dirs",
   resultPanelId = "scan-result",
@@ -2793,14 +3291,18 @@ function bindInputDirMemory(...ids) {
       persistLastInputDirs(el.value);
     });
     el.addEventListener("change", () => {
-      maybeResetUnifiedRunNameOnInputDirsChange(el.dataset.lastCommittedInputDirs || "", el.value);
+      const prev = el.dataset.lastCommittedInputDirs || "";
+      maybeResetUnifiedRunNameOnInputDirsChange(prev, el.value);
       persistLastInputDirs(el.value);
-      el.dataset.lastCommittedInputDirs = canonicalInputDirsText(el.value);
+      const next = canonicalInputDirsText(el.value);
+      if (next && next !== prev) resetAiAnalysisPanel();
+      el.dataset.lastCommittedInputDirs = next;
     });
   });
 }
 
 function bindScanPages() {
+  bindScanAiPanel();
   const queueStorageKey = activeQueueStorageKey();
   const queueColorModeId = pageName() === "wizard.html" ? "inp-colormode" : "inp-colormode";
   bindInputDirMemory("inp-dirs");
@@ -3825,6 +4327,84 @@ function activeScenarioKeys(scopeSelector = "#parameter-studio-root") {
     .filter(Boolean);
 }
 
+async function refreshParameterAiAnalysis() {
+  const latest = await api.get(API_ENDPOINTS.scan.analysisLatest);
+  renderAiAnalysis($("parameter-ai-analysis"), latest, { selectable: true });
+  const data = aiAnalysisPayload(latest);
+  if (!latest || latest.has_analysis === false) {
+    setText($("parameter-ai-status"), "Keine KI-Analyse vorhanden.");
+    return latest;
+  }
+  persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, data?.analysis_id || latest?.analysis_id || "");
+  const conf = Number.isFinite(Number(data?.confidence)) ? `Confidence ${Number(data.confidence).toFixed(2)}` : "";
+  const cts = [];
+  if (Number.isFinite(Number(data?.validated_count))) cts.push(`${data.validated_count} valide`);
+  if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
+  setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
+  return latest;
+}
+
+function selectedParameterAiPaths() {
+  return Array.from(document.querySelectorAll(".parameter-ai-update-check:checked"))
+    .map((el) => String(el.getAttribute("data-ai-path") || "").trim())
+    .filter(Boolean);
+}
+
+async function applySelectedParameterAiUpdates() {
+  const analysisId = String(
+    $("parameter-ai-analysis")?.querySelector("[data-ai-analysis-id]")?.getAttribute("data-ai-analysis-id")
+    || readServerUiStateValue(LAST_SCAN_AI_ANALYSIS_KEY)
+    || "",
+  ).trim();
+  if (!analysisId) {
+    setText($("parameter-ai-status"), "Keine Analyse ausgewaehlt.");
+    return;
+  }
+  const selectedPaths = selectedParameterAiPaths();
+  if (selectedPaths.length === 0) {
+    setText($("parameter-ai-status"), "Keine Empfehlung ausgewaehlt.");
+    return;
+  }
+  const currentPreview = await patchConfig({ updates: collectParameterDirtyUpdates(), persist: false });
+  const applied = await api.post(API_ENDPOINTS.scan.analysisApply, {
+    analysis_id: analysisId,
+    selected_paths: selectedPaths,
+    yaml: currentPreview?.config_yaml || uiState.configYaml || "",
+    persist: false,
+  });
+  if (applied?.config) syncParameterFieldsFromConfig(applied.config);
+  if (applied?.config_yaml) {
+    uiState.configYaml = String(applied.config_yaml || "");
+    setConfigDraft(uiState.configYaml);
+    setParameterPreview(uiState.configYaml);
+  }
+  uiState.parameterDirty = {};
+  clearParameterDirtyState();
+  setParameterValidateStatus(applied?.validation || null, "Validierung: OK");
+  setParameterValidateDetails(applied?.validation || null);
+  setParameterPresetStatus("");
+  setSituationApplyStatus(false);
+  clearConfigValidationState();
+  setText($("parameter-ai-status"), `Angewendet (${applied?.applied_paths?.length || selectedPaths.length})`);
+}
+
+function bindParameterAiPanel() {
+  if (!$("parameter-ai-panel")) return;
+  void refreshParameterAiAnalysis().catch((err) => {
+    setText($("parameter-ai-status"), `KI-Empfehlungen nicht geladen: ${errorText(err)}`);
+  });
+  $("parameter-ai-refresh")?.addEventListener("click", () => {
+    void refreshParameterAiAnalysis().catch((err) => {
+      setText($("parameter-ai-status"), `KI-Empfehlungen nicht geladen: ${errorText(err)}`);
+    });
+  });
+  $("parameter-ai-apply")?.addEventListener("click", () => {
+    void applySelectedParameterAiUpdates().catch((err) => {
+      setText($("parameter-ai-status"), `Anwenden fehlgeschlagen: ${errorText(err)}`);
+    });
+  });
+}
+
 async function bindParameterStudio() {
   const presetSelect = $("parameter-preset-select");
   if (!presetSelect) return;
@@ -3836,6 +4416,7 @@ async function bindParameterStudio() {
   document.addEventListener("gui2:parameter-studio-rendered", syncRenderedFields);
 
   await ensureConfigSchemaPaths();
+  bindParameterAiPanel();
   bindParameterDirtyTracking();
   await bindPresetDirectoryControl({
     inputId: "parameter-preset-dir",

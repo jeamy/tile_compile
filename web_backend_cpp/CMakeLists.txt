@@ -103,6 +103,7 @@ set(BACKEND_SOURCES
     src/routes/jobs_routes.cpp
     src/routes/app_state_routes.cpp
     src/routes/scan_routes.cpp
+    src/routes/ai_routes.cpp
     src/routes/config_routes.cpp
     src/routes/runs_routes.cpp
     src/routes/ws_routes.cpp
@@ -111,6 +112,7 @@ set(BACKEND_SOURCES
     src/services/run_inspector.cpp
     src/services/report_generator.cpp
     src/services/scan_summary.cpp
+    src/services/ai_service.cpp
     src/services/config_revisions.cpp
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
@@ -242,6 +244,7 @@ if(BUILD_TESTS)
 
     add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
     add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
+    add_backend_cpp_test(web_backend_cpp_ai_routes tests/test_ai_routes.cpp)
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)

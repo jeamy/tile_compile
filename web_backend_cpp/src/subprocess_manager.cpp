@@ -151,6 +151,19 @@ json compact_scan_job_result(const json& raw, const BackendGuardLimits& limits) 
     return out;
 }
 
+json compact_scan_metrics_job_result(const json& raw, const BackendGuardLimits& limits) {
+    json out = compact_json_for_job_storage(raw, limits);
+    if (!raw.is_object()) return out;
+    if (raw.contains("frames") && raw["frames"].is_array()) {
+        constexpr size_t max_scan_metric_frames = 512;
+        out["frames"] = compact_json_array(raw["frames"], max_scan_metric_frames, limits);
+        out["frames_metrics_total"] = raw["frames"].size();
+        out["frames_metrics_truncated"] = raw["frames"].size() > max_scan_metric_frames;
+    }
+    if (raw.contains("aggregate")) out["aggregate"] = compact_json_for_job_storage(raw["aggregate"], limits);
+    return out;
+}
+
 void store_process_output(json& data,
                           const char* key,
                           const std::string& text,
@@ -496,7 +509,9 @@ std::string SubprocessManager::launch(const std::string& type,
         if (!parsed.is_discarded()) {
             const json compact = (type == "scan")
                 ? compact_scan_job_result(parsed, _limits)
-                : compact_json_for_job_storage(parsed, _limits);
+                : ((type == "scan-metrics")
+                    ? compact_scan_metrics_job_result(parsed, _limits)
+                    : compact_json_for_job_storage(parsed, _limits));
             data["result"] = compact;
             if (compact.is_object()) {
                 for (auto it = compact.begin(); it != compact.end(); ++it) {

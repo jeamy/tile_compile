@@ -25,7 +25,10 @@
 #include <vector>
 #include <openssl/evp.h>
 
+#include <atomic>
 #include <cctype>
+#include <mutex>
+#include <thread>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -235,6 +238,12 @@ struct FitsHeaderInfo {
     int naxis2 = 0;
     std::string bayerpat;
     bool has_bayerpat = false;
+    double exptime = -1.0;      // EXPTIME / EXPOSURE
+    double gain = -1.0;         // GAIN / EGAIN
+    double ccd_temp = -999.0;   // CCD-TEMP / SET-TEMP
+    std::string object;         // OBJECT (target name)
+    std::string instrume;       // INSTRUME (camera)
+    std::string telescop;       // TELESCOP
     bool read_error = false;
     std::string error_msg;
 };
@@ -322,7 +331,46 @@ static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
         int bp2_status = 0;
         try_read_bayerpat(bp2_status);
     }
-    
+
+    // Read additional metadata keywords (best-effort, ignore errors)
+    auto read_double_key = [&](const char* key) -> double {
+        double val = 0.0;
+        int ks = 0;
+        fits_read_key(fptr, TDOUBLE, const_cast<char*>(key), &val, nullptr, &ks);
+        return (ks == 0) ? val : -1.0;
+    };
+    auto read_string_key = [&](const char* key) -> std::string {
+        char val[FLEN_VALUE];
+        int ks = 0;
+        fits_read_key(fptr, TSTRING, const_cast<char*>(key), val, nullptr, &ks);
+        if (ks != 0) return "";
+        std::string s(val);
+        s.erase(0, s.find_first_not_of(" \t\n\r'\""));
+        s.erase(s.find_last_not_of(" \t\n\r'\"") + 1);
+        return s;
+    };
+
+    // Move back to primary HDU for header keywords
+    {
+        int ks = 0;
+        fits_movabs_hdu(fptr, 1, nullptr, &ks);
+    }
+    double exp = read_double_key("EXPTIME");
+    if (exp < 0) exp = read_double_key("EXPOSURE");
+    info.exptime = exp;
+
+    double gain = read_double_key("GAIN");
+    if (gain < 0) gain = read_double_key("EGAIN");
+    info.gain = gain;
+
+    double temp = read_double_key("CCD-TEMP");
+    if (temp < -900) temp = read_double_key("SET-TEMP");
+    info.ccd_temp = temp;
+
+    info.object = read_string_key("OBJECT");
+    info.instrume = read_string_key("INSTRUME");
+    info.telescop = read_string_key("TELESCOP");
+
     fits_close_file(fptr, &status);
     return info;
 }
@@ -837,6 +885,13 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
             }
         }
         
+        if (info.exptime >= 0) frame["exposure_seconds"] = info.exptime;
+        if (info.gain >= 0) frame["gain"] = info.gain;
+        if (info.ccd_temp > -900) frame["temperature_c"] = info.ccd_temp;
+        if (!info.object.empty()) frame["target"] = info.object;
+        if (!info.instrume.empty()) frame["camera"] = info.instrume;
+        if (!info.telescop.empty()) frame["telescope"] = info.telescop;
+
         result["frames"].push_back(frame);
     }
     
@@ -911,6 +966,194 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
         result["ok"] = true;
     }
     
+    print_json(result);
+    return 0;
+}
+
+// ============================================================================
+// scan-metrics <input_path> [--sample N]
+// ============================================================================
+/// @brief Computes quick image-quality metrics on a sample of frames.
+/// @details Reads a sample of frames (default: 20% capped between 50 and 300),
+/// computes background, noise, gradient energy, FWHM, roundness, and star count
+/// for each sampled frame, then outputs per-frame and aggregate statistics as JSON.
+int cmd_scan_metrics(const std::string& input_path, int sample_override) {
+    namespace io = tile_compile::io;
+    namespace metrics = tile_compile::metrics;
+
+    fs::path p(input_path);
+    json result;
+    result["ok"] = false;
+    result["input_path"] = input_path;
+    result["frames"] = json::array();
+    result["aggregate"] = json::object();
+
+    if (!fs::exists(p) || !fs::is_directory(p)) {
+        result["error"] = "Input path does not exist or is not a directory";
+        print_json(result);
+        return 1;
+    }
+
+    auto all_files = find_fits_files(p);
+    const int total = static_cast<int>(all_files.size());
+    result["frames_total"] = total;
+
+    if (total == 0) {
+        result["error"] = "No FITS files found";
+        print_json(result);
+        return 1;
+    }
+
+    // Determine sample size: max(50, min(300, N*0.2)) or user override
+    int sample_count = sample_override > 0
+        ? std::min(sample_override, total)
+        : std::max(50, std::min(300, static_cast<int>(std::round(total * 0.2))));
+    if (sample_count > total) sample_count = total;
+    result["sample_count"] = sample_count;
+
+    // Select frames evenly distributed
+    std::vector<size_t> indices;
+    indices.reserve(static_cast<size_t>(sample_count));
+    if (sample_count >= total) {
+        for (int i = 0; i < total; ++i) indices.push_back(static_cast<size_t>(i));
+    } else {
+        for (int i = 0; i < sample_count; ++i) {
+            size_t idx = static_cast<size_t>(std::round(
+                static_cast<double>(i) * (total - 1) / (sample_count - 1)));
+            indices.push_back(idx);
+        }
+    }
+
+    // Per-frame results storage
+    struct FrameResult {
+        int frame_index = -1;
+        std::string file_name;
+        float background = 0.0f;
+        float noise = 0.0f;
+        float gradient_energy = 0.0f;
+        float fwhm = 0.0f;
+        float fwhm_x = 0.0f;
+        float fwhm_y = 0.0f;
+        float roundness = 0.0f;
+        int star_count = 0;
+        bool ok = false;
+        std::string error;
+    };
+    std::vector<FrameResult> results(indices.size());
+
+    // Process frames in parallel
+    const int hw_threads = std::max(1, static_cast<int>(std::thread::hardware_concurrency()));
+    const int workers = std::min(hw_threads, static_cast<int>(indices.size()));
+    std::atomic<size_t> next_idx{0};
+
+    auto worker_fn = [&]() {
+        while (true) {
+            const size_t wi = next_idx.fetch_add(1);
+            if (wi >= indices.size()) break;
+            const size_t frame_idx = indices[wi];
+            FrameResult& fr = results[wi];
+            fr.frame_index = static_cast<int>(frame_idx);
+            fr.file_name = all_files[frame_idx].filename().string();
+            try {
+                tile_compile::Matrix2Df img = io::read_fits_pixels_float(all_files[frame_idx]);
+                if (img.size() <= 0) {
+                    fr.error = "empty_image";
+                    continue;
+                }
+                auto fm = metrics::calculate_frame_metrics(img);
+                fr.background = fm.background;
+                fr.noise = fm.noise;
+                fr.gradient_energy = fm.gradient_energy;
+
+                auto sm = metrics::measure_frame_stars(img, 0);
+                fr.fwhm = sm.fwhm;
+                fr.fwhm_x = sm.fwhm_x;
+                fr.fwhm_y = sm.fwhm_y;
+                fr.roundness = sm.roundness;
+                fr.star_count = sm.star_count;
+                fr.ok = true;
+            } catch (const std::exception& e) {
+                fr.error = e.what();
+            }
+        }
+    };
+
+    std::cerr << "[scan-metrics] Computing metrics for " << sample_count
+              << " of " << total << " frames using " << workers << " threads..." << std::endl;
+
+    if (workers > 1) {
+        std::vector<std::thread> threads;
+        threads.reserve(static_cast<size_t>(workers));
+        for (int w = 0; w < workers; ++w) threads.emplace_back(worker_fn);
+        for (auto& t : threads) t.join();
+    } else {
+        worker_fn();
+    }
+
+    // Build output
+    std::vector<float> all_bg, all_noise, all_grad, all_fwhm, all_round;
+    std::vector<int> all_stars;
+    int ok_count = 0;
+
+    for (const auto& fr : results) {
+        json fj;
+        fj["frame_index"] = fr.frame_index;
+        fj["file_name"] = fr.file_name;
+        fj["ok"] = fr.ok;
+        if (fr.ok) {
+            fj["background"] = fr.background;
+            fj["noise"] = fr.noise;
+            fj["fwhm"] = fr.fwhm;
+            fj["roundness"] = fr.roundness;
+            fj["star_count"] = fr.star_count;
+            all_bg.push_back(fr.background);
+            all_noise.push_back(fr.noise);
+            all_grad.push_back(fr.gradient_energy);
+            if (fr.fwhm > 0) all_fwhm.push_back(fr.fwhm);
+            if (fr.roundness > 0) all_round.push_back(fr.roundness);
+            all_stars.push_back(fr.star_count);
+            ++ok_count;
+        } else {
+            fj["error"] = fr.error;
+        }
+        result["frames"].push_back(fj);
+    }
+
+    // Aggregate statistics
+    auto agg_stats = [](std::vector<float>& vals) -> json {
+        if (vals.empty()) return nullptr;
+        std::sort(vals.begin(), vals.end());
+        float sum = 0;
+        for (float v : vals) sum += v;
+        float mean = sum / static_cast<float>(vals.size());
+        float median = vals[vals.size() / 2];
+        float p10 = vals[std::min(vals.size()-1, static_cast<size_t>(vals.size() * 0.1))];
+        float p90 = vals[std::min(vals.size()-1, static_cast<size_t>(vals.size() * 0.9))];
+        return json{{"min", vals.front()}, {"max", vals.back()},
+                    {"mean", mean}, {"median", median},
+                    {"p10", p10}, {"p90", p90}, {"count", static_cast<int>(vals.size())}};
+    };
+
+    json agg;
+    agg["background"] = agg_stats(all_bg);
+    agg["noise"] = agg_stats(all_noise);
+    agg["gradient_energy"] = agg_stats(all_grad);
+    agg["fwhm"] = agg_stats(all_fwhm);
+    agg["roundness"] = agg_stats(all_round);
+    if (!all_stars.empty()) {
+        std::sort(all_stars.begin(), all_stars.end());
+        int sum = 0;
+        for (int v : all_stars) sum += v;
+        agg["star_count"] = json{{"min", all_stars.front()}, {"max", all_stars.back()},
+                                  {"mean", static_cast<float>(sum) / static_cast<float>(all_stars.size())},
+                                  {"median", all_stars[all_stars.size() / 2]},
+                                  {"count", static_cast<int>(all_stars.size())}};
+    }
+    agg["frames_ok"] = ok_count;
+    agg["frames_failed"] = static_cast<int>(results.size()) - ok_count;
+    result["aggregate"] = agg;
+    result["ok"] = (ok_count > 0);
+
     print_json(result);
     return 0;
 }
@@ -1446,6 +1689,17 @@ int main(int argc, char* argv[]) {
         int frames_min = frames_min_str.empty() ? 1 : std::stoi(frames_min_str);
         bool with_checksums = has_flag("--with-checksums");
         return cmd_scan(input_path, frames_min, with_checksums);
+    }
+
+    if (command == "scan-metrics") {
+        std::string input_path = get_positional(0);
+        if (input_path.empty()) {
+            std::cerr << "scan-metrics requires an input_path argument\n";
+            return 1;
+        }
+        std::string sample_str = get_arg("--sample");
+        int sample_override = sample_str.empty() ? 0 : std::stoi(sample_str);
+        return cmd_scan_metrics(input_path, sample_override);
     }
     
     if (command == "list-runs") {

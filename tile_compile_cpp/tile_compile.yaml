@@ -1,8 +1,8 @@
 aqmh:
   cherry_pick:
-    enabled: true
-    k_frac: 0.7
-    k_min: 100
+    enabled: false
+    k_frac: 0.3
+    k_min: 3
   diagnostics:
     q_region: 0.75
     r_morph_canvas_px: 6
@@ -17,7 +17,7 @@ aqmh:
     w_snr: 0.4
   storage:
     dtype: float32
-    max_resident_maps: 4
+    max_resident_maps: 2
     resolution_divisor: 1
 assumptions:
   frames_min: 30
@@ -224,7 +224,7 @@ registration:
   star_topk: 80
   transform_model: affine
   use_astrometry: true
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_m42_emission_nebula_medium
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -235,17 +235,17 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
-    - galaxy
-    - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+    - m42
+    - emission_nebula
+    - bright_core
+    - short_exposure
+  id: m42_emission_nebula_medium
+  intent: M42/OSC mit Fokus auf Emissionsnebel-Struktur, hellem Trapezium-Kern und Erhalt von Hα/Hβ-Farbinformation.
+  priority: emission_nebula_balanced_detail_and_color
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - M42 / Orionnebel mit hellem Kern und diffuser Emission
+    - kurze OSC-Subframes mit vielen Einzelbildern
+  title: M42 Emission Nebula Medium
 stacking:
   cluster_quality_weighting:
     cap_enabled: true

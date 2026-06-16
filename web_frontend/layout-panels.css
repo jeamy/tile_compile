@@ -1046,3 +1046,42 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   resize: vertical;
 }
+
+.ps-ai-result {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ps-ai-summary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfefe;
+  padding: 10px 12px;
+  color: var(--ink);
+}
+
+.ps-ai-update {
+  display: grid;
+  grid-template-columns: 28px minmax(180px, 1fr) minmax(120px, 0.6fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 10px;
+  font-size: 12px;
+}
+
+.ps-ai-update code {
+  color: var(--ink);
+}
+
+.ps-ai-update span {
+  color: var(--muted);
+}
+
+.ps-ai-update.is-rejected {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}

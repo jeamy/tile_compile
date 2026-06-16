@@ -11,6 +11,7 @@ PORT="${TILE_COMPILE_GUI2_PORT:-8080}"
 HOST="127.0.0.1"
 URL="http://${HOST}:${PORT}/ui/"
 BACKEND_BIN="${INSTALL_ROOT}/web_backend_cpp/build/tile_compile_web_backend"
+AI_AGENT_PID=""
 
 log() {
   printf '[gui2] %s\n' "$*"
@@ -55,7 +56,7 @@ copy_payload() {
   if [[ "${is_update}" == "true" ]]; then
     # Selective update: only replace app directories, preserve user data
     # Remove old app directories
-    rm -rf "${INSTALL_ROOT}/web_frontend" "${INSTALL_ROOT}/web_backend_cpp" "${INSTALL_ROOT}/tile_compile_cpp"
+    rm -rf "${INSTALL_ROOT}/web_frontend" "${INSTALL_ROOT}/web_backend_cpp" "${INSTALL_ROOT}/tile_compile_cpp" "${INSTALL_ROOT}/agent_service"
     
     # Copy only app directories from payload
     if [[ -d "${PAYLOAD_DIR}/web_frontend" ]]; then
@@ -66,6 +67,9 @@ copy_payload() {
     fi
     if [[ -d "${PAYLOAD_DIR}/tile_compile_cpp" ]]; then
       cp -a "${PAYLOAD_DIR}/tile_compile_cpp" "${INSTALL_ROOT}/"
+    fi
+    if [[ -d "${PAYLOAD_DIR}/agent_service" ]]; then
+      cp -a "${PAYLOAD_DIR}/agent_service" "${INSTALL_ROOT}/"
     fi
     
     log "App-Dateien aktualisiert. User-Daten (configs, runs, astap, pcc) bleiben erhalten."
@@ -102,6 +106,41 @@ open_browser() {
     return
   fi
   log "Kein Browser-Launcher gefunden. Oeffne ${URL} manuell."
+}
+
+cleanup_agent_service() {
+  if [[ -n "${AI_AGENT_PID}" ]] && kill -0 "${AI_AGENT_PID}" >/dev/null 2>&1; then
+    log "Beende PI AI sidecar pid=${AI_AGENT_PID}"
+    kill "${AI_AGENT_PID}" >/dev/null 2>&1 || true
+    wait "${AI_AGENT_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+start_agent_service() {
+  if [[ "${TILE_COMPILE_AI_AGENT_AUTOSTART:-1}" == "0" ]]; then
+    log "PI AI sidecar autostart deaktiviert."
+    return 0
+  fi
+  local agent_dir="${INSTALL_ROOT}/agent_service"
+  if [[ ! -f "${agent_dir}/package.json" ]]; then
+    log "PI AI sidecar nicht gefunden: ${agent_dir}"
+    return 0
+  fi
+  if ! have_command npm; then
+    log "WARNUNG: npm nicht gefunden; PI AI sidecar wird nicht gestartet."
+    return 0
+  fi
+  if [[ ! -f "${agent_dir}/dist/server.js" ]]; then
+    log "PI AI sidecar build fehlt; fuehre npm run build aus."
+    if ! npm --prefix "${agent_dir}" run build; then
+      log "WARNUNG: PI AI sidecar build fehlgeschlagen; Backend startet ohne Sidecar."
+      return 0
+    fi
+  fi
+  log "Starte PI AI sidecar."
+  npm --prefix "${agent_dir}" start &
+  AI_AGENT_PID=$!
+  trap cleanup_agent_service EXIT INT TERM
 }
 
 launch_in_terminal() {
@@ -166,6 +205,7 @@ run_backend_foreground() {
   export TILE_COMPILE_SCHEMA="${INSTALL_ROOT}/tile_compile_cpp/tile_compile.schema.yaml"
   export TILE_COMPILE_PRESETS_DIR="${INSTALL_ROOT}/tile_compile_cpp/examples"
   export TILE_COMPILE_UI_DIR="${INSTALL_ROOT}/web_frontend"
+  export TILE_COMPILE_AGENT_SERVICE_DIR="${INSTALL_ROOT}/agent_service"
   export TILE_COMPILE_GUI2_INSTALL_ROOT="${INSTALL_ROOT}"
   local allowed_roots=("${INSTALL_ROOT}" "$(printf '%s' "${HOME}")" "/tmp" "/media")
   if [[ -n "${TMPDIR:-}" ]]; then
@@ -214,6 +254,8 @@ run_backend_foreground() {
     ( sleep 2; open_browser ) &
   fi
   
+  start_agent_service
+
   local exit_code=0
   "${BACKEND_BIN}" || exit_code=$?
   
