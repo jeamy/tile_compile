@@ -623,6 +623,13 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
+## v0.3.3 (2026-06-16)
+
+**PI – AI-assisted configuration recommendations:**
+- New PI (Parameter Intelligence) module: AI analyses scan results and generates validated parameter recommendations directly in Parameter Studio.
+- Frame quality metrics (FWHM, noise, background, roundness, star count) from `scan-metrics` are passed to the AI as measured facts.
+- See [docs/PI/pi_ai_recommendations_en.md](docs/PI/pi_ai_recommendations_en.md) for full documentation.
+
 ## v0.3.2 (2026-06-13)
 
 **AQMH-First as default:**
@@ -858,6 +865,18 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 - First public release
 
 ## Changelog
+
+### (2026-06-16)
+
+**PI – AI-assisted configuration recommendations (`v0.3.3`):**
+
+- Implemented the PI (Parameter Intelligence) module: the AI sidecar receives the full scan result, frame quality metrics aggregate (`scan_metrics`: FWHM, noise, background, roundness, star count), all relevant configuration parameters with descriptions, and the complete schema constraints (`min`, `max`, `enum`) — and produces validated, data-driven configuration recommendations.
+- `scan_metrics` are now forwarded from the backend to the AI sidecar in both POST and SSE analysis routes (`ai_routes.cpp`).
+- `config_schema` sent to the sidecar now includes `minimum` and `maximum` from the JSON schema; the AI prompt formats these as `min:`/`max:` per parameter line and contains an explicit rule: values MUST stay within `[min, max]`.
+- Per-update validation in `validate_updates_against_schema()`: if the combined patch fails schema validation, each update is tested individually and cumulatively; only the offending updates are rejected with `config_validation_failed` — valid recommendations are no longer discarded.
+- `start_backend.sh`: agent_service sidecar is rebuilt automatically via `npm run build` whenever any `.ts` source file is newer than `dist/server.js`; `npm install` runs automatically if `node_modules` is missing or `package.json` changed.
+- Traffic log: `prompt_length` diagnostic entry added before the prompt log to verify which sections are present in the prompt without relying on the truncated log output.
+- Full documentation: [docs/PI/pi_ai_recommendations_en.md](docs/PI/pi_ai_recommendations_en.md)
 
 ### (2026-06-13)
 
