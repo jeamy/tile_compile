@@ -417,6 +417,22 @@ jobs:
             -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
           cmake --build web_backend_cpp/build-gui2-release -j"$(nproc)"
 
+      - name: Build optional PI agent service (Windows)
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd agent_service
+          if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+          if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+            npm run build
+          fi
+          npm prune --omit=dev
+
       - name: Assemble GUI2 bundle
         shell: msys2 {0}
         run: |
@@ -432,18 +448,6 @@ jobs:
           cp -a web_frontend "${PAYLOAD}/"
           if [[ -f agent_service/package.json ]]; then
             echo "Bundling optional PI agent_service"
-            (
-              cd agent_service
-              if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
-                npm ci
-              else
-                npm install
-              fi
-              if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
-                npm run build
-              fi
-              npm prune --omit=dev
-            )
             cp -a agent_service "${PAYLOAD}/agent_service"
             rm -f "${PAYLOAD}/agent_service/.env"
             find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
