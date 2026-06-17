@@ -283,7 +283,7 @@ std::optional<json> load_base_config(const std::shared_ptr<AppState>& state,
     }
 
     try {
-        if (body.contains("yaml") && body["yaml"].is_string()) {
+        if (body.contains("yaml") && body["yaml"].is_string() && !body["yaml"].get<std::string>().empty()) {
             json parsed = yaml_to_json(YAML::Load(body["yaml"].get<std::string>()));
             if (!parsed.is_object()) {
                 error = err_resp("BAD_REQUEST", "base YAML must be a mapping", 400);
