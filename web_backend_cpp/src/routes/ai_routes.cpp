@@ -653,7 +653,11 @@ std::string persist_analysis(const std::shared_ptr<AppState>& state, const json&
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
     struct tm tm_now{};
+#ifdef _WIN32
+    gmtime_s(&tm_now, &time_t_now);
+#else
     gmtime_r(&time_t_now, &tm_now);
+#endif
     char ts_buf[32];
     std::strftime(ts_buf, sizeof(ts_buf), "%Y%m%d_%H%M%S", &tm_now);
 
