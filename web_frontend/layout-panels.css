@@ -1077,6 +1077,13 @@
   color: var(--ink);
 }
 
+.ps-ai-evidence {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .ps-ai-update span {
   color: var(--muted);
 }

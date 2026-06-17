@@ -12,7 +12,14 @@ const modelService = new ModelService();
 const authService = new AuthService(modelService);
 const trafficLogPath = path.join(config.projectRoot, "runs", "pi_agent_traffic.log");
 
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
 function appendTrafficLog(message: string) {
+  if (!envBool("AI_TRAFFIC_LOG", false)) return;
   try {
     fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
     fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${message}\n`);

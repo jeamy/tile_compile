@@ -178,6 +178,38 @@
               <span id="scan-ai-key-status" class="ps-hint">nicht geprüft</span>
             </div>
           </div>
+          <div class="ps-row">
+            <label for="scan-ai-mount-type">Aufnahme-Kontext</label>
+            <div class="ps-inline-cluster">
+              <select id="scan-ai-mount-type" class="ps-select" title="Montierung/Tracking fuer Registrierungs-Empfehlungen.">
+                <option value="">Montierung unbekannt</option>
+                <option value="eq">EQ / Tracker</option>
+                <option value="altaz">Alt-Az / feldrotierend</option>
+                <option value="unknown">Unbekannt</option>
+              </select>
+              <select id="scan-ai-target-size" class="ps-select" title="Zielgroesse im Bildfeld fuer Normalisierung/BGE.">
+                <option value="">Zielgroesse unbekannt</option>
+                <option value="compact">Kompakt</option>
+                <option value="extended">Ausgedehnt</option>
+                <option value="full_frame">Fuellt Bildfeld</option>
+              </select>
+              <select id="scan-ai-camera-type" class="ps-select" title="Kameratyp fuer OSC/Mono-Kontext.">
+                <option value="">Kamera unbekannt</option>
+                <option value="consumer_osc">Consumer OSC</option>
+                <option value="astronomy_camera">Astro-Kamera</option>
+                <option value="unknown">Unbekannt</option>
+              </select>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label>Kalibrierung</label>
+            <div class="ps-inline-cluster">
+              <label><input type="checkbox" id="scan-ai-cal-darks"> Darks</label>
+              <label><input type="checkbox" id="scan-ai-cal-flats"> Flats</label>
+              <label><input type="checkbox" id="scan-ai-cal-bias"> Bias</label>
+              <input id="scan-ai-context-notes" class="ps-input ps-wide" type="text" value="" placeholder="Notizen: Guiding, Filter, Ziel, Besonderheiten">
+            </div>
+          </div>
           <div class="ps-actions">
             <button class="ps-btn ps-btn-secondary" id="scan-ai-refresh-models" type="button">Modelle pruefen</button>
             <button class="ps-btn" id="scan-ai-run" type="button">KI-Analyse erstellen</button>

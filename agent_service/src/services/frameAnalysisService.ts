@@ -9,7 +9,14 @@ import type { ModelService } from "./modelService.js";
 
 const trafficLogPath = path.resolve(process.env.TILE_COMPILE_PROJECT_ROOT || path.resolve(process.cwd(), ".."), "runs", "pi_agent_traffic.log");
 
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
 function appendTrafficLog(message: string) {
+  if (!envBool("AI_TRAFFIC_LOG", false)) return;
   try {
     fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
     fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${message}\n`);
@@ -141,6 +148,26 @@ export class FrameAnalysisService {
     const scan = (request as any).scan_result || {};
     const frames = Array.isArray(scan.frames) ? scan.frames : [];
     const frameCount = scan.frames_detected ?? scan.frames_total ?? frames.length;
+
+    const numericAgg = (key: string) => {
+      const vals = frames.map((f: any) => f[key]).filter((v: any) => typeof v === "number" && isFinite(v));
+      if (vals.length === 0) return null;
+      const sorted = [...vals].sort((a, b) => a - b);
+      const min = sorted[0];
+      const max = sorted[sorted.length - 1];
+      const mean = vals.reduce((a: number, b: number) => a + b, 0) / vals.length;
+      const median = sorted[Math.floor(sorted.length / 2)];
+      return { min, max, mean: Math.round(mean * 100) / 100, median, count: vals.length };
+    };
+    const stringAgg = (key: string) => {
+      const vals = frames.map((f: any) => f[key]).filter((v: any) => typeof v === "string" && v);
+      if (vals.length === 0) return null;
+      const counts: Record<string, number> = {};
+      for (const v of vals) counts[v] = (counts[v] || 0) + 1;
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      return { value: top[0], count: top[1], sampleCount: vals.length, uniformInSample: top[1] === vals.length };
+    };
+
     const scanCompact: Record<string, unknown> = {
       color_mode: scan.color_mode,
       bayer_pattern: scan.bayer_pattern,
@@ -152,19 +179,27 @@ export class FrameAnalysisService {
     if (scan.image_width != null) scanCompact.image_width = scan.image_width;
     if (scan.image_height != null) scanCompact.image_height = scan.image_height;
     if (scan.input_path != null) scanCompact.input_path = scan.input_path;
-    // Extract per-frame metadata from first frame if available
+    for (const key of ["exposure_seconds", "gain", "temperature_c"]) {
+      const agg = numericAgg(key);
+      if (!agg) continue;
+      scanCompact[key] = agg.min === agg.max
+        ? { value: agg.min, uniform_in_sample: true, sample_count: agg.count }
+        : { min: agg.min, max: agg.max, median: agg.median, mean: agg.mean, sample_count: agg.count };
+    }
+    for (const key of ["target", "camera", "telescope"]) {
+      const agg = stringAgg(key);
+      if (!agg) continue;
+      scanCompact[key] = {
+        most_common: agg.value,
+        count: agg.count,
+        sample_count: agg.sampleCount,
+        uniform_in_sample: agg.uniformInSample,
+      };
+    }
     if (frames[0]) {
       const f = frames[0];
-      if (f.exposure_seconds != null) scanCompact.exposure_seconds = f.exposure_seconds;
-      if (f.gain != null) scanCompact.gain = f.gain;
       if (f.image_width != null && !scanCompact.image_width) scanCompact.image_width = f.image_width;
       if (f.image_height != null && !scanCompact.image_height) scanCompact.image_height = f.image_height;
-      if (f.target != null) scanCompact.target = f.target;
-      if (f.camera != null) scanCompact.camera = f.camera;
-      if (f.telescope != null) scanCompact.telescope = f.telescope;
-      if (f.temperature_c != null) scanCompact.temperature_c = f.temperature_c;
-      if (f.fwhm != null) scanCompact.fwhm = f.fwhm;
-      if (f.snr != null) scanCompact.snr = f.snr;
     }
 
     // Build compact current config (only leaf values, flatten dotted paths)
@@ -213,35 +248,22 @@ export class FrameAnalysisService {
       frameStats.push(`(Note: statistics sampled from ${frames.length} of ${frameCount} total frames)`);
     }
     if (frames.length > 0) {
-      const numericAgg = (key: string) => {
-        const vals = frames.map((f: any) => f[key]).filter((v: any) => typeof v === "number" && isFinite(v));
-        if (vals.length === 0) return null;
-        const min = Math.min(...vals);
-        const max = Math.max(...vals);
-        const mean = vals.reduce((a: number, b: number) => a + b, 0) / vals.length;
-        return { min, max, mean: Math.round(mean * 100) / 100, count: vals.length };
-      };
       for (const key of ["exposure_seconds", "gain", "temperature_c", "fwhm", "snr", "sky_background"]) {
         const agg = numericAgg(key);
         if (!agg) continue;
         if (agg.min === agg.max) {
-          frameStats.push(`${key}: ${agg.min} (uniform across all ${frameCount} frames)`);
+          const scope = frames.length === frameCount ? `all ${frameCount} frames` : `${agg.count} sampled frames`;
+          frameStats.push(`${key}: ${agg.min} (uniform in ${scope})`);
         } else {
           frameStats.push(`${key}: min=${agg.min} max=${agg.max} mean=${agg.mean} (sampled ${agg.count} frames)`);
         }
       }
       // String fields: pick most common value
       for (const key of ["target", "camera", "telescope"]) {
-        const vals = frames.map((f: any) => f[key]).filter((v: any) => typeof v === "string" && v);
-        if (vals.length > 0) {
-          const counts: Record<string, number> = {};
-          for (const v of vals) counts[v] = (counts[v] || 0) + 1;
-          const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-          if (top[1] === vals.length) {
-            frameStats.push(`${key}: "${top[0]}" (all ${frameCount} frames)`);
-          } else {
-            frameStats.push(`${key}: "${top[0]}" (${top[1]}/${vals.length} sampled frames)`);
-          }
+        const agg = stringAgg(key);
+        if (agg) {
+          const scope = frames.length === frameCount ? `all ${frameCount} frames` : `${agg.sampleCount} sampled frames`;
+          frameStats.push(`${key}: "${agg.value}" (${agg.count}/${scope})`);
         }
       }
     }
@@ -268,9 +290,12 @@ export class FrameAnalysisService {
       '  "current_value": the current value of this path from CURRENT CONFIG (or null if not set)',
       '  "confidence": number 0..1',
       '  "review_required": boolean',
-      '  "rationale": string (brief justification, mention why the change from current value is beneficial)',
+      '  "reason": string (brief justification, mention why the change from current value is beneficial)',
+      '  "risk": "low" | "medium" | "high"',
+      '  "evidence": string[] (specific measured/configured facts used; do not include assumptions as evidence)',
       "",
       "STRICT RULES:",
+      "- If CONFIG SCHEMA is empty, return no recommendations and explain this in warnings.",
       "- The path field MUST be an exact match from the CONFIG SCHEMA below. Do NOT invent paths.",
       "- The value MUST match the type constraint: boolean for boolean, number for number/integer, string for string.",
       "- If the schema lists enum values, the value MUST be one of those enum values.",
@@ -289,8 +314,18 @@ export class FrameAnalysisService {
       "- Do not assert saturation, clipping, calibration defects, vignetting, hot pixels, or temperature impact as facts unless measured or configured evidence is present.",
       "- If evidence is insufficient for a parameter, set review_required=true and lower confidence.",
       "- Do NOT invent measurements not present in the scan data.",
+      "- Every recommendation must cite at least one evidence[] item from IMAGE QUALITY METRICS, FRAME STATISTICS, SCAN RESULT, CURRENT CONFIG, or SESSION CONTEXT.",
+      "- Use assumptions only in reason/warnings, never as evidence. Recommendations based primarily on assumptions must use review_required=true and confidence <= 0.55.",
       "- If SESSION CONTEXT does not include mount_type: use registration.star_shift_radius_px=200 as safe default and set review_required=true for all registration parameters.",
       "- If SESSION CONTEXT does not include target_angular_size: do NOT recommend normalization.mode=background or bge.enabled=true — omit those paths or set review_required=true.",
+      "",
+      "RECOMMENDATION STRATEGY:",
+      "- First classify the dataset: OSC/mono, frame count regime, exposure/gain consistency, target scale, mount/tracking context, calibration availability, and measured quality spread.",
+      "- Then recommend coherent parameter groups only when the provided evidence supports them.",
+      "- Prefer fewer high-confidence changes over many weak tweaks. Do not tune cosmetic or path parameters.",
+      "- For registration parameters, require mount/shift evidence. Without it, only use conservative defaults and mark review_required.",
+      "- For normalization/background extraction, require target_angular_size and measured background/gradient evidence.",
+      "- For rejection/cherry-pick/local/global quality weighting, require measured FWHM/noise/background/roundness/star_count spread.",
       "",
       "NUMERIC PRECISION RULES (mandatory):",
       "- All recommended numeric values must be EXACT and precise — never approximate, never 'around X', never rounded to single decimal unless the schema minimum step is 0.1.",
@@ -385,7 +420,8 @@ export class FrameAnalysisService {
 
     for (const rec of rawRecs) {
       if (!rec || typeof rec !== "object") continue;
-      const path = String(rec.path || "");
+      const item = rec as Record<string, unknown>;
+      const path = typeof item.path === "string" ? item.path : "";
       if (!path) {
         warnings.push(`Recommendation without path skipped: ${JSON.stringify(rec).substring(0, 100)}`);
         continue;
@@ -395,7 +431,29 @@ export class FrameAnalysisService {
         appendTrafficLog(`REJECTED recommendation: unknown path "${path}"`);
         continue;
       }
-      validRecs.push(rec);
+      const reason = typeof item.reason === "string"
+        ? item.reason
+        : typeof item.rationale === "string"
+          ? item.rationale
+          : "";
+      const risk = ["low", "medium", "high"].includes(String(item.risk))
+        ? String(item.risk)
+        : "unknown";
+      const evidence = Array.isArray(item.evidence)
+        ? item.evidence.map((entry) => String(entry)).filter(Boolean)
+        : [];
+      validRecs.push({
+        id: typeof item.id === "string" ? item.id : `rec_${path.replace(/[^A-Za-z0-9]+/g, "_")}`,
+        path,
+        value: item.value,
+        current_value: Object.prototype.hasOwnProperty.call(item, "current_value") ? item.current_value : null,
+        confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : 0,
+        review_required: Boolean(item.review_required),
+        reason,
+        rationale: reason,
+        risk,
+        evidence,
+      });
     }
 
     if (hasAllowedPaths) {

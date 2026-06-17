@@ -171,7 +171,8 @@ int main(int argc, char** argv) {
                     {"value", "MONO"},
                     {"reason", true},
                     {"confidence", "0.9"},
-                    {"risk", false}
+                    {"risk", false},
+                    {"evidence", {"scan_metrics.fwhm.median=2.4", true}}
                 },
                 {
                     {"path", "data.unknown"},
@@ -213,6 +214,7 @@ int main(int argc, char** argv) {
         expect_equal(analysis["validated_updates"][0]["path"].get<std::string>(), "data.color_mode", "scan ai validated path");
         expect_equal(analysis["validated_updates"][0]["reason"].get<std::string>(), "true", "scan ai coerces boolean reason");
         expect_equal(analysis["validated_updates"][0]["risk"].get<std::string>(), "false", "scan ai coerces boolean risk");
+        expect_equal(static_cast<long>(analysis["validated_updates"][0]["evidence"].size()), 2L, "scan ai preserves evidence");
         expect_equal(analysis["validation"]["valid"].get<bool>() ? "true" : "false", "true", "scan ai validation ok");
 
         const std::string analysis_id = analysis["analysis_id"].get<std::string>();

@@ -398,6 +398,17 @@ json normalize_candidate_updates(const json& analysis) {
             {"confidence", json_double_field(item, "confidence", 0.0)},
             {"risk", json_string_field(item, "risk", "unknown")},
         };
+        if (item.contains("id") && item["id"].is_string()) update["id"] = item["id"];
+        if (item.contains("current_value")) update["current_value"] = item["current_value"];
+        if (item.contains("review_required") && item["review_required"].is_boolean()) {
+            update["review_required"] = item["review_required"];
+        }
+        if (item.contains("evidence") && item["evidence"].is_array()) {
+            update["evidence"] = json::array();
+            for (const auto& evidence : item["evidence"]) {
+                update["evidence"].push_back(json_string_value(evidence));
+            }
+        }
         updates.push_back(std::move(update));
     }
     return updates;

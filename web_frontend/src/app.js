@@ -13,6 +13,7 @@ const PRESETS_DIR_KEY = "gui2.presetsDir";
 const CALIBRATION_PATH_CACHE_KEY = "gui2.calibrationPathCache";
 const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
 const LAST_SCAN_AI_ANALYSIS_KEY = "gui2.scanAi.latestAnalysisId";
+const SCAN_AI_CONTEXT_KEY = "gui2.scanAi.sessionContext";
 const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
 const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
 const ASTROMETRY_INSTALL_JOB_KEY = "gui2.tools.astrometry.installJob";
@@ -2761,13 +2762,19 @@ function renderAiAnalysis(container, analysis, { selectable = false } = {}) {
       Number.isFinite(confidence) ? `conf ${confidence.toFixed(2)}` : "",
       update.risk ? `risk ${update.risk}` : "",
     ].filter(Boolean).join(" | ");
+    const evidence = Array.isArray(update.evidence)
+      ? update.evidence.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    const evidenceHtml = evidence.length
+      ? `<div class="ps-ai-evidence">${escapeAiHtml(evidence.join(" | "))}</div>`
+      : "";
     const checked = selectable ? " checked" : "";
     const control = selectable
       ? `<input type="checkbox" class="parameter-ai-update-check" data-ai-path="${path}"${checked}>`
       : `<span></span>`;
     rows.push(`<div class="ps-ai-update" data-ai-update-path="${path}">
       ${control}
-      <div><code>${path}</code><div>${reason}</div></div>
+      <div><code>${path}</code><div>${reason}</div>${evidenceHtml}</div>
       <span>${value}${meta ? `<br>${escapeAiHtml(meta)}` : ""}</span>
     </div>`);
   }
@@ -2872,6 +2879,49 @@ async function saveScanAiConfigFromInputs() {
   const model = String($("scan-ai-model")?.value || "").trim();
   const provider = model.includes("/") ? model.split("/")[0] : String($("scan-ai-provider")?.value || "").trim();
   return await api.patch(API_ENDPOINTS.ai.config, { enabled, model, provider });
+}
+
+function scanAiSessionContextFromInputs() {
+  const context = {};
+  const mountType = String($("scan-ai-mount-type")?.value || "").trim();
+  const targetSize = String($("scan-ai-target-size")?.value || "").trim();
+  const cameraType = String($("scan-ai-camera-type")?.value || "").trim();
+  const notes = String($("scan-ai-context-notes")?.value || "").trim();
+  if (mountType) context.mount_type = mountType;
+  if (targetSize) context.target_angular_size = targetSize;
+  if (cameraType) context.camera_type = cameraType;
+  if ($("scan-ai-cal-darks")) context.calibration_darks = Boolean($("scan-ai-cal-darks")?.checked);
+  if ($("scan-ai-cal-flats")) context.calibration_flats = Boolean($("scan-ai-cal-flats")?.checked);
+  if ($("scan-ai-cal-bias")) context.calibration_bias = Boolean($("scan-ai-cal-bias")?.checked);
+  if (notes) context.notes = notes;
+  try {
+    localStorage.setItem(SCAN_AI_CONTEXT_KEY, JSON.stringify(context));
+  } catch {
+    // Ignore local persistence errors.
+  }
+  return context;
+}
+
+function loadScanAiSessionContextUi() {
+  let context = {};
+  try {
+    context = JSON.parse(localStorage.getItem(SCAN_AI_CONTEXT_KEY) || "{}") || {};
+  } catch {
+    context = {};
+  }
+  if ($("scan-ai-mount-type")) $("scan-ai-mount-type").value = String(context.mount_type || "");
+  if ($("scan-ai-target-size")) $("scan-ai-target-size").value = String(context.target_angular_size || "");
+  if ($("scan-ai-camera-type")) $("scan-ai-camera-type").value = String(context.camera_type || "");
+  if ($("scan-ai-cal-darks")) $("scan-ai-cal-darks").checked = Boolean(context.calibration_darks);
+  if ($("scan-ai-cal-flats")) $("scan-ai-cal-flats").checked = Boolean(context.calibration_flats);
+  if ($("scan-ai-cal-bias")) $("scan-ai-cal-bias").checked = Boolean(context.calibration_bias);
+  if ($("scan-ai-context-notes")) $("scan-ai-context-notes").value = String(context.notes || "");
+}
+
+function attachScanAiSessionContext(payload) {
+  const context = scanAiSessionContextFromInputs();
+  if (Object.keys(context).length > 0) payload.session_context = context;
+  return payload;
 }
 
 async function refreshScanAiConfigUi() {
@@ -3009,7 +3059,7 @@ async function runScanAiAnalysisFromUi() {
   }
 
   // Use SSE streaming for live progress updates
-  const payload = { force, scan_result: latestScan };
+  const payload = attachScanAiSessionContext({ force, scan_result: latestScan });
   if (model) payload.model = model;
   if (configSchema) payload.config_schema = configSchema;
   if (baseConfig) payload.base_config = baseConfig;
@@ -3062,8 +3112,8 @@ async function runScanAiAnalysisFromUi() {
 
 async function streamAiAnalysis(payload, onEvent) {
   // Try streaming endpoint first, fallback to regular POST
-  const baseUrl = window.location.origin;
-  const sidecarUrl = "http://127.0.0.1:3001";
+  const aiConfig = await api.get(API_ENDPOINTS.ai.config).catch(() => null);
+  const sidecarUrl = String(aiConfig?.sidecar_url || "http://127.0.0.1:3001").replace(/\/+$/, "");
 
   // Log the request
   const logEntry = `[${new Date().toISOString()}] POST ${sidecarUrl}/analyze/stream\nPayload: ${JSON.stringify(payload, null, 2).substring(0, 2000)}`;
@@ -3271,7 +3321,7 @@ async function runScanAiAnalysisFromUiForce() {
       if (metricsJob.state === "ok" && metricsJob.data?.result?.ok) scanMetrics = metricsJob.data.result;
     }
   } catch (_) {}
-  const payload = { force: true, scan_result: latestScan };
+  const payload = attachScanAiSessionContext({ force: true, scan_result: latestScan });
   if (model) payload.model = model;
   if (configSchema) payload.config_schema = configSchema;
   if (baseConfig) payload.base_config = baseConfig;
@@ -3316,6 +3366,7 @@ async function runScanAiAnalysisFromUiForce() {
 
 function bindScanAiPanel() {
   if (!$("scan-ai-panel")) return;
+  loadScanAiSessionContextUi();
   void (async () => {
     try {
       const config = await refreshScanAiConfigUi();
@@ -3352,6 +3403,17 @@ function bindScanAiPanel() {
   $("scan-ai-refresh-models")?.addEventListener("click", () => {
     void refreshScanAiModelsStatus().catch((err) => setText($("scan-ai-status"), errorText(err)));
   });
+  for (const id of [
+    "scan-ai-mount-type",
+    "scan-ai-target-size",
+    "scan-ai-camera-type",
+    "scan-ai-cal-darks",
+    "scan-ai-cal-flats",
+    "scan-ai-cal-bias",
+    "scan-ai-context-notes",
+  ]) {
+    $(id)?.addEventListener("change", scanAiSessionContextFromInputs);
+  }
   $("scan-ai-provider")?.addEventListener("change", updateScanAiKeyStatus);
   $("scan-ai-save-key")?.addEventListener("click", async () => {
     const provider = String($("scan-ai-provider")?.value || "").trim();
