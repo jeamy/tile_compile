@@ -439,18 +439,69 @@ json validate_updates_against_schema(const json& candidates,
                                           yaml_text);
     auto validation = parse_json(res.stdout_str).value_or(json::object());
     if (res.exit_code != 0 || !validation.value("valid", false)) {
-        // Full patch failed — validate each update individually to isolate offenders
+        // Weight groups that must be validated together (members must sum to 1.0)
+        static const std::vector<std::vector<std::string>> weight_groups = {
+            {"global_metrics.weights.background", "global_metrics.weights.gradient", "global_metrics.weights.noise"},
+            {"quality_filter.weights.contrast", "quality_filter.weights.fwhm", "quality_filter.weights.roundness"},
+        };
+
+        // Determine which validated paths belong to a weight group
+        auto group_for_path = [&](const std::string& p) -> int {
+            for (int g = 0; g < (int)weight_groups.size(); ++g)
+                for (const auto& m : weight_groups[g])
+                    if (m == p) return g;
+            return -1;
+        };
+
+        // Build set of paths present in validated updates
+        std::map<std::string, json*> path_to_item;
+        for (auto& item : validated)
+            path_to_item[json_string_field(item, "path")] = &item;
+
+        std::set<int> groups_attempted;
         json surviving = json::array();
         json current_base = base_config;
+
+        // First pass: try each complete weight group together
+        for (int g = 0; g < (int)weight_groups.size(); ++g) {
+            const auto& grp = weight_groups[g];
+            bool any_in_group = false;
+            for (const auto& m : grp) if (path_to_item.count(m)) { any_in_group = true; break; }
+            if (!any_in_group) continue;
+            groups_attempted.insert(g);
+            json trial = current_base;
+            bool all_present = true;
+            for (const auto& m : grp) {
+                if (!path_to_item.count(m)) { all_present = false; break; }
+                set_dotted(trial, m, (*path_to_item[m])["value"]);
+            }
+            if (!all_present) continue; // partial group – handled in individual pass
+            const std::string trial_yaml = yaml_dump(trial);
+            SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
+                                                   state->runtime.project_root.string(), trial_yaml);
+            auto vresult = parse_json(vres.stdout_str).value_or(json::object());
+            if (vres.exit_code == 0 && vresult.value("valid", false)) {
+                current_base = trial;
+                for (const auto& m : grp) surviving.push_back(*path_to_item[m]);
+            } else {
+                for (const auto& m : grp) {
+                    (*path_to_item[m])["applicable"] = false;
+                    (*path_to_item[m])["reject_reason"] = "weight_group_validation_failed";
+                    rejected.push_back(*path_to_item[m]);
+                }
+            }
+        }
+
+        // Second pass: validate remaining (non-weight-group) updates individually
         for (auto& item : validated) {
             const std::string ipath = json_string_field(item, "path");
+            if (group_for_path(ipath) >= 0) continue; // already handled above
             const json ivalue = item.contains("value") ? item["value"] : json(nullptr);
             json trial = current_base;
             set_dotted(trial, ipath, ivalue);
             const std::string trial_yaml = yaml_dump(trial);
             SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
-                                                   state->runtime.project_root.string(),
-                                                   trial_yaml);
+                                                   state->runtime.project_root.string(), trial_yaml);
             auto vresult = parse_json(vres.stdout_str).value_or(json::object());
             if (vres.exit_code != 0 || !vresult.value("valid", false)) {
                 item["applicable"] = false;
@@ -1138,7 +1189,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 {"analysis_id", analysis_id},
                 {"validation", validation},
                 {"applied", applied}
-            }, 400);
+            });
         }
 
         json result = {

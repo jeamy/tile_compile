@@ -4554,6 +4554,11 @@ async function applySelectedParameterAiUpdates() {
     yaml: currentPreview?.config_yaml || uiState.configYaml || "",
     persist: false,
   });
+  if (applied?.ok === false) {
+    const errors = applied?.validation?.errors?.join("; ") || applied?.message || "Validierungsfehler";
+    setText($("parameter-ai-status"), `Validierung fehlgeschlagen: ${errors}`);
+    return;
+  }
   if (applied?.config) syncParameterFieldsFromConfig(applied.config);
   if (applied?.config_yaml) {
     uiState.configYaml = String(applied.config_yaml || "");
