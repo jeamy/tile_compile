@@ -2732,6 +2732,13 @@ function aiAnalysisSummaryText(analysis) {
   return `${analysis.summary || "Analyse geladen."}${conf}${suffix}`;
 }
 
+function formatAiValue(v) {
+  if (typeof v === "number" && !Number.isInteger(v) && Number.isFinite(v)) {
+    return String(parseFloat(v.toPrecision(4)));
+  }
+  return JSON.stringify(v);
+}
+
 function renderAiAnalysis(container, analysis, { selectable = false } = {}) {
   if (!container) return;
   if (!analysis || analysis.has_analysis === false) {
@@ -2747,7 +2754,7 @@ function renderAiAnalysis(container, analysis, { selectable = false } = {}) {
   const rows = [];
   for (const update of validated) {
     const path = escapeAiHtml(update.path || "");
-    const value = escapeAiHtml(JSON.stringify(update.value));
+    const value = escapeAiHtml(formatAiValue(update.value));
     const reason = escapeAiHtml(update.reason || "");
     const confidence = Number(update.confidence);
     const meta = [
@@ -2776,7 +2783,7 @@ function renderAiAnalysis(container, analysis, { selectable = false } = {}) {
   if (validated.length === 0 && rejected.length === 0 && recommendations.length > 0) {
     for (const rec of recommendations) {
       const path = escapeAiHtml(rec.path || "");
-      const value = escapeAiHtml(JSON.stringify(rec.value));
+      const value = escapeAiHtml(formatAiValue(rec.value));
       const reason = escapeAiHtml(rec.rationale || rec.reason || "");
       const confidence = Number(rec.confidence);
       const meta = [

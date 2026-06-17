@@ -79,7 +79,10 @@ properties:
     type: object
     properties:
       enabled: {type: boolean}
-      mode: {type: string, enum: [background, median]}
+      mode:
+        type: string
+        enum: [background, median]
+        description: "Frame normalization mode before stacking. 'background' subtracts a per-frame background estimate and normalizes to a reference level — DANGER for extended emission nebulae (M42, Orion, large HII regions): it will subtract real nebula signal as if it were background, destroying dynamic range and flattening the object. Use 'median' for any target where the object fills a significant fraction of the frame (>10%). 'background' is only safe for point sources, galaxy fields, or targets much smaller than the frame."
       per_channel: {type: boolean}
   registration:
     type: object
@@ -123,7 +126,7 @@ properties:
         type: number
         minimum: 10
         maximum: 2000
-        description: "Suchradius fuer den Shift-Konsistenz-Filter in triangle_star_matching (px im Proxy-Bild). Muss den maximalen erwarteten Inter-Frame-Shift abdecken. Aequatorial: 60, Alt/Az (z.B. DWARF II): 200-400. Default: 200."
+        description: "Search radius for the shift-consistency filter in triangle_star_matching (px in proxy image). Must cover the maximum expected inter-frame shift. Equatorial mount (EQ tracker): 60. Alt/Az (e.g. DWARF II, unguided): 200–400. WARNING: if set too small, frames with shifts exceeding this radius will silently fail registration (no error, just a bad warp with cc≈0). This causes chain_depth=0 for those frames. Never reduce below the measured maximum per-frame shift. If in doubt, leave at default 200."
   dithering:
     type: object
     properties:
@@ -193,7 +196,7 @@ properties:
       weight_exponent_scale:
         type: number
         exclusiveMinimum: 0
-        description: "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1."
+        description: "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1. CRITICAL SIDE EFFECT ON REGISTRATION: This value also controls the quality-based anchor frame selection for registration. Higher k concentrates weight on fewer high-quality frames, which changes which frames are selected as registration anchors. Anchor frames clustered only in high-quality regions leave the rest of the sequence without nearby anchors, causing chain_depth=0 registration failures. HARD RULES: (1) For frame_count > 300: maximum allowed value is 1.2. Do NOT recommend values above 1.2 regardless of quality spread. (2) For frame_count 100-300: maximum allowed is 1.5 only if FWHM p90/p10 ratio > 1.5 (>50% spread). (3) Only for frame_count < 100 with extreme quality spread may k=2.0 be considered. Example: 610 frames → max k=1.2 even if quality spread appears high. Recommending k=2.0 for any dataset with >300 frames is WRONG and will cause registration failures."
       weights:
         type: object
         properties:
@@ -255,7 +258,7 @@ properties:
       k_local:
         type: number
         exclusiveMinimum: 0
-        description: "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation, <1 softens it."
+        description: "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation between tiles, <1 softens it. NOTE: unlike weight_exponent_scale, k_local does NOT affect registration anchor selection — it only influences per-tile weighting during reconstruction. Safe to tune independently. High values (>2.0) can cause tile boundary artifacts if local quality varies sharply across neighboring tiles."
   aqmh:
     type: object
     description: "AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually."
@@ -278,7 +281,7 @@ properties:
           resolution_divisor:
             type: integer
             enum: [1, 2, 4]
-            description: "Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height."
+            description: "Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. RULE when recommending together with cherry_pick: if you recommend cherry_pick.enabled=true in the same analysis, you MUST recommend resolution_divisor=1 (not 2, not 4). Divisor=2 is acceptable only when cherry_pick remains disabled. Reason: with cherry_pick active, the quality map resolution determines per-pixel selection accuracy; downsampled maps (divisor>1) cause spatially averaged quality decisions, negating the per-pixel benefit of cherry_pick. Recommending cherry_pick.enabled=true AND resolution_divisor=2 in the same update set is internally contradictory."
           dtype:
             type: string
             enum: [float32, uint16, uint8]
@@ -291,9 +294,15 @@ properties:
       cherry_pick:
         type: object
         properties:
-          enabled: {type: boolean}
+          enabled:
+            type: boolean
+            description: "Enables per-pixel best-k frame selection during reconstruction. The pipeline also enforces an internal quality gate: if cherry_pick increases background_rms by more than max_background_rms_increase_percent, it is automatically disabled regardless of this flag. Only recommend enabling when the frame set has a significant quality spread (FWHM p90/p10 ratio > 1.3 or >20% spread) AND k_frac is set conservatively (<=0.6). Do NOT recommend enabling for large homogeneous frame sets where quality spread is low — it increases per-pixel tile inconsistency and raises background_rms."
           k_min: {type: integer, minimum: 1}
-          k_frac: {type: number, exclusiveMinimum: 0, maximum: 1}
+          k_frac:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 1
+            description: "Fraction of total frames retained per pixel tile. E.g. 0.85 retains 85% of frames, discarding only the worst 15%. HARD RULES: (1) For frame_count > 300: maximum allowed k_frac is 0.5. Do NOT recommend k_frac > 0.5 regardless of the fraction of bad frames — with >300 frames, high k_frac causes per-pixel tile inconsistency (different pixel tiles use different frame subsets), which produces a raised background_rms that nullifies cherry_pick's quality benefit. The internal validation gate (max_background_rms_increase_percent) will also auto-disable cherry_pick if background_rms increases. (2) The correct way to target a specific bad fraction is: if ~15% of frames are bad, use k_frac=0.85 ONLY if frame_count < 100. For frame_count > 300 with 15% bad frames, use k_frac=0.85 is WRONG — use k_frac in [0.3, 0.5] instead, which discards 50–70% of lowest-quality frames. (3) For frame_count 100–300: k_frac <= 0.7. Example: 610 frames with 15% bad → correct k_frac is 0.4–0.5, NOT 0.85."
       diagnostics:
         type: object
         properties:
@@ -333,7 +342,11 @@ properties:
       chroma_strength: {type: number, minimum: 0, maximum: 1}
       background_neutralization_mode: {type: string, enum: [always, auto, off]}
       source: {type: string, enum: [auto, siril, vizier_gaia, vizier_apass]}
-      mag_limit: {type: number, minimum: 1, maximum: 22}
+      mag_limit:
+        type: number
+        minimum: 1
+        maximum: 22
+        description: "Magnitude limit for PCC catalog star matching. Higher values include fainter stars. CAUTION: for small sensors or dense star fields, mag_limit > 15 can include stars that are below the detection threshold of the actual frames, leading to phantom catalog matches against background noise. For typical consumer OSC cameras (DWARF II, Seestar) with short exposures, keep mag_limit <= 14–15. Only increase to 16–18 for large-aperture instruments with deep exposures where faint stars are reliably detected."
       mag_bright_limit: {type: number, minimum: 0, maximum: 15}
       aperture_radius_px: {type: number, exclusiveMinimum: 0}
       annulus_inner_px: {type: number, exclusiveMinimum: 0}
@@ -374,7 +387,9 @@ properties:
   bge:
     type: object
     properties:
-      enabled: {type: boolean}
+      enabled:
+        type: boolean
+        description: "Background Gradient Equalizer. Fits and subtracts a smooth 2D background gradient across the stacked image. DANGER for extended emission nebulae (M42, Orion Nebula, large HII regions, large galaxies): the BGE gradient model cannot distinguish between real diffuse nebula emission and instrumental/sky gradients. It will model the nebula glow as background and subtract it, destroying the object. Only recommend enabling for compact targets (stars, small galaxies, tight clusters) where the object covers <5% of the frame area. For M42 or any target with large-scale diffuse emission, BGE must remain disabled (enabled: false)."
       autotune:
         type: object
         properties:
@@ -442,6 +457,7 @@ properties:
         description: "Mindestanteil gueltiger COMMON_OVERLAP-Pixel pro Tile. Default 1.0 = nur vollstaendig innerhalb der Support-Maske liegende Tiles."
       sigma_clip:
         type: object
+        description: "Sigma-clipping parameters for stacking rejection. WARNING: sigma_low, sigma_high, and min_fraction interact — with small frame counts (<30), tight sigma values (sigma_low < 2.0 or sigma_high < 2.0) combined with min_fraction > 0.5 can reject most frames per pixel, leaving empty tiles or ghosting. For large frame counts (>200) the defaults are safe. Only tighten sigma if you have many frames AND visible cosmic ray artifacts in the output."
         properties:
           sigma_low: {type: number, exclusiveMinimum: 0}
           sigma_high: {type: number, exclusiveMinimum: 0}

@@ -13,10 +13,25 @@ export interface RuntimeConfig {
   agent: AgentConfig;
 }
 
+export interface SessionContext {
+  mount_type?: "eq" | "altaz" | "unknown";
+  target_angular_size?: "compact" | "extended" | "full_frame";
+  camera_type?: "consumer_osc" | "astronomy_camera" | "unknown";
+  calibration_darks?: boolean;
+  calibration_flats?: boolean;
+  calibration_bias?: boolean;
+  system_ram_mb?: number;
+  cpu_cores?: number;
+  notes?: string;
+}
+
 export interface ScanAnalysisRequest {
   schema_version?: string;
   scan_result?: unknown;
   base_config?: unknown;
+  config_schema?: Record<string, unknown>;
+  scan_metrics?: unknown;
+  session_context?: SessionContext;
   allowed_config_paths?: string[];
   model?: string;
   send_paths?: boolean;

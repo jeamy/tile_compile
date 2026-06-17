@@ -74,7 +74,7 @@ export class FrameAnalysisService {
             message: `Receiving response... (${responseText.length} chars)`,
             delta,
             charsReceived: responseText.length,
-            progress: Math.min(15 + (responseText.length / 50), 85), // Rough estimate: ~5000 chars = 100%
+            progress: Math.min(15 + (responseText.length / 40), 90),
           });
           lastProgressEmit = now;
         }
@@ -97,7 +97,7 @@ export class FrameAnalysisService {
     const allowedPaths = new Set<string>(
       Array.isArray(request.allowed_config_paths) ? request.allowed_config_paths : []
     );
-    const configSchema = (request as any).config_schema || {};
+    const configSchema = request.config_schema || {};
     if (allowedPaths.size === 0) {
       for (const key of Object.keys(configSchema)) allowedPaths.add(key);
     }
@@ -125,7 +125,7 @@ export class FrameAnalysisService {
 
   private buildPrompt(request: ScanAnalysisRequest): string {
     // Build compact schema reference: only leaf paths (non-object types)
-    const configSchema = (request as any).config_schema || {};
+    const configSchema = request.config_schema || {};
     const schemaLines: string[] = [];
     for (const [path, info] of Object.entries<any>(configSchema)) {
       if (info?.type === "object") continue; // skip parent objects
@@ -168,7 +168,7 @@ export class FrameAnalysisService {
     }
 
     // Build compact current config (only leaf values, flatten dotted paths)
-    const baseConfig = (request as any).base_config || {};
+    const baseConfig = (request.base_config as any) || {};
     const configLines: string[] = [];
     const flattenConfig = (obj: any, prefix: string) => {
       if (obj == null) return;
@@ -183,7 +183,7 @@ export class FrameAnalysisService {
     flattenConfig(baseConfig, "");
 
     // Use scan_metrics (from scan-metrics CLI) if provided — authoritative quality data
-    const scanMetrics = (request as any).scan_metrics || null;
+    const scanMetrics = (request.scan_metrics as any) || null;
     const metricsLines: string[] = [];
     if (scanMetrics && scanMetrics.aggregate) {
       const agg = scanMetrics.aggregate;
@@ -289,13 +289,15 @@ export class FrameAnalysisService {
       "- Do not assert saturation, clipping, calibration defects, vignetting, hot pixels, or temperature impact as facts unless measured or configured evidence is present.",
       "- If evidence is insufficient for a parameter, set review_required=true and lower confidence.",
       "- Do NOT invent measurements not present in the scan data.",
+      "- If SESSION CONTEXT does not include mount_type: use registration.star_shift_radius_px=200 as safe default and set review_required=true for all registration parameters.",
+      "- If SESSION CONTEXT does not include target_angular_size: do NOT recommend normalization.mode=background or bge.enabled=true — omit those paths or set review_required=true.",
       "",
       "NUMERIC PRECISION RULES (mandatory):",
       "- All recommended numeric values must be EXACT and precise — never approximate, never 'around X', never rounded to single decimal unless the schema minimum step is 0.1.",
       "- Weight groups: the config contains several groups of weights that MUST each sum to exactly 1.0. If you recommend any weight within a group, you MUST recommend ALL weights in that group so they sum to exactly 1.0.",
       "  Known weight groups (always recommend all paths in the same group together):",
-      "  GROUP A: global_metrics.weights.background + global_metrics.weights.gradient + global_metrics.weights.noise = 1.0",
-      "  GROUP B: quality_filter.weights.contrast + quality_filter.weights.fwhm + quality_filter.weights.roundness = 1.0",
+      "  GROUP A: global_metrics.weights.background + global_metrics.weights.gradient + global_metrics.weights.noise + global_metrics.weights.fwhm + global_metrics.weights.roundness + global_metrics.weights.star_count = 1.0",
+      "  GROUP B: local_metrics.star_mode.weights.fwhm + local_metrics.star_mode.weights.roundness + local_metrics.star_mode.weights.contrast = 1.0",
       "- Never recommend a single weight from a group without recommending all others in the same group.",
       "- Double-check that all weights in a group sum to exactly 1.0 before including them.",
       "",
@@ -317,6 +319,22 @@ export class FrameAnalysisService {
         ...frameStats,
         "",
       ] : []),
+      ...((() => {
+        const ctx = request.session_context || {};
+        const lines: string[] = [];
+        if (ctx.mount_type) lines.push(`mount_type: ${ctx.mount_type}  (eq=equatorial tracker, altaz=alt/az unguided)`);
+        if (ctx.target_angular_size) lines.push(`target_angular_size: ${ctx.target_angular_size}  (compact=<5% frame, extended=>10% frame, full_frame=fills frame)`);
+        if (ctx.camera_type) lines.push(`camera_type: ${ctx.camera_type}`);
+        if (ctx.calibration_darks !== undefined) lines.push(`calibration_darks_available: ${ctx.calibration_darks}`);
+        if (ctx.calibration_flats !== undefined) lines.push(`calibration_flats_available: ${ctx.calibration_flats}`);
+        if (ctx.calibration_bias !== undefined) lines.push(`calibration_bias_available: ${ctx.calibration_bias}`);
+        if (ctx.system_ram_mb) lines.push(`system_ram_mb: ${ctx.system_ram_mb}`);
+        if (ctx.cpu_cores) lines.push(`cpu_cores: ${ctx.cpu_cores}`);
+        if ((scan as any).registration_success_rate != null) lines.push(`registration_success_rate: ${(scan as any).registration_success_rate}`);
+        if ((scan as any).max_shift_px != null) lines.push(`max_registration_shift_px: ${(scan as any).max_shift_px}`);
+        if (ctx.notes) lines.push(`notes: ${ctx.notes}`);
+        return lines.length > 0 ? ["=== SESSION CONTEXT (mount, target, system) ===", ...lines, ""] : [];
+      })()),
       "=== SCAN RESULT ===",
       JSON.stringify(scanCompact, null, 2),
     ].join("\n");
@@ -386,8 +404,7 @@ export class FrameAnalysisService {
 
     const reviewRequired = Boolean(
       parsed.review_required ||
-      parsed?.review_summary?.review_required_count > 0 ||
-      warnings.length > 0
+      parsed?.review_summary?.review_required_count > 0
     );
 
     return {

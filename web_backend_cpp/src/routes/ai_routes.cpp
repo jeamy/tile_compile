@@ -164,10 +164,12 @@ YAML::Node json_to_yaml_node(const json& value) {
     if (value.is_number_unsigned()) return YAML::Node(value.get<unsigned long long>());
     if (value.is_number_float()) {
         double d = value.get<double>();
-        // Round to 6 significant digits to avoid floating-point noise (e.g. 0.84999... → 0.85)
-        if (d != 0.0) {
-            double mag = std::pow(10.0, std::floor(std::log10(std::abs(d))) - 5);
-            d = std::round(d / mag) * mag;
+        // Round to 4 significant digits to remove floating-point noise (e.g. 0.84999... → 0.85)
+        // Use printf-roundtrip via %.4g to match JS toPrecision(4) behaviour
+        if (d != 0.0 && std::isfinite(d)) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.4g", d);
+            d = std::stod(buf);
         }
         return YAML::Node(d);
     }
