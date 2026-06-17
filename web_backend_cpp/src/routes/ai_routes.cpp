@@ -292,10 +292,10 @@ std::optional<json> load_base_config(const std::shared_ptr<AppState>& state,
             return parsed;
         }
         if (body.contains("config") && body["config"].is_object()) {
-            return body["config"];
+            return json(body["config"]);
         }
         if (body.contains("base_config") && body["base_config"].is_object()) {
-            return body["base_config"];
+            return json(body["base_config"]);
         }
         const std::string current_text = read_file_str(target);
         if (!current_text.empty()) {
