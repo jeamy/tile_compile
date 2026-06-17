@@ -61,14 +61,18 @@ function createProviderOptionsExtension(config: AgentConfig) {
         payload.temperature = config.temperature;
       }
       if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
+        // When extended thinking is active the model consumes a large portion of
+        // max_tokens for its reasoning trace before emitting any text. Apply a
+        // minimum of 16000 so the JSON response is not truncated mid-object.
+        const effectiveMaxTokens = hasThinking ? Math.max(config.maxTokens, 16000) : config.maxTokens;
         if (Object.prototype.hasOwnProperty.call(payload, "max_tokens")) {
-          payload.max_tokens = config.maxTokens;
+          payload.max_tokens = effectiveMaxTokens;
         }
         if (Object.prototype.hasOwnProperty.call(payload, "max_output_tokens")) {
-          payload.max_output_tokens = config.maxTokens;
+          payload.max_output_tokens = effectiveMaxTokens;
         }
       }
-      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")}`);
+      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")} effective_max_tokens=${String(hasThinking ? Math.max(config.maxTokens, 16000) : config.maxTokens)}`);
       return payload;
     });
   };
@@ -79,6 +83,8 @@ function extractTextContent(value: unknown): string {
   if (Array.isArray(value)) return value.map(extractTextContent).join("");
   if (!value || typeof value !== "object") return "";
   const item = value as Record<string, unknown>;
+  // Skip thinking blocks — they are internal reasoning, not the text output
+  if (item.type === "thinking" || item.type === "redacted_thinking") return "";
   if (typeof item.text === "string") return item.text;
   if (typeof item.delta === "string") return item.delta;
   if (typeof item.content === "string") return item.content;
@@ -197,8 +203,19 @@ export class FrameAnalysisService {
         }
         return;
       }
-      if ((event.type === "message_update" || event.type === "message_end" || event.type === "agent_end")
-          && event.message?.role === "assistant") {
+      // message_end carries the authoritative complete content from the provider.
+      // Replace responseText unconditionally so streaming deltas (which may be
+      // partial when stop=length) are superseded by the final message content.
+      if (event.type === "message_end" && event.message?.role === "assistant") {
+        const fullText = extractAssistantTextFromEvent(event);
+        if (fullText) {
+          responseText = fullText;
+          textDeltaCount++;
+          appendTrafficLog(`message_end replaced responseText length=${fullText.length}`);
+        }
+        return;
+      }
+      if (event.type === "message_update" && event.message?.role === "assistant") {
         const fullText = extractAssistantTextFromEvent(event);
         if (fullText && fullText.length > responseText.length) {
           const delta = fullText.slice(responseText.length);
@@ -215,13 +232,6 @@ export class FrameAnalysisService {
             });
             lastProgressEmit = now;
           }
-        }
-      }
-      if (event.type === "agent_end" && !responseText) {
-        const finalText = extractAssistantTextFromEvent(event);
-        if (finalText) {
-          responseText = finalText;
-          textDeltaCount++;
         }
       }
     });
