@@ -489,9 +489,10 @@ jobs:
           New-Item -ItemType Directory -Path $homeDir -Force | Out-Null
           $env:USERPROFILE = $homeDir
           $env:TILE_COMPILE_GUI2_NO_BROWSER = "1"
+          $env:TILE_COMPILE_AI_AGENT_AUTOSTART = "0"
           $startScript = Join-Path $root "start_gui2.ps1"
           $launcher = Start-Process -FilePath "powershell" -ArgumentList @("-ExecutionPolicy","Bypass","-File",$startScript) -PassThru
-          $deadline = (Get-Date).AddSeconds(45)
+          $deadline = (Get-Date).AddSeconds(90)
           $ok = $false
           while ((Get-Date) -lt $deadline) {
             try {

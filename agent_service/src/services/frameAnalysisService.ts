@@ -1,7 +1,11 @@
 import {
   createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
   SessionManager,
+  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent } from "../types.js";
@@ -25,6 +29,48 @@ function appendTrafficLog(message: string) {
   }
 }
 
+function stableNormalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableNormalize);
+  if (!value || typeof value !== "object") return value;
+  const normalized: Record<string, unknown> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    normalized[key] = stableNormalize((value as Record<string, unknown>)[key]);
+  }
+  return normalized;
+}
+
+function sha256Text(value: string): string {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function sha256Json(value: unknown): string {
+  return sha256Text(JSON.stringify(stableNormalize(value)));
+}
+
+function createProviderOptionsExtension(config: AgentConfig) {
+  return (pi: ExtensionAPI) => {
+    pi.on("before_provider_request", (event) => {
+      if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) {
+        return undefined;
+      }
+      const payload = { ...(event.payload as Record<string, unknown>) };
+      if (Number.isFinite(config.temperature)) {
+        payload.temperature = config.temperature;
+      }
+      if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
+        if (Object.prototype.hasOwnProperty.call(payload, "max_tokens")) {
+          payload.max_tokens = config.maxTokens;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "max_output_tokens")) {
+          payload.max_output_tokens = config.maxTokens;
+        }
+      }
+      appendTrafficLog(`provider_options temperature=${String(payload.temperature)} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")}`);
+      return payload;
+    });
+  };
+}
+
 export class FrameAnalysisService {
   constructor(
     private readonly config: AgentConfig,
@@ -45,16 +91,39 @@ export class FrameAnalysisService {
 
     this.emitProgress(onProgress, { phase: "initializing", message: "Creating AI session...", progress: 5 });
 
+    const agentCwd = process.env.TILE_COMPILE_PROJECT_ROOT
+      ? path.resolve(process.env.TILE_COMPILE_PROJECT_ROOT)
+      : process.cwd();
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: agentCwd,
+      agentDir: getAgentDir(),
+      extensionFactories: [createProviderOptionsExtension(this.config)],
+    });
+    await resourceLoader.reload();
+
     const { session } = await createAgentSession({
+      cwd: agentCwd,
       model,
       authStorage: this.modelService.getAuthStorage(),
       modelRegistry: this.modelService.getModelRegistry(),
       sessionManager: SessionManager.inMemory(),
+      resourceLoader,
       tools: [],
     });
 
     this.emitProgress(onProgress, { phase: "building_prompt", message: "Building analysis prompt...", progress: 10 });
     const prompt = this.buildPrompt(request);
+    const requestAuditPayload = {
+      schema_version: request.schema_version,
+      scan_result: request.scan_result,
+      base_config: request.base_config,
+      config_schema: request.config_schema,
+      scan_metrics: request.scan_metrics,
+      session_context: request.session_context,
+      allowed_config_paths: request.allowed_config_paths,
+      model: model.id,
+      force: request.force,
+    };
     appendTrafficLog(`prompt_length ${prompt.length} sections=${[
       'IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
     ].map(s => s + ':' + (prompt.includes(s) ? 'YES' : 'NO')).join(' ')}`);
@@ -114,6 +183,14 @@ export class FrameAnalysisService {
       response_chars: responseText.length,
       model: model.id,
       provider: model.provider,
+      temperature: this.config.temperature,
+      max_tokens: this.config.maxTokens,
+      prompt_sha256: sha256Text(prompt),
+      request_sha256: sha256Json(requestAuditPayload),
+      base_config_sha256: request.base_config === undefined ? undefined : sha256Json(request.base_config),
+      config_schema_sha256: request.config_schema === undefined ? undefined : sha256Json(request.config_schema),
+      scan_result_sha256: request.scan_result === undefined ? undefined : sha256Json(request.scan_result),
+      scan_metrics_sha256: request.scan_metrics === undefined ? undefined : sha256Json(request.scan_metrics),
     };
 
     this.emitProgress(onProgress, { phase: "complete", message: "Analysis complete", progress: 100 });

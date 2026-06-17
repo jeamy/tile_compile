@@ -145,7 +145,7 @@ AiConfig default_ai_config(const BackendRuntime& runtime) {
     config.model = env_string("AI_SCAN_MODEL", env_string("AI_RESEARCH_MODEL", ""));
     const auto slash = config.model.find('/');
     if (slash != std::string::npos) config.provider = config.model.substr(0, slash);
-    config.temperature = env_double("AI_SCAN_TEMPERATURE", 0.2, 0.0, 2.0);
+    config.temperature = env_double("AI_SCAN_TEMPERATURE", 0.0, 0.0, 2.0);
     config.max_tokens = env_int("AI_SCAN_MAX_TOKENS", 8000, 1, 200000);
     config.timeout_ms = env_int("AI_SCAN_TIMEOUT_MS", 120000, 1000, 600000);
     config.sidecar_url = env_string("AI_AGENT_URL", "http://127.0.0.1:3001");

@@ -112,7 +112,7 @@ ai:
     mode: manual
     provider: ""
     model: ""
-    temperature: 0.2
+    temperature: 0
     max_tokens: 8000
     timeout_ms: 120000
     send_paths: false
@@ -176,7 +176,7 @@ Vorgesehene `.env`-Variablen:
 AI_SCAN_ENABLED=false
 AI_SCAN_MODEL=anthropic/claude-sonnet-4-6
 AI_SCAN_MAX_TOKENS=8000
-AI_SCAN_TEMPERATURE=0.2
+AI_SCAN_TEMPERATURE=0
 AI_SCAN_TIMEOUT_MS=120000
 
 ANTHROPIC_API_KEY=...
@@ -470,7 +470,7 @@ export class FrameAnalysisService {
       enabled: String(process.env.AI_SCAN_ENABLED || "false").toLowerCase() === "true",
       model: process.env.AI_SCAN_MODEL || process.env.AI_RESEARCH_MODEL || "",
       maxTokens: Number(process.env.AI_SCAN_MAX_TOKENS || 8000),
-      temperature: Number(process.env.AI_SCAN_TEMPERATURE || 0.2),
+      temperature: Number(process.env.AI_SCAN_TEMPERATURE || 0),
       timeoutMs: Number(process.env.AI_SCAN_TIMEOUT_MS || 120000),
     };
   }

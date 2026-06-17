@@ -46,7 +46,7 @@ export function runtimeConfig(): RuntimeConfig {
       enabled: envBool("AI_SCAN_ENABLED", false),
       model: process.env.AI_SCAN_MODEL || process.env.AI_RESEARCH_MODEL || "",
       maxTokens: envNumber("AI_SCAN_MAX_TOKENS", 8000),
-      temperature: envNumber("AI_SCAN_TEMPERATURE", 0.2),
+      temperature: envNumber("AI_SCAN_TEMPERATURE", 0),
       timeoutMs: envNumber("AI_SCAN_TIMEOUT_MS", 120000),
     },
   };

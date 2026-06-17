@@ -11,7 +11,7 @@ struct AiConfig {
     std::string mode{"manual"};
     std::string provider;
     std::string model;
-    double temperature{0.2};
+    double temperature{0.0};
     int max_tokens{8000};
     int timeout_ms{120000};
     bool send_paths{false};

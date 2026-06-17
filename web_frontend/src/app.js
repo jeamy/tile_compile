@@ -3087,6 +3087,7 @@ async function runScanAiAnalysisFromUi() {
           scan_result: latestScan,
           scan_metrics: scanMetrics,
           base_config: baseConfig,
+          config_schema: configSchema,
           session_context: payload.session_context,
         });
         if (stored && stored.analysis_id) finalResult = stored;
@@ -3350,6 +3351,7 @@ async function runScanAiAnalysisFromUiForce() {
           scan_result: latestScan,
           scan_metrics: scanMetrics,
           base_config: baseConfig,
+          config_schema: configSchema,
           session_context: payload.session_context,
         });
         if (stored && stored.analysis_id) finalResult = stored;

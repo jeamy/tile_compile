@@ -715,6 +715,21 @@ json build_analysis_context(const json& scan_result, const json& request_or_body
     if (request_or_body.contains("scan_metrics") && request_or_body["scan_metrics"].is_object()) {
         context["scan_metrics"] = compact_scan_metrics_for_analysis_context(request_or_body["scan_metrics"]);
     }
+    if (request_or_body.contains("base_config") && request_or_body["base_config"].is_object()) {
+        context["base_config"] = request_or_body["base_config"];
+    }
+    if (request_or_body.contains("config_schema") && request_or_body["config_schema"].is_object()) {
+        context["config_schema"] = request_or_body["config_schema"];
+    }
+    if (request_or_body.contains("schema_version") && request_or_body["schema_version"].is_string()) {
+        context["request_schema_version"] = request_or_body["schema_version"];
+    }
+    if (request_or_body.contains("model") && request_or_body["model"].is_string()) {
+        context["requested_model"] = request_or_body["model"];
+    }
+    if (request_or_body.contains("allowed_config_paths") && request_or_body["allowed_config_paths"].is_array()) {
+        context["allowed_config_paths"] = request_or_body["allowed_config_paths"];
+    }
     if (request_or_body.contains("session_context") && request_or_body["session_context"].is_object()) {
         context["session_context"] = request_or_body["session_context"];
     }

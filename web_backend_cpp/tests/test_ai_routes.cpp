@@ -295,6 +295,10 @@ int main(int argc, char** argv) {
                     {"storage", {{"resolution_divisor", 2}}},
                     {"cherry_pick", {{"enabled", false}, {"k_frac", 0.3}}}
                 }}
+            }},
+            {"config_schema", {
+                {"aqmh.cherry_pick.k_frac", {{"type", "number"}, {"maximum", 1}}},
+                {"aqmh.storage.resolution_divisor", {{"type", "integer"}, {"enum", {1, 2, 4}}}}
             }}
         });
         expect_equal(context_store["_http_status"].get<long>(), 200L, "context store status");
@@ -304,6 +308,10 @@ int main(int argc, char** argv) {
                      "context store preserves sampling target");
         expect_equal(static_cast<long>(context_store["analysis_context"]["scan_metrics"]["sampling"]["selected_indices"].size()), 6L,
                      "context store preserves selected indices");
+        expect_equal(context_store["analysis_context"]["base_config"]["aqmh"]["storage"]["resolution_divisor"].get<long>(), 2L,
+                     "context store preserves base config");
+        expect_true(context_store["analysis_context"]["config_schema"].contains("aqmh.cherry_pick.k_frac"),
+                    "context store preserves config schema");
 
         const auto history = harness.get_json("/api/scan/analysis/history?limit=5");
         expect_equal(history["_http_status"].get<long>(), 200L, "analysis history status");

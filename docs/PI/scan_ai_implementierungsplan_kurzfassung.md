@@ -133,7 +133,7 @@ ai:
     mode: manual
     provider: ""
     model: ""
-    temperature: 0.2
+    temperature: 0
     max_tokens: 8000
     timeout_ms: 120000
     send_paths: false
