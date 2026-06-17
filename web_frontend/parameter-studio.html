@@ -445,6 +445,15 @@
                 <label>Status</label>
                 <span id="parameter-ai-status" class="ps-hint">nicht geladen</span>
               </div>
+              <div class="ps-row" id="parameter-ai-history-row" style="display:none;">
+                <label for="parameter-ai-history-select">Gespeicherte Analysen</label>
+                <div class="ps-inline-cluster">
+                  <select id="parameter-ai-history-select" class="ps-select ps-wide" title="Gespeicherte KI-Analyse laden.">
+                    <option value="">-- Analyse wählen --</option>
+                  </select>
+                  <button class="ps-btn ps-btn-secondary ps-btn-compact" id="parameter-ai-history-load" type="button">Laden</button>
+                </div>
+              </div>
               <div id="parameter-ai-analysis" class="ps-ai-result"></div>
               <div class="ps-actions">
                 <button id="parameter-ai-refresh" class="ps-btn ps-btn-secondary" type="button">Neu laden</button>

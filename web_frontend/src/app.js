@@ -2914,6 +2914,22 @@ async function runScanAiAnalysisFromUi() {
     return;
   }
 
+  // Check backend cache before any expensive operations
+  if (!force) {
+    try {
+      setText($("scan-ai-status"), "Prüfe Cache...");
+      const cached = await api.post(API_ENDPOINTS.scan.analysis, { force: false, scan_result: latestScan });
+      if (cached?.from_cache) {
+        persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, cached.analysis_id || "");
+        setText($("scan-ai-status"), "Analyse aus Cache geladen.");
+        renderAiAnalysis($("scan-ai-analysis"), cached);
+        return;
+      }
+    } catch (_cacheErr) {
+      // cache check failed, proceed normally
+    }
+  }
+
   // Fetch config schema so sidecar knows valid paths + types
   setText($("scan-ai-status"), "Lade Config-Schema...");
   let configSchema = null;
@@ -3018,7 +3034,11 @@ async function runScanAiAnalysisFromUi() {
       }
     }
     persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, finalResult?.analysis_id || "");
-    setText($("scan-ai-status"), `Analyse fertig. (${streamedResult?._meta?.streaming_duration_ms || 0}ms)`);
+    if (finalResult?.from_cache) {
+      setText($("scan-ai-status"), "Analyse aus Cache geladen.");
+    } else {
+      setText($("scan-ai-status"), `Analyse fertig. (${streamedResult?._meta?.streaming_duration_ms || 0}ms)`);
+    }
     renderAiAnalysis($("scan-ai-analysis"), finalResult);
   } catch (err) {
     // Fallback to regular POST if streaming fails
@@ -3141,6 +3161,152 @@ function parseSseEvent(text) {
   return event ? { event, data } : null;
 }
 
+async function refreshAiHistoryDropdown(selectId, rowId) {
+  const select = $(selectId);
+  const row = rowId ? $(rowId) : null;
+  if (!select) return;
+  let items = [];
+  try {
+    const result = await api.get(API_ENDPOINTS.scan.analysisHistory);
+    items = Array.isArray(result?.items) ? result.items : [];
+  } catch (_) {
+    return;
+  }
+  while (select.options.length > 1) select.remove(1);
+  for (const item of items) {
+    const meta = item.scan_metadata || {};
+    const target = String(meta.target || meta.input_path || item.filename || "").replace(/.*\//, "");
+    const at = String(item.persisted_at || "").replace(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, "$1-$2-$3 $4:$5:$6");
+    const frames = meta.frame_count ? ` · ${meta.frame_count} Frames` : "";
+    const validated = item.validated_count != null ? ` · ${item.validated_count} Empf.` : "";
+    const opt = document.createElement("option");
+    opt.value = item.filename || "";
+    opt.textContent = `${target}  ${at}${frames}${validated}`;
+    select.appendChild(opt);
+  }
+  if (row) row.style.display = items.length > 0 ? "" : "none";
+}
+
+async function refreshScanAiHistory() {
+  return refreshAiHistoryDropdown("scan-ai-history-select", "scan-ai-history-row");
+}
+
+async function loadSelectedScanAiAnalysis() {
+  const select = $("scan-ai-history-select");
+  if (!select?.value) return;
+  setText($("scan-ai-status"), "Lade gespeicherte Analyse...");
+  const result = await api.get(`${API_ENDPOINTS.scan.analysisHistory}/${encodeURIComponent(select.value)}`);
+  if (!result || result.has_analysis === false) {
+    setText($("scan-ai-status"), "Analyse nicht gefunden.");
+    return;
+  }
+  persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, result.analysis_id || "");
+  setText($("scan-ai-status"), "Analyse geladen.");
+  renderAiAnalysis($("scan-ai-analysis"), result);
+}
+
+async function runScanAiAnalysisFromUiForce() {
+  const config = await saveScanAiConfigFromInputs();
+  setText($("scan-ai-status"), "Analyse initialisiert (erzwungen)...");
+  if ($("scan-ai-analysis")) $("scan-ai-analysis").innerHTML = "";
+  const model = String($("scan-ai-model")?.value || "").trim();
+  const latestScan = await api.get(API_ENDPOINTS.scan.latest);
+  if (!latestScan?.has_scan) {
+    setText($("scan-ai-status"), "Bitte zuerst einen Scan ausfuehren.");
+    return;
+  }
+  // Reuse the regular flow but inject force=true by temporarily patching the function
+  // Simplest: call the existing flow after setting force on the payload directly
+  setText($("scan-ai-status"), "Lade Config-Schema...");
+  let configSchema = null;
+  try {
+    const schemaRaw = await api.get(API_ENDPOINTS.config.schema);
+    if (schemaRaw && typeof schemaRaw === "object") {
+      configSchema = {};
+      const collectLeaves = (obj, prefix) => {
+        if (!obj || typeof obj !== "object") return;
+        if (prefix) {
+          const entry = {};
+          if (obj.type) entry.type = obj.type;
+          if (obj.enum) entry.enum = obj.enum;
+          if (obj.description) entry.desc = String(obj.description).substring(0, 120);
+          if (obj.default !== undefined) entry.default = obj.default;
+          if (obj.minimum !== undefined) entry.minimum = obj.minimum;
+          if (obj.maximum !== undefined) entry.maximum = obj.maximum;
+          if (Object.keys(entry).length) configSchema[prefix] = entry;
+        }
+        if (obj.properties) {
+          for (const [k, v] of Object.entries(obj.properties)) {
+            collectLeaves(v, prefix ? `${prefix}.${k}` : k);
+          }
+        }
+      };
+      collectLeaves(schemaRaw, "");
+    }
+  } catch (schemaErr) {
+    appendAiTrafficLog(`[${new Date().toISOString()}] WARN: Config-Schema nicht geladen: ${schemaErr.message}`);
+  }
+  let baseConfig = null;
+  try {
+    baseConfig = await api.get(API_ENDPOINTS.config.current);
+  } catch (cfgErr) {
+    baseConfig = uiState.configObject || null;
+  }
+  let scanMetrics = null;
+  try {
+    setText($("scan-ai-status"), "Berechne Bildstatistiken...");
+    const metricsStart = await api.post(API_ENDPOINTS.scan.metrics, { input_path: latestScan.input_path || "" });
+    if (metricsStart?.job_id) {
+      const metricsJob = await waitForJob(metricsStart.job_id, {
+        timeoutMs: 600000,
+        onTick: (job) => setText($("scan-ai-status"), `Berechne Bildstatistiken... (${job.state})`),
+      });
+      if (metricsJob.state === "ok" && metricsJob.data?.result?.ok) scanMetrics = metricsJob.data.result;
+    }
+  } catch (_) {}
+  const payload = { force: true, scan_result: latestScan };
+  if (model) payload.model = model;
+  if (configSchema) payload.config_schema = configSchema;
+  if (baseConfig) payload.base_config = baseConfig;
+  if (scanMetrics) payload.scan_metrics = scanMetrics;
+  try {
+    const streamedResult = await streamAiAnalysis(payload, (event) => {
+      if (event.phase === "complete" && event.result) {
+        setText($("scan-ai-status"), "Analyse empfangen, validiere Empfehlungen...");
+      } else if (event.phase === "error") {
+        setText($("scan-ai-status"), `Fehler: ${event.message}`);
+      } else {
+        setText($("scan-ai-status"), `${event.message} ${event.progress ? `(${event.progress}%)` : ""}`);
+      }
+    });
+    let finalResult = streamedResult;
+    if (streamedResult && streamedResult.schema_version) {
+      try {
+        const stored = await api.post(API_ENDPOINTS.scan.analysisStore, {
+          analysis: streamedResult,
+          model: streamedResult?._meta?.model || model || "",
+          provider: streamedResult?._meta?.provider || "",
+        });
+        if (stored && stored.analysis_id) finalResult = stored;
+      } catch (_) {}
+    }
+    persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, finalResult?.analysis_id || "");
+    setText($("scan-ai-status"), `Analyse fertig. (${streamedResult?._meta?.streaming_duration_ms || 0}ms)`);
+    renderAiAnalysis($("scan-ai-analysis"), finalResult);
+    void refreshScanAiHistory().catch(() => {});
+  } catch (err) {
+    const analysis = await api.post(API_ENDPOINTS.scan.analysis, payload);
+    if (analysis.status === "AI_DISABLED") {
+      setText($("scan-ai-status"), "AI deaktiviert.");
+    } else {
+      persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, analysis.analysis_id || "");
+      setText($("scan-ai-status"), "Analyse fertig.");
+    }
+    renderAiAnalysis($("scan-ai-analysis"), analysis);
+    void refreshScanAiHistory().catch(() => {});
+  }
+}
+
 function bindScanAiPanel() {
   if (!$("scan-ai-panel")) return;
   void (async () => {
@@ -3200,6 +3366,19 @@ function bindScanAiPanel() {
   $("scan-ai-run")?.addEventListener("click", () => {
     void runScanAiAnalysisFromUi().catch((err) => {
       setText($("scan-ai-status"), `Analyse fehlgeschlagen: ${errorText(err)}`);
+    });
+  });
+
+  $("scan-ai-force-run")?.addEventListener("click", () => {
+    void runScanAiAnalysisFromUiForce().catch((err) => {
+      setText($("scan-ai-status"), `Analyse fehlgeschlagen: ${errorText(err)}`);
+    });
+  });
+
+  void refreshScanAiHistory().catch(() => {});
+  $("scan-ai-history-load")?.addEventListener("click", () => {
+    void loadSelectedScanAiAnalysis().catch((err) => {
+      setText($("scan-ai-status"), `Laden fehlgeschlagen: ${errorText(err)}`);
     });
   });
 }
@@ -4328,6 +4507,7 @@ function activeScenarioKeys(scopeSelector = "#parameter-studio-root") {
 }
 
 async function refreshParameterAiAnalysis() {
+  await refreshAiHistoryDropdown("parameter-ai-history-select", "parameter-ai-history-row").catch(() => {});
   const latest = await api.get(API_ENDPOINTS.scan.analysisLatest);
   renderAiAnalysis($("parameter-ai-analysis"), latest, { selectable: true });
   const data = aiAnalysisPayload(latest);
@@ -4402,6 +4582,28 @@ function bindParameterAiPanel() {
     void applySelectedParameterAiUpdates().catch((err) => {
       setText($("parameter-ai-status"), `Anwenden fehlgeschlagen: ${errorText(err)}`);
     });
+  });
+  $("parameter-ai-history-load")?.addEventListener("click", async () => {
+    const select = $("parameter-ai-history-select");
+    if (!select?.value) return;
+    setText($("parameter-ai-status"), "Lade gespeicherte Analyse...");
+    try {
+      const result = await api.get(`${API_ENDPOINTS.scan.analysisHistory}/${encodeURIComponent(select.value)}`);
+      if (!result || result.has_analysis === false) {
+        setText($("parameter-ai-status"), "Analyse nicht gefunden.");
+        return;
+      }
+      persistTextValue(LAST_SCAN_AI_ANALYSIS_KEY, result.analysis_id || "");
+      renderAiAnalysis($("parameter-ai-analysis"), result, { selectable: true });
+      const data = aiAnalysisPayload(result);
+      const conf = Number.isFinite(Number(data?.confidence)) ? `Confidence ${Number(data.confidence).toFixed(2)}` : "";
+      const cts = [];
+      if (Number.isFinite(Number(data?.validated_count))) cts.push(`${data.validated_count} valide`);
+      if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
+      setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
+    } catch (err) {
+      setText($("parameter-ai-status"), `Laden fehlgeschlagen: ${errorText(err)}`);
+    }
   });
 }
 

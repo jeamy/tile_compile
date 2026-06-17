@@ -614,6 +614,44 @@ std::string persist_analysis(const std::shared_ptr<AppState>& state, const json&
     return filepath.string();
 }
 
+/// @brief Searches persisted analyses for one that matches the given input_path (and frame_count if > 0).
+/// Returns the full analysis JSON with has_analysis=true, or {has_analysis:false} if none found.
+json find_cached_analysis(const std::shared_ptr<AppState>& state,
+                          const std::string& input_path,
+                          int frame_count = 0) {
+    if (input_path.empty()) return json({{"has_analysis", false}});
+    fs::path dir = ai_analyses_dir(state);
+    if (!fs::is_directory(dir)) return json({{"has_analysis", false}});
+
+    // Collect all .json filenames sorted newest-first
+    std::vector<std::string> names;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 5) != ".json") continue;
+        names.push_back(name);
+    }
+    std::sort(names.rbegin(), names.rend());
+
+    for (const auto& name : names) {
+        std::ifstream ifs(dir / name);
+        if (!ifs) continue;
+        auto parsed = json::parse(ifs, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object()) continue;
+        if (!parsed.contains("scan_metadata") || !parsed["scan_metadata"].is_object()) continue;
+        const auto& meta = parsed["scan_metadata"];
+        if (!meta.contains("input_path") || !meta["input_path"].is_string()) continue;
+        if (meta["input_path"].get<std::string>() != input_path) continue;
+        if (frame_count > 0 && meta.contains("frame_count") && meta["frame_count"].is_number()) {
+            if (meta["frame_count"].get<int>() != frame_count) continue;
+        }
+        parsed["has_analysis"] = true;
+        parsed["from_cache"] = true;
+        return parsed;
+    }
+    return json({{"has_analysis", false}});
+}
+
 json load_latest_persisted_analysis(const std::shared_ptr<AppState>& state) {
     fs::path dir = ai_analyses_dir(state);
     if (!fs::is_directory(dir)) return json({{"has_analysis", false}});
@@ -758,6 +796,20 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         json scan_result = scan_result_from_request_or_latest(state, *body);
         if (scan_result.is_null()) {
             return err_resp("NO_SCAN", "No scan result available for AI analysis", 400);
+        }
+
+        // Return cached analysis if one exists for the same input (unless force=true)
+        if (!force) {
+            const std::string ip = json_string_field(scan_result, "input_path");
+            int fc = 0;
+            if (scan_result.contains("frames_detected") && scan_result["frames_detected"].is_number())
+                fc = scan_result["frames_detected"].get<int>();
+            else if (scan_result.contains("frames_total") && scan_result["frames_total"].is_number())
+                fc = scan_result["frames_total"].get<int>();
+            json cached = find_cached_analysis(state, ip, fc);
+            if (cached.value("has_analysis", false)) {
+                return json_resp(cached);
+            }
         }
 
         fs::path target_config_path;
@@ -909,6 +961,27 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp({{"items", list_persisted_analyses(state, limit)}});
     });
 
+    // Load a single persisted analysis by filename
+    CROW_ROUTE(app, "/api/scan/analysis/history/<string>").methods("GET"_method)
+    ([state](const crow::request&, std::string filename) {
+        // Sanitize: no path traversal
+        if (filename.find('/') != std::string::npos || filename.find("..") != std::string::npos) {
+            return err_resp("BAD_REQUEST", "Invalid filename", 400);
+        }
+        if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".json") {
+            filename += ".json";
+        }
+        fs::path filepath = ai_analyses_dir(state) / filename;
+        std::ifstream ifs(filepath);
+        if (!ifs) return err_resp("NOT_FOUND", "Analysis not found", 404);
+        auto parsed = json::parse(ifs, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object()) {
+            return err_resp("PARSE_ERROR", "Failed to parse analysis file", 500);
+        }
+        parsed["has_analysis"] = true;
+        return json_resp(parsed);
+    });
+
     // SSE streaming endpoint for live analysis progress
     CROW_ROUTE(app, "/api/scan/analysis/stream").methods("POST"_method)
     ([state](const crow::request& req) {
@@ -928,6 +1001,30 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         json scan_result = scan_result_from_request_or_latest(state, *body);
         if (scan_result.is_null()) {
             return err_resp("NO_SCAN", "No scan result available for AI analysis", 400);
+        }
+
+        // Return cached analysis as synthetic SSE complete event (unless force=true)
+        if (!force) {
+            const std::string ip = json_string_field(scan_result, "input_path");
+            int fc = 0;
+            if (scan_result.contains("frames_detected") && scan_result["frames_detected"].is_number())
+                fc = scan_result["frames_detected"].get<int>();
+            else if (scan_result.contains("frames_total") && scan_result["frames_total"].is_number())
+                fc = scan_result["frames_total"].get<int>();
+            json cached = find_cached_analysis(state, ip, fc);
+            if (cached.value("has_analysis", false)) {
+                crow::response sse_res;
+                sse_res.code = 200;
+                sse_res.set_header("Content-Type", "text/event-stream");
+                sse_res.set_header("Cache-Control", "no-cache");
+                sse_res.set_header("Connection", "keep-alive");
+                sse_res.set_header("X-Accel-Buffering", "no");
+                cached["from_cache"] = true;
+                const std::string data = cached.dump();
+                sse_res.body =
+                    "event: complete\ndata: " + data + "\n\n";
+                return sse_res;
+            }
         }
 
         fs::path target_config_path;
