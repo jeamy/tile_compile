@@ -162,7 +162,15 @@ YAML::Node json_to_yaml_node(const json& value) {
     if (value.is_boolean()) return YAML::Node(value.get<bool>());
     if (value.is_number_integer()) return YAML::Node(value.get<long long>());
     if (value.is_number_unsigned()) return YAML::Node(value.get<unsigned long long>());
-    if (value.is_number_float()) return YAML::Node(value.get<double>());
+    if (value.is_number_float()) {
+        double d = value.get<double>();
+        // Round to 6 significant digits to avoid floating-point noise (e.g. 0.84999... → 0.85)
+        if (d != 0.0) {
+            double mag = std::pow(10.0, std::floor(std::log10(std::abs(d))) - 5);
+            d = std::round(d / mag) * mag;
+        }
+        return YAML::Node(d);
+    }
     if (value.is_null()) return YAML::Node();
     return YAML::Node(value.get<std::string>());
 }

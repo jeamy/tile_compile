@@ -4522,8 +4522,22 @@ async function refreshParameterAiAnalysis() {
   if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
   setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
   const applyBtn = $("parameter-ai-apply");
-  if (applyBtn) { applyBtn.disabled = false; applyBtn.title = ""; }
+  if (applyBtn) {
+    const alreadyApplied = allParameterAiUpdatesAlreadyApplied(latest);
+    applyBtn.disabled = alreadyApplied;
+    applyBtn.title = alreadyApplied ? "Alle Empfehlungen bereits angewendet" : "";
+  }
   return latest;
+}
+
+function allParameterAiUpdatesAlreadyApplied(analysis) {
+  const data = aiAnalysisPayload(analysis);
+  const updates = Array.isArray(data?.validated_updates) ? data.validated_updates : [];
+  if (updates.length === 0) return false;
+  return updates.every((u) => {
+    if (u.current_value === undefined || u.current_value === null) return false;
+    return JSON.stringify(u.current_value) === JSON.stringify(u.value);
+  });
 }
 
 function selectedParameterAiPaths() {
@@ -4590,10 +4604,24 @@ function bindParameterAiPanel() {
       setText($("parameter-ai-status"), `KI-Empfehlungen nicht geladen: ${errorText(err)}`);
     });
   });
-  $("parameter-ai-apply")?.addEventListener("click", () => {
-    void applySelectedParameterAiUpdates().catch((err) => {
-      setText($("parameter-ai-status"), `Anwenden fehlgeschlagen: ${errorText(err)}`);
-    });
+  $("parameter-ai-apply")?.addEventListener("click", async () => {
+    try {
+      await applySelectedParameterAiUpdates();
+    } catch (err) {
+      if (err?.status === 404) {
+        setText($("parameter-ai-status"), "Analyse veraltet – lade neu...");
+        try {
+          await refreshParameterAiAnalysis();
+          await applySelectedParameterAiUpdates();
+        } catch (retryErr) {
+          const msg = retryErr?.payload?.message || errorText(retryErr);
+          setText($("parameter-ai-status"), `Anwenden fehlgeschlagen: ${msg}`);
+        }
+      } else {
+        const msg = err?.payload?.message || errorText(err);
+        setText($("parameter-ai-status"), `Anwenden fehlgeschlagen: ${msg}`);
+      }
+    }
   });
   $("parameter-ai-history-load")?.addEventListener("click", async () => {
     const select = $("parameter-ai-history-select");
@@ -4614,7 +4642,11 @@ function bindParameterAiPanel() {
       if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
       setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
       const applyBtn = $("parameter-ai-apply");
-      if (applyBtn) { applyBtn.disabled = false; applyBtn.title = ""; }
+      if (applyBtn) {
+        const alreadyApplied = allParameterAiUpdatesAlreadyApplied(result);
+        applyBtn.disabled = alreadyApplied;
+        applyBtn.title = alreadyApplied ? "Alle Empfehlungen bereits angewendet" : "";
+      }
     } catch (err) {
       setText($("parameter-ai-status"), `Laden fehlgeschlagen: ${errorText(err)}`);
     }
