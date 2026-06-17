@@ -753,7 +753,7 @@ void register_runs_routes(CrowApp& app,
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + dir, 403, {{"path", dir}});
             }
             if (resolved.status == PathStatus::not_found) {
-                return err_resp("PATH_NOT_FOUND", "Path not found: " + dir, 422, {{"path", dir}});
+                return err_resp("PATH_NOT_FOUND", "Path not found: " + dir, 400, {{"path", dir}});
             }
             dir = resolved.path.string();
         }
@@ -767,7 +767,7 @@ void register_runs_routes(CrowApp& app,
                     return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw_input_dir, 403, {{"path", raw_input_dir}});
                 }
                 if (resolved.status == PathStatus::not_found) {
-                    return err_resp("PATH_NOT_FOUND", "Path not found: " + raw_input_dir, 422, {{"path", raw_input_dir}});
+                    return err_resp("PATH_NOT_FOUND", "Path not found: " + raw_input_dir, 400, {{"path", raw_input_dir}});
                 }
                 item["input_dir"] = resolved.path.string();
             }
@@ -1207,10 +1207,10 @@ void register_runs_routes(CrowApp& app,
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto full = resolve_artifact_path(run_dir, rel_path);
             if (!full) {
-                return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 422, nlohmann::json::object());
+                return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
             }
             if (!fs::exists(*full) || !fs::is_regular_file(*full)) {
-                return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 422, nlohmann::json::object());
+                return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
             }
             std::ifstream f(*full);
             std::string content((std::istreambuf_iterator<char>(f)),
@@ -1234,8 +1234,8 @@ void register_runs_routes(CrowApp& app,
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto full = resolve_artifact_path(run_dir, rel_path);
-            if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 422, nlohmann::json::object());
-            if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 422, nlohmann::json::object());
+            if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
+            if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
             std::ifstream f(*full, std::ios::binary);
             std::string body((std::istreambuf_iterator<char>(f)),
                               std::istreambuf_iterator<char>());

@@ -111,7 +111,7 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
         return err_resp("PATH_NOT_ALLOWED", label + " is outside allowed roots", 403, {{"path", path.string()}, {"allowed_roots", allowed_roots_json(state->runtime)}});
     }
     if (resolved.status == PathStatus::not_found) {
-        return err_resp("PATH_NOT_FOUND", label + " does not exist", 422, {{"path", path.string()}});
+        return err_resp("PATH_NOT_FOUND", label + " does not exist", 400, {{"path", path.string()}});
     }
     return std::nullopt;
 }

@@ -138,7 +138,7 @@ void register_scan_routes(CrowApp& app,
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw, 403, {{"path", raw}});
             }
             if (resolved.status == PathStatus::not_found) {
-                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 422, {{"path", raw}});
+                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 400, {{"path", raw}});
             }
             resolved_inputs.push_back(resolved.path.string());
         }

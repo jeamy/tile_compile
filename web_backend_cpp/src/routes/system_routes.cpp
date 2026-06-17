@@ -86,7 +86,7 @@ void register_system_routes(CrowApp& app,
             std::sort(roots.begin(), roots.end());
             roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
             if (roots.empty()) {
-                return err_resp("NO_ALLOWED_ROOTS", "no readable allowed roots available for file browser", 422, nlohmann::json::object());
+                return err_resp("NO_ALLOWED_ROOTS", "no readable allowed roots available for file browser", 400, nlohmann::json::object());
             }
             path = roots.front();
         }
@@ -94,9 +94,9 @@ void register_system_routes(CrowApp& app,
         if (!state->runtime.is_path_allowed(dir))
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + path, 403, {{"path", path}});
         if (!fs::exists(dir))
-            return err_resp("PATH_NOT_FOUND", "Path not found: " + path, 422, {{"path", path}});
+            return err_resp("PATH_NOT_FOUND", "Path not found: " + path, 400, {{"path", path}});
         if (!fs::is_directory(dir))
-            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", path}});
+            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 400, {{"path", path}});
 
         fs::path resolved_dir = normalized_existing_path(dir);
         std::string normalized_path = resolved_dir.string();
@@ -138,14 +138,14 @@ void register_system_routes(CrowApp& app,
         std::string path = body["path"].get<std::string>();
         fs::path candidate = fs::path(path);
         if (candidate.is_relative()) {
-            return err_resp("PATH_INVALID", "path must be absolute", 422, {{"path", path}});
+            return err_resp("PATH_INVALID", "path must be absolute", 400, {{"path", path}});
         }
         candidate = normalized_existing_path(candidate);
         if (!fs::exists(candidate)) {
-            return err_resp("PATH_NOT_FOUND", "path does not exist", 422, {{"path", candidate.string()}});
+            return err_resp("PATH_NOT_FOUND", "path does not exist", 400, {{"path", candidate.string()}});
         }
         if (!fs::is_directory(candidate)) {
-            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 422, {{"path", candidate.string()}});
+            return err_resp("NOT_A_DIRECTORY", "path is not a directory", 400, {{"path", candidate.string()}});
         }
         state->runtime.grant_root(candidate);
 
@@ -166,7 +166,7 @@ void register_system_routes(CrowApp& app,
         if (!state->runtime.is_path_allowed(target))
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed", 403, {{"path", path}});
         if (!fs::exists(target))
-            return err_resp("PATH_NOT_FOUND", "path does not exist", 422, {{"path", path}});
+            return err_resp("PATH_NOT_FOUND", "path does not exist", 400, {{"path", path}});
         target = normalized_existing_path(target);
 #ifdef __APPLE__
         std::vector<std::string> command = {"open", target.string()};
@@ -180,7 +180,7 @@ void register_system_routes(CrowApp& app,
         int rc = std::system(("xdg-open '" + target.string() + "' >/dev/null 2>&1 &").c_str());
 #endif
         if (rc != 0) {
-            return err_resp("OPEN_FAILED", "failed to open path", 422, {{"path", target.string()}});
+            return err_resp("OPEN_FAILED", "failed to open path", 400, {{"path", target.string()}});
         }
         return json_response({{"ok", true}, {"path", target.string()}, {"command", command}});
     });

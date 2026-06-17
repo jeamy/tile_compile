@@ -4521,6 +4521,8 @@ async function refreshParameterAiAnalysis() {
   if (Number.isFinite(Number(data?.validated_count))) cts.push(`${data.validated_count} valide`);
   if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
   setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
+  const applyBtn = $("parameter-ai-apply");
+  if (applyBtn) { applyBtn.disabled = false; applyBtn.title = ""; }
   return latest;
 }
 
@@ -4566,6 +4568,11 @@ async function applySelectedParameterAiUpdates() {
   setSituationApplyStatus(false);
   clearConfigValidationState();
   setText($("parameter-ai-status"), `Angewendet (${applied?.applied_paths?.length || selectedPaths.length})`);
+  const applyBtn = $("parameter-ai-apply");
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.title = "Bereits angewendet";
+  }
 }
 
 function bindParameterAiPanel() {
@@ -4601,6 +4608,8 @@ function bindParameterAiPanel() {
       if (Number.isFinite(Number(data?.validated_count))) cts.push(`${data.validated_count} valide`);
       if (Number.isFinite(Number(data?.rejected_count))) cts.push(`${data.rejected_count} verworfen`);
       setText($("parameter-ai-status"), [conf, cts.length ? `(${cts.join(", ")})` : ""].filter(Boolean).join(" ") || "Analyse geladen.");
+      const applyBtn = $("parameter-ai-apply");
+      if (applyBtn) { applyBtn.disabled = false; applyBtn.title = ""; }
     } catch (err) {
       setText($("parameter-ai-status"), `Laden fehlgeschlagen: ${errorText(err)}`);
     }

@@ -265,7 +265,7 @@ std::optional<crow::response> resolve_config_path(const std::shared_ptr<AppState
         return err_resp("PATH_NOT_ALLOWED", "config_path is outside allowed roots", 403, {{"path", path.string()}});
     }
     if (resolved.status == PathStatus::not_found) {
-        return err_resp("PATH_NOT_FOUND", "config_path does not exist", 422, {{"path", path.string()}});
+        return err_resp("PATH_NOT_FOUND", "config_path does not exist", 400, {{"path", path.string()}});
     }
     return std::nullopt;
 }
@@ -1073,13 +1073,41 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         const std::string analysis_id = body->value("analysis_id", std::string());
         if (analysis_id.empty()) return err_resp("BAD_REQUEST", "analysis_id is required", 400);
         auto job = state->job_store.get(analysis_id);
+
+        // Fall back to persisted analyses if not in job store (e.g. after server restart)
+        json persisted_data = json::object();
+        bool found_persisted = false;
         if (!job || job->type != "scan_ai_analysis") {
-            return err_resp("NOT_FOUND", "AI analysis not found", 404);
+            fs::path dir = ai_analyses_dir(state);
+            if (fs::is_directory(dir)) {
+                std::vector<std::string> names;
+                for (const auto& entry : fs::directory_iterator(dir)) {
+                    if (!entry.is_regular_file()) continue;
+                    const std::string n = entry.path().filename().string();
+                    if (n.size() >= 5 && n.substr(n.size() - 5) == ".json") names.push_back(n);
+                }
+                std::sort(names.rbegin(), names.rend());
+                for (const auto& name : names) {
+                    std::ifstream ifs(dir / name);
+                    if (!ifs) continue;
+                    auto parsed = json::parse(ifs, nullptr, false);
+                    if (parsed.is_discarded() || !parsed.is_object()) continue;
+                    if (json_string_field(parsed, "analysis_id") == analysis_id) {
+                        persisted_data = parsed;
+                        found_persisted = true;
+                        break;
+                    }
+                }
+            }
+            if (!found_persisted) {
+                return err_resp("NOT_FOUND", "AI analysis not found", 404);
+            }
         }
 
-        json updates = selected_validated_updates(job->data, *body);
+        const json& analysis_data = job ? job->data : persisted_data;
+        json updates = selected_validated_updates(analysis_data, *body);
         if (updates.empty()) {
-            return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 422);
+            return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
         }
 
         fs::path target_config_path;
@@ -1095,7 +1123,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             set_dotted(patched, path, update["value"]);
             applied.push_back({{"path", path}, {"value", update["value"]}});
         }
-        if (applied.empty()) return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 422);
+        if (applied.empty()) return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
 
         const std::string yaml_text = yaml_dump(patched);
         SubprocessResult validate_res = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
@@ -1110,7 +1138,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 {"analysis_id", analysis_id},
                 {"validation", validation},
                 {"applied", applied}
-            }, 422);
+            }, 400);
         }
 
         json result = {
