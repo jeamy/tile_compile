@@ -54,7 +54,10 @@ function createProviderOptionsExtension(config: AgentConfig) {
         return undefined;
       }
       const payload = { ...(event.payload as Record<string, unknown>) };
-      if (Number.isFinite(config.temperature)) {
+      const hasThinking = payload.thinking !== undefined
+        && payload.thinking !== null
+        && payload.thinking !== false;
+      if (Number.isFinite(config.temperature) && (!hasThinking || config.temperature === 1)) {
         payload.temperature = config.temperature;
       }
       if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
@@ -65,10 +68,39 @@ function createProviderOptionsExtension(config: AgentConfig) {
           payload.max_output_tokens = config.maxTokens;
         }
       }
-      appendTrafficLog(`provider_options temperature=${String(payload.temperature)} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")}`);
+      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")}`);
       return payload;
     });
   };
+}
+
+function extractTextContent(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(extractTextContent).join("");
+  if (!value || typeof value !== "object") return "";
+  const item = value as Record<string, unknown>;
+  if (typeof item.text === "string") return item.text;
+  if (typeof item.delta === "string") return item.delta;
+  if (typeof item.content === "string") return item.content;
+  if (Array.isArray(item.content)) return extractTextContent(item.content);
+  return "";
+}
+
+function extractAssistantTextFromEvent(event: any): string {
+  if (event?.assistantMessageEvent?.type === "text_delta") {
+    return typeof event.assistantMessageEvent.delta === "string"
+      ? event.assistantMessageEvent.delta
+      : "";
+  }
+  if (event?.message?.role === "assistant") {
+    return extractTextContent(event.message.content);
+  }
+  if (Array.isArray(event?.messages)) {
+    const assistantMessages = event.messages.filter((message: any) => message?.role === "assistant");
+    const lastAssistant = assistantMessages[assistantMessages.length - 1];
+    return extractTextContent(lastAssistant?.content);
+  }
+  return "";
 }
 
 export class FrameAnalysisService {
@@ -130,6 +162,7 @@ export class FrameAnalysisService {
     appendTrafficLog(`prompt ${prompt.substring(0, 50000)}`);
 
     let responseText = "";
+    let assistantError = "";
     let textDeltaCount = 0;
     const startTime = Date.now();
     let lastProgressEmit = startTime;
@@ -137,8 +170,16 @@ export class FrameAnalysisService {
     this.emitProgress(onProgress, { phase: "ai_thinking", message: "Waiting for AI response...", progress: 15 });
 
     const unsubscribe = session.subscribe((event: any) => {
+      if (["agent_start", "message_start", "message_update", "message_end", "agent_end"].includes(String(event.type))) {
+        appendTrafficLog(`agent_event ${String(event.type)} role=${String(event.message?.role || "")} stop=${String(event.message?.stopReason || "")}`);
+      }
+      if (event.type === "message_end" && event.message?.role === "assistant" && event.message?.stopReason === "error") {
+        assistantError = String(event.message?.errorMessage || "");
+        appendTrafficLog(`assistant_error ${assistantError}`);
+      }
       if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-        const delta = event.assistantMessageEvent.delta as string;
+        const delta = extractAssistantTextFromEvent(event);
+        if (!delta) return;
         responseText += delta;
         textDeltaCount++;
 
@@ -153,6 +194,34 @@ export class FrameAnalysisService {
             progress: Math.min(15 + (responseText.length / 40), 90),
           });
           lastProgressEmit = now;
+        }
+        return;
+      }
+      if ((event.type === "message_update" || event.type === "message_end" || event.type === "agent_end")
+          && event.message?.role === "assistant") {
+        const fullText = extractAssistantTextFromEvent(event);
+        if (fullText && fullText.length > responseText.length) {
+          const delta = fullText.slice(responseText.length);
+          responseText = fullText;
+          textDeltaCount++;
+          const now = Date.now();
+          if (now - lastProgressEmit > 100) {
+            this.emitProgress(onProgress, {
+              phase: "receiving_tokens",
+              message: `Receiving response... (${responseText.length} chars)`,
+              delta,
+              charsReceived: responseText.length,
+              progress: Math.min(15 + (responseText.length / 40), 90),
+            });
+            lastProgressEmit = now;
+          }
+        }
+      }
+      if (event.type === "agent_end" && !responseText) {
+        const finalText = extractAssistantTextFromEvent(event);
+        if (finalText) {
+          responseText = finalText;
+          textDeltaCount++;
         }
       }
     });
@@ -169,6 +238,9 @@ export class FrameAnalysisService {
     const duration = Date.now() - startTime;
     console.log(`[AI Analysis] Completed: ${textDeltaCount} deltas, ${responseText.length} chars, ${duration}ms`);
     appendTrafficLog(`raw_response ${responseText.substring(0, 20000)}`);
+    if (!responseText.trim() && assistantError) {
+      throw new Error(`PI agent provider error: ${assistantError}`);
+    }
 
     const allowedPaths = new Set<string>(
       Array.isArray(request.allowed_config_paths) ? request.allowed_config_paths : []
