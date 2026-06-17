@@ -1,7 +1,7 @@
 aqmh:
   cherry_pick:
-    enabled: false
-    k_frac: 0.3
+    enabled: true
+    k_frac: 0.4
     k_min: 3
   diagnostics:
     q_region: 0.75
@@ -16,8 +16,8 @@ aqmh:
     w_sharp: 0.6
     w_snr: 0.4
   storage:
-    dtype: float32
-    max_resident_maps: 2
+    dtype: uint16
+    max_resident_maps: 6
     resolution_divisor: 1
 assumptions:
   frames_min: 30
@@ -111,6 +111,7 @@ chroma_denoise:
     enabled: true
     gradient_percentile: 94
 data:
+  bayer_pattern: GBRG
   color_mode: OSC
   linear_required: true
 dithering:
@@ -123,9 +124,12 @@ global_metrics:
     - 3
   weight_exponent_scale: 1.2
   weights:
-    background: 0.4
-    gradient: 0.25
-    noise: 0.35
+    background: 0.1
+    fwhm: 0.35
+    gradient: 0.3
+    noise: 0.15
+    roundness: 0
+    star_count: 0.1
 hypermetric_stretch:
   adaptive_anchor: true
   color_grip: 1
@@ -160,9 +164,9 @@ local_metrics:
     - 3
   star_mode:
     weights:
-      contrast: 0.2
-      fwhm: 0.6
-      roundness: 0.2
+      contrast: 0.25
+      fwhm: 0.65
+      roundness: 0.1
   structure_mode:
     background_weight: 0.3
     metric_weight: 0.7
@@ -261,7 +265,7 @@ stacking:
   sigma_clip:
     max_iters: 4
     min_fraction: 0.4
-    sigma_high: 1.5
+    sigma_high: 2.5
     sigma_low: 2
 synthetic:
   clustering:

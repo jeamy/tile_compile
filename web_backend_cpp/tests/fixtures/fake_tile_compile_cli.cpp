@@ -42,6 +42,31 @@ int main(int argc, char** argv) {
                             {"enum", {"OSC", "MONO", "RGB"}}
                         }}
                     }}
+                }},
+                {"aqmh", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"storage", {
+                            {"type", "object"},
+                            {"properties", {
+                                {"resolution_divisor", {
+                                    {"type", "integer"},
+                                    {"enum", {1, 2, 4}}
+                                }}
+                            }}
+                        }},
+                        {"cherry_pick", {
+                            {"type", "object"},
+                            {"properties", {
+                                {"enabled", {{"type", "boolean"}}},
+                                {"k_frac", {
+                                    {"type", "number"},
+                                    {"exclusiveMinimum", 0},
+                                    {"maximum", 1}
+                                }}
+                            }}
+                        }}
+                    }}
                 }}
             }}
         }.dump() << std::endl;

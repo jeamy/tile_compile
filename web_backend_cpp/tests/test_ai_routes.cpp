@@ -41,6 +41,17 @@ public:
         : _response(std::move(response)), _port(reserve_port()) {}
 
     ~FakeSidecar() {
+        if (_thread.joinable()) {
+            int fd = socket(AF_INET, SOCK_STREAM, 0);
+            if (fd >= 0) {
+                sockaddr_in addr{};
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                addr.sin_port = htons(static_cast<uint16_t>(_port));
+                connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+                close(fd);
+            }
+        }
         if (_thread.joinable()) _thread.join();
     }
 
@@ -203,6 +214,7 @@ int main(int argc, char** argv) {
         expect_equal(sidecar_config["_http_status"].get<long>(), 200L, "ai sidecar config status");
 
         const auto analysis = harness.post_json("/api/scan/analysis", {
+            {"force", true},
             {"scan_result", {{"frames_detected", 12}, {"color_mode", "OSC"}}},
             {"base_config", {{"data", {{"color_mode", "OSC"}}}}},
             {"model", false}
@@ -216,6 +228,99 @@ int main(int argc, char** argv) {
         expect_equal(analysis["validated_updates"][0]["risk"].get<std::string>(), "false", "scan ai coerces boolean risk");
         expect_equal(static_cast<long>(analysis["validated_updates"][0]["evidence"].size()), 2L, "scan ai preserves evidence");
         expect_equal(analysis["validation"]["valid"].get<bool>() ? "true" : "false", "true", "scan ai validation ok");
+
+        const auto context_store = harness.post_json("/api/scan/analysis/store", {
+            {"analysis", {
+                {"schema_version", "pi.scan-analysis.v1"},
+                {"summary", "fixture context analysis"},
+                {"confidence", 0.8},
+                {"detected_scenarios", {"large_frame_count"}},
+                {"recommendations", {
+                    {
+                        {"path", "aqmh.cherry_pick.enabled"},
+                        {"value", true},
+                        {"reason", "fixture cherry pick"},
+                        {"confidence", 0.9},
+                        {"risk", "low"},
+                        {"evidence", {"scan_metrics.fwhm.spread"}}
+                    },
+                    {
+                        {"path", "aqmh.cherry_pick.k_frac"},
+                        {"value", 0.88},
+                        {"reason", "fixture invalid high k_frac"},
+                        {"confidence", 0.9},
+                        {"risk", "low"},
+                        {"evidence", {"scan_metrics.frame_count=610"}}
+                    },
+                    {
+                        {"path", "aqmh.storage.resolution_divisor"},
+                        {"value", 2},
+                        {"reason", "fixture invalid downsampled maps with cherry-pick"},
+                        {"confidence", 0.9},
+                        {"risk", "low"},
+                        {"evidence", {"scan_metrics.frame_count=610"}}
+                    }
+                }},
+                {"warnings", nlohmann::json::array()},
+                {"review_required", false}
+            }},
+            {"scan_result", {
+                {"frames_detected", 610},
+                {"input_path", "/fixture/m42"},
+                {"frames", nlohmann::json::array({{{"target", "M42"}}})}
+            }},
+            {"scan_metrics", {
+                {"ok", true},
+                {"sample_count", 122},
+                {"frames_total", 610},
+                {"sampling", {
+                    {"strategy", "stratified_header_edges_even_fill"},
+                    {"sample_target", 122},
+                    {"selected_indices", {0, 1, 2, 607, 608, 609}}
+                }},
+                {"aggregate", {
+                    {"fwhm", {{"median", 9.1}, {"p10", 8.9}, {"p90", 10.0}, {"count", 122}}}
+                }},
+                {"frames", {
+                    {
+                        {"index", 0},
+                        {"sample_reasons", {"edge_start"}},
+                        {"fwhm", 9.1},
+                        {"header", {{"target", "M42"}}}
+                    }
+                }}
+            }},
+            {"base_config", {
+                {"aqmh", {
+                    {"storage", {{"resolution_divisor", 2}}},
+                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.3}}}
+                }}
+            }}
+        });
+        expect_equal(context_store["_http_status"].get<long>(), 200L, "context store status");
+        expect_equal(context_store["analysis_context"]["frame_count"].get<long>(), 610L,
+                     "context store preserves frame count");
+        expect_equal(context_store["analysis_context"]["scan_metrics"]["sampling"]["sample_target"].get<long>(), 122L,
+                     "context store preserves sampling target");
+        expect_equal(static_cast<long>(context_store["analysis_context"]["scan_metrics"]["sampling"]["selected_indices"].size()), 6L,
+                     "context store preserves selected indices");
+
+        const auto history = harness.get_json("/api/scan/analysis/history?limit=5");
+        expect_equal(history["_http_status"].get<long>(), 200L, "analysis history status");
+        std::string context_filename;
+        const std::string context_id = context_store["analysis_id"].get<std::string>();
+        for (const auto& item : history["items"]) {
+            if (item.value("analysis_id", std::string()) == context_id) {
+                context_filename = item.value("filename", std::string());
+                break;
+            }
+        }
+        expect_true(!context_filename.empty(), "context analysis appears in persisted history");
+        const auto context_file = harness.get_json("/api/scan/analysis/history/" + context_filename);
+        expect_equal(context_file["_http_status"].get<long>(), 200L, "context persisted file status");
+        expect_equal(context_file["analysis_context"]["scan_metrics"]["sampling"]["strategy"].get<std::string>(),
+                     "stratified_header_edges_even_fill",
+                     "context persisted file preserves sampling strategy");
 
         const std::string analysis_id = analysis["analysis_id"].get<std::string>();
         const auto apply = harness.post_json("/api/scan/analysis/apply", {

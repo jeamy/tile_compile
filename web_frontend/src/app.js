@@ -3084,6 +3084,10 @@ async function runScanAiAnalysisFromUi() {
           analysis: streamedResult,
           model: streamedResult?._meta?.model || model || "",
           provider: streamedResult?._meta?.provider || "",
+          scan_result: latestScan,
+          scan_metrics: scanMetrics,
+          base_config: baseConfig,
+          session_context: payload.session_context,
         });
         if (stored && stored.analysis_id) finalResult = stored;
       } catch (storeErr) {
@@ -3343,6 +3347,10 @@ async function runScanAiAnalysisFromUiForce() {
           analysis: streamedResult,
           model: streamedResult?._meta?.model || model || "",
           provider: streamedResult?._meta?.provider || "",
+          scan_result: latestScan,
+          scan_metrics: scanMetrics,
+          base_config: baseConfig,
+          session_context: payload.session_context,
         });
         if (stored && stored.analysis_id) finalResult = stored;
       } catch (_) {}

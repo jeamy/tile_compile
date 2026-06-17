@@ -266,6 +266,29 @@ void set_dotted(json& root, const std::string& dotted_path, const json& value) {
     (*node)[parts.back()] = value;
 }
 
+int infer_frame_count(const json& scan_result, const json& scan_metrics = json::object()) {
+    if (scan_metrics.is_object()) {
+        if (scan_metrics.contains("frames_total") && scan_metrics["frames_total"].is_number()) {
+            return scan_metrics["frames_total"].get<int>();
+        }
+        if (scan_metrics.contains("frame_count") && scan_metrics["frame_count"].is_number()) {
+            return scan_metrics["frame_count"].get<int>();
+        }
+    }
+    if (scan_result.is_object()) {
+        if (scan_result.contains("frames_detected") && scan_result["frames_detected"].is_number()) {
+            return scan_result["frames_detected"].get<int>();
+        }
+        if (scan_result.contains("frames_total") && scan_result["frames_total"].is_number()) {
+            return scan_result["frames_total"].get<int>();
+        }
+        if (scan_result.contains("frames") && scan_result["frames"].is_array()) {
+            return static_cast<int>(scan_result["frames"].size());
+        }
+    }
+    return 0;
+}
+
 std::optional<crow::response> resolve_config_path(const std::shared_ptr<AppState>& state,
                                                   fs::path& path,
                                                   bool must_exist = false) {
@@ -652,7 +675,56 @@ json extract_scan_metadata(const json& scan_result) {
     return meta;
 }
 
-std::string persist_analysis(const std::shared_ptr<AppState>& state, const json& analysis, const json& scan_meta) {
+json compact_scan_metrics_for_analysis_context(const json& scan_metrics) {
+    json out = json::object();
+    if (!scan_metrics.is_object()) return out;
+    for (const std::string key : {
+             "ok", "sample_count", "frames_total", "frames_metrics_total",
+             "frames_metrics_truncated", "aggregate", "sampling"
+         }) {
+        if (scan_metrics.contains(key)) out[key] = scan_metrics[key];
+    }
+    if (scan_metrics.contains("frames") && scan_metrics["frames"].is_array()) {
+        out["frames"] = json::array();
+        constexpr size_t max_context_frames = 512;
+        const size_t limit = std::min(scan_metrics["frames"].size(), max_context_frames);
+        for (size_t i = 0; i < limit; ++i) {
+            const auto& frame = scan_metrics["frames"][i];
+            if (!frame.is_object()) continue;
+            json item = json::object();
+            for (const std::string key : {
+                     "index", "frame_index", "sample_reasons", "file", "filename",
+                     "fwhm", "background", "noise", "gradient_energy", "roundness",
+                     "star_count", "header"
+                 }) {
+                if (frame.contains(key)) item[key] = frame[key];
+            }
+            out["frames"].push_back(std::move(item));
+        }
+        out["frames_context_total"] = scan_metrics["frames"].size();
+        out["frames_context_truncated"] = scan_metrics["frames"].size() > max_context_frames;
+    }
+    return out;
+}
+
+json build_analysis_context(const json& scan_result, const json& request_or_body) {
+    json context = {
+        {"schema_version", "pi.scan-analysis-context.v1"},
+        {"frame_count", infer_frame_count(scan_result, request_or_body.value("scan_metrics", json::object()))},
+    };
+    if (request_or_body.contains("scan_metrics") && request_or_body["scan_metrics"].is_object()) {
+        context["scan_metrics"] = compact_scan_metrics_for_analysis_context(request_or_body["scan_metrics"]);
+    }
+    if (request_or_body.contains("session_context") && request_or_body["session_context"].is_object()) {
+        context["session_context"] = request_or_body["session_context"];
+    }
+    return context;
+}
+
+std::string persist_analysis(const std::shared_ptr<AppState>& state,
+                             const json& analysis,
+                             const json& scan_meta,
+                             const json& analysis_context = json::object()) {
     std::error_code ec;
     fs::path dir = ai_analyses_dir(state);
     fs::create_directories(dir, ec);
@@ -680,6 +752,9 @@ std::string persist_analysis(const std::shared_ptr<AppState>& state, const json&
     // Merge analysis with scan metadata
     json persisted = analysis;
     persisted["scan_metadata"] = scan_meta;
+    if (analysis_context.is_object() && !analysis_context.empty()) {
+        persisted["analysis_context"] = analysis_context;
+    }
     persisted["persisted_at"] = std::string(ts_buf);
     persisted["has_analysis"] = true;
 
@@ -886,6 +961,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (cached.value("has_analysis", false)) {
                 return json_resp(cached);
             }
+            // No cache found and force=false: this endpoint is used as a cache probe only.
+            // Do NOT start a real AI analysis here; return immediately so the caller can
+            // fall through to the streaming endpoint instead.
+            return json_resp({{"has_analysis", false}, {"from_cache", false}});
         }
 
         fs::path target_config_path;
@@ -932,6 +1011,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()) {
                 request_payload["scan_metrics"] = (*body)["scan_metrics"];
             }
+            if (body->contains("session_context") && (*body)["session_context"].is_object()) {
+                request_payload["session_context"] = (*body)["session_context"];
+            }
         } catch (const nlohmann::json::type_error& e) {
             return err_resp("JSON_TYPE_ERROR", std::string("Failed to build request payload: ") + e.what(), 500);
         } catch (const std::exception& e) {
@@ -954,6 +1036,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             analysis["validated_count"] = validation["validated_updates"].size();
             analysis["rejected_count"] = validation["rejected_updates"].size();
             analysis["config_path"] = target_config_path.string();
+            analysis["analysis_context"] = build_analysis_context(scan_result, request_payload);
             const std::string job_id = state->job_store.create("scan_ai_analysis");
             json job_data = analysis;
             job_data["analysis_id"] = job_id;
@@ -961,7 +1044,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             job_data["provider"] = config.provider;
             state->job_store.update_state(job_id, JobState::ok, job_data);
             analysis["analysis_id"] = job_id;
-            persist_analysis(state, analysis, extract_scan_metadata(scan_result));
+            persist_analysis(state, analysis, extract_scan_metadata(scan_result),
+                             analysis["analysis_context"]);
             return json_resp(analysis);
         } catch (const std::exception& e) {
             return json_resp(sidecar_unavailable_payload(e), 502);
@@ -1002,6 +1086,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         std::optional<SchemaInfo> schema = load_schema_info(state, schema_error);
         if (!schema) return err_resp("SCHEMA_UNAVAILABLE", schema_error, 502);
 
+        json scan_result = scan_result_from_request_or_latest(state, *body);
+        const json scan_metrics = body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()
+            ? (*body)["scan_metrics"]
+            : json::object();
         const json candidates = normalize_candidate_updates(analysis);
         const json validation = validate_updates_against_schema(candidates, *schema, *base_config, state);
         analysis["updates"] = candidates;
@@ -1012,6 +1100,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         analysis["validated_count"] = validation["validated_updates"].size();
         analysis["rejected_count"] = validation["rejected_updates"].size();
         analysis["config_path"] = target_config_path.string();
+        analysis["analysis_context"] = build_analysis_context(scan_result, *body);
 
         const std::string job_id = state->job_store.create("scan_ai_analysis");
         json job_data = analysis;
@@ -1023,10 +1112,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         analysis["has_analysis"] = true;
         json scan_meta = body->contains("scan_metadata") ? (*body)["scan_metadata"] : json::object();
         if (scan_meta.empty()) {
-            json scan_result = scan_result_from_request_or_latest(state, *body);
             scan_meta = extract_scan_metadata(scan_result);
         }
-        persist_analysis(state, analysis, scan_meta);
+        persist_analysis(state, analysis, scan_meta, build_analysis_context(scan_result, *body));
         return json_resp(analysis);
     });
 
