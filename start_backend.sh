@@ -38,10 +38,14 @@ PRESETS_DIR_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/examples"
 PRESETS_DIR="${TILE_COMPILE_PRESETS_DIR:-${PRESETS_DIR_DEFAULT}}"
 UI_DIR_DEFAULT="${PROJECT_ROOT}/web_frontend"
 UI_DIR="${TILE_COMPILE_UI_DIR:-${UI_DIR_DEFAULT}}"
+AGENT_SERVICE_DIR_DEFAULT="${PROJECT_ROOT}/agent_service"
+AGENT_SERVICE_DIR="${TILE_COMPILE_AGENT_SERVICE_DIR:-${AGENT_SERVICE_DIR_DEFAULT}}"
 RUNS_DIR_DEFAULT="${PROJECT_ROOT}/runs"
 RUNS_DIR="${TILE_COMPILE_RUNS_DIR:-${RUNS_DIR_DEFAULT}}"
 ALLOWED_ROOTS_DEFAULT="${PROJECT_ROOT}:${RUNS_DIR}:${PROJECT_ROOT}/tmp"
 ALLOWED_ROOTS="${TILE_COMPILE_ALLOWED_ROOTS:-${ALLOWED_ROOTS_DEFAULT}}"
+AI_AGENT_AUTOSTART="${TILE_COMPILE_AI_AGENT_AUTOSTART:-1}"
+AI_AGENT_PID=""
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
@@ -67,10 +71,70 @@ Env overrides:
   TILE_COMPILE_CLI, TILE_COMPILE_RUNNER,
   TILE_COMPILE_CONFIG, TILE_COMPILE_SCHEMA,
   TILE_COMPILE_PRESETS_DIR, TILE_COMPILE_UI_DIR,
-  TILE_COMPILE_RUNS_DIR, TILE_COMPILE_ALLOWED_ROOTS,
+  TILE_COMPILE_AGENT_SERVICE_DIR, TILE_COMPILE_RUNS_DIR,
+  TILE_COMPILE_ALLOWED_ROOTS, TILE_COMPILE_AI_AGENT_AUTOSTART,
   TILE_COMPILE_OPENCV_DIR, TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR,
   TILE_COMPILE_CUDA_NVCC_EXECUTABLE
 EOF
+}
+
+cleanup_agent_service() {
+  if [[ -n "${AI_AGENT_PID}" ]] && kill -0 "${AI_AGENT_PID}" >/dev/null 2>&1; then
+    echo "[backend] Stopping PI AI sidecar pid=${AI_AGENT_PID}"
+    kill "${AI_AGENT_PID}" >/dev/null 2>&1 || true
+    wait "${AI_AGENT_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+start_agent_service() {
+  if [[ "${AI_AGENT_AUTOSTART}" == "0" ]]; then
+    echo "[backend] PI AI sidecar autostart disabled."
+    return 0
+  fi
+  if [[ ! -f "${AGENT_SERVICE_DIR}/package.json" ]]; then
+    echo "[backend] PI AI sidecar not found: ${AGENT_SERVICE_DIR}"
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[backend] WARNUNG: npm nicht gefunden; PI AI sidecar wird nicht gestartet."
+    return 0
+  fi
+  local needs_install=0
+  local needs_build=0
+  if [[ ! -d "${AGENT_SERVICE_DIR}/node_modules" ]]; then
+    needs_install=1
+  elif [[ "${AGENT_SERVICE_DIR}/package.json" -nt "${AGENT_SERVICE_DIR}/node_modules/.package-lock.json" ]]; then
+    needs_install=1
+  fi
+  if [[ ! -f "${AGENT_SERVICE_DIR}/dist/server.js" ]]; then
+    needs_build=1
+  else
+    # Rebuild if any .ts source is newer than the built output
+    while IFS= read -r -d '' src; do
+      if [[ "${src}" -nt "${AGENT_SERVICE_DIR}/dist/server.js" ]]; then
+        needs_build=1
+        break
+      fi
+    done < <(find "${AGENT_SERVICE_DIR}/src" -name '*.ts' -print0 2>/dev/null)
+  fi
+  if [[ "${needs_install}" == "1" ]]; then
+    echo "[backend] PI AI sidecar: npm install"
+    if ! npm --prefix "${AGENT_SERVICE_DIR}" install; then
+      echo "[backend] WARNUNG: npm install fehlgeschlagen; Backend startet ohne Sidecar."
+      return 0
+    fi
+  fi
+  if [[ "${needs_build}" == "1" ]]; then
+    echo "[backend] PI AI sidecar: npm run build (Quellen neuer als dist)"
+    if ! npm --prefix "${AGENT_SERVICE_DIR}" run build; then
+      echo "[backend] WARNUNG: PI AI sidecar build fehlgeschlagen; Backend startet ohne Sidecar."
+      return 0
+    fi
+  fi
+  echo "[backend] Starting PI AI sidecar from ${AGENT_SERVICE_DIR}"
+  npm --prefix "${AGENT_SERVICE_DIR}" start &
+  AI_AGENT_PID=$!
+  trap cleanup_agent_service EXIT INT TERM
 }
 
 EXTRA_ARGS=()
@@ -157,6 +221,7 @@ export TILE_COMPILE_CONFIG="${CONFIG_PATH}"
 export TILE_COMPILE_SCHEMA="${SCHEMA_PATH}"
 export TILE_COMPILE_PRESETS_DIR="${PRESETS_DIR}"
 export TILE_COMPILE_UI_DIR="${UI_DIR}"
+export TILE_COMPILE_AGENT_SERVICE_DIR="${AGENT_SERVICE_DIR}"
 export TILE_COMPILE_RUNS_DIR="${RUNS_DIR}"
 export TILE_COMPILE_ALLOWED_ROOTS="${ALLOWED_ROOTS}"
 export TILE_COMPILE_OPENCV_DIR="${TILE_COMPILE_OPENCV_DIR}"
@@ -173,4 +238,5 @@ fi
 
 echo "[backend] Starting: ${BACKEND_CMD[*]}"
 echo "[backend] UI: http://${HOST}:${PORT}/ui/"
-exec "${BACKEND_CMD[@]}"
+start_agent_service
+"${BACKEND_CMD[@]}"

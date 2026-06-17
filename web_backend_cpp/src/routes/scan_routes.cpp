@@ -138,7 +138,7 @@ void register_scan_routes(CrowApp& app,
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw, 403, {{"path", raw}});
             }
             if (resolved.status == PathStatus::not_found) {
-                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 422, {{"path", raw}});
+                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 400, {{"path", raw}});
             }
             resolved_inputs.push_back(resolved.path.string());
         }
@@ -332,6 +332,59 @@ void register_scan_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/scan/quality").methods("GET"_method)
     ([state]() {
         return json_resp(scan_quality(state->job_store));
+    });
+
+    CROW_ROUTE(app, "/api/scan/metrics").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = json::parse(req.body, nullptr, false);
+        std::string input_path;
+        int sample = 0;
+        if (body.is_object()) {
+            if (body.contains("input_path") && body["input_path"].is_string())
+                input_path = body["input_path"].get<std::string>();
+            if (body.contains("sample") && body["sample"].is_number_integer())
+                sample = body["sample"].get<int>();
+        }
+        if (input_path.empty()) {
+            // Try to infer from last scan
+            input_path = state->last_scan_input_path;
+        }
+        if (input_path.empty()) {
+            return json_resp({{"error", "no input_path provided and no previous scan"}}, 400);
+        }
+        std::vector<std::string> args = {state->runtime.cli_exe, "scan-metrics", input_path};
+        if (sample > 0) {
+            args.push_back("--sample");
+            args.push_back(std::to_string(sample));
+        }
+        json initial_data = {{"input_path", input_path}, {"sample", sample}, {"command", args}};
+        std::string job_id = state->subprocess_manager.launch(
+            "scan-metrics", args, state->runtime.project_root.string(), "", initial_data);
+        return json_resp({{"job_id", job_id}, {"state", "running"}});
+    });
+
+    CROW_ROUTE(app, "/api/scan/metrics/latest").methods("GET"_method)
+    ([state]() {
+        auto jobs = state->job_store.list();
+        json best_result = nullptr;
+        std::string best_ts;
+        for (const auto& j : jobs) {
+            if (j.type != "scan-metrics") continue;
+            if (j.state != JobState::ok) continue;
+            if (j.data.contains("result") && j.data["result"].is_object()) {
+                const auto& r = j.data["result"];
+                if (r.value("ok", false)) {
+                    if (j.job_id > best_ts) {
+                        best_ts = j.job_id;
+                        best_result = r;
+                    }
+                }
+            }
+        }
+        if (best_result.is_null()) {
+            return json_resp({{"ok", false}, {"error", "no scan-metrics result available"}});
+        }
+        return json_resp(best_result);
     });
 
     CROW_ROUTE(app, "/api/guardrails").methods("GET"_method)

@@ -185,7 +185,7 @@ registration:
   star_inlier_tol_px: 4
   star_min_inliers: 4
   star_topk: 80
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_m42_emission_nebula_medium
 runtime_limits:
   allow_emergency_mode: true
   hard_abort_hours: 6
@@ -196,17 +196,17 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
-    - galaxy
-    - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+    - m42
+    - emission_nebula
+    - bright_core
+    - short_exposure
+  id: m42_emission_nebula_medium
+  intent: M42/OSC mit Fokus auf Emissionsnebel-Struktur, hellem Trapezium-Kern und Erhalt von Hα/Hβ-Farbinformation.
+  priority: emission_nebula_balanced_detail_and_color
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - M42 / Orionnebel mit hellem Kern und diffuser Emission
+    - kurze OSC-Subframes mit vielen Einzelbildern
+  title: M42 Emission Nebula Medium
 hypermetric_stretch:
   enabled: true # VeraLux HMS nach PCC; erzeugt outputs/stacked_rgb_hms.fits
   require_successful_pcc: true # nur nach erfolgreicher PCC anwenden

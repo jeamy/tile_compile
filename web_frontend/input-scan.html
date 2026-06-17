@@ -149,6 +149,54 @@
           <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan</button>
         </div>
 
+        <div class="ps-section" id="scan-ai-panel">
+          <div class="ps-section-title">KI-Analyse</div>
+          <div class="ps-row">
+            <label for="scan-ai-enabled">AI</label>
+            <input type="checkbox" id="scan-ai-enabled" title="Scan-AI aktivieren oder deaktivieren.">
+            <span id="scan-ai-status" class="ps-hint">nicht geladen</span>
+          </div>
+          <div class="ps-row">
+            <label for="scan-ai-model">Modell</label>
+            <select id="scan-ai-model" class="ps-select ps-wide" title="PI-Modell fuer die Scan-AI auswaehlen.">
+              <option value="">Kein Modell ausgewaehlt</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label for="scan-ai-provider-key">API-Key</label>
+            <div class="ps-inline-cluster">
+              <select id="scan-ai-provider" class="ps-select" title="Provider fuer API-Key-Speicherung.">
+                <option value="anthropic">anthropic</option>
+                <option value="openai">openai</option>
+                <option value="google">google</option>
+                <option value="mistral">mistral</option>
+                <option value="groq">groq</option>
+                <option value="openrouter">openrouter</option>
+              </select>
+              <input id="scan-ai-provider-key" class="ps-input ps-wide" type="password" value="" autocomplete="off" placeholder="wird nie vorbelegt" title="API-Key im PI AuthStorage speichern.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="scan-ai-save-key" type="button">Key speichern</button>
+              <span id="scan-ai-key-status" class="ps-hint">nicht geprüft</span>
+            </div>
+          </div>
+          <div class="ps-actions">
+            <button class="ps-btn ps-btn-secondary" id="scan-ai-refresh-models" type="button">Modelle pruefen</button>
+            <button class="ps-btn" id="scan-ai-run" type="button">KI-Analyse erstellen</button>
+            <button class="ps-btn ps-btn-secondary" id="scan-ai-force-run" type="button" title="Cache ignorieren und neue KI-Analyse erzwingen.">Neu analysieren</button>
+          </div>
+          <div class="ps-row" id="scan-ai-history-row" style="display:none;">
+            <label for="scan-ai-history-select">Gespeicherte Analysen</label>
+            <div class="ps-inline-cluster">
+              <select id="scan-ai-history-select" class="ps-select ps-wide" title="Gespeicherte KI-Analyse laden.">
+                <option value="">-- Analyse wählen --</option>
+              </select>
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="scan-ai-history-load" type="button">Laden</button>
+            </div>
+          </div>
+          <div id="scan-ai-analysis" class="ps-ai-result"></div>
+          <div class="ps-section-title" style="margin-top:12px;">Datenverkehr</div>
+          <div id="scan-ai-traffic-log" style="max-height:200px;overflow:auto;font-family:monospace;font-size:11px;background:#1a1a2e;color:#a6adc8;padding:8px;border-radius:4px;"></div>
+        </div>
+
         <div class="ps-result" id="scan-result" data-control="input_scan.scan_results" style="display:none;">
           <div class="ps-result-title">Scan-Ergebnis</div>
           <div class="ps-kv" style="margin-bottom:10px;">

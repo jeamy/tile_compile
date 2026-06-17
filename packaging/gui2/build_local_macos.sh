@@ -393,6 +393,25 @@ assemble_bundle() {
   cp "${PROJECT_ROOT}/packaging/gui2/start_gui2.command" "${ROOT}/start_gui2.command"
   chmod +x "${ROOT}/start_gui2.sh" "${ROOT}/start_gui2.command"
   cp -a "${PROJECT_ROOT}/web_frontend" "${PAYLOAD}/"
+  if [[ -f "${PROJECT_ROOT}/agent_service/package.json" ]]; then
+    echo "[gui2-package] Bundling optional PI agent_service"
+    require_cmd npm "Install Node.js/npm, for example with: brew install node"
+    (
+      cd "${PROJECT_ROOT}/agent_service"
+      if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+        npm ci
+      else
+        npm install
+      fi
+      if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+        npm run build
+      fi
+      npm prune --omit=dev
+    )
+    cp -a "${PROJECT_ROOT}/agent_service" "${PAYLOAD}/agent_service"
+    rm -f "${PAYLOAD}/agent_service/.env"
+    find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
+  fi
   cp -a "${PROJECT_ROOT}/tile_compile_cpp/examples" "${PAYLOAD}/tile_compile_cpp/"
   cp "${PROJECT_ROOT}/tile_compile_cpp/tile_compile.yaml" "${PAYLOAD}/tile_compile_cpp/"
   cp "${PROJECT_ROOT}/tile_compile_cpp/tile_compile.schema.yaml" "${PAYLOAD}/tile_compile_cpp/"

@@ -98,6 +98,7 @@ aqmh:
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 - Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
 - Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
+- **PI – KI-gestützte Empfehlungen:** [docs/PI/pi_ki_empfehlungen_de.md](docs/PI/pi_ki_empfehlungen_de.md)
 
 ### Classic Tile-Compile (TBQR) Dokumentation
 
@@ -620,6 +621,10 @@ ctest --output-on-failure
 
 Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, Codex, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
 
+Das PI-Modul (Parameter Intelligence) verwendet folgende Packages:
+
+- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)** — KI-Agent-Framework für Parameteranalyse und Empfehlungen (v0.79.x)
+
 Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Siril-Skript übernommen:
 
 - (c) 2025 Riccardo Paterniti
@@ -632,6 +637,13 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 
 ## Versionen
+
+## v0.3.3 (16.06.2026)
+
+**PI – KI-gestützte Konfigurationsempfehlungen:**
+- Neues PI-Modul (Parameter Intelligence): Die KI analysiert Scan-Ergebnisse und erzeugt validierte Parameterempfehlungen direkt im Parameter Studio.
+- Bildqualitätsmetriken (FWHM, Noise, Background, Roundness, Star-Count) aus `scan-metrics` werden der KI als gemessene Fakten übergeben.
+- Vollständige Dokumentation: [docs/PI/pi_ki_empfehlungen_de.md](docs/PI/pi_ki_empfehlungen_de.md)
 
 ## v0.3.2 (2026-06-13)
 
@@ -868,6 +880,13 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Erste öffentliche Version
 
 ## Changelog
+
+### (16.06.2026)
+
+**PI – KI-gestützte Konfigurationsempfehlungen (`v0.3.3`):**
+
+- PI-Modul (Parameter Intelligence) implementiert: Der KI-Sidecar erhält das vollständige Scan-Ergebnis, das Bildqualitäts-Aggregat (`scan_metrics`: FWHM, Noise, Background, Roundness, Star-Count), alle relevanten Konfigurationsparameter mit Beschreibungen und die vollständigen Schema-Constraints (`min`, `max`, `enum`) – und erzeugt daraus validierte, datengestützte Konfigurationsempfehlungen.
+- Vollständige Dokumentation: [docs/PI/pi_ki_empfehlungen_de.md](docs/PI/pi_ki_empfehlungen_de.md)
 
 ### (13.06.2026)
 

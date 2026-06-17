@@ -39,7 +39,7 @@ std::optional<fs::path> resolve_existing_input(const std::shared_ptr<AppState>& 
         return std::nullopt;
     }
     if (resolved.status == PathStatus::not_found) {
-        error = err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 422, {{"path", raw}});
+        error = err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 400, {{"path", raw}});
         return std::nullopt;
     }
     return resolved.path;

@@ -439,6 +439,28 @@
               </div>
             </div>
 
+            <div class="ps-section" id="parameter-ai-panel">
+              <div class="ps-section-title">KI-Empfehlungen</div>
+              <div class="ps-row">
+                <label>Status</label>
+                <span id="parameter-ai-status" class="ps-hint">nicht geladen</span>
+              </div>
+              <div class="ps-row" id="parameter-ai-history-row" style="display:none;">
+                <label for="parameter-ai-history-select">Gespeicherte Analysen</label>
+                <div class="ps-inline-cluster">
+                  <select id="parameter-ai-history-select" class="ps-select ps-wide" title="Gespeicherte KI-Analyse laden.">
+                    <option value="">-- Analyse wählen --</option>
+                  </select>
+                  <button class="ps-btn ps-btn-secondary ps-btn-compact" id="parameter-ai-history-load" type="button">Laden</button>
+                </div>
+              </div>
+              <div id="parameter-ai-analysis" class="ps-ai-result"></div>
+              <div class="ps-actions">
+                <button id="parameter-ai-refresh" class="ps-btn ps-btn-secondary" type="button">Neu laden</button>
+                <button id="parameter-ai-apply" class="ps-btn" type="button">Ausgewaehlte anwenden</button>
+              </div>
+            </div>
+
             <div id="parameter-diff-panel" data-control="parameter.diff_panel" class="ps-section">
               <div class="ps-section-title" data-i18n="page.parameter_studio.yaml_diff_preview">YAML Diff (Preview)</div>
               <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:320px;overflow:auto;">

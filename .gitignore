@@ -65,6 +65,10 @@ tile_compile_gui_state.json
 dist/
 *.egg-info/
 
+# Optional PI AI agent sidecar
+agent_service/node_modules/
+agent_service/dist/
+
 # Release artifacts
 *.zip
 *.dmg

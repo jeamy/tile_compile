@@ -1451,7 +1451,7 @@ void register_tools_routes(CrowApp& app,
         std::string catalog_dir = expand_user_path(fs::path(body.value("catalog_dir", ""))).string();
 
         if (source != "auto" && source != "siril" && source != "vizier_gaia" && source != "vizier_apass") {
-            return err_resp("BAD_REQUEST", "unsupported pcc source '" + source + "'", 422, nlohmann::json::object());
+            return err_resp("BAD_REQUEST", "unsupported pcc source '" + source + "'", 400, nlohmann::json::object());
         }
 
         if (auto denied = denied_path(state->runtime, fs::path(input_rgb)); denied) {
@@ -1471,13 +1471,13 @@ void register_tools_routes(CrowApp& app,
             }
         }
         if (!fs::exists(fs::path(input_rgb))) {
-            return err_resp("PATH_NOT_FOUND", "input_rgb not found", 422, {{"path", input_rgb}});
+            return err_resp("PATH_NOT_FOUND", "input_rgb not found", 400, {{"path", input_rgb}});
         }
         if (!fs::exists(fs::path(wcs_file))) {
-            return err_resp("PATH_NOT_FOUND", "wcs_file not found", 422, {{"path", wcs_file}});
+            return err_resp("PATH_NOT_FOUND", "wcs_file not found", 400, {{"path", wcs_file}});
         }
         if (!catalog_dir.empty() && !fs::exists(fs::path(catalog_dir))) {
-            return err_resp("PATH_NOT_FOUND", "catalog_dir not found", 422, {{"path", catalog_dir}});
+            return err_resp("PATH_NOT_FOUND", "catalog_dir not found", 400, {{"path", catalog_dir}});
         }
 
         std::error_code ec;
@@ -1572,7 +1572,7 @@ void register_tools_routes(CrowApp& app,
             }
         }
         if (!fs::exists(fs::path(source_output_rgb))) {
-            return err_resp("PATH_NOT_FOUND", "source_output_rgb not found", 422, {{"path", source_output_rgb}});
+            return err_resp("PATH_NOT_FOUND", "source_output_rgb not found", 400, {{"path", source_output_rgb}});
         }
 
         const auto source_channels_json = body.contains("source_output_channels")

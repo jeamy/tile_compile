@@ -61,6 +61,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install build dependencies
         shell: bash
         run: |
@@ -115,6 +121,24 @@ jobs:
           cp packaging/gui2/start_gui2.command "${ROOT}/start_gui2.command"
           chmod +x "${ROOT}/start_gui2.sh" "${ROOT}/start_gui2.command"
           cp -a web_frontend "${PAYLOAD}/"
+          if [[ -f agent_service/package.json ]]; then
+            echo "Bundling optional PI agent_service"
+            (
+              cd agent_service
+              if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+                npm ci
+              else
+                npm install
+              fi
+              if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+                npm run build
+              fi
+              npm prune --omit=dev
+            )
+            cp -a agent_service "${PAYLOAD}/agent_service"
+            rm -f "${PAYLOAD}/agent_service/.env"
+            find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
+          fi
           cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
@@ -315,6 +339,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install build dependencies
         shell: bash
         run: |
@@ -347,6 +377,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Setup MSYS2 dependencies
         uses: msys2/setup-msys2@v2
@@ -394,6 +430,24 @@ jobs:
           cp packaging/gui2/start_gui2.bat "${ROOT}/start_gui2.bat"
           cp packaging/gui2/start_gui2.ps1 "${ROOT}/start_gui2.ps1"
           cp -a web_frontend "${PAYLOAD}/"
+          if [[ -f agent_service/package.json ]]; then
+            echo "Bundling optional PI agent_service"
+            (
+              cd agent_service
+              if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+                npm ci
+              else
+                npm install
+              fi
+              if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+                npm run build
+              fi
+              npm prune --omit=dev
+            )
+            cp -a agent_service "${PAYLOAD}/agent_service"
+            rm -f "${PAYLOAD}/agent_service/.env"
+            find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
+          fi
           cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
