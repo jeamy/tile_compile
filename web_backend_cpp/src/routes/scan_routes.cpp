@@ -338,12 +338,9 @@ void register_scan_routes(CrowApp& app,
     ([state](const crow::request& req) {
         auto body = json::parse(req.body, nullptr, false);
         std::string input_path;
-        int sample = 0;
         if (body.is_object()) {
             if (body.contains("input_path") && body["input_path"].is_string())
                 input_path = body["input_path"].get<std::string>();
-            if (body.contains("sample") && body["sample"].is_number_integer())
-                sample = body["sample"].get<int>();
         }
         if (input_path.empty()) {
             // Try to infer from last scan
@@ -353,11 +350,7 @@ void register_scan_routes(CrowApp& app,
             return json_resp({{"error", "no input_path provided and no previous scan"}}, 400);
         }
         std::vector<std::string> args = {state->runtime.cli_exe, "scan-metrics", input_path};
-        if (sample > 0) {
-            args.push_back("--sample");
-            args.push_back(std::to_string(sample));
-        }
-        json initial_data = {{"input_path", input_path}, {"sample", sample}, {"command", args}};
+        json initial_data = {{"input_path", input_path}, {"command", args}};
         std::string job_id = state->subprocess_manager.launch(
             "scan-metrics", args, state->runtime.project_root.string(), "", initial_data);
         return json_resp({{"job_id", job_id}, {"state", "running"}});

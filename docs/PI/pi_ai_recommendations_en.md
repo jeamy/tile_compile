@@ -137,7 +137,7 @@ regarding `aqmh.cherry_pick`, `local_metrics`, `global_metrics.weights`, and sig
 }
 ```
 
-Saved to `runs/.ai_analyses/<Target>_<Date>.json`.
+Saved to `.ai_analyses/<Target>_<Date>.json`.
 
 ---
 

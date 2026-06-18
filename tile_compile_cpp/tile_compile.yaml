@@ -122,11 +122,11 @@ global_metrics:
   clamp:
     - -3
     - 3
-  weight_exponent_scale: 1.2
+  weight_exponent_scale: 1.5
   weights:
     background: 0.1
-    fwhm: 0.35
-    gradient: 0.3
+    fwhm: 0.3
+    gradient: 0.35
     noise: 0.15
     roundness: 0
     star_count: 0.1
@@ -165,8 +165,8 @@ local_metrics:
   star_mode:
     weights:
       contrast: 0.25
-      fwhm: 0.65
-      roundness: 0.1
+      fwhm: 0.7
+      roundness: 0.05
   structure_mode:
     background_weight: 0.3
     metric_weight: 0.7

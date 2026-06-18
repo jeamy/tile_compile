@@ -975,136 +975,14 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
 }
 
 // ============================================================================
-// scan-metrics <input_path> [--sample N]
+// scan-metrics <input_path>
 // ============================================================================
 
-struct ScanMetricSamplePlan {
-    std::vector<size_t> indices;
-    std::vector<std::vector<std::string>> reasons;
-    json metadata = json::object();
-};
-
-static std::string metric_bucket_number(double value, double precision, const std::string& missing = "?") {
-    if (!std::isfinite(value) || value < -900.0) return missing;
-    const double rounded = std::round(value / precision) * precision;
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(precision < 1.0 ? 2 : 0) << rounded;
-    return oss.str();
-}
-
-static std::string metric_bucket_string(std::string value, const std::string& missing = "?") {
-    if (value.empty()) return missing;
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
-
-static std::string scan_metric_bucket_key(const FitsHeaderInfo& info) {
-    std::ostringstream oss;
-    oss << "exp=" << metric_bucket_number(info.exptime, 0.01)
-        << "|gain=" << metric_bucket_number(info.gain, 0.1)
-        << "|temp5=" << metric_bucket_number(info.ccd_temp, 5.0)
-        << "|filter=" << metric_bucket_string(info.filter)
-        << "|bayer=" << metric_bucket_string(info.bayerpat)
-        << "|dims=" << info.naxis1 << "x" << info.naxis2;
-    return oss.str();
-}
-
-static int default_scan_metric_sample_count(int total, int sample_override) {
-    if (total <= 0) return 0;
-    if (sample_override > 0) return std::min(sample_override, total);
-    if (total <= 300) return total;
-    return std::min(total, std::max(120, std::min(500, static_cast<int>(std::round(total * 0.2)))));
-}
-
-static ScanMetricSamplePlan build_scan_metric_sample_plan(const std::vector<fs::path>& files,
-                                                          const std::vector<FitsHeaderInfo>& headers,
-                                                          int sample_override) {
-    const int total = static_cast<int>(files.size());
-    const int target = default_scan_metric_sample_count(total, sample_override);
-    ScanMetricSamplePlan plan;
-    plan.reasons.resize(files.size());
-    if (total <= 0 || target <= 0) {
-        plan.metadata = {{"strategy", "none"}, {"sample_target", 0}, {"frames_total", total}};
-        return plan;
-    }
-
-    std::vector<bool> selected(files.size(), false);
-    auto add_index = [&](size_t idx, const std::string& reason) {
-        if (idx >= files.size()) return;
-        if (!selected[idx] && static_cast<int>(plan.indices.size()) >= target) return;
-        if (!selected[idx]) {
-            selected[idx] = true;
-            plan.indices.push_back(idx);
-        }
-        if (std::find(plan.reasons[idx].begin(), plan.reasons[idx].end(), reason) == plan.reasons[idx].end()) {
-            plan.reasons[idx].push_back(reason);
-        }
-    };
-
-    if (target >= total) {
-        for (int i = 0; i < total; ++i) add_index(static_cast<size_t>(i), "all_frames");
-        plan.metadata = {
-            {"strategy", sample_override > 0 ? "override_all_available" : "all_frames_small_set"},
-            {"sample_target", target},
-            {"frames_total", total},
-            {"header_buckets_total", 0},
-        };
-        return plan;
-    }
-
-    const int edge_count = std::min(3, total);
-    for (int i = 0; i < edge_count; ++i) add_index(static_cast<size_t>(i), "session_start");
-    for (int i = std::max(0, total - edge_count); i < total; ++i) add_index(static_cast<size_t>(i), "session_end");
-
-    std::map<std::string, std::vector<size_t>> buckets;
-    for (size_t i = 0; i < headers.size(); ++i) {
-        if (headers[i].read_error) continue;
-        buckets[scan_metric_bucket_key(headers[i])].push_back(i);
-    }
-
-    for (const auto& entry : buckets) {
-        const auto& items = entry.second;
-        if (items.empty() || static_cast<int>(plan.indices.size()) >= target) continue;
-        add_index(items.front(), "header_bucket");
-        if (items.size() >= 3) add_index(items[items.size() / 2], "header_bucket_mid");
-        if (items.size() >= 2) add_index(items.back(), "header_bucket_end");
-    }
-
-    if (target > 1) {
-        for (int i = 0; i < target && static_cast<int>(plan.indices.size()) < target; ++i) {
-            const size_t idx = static_cast<size_t>(std::round(
-                static_cast<double>(i) * (total - 1) / (target - 1)));
-            add_index(idx, "even_distribution");
-        }
-    } else {
-        add_index(static_cast<size_t>(total / 2), "center_frame");
-    }
-
-    for (int i = 0; i < total && static_cast<int>(plan.indices.size()) < target; ++i) {
-        add_index(static_cast<size_t>(i), "fill_gap");
-    }
-
-    std::sort(plan.indices.begin(), plan.indices.end());
-    plan.metadata = {
-        {"strategy", sample_override > 0 ? "override_stratified_even" : "stratified_header_even"},
-        {"sample_target", target},
-        {"frames_total", total},
-        {"header_buckets_total", static_cast<int>(buckets.size())},
-        {"edge_frames_each_side", edge_count},
-        {"cap", sample_override > 0 ? sample_override : 500},
-        {"small_set_all_frames_threshold", 300},
-    };
-    return plan;
-}
-
-/// @brief Computes quick image-quality metrics on a sample of frames.
-/// @details Reads all FITS headers, selects a deterministic sample (small sets
-/// complete; otherwise session edges, header buckets, and even distribution),
-/// computes background, noise, gradient energy, FWHM, roundness, and star count
-/// for each sampled frame, then outputs per-frame and aggregate statistics as JSON.
-int cmd_scan_metrics(const std::string& input_path, int sample_override) {
+/// @brief Computes image-quality metrics for all frames in the input directory.
+/// @details Reads all FITS headers and computes background, noise, gradient energy,
+/// FWHM, roundness, and star count for every frame, then outputs per-frame and
+/// aggregate statistics as JSON.
+int cmd_scan_metrics(const std::string& input_path) {
     namespace io = tile_compile::io;
     namespace metrics = tile_compile::metrics;
 
@@ -1135,13 +1013,12 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
     header_infos.reserve(all_files.size());
     for (const auto& file : all_files) header_infos.push_back(read_fits_header_info(file));
 
-    ScanMetricSamplePlan sample_plan = build_scan_metric_sample_plan(all_files, header_infos, sample_override);
-    const std::vector<size_t>& indices = sample_plan.indices;
-    const int sample_count = static_cast<int>(indices.size());
+    // All frames are processed — no sampling.
+    std::vector<size_t> indices;
+    indices.reserve(static_cast<size_t>(total));
+    for (int i = 0; i < total; ++i) indices.push_back(static_cast<size_t>(i));
+    const int sample_count = total;
     result["sample_count"] = sample_count;
-    result["sampling"] = sample_plan.metadata;
-    result["sampling"]["selected_indices"] = json::array();
-    for (const auto idx : indices) result["sampling"]["selected_indices"].push_back(static_cast<int>(idx));
 
     // Per-frame results storage
     struct FrameResult {
@@ -1164,6 +1041,7 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
     const int hw_threads = std::max(1, static_cast<int>(std::thread::hardware_concurrency()));
     const int workers = std::min(hw_threads, static_cast<int>(indices.size()));
     std::atomic<size_t> next_idx{0};
+    std::atomic<size_t> done_count{0};
 
     auto worker_fn = [&]() {
         while (true) {
@@ -1177,6 +1055,7 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
                 tile_compile::Matrix2Df img = io::read_fits_pixels_float(all_files[frame_idx]);
                 if (img.size() <= 0) {
                     fr.error = "empty_image";
+                    done_count.fetch_add(1);
                     continue;
                 }
                 auto fm = metrics::calculate_frame_metrics(img);
@@ -1194,11 +1073,22 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
             } catch (const std::exception& e) {
                 fr.error = e.what();
             }
+            done_count.fetch_add(1);
         }
     };
 
-    std::cerr << "[scan-metrics] Computing metrics for " << sample_count
-              << " of " << total << " frames using " << workers << " threads..." << std::endl;
+    std::cerr << "[scan-metrics] Analyzing all " << total
+              << " frames using " << workers << " threads..." << std::endl;
+
+    std::atomic<bool> progress_done{false};
+    std::thread progress_thread([&]() {
+        while (!progress_done.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            const size_t done = done_count.load();
+            std::cerr << "[scan-metrics] " << done << " / " << total << " frames analyzed"
+                      << (done == static_cast<size_t>(total) ? " - done." : "...") << std::endl;
+        }
+    });
 
     if (workers > 1) {
         std::vector<std::thread> threads;
@@ -1208,6 +1098,10 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
     } else {
         worker_fn();
     }
+    progress_done.store(true);
+    progress_thread.join();
+    std::cerr << "[scan-metrics] " << done_count.load() << " / " << total
+              << " frames completed." << std::endl;
 
     // Build output
     std::vector<float> all_bg, all_noise, all_grad, all_fwhm, all_round;
@@ -1219,9 +1113,6 @@ int cmd_scan_metrics(const std::string& input_path, int sample_override) {
         fj["frame_index"] = fr.frame_index;
         fj["file_name"] = fr.file_name;
         fj["ok"] = fr.ok;
-        if (fr.frame_index >= 0 && static_cast<size_t>(fr.frame_index) < sample_plan.reasons.size()) {
-            fj["sample_reasons"] = sample_plan.reasons[static_cast<size_t>(fr.frame_index)];
-        }
         if (fr.frame_index >= 0 && static_cast<size_t>(fr.frame_index) < header_infos.size()) {
             const auto& hi = header_infos[static_cast<size_t>(fr.frame_index)];
             json hj = json::object();
@@ -1835,9 +1726,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "scan-metrics requires an input_path argument\n";
             return 1;
         }
-        std::string sample_str = get_arg("--sample");
-        int sample_override = sample_str.empty() ? 0 : std::stoi(sample_str);
-        return cmd_scan_metrics(input_path, sample_override);
+        return cmd_scan_metrics(input_path);
     }
     
     if (command == "list-runs") {

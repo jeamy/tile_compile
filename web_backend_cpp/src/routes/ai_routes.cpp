@@ -626,7 +626,7 @@ json scan_result_from_request_or_latest(const std::shared_ptr<AppState>& state, 
 }
 
 fs::path ai_analyses_dir(const std::shared_ptr<AppState>& state) {
-    return state->runtime.runs_dir / ".ai_analyses";
+    return ".ai_analyses";
 }
 
 json extract_scan_metadata(const json& scan_result) {
@@ -686,14 +686,12 @@ json compact_scan_metrics_for_analysis_context(const json& scan_metrics) {
     }
     if (scan_metrics.contains("frames") && scan_metrics["frames"].is_array()) {
         out["frames"] = json::array();
-        constexpr size_t max_context_frames = 512;
-        const size_t limit = std::min(scan_metrics["frames"].size(), max_context_frames);
-        for (size_t i = 0; i < limit; ++i) {
+        for (size_t i = 0; i < scan_metrics["frames"].size(); ++i) {
             const auto& frame = scan_metrics["frames"][i];
             if (!frame.is_object()) continue;
             json item = json::object();
             for (const std::string key : {
-                     "index", "frame_index", "sample_reasons", "file", "filename",
+                     "index", "frame_index", "file", "filename",
                      "fwhm", "background", "noise", "gradient_energy", "roundness",
                      "star_count", "header"
                  }) {
@@ -702,7 +700,7 @@ json compact_scan_metrics_for_analysis_context(const json& scan_metrics) {
             out["frames"].push_back(std::move(item));
         }
         out["frames_context_total"] = scan_metrics["frames"].size();
-        out["frames_context_truncated"] = scan_metrics["frames"].size() > max_context_frames;
+        out["frames_context_truncated"] = false;
     }
     return out;
 }
@@ -1000,9 +998,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 if (schema_node.contains("type")) entry["type"] = schema_node["type"];
                 if (schema_node.contains("enum")) entry["enum"] = schema_node["enum"];
                 if (schema_node.contains("description") && schema_node["description"].is_string()) {
-                    std::string desc = schema_node["description"].get<std::string>();
-                    if (desc.size() > 120) desc = desc.substr(0, 117) + "...";
-                    entry["desc"] = desc;
+                    entry["desc"] = schema_node["description"];
                 }
                 if (schema_node.contains("default")) entry["default"] = schema_node["default"];
                 if (schema_node.contains("minimum")) entry["minimum"] = schema_node["minimum"];
@@ -1052,6 +1048,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             analysis["rejected_count"] = validation["rejected_updates"].size();
             analysis["config_path"] = target_config_path.string();
             analysis["analysis_context"] = build_analysis_context(scan_result, request_payload);
+            if (validation.contains("patched_config") && validation["patched_config"].is_object())
+                analysis["analysis_context"]["patched_config"] = validation["patched_config"];
+            if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
+                analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
             const std::string job_id = state->job_store.create("scan_ai_analysis");
             json job_data = analysis;
             job_data["analysis_id"] = job_id;
@@ -1116,6 +1116,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         analysis["rejected_count"] = validation["rejected_updates"].size();
         analysis["config_path"] = target_config_path.string();
         analysis["analysis_context"] = build_analysis_context(scan_result, *body);
+        if (validation.contains("patched_config") && validation["patched_config"].is_object())
+            analysis["analysis_context"]["patched_config"] = validation["patched_config"];
+        if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
+            analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
 
         const std::string job_id = state->job_store.create("scan_ai_analysis");
         json job_data = analysis;
@@ -1129,7 +1133,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (scan_meta.empty()) {
             scan_meta = extract_scan_metadata(scan_result);
         }
-        persist_analysis(state, analysis, scan_meta, build_analysis_context(scan_result, *body));
+        persist_analysis(state, analysis, scan_meta, analysis["analysis_context"]);
         return json_resp(analysis);
     });
 
@@ -1284,27 +1288,67 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         }
 
         const json& analysis_data = job ? job->data : persisted_data;
-        json updates = selected_validated_updates(analysis_data, *body);
-        if (updates.empty()) {
-            return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
-        }
 
         fs::path target_config_path;
         std::optional<crow::response> config_error;
         std::optional<json> base_config = load_base_config(state, *body, target_config_path, config_error);
         if (!base_config) return std::move(*config_error);
 
-        json patched = *base_config;
-        json applied = json::array();
-        for (const auto& update : updates) {
-            const std::string path = json_string_field(update, "path");
-            if (path.empty() || !update.contains("value")) continue;
-            set_dotted(patched, path, update["value"]);
-            applied.push_back({{"path", path}, {"value", update["value"]}});
-        }
-        if (applied.empty()) return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
+        // Determine whether the caller requested a subset of updates via selected_paths.
+        const bool has_selected_paths = body->contains("selected_paths") &&
+            (*body)["selected_paths"].is_array() &&
+            !(*body)["selected_paths"].empty();
 
-        const std::string yaml_text = yaml_dump(patched);
+        // If no specific paths are selected AND the analysis file carries a fully-validated
+        // patched_config_yaml (written at analysis time), use it directly — identical to
+        // loading a preset config.  This avoids re-patching against a potentially stale
+        // live config and guarantees the result matches what was validated originally.
+        static const json empty_ctx = json::object();
+        const json& ctx = analysis_data.contains("analysis_context") && analysis_data["analysis_context"].is_object()
+            ? analysis_data["analysis_context"]
+            : empty_ctx;
+        const bool has_full_patch = !has_selected_paths
+            && ctx.contains("patched_config_yaml")
+            && ctx["patched_config_yaml"].is_string()
+            && !ctx["patched_config_yaml"].get<std::string>().empty();
+
+        json patched;
+        json applied = json::array();
+        std::string yaml_text;
+
+        if (has_full_patch) {
+            // Preset-style apply: use the complete validated config from the analysis file.
+            yaml_text = ctx["patched_config_yaml"].get<std::string>();
+            try {
+                patched = yaml_to_json(YAML::Load(yaml_text));
+            } catch (const std::exception& e) {
+                return err_resp("BAD_REQUEST", std::string("patched_config_yaml parse error: ") + e.what(), 400);
+            }
+            // Populate applied list from validated_updates for the response summary.
+            if (analysis_data.contains("validated_updates") && analysis_data["validated_updates"].is_array()) {
+                for (const auto& u : analysis_data["validated_updates"]) {
+                    const std::string p = json_string_field(u, "path");
+                    if (!p.empty() && u.contains("value"))
+                        applied.push_back({{"path", p}, {"value", u["value"]}});
+                }
+            }
+            if (applied.empty()) return err_resp("NO_VALID_UPDATES", "No validated AI updates in analysis", 400);
+        } else {
+            // Selective apply: patch only the requested (or all) validated updates onto the live config.
+            json updates = selected_validated_updates(analysis_data, *body);
+            if (updates.empty()) {
+                return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
+            }
+            patched = *base_config;
+            for (const auto& update : updates) {
+                const std::string path = json_string_field(update, "path");
+                if (path.empty() || !update.contains("value")) continue;
+                set_dotted(patched, path, update["value"]);
+                applied.push_back({{"path", path}, {"value", update["value"]}});
+            }
+            if (applied.empty()) return err_resp("NO_VALID_UPDATES", "No validated AI updates selected", 400);
+            yaml_text = yaml_dump(patched);
+        }
         SubprocessResult validate_res = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
                                                        state->runtime.project_root.string(),
                                                        yaml_text);

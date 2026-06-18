@@ -155,10 +155,9 @@ json compact_scan_metrics_job_result(const json& raw, const BackendGuardLimits& 
     json out = compact_json_for_job_storage(raw, limits);
     if (!raw.is_object()) return out;
     if (raw.contains("frames") && raw["frames"].is_array()) {
-        constexpr size_t max_scan_metric_frames = 512;
-        out["frames"] = compact_json_array(raw["frames"], max_scan_metric_frames, limits);
+        out["frames"] = raw["frames"];
         out["frames_metrics_total"] = raw["frames"].size();
-        out["frames_metrics_truncated"] = raw["frames"].size() > max_scan_metric_frames;
+        out["frames_metrics_truncated"] = false;
     }
     if (raw.contains("aggregate")) out["aggregate"] = compact_json_for_job_storage(raw["aggregate"], limits);
     return out;

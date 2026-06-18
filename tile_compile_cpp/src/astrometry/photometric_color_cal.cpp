@@ -2338,25 +2338,29 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << " (R=" << result.matrix[0][0]
                       << ", B=" << result.matrix[2][2] << ")" << std::endl;
         }
+        PCCAttenuationContext sample_ctx;
+        std::vector<PCCBackgroundSample> bg_samples;
+        PCCBackgroundStdPair pre_sample_std;
+        const ColorMatrix identity = {{{1.0, 0.0, 0.0},
+                                        {0.0, 1.0, 0.0},
+                                        {0.0, 0.0, 1.0}}};
         if (!matrix_is_diagonal) {
-            const PCCAttenuationContext sample_ctx =
+            sample_ctx =
                 build_pcc_attenuation_context(R_in, G_in, B_in,
                                               analysis_mask_ptr,
                                               effective_shadow_floor,
                                               effective_highlight_floor);
-            const std::vector<PCCBackgroundSample> bg_samples =
+            bg_samples =
                 build_pcc_background_samples(R_in, G_in, B_in, bg_mask, sample_ctx,
                                              effective_apply_attenuation);
-            const ColorMatrix identity = {{{1.0, 0.0, 0.0},
-                                           {0.0, 1.0, 0.0},
-                                           {0.0, 0.0, 1.0}}};
-            const PCCBackgroundStdPair pre_sample_std =
+            pre_sample_std =
                 sampled_background_std_after_matrix(bg_samples, identity);
+        }
 
         const double pre_rg_std =
-            std::isfinite(pre_sample_std.rg_std) ? pre_sample_std.rg_std : pre_rg_std_full;
+            (std::isfinite(pre_sample_std.rg_std) && !matrix_is_diagonal) ? pre_sample_std.rg_std : pre_rg_std_full;
         const double pre_bg_std =
-            std::isfinite(pre_sample_std.bg_std) ? pre_sample_std.bg_std : pre_bg_std_full;
+            (std::isfinite(pre_sample_std.bg_std) && !matrix_is_diagonal) ? pre_sample_std.bg_std : pre_bg_std_full;
 
         const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);
         if (chroma_strength < 0.999) {
@@ -2364,7 +2368,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << std::endl;
         }
         {
-            const bool use_sampled_eval = bg_samples.size() >= 512;
+            const bool use_sampled_eval = (!matrix_is_diagonal) ? bg_samples.size() >= 512 : false;
             if (use_sampled_eval) {
                 std::cout << "[PCC] Damping evaluator: sampled background points="
                           << bg_samples.size() << std::endl;
@@ -2581,7 +2585,6 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 result.matrix = chosen_matrix;
                 update_result_matrix_metrics(&result);
             }
-        }
         }
 
         const double residual_before_apply = result.residual_rms;

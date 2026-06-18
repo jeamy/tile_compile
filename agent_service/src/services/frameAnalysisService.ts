@@ -63,8 +63,9 @@ function createProviderOptionsExtension(config: AgentConfig) {
       if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
         // When extended thinking is active the model consumes a large portion of
         // max_tokens for its reasoning trace before emitting any text. Apply a
-        // minimum of 16000 so the JSON response is not truncated mid-object.
-        const effectiveMaxTokens = hasThinking ? Math.max(config.maxTokens, 16000) : config.maxTokens;
+        // minimum of 32000 so the JSON response is not truncated mid-object.
+        // (Claude Sonnet 4.x thinking traces alone can use 8-12k tokens.)
+        const effectiveMaxTokens = hasThinking ? Math.max(config.maxTokens, 32000) : config.maxTokens;
         if (Object.prototype.hasOwnProperty.call(payload, "max_tokens")) {
           payload.max_tokens = effectiveMaxTokens;
         }
@@ -72,7 +73,7 @@ function createProviderOptionsExtension(config: AgentConfig) {
           payload.max_output_tokens = effectiveMaxTokens;
         }
       }
-      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")} effective_max_tokens=${String(hasThinking ? Math.max(config.maxTokens, 16000) : config.maxTokens)}`);
+      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")} effective_max_tokens=${String(hasThinking ? Math.max(config.maxTokens, 32000) : config.maxTokens)}`);
       return payload;
     });
   };

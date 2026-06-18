@@ -295,13 +295,16 @@ VectorXf calculate_global_weights_impl(
     // Tie-break / fallback:
     // - If utilities are degenerate or nearly tied, keep the static weights.
     // - Otherwise clip to [0.1, 0.7] and renormalize to sum 1.
-    const float base_weight_sum = w_bg + w_noise + w_grad;
+    const float base_weight_sum = w_bg + w_noise + w_grad + w_fwhm + w_roundness + w_star_count;
     if (adaptive_weights && n > 2 && base_weight_sum > 1.0e-12f) {
-        const std::array<float, 3> static_weights{
+        const std::array<float, 6> static_weights{
             w_bg / base_weight_sum,
             w_noise / base_weight_sum,
-            w_grad / base_weight_sum};
-        const std::array<VectorXf, 3> signals{-bg_n, -noise_n, grad_n};
+            w_grad / base_weight_sum,
+            w_fwhm / base_weight_sum,
+            w_roundness / base_weight_sum,
+            w_star_count / base_weight_sum};
+        const std::array<VectorXf, 6> signals{-bg_n, -noise_n, grad_n, -fwhm_n, -roundness_error_n, star_count_n};
         std::array<float, 3> utility{0.0f, 0.0f, 0.0f};
 
         for (int i = 0; i < 3; ++i) {

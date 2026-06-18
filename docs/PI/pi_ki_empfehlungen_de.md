@@ -137,7 +137,7 @@ zu `aqmh.cherry_pick`, `local_metrics`, `global_metrics.weights` und Sigma-Clip-
 }
 ```
 
-Gespeichert unter `runs/.ai_analyses/<Target>_<Datum>.json`.
+Gespeichert unter `.ai_analyses/<Target>_<Datum>.json`.
 
 ---
 
