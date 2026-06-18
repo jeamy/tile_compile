@@ -33,6 +33,13 @@ struct PhaseRegistrationContext {
   std::vector<uint16_t> overlap_coverage_count;
   /// Binary common-overlap mask used to gate local metrics and reconstruction.
   std::vector<uint8_t> common_valid_mask;
+  /// Per-input-frame flag: 1 if the warp was supplied by the field-rotation
+  /// model (model_interpolated / model_blended / model_global_poly /
+  /// model_local_poly / model_nearest_copy) rather than directly measured.
+  /// Used by the pipeline to apply a configurable weight penalty so that
+  /// model-predicted frames contribute less to the stack than directly
+  /// registered frames even when their image quality metrics are good.
+  std::vector<uint8_t> model_predicted_mask;
   /// Number of frames retained after registration, modeling, and prewarp.
   int n_usable_frames = 0;
   /// Minimum frame support required by downstream common-overlap decisions.

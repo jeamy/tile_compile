@@ -2962,6 +2962,19 @@ bool run_phase_registration_prewarp(
   emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
                     global_reg_extra, log_file);
 
+  // Export model-predicted mask so the pipeline can apply a weight penalty.
+  out.model_predicted_mask.assign(frames.size(), 0);
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    const auto p = reg_provenance[fi];
+    if (p == RegistrationProvenance::model_interpolated ||
+        p == RegistrationProvenance::model_blended ||
+        p == RegistrationProvenance::model_global_poly ||
+        p == RegistrationProvenance::model_local_poly ||
+        p == RegistrationProvenance::model_nearest_copy) {
+      out.model_predicted_mask[fi] = 1;
+    }
+  }
+
   emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
   // ================================================================

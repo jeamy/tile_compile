@@ -85,6 +85,7 @@ Thumbs.db
 .windsurf/
 .claude
 .devin
+.ai_analyses
 
 *.tar.gz
 

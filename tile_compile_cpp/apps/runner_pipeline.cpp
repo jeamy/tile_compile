@@ -1736,6 +1736,30 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
+  // Apply weight penalty to frames whose warp was predicted by the
+  // field-rotation model rather than directly measured.  These frames have
+  // cc≈0.0001 (minimum clamp), yet their image-quality metrics (FWHM, noise…)
+  // may be good, which can give them disproportionately high global_weights.
+  // Scaling down their weight limits their contribution to the stack without
+  // excluding them entirely (the predicted geometry is usually correct).
+  {
+    constexpr float kModelPredictedWeightFactor = 0.05f;
+    const auto &mp_mask = phase_registration_ctx.model_predicted_mask;
+    int n_penalized = 0;
+    for (Eigen::Index fi = 0; fi < global_weights.size(); ++fi) {
+      if (static_cast<size_t>(fi) < mp_mask.size() && mp_mask[static_cast<size_t>(fi)]) {
+        global_weights[fi] *= kModelPredictedWeightFactor;
+        ++n_penalized;
+      }
+    }
+    if (n_penalized > 0) {
+      std::cout << "[PIPELINE] Applied model-predicted weight penalty ("
+                << kModelPredictedWeightFactor << "x) to " << n_penalized
+                << " frame(s) with model-interpolated/blended registration."
+                << std::endl;
+    }
+  }
+
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
