@@ -313,7 +313,7 @@ int main(int argc, char** argv) {
         expect_true(context_store["analysis_context"]["config_schema"].contains("aqmh.cherry_pick.k_frac"),
                     "context store preserves config schema");
 
-        const auto history = harness.get_json("/api/scan/analysis/history?limit=5");
+        const auto history = harness.get_json("/api/scan/analysis/history?limit=20");
         expect_equal(history["_http_status"].get<long>(), 200L, "analysis history status");
         std::string context_filename;
         const std::string context_id = context_store["analysis_id"].get<std::string>();
@@ -342,6 +342,56 @@ int main(int argc, char** argv) {
         expect_equal(apply["config"]["data"]["color_mode"].get<std::string>(), "MONO", "scan ai apply config value");
         expect_equal(static_cast<long>(apply["applied_paths"].size()), 1L, "scan ai apply selected count");
         expect_true(apply.contains("revision_id"), "scan ai apply creates revision");
+
+        const auto rounded_store = harness.post_json("/api/scan/analysis/store", {
+            {"analysis", {
+                {"schema_version", "pi.scan-analysis.v1"},
+                {"summary", "fixture rounded float"},
+                {"confidence", 0.8},
+                {"detected_scenarios", nlohmann::json::array()},
+                {"recommendations", {
+                    {
+                        {"path", "aqmh.cherry_pick.k_frac"},
+                        {"value", 0.29999999999999999},
+                        {"reason", "fixture float noise"},
+                        {"confidence", 0.9},
+                        {"risk", "low"},
+                        {"evidence", {"fixture"}}
+                    }
+                }},
+                {"warnings", nlohmann::json::array()},
+                {"review_required", false}
+            }},
+            {"scan_result", {{"frames_detected", 10}}},
+            {"base_config", {
+                {"aqmh", {
+                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.4}}},
+                    {"storage", {{"resolution_divisor", 1}}}
+                }}
+            }},
+            {"config_schema", {
+                {"aqmh.cherry_pick.k_frac", {{"type", "number"}, {"maximum", 1}}}
+            }}
+        });
+        expect_equal(rounded_store["_http_status"].get<long>(), 200L, "rounded float store status");
+        const std::string rounded_id = rounded_store["analysis_id"].get<std::string>();
+        const auto rounded_apply = harness.post_json("/api/scan/analysis/apply", {
+            {"analysis_id", rounded_id},
+            {"base_config", {
+                {"aqmh", {
+                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.4}}},
+                    {"storage", {{"resolution_divisor", 1}}}
+                }}
+            }},
+            {"selected_paths", {"aqmh.cherry_pick.k_frac"}},
+            {"persist", false}
+        });
+        expect_equal(rounded_apply["_http_status"].get<long>(), 200L, "rounded float apply status");
+        const std::string rounded_yaml = rounded_apply["config_yaml"].get<std::string>();
+        expect_true(rounded_yaml.find("k_frac: 0.3") != std::string::npos,
+                    "rounded float yaml uses compact decimal: " + rounded_yaml);
+        expect_true(rounded_yaml.find("0.299999999999999") == std::string::npos,
+                    "rounded float yaml omits binary noise: " + rounded_yaml);
 
         const auto missing_apply = harness.post_json("/api/scan/analysis/apply", nlohmann::json::object());
         expect_equal(missing_apply["_http_status"].get<long>(), 400L, "scan ai apply missing id status");

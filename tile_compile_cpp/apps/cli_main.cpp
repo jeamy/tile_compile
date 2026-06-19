@@ -246,6 +246,8 @@ struct FitsHeaderInfo {
     std::string telescop;       // TELESCOP
     std::string filter;         // FILTER
     std::string date_obs;       // DATE-OBS
+    double ra_deg = -999.0;      // RA in degrees (from RA, OBJCTRA, or SIT-RA)
+    double dec_deg = -999.0;     // DEC in degrees (from DEC, OBJCTDEC, or SIT-DEC)
     bool read_error = false;
     std::string error_msg;
 };
@@ -374,6 +376,53 @@ static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
     info.telescop = read_string_key("TELESCOP");
     info.filter = read_string_key("FILTER");
     info.date_obs = read_string_key("DATE-OBS");
+
+    // Read RA/DEC — try multiple keyword variants used by different capture software.
+    // Values may be in degrees (float) or in sexagesimal hours/degrees (string like "05 35 17.3").
+    auto read_ra_dec = [&]() {
+        // Try numeric RA/DEC (degrees) first
+        double ra_val = read_double_key("RA");
+        double dec_val = read_double_key("DEC");
+        if (ra_val >= 0 && dec_val > -900) {
+            info.ra_deg = ra_val;
+            info.dec_deg = dec_val;
+            return;
+        }
+        // Try OBJCTRA/OBJCTDEC (sexagesimal, "HH MM SS.S" / "DD MM SS.S")
+        std::string objctra = read_string_key("OBJCTRA");
+        std::string objctdec = read_string_key("OBJCTDEC");
+        if (!objctra.empty() && !objctdec.empty()) {
+            // Parse sexagesimal: split on whitespace or colons
+            auto parse_sex = [](const std::string& s, bool is_ra) -> double {
+                // Replace colons with spaces for uniform splitting
+                std::string cleaned = s;
+                std::replace(cleaned.begin(), cleaned.end(), ':', ' ');
+                std::istringstream iss(cleaned);
+                double h = 0, m = 0, sec = 0;
+                iss >> h >> m >> sec;
+                if (iss.fail()) return -999.0;
+                double deg = is_ra ? (h + m / 60.0 + sec / 3600.0) * 15.0
+                                   : (std::abs(h) + m / 60.0 + sec / 3600.0);
+                if (!is_ra && !s.empty() && s[0] == '-') deg = -deg;
+                return deg;
+            };
+            double ra = parse_sex(objctra, true);
+            double dec = parse_sex(objctdec, false);
+            if (ra >= 0 && ra < 360 && dec > -90 && dec < 90) {
+                info.ra_deg = ra;
+                info.dec_deg = dec;
+                return;
+            }
+        }
+        // Try SIT-RA/SIT-DEC (some mounts write telescope position)
+        double sit_ra = read_double_key("SIT-RA");
+        double sit_dec = read_double_key("SIT-DEC");
+        if (sit_ra >= 0 && sit_dec > -900) {
+            info.ra_deg = sit_ra;
+            info.dec_deg = sit_dec;
+        }
+    };
+    read_ra_dec();
 
     fits_close_file(fptr, &status);
     return info;
@@ -1124,6 +1173,8 @@ int cmd_scan_metrics(const std::string& input_path) {
                 if (!hi.object.empty()) hj["target"] = hi.object;
                 if (!hi.instrume.empty()) hj["camera"] = hi.instrume;
                 if (!hi.date_obs.empty()) hj["date_obs"] = hi.date_obs;
+                if (hi.ra_deg > -900) hj["ra_deg"] = hi.ra_deg;
+                if (hi.dec_deg > -900) hj["dec_deg"] = hi.dec_deg;
             } else {
                 hj["error"] = hi.error_msg;
             }
@@ -1180,6 +1231,88 @@ int cmd_scan_metrics(const std::string& input_path) {
     }
     agg["frames_ok"] = ok_count;
     agg["frames_failed"] = static_cast<int>(results.size()) - ok_count;
+
+    // Session geometry: time span, RA/DEC, estimated field rotation
+    {
+        json geom = json::object();
+        // Collect DATE-OBS timestamps
+        std::string first_date, last_date;
+        for (const auto& hi : header_infos) {
+            if (!hi.date_obs.empty()) {
+                if (first_date.empty() || hi.date_obs < first_date) first_date = hi.date_obs;
+                if (last_date.empty() || hi.date_obs > last_date) last_date = hi.date_obs;
+            }
+        }
+        if (!first_date.empty()) geom["first_date_obs"] = first_date;
+        if (!last_date.empty()) geom["last_date_obs"] = last_date;
+
+        // Median RA/DEC (target coordinates)
+        std::vector<double> ra_vals, dec_vals;
+        for (const auto& hi : header_infos) {
+            if (hi.ra_deg > -900 && hi.dec_deg > -900) {
+                ra_vals.push_back(hi.ra_deg);
+                dec_vals.push_back(hi.dec_deg);
+            }
+        }
+        if (!ra_vals.empty()) {
+            std::sort(ra_vals.begin(), ra_vals.end());
+            std::sort(dec_vals.begin(), dec_vals.end());
+            double med_ra = ra_vals[ra_vals.size() / 2];
+            double med_dec = dec_vals[dec_vals.size() / 2];
+            geom["target_ra_deg"] = med_ra;
+            geom["target_dec_deg"] = med_dec;
+            geom["ra_dec_available"] = true;
+
+            // Estimate field rotation if we have time span
+            // Field rotation rate for Alt/Az mount: dθ/dt = |cos(lat) * cos(declination) * cos(H) / sin(altitude)|
+            // where H is hour angle. For a rough estimate we use the parallactic angle formula.
+            // Without latitude we assume mid-latitude (45°N) as default.
+            // The total rotation over the session is approximately:
+            //   Δθ ≈ 15°/hr * cos(declination) * session_duration_hours * sin(parallactic_angle_factor)
+            // For a conservative upper bound we use: Δθ ≈ 15°/hr * cos(dec) * duration_hours
+            if (!first_date.empty() && !last_date.empty()) {
+                // Parse ISO 8601 timestamps and compute duration
+                auto parse_iso = [](const std::string& s) -> double {
+                    // Expected format: YYYY-MM-DDThh:mm:ss[.sss]Z or with timezone
+                    struct tm tm_val{};
+                    double frac = 0.0;
+                    char zone[16] = {0};
+                    int matched = sscanf(s.c_str(), "%d-%d-%dT%d:%d:%lf%15s",
+                                         &tm_val.tm_year, &tm_val.tm_mon, &tm_val.tm_mday,
+                                         &tm_val.tm_hour, &tm_val.tm_min, &frac, zone);
+                    if (matched < 6) return -1.0;
+                    tm_val.tm_year -= 1900;
+                    tm_val.tm_mon -= 1;
+                    time_t t = timegm(&tm_val);
+                    return static_cast<double>(t) + frac;
+                };
+                double t0 = parse_iso(first_date);
+                double t1 = parse_iso(last_date);
+                if (t0 >= 0 && t1 > t0) {
+                    double duration_hours = (t1 - t0) / 3600.0;
+                    geom["session_duration_hours"] = duration_hours;
+
+                    // Earth's rotation rate: 15°/hr
+                    // For Alt/Az mount, field rotation rate depends on parallactic angle.
+                    // Maximum rotation rate (worst case): 15°/hr * cos(dec)
+                    // Typical rate at 45°N latitude for dec=0: ~10.6°/hr
+                    // We provide both the theoretical max and a mid-latitude estimate.
+                    double dec_rad = med_dec * M_PI / 180.0;
+                    double max_rotation_rate = 15.0 * std::cos(std::abs(dec_rad));  // °/hr
+                    double max_rotation = max_rotation_rate * duration_hours;
+                    geom["estimated_max_field_rotation_deg"] = max_rotation;
+                    geom["estimated_field_rotation_note"] =
+                        "Maximum theoretical field rotation for Alt/Az mount. "
+                        "Actual rotation depends on latitude and parallactic angle. "
+                        "For equatorial mounts, field rotation is negligible.";
+                }
+            }
+        } else {
+            geom["ra_dec_available"] = false;
+        }
+        result["session_geometry"] = geom;
+    }
+
     result["aggregate"] = agg;
     result["ok"] = (ok_count > 0);
 

@@ -16,8 +16,8 @@ aqmh:
     w_sharp: 0.6
     w_snr: 0.4
   storage:
-    dtype: float32
-    max_resident_maps: 2
+    dtype: uint16
+    max_resident_maps: 4
     resolution_divisor: 1
 assumptions:
   frames_min: 30
@@ -121,14 +121,14 @@ global_metrics:
   clamp:
     - -3
     - 3
-  weight_exponent_scale: 1.2
+  weight_exponent_scale: 1.5
   weights:
-    background: 0.05
-    fwhm: 0.3
-    gradient: 0.35
-    noise: 0.2
-    roundness: 0
-    star_count: 0.1
+    background: 0.1
+    fwhm: 0.35
+    gradient: 0.2
+    noise: 0.25
+    roundness: 0.05
+    star_count: 0.05
 hypermetric_stretch:
   adaptive_anchor: true
   color_grip: 1

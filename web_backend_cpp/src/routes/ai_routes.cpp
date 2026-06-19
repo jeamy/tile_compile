@@ -169,7 +169,7 @@ YAML::Node json_to_yaml_node(const json& value) {
         if (d != 0.0 && std::isfinite(d)) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%.4g", d);
-            d = std::stod(buf);
+            return YAML::Node(std::string(buf));
         }
         return YAML::Node(d);
     }
@@ -179,9 +179,11 @@ YAML::Node json_to_yaml_node(const json& value) {
 
 std::string yaml_dump(const json& value) {
     YAML::Node node = json_to_yaml_node(value);
-    std::ostringstream out;
+    YAML::Emitter out;
+    out.SetFloatPrecision(6);
+    out.SetDoublePrecision(6);
     out << node;
-    return out.str();
+    return std::string(out.c_str());
 }
 
 json parse_scalar_value(const json& raw_value) {
@@ -680,7 +682,7 @@ json compact_scan_metrics_for_analysis_context(const json& scan_metrics) {
     if (!scan_metrics.is_object()) return out;
     for (const std::string key : {
              "ok", "sample_count", "frames_total", "frames_metrics_total",
-             "frames_metrics_truncated", "aggregate", "sampling"
+             "frames_metrics_truncated", "aggregate", "sampling", "session_geometry"
          }) {
         if (scan_metrics.contains(key)) out[key] = scan_metrics[key];
     }
