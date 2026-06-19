@@ -54,6 +54,7 @@ export interface ScanAnalysisResponse {
     provider?: string;
     temperature?: number;
     max_tokens?: number;
+    prompt?: string;
     prompt_sha256?: string;
     request_sha256?: string;
     base_config_sha256?: string;

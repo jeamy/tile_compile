@@ -1118,6 +1118,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         analysis["rejected_count"] = validation["rejected_updates"].size();
         analysis["config_path"] = target_config_path.string();
         analysis["analysis_context"] = build_analysis_context(scan_result, *body);
+        // Override base_config with the parsed version so the persisted context
+        // contains a proper JSON object, not a raw YAML string.
+        analysis["analysis_context"]["base_config"] = *base_config;
         if (validation.contains("patched_config") && validation["patched_config"].is_object())
             analysis["analysis_context"]["patched_config"] = validation["patched_config"];
         if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())

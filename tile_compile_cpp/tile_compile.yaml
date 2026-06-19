@@ -86,7 +86,7 @@ calibration:
   use_dark: false
   use_flat: false
 chroma_denoise:
-  apply_stage: post_stack_linear
+  apply_stage: post_pcc
   blend:
     amount: 0.82
     mode: chroma_only
@@ -111,6 +111,7 @@ chroma_denoise:
     enabled: true
     gradient_percentile: 94
 data:
+  bayer_pattern: GBRG
   color_mode: OSC
   linear_required: true
 dithering:
@@ -207,7 +208,7 @@ pipeline:
 registration:
   allow_rotation: true
   auto_engine: true
-  auto_engine_rotation_threshold_deg: 0.05
+  auto_engine_rotation_threshold_deg: 0.03
   blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.05
   enable_local_background_subtraction: false
@@ -255,6 +256,7 @@ stacking:
     cap_ratio: 20
     enabled: true
     kappa_cluster: 1
+  common_overlap_required_fraction: 0.85
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
@@ -266,6 +268,7 @@ stacking:
     min_fraction: 0.4
     sigma_high: 1.5
     sigma_low: 2
+  tile_common_valid_min_fraction: 0.85
 synthetic:
   clustering:
     cluster_count_range:
