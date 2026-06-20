@@ -1283,7 +1283,11 @@ int cmd_scan_metrics(const std::string& input_path) {
                     if (matched < 6) return -1.0;
                     tm_val.tm_year -= 1900;
                     tm_val.tm_mon -= 1;
+#ifdef _WIN32
+                    time_t t = _mkgmtime(&tm_val);
+#else
                     time_t t = timegm(&tm_val);
+#endif
                     return static_cast<double>(t) + frac;
                 };
                 double t0 = parse_iso(first_date);
