@@ -2367,8 +2367,8 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::cout << "[PCC] Chroma strength limit active: " << chroma_strength
                       << std::endl;
         }
-        {
-            const bool use_sampled_eval = (!matrix_is_diagonal) ? bg_samples.size() >= 512 : false;
+        if (!matrix_is_diagonal) {
+            const bool use_sampled_eval = bg_samples.size() >= 512;
             if (use_sampled_eval) {
                 std::cout << "[PCC] Damping evaluator: sampled background points="
                           << bg_samples.size() << std::endl;
