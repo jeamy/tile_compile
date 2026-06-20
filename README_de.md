@@ -881,6 +881,22 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Changelog
 
+### (20.06.2026)
+
+**PCC-Fix, KI-Prompt-Anpassungen, Build- und Smoke-Test-Korrekturen (`v0.3.4`):**
+
+- **PCC Green-Cast-Fix:** Die fehlende `if (!matrix_is_diagonal)`-Guard in der adaptiven Damping-Logik in `run_pcc` (`photometric_color_cal.cpp`) wurde wiederhergestellt. Ohne diese Guard wurde die Damping-Logik auch für diagonale Matrizen ausgeführt, was zu einem Green Cast im gestackten Bild führte. Der Fix stellt sicher, dass Damping nur bei nicht-diagonalen Matrizen angewendet wird. Validiert über mehrere Test-Runs (k3-glm, k6-fix) mit korrekter PCC-Matrix und ohne Green Cast.
+- **KI-Prompt-Anpassungen:** Der KI-Sidecar-Prompt in `frameAnalysisService.ts` wurde mit strengeren Regeln und Session-Kontext erweitert. Die KI erhält nun Session-Geometrie (Mount-Typ, Feldrotations-Schätzung, Session-Dauer) zusätzlich zu den Scan-Metriken, was kontextbewusstere Empfehlungen ermöglicht.
+- **Session-Geometrie in `cli_main.cpp`:** FITS-Header-Lesung erweitert um RA/DEC-Extraktion und Berechnung der Session-Geometrie (Mount-Typ-Erkennung, approximative Feldrotation aus Session-Dauer und Deklination). Diese Daten werden an den KI-Sidecar weitergeleitet.
+- **`ai_routes.cpp`-Fix:** Fehler behoben, bei dem `base_config` als roher String statt als geparstes JSON-Objekt gespeichert wurde. `session_geometry` zum Analyse-Kontext hinzugefügt, der an den KI-Sidecar gesendet wird.
+- **Parameter-Tuning-Validierung:** Systematische Vergleichs-Runs durchgeführt (k2, k3-glm, k4, k5, k6-fix, m31-classic, m31-default, m31-cl1) zur Validierung des PCC-Fixes und Ermittlung optimaler Parameter: `weight_exponent_scale` (1.2 vs 1.5), `chroma_strength` (0.7–0.9), `apply_attenuation` (true/false), `background_neutralization_mode` (auto/always). Ergebnisse bestätigen den PCC-Fix über alle Konfigurationen hinweg.
+- **Windows-Build-Fix:** `timegm` ist eine GNU-Erweiterung, die unter MinGW nicht verfügbar ist. Ersetzt durch `#ifdef _WIN32` → `_mkgmtime` / `#else` → `timegm` in `cli_main.cpp`, um plattformübergreifende Kompatibilität zu gewährleisten.
+- **Linux-Smoke-Test-Fix:** Die Smoke-Tests in `release-tile-compile-gui2.yml` hingegen 1h+ fest, weil `kill` nur das Bash-Script beendete, nicht aber den Backend-Prozess. Folgende Korrekturen wurden angewendet:
+  - `TILE_COMPILE_AI_AGENT_AUTOSTART=0` gesetzt (verhindert Start des Agent Service)
+  - `setsid` + `kill -- -PID` für Process-Group-Cleanup verwendet
+  - `pkill -f tile_compile_web_backend` als Fallback-Cleanup hinzugefügt
+- **macOS-Smoke-Test-Fix:** Dieselben Korrekturen in `build_local_macos.sh` angewendet. `setsid` (Linux-only) wurde durch `python3` + `os.setsid()` ersetzt, da `setsid` unter macOS nicht verfügbar ist.
+
 ### (16.06.2026)
 
 **PI – KI-gestützte Konfigurationsempfehlungen (`v0.3.3`):**

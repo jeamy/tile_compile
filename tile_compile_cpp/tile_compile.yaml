@@ -13,8 +13,8 @@ aqmh:
     frac_artifact_max: 0.25
     k_artifact: 3
     scales: 4
-    w_sharp: 0.6
-    w_snr: 0.4
+    w_sharp: 0.4
+    w_snr: 0.6
   storage:
     dtype: float32
     max_resident_maps: 2
@@ -160,9 +160,9 @@ local_metrics:
     - 3
   star_mode:
     weights:
-      contrast: 0.2
-      fwhm: 0.6
-      roundness: 0.2
+      contrast: 0.5
+      fwhm: 0.25
+      roundness: 0.25
   structure_mode:
     background_weight: 0.3
     metric_weight: 0.7
@@ -247,7 +247,7 @@ stacking:
   sigma_clip:
     max_iters: 3
     min_fraction: 0.4
-    sigma_high: 1.5
+    sigma_high: 2
     sigma_low: 2
 synthetic:
   clustering:

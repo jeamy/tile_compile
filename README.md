@@ -871,6 +871,22 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Changelog
 
+### (2026-06-20)
+
+**PCC fix, AI prompt enhancements, build and smoke test corrections (`v0.3.4`):**
+
+- **PCC green cast fix:** Restored the missing `if (!matrix_is_diagonal)` guard in the adaptive damping logic in `run_pcc` (`photometric_color_cal.cpp`). Without this guard, damping was applied even for diagonal matrices, causing a green cast in the stacked image. The fix ensures damping is only applied for non-diagonal matrices. Validated across multiple test runs (k3-glm, k6-fix) confirming correct PCC matrix and no green cast.
+- **AI prompt enhancements:** Enhanced the AI sidecar prompt in `frameAnalysisService.ts` with stricter rules and session context. The AI now receives session geometry (mount type, field rotation estimate, session duration) alongside scan metrics, enabling more context-aware recommendations.
+- **Session geometry in `cli_main.cpp`:** Extended FITS header reading to extract RA/DEC and compute session geometry (mount type detection, approximate field rotation from session duration and declination). This data is forwarded to the AI sidecar for analysis.
+- **`ai_routes.cpp` fix:** Fixed a bug where `base_config` was stored as a raw string instead of a parsed JSON object. Added `session_geometry` to the analysis context sent to the AI sidecar.
+- **Parameter tuning validation:** Conducted systematic comparison runs (k2, k3-glm, k4, k5, k6-fix, m31-classic, m31-default, m31-cl1) to validate PCC fix and identify optimal parameters: `weight_exponent_scale` (1.2 vs 1.5), `chroma_strength` (0.7–0.9), `apply_attenuation` (true/false), `background_neutralization_mode` (auto/always). Results confirmed the PCC fix across all configurations.
+- **Windows build fix:** `timegm` is a GNU extension not available under MinGW. Replaced with `#ifdef _WIN32` → `_mkgmtime` / `#else` → `timegm` in `cli_main.cpp` for cross-platform compatibility.
+- **Linux smoke test fix:** Smoke tests in `release-tile-compile-gui2.yml` hung for 1h+ because `kill` only terminated the bash script, not the backend process. Applied the following fixes:
+  - Set `TILE_COMPILE_AI_AGENT_AUTOSTART=0` (prevents agent service from starting)
+  - Used `setsid` + `kill -- -PID` for process group cleanup
+  - Added `pkill -f tile_compile_web_backend` as fallback cleanup
+- **macOS smoke test fix:** Applied the same fixes in `build_local_macos.sh`. Replaced `setsid` (Linux-only) with `python3` + `os.setsid()` since `setsid` is not available on macOS.
+
 ### (2026-06-16)
 
 **PI – AI-assisted configuration recommendations (`v0.3.3`):**
