@@ -623,7 +623,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 Das PI-Modul (Parameter Intelligence) verwendet folgende Packages:
 
-- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)** — KI-Agent-Framework für Parameteranalyse und Empfehlungen (v0.79.x)
+- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)** — KI-Agent-Framework für Parameteranalyse und Empfehlungen (v0.79.x)
 
 Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Siril-Skript übernommen:
 

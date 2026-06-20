@@ -613,7 +613,7 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 The PI (Parameter Intelligence) module uses the following packages:
 
-- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)** — AI agent framework for parameter analysis and recommendations (v0.79.x)
+- **[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)** — AI agent framework for parameter analysis and recommendations (v0.79.x)
 
 The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stretch Siril script:
 
