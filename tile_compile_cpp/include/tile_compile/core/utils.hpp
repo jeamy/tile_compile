@@ -30,18 +30,13 @@ std::string sha256_file(const fs::path& path);
 void copy_config(const fs::path& src, const fs::path& dst);
 fs::path resolve_project_root(const fs::path& config_path);
 
-// Math utilities
-float compute_median(const Matrix2Df& data);
-float compute_median(const VectorXf& data);
-float compute_mad(const Matrix2Df& data);
-float compute_robust_sigma(const Matrix2Df& data);
-float compute_percentile(const VectorXf& data, float percentile);
-
 // Statistical utilities (canonical implementations — do NOT duplicate)
 float median_of(std::vector<float>& v);
+float mad_of(std::vector<float>& v, float median);
 float stddev_of(const std::vector<float>& v);
 float robust_sigma_mad(std::vector<float>& pixels);
 float percentile_from_sorted(const std::vector<float>& sorted, float pct);
+float percentile_of(std::vector<float>& values, float pct);
 float estimate_background_sigma_clip(std::vector<float> pixels);
 std::vector<size_t> sample_indices(size_t count, int max_samples);
 

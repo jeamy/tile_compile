@@ -897,143 +897,8 @@ float coarse_background_plane_slope(const Matrix2Df &img,
   return static_cast<float>(std::sqrt(ax * ax + ay * ay));
 }
 
+
 namespace { // (re-open anonymous namespace for private helpers)
-
-/// @brief Builds chroma background mask from rgb impl.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<uint8_t> build_chroma_background_mask_from_rgb_impl(
-    const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
-    const std::vector<uint8_t> *valid_mask) {
-  const int H = static_cast<int>(R.rows());
-  const int W = static_cast<int>(R.cols());
-  std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, H * W)), 0);
-  if (H <= 0 || W <= 0)
-    return mask;
-
-  const size_t total_px = static_cast<size_t>(H * W);
-  const bool use_external_mask =
-      (valid_mask != nullptr && valid_mask->size() == total_px);
-
-  std::vector<float> luma(total_px, 0.0f);
-  std::vector<float> lum_samples;
-  lum_samples.reserve(static_cast<size_t>((H / 2 + 1) * (W / 2 + 1)));
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      const size_t idx = static_cast<size_t>(y * W + x);
-      if (use_external_mask && (*valid_mask)[idx] == 0)
-        continue;
-      const float rv = R(y, x);
-      const float gv = G(y, x);
-      const float bv = B(y, x);
-      if (!(std::isfinite(rv) && rv > 0.0f && std::isfinite(gv) && gv > 0.0f &&
-            std::isfinite(bv) && bv > 0.0f)) {
-        continue;
-      }
-      const float lv = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
-      luma[idx] = lv;
-      if ((y % 2) == 0 && (x % 2) == 0)
-        lum_samples.push_back(lv);
-    }
-  }
-  if (lum_samples.size() < 4096) {
-    // Low-data fallback: treat all finite positive pixels as safe background.
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const size_t idx = static_cast<size_t>(y * W + x);
-        mask[idx] = (luma[idx] > 0.0f) ? 1 : 0;
-      }
-    }
-    return mask;
-  }
-
-  const float lum_thresh = robust_quantile(lum_samples, 0.60f);
-  std::vector<float> grad(static_cast<size_t>(H * W), 0.0f);
-  std::vector<float> grad_samples;
-  grad_samples.reserve(lum_samples.size());
-  for (int y = 0; y < H; ++y) {
-    const int ym = std::max(0, y - 1);
-    const int yp = std::min(H - 1, y + 1);
-    for (int x = 0; x < W; ++x) {
-      const int xm = std::max(0, x - 1);
-      const int xp = std::min(W - 1, x + 1);
-      const size_t idx = static_cast<size_t>(y * W + x);
-      const float lv = luma[idx];
-      if (!(std::isfinite(lv) && lv > 0.0f))
-        continue;
-      const float gx = std::abs(luma[static_cast<size_t>(y * W + xp)] -
-                                luma[static_cast<size_t>(y * W + xm)]);
-      const float gy = std::abs(luma[static_cast<size_t>(yp * W + x)] -
-                                luma[static_cast<size_t>(ym * W + x)]);
-      const float gv = gx + gy;
-      grad[idx] = gv;
-      if ((y % 2) == 0 && (x % 2) == 0)
-        grad_samples.push_back(gv);
-    }
-  }
-  if (grad_samples.size() < 4096) {
-    for (int y = 0; y < H; ++y) {
-      for (int x = 0; x < W; ++x) {
-        const size_t idx = static_cast<size_t>(y * W + x);
-        mask[idx] = (luma[idx] > 0.0f && luma[idx] <= lum_thresh) ? 1 : 0;
-      }
-    }
-    return mask;
-  }
-
-  const float grad_thresh = robust_quantile(grad_samples, 0.70f);
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      const size_t idx = static_cast<size_t>(y * W + x);
-      const float lv = luma[idx];
-      const float gv = grad[idx];
-      mask[idx] = (std::isfinite(lv) && lv > 0.0f && lv <= lum_thresh &&
-                   std::isfinite(gv) && gv <= grad_thresh)
-                      ? 1
-                      : 0;
-    }
-  }
-  return mask;
-}
-
-/// @brief Implements log chroma std background impl.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float log_chroma_std_background_impl(const Matrix2Df &A, const Matrix2Df &G,
-                                     const std::vector<uint8_t> &bg_mask) {
-  const int H = static_cast<int>(A.rows());
-  const int W = static_cast<int>(A.cols());
-  if (H <= 0 || W <= 0)
-    return std::numeric_limits<float>::infinity();
-
-  std::vector<float> vals;
-  vals.reserve(static_cast<size_t>(H * W / 3));
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < W; ++x) {
-      const size_t idx = static_cast<size_t>(y * W + x);
-      if (idx >= bg_mask.size() || bg_mask[idx] == 0)
-        continue;
-      const float av = A(y, x);
-      const float gv = G(y, x);
-      if (!(std::isfinite(av) && std::isfinite(gv) && av > 0.0f && gv > 0.0f))
-        continue;
-      vals.push_back(std::log(av / gv));
-    }
-  }
-  if (vals.size() < 1024)
-    return std::numeric_limits<float>::infinity();
-
-  const float mean = stats_from_values(vals).mean;
-  double sum_sq = 0.0;
-  for (float v : vals) {
-    const double d = static_cast<double>(v) - static_cast<double>(mean);
-    sum_sq += d * d;
-  }
-  return static_cast<float>(
-      std::sqrt(sum_sq / static_cast<double>(vals.size())));
-}
 
 struct ForegroundComponent {
   int label = 0;
@@ -1611,15 +1476,103 @@ MeshSkyFitResult fit_modeled_mask_mesh_surface(
 
 } // namespace
 
-std::vector<uint8_t>
+
 /// @brief Builds chroma background mask from rgb.
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-build_chroma_background_mask_from_rgb(const Matrix2Df &R, const Matrix2Df &G,
-                                      const Matrix2Df &B,
-                                      const std::vector<uint8_t> &valid_mask) {
-  return build_chroma_background_mask_from_rgb_impl(R, G, B, &valid_mask);
+std::vector<uint8_t> build_chroma_background_mask_from_rgb(
+    const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
+    const std::vector<uint8_t> *valid_mask) {
+  const int H = static_cast<int>(R.rows());
+  const int W = static_cast<int>(R.cols());
+  std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, H * W)), 0);
+  if (H <= 0 || W <= 0)
+    return mask;
+
+  const size_t total_px = static_cast<size_t>(H * W);
+  const bool use_external_mask =
+      (valid_mask != nullptr && valid_mask->size() == total_px);
+
+  std::vector<float> luma(total_px, 0.0f);
+  std::vector<float> lum_samples;
+  lum_samples.reserve(static_cast<size_t>((H / 2 + 1) * (W / 2 + 1)));
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const size_t idx = static_cast<size_t>(y * W + x);
+      if (use_external_mask && (*valid_mask)[idx] == 0)
+        continue;
+      const float rv = R(y, x);
+      const float gv = G(y, x);
+      const float bv = B(y, x);
+      if (!(std::isfinite(rv) && rv > 0.0f && std::isfinite(gv) && gv > 0.0f &&
+            std::isfinite(bv) && bv > 0.0f)) {
+        continue;
+      }
+      const float lv = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+      luma[idx] = lv;
+      if ((y % 2) == 0 && (x % 2) == 0)
+        lum_samples.push_back(lv);
+    }
+  }
+  if (lum_samples.size() < 4096) {
+    // Low-data fallback: treat all finite positive pixels as safe background.
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        const size_t idx = static_cast<size_t>(y * W + x);
+        mask[idx] = (luma[idx] > 0.0f) ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+
+  const float lum_thresh = robust_quantile(lum_samples, 0.60f);
+  std::vector<float> grad(static_cast<size_t>(H * W), 0.0f);
+  std::vector<float> grad_samples;
+  grad_samples.reserve(lum_samples.size());
+  for (int y = 0; y < H; ++y) {
+    const int ym = std::max(0, y - 1);
+    const int yp = std::min(H - 1, y + 1);
+    for (int x = 0; x < W; ++x) {
+      const int xm = std::max(0, x - 1);
+      const int xp = std::min(W - 1, x + 1);
+      const size_t idx = static_cast<size_t>(y * W + x);
+      const float lv = luma[idx];
+      if (!(std::isfinite(lv) && lv > 0.0f))
+        continue;
+      const float gx = std::abs(luma[static_cast<size_t>(y * W + xp)] -
+                                luma[static_cast<size_t>(y * W + xm)]);
+      const float gy = std::abs(luma[static_cast<size_t>(yp * W + x)] -
+                                luma[static_cast<size_t>(ym * W + x)]);
+      const float gv = gx + gy;
+      grad[idx] = gv;
+      if ((y % 2) == 0 && (x % 2) == 0)
+        grad_samples.push_back(gv);
+    }
+  }
+  if (grad_samples.size() < 4096) {
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        const size_t idx = static_cast<size_t>(y * W + x);
+        mask[idx] = (luma[idx] > 0.0f && luma[idx] <= lum_thresh) ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+
+  const float grad_thresh = robust_quantile(grad_samples, 0.70f);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const size_t idx = static_cast<size_t>(y * W + x);
+      const float lv = luma[idx];
+      const float gv = grad[idx];
+      mask[idx] = (std::isfinite(lv) && lv > 0.0f && lv <= lum_thresh &&
+                   std::isfinite(gv) && gv <= grad_thresh)
+                      ? 1
+                      : 0;
+    }
+  }
+  return mask;
 }
 
 /// @brief Implements log chroma std background.
@@ -1628,7 +1581,36 @@ build_chroma_background_mask_from_rgb(const Matrix2Df &R, const Matrix2Df &G,
 /// artifact, and error-handling semantics expected by callers.
 float log_chroma_std_background(const Matrix2Df &A, const Matrix2Df &G,
                                 const std::vector<uint8_t> &bg_mask) {
-  return log_chroma_std_background_impl(A, G, bg_mask);
+  const int H = static_cast<int>(A.rows());
+  const int W = static_cast<int>(A.cols());
+  if (H <= 0 || W <= 0)
+    return std::numeric_limits<float>::infinity();
+
+  std::vector<float> vals;
+  vals.reserve(static_cast<size_t>(H * W / 3));
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const size_t idx = static_cast<size_t>(y * W + x);
+      if (idx >= bg_mask.size() || bg_mask[idx] == 0)
+        continue;
+      const float av = A(y, x);
+      const float gv = G(y, x);
+      if (!(std::isfinite(av) && std::isfinite(gv) && av > 0.0f && gv > 0.0f))
+        continue;
+      vals.push_back(std::log(av / gv));
+    }
+  }
+  if (vals.size() < 1024)
+    return std::numeric_limits<float>::infinity();
+
+  const float mean = stats_from_values(vals).mean;
+  double sum_sq = 0.0;
+  for (float v : vals) {
+    const double d = static_cast<double>(v) - static_cast<double>(mean);
+    sum_sq += d * d;
+  }
+  return static_cast<float>(
+      std::sqrt(sum_sq / static_cast<double>(vals.size())));
 }
 
 // RBF kernel functions (v3.3 §6.3.7)
@@ -4394,7 +4376,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   if (any_channel_applied && !config.internal_relaxed_channel_guards) {
     const std::vector<uint8_t> bg_mask =
         build_chroma_background_mask_from_rgb(
-            R_input, G_input, B_input, config.common_valid_mask);
+            R_input, G_input, B_input, &config.common_valid_mask);
     const float pre_rg_std =
         log_chroma_std_background(R_input, G_input, bg_mask);
     const float pre_bg_std =

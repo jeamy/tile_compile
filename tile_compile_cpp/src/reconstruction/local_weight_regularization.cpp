@@ -140,8 +140,7 @@ LocalWeightRegularizationSummary regularize_local_quality_scores(
     out.mean_abs_q_delta =
         std::accumulate(abs_deltas.begin(), abs_deltas.end(), 0.0f) /
         static_cast<float>(abs_deltas.size());
-    std::sort(abs_deltas.begin(), abs_deltas.end());
-    out.p95_abs_q_delta = core::percentile_from_sorted(abs_deltas, 95.0f);
+    out.p95_abs_q_delta = core::percentile_of(abs_deltas, 95.0f);
   }
   return out;
 }

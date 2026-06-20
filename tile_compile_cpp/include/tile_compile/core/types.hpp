@@ -29,6 +29,20 @@ enum class BayerPattern {
     GBRG
 };
 
+struct BayerOffsets {
+    int r_row, r_col, b_row, b_col;
+};
+
+inline BayerOffsets get_bayer_offsets(BayerPattern pattern) {
+    switch (pattern) {
+        case BayerPattern::RGGB: return {0, 0, 1, 1};
+        case BayerPattern::BGGR: return {1, 1, 0, 0};
+        case BayerPattern::GRBG: return {0, 1, 1, 0};
+        case BayerPattern::GBRG: return {1, 0, 0, 1};
+        default: return {0, 0, 1, 1};
+    }
+}
+
 inline std::string bayer_pattern_to_string(BayerPattern pattern) {
     switch (pattern) {
         case BayerPattern::RGGB: return "RGGB";

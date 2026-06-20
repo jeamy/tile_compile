@@ -136,8 +136,7 @@ TileWeightProfileDiagnostics analyze_tile_weight_profiles(
 
     pair.mean_abs_delta = static_cast<float>(
         abs_delta_sum / static_cast<double>(pair.usable_frame_count));
-    std::sort(deltas.begin(), deltas.end());
-    pair.p95_abs_delta = core::percentile_from_sorted(deltas, 95.0f);
+    pair.p95_abs_delta = core::percentile_of(deltas, 95.0f);
     pair.correlation = compute_correlation(lhs_profile, rhs_profile);
     pair.valid = true;
 
@@ -169,18 +168,12 @@ TileWeightProfileDiagnostics analyze_tile_weight_profiles(
       std::accumulate(pair_correlation.begin(), pair_correlation.end(), 0.0f) /
       static_cast<float>(pair_correlation.size());
 
-  std::sort(pair_mean_abs_delta.begin(), pair_mean_abs_delta.end());
-  std::sort(pair_p95_abs_delta.begin(), pair_p95_abs_delta.end());
-  std::sort(pair_activation_mismatch_fraction.begin(),
-            pair_activation_mismatch_fraction.end());
-  std::sort(pair_correlation.begin(), pair_correlation.end());
-
   out.pair_mean_abs_delta_p95 =
-      core::percentile_from_sorted(pair_mean_abs_delta, 95.0f);
+      core::percentile_of(pair_mean_abs_delta, 95.0f);
   out.pair_p95_abs_delta_p95 =
-      core::percentile_from_sorted(pair_p95_abs_delta, 95.0f);
+      core::percentile_of(pair_p95_abs_delta, 95.0f);
   out.pair_activation_mismatch_fraction_p95 =
-      core::percentile_from_sorted(pair_activation_mismatch_fraction, 95.0f);
+      core::percentile_of(pair_activation_mismatch_fraction, 95.0f);
   out.pair_correlation_p05 =
       core::percentile_from_sorted(pair_correlation, 5.0f);
 

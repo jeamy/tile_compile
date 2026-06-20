@@ -672,7 +672,7 @@ std::vector<StarPhotometry> measure_stars(
         common_support_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(1));
     }
     const std::vector<uint8_t> bg_safe_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B, common_support_mask);
+        image::build_chroma_background_mask_from_rgb(R, G, B, &common_support_mask);
     const int support_before_cc =
         static_cast<int>(std::count_if(common_support_mask.begin(),
                                        common_support_mask.end(),
@@ -1815,7 +1815,7 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
     }
 
     const std::vector<uint8_t> bg_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B, analysis_mask);
+        image::build_chroma_background_mask_from_rgb(R, G, B, &analysis_mask);
     if (bg_mask.empty()) {
         out.reason = "empty_background_mask";
         return out;
@@ -1994,7 +1994,7 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
     }
 
     const std::vector<uint8_t> bg_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B, *analysis_mask);
+        image::build_chroma_background_mask_from_rgb(R, G, B, analysis_mask);
 
     double bg_r = 0.0;
     double bg_g = 0.0;
@@ -2311,7 +2311,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const Matrix2Df B_in = B;
         const std::vector<uint8_t> bg_mask =
             image::build_chroma_background_mask_from_rgb(
-                R_in, G_in, B_in, analysis_mask);
+                R_in, G_in, B_in, &analysis_mask);
         std::cerr << "[PCC] Using analysis mask for background chroma analysis ("
                   << rows << "x" << cols << ")" << std::endl;
         const double pre_rg_std_full =
@@ -2413,29 +2413,30 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             const bool have_identity_residual =
                 std::isfinite(identity_residual_rms) && identity_residual_rms > 0.0;
 
+            Matrix2Df Rt_buf, Gt_buf, Bt_buf;
             auto eval_candidate_std = [&](const ColorMatrix &candidate) {
                 if (use_sampled_eval) {
                     return sampled_background_std_after_matrix(bg_samples, candidate);
                 }
-                Matrix2Df Rt = R_in;
-                Matrix2Df Gt = G_in;
-                Matrix2Df Bt = B_in;
+                Rt_buf = R_in;
+                Gt_buf = G_in;
+                Bt_buf = B_in;
                 if (effective_apply_attenuation) {
-                    apply_color_matrix_impl(Rt, Gt, Bt, candidate, false,
+                    apply_color_matrix_impl(Rt_buf, Gt_buf, Bt_buf, candidate, false,
                                             analysis_mask_ptr,
                                             analysis_mask_ptr,
                                             effective_shadow_floor,
                                             effective_highlight_floor);
                 } else {
-                    apply_color_matrix_impl_simple(Rt, Gt, Bt, candidate, false,
+                    apply_color_matrix_impl_simple(Rt_buf, Gt_buf, Bt_buf, candidate, false,
                                                    analysis_mask_ptr,
                                                    analysis_mask_ptr);
                 }
                 PCCBackgroundStdPair out;
                 out.rg_std =
-                    static_cast<double>(image::log_chroma_std_background(Rt, Gt, bg_mask));
+                    static_cast<double>(image::log_chroma_std_background(Rt_buf, Gt_buf, bg_mask));
                 out.bg_std =
-                    static_cast<double>(image::log_chroma_std_background(Bt, Gt, bg_mask));
+                    static_cast<double>(image::log_chroma_std_background(Bt_buf, Gt_buf, bg_mask));
                 return out;
             };
 
@@ -2448,7 +2449,11 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 for (double alpha_b : strengths) {
                     const ColorMatrix candidate =
                         blend_matrix_with_identity_per_channel(result.matrix, alpha_r, alpha_b);
-                    const PCCBackgroundStdPair post_std = eval_candidate_std(candidate);
+                    const bool is_identity_candidate =
+                        (alpha_r < 1.0e-12 && alpha_b < 1.0e-12);
+                    const PCCBackgroundStdPair post_std = is_identity_candidate
+                        ? PCCBackgroundStdPair{pre_rg_std, pre_bg_std}
+                        : eval_candidate_std(candidate);
                     const double post_rg_std = post_std.rg_std;
                     const double post_bg_std = post_std.bg_std;
 
@@ -2475,8 +2480,9 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                     const double imbalance = std::abs(rel_rg - rel_bg);
                     const double total_abs = std::abs(rel_rg) + std::abs(rel_bg);
                     const int candidate_stars_used = static_cast<int>(result.n_stars_used);
-                    const double candidate_residual =
-                        recompute_residual_rms_for_matrix(photometry, candidate,
+                    const double candidate_residual = is_identity_candidate
+                        ? identity_residual_rms
+                        : recompute_residual_rms_for_matrix(photometry, candidate,
                                                           config.sigma_clip, nullptr);
                     const bool have_candidate_residual =
                         std::isfinite(candidate_residual) && candidate_stars_used >= config.min_stars;

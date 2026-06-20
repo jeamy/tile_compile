@@ -263,74 +263,6 @@ fs::path resolve_project_root(const fs::path& config_path) {
     }
 }
 
-/// @brief Computes median.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float compute_median(const Matrix2Df& data) {
-    VectorXf flat = Eigen::Map<const VectorXf>(data.data(), data.size());
-    return compute_median(flat);
-}
-
-/// @brief Computes median.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float compute_median(const VectorXf& data) {
-    if (data.size() == 0) return 0.0f;
-    
-    std::vector<float> sorted(data.data(), data.data() + data.size());
-    std::sort(sorted.begin(), sorted.end());
-    
-    size_t n = sorted.size();
-    if (n % 2 == 0) {
-        return (sorted[n/2 - 1] + sorted[n/2]) / 2.0f;
-    } else {
-        return sorted[n/2];
-    }
-}
-
-/// @brief Computes mad.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float compute_mad(const Matrix2Df& data) {
-    float median = compute_median(data);
-    
-    VectorXf deviations(data.size());
-    for (Eigen::Index i = 0; i < data.size(); ++i) {
-        deviations[i] = std::abs(data.data()[i] - median);
-    }
-    
-    return compute_median(deviations);
-}
-
-/// @brief Computes robust sigma.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float compute_robust_sigma(const Matrix2Df& data) {
-    return 1.4826f * compute_mad(data);
-}
-
-/// @brief Computes percentile.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float compute_percentile(const VectorXf& data, float percentile) {
-    if (data.size() == 0) return 0.0f;
-    
-    std::vector<float> sorted(data.data(), data.data() + data.size());
-    std::sort(sorted.begin(), sorted.end());
-    
-    float idx = percentile / 100.0f * (sorted.size() - 1);
-    size_t lower = static_cast<size_t>(idx);
-    size_t upper = std::min(lower + 1, sorted.size() - 1);
-    float frac = idx - lower;
-    
-    return sorted[lower] * (1.0f - frac) + sorted[upper] * frac;
-}
-
 /// @brief Converts lower.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -433,6 +365,15 @@ float median_of(std::vector<float>& v) {
     return 0.5f * (lo + hi);
 }
 
+/// @brief Implements mad of.
+/// @details Part of robust statistics helpers; computes the median absolute deviation
+/// given a pre-computed median. Modifies the input vector in place.
+float mad_of(std::vector<float>& v, float median) {
+    if (v.empty()) return 0.0f;
+    for (float& x : v) x = std::fabs(x - median);
+    return median_of(v);
+}
+
 /// @brief Implements stddev of.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -474,6 +415,14 @@ float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
     size_t idx = static_cast<size_t>(std::round(pos));
     idx = std::min(idx, sorted.size() - 1);
     return sorted[idx];
+}
+
+/// @brief Implements percentile of.
+/// @details Sorts the values in place and returns the requested percentile.
+/// Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers.
+float percentile_of(std::vector<float>& values, float pct) {
+    std::sort(values.begin(), values.end());
+    return percentile_from_sorted(values, pct);
 }
 
 /// @brief Estimates background sigma clip.

@@ -217,9 +217,10 @@ struct BGEDiagnostics {
 // Shared background/chroma utilities used by BGE diagnostics and PCC damping.
 // Uses external canvas validity mask: pixels where valid_mask[i]==0 are
 // treated as canvas (excluded before any gradient/luma thresholding).
+// If valid_mask is nullptr, no external canvas mask is applied.
 std::vector<uint8_t> build_chroma_background_mask_from_rgb(
     const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B,
-    const std::vector<uint8_t>& valid_mask);
+    const std::vector<uint8_t>* valid_mask);
 float log_chroma_std_background(const Matrix2Df& A, const Matrix2Df& G,
                                 const std::vector<uint8_t>& bg_mask);
 

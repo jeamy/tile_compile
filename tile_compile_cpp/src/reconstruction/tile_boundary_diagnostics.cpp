@@ -99,8 +99,7 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
       static_cast<float>(abs_sum / static_cast<double>(out.sample_count));
   out.mean_signed_diff =
       static_cast<float>(signed_sum / static_cast<double>(out.sample_count));
-  std::sort(abs_diffs.begin(), abs_diffs.end());
-  out.p95_abs_diff = core::percentile_from_sorted(abs_diffs, 95.0f);
+  out.p95_abs_diff = core::percentile_of(abs_diffs, 95.0f);
 
   std::vector<float> abs_residuals;
   abs_residuals.reserve(signed_diffs.size());
@@ -111,21 +110,10 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
       std::accumulate(abs_residuals.begin(), abs_residuals.end(), 0.0);
   out.mean_abs_residual = static_cast<float>(
       residual_sum / static_cast<double>(out.sample_count));
-  std::sort(abs_residuals.begin(), abs_residuals.end());
-  out.p95_abs_residual = core::percentile_from_sorted(abs_residuals, 95.0f);
+  out.p95_abs_residual = core::percentile_of(abs_residuals, 95.0f);
 
-  auto overlap_mad = [](std::vector<float> values) {
-    if (values.empty()) {
-      return 0.0f;
-    }
-    const float center = core::median_of(values);
-    for (float &v : values) {
-      v = std::fabs(v - center);
-    }
-    return core::median_of(values);
-  };
-  const float lhs_mad = overlap_mad(lhs_vals);
-  const float rhs_mad = overlap_mad(rhs_vals);
+  const float lhs_mad = core::robust_sigma_mad(lhs_vals);
+  const float rhs_mad = core::robust_sigma_mad(rhs_vals);
   constexpr float kScaleEps = 1.0e-6f;
   out.scale_ratio =
       (lhs_mad > kScaleEps) ? (rhs_mad / lhs_mad)
@@ -266,22 +254,15 @@ TileBoundaryDiagnostics analyze_tile_boundaries(
                         pair_scale_ratio_deviation.end(), 0.0f) /
         static_cast<float>(pair_scale_ratio_deviation.size());
   }
-  std::sort(pair_mean_abs.begin(), pair_mean_abs.end());
-  std::sort(pair_p95_abs.begin(), pair_p95_abs.end());
-  std::sort(pair_mean_abs_residual.begin(), pair_mean_abs_residual.end());
-  std::sort(pair_p95_abs_residual.begin(), pair_p95_abs_residual.end());
-  std::sort(pair_scale_ratio_deviation.begin(), pair_scale_ratio_deviation.end());
-  out.pair_mean_abs_diff_p95 =
-      core::percentile_from_sorted(pair_mean_abs, 95.0f);
-  out.pair_p95_abs_diff_p95 =
-      core::percentile_from_sorted(pair_p95_abs, 95.0f);
+  out.pair_mean_abs_diff_p95 = core::percentile_of(pair_mean_abs, 95.0f);
+  out.pair_p95_abs_diff_p95 = core::percentile_of(pair_p95_abs, 95.0f);
   out.pair_mean_abs_residual_p95 =
-      core::percentile_from_sorted(pair_mean_abs_residual, 95.0f);
+      core::percentile_of(pair_mean_abs_residual, 95.0f);
   out.pair_p95_abs_residual_p95 =
-      core::percentile_from_sorted(pair_p95_abs_residual, 95.0f);
+      core::percentile_of(pair_p95_abs_residual, 95.0f);
   if (!pair_scale_ratio_deviation.empty()) {
     out.pair_scale_ratio_deviation_p95 =
-        core::percentile_from_sorted(pair_scale_ratio_deviation, 95.0f);
+        core::percentile_of(pair_scale_ratio_deviation, 95.0f);
   }
 
   std::sort(out.pair_diagnostics.begin(), out.pair_diagnostics.end(),

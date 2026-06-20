@@ -1,5 +1,6 @@
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/core/errors.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/opencv.hpp>
 #include <array>
@@ -20,23 +21,7 @@ std::map<std::string, Matrix2Df> split_cfa_channels(const Matrix2Df& mosaic, Bay
     
     Matrix2Df R(hh, hw), G(hh, hw), B(hh, hw);
     
-    int r_row, r_col, b_row, b_col;
-    switch (pattern) {
-        case BayerPattern::RGGB:
-            r_row = 0; r_col = 0; b_row = 1; b_col = 1;
-            break;
-        case BayerPattern::BGGR:
-            r_row = 1; r_col = 1; b_row = 0; b_col = 0;
-            break;
-        case BayerPattern::GRBG:
-            r_row = 0; r_col = 1; b_row = 1; b_col = 0;
-            break;
-        case BayerPattern::GBRG:
-            r_row = 1; r_col = 0; b_row = 0; b_col = 1;
-            break;
-        default:
-            throw TileCompileError("Unknown Bayer pattern");
-    }
+    const auto [r_row, r_col, b_row, b_col] = get_bayer_offsets(pattern);
     
     for (int y = 0; y < hh; ++y) {
         for (int x = 0; x < hw; ++x) {
@@ -65,23 +50,7 @@ Matrix2Df reassemble_cfa_mosaic(const Matrix2Df& R, const Matrix2Df& G, const Ma
     
     Matrix2Df mosaic(h, w);
     
-    int r_row, r_col, b_row, b_col;
-    switch (pattern) {
-        case BayerPattern::RGGB:
-            r_row = 0; r_col = 0; b_row = 1; b_col = 1;
-            break;
-        case BayerPattern::BGGR:
-            r_row = 1; r_col = 1; b_row = 0; b_col = 0;
-            break;
-        case BayerPattern::GRBG:
-            r_row = 0; r_col = 1; b_row = 1; b_col = 0;
-            break;
-        case BayerPattern::GBRG:
-            r_row = 1; r_col = 0; b_row = 0; b_col = 1;
-            break;
-        default:
-            throw TileCompileError("Unknown Bayer pattern");
-    }
+    const auto [r_row, r_col, b_row, b_col] = get_bayer_offsets(pattern);
     
     for (int y = 0; y < hh; ++y) {
         for (int x = 0; x < hw; ++x) {
@@ -101,13 +70,8 @@ Matrix2Df reassemble_cfa_mosaic(const Matrix2Df& R, const Matrix2Df& G, const Ma
 /// artifact, and error-handling semantics expected by callers.
 Matrix2Df normalize_frame(const Matrix2Df& frame, float target_background, 
                           float target_scale, NormalizationMode mode) {
-    float median = 0.0f;
-    {
-        std::vector<float> sorted(frame.data(), frame.data() + frame.size());
-        std::sort(sorted.begin(), sorted.end());
-        size_t n = sorted.size();
-        median = (n % 2 == 0) ? (sorted[n/2-1] + sorted[n/2]) / 2.0f : sorted[n/2];
-    }
+    std::vector<float> pixels(frame.data(), frame.data() + frame.size());
+    float median = core::median_of(pixels);
     
     Matrix2Df result = frame;
     
@@ -133,25 +97,6 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
     Matrix2Df result = mosaic;
     const int h = mosaic.rows();
     const int w = mosaic.cols();
-
-    auto median_small = [](std::vector<float> values) -> float {
-        if (values.empty()) return 0.0f;
-        std::sort(values.begin(), values.end());
-        const size_t n = values.size();
-        return (n % 2 == 0)
-                   ? 0.5f * (values[n / 2 - 1] + values[n / 2])
-                   : values[n / 2];
-    };
-
-    auto mad_small = [&](const std::vector<float>& values, float median) -> float {
-        if (values.empty()) return 0.0f;
-        std::vector<float> deviations;
-        deviations.reserve(values.size());
-        for (float value : values) {
-            deviations.push_back(std::abs(value - median));
-        }
-        return median_small(std::move(deviations));
-    };
 
     struct Stats {
         float median = 0.0f;
@@ -183,8 +128,8 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             stats[py][px] = s;
             return;
         }
-        s.median = median_small(vals);
-        s.mad = mad_small(vals, s.median);
+        s.median = core::median_of(vals);
+        s.mad = core::mad_of(vals, s.median);
         s.sigma = 1.4826f * s.mad;
         s.threshold = s.median + sigma_threshold * s.sigma;
         s.cold_threshold = s.median - sigma_threshold * s.sigma;
@@ -193,14 +138,14 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
         stats[py][px] = s;
     };
 
+    if (!correct_hot) {
+        return result;
+    }
+
     compute_stats(0, 0);
     compute_stats(0, 1);
     compute_stats(1, 0);
     compute_stats(1, 1);
-
-    if (!correct_hot) {
-        return result;
-    }
 
     auto in_bounds = [&](int yy, int xx) -> bool {
         return yy >= 0 && yy < h && xx >= 0 && xx < w;
@@ -245,9 +190,9 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             bool cold_outlier = false;
             float replacement_value = 0.0f;
             if (same_color_neighbors.size() >= 4u) {
-                const float local_median = median_small(same_color_neighbors);
+                const float local_median = core::median_of(same_color_neighbors);
                 const float local_sigma =
-                    1.4826f * mad_small(same_color_neighbors, local_median);
+                    1.4826f * core::mad_of(same_color_neighbors, local_median);
                 const float local_floor = std::max(
                     {2.0f * local_sigma,
                      0.35f * sigma_threshold * s.sigma,
@@ -311,22 +256,10 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     int h = frame.rows();
     int w = frame.cols();
     
-    float median = 0.0f;
-    float mad = 0.0f;
-    {
-        std::vector<float> sorted(frame.data(), frame.data() + frame.size());
-        std::sort(sorted.begin(), sorted.end());
-        size_t n = sorted.size();
-        median = (n % 2 == 0) ? (sorted[n/2-1] + sorted[n/2]) / 2.0f : sorted[n/2];
-        
-        std::vector<float> deviations(n);
-        for (size_t i = 0; i < n; ++i) {
-            deviations[i] = std::abs(sorted[i] - median);
-        }
-        std::sort(deviations.begin(), deviations.end());
-        mad = (n % 2 == 0) ? (deviations[n/2-1] + deviations[n/2]) / 2.0f : deviations[n/2];
-    }
-    
+    std::vector<float> frame_values(frame.data(), frame.data() + frame.size());
+    const float median = core::median_of(frame_values);
+    const float mad = core::mad_of(frame_values, median);
+
     float sigma = 1.4826f * mad;
     float threshold = median + sigma_threshold * sigma;
     float neighbor_threshold = median + (0.5f * sigma_threshold) * sigma;
@@ -400,30 +333,18 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
         return 0.25f * r + 0.50f * g + 0.25f * b;
     };
 
-    auto median_small = [](std::vector<float> values) -> float {
-        if (values.empty()) return 0.0f;
-        std::sort(values.begin(), values.end());
-        const size_t n = values.size();
-        return (n % 2u == 0u)
-                   ? 0.5f * (values[n / 2u - 1u] + values[n / 2u])
-                   : values[n / 2u];
-    };
-
-    auto mad_small = [&](const std::vector<float>& values, float median) -> float {
-        if (values.empty()) return 0.0f;
-        std::vector<float> devs;
-        devs.reserve(values.size());
-        for (float v : values) devs.push_back(std::abs(v - median));
-        return median_small(std::move(devs));
-    };
-
     constexpr int kRadius = 2;
     constexpr int kPasses = 2;
 
+    // Pre-allocate source buffers once. The per-pass copy is required because
+    // the algorithm reads neighbors while writing pixels in-place.
+    Matrix2Df srcR(R.rows(), R.cols());
+    Matrix2Df srcG(G.rows(), G.cols());
+    Matrix2Df srcB(B.rows(), B.cols());
     for (int pass = 0; pass < kPasses; ++pass) {
-        const Matrix2Df srcR = R;
-        const Matrix2Df srcG = G;
-        const Matrix2Df srcB = B;
+        srcR = R;
+        srcG = G;
+        srcB = B;
 
         for (int y = kRadius; y < h - kRadius; ++y) {
             for (int x = kRadius; x < w - kRadius; ++x) {
@@ -457,13 +378,13 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
 
                 if (neighR.size() < 12u) continue;
 
-                const float medR = median_small(neighR);
-                const float medG = median_small(neighG);
-                const float medB = median_small(neighB);
-                const float medL = median_small(neighL);
+                const float medR = core::median_of(neighR);
+                const float medG = core::median_of(neighG);
+                const float medB = core::median_of(neighB);
+                const float medL = core::median_of(neighL);
                 if (!(std::isfinite(medL) && medL > 0.0f)) continue;
 
-                const float madL = 1.4826f * mad_small(neighL, medL);
+                const float madL = 1.4826f * core::mad_of(neighL, medL);
                 const float curR = srcR(y, x);
                 const float curG = srcG(y, x);
                 const float curB = srcB(y, x);
@@ -483,11 +404,11 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
 
                 const float thrFloor = 0.010f * medL + 1.0e-3f;
                 const float thrR =
-                    std::max(4.5f * 1.4826f * mad_small(neighR, medR), thrFloor);
+                    std::max(4.5f * 1.4826f * core::mad_of(neighR, medR), thrFloor);
                 const float thrG =
-                    std::max(4.5f * 1.4826f * mad_small(neighG, medG), thrFloor);
+                    std::max(4.5f * 1.4826f * core::mad_of(neighG, medG), thrFloor);
                 const float thrB =
-                    std::max(4.5f * 1.4826f * mad_small(neighB, medB), thrFloor);
+                    std::max(4.5f * 1.4826f * core::mad_of(neighB, medB), thrFloor);
 
                 const bool badR = resR > thrR;
                 const bool badG = resG > thrG;
