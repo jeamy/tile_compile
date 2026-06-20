@@ -444,9 +444,18 @@ smoke_test() {
   export TILE_COMPILE_AI_AGENT_AUTOSTART=0
   rm -rf "${HOME}"
   mkdir -p "${HOME}"
-  setsid bash "${root}/start_gui2.sh" >/tmp/out_gui2_smoke_macos.txt 2>&1 &
+  export SMOKE_START_SCRIPT="${root}/start_gui2.sh"
+  python3 - <<'PY' &
+import os, subprocess, sys
+os.setsid()
+subprocess.Popen(
+    ["bash", os.environ["SMOKE_START_SCRIPT"]],
+    stdout=open("/tmp/out_gui2_smoke_macos.txt", "w"),
+    stderr=subprocess.STDOUT,
+)
+PY
   local start_pid=$!
-  trap 'kill -- -"${start_pid}" 2>/dev/null || kill "${start_pid}" 2>/dev/null || true; pkill -f tile_compile_web_backend 2>/dev/null || true' EXIT
+  trap 'kill "${start_pid}" 2>/dev/null || true; pkill -f tile_compile_web_backend 2>/dev/null || true' EXIT
   python3 - <<'PY'
 import json
 import os
@@ -475,7 +484,7 @@ with urlopen(req, timeout=10) as resp:
     assert isinstance(result, dict)
     assert "ok" in result
 PY
-  kill -- -"${start_pid}" 2>/dev/null || kill "${start_pid}" 2>/dev/null || true
+  kill "${start_pid}" 2>/dev/null || true
   wait "${start_pid}" 2>/dev/null || true
   pkill -f tile_compile_web_backend 2>/dev/null || true
   trap - EXIT
