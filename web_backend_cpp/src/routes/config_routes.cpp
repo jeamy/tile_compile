@@ -8,7 +8,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <yaml-cpp/yaml.h>
@@ -17,179 +16,6 @@ namespace fs = std::filesystem;
 using namespace tile_compile::routes;
 
 namespace {
-
-
-/// @brief Reads file str.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string read_file_str(const fs::path& p) {
-    std::ifstream f(p);
-    if (!f) return "";
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-}
-
-/// @brief Implements scalar looks like float.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-bool scalar_looks_like_float(const std::string& raw) {
-    return raw.find('.') != std::string::npos ||
-           raw.find('e') != std::string::npos ||
-           raw.find('E') != std::string::npos;
-}
-
-/// @brief Trims trailing zeros.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string trim_trailing_zeros(std::string text) {
-    const auto dot = text.find('.');
-    if (dot == std::string::npos) return text;
-    while (!text.empty() && text.back() == '0') text.pop_back();
-    if (!text.empty() && text.back() == '.') text.pop_back();
-    if (text == "-0") return "0";
-    return text.empty() ? "0" : text;
-}
-
-/// @brief Formats config float scalar.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string format_config_float_scalar(double value) {
-    if (!std::isfinite(value)) return "0";
-
-    const double rounded = std::round(value * 100.0) / 100.0;
-    if (rounded == 0.0 && value != 0.0 && std::fabs(value) < 0.01) {
-        std::ostringstream oss;
-        oss << std::scientific << std::setprecision(2) << value;
-        return oss.str();
-    }
-
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << rounded;
-    return trim_trailing_zeros(oss.str());
-}
-
-/// @brief Implements round yaml numeric scalars inplace.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-void round_yaml_numeric_scalars_inplace(YAML::Node node) {
-    if (!node || node.IsNull()) return;
-    if (node.IsMap()) {
-        for (auto it = node.begin(); it != node.end(); ++it) round_yaml_numeric_scalars_inplace(it->second);
-        return;
-    }
-    if (node.IsSequence()) {
-        for (auto it = node.begin(); it != node.end(); ++it) round_yaml_numeric_scalars_inplace(*it);
-        return;
-    }
-    if (!node.IsScalar()) return;
-
-    const std::string raw = node.Scalar();
-    if (!scalar_looks_like_float(raw)) return;
-
-    char* end = nullptr;
-    errno = 0;
-    const double value = std::strtod(raw.c_str(), &end);
-    if (errno != 0 || end == raw.c_str() || (end && *end != '\0') || !std::isfinite(value)) return;
-    node = format_config_float_scalar(value);
-}
-
-/// @brief Implements allowed roots json.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-nlohmann::json allowed_roots_json(const BackendRuntime& runtime) {
-    nlohmann::json roots = nlohmann::json::array();
-    for (const auto& root : runtime.allowed_roots()) roots.push_back(root.string());
-    return roots;
-}
-
-std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& state,
-                                            fs::path& path,
-                                            const std::string& label,
-                                            bool must_exist = false) {
-    auto resolved = state->runtime.resolve_input_path(path, must_exist);
-    path = resolved.path;
-    if (resolved.status == PathStatus::not_allowed) {
-        return err_resp("PATH_NOT_ALLOWED", label + " is outside allowed roots", 403, {{"path", path.string()}, {"allowed_roots", allowed_roots_json(state->runtime)}});
-    }
-    if (resolved.status == PathStatus::not_found) {
-        return err_resp("PATH_NOT_FOUND", label + " does not exist", 400, {{"path", path.string()}});
-    }
-    return std::nullopt;
-}
-
-/// @brief Parses json.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<nlohmann::json> parse_json(const std::string& raw) {
-    auto parsed = nlohmann::json::parse(raw, nullptr, false);
-    if (parsed.is_discarded()) return std::nullopt;
-    return parsed;
-}
-
-/// @brief Implements backend command failed.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-crow::response backend_command_failed(const std::string& message, const SubprocessResult& result) {
-    return err_resp("BACKEND_COMMAND_FAILED", message, 502, {
-        {"exit_code", result.exit_code},
-        {"stdout", result.stdout_str},
-        {"stderr", result.stderr_str},
-    });
-}
-
-/// @brief Implements json to yaml node.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-YAML::Node json_to_yaml_node(const nlohmann::json& value) {
-    if (value.is_object()) {
-        YAML::Node node(YAML::NodeType::Map);
-        for (auto it = value.begin(); it != value.end(); ++it) node[it.key()] = json_to_yaml_node(it.value());
-        return node;
-    }
-    if (value.is_array()) {
-        YAML::Node node(YAML::NodeType::Sequence);
-        for (const auto& item : value) node.push_back(json_to_yaml_node(item));
-        return node;
-    }
-    if (value.is_boolean()) return YAML::Node(value.get<bool>());
-    if (value.is_number_integer()) return YAML::Node(value.get<long long>());
-    if (value.is_number_unsigned()) return YAML::Node(value.get<unsigned long long>());
-    if (value.is_number_float()) return YAML::Node(value.get<double>());
-    if (value.is_null()) return YAML::Node();
-    return YAML::Node(value.get<std::string>());
-}
-
-/// @brief Implements yaml to json.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-nlohmann::json yaml_to_json(const YAML::Node& node) {
-    if (!node || node.IsNull()) return nullptr;
-    if (node.IsMap()) {
-        nlohmann::json out = nlohmann::json::object();
-        for (auto it = node.begin(); it != node.end(); ++it) out[it->first.as<std::string>()] = yaml_to_json(it->second);
-        return out;
-    }
-    if (node.IsSequence()) {
-        nlohmann::json out = nlohmann::json::array();
-        for (auto it = node.begin(); it != node.end(); ++it) out.push_back(yaml_to_json(*it));
-        return out;
-    }
-    try { return node.as<bool>(); } catch (...) {}
-    try { return node.as<long long>(); } catch (...) {}
-    try { return node.as<double>(); } catch (...) {}
-    try { return node.as<std::string>(); } catch (...) {}
-    return nullptr;
-}
-
-/// @brief Implements yaml dump.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string yaml_dump(const nlohmann::json& value) {
-    YAML::Node node = json_to_yaml_node(value);
-    round_yaml_numeric_scalars_inplace(node);
-    std::ostringstream oss;
-    oss << node;
-    return oss.str();
-}
 
 /// @brief Parses scalar value.
 /// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
@@ -237,34 +63,13 @@ nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_va
         !trimmed.empty() &&
         (trimmed.front() == '{' || trimmed.front() == '[' || trimmed.find('\n') != std::string::npos);
     if (looks_structured_yaml) {
-        try {
-            return yaml_to_json(YAML::Load(trimmed));
-        } catch (...) {
-            return raw_value;
+        if (auto parsed = parse_yaml_text(trimmed)) {
+            return *parsed;
         }
+        return raw_value;
     }
 
     return raw_value;
-}
-
-/// @brief Implements set dotted.
-/// @details This implementation serves configuration loading, mutation, validation, and revision endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-void set_dotted(nlohmann::json& root, const std::string& dotted_path, const nlohmann::json& value) {
-    std::vector<std::string> parts;
-    std::istringstream iss(dotted_path);
-    std::string part;
-    while (std::getline(iss, part, '.')) {
-        if (!part.empty()) parts.push_back(part);
-    }
-    if (parts.empty()) return;
-
-    nlohmann::json* node = &root;
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-        if (!node->contains(parts[i]) || !(*node)[parts[i]].is_object()) (*node)[parts[i]] = nlohmann::json::object();
-        node = &(*node)[parts[i]];
-    }
-    (*node)[parts.back()] = value;
 }
 
 } // namespace
@@ -278,7 +83,7 @@ void register_config_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/config/schema").methods("GET"_method)
     ([state](const crow::request&) {
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "get-schema"}, state->runtime.project_root.string());
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch schema", res);
         return json_resp(*parsed);
     });
@@ -286,7 +91,7 @@ void register_config_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/config/defaults").methods("GET"_method)
     ([state](const crow::request&) {
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "dump-default-config"}, state->runtime.project_root.string());
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch defaults", res);
         return json_resp(*parsed);
     });
@@ -297,7 +102,7 @@ void register_config_routes(CrowApp& app,
         if (auto err = validate_path(state, config_path, "config_path", true)) return std::move(*err);
 
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "load-config", config_path.string()}, state->runtime.project_root.string());
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code == 0 && parsed && parsed->is_object()) {
             return json_resp({{"config", parsed->value("yaml", std::string())}, {"source", config_path.string()}});
         }
@@ -310,8 +115,7 @@ void register_config_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/config/validate").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
 
         bool strict = body.value("strict_exit_codes", false);
         std::vector<std::string> cmd = {state->runtime.cli_exe, "validate-config"};
@@ -334,7 +138,7 @@ void register_config_routes(CrowApp& app,
 
         if (strict) cmd.push_back("--strict-exit-codes");
         SubprocessResult res = run_subprocess(cmd, state->runtime.project_root.string(), stdin_text);
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (!parsed || !parsed->is_object()) {
             nlohmann::json details = nlohmann::json::array();
             if (!res.stderr_str.empty()) details.push_back("stderr: " + res.stderr_str);
@@ -352,8 +156,9 @@ void register_config_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/config/save").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
 
         fs::path target = body.contains("path") && body["path"].is_string()
             ? fs::path(body["path"].get<std::string>())
@@ -372,7 +177,7 @@ void register_config_routes(CrowApp& app,
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                               state->runtime.project_root.string(),
                                               yaml_text);
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("save-config failed", res);
 
         fs::path saved_path = parsed->contains("path") && (*parsed)["path"].is_string()
@@ -419,17 +224,18 @@ void register_config_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/config/presets/apply").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("path") || !body["path"].is_string()) {
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("path") || !(*body_opt)["path"].is_string()) {
             return err_resp("BAD_REQUEST", "path is required", 400);
         }
+        auto& body = *body_opt;
 
         fs::path preset_path = fs::path(body["path"].get<std::string>());
         if (preset_path.is_relative()) preset_path = state->runtime.project_root / preset_path;
         if (auto err = validate_path(state, preset_path, "preset_path", true)) return std::move(*err);
 
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "load-config", preset_path.string()}, state->runtime.project_root.string());
-        auto parsed = parse_json(res.stdout_str);
+        auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("load-config failed", res);
 
         state->ui_event_store.push("config.preset.apply", "config.presets_apply", {{"preset_path", preset_path.string()}});
@@ -473,8 +279,9 @@ void register_config_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/config/patch").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
 
         fs::path target = body.contains("path") && body["path"].is_string()
             ? fs::path(body["path"].get<std::string>())
@@ -483,22 +290,14 @@ void register_config_routes(CrowApp& app,
 
         nlohmann::json base = nlohmann::json::object();
         if (body.contains("yaml") && body["yaml"].is_string()) {
-            try {
-                base = yaml_to_json(YAML::Load(body["yaml"].get<std::string>()));
-            } catch (const std::exception& e) {
-                return err_resp("BAD_REQUEST", std::string("YAML parse error: ") + e.what(), 400);
-            }
+            auto parsed = parse_yaml_text(body["yaml"].get<std::string>());
+            if (!parsed) return err_resp("BAD_REQUEST", "YAML parse error: invalid YAML", 400);
+            base = *parsed;
         } else if (body.contains("config") && body["config"].is_object()) {
             base = body["config"];
         } else {
-            std::string current_text = read_file_str(target);
-            if (!current_text.empty()) {
-                try {
-                    base = yaml_to_json(YAML::Load(current_text));
-                } catch (const std::exception& e) {
-                    return err_resp("BAD_REQUEST", std::string("YAML parse error: ") + e.what(), 400);
-                }
-            }
+            auto parsed = parse_yaml_file(target);
+            if (parsed) base = *parsed;
         }
 
         if (!base.is_object()) {
@@ -534,7 +333,7 @@ void register_config_routes(CrowApp& app,
             SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                                   state->runtime.project_root.string(),
                                                   merged_yaml);
-            auto parsed = parse_json(res.stdout_str);
+            auto parsed = parse_json_string(res.stdout_str);
             if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("save-config failed", res);
 
             fs::path saved_path = parsed->contains("path") && (*parsed)["path"].is_string()

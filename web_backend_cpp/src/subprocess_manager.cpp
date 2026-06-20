@@ -75,13 +75,9 @@ json compact_json_for_job_storage(const json& value,
     return value;
 }
 
-/// @brief Compacts scan per dir result.
-/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limits) {
-    json out = compact_json_for_job_storage(raw, limits);
-    if (!raw.is_object()) return out;
-
+/// @brief Compacts common scan fields (errors, warnings, frames, color_mode_candidates).
+/// @details Shared logic between compact_scan_per_dir_result and compact_scan_job_result.
+static void compact_scan_common_fields(json& out, const json& raw, const BackendGuardLimits& limits, size_t frames_preview) {
     if (raw.contains("errors") && raw["errors"].is_array()) {
         out["errors"] = compact_json_array(raw["errors"], limits.scan_messages_preview, limits);
         out["errors_total"] = raw["errors"].size();
@@ -93,9 +89,9 @@ json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limi
         out["warnings_truncated"] = raw["warnings"].size() > limits.scan_messages_preview;
     }
     if (raw.contains("frames") && raw["frames"].is_array()) {
-        out["frames"] = compact_json_array(raw["frames"], limits.scan_per_dir_frames_preview, limits);
+        out["frames"] = compact_json_array(raw["frames"], frames_preview, limits);
         out["frames_total"] = raw["frames"].size();
-        out["frames_truncated"] = raw["frames"].size() > limits.scan_per_dir_frames_preview;
+        out["frames_truncated"] = raw["frames"].size() > frames_preview;
     } else if (!out.contains("frames")) {
         out["frames"] = json::array();
         out["frames_total"] = 0;
@@ -106,6 +102,15 @@ json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limi
         out["color_mode_candidates_total"] = raw["color_mode_candidates"].size();
         out["color_mode_candidates_truncated"] = raw["color_mode_candidates"].size() > limits.scan_color_candidates_preview;
     }
+}
+
+/// @brief Compacts scan per dir result.
+/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
+json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limits) {
+    json out = compact_json_for_job_storage(raw, limits);
+    if (!raw.is_object()) return out;
+    compact_scan_common_fields(out, raw, limits, limits.scan_per_dir_frames_preview);
     return out;
 }
 
@@ -115,31 +120,7 @@ json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limi
 json compact_scan_job_result(const json& raw, const BackendGuardLimits& limits) {
     json out = compact_json_for_job_storage(raw, limits);
     if (!raw.is_object()) return out;
-
-    if (raw.contains("errors") && raw["errors"].is_array()) {
-        out["errors"] = compact_json_array(raw["errors"], limits.scan_messages_preview, limits);
-        out["errors_total"] = raw["errors"].size();
-        out["errors_truncated"] = raw["errors"].size() > limits.scan_messages_preview;
-    }
-    if (raw.contains("warnings") && raw["warnings"].is_array()) {
-        out["warnings"] = compact_json_array(raw["warnings"], limits.scan_messages_preview, limits);
-        out["warnings_total"] = raw["warnings"].size();
-        out["warnings_truncated"] = raw["warnings"].size() > limits.scan_messages_preview;
-    }
-    if (raw.contains("frames") && raw["frames"].is_array()) {
-        out["frames"] = compact_json_array(raw["frames"], limits.scan_frames_preview, limits);
-        out["frames_total"] = raw["frames"].size();
-        out["frames_truncated"] = raw["frames"].size() > limits.scan_frames_preview;
-    } else if (!out.contains("frames")) {
-        out["frames"] = json::array();
-        out["frames_total"] = 0;
-        out["frames_truncated"] = false;
-    }
-    if (raw.contains("color_mode_candidates") && raw["color_mode_candidates"].is_array()) {
-        out["color_mode_candidates"] = compact_json_array(raw["color_mode_candidates"], limits.scan_color_candidates_preview, limits);
-        out["color_mode_candidates_total"] = raw["color_mode_candidates"].size();
-        out["color_mode_candidates_truncated"] = raw["color_mode_candidates"].size() > limits.scan_color_candidates_preview;
-    }
+    compact_scan_common_fields(out, raw, limits, limits.scan_frames_preview);
     if (raw.contains("per_dir_results") && raw["per_dir_results"].is_array()) {
         json per_dir = json::array();
         const size_t limit = std::min(raw["per_dir_results"].size(), limits.scan_per_dir_results_preview);

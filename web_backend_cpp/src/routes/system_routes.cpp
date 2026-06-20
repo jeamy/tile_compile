@@ -24,6 +24,14 @@ static fs::path normalized_existing_path(const fs::path& path) {
     return normalized;
 }
 
+static bool directory_entry_dir_first(const fs::directory_entry& a,
+                                      const fs::directory_entry& b) {
+    const bool a_dir = a.is_directory();
+    const bool b_dir = b.is_directory();
+    if (a_dir != b_dir) return a_dir > b_dir;
+    return a.path().filename().string() < b.path().filename().string();
+}
+
 /// @brief Registers system endpoints for runtime health, path resolution, and backend metadata.
 /// @details This is the route-group entry point called from main during Crow setup.
 void register_system_routes(CrowApp& app,
@@ -31,14 +39,14 @@ void register_system_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/health")
     ([state](const crow::request& req) {
-        return json_response({{"status", "ok"}, {"service", "tile_compile_web_backend"}});
+        return json_resp({{"status", "ok"}, {"service", "tile_compile_web_backend"}});
     });
 
     CROW_ROUTE(app, "/api/version")
     ([state](const crow::request& req) {
         fs::path cli_path = fs::path(state->runtime.cli_exe);
         fs::path runner_path = fs::path(state->runtime.runner_exe);
-        return json_response({
+        return json_resp({
             {"cli",    (fs::exists(cli_path) ? "found:" : "missing:") + cli_path.string()},
             {"runner", (fs::exists(runner_path) ? "found:" : "missing:") + runner_path.string()},
         });
@@ -53,8 +61,7 @@ void register_system_routes(CrowApp& app,
             if (ec || !fs::exists(resolved) || !fs::is_directory(resolved)) continue;
             roots.push_back(resolved.string());
         }
-        std::sort(roots.begin(), roots.end());
-        roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
+        sort_unique_inplace(roots);
 
         std::string default_path;
         std::error_code ec;
@@ -64,7 +71,7 @@ void register_system_routes(CrowApp& app,
         } else if (!roots.empty()) {
             default_path = roots.front();
         }
-        return json_response({{"items", roots}, {"default_path", default_path.empty() ? nlohmann::json(nullptr) : nlohmann::json(default_path)}});
+        return json_resp({{"items", roots}, {"default_path", default_path.empty() ? nlohmann::json(nullptr) : nlohmann::json(default_path)}});
     });
 
     CROW_ROUTE(app, "/api/fs/list").methods("GET"_method)
@@ -83,8 +90,7 @@ void register_system_routes(CrowApp& app,
                 if (ec || !fs::exists(resolved) || !fs::is_directory(resolved)) continue;
                 roots.push_back(resolved.string());
             }
-            std::sort(roots.begin(), roots.end());
-            roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
+            sort_unique_inplace(roots);
             if (roots.empty()) {
                 return err_resp("NO_ALLOWED_ROOTS", "no readable allowed roots available for file browser", 400, nlohmann::json::object());
             }
@@ -111,12 +117,7 @@ void register_system_routes(CrowApp& app,
         nlohmann::json items = nlohmann::json::array();
         std::vector<fs::directory_entry> children;
         for (auto& entry : fs::directory_iterator(resolved_dir)) children.push_back(entry);
-        std::sort(children.begin(), children.end(), [](const fs::directory_entry& a, const fs::directory_entry& b) {
-            bool a_dir = a.is_directory();
-            bool b_dir = b.is_directory();
-            if (a_dir != b_dir) return a_dir > b_dir;
-            return a.path().filename().string() < b.path().filename().string();
-        });
+        std::sort(children.begin(), children.end(), directory_entry_dir_first);
         for (auto& entry : children) {
             bool is_dir = entry.is_directory();
             if (!is_dir && !include_files) continue;
@@ -127,14 +128,15 @@ void register_system_routes(CrowApp& app,
                 {"type",  is_dir ? "dir" : "file"},
             });
         }
-        return json_response({{"path", normalized_path}, {"parent", parent_path}, {"parent_allowed", parent_allowed}, {"items", items}});
+        return json_resp({{"path", normalized_path}, {"parent", parent_path}, {"parent_allowed", parent_allowed}, {"items", items}});
     });
 
     CROW_ROUTE(app, "/api/fs/grant-root").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("path"))
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("path"))
             return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+        auto& body = *body_opt;
         std::string path = body["path"].get<std::string>();
         fs::path candidate = fs::path(path);
         if (candidate.is_relative()) {
@@ -153,14 +155,15 @@ void register_system_routes(CrowApp& app,
         for (const auto& root : state->runtime.allowed_roots()) {
             allowed_roots.push_back(normalized_existing_path(root).string());
         }
-        return json_response({{"ok", true}, {"path", candidate.string()}, {"allowed_roots", allowed_roots}});
+        return json_resp({{"ok", true}, {"path", candidate.string()}, {"allowed_roots", allowed_roots}});
     });
 
     CROW_ROUTE(app, "/api/fs/open").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("path"))
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("path"))
             return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+        auto& body = *body_opt;
         std::string path = body["path"].get<std::string>();
         fs::path target = fs::path(path);
         if (!state->runtime.is_path_allowed(target))
@@ -182,6 +185,6 @@ void register_system_routes(CrowApp& app,
         if (rc != 0) {
             return err_resp("OPEN_FAILED", "failed to open path", 400, {{"path", target.string()}});
         }
-        return json_response({{"ok", true}, {"path", target.string()}, {"command", command}});
+        return json_resp({{"ok", true}, {"path", target.string()}, {"command", command}});
     });
  }

@@ -88,8 +88,8 @@ struct BackendRuntime {
     std::vector<fs::path> input_search_roots() const;
 
 private:
-    fs::path normalize_path(const fs::path& p) const;
-    bool is_within_root(const fs::path& candidate, const fs::path& root) const;
+    static fs::path normalize_path(const fs::path& p);
+    static bool is_within_root(const fs::path& candidate, const fs::path& root);
     mutable std::unique_ptr<std::mutex> _roots_mutex;
     std::unordered_set<std::string> _allowed_roots;
     std::vector<fs::path> _input_search_roots;

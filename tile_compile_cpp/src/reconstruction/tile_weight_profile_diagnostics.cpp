@@ -175,7 +175,7 @@ TileWeightProfileDiagnostics analyze_tile_weight_profiles(
   out.pair_activation_mismatch_fraction_p95 =
       core::percentile_of(pair_activation_mismatch_fraction, 95.0f);
   out.pair_correlation_p05 =
-      core::percentile_from_sorted(pair_correlation, 5.0f);
+      core::percentile_of(pair_correlation, 5.0f);
 
   return out;
 }

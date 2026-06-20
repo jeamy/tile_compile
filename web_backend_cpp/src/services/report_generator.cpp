@@ -488,6 +488,20 @@ double percentile_sorted(const std::vector<double>& vals, double q) {
     return vals[lo] * (1.0 - t) + vals[hi] * t;
 }
 
+/// @brief Sorts values and returns the requested percentile.
+/// @details Convenience wrapper for callers that do not already hold a sorted vector.
+/// Internally forwards to percentile_sorted after sorting.
+double percentile_of(std::vector<double> values, double q) {
+    std::sort(values.begin(), values.end());
+    return percentile_sorted(values, q);
+}
+
+/// @brief Sorts values and returns the median.
+/// @details Convenience wrapper equivalent to percentile_of(values, 0.5).
+double median_of(std::vector<double> values) {
+    return percentile_of(std::move(values), 0.5);
+}
+
 /// @brief Implements basic stats.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.

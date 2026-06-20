@@ -1,4 +1,5 @@
 #include "routes/runs_routes.hpp"
+#include "routes/route_utils.hpp"
 #include "services/report_generator.hpp"
 #include "services/run_inspector.hpp"
 #include "subprocess_manager.hpp"
@@ -230,29 +231,6 @@ static bool wildcard_match(const std::string& pattern, const std::string& value)
     }
 }
 
-/// @brief Reads file str.
-/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-static std::string read_file_str(const fs::path& path) {
-    std::ifstream in(path);
-    if (!in) return "";
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-/// @brief Writes file str.
-/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-static bool write_file_str(const fs::path& path, const std::string& text) {
-    if (!path.parent_path().empty()) {
-        std::error_code ec;
-        fs::create_directories(path.parent_path(), ec);
-    }
-    std::ofstream out(path, std::ios::out | std::ios::trunc);
-    if (!out) return false;
-    out << text;
-    return static_cast<bool>(out);
-}
-
 static std::optional<ConfigRevision> resolve_config_revision(const std::shared_ptr<AppState>& state,
                                                              const fs::path& run_dir,
                                                              const std::string& revision_id) {
@@ -339,7 +317,7 @@ static std::string effective_config_yaml(const std::shared_ptr<AppState>& state,
                                          const std::string& color_mode,
                                          const std::string& astap_bin = "",
                                          const std::string& astap_data_dir = "") {
-    std::string yaml = config_yaml.empty() ? read_file_str(state->runtime.default_config_path) : config_yaml;
+    std::string yaml = config_yaml.empty() ? tile_compile::routes::read_file_str(state->runtime.default_config_path) : config_yaml;
     yaml = apply_color_mode_to_yaml(yaml, color_mode);
     yaml = apply_astrometry_paths_to_yaml(yaml, astap_bin, astap_data_dir);
     return yaml;
@@ -721,8 +699,9 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/start").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = tile_compile::routes::parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
 
         auto guardrails = scan_guardrails(state->job_store);
         if (guardrails.value("status", std::string()) == "error") {
@@ -748,28 +727,18 @@ void register_runs_routes(CrowApp& app,
             return err_resp("BAD_REQUEST", "input_dir is required", 400, nlohmann::json::object());
 
         for (auto& dir : input_dirs) {
-            auto resolved = state->runtime.resolve_input_path(fs::path(dir), !fs::path(dir).is_absolute());
-            if (resolved.status == PathStatus::not_allowed) {
-                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + dir, 403, {{"path", dir}});
-            }
-            if (resolved.status == PathStatus::not_found) {
-                return err_resp("PATH_NOT_FOUND", "Path not found: " + dir, 400, {{"path", dir}});
-            }
-            dir = resolved.path.string();
+            fs::path p(dir);
+            if (auto err = tile_compile::routes::validate_path(state, p, !p.is_absolute())) return std::move(*err);
+            dir = p.string();
         }
         if (queue_items.is_array()) {
             for (auto& item : queue_items) {
                 if (!item.is_object()) continue;
                 std::string raw_input_dir = item.value("input_dir", "");
                 if (raw_input_dir.empty()) continue;
-                auto resolved = state->runtime.resolve_input_path(fs::path(raw_input_dir), !fs::path(raw_input_dir).is_absolute());
-                if (resolved.status == PathStatus::not_allowed) {
-                    return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw_input_dir, 403, {{"path", raw_input_dir}});
-                }
-                if (resolved.status == PathStatus::not_found) {
-                    return err_resp("PATH_NOT_FOUND", "Path not found: " + raw_input_dir, 400, {{"path", raw_input_dir}});
-                }
-                item["input_dir"] = resolved.path.string();
+                fs::path p(raw_input_dir);
+                if (auto err = tile_compile::routes::validate_path(state, p, !p.is_absolute())) return std::move(*err);
+                item["input_dir"] = p.string();
             }
         }
 
@@ -792,21 +761,10 @@ void register_runs_routes(CrowApp& app,
 
         if (!queue_items.empty()) {
             std::string effective_run_id = queue_items.front().value("run_id", base_run_id);
-            std::string job_id = state->job_store.create("run_queue", effective_run_id);
             auto queue_payload = queue_job_payload(queue_items, 0, effective_run_id, runs_dir);
             queue_payload["config_revision_id"] = revision_id;
-            state->job_store.update_state(job_id, JobState::running, queue_payload);
-            {
-                std::lock_guard<std::mutex> lk(state->state_mutex);
-                state->current_run_id = effective_run_id;
-            }
-            state->ui_event_store.push(
-                "run.start.queue",
-                "runs.run_start",
-                {{"revision_id", revision_id}, {"queue_size", static_cast<int>(queue_items.size())}},
-                effective_run_id,
-                job_id);
-            std::thread([state, job_id, queue_items, runs_dir, effective_config_path, prepared_config_yaml]() mutable {
+            std::string job_id = tile_compile::routes::spawn_job_thread(state, "run_queue", effective_run_id, queue_payload,
+                [queue_items, runs_dir, effective_config_path, prepared_config_yaml](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
                 fs::create_directories(staging_root, ec);
@@ -884,7 +842,13 @@ void register_runs_routes(CrowApp& app,
                 state->job_store.update_state(job_id, JobState::ok,
                     queue_job_payload(queue, static_cast<int>(queue.size()) - 1, final_run_id, runs_dir));
                 fs::remove_all(staging_root, ec);
-            }).detach();
+            });
+            state->ui_event_store.push(
+                "run.start.queue",
+                "runs.run_start",
+                {{"revision_id", revision_id}, {"queue_size", static_cast<int>(queue_items.size())}},
+                effective_run_id,
+                job_id);
             return json_resp({{"job_id", job_id}, {"run_id", effective_run_id}}, 202);
         }
 
@@ -958,7 +922,7 @@ void register_runs_routes(CrowApp& app,
                 {"run_id", run_id},
                 {"run_dir", run_dir.string()},
                 {"path", config_path.string()},
-                {"config", read_file_str(config_path)},
+                {"config", tile_compile::routes::read_file_str(config_path)},
             });
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
@@ -1085,8 +1049,9 @@ void register_runs_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/runs/<string>/resume").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = tile_compile::routes::parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
 
         std::string from_phase   = body.value("from_phase",   "");
         std::string run_dir_str  = body.value("run_dir",      "");
@@ -1116,11 +1081,11 @@ void register_runs_routes(CrowApp& app,
         }
 
         if (!requested_yaml.empty()) {
-            const std::string current_yaml = read_file_str(run_config_path);
+            const std::string current_yaml = tile_compile::routes::read_file_str(run_config_path);
             if (!current_yaml.empty() && current_yaml != requested_yaml) {
                 persist_run_config_snapshot(run_dir, current_yaml, "resume_previous_config", run_id);
             }
-            if (!write_file_str(run_config_path, requested_yaml)) {
+            if (!tile_compile::routes::write_file_str(run_config_path, requested_yaml)) {
                 return err_resp("Cannot write: " + run_config_path.string(), 500);
             }
             persist_run_config_snapshot(run_dir, requested_yaml, "resume_selected_config", run_id);
@@ -1291,9 +1256,8 @@ void register_runs_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/runs/<string>/stats").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        std::string run_dir_str;
-        if (!body.is_discarded()) run_dir_str = body.value("run_dir", "");
+        auto body_opt = tile_compile::routes::parse_body(req);
+        std::string run_dir_str = body_opt ? body_opt->value("run_dir", "") : "";
 
         fs::path run_dir;
         try {
@@ -1306,39 +1270,14 @@ void register_runs_routes(CrowApp& app,
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
         }
 
-        std::string job_id = state->job_store.create("stats", run_id);
-        state->job_store.update_state(job_id, JobState::running, {
-            {"run_id", run_id},
-            {"run_dir", run_dir.string()}
-        });
-        std::thread([state, job_id, run_id, run_dir]() {
-            try {
-                auto result = generate_run_report(run_dir);
-                nlohmann::json data = result;
-                data["run_id"] = run_id;
-                data["run_dir"] = run_dir.string();
-                if (result.value("ok", false)) {
-                    state->job_store.update_state(job_id, JobState::ok, data);
-                } else {
-                    state->job_store.update_state(job_id, JobState::error, data,
-                        result.value("error", std::string("report generation failed")));
-                }
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, JobState::error, {
-                    {"ok", false},
-                    {"run_id", run_id},
-                    {"run_dir", run_dir.string()},
-                    {"error", e.what()}
-                }, e.what());
-            } catch (...) {
-                state->job_store.update_state(job_id, JobState::error, {
-                    {"ok", false},
-                    {"run_id", run_id},
-                    {"run_dir", run_dir.string()},
-                    {"error", "unknown stats generation error"}
-                }, "unknown stats generation error");
-            }
-        }).detach();
+        std::string job_id = tile_compile::routes::spawn_job(state, "stats", run_id,
+            nlohmann::json({{"run_id", run_id}, {"run_dir", run_dir.string()}}),
+            [run_id, run_dir]() {
+                nlohmann::json result = generate_run_report(run_dir);
+                result["run_id"] = run_id;
+                result["run_dir"] = run_dir.string();
+                return result;
+            });
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
@@ -1395,11 +1334,11 @@ void register_runs_routes(CrowApp& app,
         if (!state->runtime.is_path_allowed(target)) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target.string(), 403, {{"path", target.string()}});
         }
-        const std::string current_yaml = read_file_str(target);
+        const std::string current_yaml = tile_compile::routes::read_file_str(target);
         if (!current_yaml.empty() && current_yaml != rev->yaml_text) {
             persist_run_config_snapshot(run_dir, current_yaml, "restore_previous_config", run_id);
         }
-        if (!write_file_str(target, rev->yaml_text)) {
+        if (!tile_compile::routes::write_file_str(target, rev->yaml_text)) {
             return err_resp("BACKEND_COMMAND_FAILED", "failed to restore revision", 502, {{"path", target.string()}});
         }
         persist_run_config_snapshot(run_dir, rev->yaml_text, "restore_selected_config", run_id);

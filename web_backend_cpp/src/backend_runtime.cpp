@@ -256,7 +256,7 @@ BackendRuntime BackendRuntime::from_env() {
 /// @brief Normalizes path.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-fs::path BackendRuntime::normalize_path(const fs::path& p) const {
+fs::path BackendRuntime::normalize_path(const fs::path& p) {
     if (p.empty()) return {};
     std::error_code ec;
     fs::path candidate = p;
@@ -269,7 +269,7 @@ fs::path BackendRuntime::normalize_path(const fs::path& p) const {
 /// @brief Checks whether within root.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& root) const {
+bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& root) {
     const fs::path normalized_candidate = normalize_path(candidate);
     const fs::path normalized_root = normalize_path(root);
     if (normalized_candidate.empty() || normalized_root.empty()) return false;

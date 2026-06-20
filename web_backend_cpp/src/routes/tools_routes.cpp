@@ -599,11 +599,7 @@ bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::str
 /// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
-#ifdef _WIN32
     auto res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
-#else
-    auto res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
-#endif
     if (res.exit_code != 0) {
         error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
         return false;
@@ -821,17 +817,14 @@ void register_tools_routes(CrowApp& app,
 
         const DownloadOptions options = download_options_from_payload(body, 1800);
         const bool force_restart = body.value("force_restart", false);
-        std::string job_id = state->job_store.create("astrometry_install_cli");
-        state->job_store.update_state(job_id, JobState::running, {
+        std::string job_id = spawn_job_thread(state, "astrometry_install_cli", "", {
             {"data_dir", data_dir.string()},
             {"url", cli_url},
             {"stage", "download"},
             {"progress", 0.0},
             {"resume_enabled", options.resume},
             {"retry_count", options.retry_count},
-        });
-
-        std::thread([state, job_id, data_dir, options, force_restart, cli_url]() {
+        }, [data_dir, options, force_restart, cli_url](std::shared_ptr<AppState> state, const std::string& job_id) {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / "astap_cli.zip";
@@ -885,7 +878,7 @@ void register_tools_routes(CrowApp& app,
                 if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
                 else state->job_store.update_state(job_id, JobState::error, data, e.what());
             }
-        }).detach();
+        });
 
         state->ui_event_store.push("tools.astrometry.install_cli", "tools.astrometry_install", {{"data_dir", data_dir.string()}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -921,8 +914,7 @@ void register_tools_routes(CrowApp& app,
         }
 
         const std::string url = std::string(ASTAP_SF_BASE) + filename + "/download";
-        std::string job_id = state->job_store.create("astrometry_catalog_download");
-        state->job_store.update_state(job_id, JobState::running, {
+        std::string job_id = spawn_job_thread(state, "astrometry_catalog_download", "", {
             {"catalog_id", catalog_id},
             {"url", url},
             {"data_dir", data_dir.string()},
@@ -930,9 +922,7 @@ void register_tools_routes(CrowApp& app,
             {"progress", 0.0},
             {"resume_enabled", options.resume},
             {"retry_count", options.retry_count},
-        });
-
-        std::thread([state, job_id, catalog_id, filename, data_dir, options, force_restart, url]() {
+        }, [catalog_id, filename, data_dir, options, force_restart, url](std::shared_ptr<AppState> state, const std::string& job_id) {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / filename;
@@ -1025,7 +1015,7 @@ void register_tools_routes(CrowApp& app,
                 if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
                 else state->job_store.update_state(job_id, JobState::error, data, e.what());
             }
-        }).detach();
+        });
 
         state->ui_event_store.push("tools.astrometry.catalog.download", "tools.astrometry_catalog_download", {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -1049,17 +1039,14 @@ void register_tools_routes(CrowApp& app,
             }
         }
         const int max_chunks = body.value("max_chunks", 0);
-        std::string job_id = state->job_store.create("pcc_siril_download");
-        state->job_store.update_state(job_id, JobState::running, {
+        std::string job_id = spawn_job_thread(state, "pcc_siril_download", "", {
             {"catalog_dir", catalog_dir.string()},
             {"pending_chunks", requested_chunks},
             {"total_chunks", 0},
             {"progress", 0.0},
             {"resume_enabled", options.resume},
             {"retry_count", options.retry_count},
-        });
-
-        std::thread([state, job_id, catalog_dir, options, force_restart, requested_chunks, max_chunks]() {
+        }, [catalog_dir, options, force_restart, requested_chunks, max_chunks](std::shared_ptr<AppState> state, const std::string& job_id) {
             try {
                 fs::create_directories(catalog_dir);
                 auto missing = missing_siril_chunks(catalog_dir);
@@ -1167,7 +1154,7 @@ void register_tools_routes(CrowApp& app,
                 if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
                 else state->job_store.update_state(job_id, JobState::error, data, e.what());
             }
-        }).detach();
+        });
 
         state->ui_event_store.push("tools.pcc.siril.download_missing", "tools.pcc_siril_download_missing", {{"catalog_dir", catalog_dir.string()}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -1179,10 +1166,10 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/astrometry/detect").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        std::string astap_cli      = body.is_discarded() ? "" : body.value("astap_cli", "");
-        std::string astap_data_dir = body.is_discarded() ? "" : body.value("astap_data_dir", "");
-        std::string catalog_dir_str = body.is_discarded() ? "" : body.value("catalog_dir", "");
+        auto body = parse_body(req).value_or(nlohmann::json::object());
+        std::string astap_cli      = body.value("astap_cli", "");
+        std::string astap_data_dir = body.value("astap_data_dir", "");
+        std::string catalog_dir_str = body.value("catalog_dir", "");
 
         if (!astap_cli.empty() && !is_command_name(astap_cli)) {
             fs::path cli_path = expand_user_path(fs::path(astap_cli));
@@ -1222,30 +1209,26 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/astrometry/install-cli").methods("POST"_method)
     ([start_astrometry_install](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         return start_astrometry_install(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/install-cli/retry").methods("POST"_method)
     ([start_astrometry_install](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         body["resume"] = true;
         return start_astrometry_install(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/download").methods("POST"_method)
     ([start_astrometry_catalog_download](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         return start_astrometry_catalog_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/download/retry").methods("POST"_method)
     ([start_astrometry_catalog_download](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         body["resume"] = true;
         return start_astrometry_catalog_download(body);
     });
@@ -1257,9 +1240,10 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/astrometry/solve").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("solve_file"))
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("solve_file"))
             return err_resp("BAD_REQUEST", "solve_file is required", 400, nlohmann::json::object());
+        auto& body = *body_opt;
 
         std::string solve_file     = body["solve_file"].get<std::string>();
         std::string astap_cli      = body.value("astap_cli", "");
@@ -1304,15 +1288,13 @@ void register_tools_routes(CrowApp& app,
             "-r", std::to_string(search_radius)
         };
 
-        std::string job_id = state->job_store.create("astrometry_solve");
-        state->job_store.update_state(job_id, JobState::running, {
+        std::string job_id = spawn_job(state, "astrometry_solve", "", {
             {"command", args},
             {"wcs_path", wcs_path.string()},
             {"solve_file", solve_file},
             {"astap_data_dir", resolved_astap_data_dir.string()}
-        });
-        std::thread([state, job_id, args, wcs_path]() {
-            auto res = run_subprocess(args, state->runtime.project_root.string());
+        }, [args, wcs_path, project_root = state->runtime.project_root.string()]() -> nlohmann::json {
+            auto res = run_subprocess(args, project_root);
             nlohmann::json data = {
                 {"command", args},
                 {"stdout", res.stdout_str},
@@ -1321,27 +1303,29 @@ void register_tools_routes(CrowApp& app,
                 {"wcs_path", wcs_path.string()},
             };
             if (res.exit_code != 0) {
-                state->job_store.update_state(job_id, JobState::error, data,
-                    res.stderr_str.empty() ? "ASTAP solve failed" : res.stderr_str.substr(0, 256));
-                return;
+                data["ok"] = false;
+                data["error"] = res.stderr_str.empty() ? "ASTAP solve failed" : res.stderr_str.substr(0, 256);
+                return data;
             }
             if (!fs::exists(wcs_path)) {
-                state->job_store.update_state(job_id, JobState::error, data,
-                    "ASTAP solve completed without producing a WCS file");
-                return;
+                data["ok"] = false;
+                data["error"] = "ASTAP solve completed without producing a WCS file";
+                return data;
             }
             data["result"] = parse_astrometry_wcs_summary(wcs_path);
             data["result"]["wcs_path"] = wcs_path.string();
-            state->job_store.update_state(job_id, JobState::ok, data);
-        }).detach();
+            data["ok"] = true;
+            return data;
+        });
         state->ui_event_store.push("tools.astrometry.solve", "tools.astrometry_solve", {{"solve_file", solve_file}, {"wcs_path", wcs_path.string()}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/save-solved").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
         std::string input_path  = body.value("input_path", "");
         std::string output_path = body.value("output_path", "");
         std::string wcs_path    = body.value("wcs_path", "");
@@ -1400,15 +1384,13 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing").methods("POST"_method)
     ([start_pcc_siril_download](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         return start_pcc_siril_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing/retry").methods("POST"_method)
     ([start_pcc_siril_download](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) body = nlohmann::json::object();
+        auto body = parse_body(req).value_or(nlohmann::json::object());
         body["resume"] = true;
         return start_pcc_siril_download(body);
     });
@@ -1440,9 +1422,10 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/pcc/run").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("input_rgb") || !body.contains("output_rgb") || !body.contains("wcs_file"))
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("input_rgb") || !body_opt->contains("output_rgb") || !body_opt->contains("wcs_file"))
             return err_resp("BAD_REQUEST", "input_rgb, output_rgb and wcs_file are required", 400, nlohmann::json::object());
+        auto& body = *body_opt;
 
         std::string input_rgb   = expand_user_path(fs::path(body["input_rgb"].get<std::string>())).string();
         std::string output_rgb  = expand_user_path(fs::path(body["output_rgb"].get<std::string>())).string();
@@ -1549,9 +1532,10 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/pcc/save-corrected").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("output_rgb"))
+        auto body_opt = parse_body(req);
+        if (!body_opt || !body_opt->contains("output_rgb"))
             return err_resp("BAD_REQUEST", "output_rgb is required", 400, nlohmann::json::object());
+        auto& body = *body_opt;
 
         const std::string source_output_rgb = expand_user_path(fs::path(body.value("source_output_rgb", body.value("output_rgb", "")))).string();
         const std::string output_rgb = expand_user_path(fs::path(body["output_rgb"].get<std::string>())).string();

@@ -102,8 +102,9 @@ void register_scan_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/scan").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
+        auto body_opt = parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        auto& body = *body_opt;
 
         std::string input_dir  = body.value("input_dir", body.value("input_path", ""));
         int frames_min         = body.value("frames_min", 1);
@@ -133,14 +134,9 @@ void register_scan_routes(CrowApp& app,
         std::vector<std::string> resolved_inputs;
         resolved_inputs.reserve(requested_inputs.size());
         for (const auto& raw : requested_inputs) {
-            auto resolved = state->runtime.resolve_input_path(fs::path(raw), !fs::path(raw).is_absolute());
-            if (resolved.status == PathStatus::not_allowed) {
-                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw, 403, {{"path", raw}});
-            }
-            if (resolved.status == PathStatus::not_found) {
-                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 400, {{"path", raw}});
-            }
-            resolved_inputs.push_back(resolved.path.string());
+            fs::path p(raw);
+            if (auto err = validate_path(state, p, !p.is_absolute())) return std::move(*err);
+            resolved_inputs.push_back(p.string());
         }
 
         if (!resolved_inputs.empty()) input_dir = resolved_inputs.front();
@@ -156,6 +152,7 @@ void register_scan_routes(CrowApp& app,
             {"with_checksums", with_checksums},
         };
 
+        const BackendGuardLimits limits = state->runtime.guard_limits;
         std::string job_id;
         if (resolved_inputs.size() == 1) {
             std::vector<std::string> args = {state->runtime.cli_exe, "scan", resolved_inputs.front(), "--frames-min", std::to_string(frames_min), "--json"};
@@ -166,146 +163,144 @@ void register_scan_routes(CrowApp& app,
                                                       "",
                                                       initial_data);
         } else {
-            job_id = state->job_store.create("scan");
-            state->job_store.update_state(job_id, JobState::running, initial_data);
-            std::thread([state, job_id, resolved_inputs, frames_min, with_checksums, limits = state->runtime.guard_limits]() {
-                try {
-                    nlohmann::json per_dir_results = nlohmann::json::array();
-                    std::vector<std::string> color_modes_detected;
-                    std::vector<std::string> color_candidates;
-                    int frames_detected_total = 0;
-                    int image_width = 0;
-                    int image_height = 0;
-                    nlohmann::json bayer_pattern = nullptr;
-                    bool requires_confirmation = false;
-                    bool ok = true;
-                    nlohmann::json all_errors = nlohmann::json::array();
-                    nlohmann::json all_warnings = nlohmann::json::array();
-                    nlohmann::json all_frames = nlohmann::json::array();
-                    size_t errors_total = 0;
-                    size_t warnings_total = 0;
-                    size_t frames_total = 0;
-                    bool errors_truncated = false;
-                    bool warnings_truncated = false;
-                    bool frames_truncated = false;
-                    bool per_dir_results_truncated = false;
+            job_id = spawn_job_thread(state, "scan", "", initial_data,
+                [resolved_inputs, frames_min, with_checksums, limits](std::shared_ptr<AppState> state, const std::string& job_id) {
+                    try {
+                        nlohmann::json per_dir_results = nlohmann::json::array();
+                        std::vector<std::string> color_modes_detected;
+                        std::vector<std::string> color_candidates;
+                        int frames_detected_total = 0;
+                        int image_width = 0;
+                        int image_height = 0;
+                        nlohmann::json bayer_pattern = nullptr;
+                        bool requires_confirmation = false;
+                        bool ok = true;
+                        nlohmann::json all_errors = nlohmann::json::array();
+                        nlohmann::json all_warnings = nlohmann::json::array();
+                        nlohmann::json all_frames = nlohmann::json::array();
+                        size_t errors_total = 0;
+                        size_t warnings_total = 0;
+                        size_t frames_total = 0;
+                        bool errors_truncated = false;
+                        bool warnings_truncated = false;
+                        bool frames_truncated = false;
+                        bool per_dir_results_truncated = false;
 
-                    for (size_t index = 0; index < resolved_inputs.size(); ++index) {
-                        auto snapshot = state->job_store.get(job_id);
-                        if (snapshot && snapshot->state == JobState::cancelled) return;
+                        for (size_t index = 0; index < resolved_inputs.size(); ++index) {
+                            auto snapshot = state->job_store.get(job_id);
+                            if (snapshot && snapshot->state == JobState::cancelled) return;
 
-                        std::vector<std::string> args = {
-                            state->runtime.cli_exe,
-                            "scan",
-                            resolved_inputs[index],
-                            "--frames-min",
-                            std::to_string(frames_min),
-                            "--json"
-                        };
-                        if (with_checksums) args.push_back("--with-checksums");
-                        SubprocessResult res = run_subprocess(args, state->runtime.project_root.string(), "", &limits);
-                        auto parsed_opt = parse_scan_result(res);
-                        nlohmann::json parsed = parsed_opt.has_value() ? *parsed_opt : nlohmann::json::object();
+                            std::vector<std::string> args = {
+                                state->runtime.cli_exe,
+                                "scan",
+                                resolved_inputs[index],
+                                "--frames-min",
+                                std::to_string(frames_min),
+                                "--json"
+                            };
+                            if (with_checksums) args.push_back("--with-checksums");
+                            SubprocessResult res = run_subprocess(args, state->runtime.project_root.string(), "", &limits);
+                            auto parsed_opt = parse_scan_result(res);
+                            nlohmann::json parsed = parsed_opt.has_value() ? *parsed_opt : nlohmann::json::object();
 
-                        nlohmann::json item_errors = parsed.contains("errors") && parsed["errors"].is_array()
-                            ? parsed["errors"]
-                            : nlohmann::json::array();
-                        nlohmann::json item_warnings = parsed.contains("warnings") && parsed["warnings"].is_array()
-                            ? parsed["warnings"]
-                            : nlohmann::json::array();
-                        if (res.exit_code != 0 && item_errors.empty()) {
-                            item_errors.push_back({
-                                {"code", "scan_failed"},
-                                {"message", "scan command failed"},
-                                {"details", {{"exit_code", res.exit_code}, {"stderr", res.stderr_str}}}
+                            nlohmann::json item_errors = parsed.contains("errors") && parsed["errors"].is_array()
+                                ? parsed["errors"]
+                                : nlohmann::json::array();
+                            nlohmann::json item_warnings = parsed.contains("warnings") && parsed["warnings"].is_array()
+                                ? parsed["warnings"]
+                                : nlohmann::json::array();
+                            if (res.exit_code != 0 && item_errors.empty()) {
+                                item_errors.push_back({
+                                    {"code", "scan_failed"},
+                                    {"message", "scan command failed"},
+                                    {"details", {{"exit_code", res.exit_code}, {"stderr", res.stderr_str}}}
+                                });
+                            }
+
+                            nlohmann::json item = make_scan_item(
+                                resolved_inputs[index],
+                                parsed,
+                                item_errors,
+                                item_warnings,
+                                res.exit_code == 0 && item_errors.empty(),
+                                limits);
+                            if (per_dir_results.size() < limits.scan_per_dir_results_preview) per_dir_results.push_back(item);
+                            else per_dir_results_truncated = true;
+
+                            ok = ok && item.value("ok", false);
+                            frames_detected_total += item.value("frames_detected", 0);
+                            if (image_width == 0) image_width = item.value("image_width", 0);
+                            if (image_height == 0) image_height = item.value("image_height", 0);
+                            if (bayer_pattern.is_null() && item.contains("bayer_pattern") && !item["bayer_pattern"].is_null()) bayer_pattern = item["bayer_pattern"];
+                            requires_confirmation = requires_confirmation || item.value("requires_user_confirmation", false);
+                            append_limited_array(all_errors, item_errors, limits.scan_messages_preview, errors_total, errors_truncated);
+                            append_limited_array(all_warnings, item_warnings, limits.scan_messages_preview, warnings_total, warnings_truncated);
+                            if (parsed.contains("frames") && parsed["frames"].is_array()) {
+                                append_limited_array(all_frames, parsed["frames"], limits.scan_frames_preview, frames_total, frames_truncated);
+                            }
+
+                            std::string color_mode = item.value("color_mode", "UNKNOWN");
+                            if (!color_mode.empty() && color_mode != "UNKNOWN") {
+                                color_modes_detected.push_back(color_mode);
+                                append_limited_unique(color_candidates, color_mode, limits.scan_color_candidates_preview);
+                            }
+                            if (item.contains("color_mode_candidates") && item["color_mode_candidates"].is_array()) {
+                                for (const auto& candidate_raw : item["color_mode_candidates"]) {
+                                    std::string candidate = candidate_raw.is_string() ? candidate_raw.get<std::string>() : "";
+                                    append_limited_unique(color_candidates, candidate, limits.scan_color_candidates_preview);
+                                }
+                            }
+
+                            state->job_store.update_state(job_id, JobState::running, {
+                                {"input_path", resolved_inputs[index]},
+                                {"input_dirs", resolved_inputs},
+                                {"current_index", static_cast<int>(index)},
+                                {"progress", static_cast<double>(index + 1) / static_cast<double>(resolved_inputs.size())},
+                                {"frames_detected", frames_detected_total},
+                                {"per_dir_results", per_dir_results},
+                                {"per_dir_results_total", static_cast<int>(index + 1)},
+                                {"per_dir_results_truncated", per_dir_results_truncated}
                             });
                         }
 
-                        nlohmann::json item = make_scan_item(
-                            resolved_inputs[index],
-                            parsed,
-                            item_errors,
-                            item_warnings,
-                            res.exit_code == 0 && item_errors.empty(),
-                            limits);
-                        if (per_dir_results.size() < limits.scan_per_dir_results_preview) per_dir_results.push_back(item);
-                        else per_dir_results_truncated = true;
+                        sort_unique_inplace(color_modes_detected);
+                        std::string final_color_mode = "UNKNOWN";
+                        if (color_modes_detected.size() == 1) final_color_mode = color_modes_detected.front();
+                        else if (color_modes_detected.size() > 1) requires_confirmation = true;
 
-                        ok = ok && item.value("ok", false);
-                        frames_detected_total += item.value("frames_detected", 0);
-                        if (image_width == 0) image_width = item.value("image_width", 0);
-                        if (image_height == 0) image_height = item.value("image_height", 0);
-                        if (bayer_pattern.is_null() && item.contains("bayer_pattern") && !item["bayer_pattern"].is_null()) bayer_pattern = item["bayer_pattern"];
-                        requires_confirmation = requires_confirmation || item.value("requires_user_confirmation", false);
-                        append_limited_array(all_errors, item_errors, limits.scan_messages_preview, errors_total, errors_truncated);
-                        append_limited_array(all_warnings, item_warnings, limits.scan_messages_preview, warnings_total, warnings_truncated);
-                        if (parsed.contains("frames") && parsed["frames"].is_array()) {
-                            append_limited_array(all_frames, parsed["frames"], limits.scan_frames_preview, frames_total, frames_truncated);
-                        }
-
-                        std::string color_mode = item.value("color_mode", "UNKNOWN");
-                        if (!color_mode.empty() && color_mode != "UNKNOWN") {
-                            color_modes_detected.push_back(color_mode);
-                            append_limited_unique(color_candidates, color_mode, limits.scan_color_candidates_preview);
-                        }
-                        if (item.contains("color_mode_candidates") && item["color_mode_candidates"].is_array()) {
-                            for (const auto& candidate_raw : item["color_mode_candidates"]) {
-                                std::string candidate = candidate_raw.is_string() ? candidate_raw.get<std::string>() : "";
-                                append_limited_unique(color_candidates, candidate, limits.scan_color_candidates_preview);
-                            }
-                        }
-
-                        state->job_store.update_state(job_id, JobState::running, {
-                            {"input_path", resolved_inputs[index]},
+                        nlohmann::json summary = {
+                            {"ok", ok && all_errors.empty()},
+                            {"input_path", resolved_inputs.front()},
                             {"input_dirs", resolved_inputs},
-                            {"current_index", static_cast<int>(index)},
-                            {"progress", static_cast<double>(index + 1) / static_cast<double>(resolved_inputs.size())},
                             {"frames_detected", frames_detected_total},
+                            {"image_width", image_width},
+                            {"image_height", image_height},
+                            {"color_mode", final_color_mode},
+                            {"color_mode_candidates", color_candidates},
+                            {"bayer_pattern", bayer_pattern},
+                            {"requires_user_confirmation", requires_confirmation},
+                            {"errors", all_errors},
+                            {"errors_total", errors_total},
+                            {"errors_truncated", errors_truncated},
+                            {"warnings", all_warnings},
+                            {"warnings_total", warnings_total},
+                            {"warnings_truncated", warnings_truncated},
+                            {"frames", all_frames},
+                            {"frames_total", frames_total},
+                            {"frames_truncated", frames_truncated},
                             {"per_dir_results", per_dir_results},
-                            {"per_dir_results_total", static_cast<int>(index + 1)},
-                            {"per_dir_results_truncated", per_dir_results_truncated}
+                            {"per_dir_results_total", resolved_inputs.size()},
+                            {"per_dir_results_truncated", per_dir_results_truncated},
+                        };
+                        state->job_store.update_state(job_id, summary.value("ok", false) ? JobState::ok : JobState::error, {
+                            {"input_path", resolved_inputs.front()},
+                            {"input_dirs", resolved_inputs},
+                            {"result", summary}
                         });
+                    } catch (const std::exception& e) {
+                        state->job_store.update_state(job_id, JobState::error, {{"error", e.what()}}, e.what());
                     }
-
-                    std::sort(color_modes_detected.begin(), color_modes_detected.end());
-                    color_modes_detected.erase(std::unique(color_modes_detected.begin(), color_modes_detected.end()), color_modes_detected.end());
-                    std::string final_color_mode = "UNKNOWN";
-                    if (color_modes_detected.size() == 1) final_color_mode = color_modes_detected.front();
-                    else if (color_modes_detected.size() > 1) requires_confirmation = true;
-
-                    nlohmann::json summary = {
-                        {"ok", ok && all_errors.empty()},
-                        {"input_path", resolved_inputs.front()},
-                        {"input_dirs", resolved_inputs},
-                        {"frames_detected", frames_detected_total},
-                        {"image_width", image_width},
-                        {"image_height", image_height},
-                        {"color_mode", final_color_mode},
-                        {"color_mode_candidates", color_candidates},
-                        {"bayer_pattern", bayer_pattern},
-                        {"requires_user_confirmation", requires_confirmation},
-                        {"errors", all_errors},
-                        {"errors_total", errors_total},
-                        {"errors_truncated", errors_truncated},
-                        {"warnings", all_warnings},
-                        {"warnings_total", warnings_total},
-                        {"warnings_truncated", warnings_truncated},
-                        {"frames", all_frames},
-                        {"frames_total", frames_total},
-                        {"frames_truncated", frames_truncated},
-                        {"per_dir_results", per_dir_results},
-                        {"per_dir_results_total", resolved_inputs.size()},
-                        {"per_dir_results_truncated", per_dir_results_truncated},
-                    };
-                    state->job_store.update_state(job_id, summary.value("ok", false) ? JobState::ok : JobState::error, {
-                        {"input_path", resolved_inputs.front()},
-                        {"input_dirs", resolved_inputs},
-                        {"result", summary}
-                    });
-                } catch (const std::exception& e) {
-                    state->job_store.update_state(job_id, JobState::error, {{"error", e.what()}}, e.what());
-                }
-            }).detach();
+                });
         }
 
         state->ui_event_store.push(
@@ -336,11 +331,10 @@ void register_scan_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/scan/metrics").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = json::parse(req.body, nullptr, false);
         std::string input_path;
-        if (body.is_object()) {
-            if (body.contains("input_path") && body["input_path"].is_string())
-                input_path = body["input_path"].get<std::string>();
+        if (auto body = parse_body(req)) {
+            if (body->contains("input_path") && (*body)["input_path"].is_string())
+                input_path = (*body)["input_path"].get<std::string>();
         }
         if (input_path.empty()) {
             // Try to infer from last scan

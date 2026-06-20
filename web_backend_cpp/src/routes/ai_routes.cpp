@@ -27,14 +27,6 @@ namespace {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-std::optional<json> parse_body(const crow::request& req) {
-    if (req.body.empty()) return json::object();
-    auto parsed = json::parse(req.body, nullptr, false);
-    if (parsed.is_discarded()) return std::nullopt;
-    if (!parsed.is_object()) return json::object();
-    return parsed;
-}
-
 fs::path ai_config_path(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / "ai_scan_config.json";
 }
@@ -58,6 +50,35 @@ bool write_ai_config_file(const std::shared_ptr<AppState>& state, const json& co
     out << config.dump(2);
     out << '\n';
     return static_cast<bool>(out);
+}
+
+std::vector<fs::path> list_json_files(const fs::path& dir, bool newest_first = true) {
+    std::vector<fs::path> files;
+    if (!fs::is_directory(dir)) return files;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 5) != ".json") continue;
+        files.push_back(entry.path());
+    }
+    if (newest_first) {
+        std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() > b.filename().string();
+        });
+    } else {
+        std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() < b.filename().string();
+        });
+    }
+    return files;
+}
+
+std::optional<json> parse_json_file(const fs::path& path) {
+    std::ifstream ifs(path);
+    if (!ifs) return std::nullopt;
+    auto parsed = json::parse(ifs, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return std::nullopt;
+    return parsed;
 }
 
 json current_ai_config_json(const std::shared_ptr<AppState>& state) {
@@ -117,74 +138,6 @@ json latest_analysis(const InMemoryJobStore& store) {
     return {{"has_analysis", false}};
 }
 
-std::optional<json> parse_json(const std::string& raw) {
-    auto parsed = json::parse(raw, nullptr, false);
-    if (parsed.is_discarded()) return std::nullopt;
-    return parsed;
-}
-
-std::string read_file_str(const fs::path& path) {
-    std::ifstream in(path);
-    if (!in) return "";
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-json yaml_to_json(const YAML::Node& node) {
-    if (!node || node.IsNull()) return nullptr;
-    if (node.IsMap()) {
-        json out = json::object();
-        for (auto it = node.begin(); it != node.end(); ++it) out[it->first.as<std::string>()] = yaml_to_json(it->second);
-        return out;
-    }
-    if (node.IsSequence()) {
-        json out = json::array();
-        for (auto it = node.begin(); it != node.end(); ++it) out.push_back(yaml_to_json(*it));
-        return out;
-    }
-    try { return node.as<bool>(); } catch (...) {}
-    try { return node.as<long long>(); } catch (...) {}
-    try { return node.as<double>(); } catch (...) {}
-    try { return node.as<std::string>(); } catch (...) {}
-    return nullptr;
-}
-
-YAML::Node json_to_yaml_node(const json& value) {
-    if (value.is_object()) {
-        YAML::Node node(YAML::NodeType::Map);
-        for (auto it = value.begin(); it != value.end(); ++it) node[it.key()] = json_to_yaml_node(it.value());
-        return node;
-    }
-    if (value.is_array()) {
-        YAML::Node node(YAML::NodeType::Sequence);
-        for (const auto& item : value) node.push_back(json_to_yaml_node(item));
-        return node;
-    }
-    if (value.is_boolean()) return YAML::Node(value.get<bool>());
-    if (value.is_number_integer()) return YAML::Node(value.get<long long>());
-    if (value.is_number_unsigned()) return YAML::Node(value.get<unsigned long long>());
-    if (value.is_number_float()) {
-        double d = value.get<double>();
-        // Round to 4 significant digits to remove floating-point noise (e.g. 0.84999... → 0.85)
-        // Use printf-roundtrip via %.4g to match JS toPrecision(4) behaviour
-        if (d != 0.0 && std::isfinite(d)) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%.4g", d);
-            return YAML::Node(std::string(buf));
-        }
-        return YAML::Node(d);
-    }
-    if (value.is_null()) return YAML::Node();
-    return YAML::Node(value.get<std::string>());
-}
-
-std::string yaml_dump(const json& value) {
-    YAML::Node node = json_to_yaml_node(value);
-    YAML::Emitter out;
-    out.SetFloatPrecision(6);
-    out.SetDoublePrecision(6);
-    out << node;
-    return std::string(out.c_str());
-}
 
 json parse_scalar_value(const json& raw_value) {
     if (!raw_value.is_string()) return raw_value;
@@ -251,23 +204,6 @@ double json_double_field(const json& object, const char* key, double fallback = 
     return fallback;
 }
 
-void set_dotted(json& root, const std::string& dotted_path, const json& value) {
-    std::vector<std::string> parts;
-    std::istringstream iss(dotted_path);
-    std::string part;
-    while (std::getline(iss, part, '.')) {
-        if (!part.empty()) parts.push_back(part);
-    }
-    if (parts.empty()) return;
-
-    json* node = &root;
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-        if (!node->contains(parts[i]) || !(*node)[parts[i]].is_object()) (*node)[parts[i]] = json::object();
-        node = &(*node)[parts[i]];
-    }
-    (*node)[parts.back()] = value;
-}
-
 int infer_frame_count(const json& scan_result, const json& scan_metrics = json::object()) {
     if (scan_metrics.is_object()) {
         if (scan_metrics.contains("frames_total") && scan_metrics["frames_total"].is_number()) {
@@ -291,20 +227,6 @@ int infer_frame_count(const json& scan_result, const json& scan_metrics = json::
     return 0;
 }
 
-std::optional<crow::response> resolve_config_path(const std::shared_ptr<AppState>& state,
-                                                  fs::path& path,
-                                                  bool must_exist = false) {
-    auto resolved = state->runtime.resolve_input_path(path, must_exist);
-    path = resolved.path;
-    if (resolved.status == PathStatus::not_allowed) {
-        return err_resp("PATH_NOT_ALLOWED", "config_path is outside allowed roots", 403, {{"path", path.string()}});
-    }
-    if (resolved.status == PathStatus::not_found) {
-        return err_resp("PATH_NOT_FOUND", "config_path does not exist", 400, {{"path", path.string()}});
-    }
-    return std::nullopt;
-}
-
 std::optional<json> load_base_config(const std::shared_ptr<AppState>& state,
                                      const json& body,
                                      fs::path& target,
@@ -312,35 +234,31 @@ std::optional<json> load_base_config(const std::shared_ptr<AppState>& state,
     target = body.contains("path") && body["path"].is_string()
         ? fs::path(body["path"].get<std::string>())
         : state->runtime.default_config_path;
-    if (auto err = resolve_config_path(state, target, false)) {
+    if (auto err = validate_path(state, target, false)) {
         error = std::move(*err);
         return std::nullopt;
     }
 
-    try {
-        if (body.contains("yaml") && body["yaml"].is_string() && !body["yaml"].get<std::string>().empty()) {
-            json parsed = yaml_to_json(YAML::Load(body["yaml"].get<std::string>()));
-            if (!parsed.is_object()) {
-                error = err_resp("BAD_REQUEST", "base YAML must be a mapping", 400);
-                return std::nullopt;
-            }
-            return parsed;
+    if (body.contains("yaml") && body["yaml"].is_string() && !body["yaml"].get<std::string>().empty()) {
+        auto parsed = parse_yaml_text(body["yaml"].get<std::string>());
+        if (!parsed) {
+            error = err_resp("BAD_REQUEST", "Config parse error: invalid YAML", 400);
+            return std::nullopt;
         }
-        if (body.contains("config") && body["config"].is_object()) {
-            return json(body["config"]);
+        if (!parsed->is_object()) {
+            error = err_resp("BAD_REQUEST", "base YAML must be a mapping", 400);
+            return std::nullopt;
         }
-        if (body.contains("base_config") && body["base_config"].is_object()) {
-            return json(body["base_config"]);
-        }
-        const std::string current_text = read_file_str(target);
-        if (!current_text.empty()) {
-            json parsed = yaml_to_json(YAML::Load(current_text));
-            if (parsed.is_object()) return parsed;
-        }
-    } catch (const std::exception& e) {
-        error = err_resp("BAD_REQUEST", std::string("Config parse error: ") + e.what(), 400);
-        return std::nullopt;
+        return *parsed;
     }
+    if (body.contains("config") && body["config"].is_object()) {
+        return json(body["config"]);
+    }
+    if (body.contains("base_config") && body["base_config"].is_object()) {
+        return json(body["base_config"]);
+    }
+    auto parsed = parse_yaml_file(target);
+    if (parsed && parsed->is_object()) return *parsed;
     return json::object();
 }
 
@@ -360,7 +278,7 @@ void collect_schema_paths(const json& schema, const std::string& prefix, SchemaI
 
 std::optional<SchemaInfo> load_schema_info(const std::shared_ptr<AppState>& state, std::string& error_message) {
     SubprocessResult res = run_subprocess({state->runtime.cli_exe, "get-schema"}, state->runtime.project_root.string());
-    auto parsed = parse_json(res.stdout_str);
+    auto parsed = parse_json_string(res.stdout_str);
     if (res.exit_code != 0 || !parsed || !parsed->is_object()) {
         error_message = "failed to fetch config schema";
         return std::nullopt;
@@ -483,7 +401,7 @@ json validate_updates_against_schema(const json& candidates,
     SubprocessResult res = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
                                           state->runtime.project_root.string(),
                                           yaml_text);
-    auto validation = parse_json(res.stdout_str).value_or(json::object());
+    auto validation = parse_json_string(res.stdout_str).value_or(json::object());
     if (res.exit_code != 0 || !validation.value("valid", false)) {
         // Weight groups that must be validated together (members must sum to 1.0)
         static const std::vector<std::vector<std::string>> weight_groups = {
@@ -525,7 +443,7 @@ json validate_updates_against_schema(const json& candidates,
             const std::string trial_yaml = yaml_dump(trial);
             SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
                                                    state->runtime.project_root.string(), trial_yaml);
-            auto vresult = parse_json(vres.stdout_str).value_or(json::object());
+            auto vresult = parse_json_string(vres.stdout_str).value_or(json::object());
             if (vres.exit_code == 0 && vresult.value("valid", false)) {
                 current_base = trial;
                 for (const auto& m : grp) surviving.push_back(*path_to_item[m]);
@@ -548,7 +466,7 @@ json validate_updates_against_schema(const json& candidates,
             const std::string trial_yaml = yaml_dump(trial);
             SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
                                                    state->runtime.project_root.string(), trial_yaml);
-            auto vresult = parse_json(vres.stdout_str).value_or(json::object());
+            auto vresult = parse_json_string(vres.stdout_str).value_or(json::object());
             if (vres.exit_code != 0 || !vresult.value("valid", false)) {
                 item["applicable"] = false;
                 item["reject_reason"] = "config_validation_failed";
@@ -786,24 +704,11 @@ json find_cached_analysis(const std::shared_ptr<AppState>& state,
                           const std::string& input_path,
                           int frame_count = 0) {
     if (input_path.empty()) return json({{"has_analysis", false}});
-    fs::path dir = ai_analyses_dir(state);
-    if (!fs::is_directory(dir)) return json({{"has_analysis", false}});
-
-    // Collect all .json filenames sorted newest-first
-    std::vector<std::string> names;
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
-        const std::string name = entry.path().filename().string();
-        if (name.size() < 5 || name.substr(name.size() - 5) != ".json") continue;
-        names.push_back(name);
-    }
-    std::sort(names.rbegin(), names.rend());
-
-    for (const auto& name : names) {
-        std::ifstream ifs(dir / name);
-        if (!ifs) continue;
-        auto parsed = json::parse(ifs, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_object()) continue;
+    const fs::path dir = ai_analyses_dir(state);
+    for (const auto& path : list_json_files(dir, true)) {
+        auto parsed_opt = parse_json_file(path);
+        if (!parsed_opt) continue;
+        auto& parsed = *parsed_opt;
         if (!parsed.contains("scan_metadata") || !parsed["scan_metadata"].is_object()) continue;
         const auto& meta = parsed["scan_metadata"];
         if (!meta.contains("input_path") || !meta["input_path"].is_string()) continue;
@@ -819,50 +724,29 @@ json find_cached_analysis(const std::shared_ptr<AppState>& state,
 }
 
 json load_latest_persisted_analysis(const std::shared_ptr<AppState>& state) {
-    fs::path dir = ai_analyses_dir(state);
-    if (!fs::is_directory(dir)) return json({{"has_analysis", false}});
+    const fs::path dir = ai_analyses_dir(state);
+    const auto files = list_json_files(dir, true);
+    if (files.empty()) return json({{"has_analysis", false}});
 
-    std::string latest_name;
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
-        const std::string name = entry.path().filename().string();
-        if (name.size() < 5 || name.substr(name.size() - 5) != ".json") continue;
-        if (name > latest_name) latest_name = name;
-    }
-    if (latest_name.empty()) return json({{"has_analysis", false}});
-
-    std::ifstream ifs(dir / latest_name);
-    if (!ifs) return json({{"has_analysis", false}});
-    auto parsed = json::parse(ifs, nullptr, false);
-    if (parsed.is_discarded() || !parsed.is_object()) return json({{"has_analysis", false}});
-    parsed["has_analysis"] = true;
-    return parsed;
+    auto parsed_opt = parse_json_file(files.front());
+    if (!parsed_opt) return json({{"has_analysis", false}});
+    (*parsed_opt)["has_analysis"] = true;
+    return *parsed_opt;
 }
 
 json list_persisted_analyses(const std::shared_ptr<AppState>& state, int limit = 50) {
-    fs::path dir = ai_analyses_dir(state);
+    const fs::path dir = ai_analyses_dir(state);
     json items = json::array();
-    if (!fs::is_directory(dir)) return items;
+    auto files = list_json_files(dir, true);
+    if ((int)files.size() > limit) files.resize(limit);
 
-    // Collect filenames (sorted descending by name = newest first)
-    std::vector<std::string> names;
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) continue;
-        const std::string name = entry.path().filename().string();
-        if (name.size() < 5 || name.substr(name.size() - 5) != ".json") continue;
-        names.push_back(name);
-    }
-    std::sort(names.rbegin(), names.rend());
-    if ((int)names.size() > limit) names.resize(limit);
-
-    for (const auto& name : names) {
-        std::ifstream ifs(dir / name);
-        if (!ifs) continue;
-        auto parsed = json::parse(ifs, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_object()) continue;
+    for (const auto& path : files) {
+        auto parsed_opt = parse_json_file(path);
+        if (!parsed_opt) continue;
+        const auto& parsed = *parsed_opt;
         // Return compact summary only (no full recommendations)
         json entry = json::object();
-        entry["filename"] = name;
+        entry["filename"] = path.filename().string();
         if (parsed.contains("analysis_id")) entry["analysis_id"] = parsed["analysis_id"];
         if (parsed.contains("scan_metadata")) entry["scan_metadata"] = parsed["scan_metadata"];
         if (parsed.contains("confidence")) entry["confidence"] = parsed["confidence"];
@@ -1266,25 +1150,14 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         json persisted_data = json::object();
         bool found_persisted = false;
         if (!job || job->type != "scan_ai_analysis") {
-            fs::path dir = ai_analyses_dir(state);
-            if (fs::is_directory(dir)) {
-                std::vector<std::string> names;
-                for (const auto& entry : fs::directory_iterator(dir)) {
-                    if (!entry.is_regular_file()) continue;
-                    const std::string n = entry.path().filename().string();
-                    if (n.size() >= 5 && n.substr(n.size() - 5) == ".json") names.push_back(n);
-                }
-                std::sort(names.rbegin(), names.rend());
-                for (const auto& name : names) {
-                    std::ifstream ifs(dir / name);
-                    if (!ifs) continue;
-                    auto parsed = json::parse(ifs, nullptr, false);
-                    if (parsed.is_discarded() || !parsed.is_object()) continue;
-                    if (json_string_field(parsed, "analysis_id") == analysis_id) {
-                        persisted_data = parsed;
-                        found_persisted = true;
-                        break;
-                    }
+            const fs::path dir = ai_analyses_dir(state);
+            for (const auto& path : list_json_files(dir, true)) {
+                auto parsed_opt = parse_json_file(path);
+                if (!parsed_opt) continue;
+                if (json_string_field(*parsed_opt, "analysis_id") == analysis_id) {
+                    persisted_data = std::move(*parsed_opt);
+                    found_persisted = true;
+                    break;
                 }
             }
             if (!found_persisted) {
@@ -1324,11 +1197,11 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (has_full_patch) {
             // Preset-style apply: use the complete validated config from the analysis file.
             yaml_text = ctx["patched_config_yaml"].get<std::string>();
-            try {
-                patched = yaml_to_json(YAML::Load(yaml_text));
-            } catch (const std::exception& e) {
-                return err_resp("BAD_REQUEST", std::string("patched_config_yaml parse error: ") + e.what(), 400);
+            auto patched_opt = parse_yaml_text(yaml_text);
+            if (!patched_opt) {
+                return err_resp("BAD_REQUEST", "patched_config_yaml parse error: invalid YAML", 400);
             }
+            patched = *patched_opt;
             // Populate applied list from validated_updates for the response summary.
             if (analysis_data.contains("validated_updates") && analysis_data["validated_updates"].is_array()) {
                 for (const auto& u : analysis_data["validated_updates"]) {
@@ -1357,7 +1230,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         SubprocessResult validate_res = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
                                                        state->runtime.project_root.string(),
                                                        yaml_text);
-        json validation = parse_json(validate_res.stdout_str).value_or(json::object());
+        json validation = parse_json_string(validate_res.stdout_str).value_or(json::object());
         if (validate_res.exit_code != 0 || !validation.value("valid", false)) {
             return json_resp({
                 {"ok", false},
@@ -1385,13 +1258,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target_config_path.string(), "--stdin"},
                                                        state->runtime.project_root.string(),
                                                        yaml_text);
-            auto saved = parse_json(save_res.stdout_str);
+            auto saved = parse_json_string(save_res.stdout_str);
             if (save_res.exit_code != 0 || !saved || !saved->is_object()) {
-                return err_resp("BACKEND_COMMAND_FAILED", "save-config failed", 502, {
-                    {"exit_code", save_res.exit_code},
-                    {"stdout", save_res.stdout_str},
-                    {"stderr", save_res.stderr_str}
-                });
+                return backend_command_failed("save-config failed", save_res);
             }
             fs::path saved_path = saved->contains("path") && (*saved)["path"].is_string()
                 ? fs::path((*saved)["path"].get<std::string>())

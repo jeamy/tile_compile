@@ -21,9 +21,9 @@ namespace prep = tile_compile::preprocessing_service;
 
 namespace {
 
-nlohmann::json parse_body(const crow::request& req) {
-    auto body = nlohmann::json::parse(req.body, nullptr, false);
-    return body.is_discarded() ? nlohmann::json::object() : body;
+nlohmann::json parse_body_or_object(const crow::request& req) {
+    auto body = tile_compile::routes::parse_body(req);
+    return body ? *body : nlohmann::json::object();
 }
 
 std::optional<fs::path> resolve_existing_input(const std::shared_ptr<AppState>& state,
@@ -33,16 +33,12 @@ std::optional<fs::path> resolve_existing_input(const std::shared_ptr<AppState>& 
         error = err_resp("BAD_REQUEST", "lights_dir or input_dir is required", 400);
         return std::nullopt;
     }
-    const auto resolved = state->runtime.resolve_input_path(fs::path(raw), !fs::path(raw).is_absolute());
-    if (resolved.status == PathStatus::not_allowed) {
-        error = err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw, 403, {{"path", raw}});
+    fs::path path(raw);
+    if (auto err = validate_path(state, path, !path.is_absolute())) {
+        error = std::move(*err);
         return std::nullopt;
     }
-    if (resolved.status == PathStatus::not_found) {
-        error = err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 400, {{"path", raw}});
-        return std::nullopt;
-    }
-    return resolved.path;
+    return path;
 }
 
 nlohmann::json merge_defaults(nlohmann::json overrides) {
@@ -160,7 +156,7 @@ void register_preprocessing_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/tools/preprocessing/parameters").methods("PATCH"_method)
     ([state](const crow::request& req) {
         try {
-            const auto body = parse_body(req);
+            const auto body = parse_body_or_object(req);
             const nlohmann::json config = merge_defaults(body.value("config", body));
             validate_preprocessing_config(config);
             {
@@ -194,7 +190,7 @@ void register_preprocessing_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/preprocessing/scan").methods("POST"_method)
     ([state](const crow::request& req) {
-        const auto body = parse_body(req);
+        const auto body = parse_body_or_object(req);
         const std::string raw_input = body.value("lights_dir", body.value("input_dir", ""));
         crow::response error;
         auto resolved = resolve_existing_input(state, raw_input, error);
@@ -226,7 +222,7 @@ void register_preprocessing_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/preprocessing/run").methods("POST"_method)
     ([state](const crow::request& req) {
-        const auto body = parse_body(req);
+        const auto body = parse_body_or_object(req);
         nlohmann::json effective_config = body.empty() ? effective_parameters(state)
                                                        : merge_defaults(body.value("config", body));
         try {
@@ -301,7 +297,7 @@ void register_preprocessing_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/preprocessing/cancel").methods("POST"_method)
     ([state](const crow::request& req) {
-        const auto body = parse_body(req);
+        const auto body = parse_body_or_object(req);
         const std::string job_id = body.value("job_id", std::string());
         if (job_id.empty()) return err_resp("BAD_REQUEST", "job_id is required", 400);
         const bool subprocess_cancelled = state->subprocess_manager.cancel(job_id);

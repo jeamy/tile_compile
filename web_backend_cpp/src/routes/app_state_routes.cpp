@@ -145,10 +145,11 @@ void register_app_state_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/app/ui-state").methods("POST"_method)
     ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) {
+        auto body_opt = parse_body(req);
+        if (!body_opt) {
             return json_resp({{"error", {{"code", "BAD_REQUEST"}, {"message", "invalid JSON"}}}}, 400);
         }
+        auto& body = *body_opt;
         const nlohmann::json next_state = body.contains("state") ? body["state"] : body;
         if (!next_state.is_object()) {
             return json_resp({{"error", {{"code", "BAD_REQUEST"}, {"message", "state must be an object"}}}}, 400);
