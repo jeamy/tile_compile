@@ -242,7 +242,8 @@ jobs:
           ROOT="${PWD}/bundle/tile_compile_gui2-linux-${TAG}"
           export HOME="${PWD}/smoke-home-linux"
           export TILE_COMPILE_GUI2_NO_BROWSER=1
-          bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_linux.txt 2>&1 &
+          export TILE_COMPILE_AI_AGENT_AUTOSTART=0
+          setsid bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_linux.txt 2>&1 &
           START_PID=$!
           python3 - <<'PY'
           import json
@@ -273,8 +274,9 @@ jobs:
               assert isinstance(result, dict)
               assert "ok" in result
           PY
-          kill "${START_PID}" || true
+          kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
           wait "${START_PID}" 2>/dev/null || true
+          pkill -f tile_compile_web_backend 2>/dev/null || true
 
       - name: Smoke test AppImage
         shell: bash
@@ -285,9 +287,10 @@ jobs:
           export HOME="${PWD}/smoke-home-linux-appimage"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export TILE_COMPILE_GUI2_NO_BROWSER=1
+          export TILE_COMPILE_AI_AGENT_AUTOSTART=0
           rm -rf "${HOME}"
           mkdir -p "${HOME}"
-          "${APPIMAGE}" >/tmp/out_gui2_smoke_linux_appimage.txt 2>&1 &
+          setsid "${APPIMAGE}" >/tmp/out_gui2_smoke_linux_appimage.txt 2>&1 &
           START_PID=$!
           python3 - <<'PY'
           import json
@@ -306,8 +309,9 @@ jobs:
           else:
               raise SystemExit("appimage smoke test failed")
           PY
-          kill "${START_PID}" || true
+          kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
           wait "${START_PID}" 2>/dev/null || true
+          pkill -f tile_compile_web_backend 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
