@@ -1,3 +1,4 @@
+method: aqmh
 assumptions:
   frames_min: 30
   frames_reduced_threshold: 150
@@ -11,6 +12,7 @@ astrometry:
   enabled: true
   search_radius: 183
 bge:
+  tile_weight_lambda_structure: 1.0
   autotune:
     alpha_flatness: 0.25
     beta_roughness: 0.1
@@ -90,6 +92,10 @@ chroma_denoise:
     enabled: true
     gradient_percentile: 90
 data:
+  color_mode: OSC
+  bayer_pattern: RGGB
+  image_width: 0
+  image_height: 0
   linear_required: true
 dithering:
   enabled: true
@@ -102,8 +108,11 @@ global_metrics:
   weight_exponent_scale: 1
   weights:
     background: 0.45
+    fwhm: 0.0
     gradient: 0.3
     noise: 0.25
+    roundness: 0.0
+    star_count: 0.0
 input:
   max_frames: 0
   pattern: ./data/*.fits
@@ -117,6 +126,16 @@ local_metrics:
   clamp:
     - -1.5
     - 1.5
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       contrast: 0.1
@@ -192,6 +211,7 @@ runtime_limits:
   memory_budget: 2048
   parallel_workers: 4
   tile_analysis_max_factor_vs_stack: 3
+  tile_reconstruction_diagnostics: full
 hypermetric_stretch:
   enabled: true # VeraLux HMS nach PCC; erzeugt outputs/stacked_rgb_hms.fits
   require_successful_pcc: true # nur nach erfolgreicher PCC anwenden
@@ -235,6 +255,8 @@ aqmh:
     r_morph_canvas_px: 6
 
 stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   cluster_quality_weighting:
     cap_enabled: true
     cap_ratio: 10
@@ -266,6 +288,7 @@ tile:
   overlap_fraction: 0.45
   size_factor: 40
   star_min_count: 12
+  star_soft_count: 5
 tile_denoise:
   soft_threshold:
     alpha: 1.2

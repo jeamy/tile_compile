@@ -8,7 +8,7 @@ export function createHeader(onTabChange) {
   const ui = getUiState();
 
   const header = el("header", { class: "tc-header" },
-    el("div", { class: "tc-header-logo" }, "tile_compile"),
+    el("div", { class: "tc-header-logo" }, "Tile Compile"),
     el("div", { class: "tc-header-tabs", id: "header-tabs" },
       createTab("processing", t("ui.tab.processing", "Processing"), ui.activeTab === "processing", onTabChange),
       createTab("tools", t("ui.tab.tools", "Tools"), ui.activeTab === "tools", onTabChange),
