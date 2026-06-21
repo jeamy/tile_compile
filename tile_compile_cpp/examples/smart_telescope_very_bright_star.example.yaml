@@ -2,6 +2,7 @@
 # Vollstaendig, alle Optionen; optimiert fuer Alt/Az + kurze OSC-Subframes + grosses Sternhalo.
 # Ziel: Tile-Seams und quadratische Halo-/Sternartefakte bei dominanter heller Quelle reduzieren.
 
+method: aqmh
 run_dir: ./run_smart_telescope_very_bright_star
 log_level: info # trace|debug|info|warn|error
 
@@ -15,10 +16,10 @@ output:
   crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
 
 data:
-  #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
-  #image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
-  #color_mode: OSC # Smart-Telescope ueblich: OSC
-  #bayer_pattern: GBRG # je nach Sensor pruefen und ggf. ersetzen
+  image_width: 0
+  image_height: 0
+  color_mode: OSC
+  bayer_pattern: GBRG
   linear_required: true # nur lineare Daten verarbeiten
 
 input:
@@ -142,8 +143,11 @@ global_metrics:
   weight_exponent_scale: 1.0 # geringere Spreizung reduziert lokale Dominanz
   weights:
     background: 0.45 # Halo-/Gradientstabilitaet etwas wichtiger gewichten
+    fwhm: 0.0
     noise: 0.30 # Rauschgewicht moderat halten
     gradient: 0.25 # Struktur/Gradientenenergie
+    roundness: 0.0
+    star_count: 0.0
   clamp: [-1.5, 1.5] # enges Clipping reduziert Gewichtsausreisser
 
 tile:
@@ -152,9 +156,20 @@ tile:
   max_divisor: 5 # weniger Unterteilung reduziert sichtbare Kachelstruktur
   overlap_fraction: 0.45 # mehr Ueberlappung fuer weichere Tile-Naehte
   star_min_count: 10 # hoehere Schwelle fuer robustere STAR-Klassifikation
+  star_soft_count: 5
 
 local_metrics:
   clamp: [-1.5, 1.5] # engeres Clipping fuer lokale z-Score-Metriken
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.7 # Schwerpunkt auf Sternprofil statt aggressivem Kontrast
@@ -181,6 +196,7 @@ astrometry:
 
 bge:
   enabled: false # nur aktivieren, wenn zusaetzlich grossflaechige Gradienten sichtbar sind
+  tile_weight_lambda_structure: 1.0
   autotune:
     enabled: false # optionales deterministisches BGE-Autotuning
     strategy: conservative # conservative | extended
@@ -284,6 +300,8 @@ aqmh:
 
 stacking:
   method: rej # rej|average
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   sigma_clip:
     sigma_low: 2.0 # Hintergrundrauschen breit halten
     sigma_high: 1.5 # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
@@ -313,3 +331,4 @@ runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: true
+  tile_reconstruction_diagnostics: full

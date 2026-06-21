@@ -1,3 +1,4 @@
+method: aqmh
 run_dir: ./run_ic434_background_gradient
 log_level: info
 
@@ -23,6 +24,9 @@ output:
 data:
   linear_required: true
   color_mode: OSC
+  bayer_pattern: RGGB
+  image_width: 0
+  image_height: 0
 
 input:
   pattern: ./data/*.fits
@@ -143,8 +147,11 @@ global_metrics:
   weights:
     # NOTE: background weight increased for better gradient suppression
     background: 0.55    # increased from 0.40 - prioritize flat background
+    fwhm: 0.0
     noise: 0.30         # reduced from 0.35
     gradient: 0.15      # reduced from 0.25 - BGE handles this, not stacking
+    roundness: 0.0
+    star_count: 0.0
   clamp: [-3.0, 3.0]
 
 tile:
@@ -153,9 +160,20 @@ tile:
   max_divisor: 6
   overlap_fraction: 0.30
   star_min_count: 5
+  star_soft_count: 3
 
 local_metrics:
   clamp: [-3.0, 3.0]
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6
@@ -320,3 +338,4 @@ runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
   allow_emergency_mode: true
+  tile_reconstruction_diagnostics: full
