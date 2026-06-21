@@ -32,6 +32,13 @@
   cursor: not-allowed;
 }
 
+.tc-btn-active {
+  background: var(--info-bg);
+  border-color: var(--info);
+  color: var(--info);
+  font-weight: 600;
+}
+
 .tc-btn-primary {
   background: var(--primary);
   border-color: var(--primary);
@@ -49,10 +56,20 @@
 }
 
 .tc-btn-danger {
-  background: var(--error);
+  background: transparent;
   border-color: var(--error);
-  color: #fff;
+  color: var(--error);
 }
+
+.tc-btn-danger:hover {
+  background: var(--error-bg);
+}
+
+.tc-hidden { display: none !important; }
+
+.tc-flex-wrap { flex-wrap: wrap; }
+
+.tc-cursor-pointer { cursor: pointer; }
 
 .tc-btn-sm {
   padding: var(--space-1) var(--space-2);
@@ -411,15 +428,6 @@
   flex-wrap: wrap;
 }
 
-/* ── Btn Danger ─────────────────────────────────── */
-.tc-btn-danger {
-  color: var(--error);
-  border-color: var(--error);
-}
-
-.tc-btn-danger:hover {
-  background: var(--error-bg);
-}
 
 /* ── YAML Diff ──────────────────────────────────── */
 .tc-diff-added {
@@ -462,7 +470,7 @@
   color: var(--success);
 }
 
-.tc-phase-item.active {
+.tc-phase-item.running {
   background: var(--info-bg);
   color: var(--info);
   font-weight: 600;
@@ -472,11 +480,20 @@
   color: var(--muted);
 }
 
+.tc-phase-item.skipped {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.tc-phase-item.error {
+  color: var(--error);
+}
+
 .tc-phase-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--border);
   flex-shrink: 0;
 }
 
@@ -484,9 +501,13 @@
   background: var(--success);
 }
 
-.tc-phase-item.active .tc-phase-dot {
+.tc-phase-item.running .tc-phase-dot {
   background: var(--info);
   animation: pulse 1.5s infinite;
+}
+
+.tc-phase-item.error .tc-phase-dot {
+  background: var(--error);
 }
 
 @keyframes pulse {
@@ -498,7 +519,30 @@
   margin-left: auto;
   font-size: var(--text-xs);
   color: var(--muted);
+  min-width: 40px;
+  text-align: right;
 }
+
+.tc-phase-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tc-phase-bar-fill {
+  height: 100%;
+  background: var(--info);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.tc-phase-item.done .tc-phase-bar-fill { background: var(--success); }
+.tc-phase-item.ok .tc-phase-bar-fill { background: var(--success); }
+.tc-phase-item.skipped .tc-phase-bar-fill { background: var(--warning, #f59e0b); }
+.tc-phase-item.error .tc-phase-bar-fill { background: var(--error); }
+.tc-phase-item.aborted .tc-phase-bar-fill { background: var(--error); }
 
 /* ── Run List ───────────────────────────────────── */
 .tc-run-list {

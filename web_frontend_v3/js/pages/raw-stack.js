@@ -130,7 +130,7 @@ async function pollStatus() {
       slot.innerHTML = "";
       slot.appendChild(el("div", { class: "tc-card" },
         el("div", { class: "tc-card-title" }, t("ui.title.status", "Status")),
-        el("div", { class: "tc-text-sm" }, `${status?.status || "running"} - ${(Number(status?.progress) || 0).toFixed(2)}%`),
+        el("div", { class: "tc-text-sm" }, `${status?.status || "running"} - ${(Number(status?.progress) * 100 || 0).toFixed(2)}%`),
       ));
     }
     if (status?.status === "running" || status?.status === "pending") {

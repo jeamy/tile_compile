@@ -67,20 +67,20 @@ bge:
   sample_quantile: 0.2
   structure_thresh_percentile: 0.9
 calibration:
-  bias_dir: ""
-  bias_master: ""
+  bias_dir: ~
+  bias_master: ~
   bias_use_master: false
   dark_already_bias_corrected: false
   dark_auto_select: true
-  dark_master: ""
+  dark_master: ~
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
   dark_use_master: false
-  darks_dir: ""
-  flat_master: ""
+  darks_dir: ~
+  flat_master: ~
   flat_use_master: false
-  flats_dir: ""
+  flats_dir: ~
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
   use_bias: false
   use_dark: false
@@ -196,7 +196,7 @@ pcc:
   min_stars: 10
   radii_mode: auto_fwhm
   sigma_clip: 2.5
-  siril_catalog_dir: ""
+  siril_catalog_dir: ~
   source: siril
 pipeline:
   abort_on_fail: false
@@ -216,12 +216,12 @@ registration:
   reject_scale_max: 1.08
   reject_scale_min: 0.92
   reject_shift_median_multiplier: 5
-  reject_shift_px_min: 100
+  reject_shift_px_min: 120
   star_dist_bin_px: 5
-  star_inlier_tol_px: 4
+  star_inlier_tol_px: 5
   star_min_inliers: 4
   star_shift_radius_px: 200
-  star_topk: 80
+  star_topk: 180
   transform_model: affine
   use_astrometry: true
 run_dir: ./run_smart_telescope

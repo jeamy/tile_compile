@@ -43,6 +43,8 @@ export function createLogViewer() {
     el("div", { class: "tc-log-viewer", id: "log-viewer-body" }),
   );
 
+  updateFilterButtonStates();
+
   function levelFilterButton(level) {
     const btn = el("button", {
       class: "tc-btn tc-btn-sm",
@@ -54,10 +56,24 @@ export function createLogViewer() {
           if (filterLevels.has(level)) filterLevels.delete(level);
           else filterLevels.add(level);
         }
+        updateFilterButtonStates();
         render();
       },
     }, level);
     return btn;
+  }
+
+  function updateFilterButtonStates() {
+    const buttons = wrapper.querySelectorAll("[data-level]");
+    buttons.forEach(btn => {
+      const level = btn.dataset.level;
+      if (level === "All") {
+        const allActive = filterLevels.size === 5;
+        btn.classList.toggle("tc-btn-active", allActive);
+      } else {
+        btn.classList.toggle("tc-btn-active", filterLevels.has(level));
+      }
+    });
   }
 
   function getFilteredLines() {

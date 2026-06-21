@@ -92,12 +92,27 @@
   font-size: var(--text-sm);
 }
 
-.tc-phase-item.active {
-  background: var(--primary-soft);
+.tc-phase-item.running {
+  background: var(--info-bg);
+  color: var(--info);
+  font-weight: 600;
 }
 
 .tc-phase-item.done {
+  color: var(--success);
+}
+
+.tc-phase-item.pending {
   color: var(--muted);
+}
+
+.tc-phase-item.skipped {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.tc-phase-item.error {
+  color: var(--error);
 }
 
 .tc-phase-dot {
@@ -108,9 +123,30 @@
   flex-shrink: 0;
 }
 
-.tc-phase-item.active .tc-phase-dot { background: var(--primary); }
+.tc-phase-item.running .tc-phase-dot { background: var(--info); animation: pulse 1.5s infinite; }
 .tc-phase-item.done .tc-phase-dot { background: var(--success); }
 .tc-phase-item.error .tc-phase-dot { background: var(--error); }
+
+.tc-phase-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tc-phase-bar-fill {
+  height: 100%;
+  background: var(--info);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.tc-phase-item.done .tc-phase-bar-fill { background: var(--success); }
+.tc-phase-item.ok .tc-phase-bar-fill { background: var(--success); }
+.tc-phase-item.skipped .tc-phase-bar-fill { background: var(--warning, #f59e0b); }
+.tc-phase-item.error .tc-phase-bar-fill { background: var(--error); }
+.tc-phase-item.aborted .tc-phase-bar-fill { background: var(--error); }
 
 /* ── Log Viewer ─────────────────────────────────── */
 .tc-log-viewer {
@@ -165,7 +201,7 @@
 
 .tc-run-item:hover { background: var(--surface-2); }
 .tc-run-item.selected {
-  background: var(--primary-soft);
+  border: 1px solid var(--success);
 }
 
 /* ── Tools (Raw Stack, Astrometry, PCC) ─────────── */

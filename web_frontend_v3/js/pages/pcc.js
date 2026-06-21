@@ -44,9 +44,14 @@ export function createPccPage() {
       ),
     ),
     el("div", { class: "tc-mt-2" },
-      createPathInput({ label: t("ui.field.catalog_dir", "Catalog Dir"), value: getPccData().catalog_dir, onInput: (v) => setPccData({ catalog_dir: v }) }),
+      el("label", { class: "tc-label" }, t("ui.field.catalog_dir", "Catalog Dir")),
+      el("div", { class: "tc-flex tc-items-center tc-gap-2" },
+        el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: getPccData().catalog_dir, id: "pcc-catalog-dir", oninput: (e) => setPccData({ catalog_dir: e.target.value }) }),
+        el("span", { class: "tc-badge", id: "pcc-catalog-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
+      ),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => checkSirilStatus() }, t("ui.button.check_catalog", "Check Catalog")),
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadMissing() }, t("ui.button.download_missing", "Download Missing")),
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => checkOnline() }, t("ui.button.check_online", "Check Online Source")),
     ),
@@ -77,7 +82,39 @@ export function createPccPage() {
   );
 
   page.append(inputCard, catalogCard, paramCard, actions, resultCard);
+
+  checkSirilStatus();
+
   return page;
+}
+
+async function checkSirilStatus() {
+  const badge = document.getElementById("pcc-catalog-badge");
+  const dirInput = document.getElementById("pcc-catalog-dir");
+  try {
+    const dir = dirInput?.value || getPccData().catalog_dir || "";
+    const result = await api.get(API_ENDPOINTS.pcc.sirilStatus(dir));
+    if (result?.catalog_dir && dirInput && !dirInput.value) {
+      dirInput.value = result.catalog_dir;
+      setPccData({ catalog_dir: result.catalog_dir });
+    }
+    const installed = result?.installed || 0;
+    const total = result?.total || 0;
+    const missing = result?.missing || [];
+    const ok = installed > 0 && missing.length === 0;
+    const text = ok ? `${installed}/${total}` : (installed > 0 ? `${installed}/${total} (${missing.length} fehlen)` : "✗");
+    setPccBadge(badge, ok, text);
+  } catch (e) {
+    setPccBadge(badge, false, "✗");
+  }
+}
+
+function setPccBadge(badgeEl, ok, text) {
+  if (!badgeEl) return;
+  badgeEl.textContent = text;
+  badgeEl.className = `tc-badge ${ok ? "tc-badge-success" : "tc-badge-error"}`;
+  badgeEl.style.flexShrink = "0";
+  badgeEl.style.whiteSpace = "nowrap";
 }
 
 async function downloadMissing() {

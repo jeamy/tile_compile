@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
+import { getUiState, setUiState } from "../state/ui-state.js";
 
 const store = getStore("run-history", {
   selectedRunId: null,
@@ -33,11 +34,23 @@ export function createRunHistoryPage() {
   );
 
   const detailCard = el("div", { class: "tc-card", id: "run-detail-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.selected_run", "Ausgew\u00e4hlter Run")),
-    el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_run_selected", "Kein Run ausgew\u00e4hlt")),
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between", style: "cursor:pointer", onclick: () => {
+      const body = document.getElementById("run-detail-body");
+      const arrow = document.getElementById("run-detail-toggle");
+      if (body) body.classList.toggle("tc-hidden");
+      if (arrow) arrow.textContent = body?.classList.contains("tc-hidden") ? "\u25b6" : "\u25bc";
+    } },
+      el("span", {}, t("ui.title.selected_run", "Ausgew\u00e4hlter Run")),
+      el("span", { class: "tc-text-muted", id: "run-detail-toggle" }, "\u25b6"),
+    ),
+    el("div", { id: "run-detail-body", class: "tc-hidden" },
+      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_run_selected", "Kein Run ausgew\u00e4hlt")),
+    ),
   );
 
-  page.append(header, listCard, detailCard);
+  const actionsBar = el("div", { class: "tc-flex tc-gap-2", id: "run-actions" });
+
+  page.append(header, listCard, detailCard, actionsBar);
 
   setTimeout(() => loadRuns(), 100);
   return page;
@@ -71,6 +84,7 @@ function runItem(run) {
 
   const item = el("div", {
     class: "tc-run-item",
+    "data-run-id": runId,
     onclick: () => selectRun(runId),
   },
     el("span", { class: "tc-badge" }, run.pipeline || "AQMH"),
@@ -79,18 +93,20 @@ function runItem(run) {
     el("span", { class: "tc-text-sm" }, run.run_name || run.name || ""),
   );
 
-  if (runId === getSelectedRunId()) item.classList.add("active");
+  if (runId === getSelectedRunId()) item.classList.add("selected");
   return item;
 }
 
 async function selectRun(runId) {
   setSelectedRunId(runId);
-  const card = document.getElementById("run-detail-card");
-  if (!card) return;
-  clear(card);
+  document.querySelectorAll(".tc-run-item").forEach(item => {
+    item.classList.toggle("selected", item.getAttribute("data-run-id") === runId);
+  });
+  const body = document.getElementById("run-detail-body");
+  if (!body) return;
+  clear(body);
 
-  card.appendChild(el("div", { class: "tc-card-title" }, t("ui.title.selected_run", "Ausgew\u00e4hlter Run")));
-  card.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mb-2" }, runId));
+  body.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mb-2" }, runId));
 
   try {
     const [status, stats, artifacts] = await Promise.all([
@@ -100,7 +116,7 @@ async function selectRun(runId) {
     ]);
 
     if (status) {
-      card.appendChild(el("div", { class: "tc-grid-2 tc-mt-2" },
+      body.appendChild(el("div", { class: "tc-grid-2 tc-mt-2" },
         statItem(t("ui.label.status", "Status"), status.status || "\u2014"),
         statItem(t("ui.label.phase", "Phase"), status.phase || "\u2014"),
         statItem(t("ui.label.created", "Erstellt"), status.created_at || status.started_at || "\u2014"),
@@ -109,8 +125,8 @@ async function selectRun(runId) {
     }
 
     if (stats) {
-      card.appendChild(el("div", { class: "tc-mt-3 tc-label" }, t("ui.title.stats", "Stats")));
-      card.appendChild(el("div", { class: "tc-grid-2" },
+      body.appendChild(el("div", { class: "tc-mt-3 tc-label" }, t("ui.title.stats", "Stats")));
+      body.appendChild(el("div", { class: "tc-grid-2" },
         statItem(t("ui.label.frames", "Frames"), stats.frames ?? "\u2014"),
         statItem(t("ui.label.registered", "Registered"), stats.registered ?? "\u2014"),
         statItem(t("ui.label.sqm", "SQM"), stats.sqm ?? "\u2014"),
@@ -120,7 +136,7 @@ async function selectRun(runId) {
 
     if (artifacts && (artifacts.items || artifacts).length > 0) {
       const items = artifacts.items || artifacts;
-      card.appendChild(el("div", { class: "tc-mt-3 tc-label" }, t("ui.title.artifacts", "Artifacts")));
+      body.appendChild(el("div", { class: "tc-mt-3 tc-label" }, t("ui.title.artifacts", "Artifacts")));
       const artList = el("div", { class: "tc-flex-col tc-gap-1" });
       for (const art of items) {
         const name = art.name || art.path || art.filename || String(art);
@@ -131,15 +147,17 @@ async function selectRun(runId) {
           }, name),
         ));
       }
-      card.appendChild(artList);
+      body.appendChild(artList);
     }
 
-    card.appendChild(el("div", { class: "tc-mt-3 tc-flex tc-gap-2" },
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")),
-      el("button", { class: "tc-btn tc-btn-sm tc-btn-danger", onclick: () => deleteRun(runId) }, t("ui.button.delete", "L\u00f6schen")),
-    ));
+    const actions = document.getElementById("run-actions");
+    if (actions) {
+      clear(actions);
+      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")));
+      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm tc-btn-danger", onclick: () => deleteRun(runId) }, t("ui.button.delete", "L\u00f6schen")));
+    }
   } catch (e) {
-    card.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, e.message));
+    body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, e.message));
   }
 }
 
@@ -163,6 +181,10 @@ async function setRunCurrent(runId) {
   try {
     await api.post(API_ENDPOINTS.runs.setCurrent(runId), {});
     toastSuccess(t("ui.toast.set_current", "Als aktuell gesetzt"));
+    const ui = getUiState();
+    setUiState({ activeTab: "processing", activeSubTab: { ...ui.activeSubTab, processing: "run-monitor" } });
+    window.location.hash = "#processing";
+    window.dispatchEvent(new Event("tc-subtab-change"));
   } catch (e) {
     toastError(t("ui.toast.set_current_failed", "Fehlgeschlagen"), e.message);
   }
@@ -171,7 +193,7 @@ async function setRunCurrent(runId) {
 async function deleteRun(runId) {
   if (!confirm(t("ui.confirm.delete_run", "Run wirklich l\u00f6schen?"))) return;
   try {
-    await api.delete(API_ENDPOINTS.runs.delete(runId));
+    await api.post(API_ENDPOINTS.runs.delete(runId), {});
     toastSuccess(t("ui.toast.deleted", "Gel\u00f6scht"));
     setSelectedRunId(null);
     loadRuns();

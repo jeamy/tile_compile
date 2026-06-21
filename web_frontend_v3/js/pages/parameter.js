@@ -62,10 +62,13 @@ export function createParameterPage() {
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => loadPresets() }, t("ui.button.reload", "Reload")),
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => applyPreset() }, t("ui.button.apply", "Apply")),
     ),
-    el("div", { class: "tc-mt-4 tc-flex tc-gap-3" },
+    el("div", { class: "tc-mt-4 tc-flex tc-gap-3 tc-flex-wrap tc-items-center" },
       el("button", { class: "tc-btn tc-btn-primary", onclick: () => doValidate() }, t("ui.button.validate", "Validate")),
       el("button", { class: "tc-btn", onclick: () => doReset() }, t("ui.button.reset_default", "Reset")),
-      el("button", { class: "tc-btn", onclick: () => doSave() }, t("ui.button.save", "Save")),
+      el("div", { class: "tc-flex tc-gap-2", style: { flexWrap: "nowrap" } },
+        el("button", { class: "tc-btn", onclick: () => doSave() }, t("ui.button.save", "Save")),
+        el("button", { class: "tc-btn", onclick: () => doSaveAs() }, t("ui.button.save_as", "Save as")),
+      ),
     ),
     el("div", { class: "tc-mt-2", id: "param-validation-result" }),
     el("div", { class: "tc-mt-4 tc-card", style: { background: "var(--bg)" }, id: "param-yaml-diff" },
@@ -77,26 +80,20 @@ export function createParameterPage() {
   // Explain panel (component-based)
   const explain = createExplainPanel();
 
-  // Situation assistant inside explain
+  grid.append(sidebar, editor, explain);
+  grid.id = "param-grid";
+
+  // Situation assistant as separate panel below the grid
   const savedSituations = getUiState().selectedSituations || [];
   const situation = createSituationAssistant({
     selected: savedSituations,
     onApply: (scenarios) => applySituationDeltas(scenarios),
     onChange: (scenarios) => setUiState({ selectedSituations: scenarios }),
   });
-  explain.querySelector("#explain-body").appendChild(situation);
-
-  // Changed parameters summary inside explain panel
-  const changedPanel = el("div", { class: "tc-mt-3", id: "param-changed-panel" },
-    el("div", { class: "tc-card-title" }, t("ui.title.changed_params", "Geänderte Parameter")),
-    el("div", { class: "tc-flex-col tc-gap-1", id: "param-changed-list" },
-      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")),
-    ),
+  const situationPanel = el("div", { class: "tc-card tc-mt-4", id: "param-situation-panel" },
+    el("div", { class: "tc-card-title" }, t("page.parameter_studio.situation_assistant", "Situation-Assistent")),
+    situation,
   );
-  explain.querySelector("#explain-body").appendChild(changedPanel);
-
-  grid.append(sidebar, editor, explain);
-  grid.id = "param-grid";
 
   // Next button OUTSIDE the grid, below
   const nextBar = el("div", { class: "tc-flex tc-justify-end tc-mt-4", id: "param-nextbar" },
@@ -106,7 +103,7 @@ export function createParameterPage() {
     }, "\u25b6 " + t("ui.button.next", "Next")),
   );
 
-  page.append(topBar, grid, nextBar);
+  page.append(topBar, grid, situationPanel, nextBar);
 
   // Load schema + config from API, then render categories
   initParameterData(paramView === "ai" ? "ai" : null, page, paramTab, aiTab);
@@ -121,15 +118,18 @@ function switchView(view, page, paramTab, aiTab) {
 
   const grid = document.getElementById("param-grid");
   const nextBar = document.getElementById("param-nextbar");
+  const sitPanel = document.getElementById("param-situation-panel");
   const aiPage = document.getElementById("param-ai-page");
 
   if (view === "parameter") {
     if (grid) grid.style.display = "";
     if (nextBar) nextBar.style.display = "";
+    if (sitPanel) sitPanel.style.display = "";
     if (aiPage) aiPage.style.display = "none";
   } else {
     if (grid) grid.style.display = "none";
     if (nextBar) nextBar.style.display = "none";
+    if (sitPanel) sitPanel.style.display = "none";
     if (!aiPage) {
       const ai = createAiEmpfehlungPage();
       ai.id = "param-ai-page";
@@ -216,6 +216,14 @@ function getSchemaForPath(schema, path) {
   return node;
 }
 
+function shortHelpForPath(path, fieldSchema) {
+  const i18nKey = `param.${path}.short_help`;
+  const localized = t(i18nKey, "");
+  if (localized) return localized;
+  if (fieldSchema && fieldSchema.description) return fieldSchema.description;
+  return "";
+}
+
 function editableParamRow(path, value, fieldSchema) {
   const onChange = (rawVal) => {
     setConfigValue(getConfigState().draft, path, rawVal);
@@ -224,11 +232,15 @@ function editableParamRow(path, value, fieldSchema) {
     updateDiff();
   };
 
+  const shortHelp = shortHelpForPath(path, fieldSchema);
+  const tooltipText = shortHelp || path;
+
   let control;
 
   if (fieldSchema && fieldSchema.enum) {
     control = el("select", {
       class: "tc-select",
+      title: tooltipText,
       onchange: (e) => onChange(parseValue(e.target.value)),
     },
       el("option", { value: "" }, "—"),
@@ -242,6 +254,7 @@ function editableParamRow(path, value, fieldSchema) {
   } else if (fieldSchema && fieldSchema.type === "boolean") {
     control = el("select", {
       class: "tc-select",
+      title: tooltipText,
       onchange: (e) => {
         const v = e.target.value;
         onChange(v === "" ? null : v === "true");
@@ -255,6 +268,7 @@ function editableParamRow(path, value, fieldSchema) {
     control = el("input", {
       type: "number",
       class: "tc-input",
+      title: tooltipText,
       value: formatValue(value),
       ...(fieldSchema.minimum !== undefined ? { min: fieldSchema.minimum } : {}),
       ...(fieldSchema.maximum !== undefined ? { max: fieldSchema.maximum } : {}),
@@ -270,6 +284,7 @@ function editableParamRow(path, value, fieldSchema) {
     control = el("input", {
       type: "text",
       class: "tc-input",
+      title: tooltipText,
       value: formatValue(value),
       oninput: (e) => {
         setConfigValue(getConfigState().draft, path, parseValue(e.target.value));
@@ -280,10 +295,32 @@ function editableParamRow(path, value, fieldSchema) {
     });
   }
 
+  const label = el("label", {
+    class: "tc-label tc-cursor-pointer",
+    title: tooltipText,
+    onclick: () => showExplainForPath(path, fieldSchema),
+  }, path);
+
   return el("div", { class: "tc-grid-2" },
-    el("label", { class: "tc-label", title: path }, path),
+    label,
     control,
   );
+}
+
+function showExplainForPath(path, fieldSchema) {
+  const entry = {
+    path,
+    label: t(`param.${path}.label`, path),
+    category: path.split(".")[0] || "",
+    type: fieldSchema?.type || "",
+    default: fieldSchema?.default ?? "",
+    minimum: fieldSchema?.minimum,
+    maximum: fieldSchema?.maximum,
+    enum: fieldSchema?.enum || [],
+    description: shortHelpForPath(path, fieldSchema),
+    deprecated: Boolean(fieldSchema?.deprecated),
+  };
+  updateExplainPanel(entry);
 }
 
 function setConfigValue(obj, path, value) {
@@ -334,29 +371,6 @@ function updateDiff() {
     diffContainer.appendChild(diffBody);
   }
 
-  updateChangedParamsList(config, draft);
-}
-
-function updateChangedParamsList(config, draft) {
-  const listEl = document.getElementById("param-changed-list");
-  if (!listEl) return;
-  clear(listEl);
-
-  const changes = deepDiffPaths(config, draft);
-  if (changes.length === 0) {
-    listEl.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")));
-    return;
-  }
-
-  for (const c of changes) {
-    const row = el("div", { class: "tc-text-sm tc-mono" },
-      el("span", { class: "tc-diff-removed" }, `- ${c.path}: ${formatVal(c.oldValue)}`),
-    );
-    listEl.appendChild(row);
-    listEl.appendChild(el("div", { class: "tc-text-sm tc-mono" },
-      el("span", { class: "tc-diff-added" }, `+ ${c.path}: ${formatVal(c.newValue)}`),
-    ));
-  }
 }
 
 function deepDiffPaths(before, after, prefix = "", out = []) {
@@ -429,6 +443,7 @@ async function doValidate() {
       ));
     }
     toastSuccess(t("ui.toast.validation_ok", "Config valid"));
+    resetSituationCheckboxes();
     refreshGuardrails();
   } else {
     if (valPanel) {
@@ -437,6 +452,7 @@ async function doValidate() {
       ));
     }
     toastSuccess(t("ui.toast.validation_ok", "Config valid"));
+    resetSituationCheckboxes();
     refreshGuardrails();
   }
 }
@@ -449,6 +465,22 @@ async function doSave() {
     refreshGuardrails();
   } else {
     toastError(t("ui.toast.save_failed", "Save failed"));
+  }
+}
+
+async function doSaveAs() {
+  const name = prompt(t("ui.dialog.save_file", "Datei speichern unter") + ":", "tile_compile.example.yaml");
+  if (!name || !name.trim()) return;
+  const { draft, draftYaml } = getConfigState();
+  if (!draft && !draftYaml) return;
+  toast(t("ui.toast.saving", "Speichere..."), "", "info");
+  try {
+    const yamlText = draftYaml || stringifyYaml(draft);
+    const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText, path: name.trim() });
+    toastSuccess(t("ui.toast.saved", "Config saved"), result?.path || name.trim());
+    loadPresets();
+  } catch (e) {
+    toastError(t("ui.toast.save_failed", "Save failed"), e.message || String(e));
   }
 }
 
@@ -465,20 +497,40 @@ function categoryItem(label, active = false) {
 
 async function doReset() {
   toast(t("ui.toast.resetting", "Reset..."), "", "info");
-  const defaults = await api.get(API_ENDPOINTS.config.defaults);
-  if (defaults) {
+  try {
+    const defaults = await api.get(API_ENDPOINTS.config.defaults);
+    if (!defaults) {
+      toastError(t("ui.toast.reset_failed", "Reset fehlgeschlagen"), "Keine Defaults erhalten");
+      return;
+    }
     const yamlText = stringifyYaml(defaults);
-    const parsed = defaults;
     setConfigState({
-      config: JSON.parse(JSON.stringify(parsed)),
+      config: JSON.parse(JSON.stringify(defaults)),
       configYaml: yamlText,
-      draft: JSON.parse(JSON.stringify(parsed)),
+      draft: JSON.parse(JSON.stringify(defaults)),
       draftYaml: yamlText,
       dirty: false,
     });
     renderCategories();
-    renderEditorForCategory("all");
+    resetSituationCheckboxes();
+    const savedCat = getUiState().selectedCategory || "all";
+    renderEditorForCategory(savedCat);
+    updateDiff();
     toastSuccess(t("ui.toast.reset_ok", "Auf Defaults zurückgesetzt"));
+  } catch (e) {
+    toastError(t("ui.toast.reset_failed", "Reset fehlgeschlagen"), e.message || String(e));
+  }
+}
+
+function resetSituationCheckboxes() {
+  setUiState({ selectedSituations: [] });
+  document.querySelectorAll("#scenario-list input[type=checkbox]").forEach(cb => {
+    cb.checked = false;
+  });
+  const previewEl = document.getElementById("situation-preview");
+  if (previewEl) {
+    clear(previewEl);
+    previewEl.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.select_situation", "Situation auswählen um Änderungen zu sehen")));
   }
 }
 
@@ -487,12 +539,18 @@ async function loadPresets() {
     const data = await api.get(API_ENDPOINTS.config.presets());
     const select = document.getElementById("param-preset-select");
     if (!select) return;
+    const savedPreset = getUiState().selectedPreset || "";
     clear(select);
-    select.appendChild(el("option", {}, "—"));
+    select.appendChild(el("option", { value: "" }, "—"));
     for (const item of (data?.items || [])) {
       const name = item.name || item.label || item.path || "";
-      select.appendChild(el("option", { value: item.path || name }, name));
+      const val = item.path || name;
+      const opt = el("option", { value: val }, name);
+      if (val === savedPreset) opt.selected = true;
+      select.appendChild(opt);
     }
+    select.value = savedPreset;
+    select.onchange = () => setUiState({ selectedPreset: select.value });
   } catch (e) {
     toastError("Presets load failed", e.message);
   }
@@ -501,6 +559,7 @@ async function loadPresets() {
 async function applyPreset() {
   const select = document.getElementById("param-preset-select");
   if (!select || !select.value || select.value === "—") return;
+  setUiState({ selectedPreset: select.value });
   try {
     const result = await api.post(API_ENDPOINTS.config.applyPreset, { path: select.value });
     const yamlText = result?.config || "";
@@ -510,7 +569,10 @@ async function applyPreset() {
       draftYaml: yamlText,
       dirty: true,
     });
-    renderEditorForCategory("all");
+    resetSituationCheckboxes();
+    const savedCat = getUiState().selectedCategory || "all";
+    renderEditorForCategory(savedCat);
+    updateDiff();
     toastSuccess(t("ui.toast.preset_applied", "Preset angewendet"));
   } catch (e) {
     toastError("Preset apply failed", e.message);
@@ -535,6 +597,10 @@ function applySituationDeltas(scenarios) {
     return;
   }
   const { draft } = getConfigState();
+  if (!draft) {
+    toastError("Config nicht geladen");
+    return;
+  }
   let applied = 0;
   for (const [path, info] of deltas) {
     const value = info.values[info.values.length - 1];
@@ -542,8 +608,9 @@ function applySituationDeltas(scenarios) {
     applied++;
   }
   markDirty();
-  setConfigState({ draftYaml: stringifyYaml(draft) });
+  setConfigState({ draft, draftYaml: stringifyYaml(draft) });
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
+  updateDiff();
   toastSuccess(t("ui.toast.situation_applied", "Situation angewendet"), `${applied} Parameter aktualisiert`);
 }

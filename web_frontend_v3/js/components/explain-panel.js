@@ -27,27 +27,37 @@ export function updateExplainPanel(entry) {
     return;
   }
 
+  const rangeStr = entry.range || (entry.minimum !== undefined || entry.maximum !== undefined
+    ? `${entry.minimum ?? ""}..${entry.maximum ?? ""}`
+    : "");
+
   const fields = [
-    { label: t("ui.label.label", "Label"), value: entry.path || entry.label || "" },
+    { label: t("ui.label.label", "Label"), value: entry.label || entry.path || "" },
     { label: t("ui.label.category", "Kategorie"), value: entry.category || "" },
     { label: t("ui.label.type", "Typ"), value: entry.type || "" },
     { label: t("ui.label.default", "Default"), value: entry.default ?? entry.defaultValue ?? "" },
-    { label: t("ui.label.range", "Range"), value: entry.range || (entry.minimum && entry.maximum ? `${entry.minimum}..${entry.maximum}` : "") },
-    { label: t("ui.label.phase", "Phase"), value: entry.phase || "" },
+    { label: t("ui.label.range", "Range"), value: rangeStr },
   ];
 
   for (const f of fields) {
-    if (!f.value) continue;
+    if (f.value === "" || f.value === undefined || f.value === null) continue;
     body.appendChild(el("div", {},
       el("div", { class: "tc-label" }, f.label),
       el("div", { class: "tc-text-sm tc-mono" }, String(f.value)),
     ));
   }
 
+  if (entry.deprecated) {
+    body.appendChild(el("div", { class: "tc-mt-1" },
+      el("span", { class: "tc-badge", style: { background: "var(--error-bg)", color: "var(--error)", padding: "2px 8px", borderRadius: "4px", fontSize: "var(--text-xs)" } },
+        t("ui.label.deprecated", "deprecated")),
+    ));
+  }
+
   if (entry.description) {
     body.appendChild(el("div", { class: "tc-mt-2" },
       el("div", { class: "tc-label" }, t("ui.label.description", "Beschreibung")),
-      el("div", { class: "tc-text-sm tc-text-muted" }, entry.description),
+      el("div", { class: "tc-text-sm tc-text-muted", style: { lineHeight: "1.5" } }, entry.description),
     ));
   }
 

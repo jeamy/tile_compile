@@ -23,11 +23,17 @@ export function createAstrometryPage() {
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.astap_cli", "ASTAP CLI")),
-        el("input", { type: "text", class: "tc-input", value: "/usr/local/bin/astap", id: "astap-cli" }),
+        el("div", { class: "tc-flex tc-items-center tc-gap-2" },
+          el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: "/usr/local/bin/astap", id: "astap-cli" }),
+          el("span", { class: "tc-badge", id: "astap-cli-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
+        ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.star_db_dir", "Star Database Dir")),
-        el("input", { type: "text", class: "tc-input", value: "/usr/local/share/astap", id: "astap-db" }),
+        el("div", { class: "tc-flex tc-items-center tc-gap-2" },
+          el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: "/usr/local/share/astap", id: "astap-db" }),
+          el("span", { class: "tc-badge", id: "astap-db-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
+        ),
       ),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
@@ -70,22 +76,46 @@ export function createAstrometryPage() {
   );
 
   page.append(setupCard, solveCard, resultsCard);
+
+  detectAstap();
+
   return page;
 }
 
 async function detectAstap() {
+  const cliBadge = document.getElementById("astap-cli-badge");
+  const dbBadge = document.getElementById("astap-db-badge");
   try {
     const result = await api.post(API_ENDPOINTS.astrometry.detect, {});
     if (result?.binary) document.getElementById("astap-cli").value = result.binary;
     if (result?.data_dir) document.getElementById("astap-db").value = result.data_dir;
-    if (result?.installed) {
+
+    const cliOk = !!result?.installed;
+    setBadge(cliBadge, cliOk, cliOk ? "OK" : "✗");
+
+    const catalogs = result?.catalogs || {};
+    const catalogCount = Object.values(catalogs).filter(Boolean).length;
+    const dbOk = catalogCount > 0;
+    setBadge(dbBadge, dbOk, dbOk ? `${catalogCount} Kataloge` : "✗");
+
+    if (cliOk) {
       toastSuccess(t("ui.toast.astap_detected", "ASTAP erkannt"), result.binary || "");
     } else {
       toast(t("ui.toast.astap_not_found", "ASTAP nicht gefunden"), t("ui.state.install_hint", "Bitte ASTAP installieren"), "info");
     }
   } catch (e) {
+    setBadge(cliBadge, false, "✗");
+    setBadge(dbBadge, false, "✗");
     toastError(t("ui.toast.detect_failed", "Detect fehlgeschlagen"), e.message);
   }
+}
+
+function setBadge(badgeEl, ok, text) {
+  if (!badgeEl) return;
+  badgeEl.textContent = text;
+  badgeEl.className = `tc-badge ${ok ? "tc-badge-success" : "tc-badge-error"}`;
+  badgeEl.style.flexShrink = "0";
+  badgeEl.style.whiteSpace = "nowrap";
 }
 
 async function installCli() {
