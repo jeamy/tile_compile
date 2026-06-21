@@ -268,16 +268,17 @@ async function createAnalysis(force = false) {
     addTrafficEntry({ type: "request", text: `POST /api/scan/analysis with scan_result, ${scanMetrics ? "scan_metrics, " : ""}${configSchema ? "config_schema, " : ""}${baseConfig ? "base_config" : ""}` });
 
     const result = await api.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 600000 });
-    if (result?.recommendations) {
-      addTrafficEntry({ type: "response", text: `Received ${result.recommendations.length} recommendations (cached: ${result.from_cache ?? false})` });
+    const recs = result?.validated_updates || result?.updates || result?.recommendations || [];
+    if (recs.length > 0) {
+      addTrafficEntry({ type: "response", text: `Received ${recs.length} recommendations (cached: ${result.from_cache ?? false})` });
       if (result.summary) {
         addTrafficEntry({ type: "summary", text: result.summary });
       }
-      renderRecommendations(result.recommendations);
+      renderRecommendations(recs);
       setAiState({ currentAnalysis: result, loading: false });
       toastSuccess(t("ui.toast.analysis_done", "Analyse erstellt"));
     } else {
-      addTrafficEntry({ type: "error", text: "No recommendations in response" });
+      addTrafficEntry({ type: "error", text: `No recommendations in response. Keys: ${Object.keys(result || {}).join(", ")}` });
       setAiState({ loading: false });
       toastError(t("ui.toast.analysis_failed", "Analyse fehlgeschlagen"), "No recommendations returned");
     }

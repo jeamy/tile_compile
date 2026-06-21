@@ -78,7 +78,7 @@ async function restoreRunningJob() {
   try {
     const status = await api.get(API_ENDPOINTS.preprocessing.status(""));
     if (status?.status === "running" || status?.status === "pending") {
-      const jobId = status?.job_id || status?.id;
+      const jobId = status?.job_id || status?.job?.job_id || status?.id;
       if (jobId) {
         setJobId(jobId);
         pollStatus();
