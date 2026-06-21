@@ -7,25 +7,25 @@ import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
 import { createExplainPanel, updateExplainPanel } from "../components/explain-panel.js";
-import { createSituationAssistant } from "../components/situation-assistant.js";
-import { createYamlDiff, updateYamlDiff } from "../components/yaml-diff.js";
+import { createSituationAssistant, getScenarioDeltas } from "../components/situation-assistant.js";
+import { createYamlDiff } from "../components/yaml-diff.js";
 import { stringifyYaml } from "../utils/yaml-parse.js";
 import { parseYaml } from "../utils/yaml-parse.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
-
-let paramView = "parameter";
+import { refreshGuardrails } from "../services/guardrail-service.js";
 
 export function createParameterPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
+  const paramView = getUiState().paramView || "parameter";
 
   // Parameter / AI switch – card style like Run Control
   const paramTab = el("button", {
-    class: "tc-btn tc-btn-primary",
+    class: `tc-btn${paramView === "parameter" ? " tc-btn-primary" : ""}`,
     id: "tab-param",
   }, t("ui.tab.parameter", "Parameter"));
   const aiTab = el("button", {
-    class: "tc-btn",
+    class: `tc-btn${paramView === "ai" ? " tc-btn-primary" : ""}`,
     id: "tab-ai",
   }, t("ui.tab.ai", "AI Empfehlung"));
   paramTab.onclick = () => switchView("parameter", page, paramTab, aiTab);
@@ -67,6 +67,7 @@ export function createParameterPage() {
       el("button", { class: "tc-btn", onclick: () => doReset() }, t("ui.button.reset_default", "Reset")),
       el("button", { class: "tc-btn", onclick: () => doSave() }, t("ui.button.save", "Save")),
     ),
+    el("div", { class: "tc-mt-2", id: "param-validation-result" }),
     el("div", { class: "tc-mt-4 tc-card", style: { background: "var(--bg)" }, id: "param-yaml-diff" },
       el("div", { class: "tc-card-title" }, "YAML Diff"),
       el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")),
@@ -77,17 +78,22 @@ export function createParameterPage() {
   const explain = createExplainPanel();
 
   // Situation assistant inside explain
+  const savedSituations = getUiState().selectedSituations || [];
   const situation = createSituationAssistant({
-    selected: [],
-    onApply: (scenarios) => {
-      toast(t("ui.toast.situation_applied", "Situation angewendet"), `${scenarios.length} Szenarien`, "info");
-    },
+    selected: savedSituations,
+    onApply: (scenarios) => applySituationDeltas(scenarios),
+    onChange: (scenarios) => setUiState({ selectedSituations: scenarios }),
   });
   explain.querySelector("#explain-body").appendChild(situation);
 
-  // YAML diff inside explain
-  const yamlDiff = createYamlDiff("", "");
-  explain.querySelector("#explain-body").appendChild(yamlDiff);
+  // Changed parameters summary inside explain panel
+  const changedPanel = el("div", { class: "tc-mt-3", id: "param-changed-panel" },
+    el("div", { class: "tc-card-title" }, t("ui.title.changed_params", "Geänderte Parameter")),
+    el("div", { class: "tc-flex-col tc-gap-1", id: "param-changed-list" },
+      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")),
+    ),
+  );
+  explain.querySelector("#explain-body").appendChild(changedPanel);
 
   grid.append(sidebar, editor, explain);
   grid.id = "param-grid";
@@ -103,13 +109,13 @@ export function createParameterPage() {
   page.append(topBar, grid, nextBar);
 
   // Load schema + config from API, then render categories
-  initParameterData();
+  initParameterData(paramView === "ai" ? "ai" : null, page, paramTab, aiTab);
 
   return page;
 }
 
 function switchView(view, page, paramTab, aiTab) {
-  paramView = view;
+  setUiState({ paramView: view });
   paramTab.classList.toggle("tc-btn-primary", view === "parameter");
   aiTab.classList.toggle("tc-btn-primary", view === "ai");
 
@@ -120,7 +126,7 @@ function switchView(view, page, paramTab, aiTab) {
   if (view === "parameter") {
     if (grid) grid.style.display = "";
     if (nextBar) nextBar.style.display = "";
-    if (aiPage) aiPage.remove();
+    if (aiPage) aiPage.style.display = "none";
   } else {
     if (grid) grid.style.display = "none";
     if (nextBar) nextBar.style.display = "none";
@@ -128,19 +134,25 @@ function switchView(view, page, paramTab, aiTab) {
       const ai = createAiEmpfehlungPage();
       ai.id = "param-ai-page";
       page.appendChild(ai);
+    } else {
+      aiPage.style.display = "";
     }
   }
 }
 
-async function initParameterData() {
-  const { categories } = getConfigState();
-  if (!categories) {
+async function initParameterData(restoreView = null, page = null, paramTab = null, aiTab = null) {
+  const { schemaPaths } = getConfigState();
+  if (!schemaPaths || !Array.isArray(schemaPaths)) {
     await loadSchema();
   }
   await loadConfig();
   renderCategories();
-  renderEditorForCategory("all");
+  const savedCat = getUiState().selectedCategory || "all";
+  renderEditorForCategory(savedCat);
   loadPresets();
+  if (restoreView === "ai" && page && paramTab && aiTab) {
+    switchView("ai", page, paramTab, aiTab);
+  }
 }
 
 function renderCategories() {
@@ -160,12 +172,14 @@ function renderCategories() {
   for (const cat of categories) {
     const label = humanizeCategory(cat);
     if (filter && !label.toLowerCase().includes(filter) && !cat.includes(filter)) continue;
-    const item = categoryItem(label, cat === "all");
+    const savedCat = getUiState().selectedCategory || "all";
+    const item = categoryItem(label, cat === savedCat);
     item.dataset.category = cat;
     item.onclick = (e) => {
       e.target.parentElement.querySelectorAll(".tc-param-category")
         .forEach(c => c.classList.remove("active"));
       e.target.classList.add("active");
+      setUiState({ selectedCategory: cat });
       renderEditorForCategory(cat);
     };
     container.appendChild(item);
@@ -173,7 +187,7 @@ function renderCategories() {
 }
 
 function renderEditorForCategory(category) {
-  const { schemaPaths, config, draft } = getConfigState();
+  const { schema, schemaPaths, config, draft } = getConfigState();
   const editorBody = document.getElementById("param-editor-body");
   if (!editorBody || !schemaPaths) return;
   clear(editorBody);
@@ -184,27 +198,91 @@ function renderEditorForCategory(category) {
 
   for (const path of paths) {
     const value = draft ? getConfigValue(draft, path) : "";
-    editorBody.appendChild(editableParamRow(path, value));
+    const fieldSchema = getSchemaForPath(schema, path);
+    editorBody.appendChild(editableParamRow(path, value, fieldSchema));
   }
 
   updateDiff();
 }
 
-function editableParamRow(path, value) {
-  const input = el("input", {
-    type: "text",
-    class: "tc-input",
-    value: formatValue(value),
-    oninput: (e) => {
-      setConfigValue(getConfigState().draft, path, parseValue(e.target.value));
-      markDirty();
-      setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
-      updateDiff();
+function getSchemaForPath(schema, path) {
+  if (!schema || !schema.properties) return null;
+  const parts = path.split(".");
+  let node = schema;
+  for (const part of parts) {
+    if (!node || !node.properties || !node.properties[part]) return null;
+    node = node.properties[part];
+  }
+  return node;
+}
+
+function editableParamRow(path, value, fieldSchema) {
+  const onChange = (rawVal) => {
+    setConfigValue(getConfigState().draft, path, rawVal);
+    markDirty();
+    setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
+    updateDiff();
+  };
+
+  let control;
+
+  if (fieldSchema && fieldSchema.enum) {
+    control = el("select", {
+      class: "tc-select",
+      onchange: (e) => onChange(parseValue(e.target.value)),
     },
-  });
+      el("option", { value: "" }, "—"),
+      ...fieldSchema.enum.map(opt =>
+        el("option", {
+          value: String(opt),
+          ...(String(value) === String(opt) ? { selected: true } : {}),
+        }, String(opt)),
+      ),
+    );
+  } else if (fieldSchema && fieldSchema.type === "boolean") {
+    control = el("select", {
+      class: "tc-select",
+      onchange: (e) => {
+        const v = e.target.value;
+        onChange(v === "" ? null : v === "true");
+      },
+    },
+      el("option", { value: "" }, "—"),
+      el("option", { value: "true", ...(value === true ? { selected: true } : {}) }, "true"),
+      el("option", { value: "false", ...(value === false ? { selected: true } : {}) }, "false"),
+    );
+  } else if (fieldSchema && (fieldSchema.type === "integer" || fieldSchema.type === "number")) {
+    control = el("input", {
+      type: "number",
+      class: "tc-input",
+      value: formatValue(value),
+      ...(fieldSchema.minimum !== undefined ? { min: fieldSchema.minimum } : {}),
+      ...(fieldSchema.maximum !== undefined ? { max: fieldSchema.maximum } : {}),
+      ...(fieldSchema.type === "integer" ? { step: "1" } : {}),
+      oninput: (e) => {
+        const v = e.target.value.trim();
+        if (v === "") { onChange(null); return; }
+        const num = fieldSchema.type === "integer" ? parseInt(v, 10) : parseFloat(v);
+        onChange(isNaN(num) ? v : num);
+      },
+    });
+  } else {
+    control = el("input", {
+      type: "text",
+      class: "tc-input",
+      value: formatValue(value),
+      oninput: (e) => {
+        setConfigValue(getConfigState().draft, path, parseValue(e.target.value));
+        markDirty();
+        setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
+        updateDiff();
+      },
+    });
+  }
+
   return el("div", { class: "tc-grid-2" },
     el("label", { class: "tc-label", title: path }, path),
-    input,
+    control,
   );
 }
 
@@ -238,17 +316,76 @@ function parseValue(s) {
 }
 
 function updateDiff() {
-  const { configYaml, draftYaml } = getConfigState();
+  const { config, draft } = getConfigState();
   const diffContainer = document.getElementById("param-yaml-diff");
   if (!diffContainer) return;
   clear(diffContainer);
-  if (configYaml === draftYaml) {
-    diffContainer.appendChild(el("div", { class: "tc-card-title" }, "YAML Diff"));
+
+  const diff = createYamlDiff(config, draft);
+  const diffBody = diff.querySelector("#yaml-diff-body");
+  const hasChanges = diffBody && diffBody.children.length > 0 && !diffBody.querySelector(".tc-text-muted");
+
+  diffContainer.appendChild(el("div", { class: "tc-card-title" }, t("ui.title.yaml_diff", "YAML Diff")));
+  if (!hasChanges) {
     diffContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")));
   } else {
-    const diff = createYamlDiff(configYaml, draftYaml);
-    diffContainer.appendChild(diff);
+    const changeCount = diffBody.querySelectorAll(".tc-diff-added, .tc-diff-removed").length;
+    diffContainer.appendChild(el("div", { class: "tc-text-sm tc-mb-2" }, `${changeCount} ${t("ui.label.changed_values", "geänderte Werte")}`));
+    diffContainer.appendChild(diffBody);
   }
+
+  updateChangedParamsList(config, draft);
+}
+
+function updateChangedParamsList(config, draft) {
+  const listEl = document.getElementById("param-changed-list");
+  if (!listEl) return;
+  clear(listEl);
+
+  const changes = deepDiffPaths(config, draft);
+  if (changes.length === 0) {
+    listEl.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")));
+    return;
+  }
+
+  for (const c of changes) {
+    const row = el("div", { class: "tc-text-sm tc-mono" },
+      el("span", { class: "tc-diff-removed" }, `- ${c.path}: ${formatVal(c.oldValue)}`),
+    );
+    listEl.appendChild(row);
+    listEl.appendChild(el("div", { class: "tc-text-sm tc-mono" },
+      el("span", { class: "tc-diff-added" }, `+ ${c.path}: ${formatVal(c.newValue)}`),
+    ));
+  }
+}
+
+function deepDiffPaths(before, after, prefix = "", out = []) {
+  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of allKeys) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const bv = before?.[key];
+    const av = after?.[key];
+    if (bv === av) continue;
+    if (bv !== null && av !== null && typeof bv === "object" && !Array.isArray(bv) && typeof av === "object" && !Array.isArray(av)) {
+      deepDiffPaths(bv, av, path, out);
+    } else if (Array.isArray(bv) && Array.isArray(av)) {
+      if (JSON.stringify(bv) !== JSON.stringify(av)) out.push({ path, oldValue: bv, newValue: av });
+    } else {
+      if (bv === undefined) out.push({ path, oldValue: null, newValue: av });
+      else if (av === undefined) out.push({ path, oldValue: bv, newValue: null });
+      else out.push({ path, oldValue: bv, newValue: av });
+    }
+  }
+  return out;
+}
+
+function formatVal(v) {
+  if (v === null) return "null";
+  if (v === true) return "true";
+  if (v === false) return "false";
+  if (Array.isArray(v)) return `[${v.map(formatVal).join(", ")}]`;
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 function getConfigValue(obj, path) {
@@ -264,10 +401,43 @@ function getConfigValue(obj, path) {
 async function doValidate() {
   toast(t("ui.toast.validating", "Validiere..."), "", "info");
   const result = await validateConfig();
+  const valPanel = document.getElementById("param-validation-result");
+  if (valPanel) clear(valPanel);
+
   if (result?.errors?.length) {
-    toastError(t("ui.toast.validation_failed", "Validation failed"), result.errors.map(e => e.message).join(", "));
-  } else {
+    toastError(t("ui.toast.validation_failed", "Validation failed"), `${result.errors.length} Fehler`);
+    if (valPanel) {
+      valPanel.appendChild(el("div", { class: "tc-card", style: { background: "var(--error-bg)", borderColor: "var(--error)" } },
+        el("div", { class: "tc-card-title", style: { color: "var(--error)" } }, t("ui.toast.validation_failed", "Validation failed")),
+        ...result.errors.map(e => {
+          if (typeof e === "string") return el("div", { class: "tc-text-sm tc-mono", style: { color: "var(--error)" } }, e);
+          const path = e.path || e.field || "";
+          const msg = e.message || e.msg || String(e);
+          return el("div", { class: "tc-text-sm tc-mono", style: { color: "var(--error)" } },
+            path ? `${path}: ${msg}` : msg,
+          );
+        }),
+      ));
+    }
+  } else if (result?.warnings?.length) {
+    if (valPanel) {
+      valPanel.appendChild(el("div", { class: "tc-card", style: { background: "var(--surface-2)" } },
+        el("div", { class: "tc-card-title" }, t("ui.toast.validation_ok", "Config valid")),
+        ...result.warnings.map(w => el("div", { class: "tc-text-sm tc-text-muted" },
+          `${w.path || w.field || "?"}: ${w.message || w.msg || String(w)}`,
+        )),
+      ));
+    }
     toastSuccess(t("ui.toast.validation_ok", "Config valid"));
+    refreshGuardrails();
+  } else {
+    if (valPanel) {
+      valPanel.appendChild(el("div", { class: "tc-text-sm", style: { color: "var(--success)" } },
+        t("ui.toast.validation_ok", "Config valid"),
+      ));
+    }
+    toastSuccess(t("ui.toast.validation_ok", "Config valid"));
+    refreshGuardrails();
   }
 }
 
@@ -276,6 +446,7 @@ async function doSave() {
   const result = await saveConfig();
   if (result) {
     toastSuccess(t("ui.toast.saved", "Config saved"));
+    refreshGuardrails();
   } else {
     toastError(t("ui.toast.save_failed", "Save failed"));
   }
@@ -299,9 +470,9 @@ async function doReset() {
     const yamlText = stringifyYaml(defaults);
     const parsed = defaults;
     setConfigState({
-      config: parsed,
+      config: JSON.parse(JSON.stringify(parsed)),
       configYaml: yamlText,
-      draft: parsed,
+      draft: JSON.parse(JSON.stringify(parsed)),
       draftYaml: yamlText,
       dirty: false,
     });
@@ -351,4 +522,28 @@ function goToSubTab(subId) {
   setUiState({ activeSubTab: { ...ui.activeSubTab, processing: subId } });
   window.location.hash = "#processing";
   window.dispatchEvent(new Event("tc-subtab-change"));
+}
+
+function applySituationDeltas(scenarios) {
+  if (!scenarios || scenarios.length === 0) {
+    toast(t("ui.toast.situation_none", "Keine Situation ausgewählt"), "", "info");
+    return;
+  }
+  const deltas = getScenarioDeltas(scenarios);
+  if (deltas.size === 0) {
+    toast(t("ui.toast.situation_none", "Keine Situation ausgewählt"), "", "info");
+    return;
+  }
+  const { draft } = getConfigState();
+  let applied = 0;
+  for (const [path, info] of deltas) {
+    const value = info.values[info.values.length - 1];
+    setConfigValue(draft, path, value);
+    applied++;
+  }
+  markDirty();
+  setConfigState({ draftYaml: stringifyYaml(draft) });
+  const savedCat = getUiState().selectedCategory || "all";
+  renderEditorForCategory(savedCat);
+  toastSuccess(t("ui.toast.situation_applied", "Situation angewendet"), `${applied} Parameter aktualisiert`);
 }

@@ -11,12 +11,12 @@ export class ApiClient {
     if (this.baseUrl === "") this.baseUrl = "";
   }
 
-  async get(path) {
-    return this._request("GET", path);
+  async get(path, opts) {
+    return this._request("GET", path, undefined, opts);
   }
 
-  async post(path, body) {
-    return this._request("POST", path, body);
+  async post(path, body, opts) {
+    return this._request("POST", path, body, opts);
   }
 
   async patch(path, body) {
@@ -46,33 +46,42 @@ export class ApiClient {
     return this._toHttpUrl(path);
   }
 
-  async _request(method, path, body) {
+  async _request(method, path, body, opts = {}) {
     const url = this._toHttpUrl(path);
-    const resp = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    let timeoutId = null;
+    if (opts.timeoutMs) {
+      timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs);
+    }
+    try {
+      const resp = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: opts.timeoutMs ? controller.signal : undefined,
+      });
 
-    let payload = null;
-    const txt = await resp.text();
-    if (txt) {
-      try {
-        payload = JSON.parse(txt);
-      } catch {
-        payload = { raw: txt };
+      let payload = null;
+      const txt = await resp.text();
+      if (txt) {
+        try {
+          payload = JSON.parse(txt);
+        } catch {
+          payload = { raw: txt };
+        }
       }
-    }
 
-    if (!resp.ok) {
-      const err = payload?.error || payload?.detail?.error || payload || { message: resp.statusText };
-      const message = err.message || `HTTP ${resp.status}`;
-      const e = new Error(message);
-      e.status = resp.status;
-      e.payload = payload;
-      throw e;
+      if (!resp.ok) {
+        const message = payload?.message || payload?.error?.message || payload?.detail?.error?.message || `HTTP ${resp.status}`;
+        const e = new Error(message);
+        e.status = resp.status;
+        e.payload = payload;
+        throw e;
+      }
+      return payload;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return payload;
   }
 
   _toHttpUrl(path) {

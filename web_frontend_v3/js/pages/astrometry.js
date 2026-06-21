@@ -6,8 +6,14 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
+import { getStore } from "../state/store.js";
 
-let solveData = { fits_file: "", downsample: "0" };
+const store = getStore("astrometry", {
+  solveData: { solve_file: "", output_path: "", downsample: "0" },
+});
+
+function getSolveData() { return store.getState().solveData; }
+function setSolveData(patch) { store.setState({ solveData: { ...getSolveData(), ...patch } }); }
 
 export function createAstrometryPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -33,14 +39,18 @@ export function createAstrometryPage() {
 
   const solveCard = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.plate_solve", "Plate Solve")),
-    createPathInput({ label: t("ui.field.fits_file", "FITS Datei"), mode: "file", filter: "*.fits;*.fit;*.fts;*.fits.fz", placeholder: "/data/runs/M31/outputs/stack_M31.fits", onInput: (v) => solveData.fits_file = v }),
+    createPathInput({ label: t("ui.field.fits_file", "FITS Datei"), mode: "file", filter: "*.fits;*.fit;*.fts;*.fits.fz", placeholder: "/data/runs/M31/outputs/stack_M31.fits", value: getSolveData().solve_file, onInput: (v) => {
+      const defaultOut = v.replace(/\.(fits|fit|fts|fits\.fz|fit\.fz|fts\.fz)$/i, "_solved.fits");
+      setSolveData({ solve_file: v, output_path: defaultOut });
+    } }),
+    createPathInput({ label: t("ui.field.output_path", "Output Pfad"), mode: "file", filter: "*.fits;*.fit;*.fts", placeholder: "auto: *_solved.fits", value: getSolveData().output_path, onInput: (v) => setSolveData({ output_path: v }) }),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.downsample", "Downsample")),
-      el("select", { class: "tc-select", onchange: (e) => solveData.downsample = e.target.value },
-        el("option", { value: "0" }, "Auto"),
-        el("option", { value: "1" }, "1x"),
-        el("option", { value: "2" }, "2x"),
-        el("option", { value: "4" }, "4x"),
+      el("select", { class: "tc-select", onchange: (e) => setSolveData({ downsample: e.target.value }) },
+        el("option", { value: "0", ...(getSolveData().downsample === "0" ? { selected: true } : {}) }, "Auto"),
+        el("option", { value: "1", ...(getSolveData().downsample === "1" ? { selected: true } : {}) }, "1x"),
+        el("option", { value: "2", ...(getSolveData().downsample === "2" ? { selected: true } : {}) }, "2x"),
+        el("option", { value: "4", ...(getSolveData().downsample === "4" ? { selected: true } : {}) }, "4x"),
       ),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
@@ -65,10 +75,14 @@ export function createAstrometryPage() {
 
 async function detectAstap() {
   try {
-    const result = await api.get(API_ENDPOINTS.astrometry.detect);
-    if (result?.cli_path) document.getElementById("astap-cli").value = result.cli_path;
-    if (result?.db_dir) document.getElementById("astap-db").value = result.db_dir;
-    toastSuccess(t("ui.toast.astap_detected", "ASTAP erkannt"), result?.version || "");
+    const result = await api.post(API_ENDPOINTS.astrometry.detect, {});
+    if (result?.binary) document.getElementById("astap-cli").value = result.binary;
+    if (result?.data_dir) document.getElementById("astap-db").value = result.data_dir;
+    if (result?.installed) {
+      toastSuccess(t("ui.toast.astap_detected", "ASTAP erkannt"), result.binary || "");
+    } else {
+      toast(t("ui.toast.astap_not_found", "ASTAP nicht gefunden"), t("ui.state.install_hint", "Bitte ASTAP installieren"), "info");
+    }
   } catch (e) {
     toastError(t("ui.toast.detect_failed", "Detect fehlgeschlagen"), e.message);
   }
@@ -96,12 +110,31 @@ async function downloadCatalog() {
 
 async function solve() {
   try {
+    const sd = getSolveData();
+    if (!sd.solve_file) {
+      toastError(t("ui.toast.solve_failed", "Solve fehlgeschlagen"), t("ui.error.no_file", "Bitte FITS-Datei w\u00e4hlen"));
+      return;
+    }
     toast(t("ui.toast.solving", "Plate Solve l\u00e4uft..."), "", "info");
-    const result = await api.post(API_ENDPOINTS.astrometry.solve, solveData);
+    const astapCli = document.getElementById("astap-cli")?.value || "";
+    const astapDb = document.getElementById("astap-db")?.value || "";
+    const payload = {
+      solve_file: sd.solve_file,
+      astap_cli: astapCli,
+      astap_data_dir: astapDb,
+    };
+    const startResp = await api.post(API_ENDPOINTS.astrometry.solve, payload, { timeoutMs: 30000 });
+    const jobId = startResp?.job_id;
+    if (!jobId) {
+      toastError(t("ui.toast.solve_failed", "Solve fehlgeschlagen"), "No job_id returned");
+      return;
+    }
+    const result = await pollSolveJob(jobId);
     const slot = document.getElementById("wcs-results");
     if (slot && result) {
       slot.innerHTML = "";
-      const fields = [["RA", result.ra], ["DEC", result.dec], ["Scale", result.scale], ["Rotation", result.rotation]];
+      const r = result.result || result;
+      const fields = [["RA", r.ra], ["DEC", r.dec], ["Scale", r.scale], ["Rotation", r.rotation]];
       for (const [label, val] of fields) {
         slot.appendChild(el("div", {}, el("span", { class: "tc-text-muted" }, `${label}: `), el("span", {}, val ?? "\u2014")));
       }
@@ -112,9 +145,39 @@ async function solve() {
   }
 }
 
+async function pollSolveJob(jobId, timeoutMs = 300000) {
+  const maxAttempts = Math.ceil(timeoutMs / 2000);
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
+    const state = job?.state;
+    if (state === "ok" || state === "done" || state === "completed") {
+      return job?.data || job;
+    }
+    if (state === "error" || state === "failed") {
+      const stderr = job?.data?.stderr || "";
+      const stdout = job?.data?.stdout || "";
+      const detail = stderr || stdout || job?.error || "Solve failed";
+      throw new Error(detail.substring(0, 500));
+    }
+  }
+  throw new Error("Solve timeout");
+}
+
 async function saveSolved() {
   try {
-    await api.post(API_ENDPOINTS.astrometry.saveSolved, solveData);
+    const sd = getSolveData();
+    if (!sd.solve_file) {
+      toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), t("ui.error.no_file", "Bitte FITS-Datei w\u00e4hlen"));
+      return;
+    }
+    const wcsPath = sd.solve_file.replace(/\.(fits|fit|fts|fits\.fz|fit\.fz|fts\.fz)$/i, ".wcs");
+    const outputPath = sd.output_path || sd.solve_file.replace(/\.(fits|fit|fts|fits\.fz|fit\.fz|fts\.fz)$/i, "_solved.fits");
+    await api.post(API_ENDPOINTS.astrometry.saveSolved, {
+      input_path: sd.solve_file,
+      output_path: outputPath,
+      wcs_path: wcsPath,
+    });
     toastSuccess(t("ui.toast.saved", "Gespeichert"));
   } catch (e) {
     toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), e.message);

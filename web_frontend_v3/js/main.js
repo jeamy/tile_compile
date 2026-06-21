@@ -7,6 +7,7 @@ import { loadLocale, t } from "./i18n/i18n.js";
 import { createHeader, updateActiveTab } from "./components/header.js";
 import { createSubTabs } from "./components/sub-tabs.js";
 import { createGuardrailBadges } from "./components/guardrail-badges.js";
+import { refreshGuardrails } from "./services/guardrail-service.js";
 import { toast } from "./components/toast.js";
 import { el, clear } from "./utils/dom.js";
 
@@ -100,6 +101,7 @@ function renderSubTabs(tab) {
 
   if (tab === "processing") {
     bar.appendChild(createGuardrailBadges());
+    refreshGuardrails();
   }
 }
 

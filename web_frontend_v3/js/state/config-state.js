@@ -52,7 +52,7 @@ export async function loadSchema() {
   try {
     store.setState({ loading: true, error: null });
     const schema = await api.get(API_ENDPOINTS.config.schema);
-    const paths = flattenSchemaPaths(schema);
+    const paths = [...flattenSchemaPaths(schema)];
     const categories = extractCategories(paths);
     store.setState({ schema, schemaPaths: paths, categories, loading: false });
     return { schema, paths, categories };
@@ -69,9 +69,9 @@ export async function loadConfig() {
     const yamlText = resp?.config || resp?.yaml || (typeof resp === "string" ? resp : "");
     const parsed = parseYaml(yamlText);
     store.setState({
-      config: parsed,
+      config: deepClone(parsed),
       configYaml: yamlText,
-      draft: parsed,
+      draft: deepClone(parsed),
       draftYaml: yamlText,
       loading: false,
       dirty: false,
@@ -103,12 +103,20 @@ export async function saveConfig() {
   try {
     const yamlText = draftYaml || stringifyYaml(draft);
     const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText });
-    store.setState({ config: draft, configYaml: yamlText, dirty: false });
+    store.setState({ config: deepClone(draft), configYaml: yamlText, dirty: false });
     return result;
   } catch (e) {
     store.setState({ error: e.message });
     return null;
   }
+}
+
+function deepClone(obj) {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(deepClone);
+  const clone = {};
+  for (const [k, v] of Object.entries(obj)) clone[k] = deepClone(v);
+  return clone;
 }
 
 export function humanizeCategory(category) {

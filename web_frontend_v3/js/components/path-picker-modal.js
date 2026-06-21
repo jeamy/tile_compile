@@ -71,7 +71,27 @@ export function openPathPicker(opts = {}) {
         const params = new URLSearchParams();
         if (path) params.set("path", path);
         params.set("include_files", mode === "file" ? "1" : "0");
-        const data = await api.get(`/api/fs/list?${params}`);
+        let data;
+        try {
+          data = await api.get(`/api/fs/list?${params}`);
+        } catch (firstErr) {
+          if (firstErr.status === 400 && path) {
+            const parent = path.replace(/\/[^/]+$/, "");
+            if (parent && parent !== path) {
+              currentPath = parent;
+              updateCwd();
+              if (mode === "file") selectedPath = path;
+              const retryParams = new URLSearchParams();
+              retryParams.set("path", parent);
+              retryParams.set("include_files", mode === "file" ? "1" : "0");
+              data = await api.get(`/api/fs/list?${retryParams}`);
+            } else {
+              throw firstErr;
+            }
+          } else {
+            throw firstErr;
+          }
+        }
         clear(listEl);
 
         const parentPath = data?.parent || "";

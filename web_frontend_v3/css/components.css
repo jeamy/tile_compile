@@ -66,6 +66,9 @@
   border-radius: var(--radius);
   padding: var(--space-4);
   box-shadow: var(--shadow-sm);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 .tc-card-title {
@@ -349,6 +352,24 @@
   border-radius: var(--radius-sm);
 }
 
+.tc-queue-remove {
+  background: none;
+  border: none;
+  color: var(--error);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tc-queue-remove:hover {
+  background: var(--error-bg);
+}
+
 .tc-queue-filter-stack {
   display: flex;
   flex-direction: column;
@@ -405,17 +426,20 @@
   color: var(--success);
   background: var(--success-bg);
   padding: 1px 4px;
+  font-size: 0.6rem;
 }
 
 .tc-diff-removed {
   color: var(--error);
   background: var(--error-bg);
   padding: 1px 4px;
+  font-size: 0.6rem;
 }
 
 .tc-diff-unchanged {
   color: var(--muted);
   padding: 1px 4px;
+  font-size: 0.6rem;
 }
 
 /* ── Phase List ─────────────────────────────────── */
@@ -633,3 +657,34 @@
 .tc-diff-unchanged {
   color: var(--muted);
 }
+
+/* ── Frame Table ─────────────────────────────────── */
+.tc-frame-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.tc-frame-table thead th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  z-index: 1;
+}
+
+.tc-frame-table tbody td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tc-frame-table tbody tr:hover {
+  background: var(--surface-3);
+}
+
+.tc-text-error { color: var(--error); }
+.tc-text-warning { color: var(--warning); }

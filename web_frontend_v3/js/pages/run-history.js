@@ -5,8 +5,14 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
+import { getStore } from "../state/store.js";
 
-let selectedRunId = null;
+const store = getStore("run-history", {
+  selectedRunId: null,
+});
+
+function getSelectedRunId() { return store.getState().selectedRunId; }
+function setSelectedRunId(id) { store.setState({ selectedRunId: id }); }
 
 export function createRunHistoryPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -73,12 +79,12 @@ function runItem(run) {
     el("span", { class: "tc-text-sm" }, run.run_name || run.name || ""),
   );
 
-  if (runId === selectedRunId) item.classList.add("active");
+  if (runId === getSelectedRunId()) item.classList.add("active");
   return item;
 }
 
 async function selectRun(runId) {
-  selectedRunId = runId;
+  setSelectedRunId(runId);
   const card = document.getElementById("run-detail-card");
   if (!card) return;
   clear(card);
@@ -167,7 +173,7 @@ async function deleteRun(runId) {
   try {
     await api.delete(API_ENDPOINTS.runs.delete(runId));
     toastSuccess(t("ui.toast.deleted", "Gel\u00f6scht"));
-    selectedRunId = null;
+    setSelectedRunId(null);
     loadRuns();
   } catch (e) {
     toastError(t("ui.toast.delete_failed", "L\u00f6schen fehlgeschlagen"), e.message);

@@ -33,7 +33,7 @@
 /* ── Parameter Studio ───────────────────────────── */
 .tc-param-grid {
   display: grid;
-  grid-template-columns: 220px 1fr 280px;
+  grid-template-columns: 220px 1fr 340px;
   gap: var(--space-4);
   height: 100%;
 }
@@ -43,6 +43,21 @@
     grid-template-columns: 200px 1fr;
   }
   .tc-param-explain { display: none; }
+}
+
+#situation-preview {
+  max-height: 200px;
+  overflow-y: auto;
+}
+#situation-preview .tc-mono {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  line-height: 1.4;
+}
+#param-changed-list .tc-mono {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  line-height: 1.4;
 }
 
 .tc-param-category {

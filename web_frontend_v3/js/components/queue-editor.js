@@ -2,10 +2,11 @@
 
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
+import { toast, toastError } from "./toast.js";
 
 const FILTER_PRESETS = ["", "OSC", "L", "R", "G", "B", "Ha", "OIII", "SII"];
 
-export function createQueueEditor({ items = [], onChange } = {}) {
+export function createQueueEditor({ items = [], onChange, currentInputDir = "" } = {}) {
   const wrapper = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.queue", "Run-Queue")),
     el("div", { class: "tc-queue-body", id: "queue-body" }),
@@ -25,12 +26,35 @@ export function createQueueEditor({ items = [], onChange } = {}) {
         const idx = rows.indexOf(item);
         rows[idx] = { ...item, ...updated };
         onChange?.(rows);
+      }, () => {
+        const idx = rows.indexOf(item);
+        if (idx >= 0) {
+          rows.splice(idx, 1);
+          renderRows(rows);
+          onChange?.(rows);
+        }
       }));
     }
   }
 
   function addRow() {
-    const newItem = { filter: "", input_dir: "", pattern: "", run_id: "", enabled: false };
+    const inputDir = typeof currentInputDir === "function" ? currentInputDir() : currentInputDir;
+    if (!inputDir) {
+      toastError(t("ui.toast.queue_no_input_dir", "Kein Eingabeordner ausgew\u00e4hlt / No input directory set"));
+      return;
+    }
+    const alreadyInQueue = items.some(it => it.input_dir === inputDir);
+    if (alreadyInQueue) {
+      toastError(t("ui.toast.queue_dir_exists", "Verzeichnis bereits in der Queue / Directory already in queue"));
+      return;
+    }
+    const newItem = {
+      filter: "",
+      input_dir: inputDir,
+      pattern: "",
+      run_id: "",
+      enabled: false,
+    };
     items.push(newItem);
     renderRows(items);
     onChange?.(items);
@@ -40,7 +64,7 @@ export function createQueueEditor({ items = [], onChange } = {}) {
   return wrapper;
 }
 
-function createQueueRow(item, onUpdate) {
+function createQueueRow(item, onUpdate, onRemove) {
   const row = el("div", { class: "tc-queue-row" });
 
   // Filter select + custom input
@@ -95,14 +119,15 @@ function createQueueRow(item, onUpdate) {
     el("span", {}, item.enabled !== false ? "on" : "off"),
   );
 
-  // Remove button
+  // Remove button – red cross icon
   const removeBtn = el("button", {
-    class: "tc-btn tc-btn-sm tc-btn-danger",
+    class: "tc-queue-remove",
+    title: t("ui.button.remove", "Entfernen"),
     onclick: (e) => {
       e.stopPropagation();
-      row.remove();
+      onRemove?.();
     },
-  }, "\u00d7");
+  }, "\u2715");
 
   row.append(filterWrap, inputDir, pattern, runId, toggle, removeBtn);
   return row;

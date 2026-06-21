@@ -69,7 +69,22 @@ export function createRawStackPage() {
   const statusSlot = el("div", { id: "raw-stack-status" });
 
   page.append(inputCard, calPanel, stackCard, actions, statusSlot);
+
+  restoreRunningJob();
   return page;
+}
+
+async function restoreRunningJob() {
+  try {
+    const status = await api.get(API_ENDPOINTS.preprocessing.status(""));
+    if (status?.status === "running" || status?.status === "pending") {
+      const jobId = status?.job_id || status?.id;
+      if (jobId) {
+        setJobId(jobId);
+        pollStatus();
+      }
+    }
+  } catch {}
 }
 
 async function runStack() {
@@ -77,7 +92,7 @@ async function runStack() {
     const sd = getStackData();
     toast(t("ui.toast.stack_starting", "Raw Stack wird gestartet..."), "", "info");
     const result = await api.post(API_ENDPOINTS.preprocessing.run, {
-      input_dir: sd.input_dir,
+      lights_dir: sd.input_dir,
       pattern: sd.pattern,
       output_dir: sd.output_dir,
       method: sd.method,
@@ -115,7 +130,7 @@ async function pollStatus() {
       slot.innerHTML = "";
       slot.appendChild(el("div", { class: "tc-card" },
         el("div", { class: "tc-card-title" }, t("ui.title.status", "Status")),
-        el("div", { class: "tc-text-sm" }, `${status?.status || "running"} - ${status?.progress || 0}%`),
+        el("div", { class: "tc-text-sm" }, `${status?.status || "running"} - ${(Number(status?.progress) || 0).toFixed(2)}%`),
       ));
     }
     if (status?.status === "running" || status?.status === "pending") {

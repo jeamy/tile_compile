@@ -1448,7 +1448,11 @@ void register_tools_routes(CrowApp& app,
         std::string output_rgb  = expand_user_path(fs::path(body["output_rgb"].get<std::string>())).string();
         std::string wcs_file    = expand_user_path(fs::path(body.value("wcs_file", ""))).string();
         std::string source      = body.value("source", "auto");
-        std::string catalog_dir = expand_user_path(fs::path(body.value("catalog_dir", ""))).string();
+        std::string catalog_dir_raw = body.value("catalog_dir", "");
+        bool catalog_dir_explicit = !catalog_dir_raw.empty();
+        std::string catalog_dir = catalog_dir_explicit
+            ? expand_user_path(fs::path(catalog_dir_raw)).string()
+            : default_siril_catalog_dir().string();
 
         if (source != "auto" && source != "siril" && source != "vizier_gaia" && source != "vizier_apass") {
             return err_resp("BAD_REQUEST", "unsupported pcc source '" + source + "'", 400, nlohmann::json::object());
@@ -1476,7 +1480,7 @@ void register_tools_routes(CrowApp& app,
         if (!fs::exists(fs::path(wcs_file))) {
             return err_resp("PATH_NOT_FOUND", "wcs_file not found", 400, {{"path", wcs_file}});
         }
-        if (!catalog_dir.empty() && !fs::exists(fs::path(catalog_dir))) {
+        if (catalog_dir_explicit && !fs::exists(fs::path(catalog_dir))) {
             return err_resp("PATH_NOT_FOUND", "catalog_dir not found", 400, {{"path", catalog_dir}});
         }
 

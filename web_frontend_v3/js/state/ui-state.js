@@ -7,6 +7,9 @@ const DEFAULT = {
   theme: "dark",
   activeTab: "processing",
   activeSubTab: {},
+  paramView: "parameter",
+  selectedCategory: "all",
+  selectedSituations: [],
 };
 
 const store = getStore("ui-state", DEFAULT);

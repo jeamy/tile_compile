@@ -11,10 +11,11 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { getScanState, setScanState } from "../state/scan-state.js";
 import { getStore } from "../state/store.js";
+import { refreshGuardrails } from "../services/guardrail-service.js";
 import { t } from "../i18n/i18n.js";
 
 const inputStore = getStore("input-scan", {
-  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "", run_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
+  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "/media/data/programming/tile_compile/runs", run_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
   queueItems: [],
   calValues: {},
 });
@@ -100,6 +101,7 @@ export function createInputScanPage() {
   const queueEditor = createQueueEditor({
     items: getQueueItems(),
     onChange: (items) => { setQueueItems(items); },
+    currentInputDir: () => getScanData().input_dir,
   });
 
   // Calibration panel
@@ -149,18 +151,51 @@ async function doScan() {
       queue: getQueueItems(),
       calibration: getCalValues(),
     };
-    const result = await api.post(API_ENDPOINTS.scan.root, payload);
-    setScanState({ lastScan: result });
-    toastSuccess(t("ui.toast.scan_completed", "Scan abgeschlossen"), `${result?.frame_count || result?.total || 0} ${t("ui.label.frames_detected", "Frames erkannt")}`);
+    const jobResult = await api.post(API_ENDPOINTS.scan.root, payload);
+    const jobId = jobResult?.job_id;
+    if (!jobId) {
+      throw new Error("No job_id returned");
+    }
 
     const slot = document.getElementById("scan-result-slot");
     if (slot) {
       clear(slot);
-      slot.appendChild(createScanResultCard(result));
+      slot.appendChild(el("div", { class: "tc-card" },
+        el("div", { class: "tc-card-title" }, t("ui.title.scan_results", "Scan-Ergebnis")),
+        el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")),
+      ));
     }
+
+    const finalResult = await pollScanJob(jobId);
+    setScanState({ lastScan: finalResult });
+    const frameCount = finalResult?.frames_detected || finalResult?.frame_count || 0;
+    toastSuccess(t("ui.toast.scan_completed", "Scan abgeschlossen"), `${frameCount} ${t("ui.label.frames_detected", "Frames erkannt")}`);
+
+    if (slot) {
+      clear(slot);
+      slot.appendChild(createScanResultCard(finalResult));
+    }
+    refreshGuardrails();
   } catch (e) {
     toastError(t("ui.toast.scan_failed", "Scan starten fehlgeschlagen"), e.message);
   }
+}
+
+async function pollScanJob(jobId) {
+  const maxAttempts = 120;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const job = await api.get(API_ENDPOINTS.scan.jobStatus(jobId));
+    const state = job?.state;
+    if (state === "done" || state === "completed" || state === "ok") {
+      const latest = await api.get(API_ENDPOINTS.scan.latest);
+      return latest;
+    }
+    if (state === "error" || state === "failed") {
+      throw new Error(job?.error || "Scan failed");
+    }
+  }
+  throw new Error("Scan timeout");
 }
 
 function goToSubTab(subId) {

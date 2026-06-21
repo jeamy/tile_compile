@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
   scan: {
     root: "/api/scan",
     latest: "/api/scan/latest",
+    jobStatus: (jobId) => `/api/jobs/${encodeURIComponent(String(jobId || ""))}`,
     quality: "/api/scan/quality",
     metrics: "/api/scan/metrics",
     metricsLatest: "/api/scan/metrics/latest",
@@ -29,6 +30,7 @@ export const API_ENDPOINTS = {
     analysisLatest: "/api/scan/analysis/latest",
     analysisStore: "/api/scan/analysis/store",
     analysisHistory: "/api/scan/analysis/history",
+    analysisHistoryItem: (filename) => `/api/scan/analysis/history/${encodeURIComponent(String(filename || ""))}`,
     analysisApply: "/api/scan/analysis/apply",
   },
   ai: {

@@ -545,7 +545,7 @@ def mock_ai_empfehlung():
     btn(ax, 6.0, y, 1.8, 0.5, "Verwerfen", size=9)
     
     y += 0.8
-    text(ax, 0.5, y, "▸ KI-Datenverkehr (ausgeblendet)", size=8, color=MUTED)
+    text(ax, 0.5, y, "▸ KI-Datenverkehr", size=8, color=MUTED)
     
     save(fig, "04_ai_empfehlung")
 

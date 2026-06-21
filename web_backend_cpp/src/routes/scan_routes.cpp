@@ -2,8 +2,10 @@
 #include "routes/route_utils.hpp"
 #include "services/scan_summary.hpp"
 #include <algorithm>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <thread>
+#include <yaml-cpp/yaml.h>
 
 namespace fs = std::filesystem;
 using namespace tile_compile::routes;
@@ -382,6 +384,79 @@ void register_scan_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/guardrails").methods("GET"_method)
     ([state]() {
-        return json_resp(scan_guardrails(state->job_store));
+        auto sg = scan_guardrails(state->job_store);
+        json checks = json::array();
+
+        // --- scan ---
+        std::string scan_status = "check";
+        std::string scan_label = "Scan ausstehend";
+        if (sg.contains("checks") && sg["checks"].is_array()) {
+            for (const auto& c : sg["checks"]) {
+                std::string id = c.value("id", "");
+                std::string st = c.value("status", "check");
+                if (id == "scan_ok") {
+                    scan_status = st;
+                    scan_label = c.value("label", scan_label);
+                }
+            }
+        }
+        checks.push_back({{"id", "scan"}, {"status", scan_status}, {"label", scan_label}});
+
+        // --- config ---
+        std::string config_status = "check";
+        std::string config_label = "Config fehlt";
+        std::string bge_pcc_status = "check";
+        std::string bge_pcc_label = "BGE:aus PCC:aus";
+        const auto& cfg_path = state->runtime.default_config_path;
+        if (fs::exists(cfg_path)) {
+            try {
+                std::ifstream in(cfg_path);
+                std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                in.close();
+                if (!content.empty()) {
+                    YAML::Node root = YAML::Load(content);
+                    config_status = "ok";
+                    config_label = "Config geladen";
+
+                    bool bge_enabled = root["bge"] && root["bge"].IsMap() && root["bge"]["enabled"] && root["bge"]["enabled"].as<bool>();
+                    bool pcc_enabled = root["pcc"] && root["pcc"].IsMap() && root["pcc"]["enabled"] && root["pcc"]["enabled"].as<bool>();
+                    bge_pcc_status = (bge_enabled || pcc_enabled) ? "ok" : "check";
+                    bge_pcc_label = std::string("BGE:") + (bge_enabled ? "an" : "aus") + " PCC:" + (pcc_enabled ? "an" : "aus");
+                }
+            } catch (...) {
+                config_status = "error";
+                config_label = "Config ung\u00fcltig";
+            }
+        }
+        checks.push_back({{"id", "config"}, {"status", config_status}, {"label", config_label}});
+        checks.push_back({{"id", "bge_pcc"}, {"status", bge_pcc_status}, {"label", bge_pcc_label}});
+
+        // --- calibration --- (from scan job data)
+        std::string cal_status = "check";
+        std::string cal_label = "Kalibrierung ausstehend";
+        auto scan_job = latest_scan_job(state->job_store);
+        if (scan_job.has_value()) {
+            const auto& data = scan_job->data;
+            if (data.contains("calibration") && data["calibration"].is_object()) {
+                const auto& cal = data["calibration"];
+                bool bias_en = cal.value("bias_enabled", false);
+                bool dark_en = cal.value("dark_enabled", false);
+                bool flat_en = cal.value("flat_enabled", false);
+                if (bias_en || dark_en || flat_en) {
+                    cal_status = "ok";
+                    cal_label = std::string("Cal:") + (bias_en ? " B" : "") + (dark_en ? " D" : "") + (flat_en ? " F" : "");
+                }
+            }
+        }
+        checks.push_back({{"id", "calibration"}, {"status", cal_status}, {"label", cal_label}});
+
+        // Overall status
+        std::string overall = "ok";
+        for (const auto& c : checks) {
+            std::string s = c.value("status", "check");
+            if (s == "error") { overall = "error"; break; }
+            if (s == "check") overall = "check";
+        }
+        return json_resp({{"status", overall}, {"checks", checks}});
     });
 }

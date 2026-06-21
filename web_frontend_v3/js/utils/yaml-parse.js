@@ -174,7 +174,7 @@ function formatScalar(v) {
   if (typeof v === "number") return String(v);
   if (Array.isArray(v)) return `[${v.map(formatScalar).join(", ")}]`;
   if (typeof v === "string") {
-    if (v.includes(":") || v.includes("#") || v.startsWith(" ")) {
+    if (v.includes(":") || v.includes("#") || v.startsWith(" ") || v.startsWith("*") || v.startsWith("&") || v.startsWith("!") || v.startsWith("{") || v.startsWith("[") || v.startsWith("|") || v.startsWith(">") || v.startsWith("@") || v.startsWith("`")) {
       return `"${v.replace(/"/g, '\\"')}"`;
     }
     return v;
