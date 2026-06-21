@@ -10,7 +10,7 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { getStore } from "../state/store.js";
-import { getConfigState } from "../state/config-state.js";
+import { getConfigState, validateConfig } from "../state/config-state.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -362,6 +362,21 @@ async function startRun() {
     const sd = inputStore.getState().scanData || {};
     const queue = inputStore.getState().queueItems || [];
 
+    if (!sd.input_dir && (!queue || queue.length === 0)) {
+      toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), t("ui.error.no_input_dir", "Kein Eingabeordner festgelegt. Bitte zuerst unter Input & Scan konfigurieren."));
+      return;
+    }
+
+    // Validate config before starting
+    toast(t("ui.toast.validating", "Validiere Config..."), "", "info");
+    const validation = await validateConfig();
+    if (validation?.errors?.length > 0) {
+      const firstError = validation.errors[0];
+      const errMsg = typeof firstError === "string" ? firstError : `${firstError.path || firstError.field || ""}: ${firstError.message || firstError.msg || ""}`.trim();
+      toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), t("ui.error.config_invalid", "Config ungültig") + ` (${validation.errors.length} Fehler): ${errMsg}`);
+      return;
+    }
+
     const pccStore = getStore("pcc", { pccData: {} });
     const pccCatalogDir = pccStore.getState().pccData?.catalog_dir || "";
 
@@ -378,11 +393,6 @@ async function startRun() {
       queue: queue.length > 0 ? queue : undefined,
       config_yaml: configYaml || undefined,
     };
-
-    if (!payload.input_dir && (!payload.queue || payload.queue.length === 0)) {
-      toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), t("ui.error.no_input_dir", "Kein Eingabeordner festgelegt. Bitte zuerst unter Input & Scan konfigurieren."));
-      return;
-    }
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
     const result = await api.post(API_ENDPOINTS.runs.start, payload);

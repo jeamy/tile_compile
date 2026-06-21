@@ -567,9 +567,11 @@ async function applyPreset() {
     const yamlText = result?.config || "";
     const parsed = parseYaml(yamlText);
     setConfigState({
-      draft: parsed,
+      config: JSON.parse(JSON.stringify(parsed)),
+      configYaml: yamlText,
+      draft: JSON.parse(JSON.stringify(parsed)),
       draftYaml: yamlText,
-      dirty: true,
+      dirty: false,
     });
     resetSituationCheckboxes();
     const savedCat = getUiState().selectedCategory || "all";

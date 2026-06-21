@@ -207,7 +207,13 @@ async function saveApiKey() {
 }
 
 async function createAnalysis(force = false) {
-  setAiState({ loading: true });
+  setAiState({ loading: true, trafficLog: [], currentAnalysis: null });
+  renderTrafficLog([]);
+  const recsContainer = document.getElementById("ai-recommendations");
+  if (recsContainer) {
+    recsContainer.innerHTML = "";
+    recsContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.toast.analysis_creating", "KI-Analyse wird erstellt...")));
+  }
   try {
     toast(t("ui.toast.analysis_creating", "KI-Analyse wird erstellt..."), "", "info");
     addTrafficEntry({ type: "request", text: `POST /api/scan/analysis { force: ${force} }` });
@@ -223,6 +229,21 @@ async function createAnalysis(force = false) {
       return;
     }
     addTrafficEntry({ type: "info", text: `Scan: ${latestScan.frames_detected || 0} frames, ${latestScan.color_mode || "unknown"}` });
+
+    // Check cache first when force=false
+    if (!force) {
+      try {
+        const cached = await api.get(API_ENDPOINTS.scan.analysisLatest);
+        if (cached && cached.has_analysis && cached.recommendations?.length > 0) {
+          addTrafficEntry({ type: "response", text: `Cache hit: ${cached.recommendations.length} recommendations` });
+          renderRecommendations(cached.recommendations);
+          setAiState({ currentAnalysis: cached, loading: false });
+          toastSuccess(t("ui.toast.analysis_done", "Analyse aus Cache geladen"));
+          return;
+        }
+      } catch {}
+      addTrafficEntry({ type: "info", text: "No cached analysis, starting new..." });
+    }
 
     // Compute scan metrics (image statistics like FWHM, star count)
     let scanMetrics = null;
@@ -257,7 +278,7 @@ async function createAnalysis(force = false) {
     // Build payload like gui2 does
     const fd = getAiFormData();
     const payload = {
-      force,
+      force: true,
       scan_result: latestScan,
       model: fd.model || undefined,
     };
@@ -267,13 +288,19 @@ async function createAnalysis(force = false) {
 
     addTrafficEntry({ type: "request", text: `POST /api/scan/analysis with scan_result, ${scanMetrics ? "scan_metrics, " : ""}${configSchema ? "config_schema, " : ""}${baseConfig ? "base_config" : ""}` });
 
+    addTrafficEntry({ type: "progress", text: "Initialisierung... 5%" });
+    addTrafficEntry({ type: "progress", text: "Prompt wird gebaut... 10%" });
+    addTrafficEntry({ type: "progress", text: "Warte auf KI-Antwort... 15%" });
+
     const result = await api.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 600000 });
     const recs = result?.validated_updates || result?.updates || result?.recommendations || [];
+    addTrafficEntry({ type: "progress", text: "Antwort wird verarbeitet... 90%" });
     if (recs.length > 0) {
       addTrafficEntry({ type: "response", text: `Received ${recs.length} recommendations (cached: ${result.from_cache ?? false})` });
       if (result.summary) {
         addTrafficEntry({ type: "summary", text: result.summary });
       }
+      addTrafficEntry({ type: "progress", text: "Analyse abgeschlossen 100%" });
       renderRecommendations(recs);
       setAiState({ currentAnalysis: result, loading: false });
       toastSuccess(t("ui.toast.analysis_done", "Analyse erstellt"));
@@ -339,7 +366,10 @@ async function applyRecommendations(all = false) {
     ? currentAnalysis.recommendations
     : currentAnalysis.recommendations.filter(r => r.selected !== false);
   try {
-    await api.post(API_ENDPOINTS.scan.analysisApply, { recommendations: selected });
+    await api.post(API_ENDPOINTS.scan.analysisApply, {
+      analysis_id: currentAnalysis.analysis_id || currentAnalysis.job_id || "",
+      recommendations: selected,
+    });
     toastSuccess(t("ui.toast.applied", "Empfehlungen angewendet"));
   } catch (e) {
     toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), e.message);

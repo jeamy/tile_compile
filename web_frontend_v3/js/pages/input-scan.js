@@ -38,7 +38,11 @@ export function createInputScanPage() {
       label: t("ui.field.input_dirs", "Eingabeordner"),
       placeholder: "/data/M31/lights",
       value: getScanData().input_dir,
-      onInput: (v) => setScanData({ input_dir: v }),
+      onInput: (v) => {
+        setScanData({ input_dir: v, run_name: "" });
+        const rnInput = document.getElementById("run-name-input");
+        if (rnInput) rnInput.value = "";
+      },
     }),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.pattern", "Dateimuster")),
@@ -55,7 +59,7 @@ export function createInputScanPage() {
     ),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.run_name", "Run Name")),
-      el("input", { type: "text", class: "tc-input", value: getScanData().run_name, placeholder: "M31_altaz_test",
+      el("input", { type: "text", class: "tc-input", id: "run-name-input", value: getScanData().run_name, placeholder: "M31_altaz_test",
         oninput: (e) => setScanData({ run_name: e.target.value }) }),
     ),
   );

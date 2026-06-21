@@ -191,7 +191,7 @@
   "ui.button.stop": "Stop",
   "ui.button.validate": "Validieren",
   "ui.button.yaml_sync": "YAML sync",
-  "ui.button.reload": "Neu laden",
+  "ui.button.reload": "Presets neu laden",
   "ui.field.color_mode": "Farbmodus",
   "ui.field.input_dirs": "Eingabeordner",
   "ui.field.input_path": "Input Path",
