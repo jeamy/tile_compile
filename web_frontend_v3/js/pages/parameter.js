@@ -88,7 +88,9 @@ export function createParameterPage() {
   const situation = createSituationAssistant({
     selected: savedSituations,
     onApply: (scenarios) => applySituationDeltas(scenarios),
-    onChange: (scenarios) => setUiState({ selectedSituations: scenarios }),
+    onChange: (scenarios) => {
+      setUiState({ selectedSituations: scenarios });
+    },
   });
   const situationPanel = el("div", { class: "tc-card tc-mt-4", id: "param-situation-panel" },
     el("div", { class: "tc-card-title" }, t("page.parameter_studio.situation_assistant", "Situation-Assistent")),
@@ -586,31 +588,48 @@ function goToSubTab(subId) {
   window.dispatchEvent(new Event("tc-subtab-change"));
 }
 
-function applySituationDeltas(scenarios) {
-  if (!scenarios || scenarios.length === 0) {
-    toast(t("ui.toast.situation_none", "Keine Situation ausgewählt"), "", "info");
-    return;
-  }
-  const deltas = getScenarioDeltas(scenarios);
-  if (deltas.size === 0) {
-    toast(t("ui.toast.situation_none", "Keine Situation ausgewählt"), "", "info");
-    return;
-  }
-  const { draft } = getConfigState();
-  if (!draft) {
-    toastError("Config nicht geladen");
-    return;
-  }
-  let applied = 0;
-  for (const [path, info] of deltas) {
-    const value = info.values[info.values.length - 1];
-    setConfigValue(draft, path, value);
-    applied++;
+function reapplySituations(scenarios) {
+  const { config } = getConfigState();
+  if (!config) return;
+  const freshDraft = JSON.parse(JSON.stringify(config));
+  if (scenarios && scenarios.length > 0) {
+    const deltas = getScenarioDeltas(scenarios);
+    for (const [path, info] of deltas) {
+      const value = info.values[info.values.length - 1];
+      setConfigValue(freshDraft, path, value);
+    }
   }
   markDirty();
-  setConfigState({ draft, draftYaml: stringifyYaml(draft) });
+  setConfigState({ draft: freshDraft, draftYaml: stringifyYaml(freshDraft) });
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
   updateDiff();
-  toastSuccess(t("ui.toast.situation_applied", "Situation angewendet"), `${applied} Parameter aktualisiert`);
+}
+
+function applySituationDeltas(scenarios) {
+  const { config } = getConfigState();
+  if (!config) {
+    toastError("Config nicht geladen");
+    return;
+  }
+  const freshDraft = JSON.parse(JSON.stringify(config));
+  let applied = 0;
+  if (scenarios && scenarios.length > 0) {
+    const deltas = getScenarioDeltas(scenarios);
+    for (const [path, info] of deltas) {
+      const value = info.values[info.values.length - 1];
+      setConfigValue(freshDraft, path, value);
+      applied++;
+    }
+  }
+  markDirty();
+  setConfigState({ draft: freshDraft, draftYaml: stringifyYaml(freshDraft) });
+  const savedCat = getUiState().selectedCategory || "all";
+  renderEditorForCategory(savedCat);
+  updateDiff();
+  if (applied > 0) {
+    toastSuccess(t("ui.toast.situation_applied", "Situation angewendet"), `${applied} Parameter aktualisiert`);
+  } else {
+    toast(t("ui.toast.situation_cleared", "Situation zurückgesetzt"), "", "info");
+  }
 }

@@ -144,10 +144,17 @@ function setRunButtonsActive(isRunning) {
 function startPolling(runId) {
   stopPolling();
   pollTimer = setInterval(async () => {
+    const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
+    // Safety: if backend says not running but resume flags are still set, clear them
+    if (status && status.status !== "running" && (getResumeActive() || getResumePending())) {
+      setResumeActive(false);
+      setResumePending(false);
+      if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
+    }
     await refreshRunStatus(runId);
     if (getResumePending() || getResumeActive()) return;
-    const { status } = getRunState();
-    if (status === "completed" || status === "failed" || status === "stopped" || status === "error") {
+    const { status: runStatus } = getRunState();
+    if (runStatus === "completed" || runStatus === "failed" || runStatus === "stopped" || runStatus === "error") {
       stopPolling();
       setRunButtonsActive(false);
       disconnectWebSocket();
@@ -198,13 +205,20 @@ async function restoreCurrentRun() {
     if (sd.run_name) updateInfo("info-run-name", sd.run_name);
 
     if (current?.run_id) {
-      const isRunning = current.status === "running" || getResumeActive() || getResumePending();
+      const backendRunning = current.status === "running";
+      // If backend says not running but resume flags are still set, resume_end was missed
+      if (!backendRunning && (getResumeActive() || getResumePending())) {
+        setResumeActive(false);
+        setResumePending(false);
+        if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
+      }
+      const isRunning = backendRunning || getResumeActive() || getResumePending();
       setRunState({ currentRunId: current.run_id, currentRunDir: current.run_dir || null, status: current.status || "running" });
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
-      updateStat("stat-status", getResumeActive() || getResumePending() ? "running" : (current.status || "running"));
+      updateStat("stat-status", isRunning ? "running" : (current.status || "running"));
       updateInfo("info-run-id", current.run_id);
-      updateInfo("info-status", getResumeActive() || getResumePending() ? "running" : (current.status || "running"));
+      updateInfo("info-status", isRunning ? "running" : (current.status || "running"));
       if (current.run_dir) updateInfo("info-run-dir", current.run_dir);
       const runName = current.run_id.replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
       updateInfo("info-run-name", runName);
@@ -631,6 +645,8 @@ function handleWsMessage(data, logViewer, phases) {
       clearSelectedPhase();
       const panel = document.getElementById("resume-panel");
       if (panel) panel.style.display = "none";
+      // Refresh full status from backend to get all final phase states
+      refreshRunStatus(getRunState().currentRunId);
     } else {
       updateStat("stat-status", "failed");
       updateInfo("info-status", "failed");
