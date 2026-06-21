@@ -470,6 +470,10 @@
   color: var(--success);
 }
 
+.tc-phase-item.ok {
+  color: var(--success);
+}
+
 .tc-phase-item.running {
   background: var(--info-bg);
   color: var(--info);
@@ -498,6 +502,10 @@
 }
 
 .tc-phase-item.done .tc-phase-dot {
+  background: var(--success);
+}
+
+.tc-phase-item.ok .tc-phase-dot {
   background: var(--success);
 }
 

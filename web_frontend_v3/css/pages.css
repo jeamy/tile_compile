@@ -102,6 +102,10 @@
   color: var(--success);
 }
 
+.tc-phase-item.ok {
+  color: var(--success);
+}
+
 .tc-phase-item.pending {
   color: var(--muted);
 }
@@ -125,6 +129,7 @@
 
 .tc-phase-item.running .tc-phase-dot { background: var(--info); animation: pulse 1.5s infinite; }
 .tc-phase-item.done .tc-phase-dot { background: var(--success); }
+.tc-phase-item.ok .tc-phase-dot { background: var(--success); }
 .tc-phase-item.error .tc-phase-dot { background: var(--error); }
 
 .tc-phase-bar {

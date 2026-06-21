@@ -3,10 +3,20 @@
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 
-const DEFAULT_PHASES = [
-  "SCAN", "CALIBRATION", "REGISTRATION", "ASTROMETRY", "BGE",
-  "PCC", "HYPERMETRIC_STRETCH", "DONE",
+const CLASSIC_PHASES = [
+  "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS", "TILE_GRID",
+  "REGISTRATION", "PREWARP", "COMMON_OVERLAP", "LOCAL_METRICS", "TILE_RECONSTRUCTION",
+  "STATE_CLUSTERING", "SYNTHETIC_FRAMES", "STACKING", "DEBAYER",
+  "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH",
 ];
+
+const AQMH_PHASES = [
+  "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS", "TILE_GRID",
+  "REGISTRATION", "PREWARP", "COMMON_OVERLAP", "AQMH_MAPS", "AQMH_RECONSTRUCTION",
+  "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH",
+];
+
+const DEFAULT_PHASES = AQMH_PHASES;
 
 const RESUMABLE_PHASES = new Set([
   "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH",
@@ -19,6 +29,14 @@ let phaseClickHandler = null;
 
 export function setPhaseClickHandler(handler) {
   phaseClickHandler = handler;
+}
+
+export function getPhasesForConfig(configDraft) {
+  if (!configDraft || typeof configDraft !== "object") return DEFAULT_PHASES;
+  const method = configDraft.method;
+  const aqmhEnabled = configDraft.aqmh && configDraft.aqmh.enabled;
+  if (method === "classic_tile_compile" || aqmhEnabled === false) return CLASSIC_PHASES;
+  return AQMH_PHASES;
 }
 
 export function getSelectedPhase() {
@@ -95,6 +113,36 @@ export function updatePhaseStates(states) {
     const wasSelected = item.classList.contains("tc-phase-selected");
     item.className = `tc-phase-item ${state}${wasSelected ? " tc-phase-selected" : ""}`;
   }
+}
+
+export function resetPhasesForResume(fromPhase) {
+  const list = document.getElementById("phase-list");
+  if (!list) return [];
+  const newPhases = [];
+  let found = false;
+  for (const item of list.querySelectorAll(".tc-phase-item")) {
+    const name = item.dataset.phase;
+    const wasSelected = item.classList.contains("tc-phase-selected");
+    let state, pct;
+    if (name === fromPhase) {
+      found = true;
+      state = "running";
+      pct = 0;
+    } else if (!found) {
+      state = "ok";
+      pct = 100;
+    } else {
+      state = "pending";
+      pct = 0;
+    }
+    item.className = `tc-phase-item ${state}${wasSelected ? " tc-phase-selected" : ""}`;
+    const pctEl = item.querySelector(".tc-phase-progress");
+    if (pctEl) pctEl.textContent = pct > 0 ? `${pct}%` : "";
+    const barFill = item.querySelector(".tc-phase-bar-fill");
+    if (barFill) barFill.style.width = `${pct}%`;
+    newPhases.push({ phase: name, status: state, pct });
+  }
+  return newPhases;
 }
 
 function createPhaseItem(name, state, pct = 0) {

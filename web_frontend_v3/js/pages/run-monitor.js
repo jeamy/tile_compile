@@ -2,7 +2,7 @@
 
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { createPhaseList, setPhaseList, updatePhaseState, updatePhaseStates, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase } from "../components/phase-list.js";
+import { createPhaseList, setPhaseList, updatePhaseState, updatePhaseStates, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
 import { createLogViewer } from "../components/log-viewer.js";
 import { connectWebSocket, disconnectWebSocket, onWebSocketMessage } from "../components/ws-manager.js";
 import { api } from "../api/client.js";
@@ -39,8 +39,9 @@ export function createRunMonitorPage() {
     ),
   );
 
-  // Phase progress (component-based)
-  const phases = createPhaseList();
+  // Phase progress (component-based) — use phases matching current config
+  const configPhases = getPhasesForConfig(getConfigState().draft);
+  const phases = createPhaseList(configPhases);
 
   // Resume panel (hidden until phase selected)
   const resumePanel = el("div", { class: "tc-card", id: "resume-panel", style: "display:none" },
@@ -106,11 +107,28 @@ export function createRunMonitorPage() {
   });
 
   setPhaseClickHandler((phase) => onPhaseSelected(phase, logViewer));
+
+  // Restore saved phase states from store after page is in the DOM
+  // (setPhaseList uses getElementById which requires the page to be mounted)
+  requestAnimationFrame(() => {
+    const savedPhases = getRunState().phases;
+    if (savedPhases && Array.isArray(savedPhases) && savedPhases.length > 0) {
+      setPhaseList(savedPhases);
+    }
+    // If no saved phases, the config-based phases from createPhaseList are already shown
+  });
+
   restoreCurrentRun();
   return page;
 }
 
 let pollTimer = null;
+let resumePendingTimer = null;
+
+function getResumePending() { return getRunState().resumePending || false; }
+function setResumePending(v) { setRunState({ resumePending: v }); }
+function getResumeActive() { return getRunState().resumeActive || false; }
+function setResumeActive(v) { setRunState({ resumeActive: v }); }
 
 function setRunButtonsActive(isRunning) {
   const startBtn = document.getElementById("run-start-btn");
@@ -127,6 +145,7 @@ function startPolling(runId) {
   stopPolling();
   pollTimer = setInterval(async () => {
     await refreshRunStatus(runId);
+    if (getResumePending() || getResumeActive()) return;
     const { status } = getRunState();
     if (status === "completed" || status === "failed" || status === "stopped" || status === "error") {
       stopPolling();
@@ -141,6 +160,20 @@ function stopPolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+}
+
+function savePhaseToStore(phaseName, status, pct) {
+  const { phases } = getRunState();
+  if (!Array.isArray(phases)) return;
+  const updated = phases.map(p => {
+    const name = typeof p === "string" ? p : (p.phase || p.name || "");
+    if (name === phaseName) {
+      if (typeof p === "string") return { phase: p, status, pct };
+      return { ...p, status, pct };
+    }
+    return p;
+  });
+  setRunState({ phases: updated });
 }
 
 async function restoreCurrentRun() {
@@ -165,13 +198,13 @@ async function restoreCurrentRun() {
     if (sd.run_name) updateInfo("info-run-name", sd.run_name);
 
     if (current?.run_id) {
-      const isRunning = current.status === "running";
+      const isRunning = current.status === "running" || getResumeActive() || getResumePending();
       setRunState({ currentRunId: current.run_id, currentRunDir: current.run_dir || null, status: current.status || "running" });
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
-      updateStat("stat-status", current.status || "running");
+      updateStat("stat-status", getResumeActive() || getResumePending() ? "running" : (current.status || "running"));
       updateInfo("info-run-id", current.run_id);
-      updateInfo("info-status", current.status || "running");
+      updateInfo("info-status", getResumeActive() || getResumePending() ? "running" : (current.status || "running"));
       if (current.run_dir) updateInfo("info-run-dir", current.run_dir);
       const runName = current.run_id.replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
       updateInfo("info-run-name", runName);
@@ -179,7 +212,7 @@ async function restoreCurrentRun() {
       // Load existing logs from REST endpoint
       await loadInitialLogs(current.run_id, logViewer);
       if (isRunning) {
-        connectWebSocket(current.run_id);
+        connectWebSocket(current.run_id, getResumeActive() || getResumePending());
         startPolling(current.run_id);
       } else {
         enableStatsButtons(current.run_id);
@@ -259,8 +292,17 @@ async function refreshRunStatus(runId) {
     const status = await api.get(API_ENDPOINTS.runs.status(runId));
     if (!status) return;
 
+    // During resumePending or resumeActive, skip status/phase updates —
+    // the REST endpoint still returns the old completed/failed status
+    // until the resume job's events overwrite the run status
+    if (getResumePending() || getResumeActive()) {
+      if (status.run_dir) setRunState({ currentRunDir: status.run_dir });
+      return;
+    }
+
     if (status.phases && Array.isArray(status.phases)) {
       setPhaseList(status.phases);
+      setRunState({ phases: status.phases });
     }
 
     updateInfo("info-run-id", status.run_id || runId);
@@ -332,10 +374,12 @@ async function startRun() {
     const result = await api.post(API_ENDPOINTS.runs.start, payload);
     const runId = result?.run_id || result?.id;
     if (runId) {
-      setRunState({ currentRunId: runId, status: "running" });
+      const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p, status: "pending", pct: 0 }));
+      setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false });
       setRunButtonsActive(true);
       updateStat("stat-run-id", runId);
       updateStat("stat-status", "running");
+      setPhaseList(newPhases);
       connectWebSocket(runId);
       startPolling(runId);
       toastSuccess(t("ui.toast.run_started", "Run gestartet"), runId);
@@ -391,11 +435,16 @@ async function resumeRun() {
     toast(t("ui.toast.resuming", `Resume ab ${phase}...`), "", "info");
     const result = await api.post(API_ENDPOINTS.runs.resume(currentRunId), payload);
     const jobId = result?.job_id;
+    setResumePending(true);
+    if (resumePendingTimer) clearTimeout(resumePendingTimer);
+    resumePendingTimer = setTimeout(() => { setResumePending(false); }, 15000);
     setRunState({ status: "running" });
     setRunButtonsActive(true);
     updateStat("stat-status", "running");
     updateInfo("info-status", `running — ${phase}`);
-    connectWebSocket(currentRunId);
+    const newPhases = resetPhasesForResume(phase);
+    if (newPhases.length > 0) setRunState({ phases: newPhases });
+    connectWebSocket(currentRunId, true);
     startPolling(currentRunId);
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
   } catch (e) {
@@ -515,6 +564,7 @@ function handleWsMessage(data, logViewer, phases) {
     const status = type === "phase_start" ? "running" : type === "phase_end" ? (payload.status || "ok") : (payload.status || "running");
     const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;
     updatePhaseState(phaseName, status, pct);
+    savePhaseToStore(phaseName, status, pct);
     if (payload.elapsed || data.elapsed) updateStat("stat-elapsed", payload.elapsed || data.elapsed);
     // Also log phase events
     const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
@@ -522,9 +572,14 @@ function handleWsMessage(data, logViewer, phases) {
   }
 
   // Run status with full phase array
-  if (type === "run_status") {
+  // Skip stale run_status during resumePending or resumeActive —
+  // backend sends old completed/failed phase list until resume events arrive,
+  // and even after resume_start the run_status may contain stale phase data.
+  // Individual phase_start/phase_progress/phase_end events drive the UI instead.
+  if (type === "run_status" && !getResumePending() && !getResumeActive()) {
     if (payload.phases && Array.isArray(payload.phases)) {
       setPhaseList(payload.phases);
+      setRunState({ phases: payload.phases });
     }
     const runStatus = data.state || payload.status || data.status || "";
     if (runStatus) {
@@ -540,20 +595,31 @@ function handleWsMessage(data, logViewer, phases) {
 
   // Resume events
   if (type === "resume_start") {
+    setResumePending(false);
+    setResumeActive(true);
+    if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const fromPhase = payload.from_phase || data.from_phase || "";
     logViewer.addLine(data.ts || formatTime(), "INFO", `Resume | start | ${fromPhase}`);
     if (fromPhase) {
       updatePhaseState(fromPhase, "running", 0);
+      savePhaseToStore(fromPhase, "running", 0);
       updateInfo("info-status", `running — ${fromPhase}`);
     }
     setRunState({ status: "running" });
     setRunButtonsActive(true);
   }
   if (type === "resume_end") {
+    setResumePending(false);
+    setResumeActive(false);
+    if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const success = payload.success ?? data.success ?? false;
     const fromPhase = payload.from_phase || data.from_phase || "";
     logViewer.addLine(data.ts || formatTime(), success ? "INFO" : "ERROR", `Resume | ${success ? "OK" : "ERROR"} | ${fromPhase}`);
     if (success) {
+      if (fromPhase) {
+        updatePhaseState(fromPhase, "ok", 100);
+        savePhaseToStore(fromPhase, "ok", 100);
+      }
       updateStat("stat-status", "completed");
       updateInfo("info-status", "completed");
       setRunState({ status: "completed" });
@@ -581,7 +647,10 @@ function handleWsMessage(data, logViewer, phases) {
     if (payload.message) logViewer.addLine(data.ts || formatTime(), "INFO", payload.message);
   }
 
-  // Terminal events
+  // Terminal events — skip if resume is pending or active (stale status from previous run)
+  if ((getResumePending() || getResumeActive()) && type !== "resume_end") {
+    return;
+  }
   const terminalStatuses = ["completed", "failed", "cancelled", "aborted", "error", "done", "finished", "ok"];
   const statusStr = String(data.status || payload.status || payload.state || "").toLowerCase();
   if (type === "run_end" || type === "run_start" || terminalStatuses.includes(statusStr)) {

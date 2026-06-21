@@ -11,6 +11,7 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { getScanState, setScanState } from "../state/scan-state.js";
 import { getStore } from "../state/store.js";
+import { setRunState } from "../state/run-state.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
 import { t } from "../i18n/i18n.js";
 
@@ -137,6 +138,7 @@ export function createInputScanPage() {
 async function doScan() {
   try {
     const sd = getScanData();
+    setRunState({ currentRunId: null, currentRunDir: null, status: null, phases: [], resumeActive: false, resumePending: false });
     toast(t("ui.toast.scan_starting", "Scan wird gestartet..."), "", "info");
     const payload = {
       input_dir: sd.input_dir,

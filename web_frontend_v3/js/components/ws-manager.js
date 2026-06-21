@@ -8,9 +8,9 @@ let reconnectTimer = null;
 let listeners = new Set();
 let currentRunId = null;
 
-export function connectWebSocket(runId) {
-  if (ws && currentRunId === runId) return;
-  disconnectWebSocket();
+export function connectWebSocket(runId, force = false) {
+  if (ws && currentRunId === runId && !force) return;
+  if (force) disconnectWebSocket();
   currentRunId = runId;
 
   const url = api._toWsUrl(API_ENDPOINTS.ws.run(runId));

@@ -11,6 +11,8 @@ const store = getStore("run-state", {
   logLines: [],
   wsSocket: null,
   loading: false,
+  resumeActive: false,
+  resumePending: false,
 });
 
 export function getRunState() { return store.getState(); }
