@@ -10,7 +10,11 @@ import { getStore } from "../state/store.js";
 
 const store = getStore("pcc", {
   pccData: { rgb_fits: "", wcs_file: "", output_rgb: "", catalog_source: "siril", catalog_dir: "", mag_limit: 14.0, mag_bright_limit: 6.0, min_stars: 10, sigma_clip: 2.5 },
+  downloadJobId: null,
 });
+
+function getDownloadJobId() { return store.getState().downloadJobId; }
+function setDownloadJobId(id) { store.setState({ downloadJobId: id }); }
 
 function getPccData() { return store.getState().pccData; }
 function setPccData(patch) { store.setState({ pccData: { ...getPccData(), ...patch } }); }
@@ -50,9 +54,10 @@ export function createPccPage() {
         el("span", { class: "tc-badge", id: "pcc-catalog-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
       ),
     ),
-    el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
+    el("div", { class: "tc-flex tc-gap-3 tc-items-center tc-mt-2" },
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => checkSirilStatus() }, t("ui.button.check_catalog", "Check Catalog")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadMissing() }, t("ui.button.download_missing", "Download Missing")),
+      el("button", { class: "tc-btn tc-btn-sm", id: "pcc-download-btn", onclick: () => downloadMissing() }, t("ui.button.download_missing", "Download Missing")),
+      el("span", { class: "tc-text-muted", id: "pcc-download-status", style: { fontSize: "0.85em" } }, ""),
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => checkOnline() }, t("ui.button.check_online", "Check Online Source")),
     ),
   );
@@ -84,6 +89,17 @@ export function createPccPage() {
   page.append(inputCard, catalogCard, paramCard, actions, resultCard);
 
   checkSirilStatus();
+
+  const activeJobId = getDownloadJobId();
+  if (activeJobId) {
+    setTimeout(() => {
+      const btn = document.getElementById("pcc-download-btn");
+      if (btn) btn.disabled = true;
+      const statusEl = document.getElementById("pcc-download-status");
+      if (statusEl) statusEl.textContent = "Läuft...";
+      resumeDownloadPolling(activeJobId);
+    }, 50);
+  }
 
   return page;
 }
@@ -118,33 +134,95 @@ function setPccBadge(badgeEl, ok, text) {
 }
 
 async function downloadMissing() {
+  const statusEl = document.getElementById("pcc-download-status");
+  const btn = document.getElementById("pcc-download-btn");
   try {
     const pd = getPccData();
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = "Starte Download...";
     toast(t("ui.toast.downloading_missing", "Lade fehlende Kataloge..."), "", "info");
     const startResp = await api.post(API_ENDPOINTS.pcc.downloadMissing, { catalog_dir: pd.catalog_dir }, { timeoutMs: 30000 });
     const jobId = startResp?.job_id;
     if (!jobId) {
       toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), "No job_id returned");
+      if (btn) btn.disabled = false;
+      if (statusEl) statusEl.textContent = "";
       return;
     }
-    const result = await pollDownloadJob(jobId);
-    const missing = result?.missing_after || result?.missing || [];
-    if (Array.isArray(missing) && missing.length > 0) {
-      toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), `${missing.length} Chunks fehlen noch`);
-    } else {
-      toastSuccess(t("ui.toast.download_complete", "Download abgeschlossen"));
-    }
+    setDownloadJobId(jobId);
+    const result = await pollDownloadJob(jobId, 600000, (job) => {
+      const completed = job?.data?.completed_chunks ?? 0;
+      const total = job?.data?.total_chunks ?? 0;
+      const stage = job?.data?.stage ?? "";
+      if (stage === "decompress") {
+        if (statusEl) statusEl.textContent = `Entpacke Chunk ${completed + 1}/${total}`;
+      } else if (total > 0) {
+        if (statusEl) statusEl.textContent = `Lade ${completed + 1}/${total}`;
+      } else if (statusEl) {
+        statusEl.textContent = "Läuft...";
+      }
+    });
+    finishDownload(result, statusEl, btn);
   } catch (e) {
     toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), e.message);
+    const statusEl2 = document.getElementById("pcc-download-status");
+    if (statusEl2) statusEl2.textContent = "Fehler";
+    setDownloadJobId(null);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
-async function pollDownloadJob(jobId, timeoutMs = 600000) {
+function finishDownload(result, statusEl, btn) {
+  setDownloadJobId(null);
+  const missing = result?.missing_after || result?.missing || [];
+  if (Array.isArray(missing) && missing.length > 0) {
+    toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), `${missing.length} Chunks fehlen noch`);
+    if (statusEl) statusEl.textContent = `${missing.length} Chunks fehlen`;
+  } else {
+    toastSuccess(t("ui.toast.download_complete", "Download abgeschlossen"));
+    if (statusEl) statusEl.textContent = "Fertig";
+    checkSirilStatus();
+  }
+}
+
+async function resumeDownloadPolling(jobId) {
+  const statusEl = document.getElementById("pcc-download-status");
+  const btn = document.getElementById("pcc-download-btn");
+  if (statusEl) statusEl.textContent = "Läuft...";
+  if (btn) btn.disabled = true;
+  try {
+    const result = await pollDownloadJob(jobId, 600000, (job) => {
+      const el2 = document.getElementById("pcc-download-status");
+      const completed = job?.data?.completed_chunks ?? 0;
+      const total = job?.data?.total_chunks ?? 0;
+      const stage = job?.data?.stage ?? "";
+      if (stage === "decompress") {
+        if (el2) el2.textContent = `Entpacke Chunk ${completed + 1}/${total}`;
+      } else if (total > 0) {
+        if (el2) el2.textContent = `Lade ${completed + 1}/${total}`;
+      } else if (el2) {
+        el2.textContent = "Läuft...";
+      }
+    });
+    finishDownload(result, document.getElementById("pcc-download-status"), btn);
+  } catch (e) {
+    toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), e.message);
+    const el2 = document.getElementById("pcc-download-status");
+    if (el2) el2.textContent = "Fehler";
+    setDownloadJobId(null);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pollDownloadJob(jobId, timeoutMs = 600000, onProgress = null) {
   const maxAttempts = Math.ceil(timeoutMs / 2000);
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
     const state = job?.state;
+    if (onProgress) onProgress(job);
     if (state === "ok" || state === "done" || state === "completed") {
       return job?.data || job;
     }
@@ -159,8 +237,18 @@ async function pollDownloadJob(jobId, timeoutMs = 600000) {
 
 async function checkOnline() {
   try {
-    const result = await api.get(API_ENDPOINTS.pcc.checkOnline);
-    toastSuccess(t("ui.toast.online_checked", "Online-Quelle verfuegbar"), result?.source || "");
+    const result = await api.post(API_ENDPOINTS.pcc.checkOnline, {});
+    const sources = result?.sources || [];
+    if (sources.length > 0) {
+      const parts = sources.map(s => `${s.name}: ${s.ok ? "OK" : "FAIL"}${s.latency_ms ? ` (${s.latency_ms}ms)` : ""}`);
+      if (result?.ok) {
+        toastSuccess(t("ui.toast.online_checked", "Online-Quellen überprüft"), parts.join(", "));
+      } else {
+        toastError(t("ui.toast.check_failed", "Check fehlgeschlagen"), parts.join(", "));
+      }
+    } else {
+      toastSuccess(t("ui.toast.online_checked", "Online-Quelle verfuegbar"), "");
+    }
   } catch (e) {
     toastError(t("ui.toast.check_failed", "Check fehlgeschlagen"), e.message);
   }

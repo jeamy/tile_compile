@@ -4,7 +4,9 @@ import { getStore } from "./store.js";
 
 const store = getStore("run-state", {
   currentRunId: null,
+  currentRunDir: null,
   runStatus: null,
+  status: null,
   phases: [],
   logLines: [],
   wsSocket: null,

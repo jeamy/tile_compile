@@ -175,6 +175,21 @@
 .tc-log-level-DEBUG { color: var(--muted); }
 .tc-log-msg { color: var(--foreground); }
 
+/* ── Log Filter Buttons ─────────────────────────── */
+.tc-log-filter-all    { border: 1px solid var(--border); }
+.tc-log-filter-INFO   { border: 1px solid var(--info); }
+.tc-log-filter-WARN   { border: 1px solid var(--warning); }
+.tc-log-filter-ERROR  { border: 1px solid var(--error); }
+.tc-log-filter-DEBUG  { border: 1px solid var(--muted); }
+
+.tc-log-filter-INFO.tc-log-filter-active   { background: var(--info); color: var(--bg); border-color: var(--info); }
+.tc-log-filter-WARN.tc-log-filter-active   { background: var(--warning); color: var(--bg); border-color: var(--warning); }
+.tc-log-filter-ERROR.tc-log-filter-active  { background: var(--error); color: var(--bg); border-color: var(--error); }
+.tc-log-filter-DEBUG.tc-log-filter-active  { background: var(--muted); color: var(--bg); border-color: var(--muted); }
+.tc-log-filter-all.tc-log-filter-active    { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+
+.tc-log-filter-inactive { opacity: 0.5; }
+
 .tc-log-phase-marker {
   border-top: 1px dashed var(--border);
   margin: var(--space-1) 0;

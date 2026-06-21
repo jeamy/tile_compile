@@ -196,7 +196,7 @@ pcc:
   min_stars: 10
   radii_mode: auto_fwhm
   sigma_clip: 2.5
-  siril_catalog_dir: ~
+  siril_catalog_dir: /media/data/Astro/siril_catalog
   source: siril
 pipeline:
   abort_on_fail: false

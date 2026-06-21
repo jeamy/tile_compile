@@ -544,6 +544,23 @@
 .tc-phase-item.error .tc-phase-bar-fill { background: var(--error); }
 .tc-phase-item.aborted .tc-phase-bar-fill { background: var(--error); }
 
+.tc-phase-clickable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  transition: background 0.15s ease;
+}
+
+.tc-phase-clickable:hover {
+  background: var(--surface-2);
+}
+
+.tc-phase-selected {
+  background: var(--info-bg) !important;
+  border: 1px solid var(--info);
+  font-weight: 600;
+}
+
 /* ── Run List ───────────────────────────────────── */
 .tc-run-list {
   display: flex;

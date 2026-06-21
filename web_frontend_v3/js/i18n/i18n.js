@@ -18,11 +18,19 @@ export async function loadLocale(locale) {
   }
 }
 
-export function t(key, fallback) {
+export function t(key, fallback, params) {
+  let msg;
   if (key in messages && typeof messages[key] === "string") {
-    return messages[key];
+    msg = messages[key];
+  } else {
+    msg = fallback || key;
   }
-  return fallback || key;
+  if (params && typeof params === "object") {
+    for (const [k, v] of Object.entries(params)) {
+      msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+  }
+  return msg;
 }
 
 export function getLocale() {

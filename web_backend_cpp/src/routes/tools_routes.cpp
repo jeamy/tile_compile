@@ -1420,20 +1420,40 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/pcc/check-online").methods("POST"_method)
     ([state](const crow::request&) {
-        const std::string url = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=0%200&-c.rd=0.01&-out=RA_ICRS,DE_ICRS,Gmag&-out.max=1";
-        CURL* curl = curl_easy_init();
-        if (!curl) return json_resp({{"ok", false}, {"latency_ms", 0}, {"error", "curl init failed"}});
-        const auto t0 = std::chrono::steady_clock::now();
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_discard_write);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        CURLcode rc = curl_easy_perform(curl);
-        long latency_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
-        curl_easy_cleanup(curl);
-        nlohmann::json response = rc == CURLE_OK
-            ? nlohmann::json{{"ok", true}, {"latency_ms", latency_ms}}
-            : nlohmann::json{{"ok", false}, {"latency_ms", latency_ms}, {"error", curl_easy_strerror(rc)}};
+        struct OnlineSource { const char* name; const char* url; };
+        const OnlineSource sources[] = {
+            {"VizieR Gaia DR3",  "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=0%200&-c.rd=0.01&-out=RA_ICRS,DE_ICRS,Gmag&-out.max=1"},
+            {"VizieR APASS",     "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=II/336/apass9&-c=0%200&-c.rd=0.01&-out=RA,Dec,Vmag&-out.max=1"},
+        };
+        nlohmann::json sources_arr = nlohmann::json::array();
+        bool any_ok = false;
+        for (const auto& src : sources) {
+            CURL* curl = curl_easy_init();
+            if (!curl) {
+                sources_arr.push_back({{"name", src.name}, {"ok", false}, {"error", "curl init failed"}});
+                continue;
+            }
+            const auto t0 = std::chrono::steady_clock::now();
+            curl_easy_setopt(curl, CURLOPT_URL, src.url);
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_discard_write);
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+            CURLcode rc = curl_easy_perform(curl);
+            long latency_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
+            curl_easy_cleanup(curl);
+            bool ok = (rc == CURLE_OK);
+            if (ok) any_ok = true;
+            sources_arr.push_back({
+                {"name", src.name},
+                {"ok", ok},
+                {"latency_ms", latency_ms},
+                {"error", ok ? "" : curl_easy_strerror(rc)},
+            });
+        }
+        nlohmann::json response = {
+            {"ok", any_ok},
+            {"sources", sources_arr},
+        };
         state->ui_event_store.push("tools.pcc.check_online", "tools.pcc_check_online", response);
         return json_resp(response);
     });

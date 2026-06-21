@@ -2,7 +2,7 @@
 
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { createPhaseList, setPhaseList, updatePhaseState, updatePhaseStates } from "../components/phase-list.js";
+import { createPhaseList, setPhaseList, updatePhaseState, updatePhaseStates, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase } from "../components/phase-list.js";
 import { createLogViewer } from "../components/log-viewer.js";
 import { connectWebSocket, disconnectWebSocket, onWebSocketMessage } from "../components/ws-manager.js";
 import { api } from "../api/client.js";
@@ -10,6 +10,7 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { getStore } from "../state/store.js";
+import { getConfigState } from "../state/config-state.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -41,9 +42,45 @@ export function createRunMonitorPage() {
   // Phase progress (component-based)
   const phases = createPhaseList();
 
+  // Resume panel (hidden until phase selected)
+  const resumePanel = el("div", { class: "tc-card", id: "resume-panel", style: "display:none" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between" },
+      el("span", {}, t("ui.title.resume", "Resume")),
+      el("span", { class: "tc-badge tc-badge-info", id: "resume-phase-badge" }, ""),
+    ),
+    el("div", { class: "tc-mt-2" },
+      el("label", { class: "tc-label" }, t("ui.label.config_yaml", "Config YAML")),
+      el("textarea", {
+        class: "tc-input tc-mono",
+        id: "resume-config-yaml",
+        rows: 16,
+        style: "width:100%;font-size:0.85em;resize:vertical",
+        spellcheck: false,
+      }),
+    ),
+    el("div", { class: "tc-mt-2 tc-flex tc-gap-2 tc-items-center tc-flex-wrap" },
+      el("label", { class: "tc-label" }, t("ui.label.config_revision", "Config Revision")),
+      el("select", { class: "tc-select", id: "resume-config-revision", style: "flex:1 1 auto;min-width:200px" },
+        el("option", { value: "" }, t("ui.option.current", "Aktuell")),
+      ),
+      el("button", { class: "tc-btn tc-btn-sm", id: "resume-load-revision-btn", onclick: () => loadRevisionIntoEditor() }, t("ui.button.load_revision", "Laden")),
+    ),
+    el("div", { class: "tc-mt-3 tc-flex tc-gap-3 tc-items-center" },
+      el("button", { class: "tc-btn tc-btn-primary", id: "resume-execute-btn", onclick: () => resumeRun() }, t("ui.button.resume_from", "Resume")),
+      el("button", { class: "tc-btn tc-btn-sm", id: "resume-load-current-btn", onclick: () => loadCurrentConfig() }, t("ui.button.load_current_config", "Config laden")),
+      el("span", { class: "tc-text-muted tc-text-sm", id: "resume-hint" }, ""),
+    ),
+  );
+
   // Stats panel
+  const statsGenerateBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-generate-btn", disabled: true, onclick: () => generateStats() }, t("ui.button.generate_stats", "Generate Stats"));
+  const statsOpenBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-open-btn", disabled: true, onclick: () => openStatsFolder() }, t("ui.button.open_stats_folder", "Open Stats Folder"));
+  const statsReportBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-report-btn", disabled: true, onclick: () => openStatsReport() }, t("ui.button.open_stats_report", "Open Report"));
   const stats = el("div", { class: "tc-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.stats", "Stats")),
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between" },
+      el("span", {}, t("ui.title.stats", "Stats")),
+      el("div", { class: "tc-flex tc-gap-2" }, statsGenerateBtn, statsOpenBtn, statsReportBtn),
+    ),
     el("div", { class: "tc-grid-2", id: "run-stats" },
       el("div", {}, el("div", { class: "tc-label" }, t("ui.label.run_id", "Run ID")), el("div", { class: "tc-text-sm tc-mono", id: "stat-run-id" }, "\u2014")),
       el("div", {}, el("div", { class: "tc-label" }, t("ui.label.status", "Status")), el("div", { class: "tc-text-sm", id: "stat-status" }, "\u2014")),
@@ -55,7 +92,7 @@ export function createRunMonitorPage() {
   // Log viewer (component-based)
   const logViewer = createLogViewer();
 
-  page.append(control, runInfo, phases, stats, logViewer.wrapper);
+  page.append(control, runInfo, phases, resumePanel, stats, logViewer.wrapper);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -68,6 +105,7 @@ export function createRunMonitorPage() {
     }
   });
 
+  setPhaseClickHandler((phase) => onPhaseSelected(phase, logViewer));
   restoreCurrentRun();
   return page;
 }
@@ -78,9 +116,11 @@ function setRunButtonsActive(isRunning) {
   const startBtn = document.getElementById("run-start-btn");
   const stopBtn = document.getElementById("run-stop-btn");
   const resumeBtn = document.getElementById("run-resume-btn");
+  const resumeExecBtn = document.getElementById("resume-execute-btn");
   if (startBtn) startBtn.disabled = isRunning;
   if (stopBtn) stopBtn.disabled = !isRunning;
   if (resumeBtn) resumeBtn.disabled = isRunning;
+  if (resumeExecBtn) resumeExecBtn.disabled = isRunning;
 }
 
 function startPolling(runId) {
@@ -126,7 +166,7 @@ async function restoreCurrentRun() {
 
     if (current?.run_id) {
       const isRunning = current.status === "running";
-      setRunState({ currentRunId: current.run_id, status: current.status || "running" });
+      setRunState({ currentRunId: current.run_id, currentRunDir: current.run_dir || null, status: current.status || "running" });
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
       updateStat("stat-status", current.status || "running");
@@ -137,21 +177,21 @@ async function restoreCurrentRun() {
       updateInfo("info-run-name", runName);
       await refreshRunStatus(current.run_id);
       // Load existing logs from REST endpoint
-      await loadInitialLogs(current.run_id);
+      await loadInitialLogs(current.run_id, logViewer);
       if (isRunning) {
         connectWebSocket(current.run_id);
         startPolling(current.run_id);
+      } else {
+        enableStatsButtons(current.run_id);
       }
     }
   } catch {}
 }
 
-async function loadInitialLogs(runId) {
+async function loadInitialLogs(runId, logViewer) {
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId));
     if (!logs || !Array.isArray(logs.lines)) return;
-    const body = document.getElementById("log-viewer-body");
-    if (!body) return;
     for (const line of logs.lines) {
       let ts = formatTime();
       let level = "INFO";
@@ -170,12 +210,18 @@ async function loadInitialLogs(runId) {
         level = line.level || "INFO";
         text = line.message || line.text || "";
       }
-      const div = document.createElement("div");
-      div.className = "tc-log-line";
-      div.innerHTML = `<span class="tc-log-time">${ts}</span><span class="tc-log-level tc-log-level-${level}">${level}</span><span class="tc-log-msg">${text}</span>`;
-      body.appendChild(div);
+      if (logViewer) {
+        logViewer.addLine(ts, level, text);
+      } else {
+        const body = document.getElementById("log-viewer-body");
+        if (!body) continue;
+        const div = document.createElement("div");
+        div.className = "tc-log-line";
+        div.innerHTML = `<span class="tc-log-time">${ts}</span><span class="tc-log-level tc-log-level-${level}">${level}</span><span class="tc-log-msg">${text}</span>`;
+        body.appendChild(div);
+        body.scrollTop = body.scrollHeight;
+      }
     }
-    body.scrollTop = body.scrollHeight;
   } catch {}
 }
 
@@ -194,6 +240,15 @@ function formatEventMessage(ev) {
   }
   if (type === "run_start") return "Run gestartet";
   if (type === "run_end") return `Run beendet | ${ev.status || "ok"}`;
+  if (type === "resume_start") {
+    const fromPhase = ev.from_phase || "";
+    return `Resume | start | ${fromPhase}`;
+  }
+  if (type === "resume_end") {
+    const ok = ev.success ?? false;
+    const fromPhase = ev.from_phase || "";
+    return `Resume | ${ok ? "OK" : "ERROR"} | ${fromPhase}`;
+  }
   if (type === "queue_progress") return ev.message || "Queue progress";
   if (ev.message) return ev.message;
   return type || JSON.stringify(ev).slice(0, 200);
@@ -214,12 +269,13 @@ async function refreshRunStatus(runId) {
     updateInfo("info-color-mode", status.color_mode || "\u2014");
     updateInfo("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
 
-    const runName = (status.run_id || runId).replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
-    updateInfo("info-run-name", runName);
-
     if (status.run_dir) {
+      setRunState({ currentRunDir: status.run_dir });
       updateInfo("info-output-dir", status.run_dir + "/outputs");
     }
+
+    const runName = (status.run_id || runId).replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
+    updateInfo("info-run-name", runName);
 
     const queue = status.queue;
     if (Array.isArray(queue) && queue.length > 0) {
@@ -250,12 +306,21 @@ async function startRun() {
     const sd = inputStore.getState().scanData || {};
     const queue = inputStore.getState().queueItems || [];
 
+    const pccStore = getStore("pcc", { pccData: {} });
+    const pccCatalogDir = pccStore.getState().pccData?.catalog_dir || "";
+
+    let configYaml = getConfigState().draftYaml || getConfigState().configYaml || "";
+    if (configYaml && pccCatalogDir) {
+      configYaml = injectSirilCatalogDir(configYaml, pccCatalogDir);
+    }
+
     const payload = {
       input_dir: sd.input_dir || "",
       runs_dir: sd.runs_dir || "",
       run_name: sd.run_name || "",
       color_mode: sd.color_mode || "",
       queue: queue.length > 0 ? queue : undefined,
+      config_yaml: configYaml || undefined,
     };
 
     if (!payload.input_dir && (!payload.queue || payload.queue.length === 0)) {
@@ -300,18 +365,125 @@ async function stopRun() {
 
 async function resumeRun() {
   const { currentRunId } = getRunState();
-  if (!currentRunId) return;
+  if (!currentRunId) {
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_run", "Kein Run ausgewählt"));
+    return;
+  }
+  const phase = getSelectedPhase();
+  if (!phase) {
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_phase", "Bitte eine Phase anklicken um Resume zu starten"));
+    return;
+  }
+  const configYaml = document.getElementById("resume-config-yaml")?.value || "";
+  if (!configYaml.trim()) {
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
+    return;
+  }
   try {
-    await api.post(API_ENDPOINTS.runs.resume(currentRunId), {});
+    const payload = {
+      from_phase: phase,
+      config_yaml: configYaml,
+    };
+    const { currentRunDir } = getRunState();
+    if (currentRunDir) payload.run_dir = currentRunDir;
+    const revSelect = document.getElementById("resume-config-revision");
+    if (revSelect?.value) payload.config_revision_id = revSelect.value;
+    toast(t("ui.toast.resuming", `Resume ab ${phase}...`), "", "info");
+    const result = await api.post(API_ENDPOINTS.runs.resume(currentRunId), payload);
+    const jobId = result?.job_id;
     setRunState({ status: "running" });
     setRunButtonsActive(true);
     updateStat("stat-status", "running");
-    updateInfo("info-status", "running");
+    updateInfo("info-status", `running — ${phase}`);
     connectWebSocket(currentRunId);
     startPolling(currentRunId);
-    toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"));
+    toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
   } catch (e) {
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), e.message);
+  }
+}
+
+function onPhaseSelected(phase, logViewer) {
+  const panel = document.getElementById("resume-panel");
+  const badge = document.getElementById("resume-phase-badge");
+  const hint = document.getElementById("resume-hint");
+  if (!phase) {
+    if (panel) panel.style.display = "none";
+    return;
+  }
+  if (panel) panel.style.display = "";
+  if (badge) badge.textContent = phase;
+  if (hint) hint.textContent = t("ui.message.resume_hint", "Config wird geladen...");
+  loadRunConfig(phase);
+  loadConfigRevisions();
+}
+
+async function loadRunConfig(phase) {
+  const { currentRunId } = getRunState();
+  if (!currentRunId) return;
+  try {
+    const resp = await api.get(API_ENDPOINTS.runs.config(currentRunId));
+    const yaml = resp?.config_yaml || resp?.config || "";
+    const editor = document.getElementById("resume-config-yaml");
+    if (editor) editor.value = yaml;
+    const hint = document.getElementById("resume-hint");
+    if (hint) hint.textContent = yaml ? t("ui.message.resume_ready", "Bereit zum Resume") : t("ui.message.resume_no_config", "Keine Config gefunden");
+  } catch (e) {
+    const hint = document.getElementById("resume-hint");
+    if (hint) hint.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function loadCurrentConfig() {
+  const { currentRunId } = getRunState();
+  if (!currentRunId) return;
+  try {
+    const resp = await api.get(API_ENDPOINTS.runs.config(currentRunId));
+    const yaml = resp?.config_yaml || resp?.config || "";
+    const editor = document.getElementById("resume-config-yaml");
+    if (editor) editor.value = yaml;
+    toastSuccess(t("ui.toast.config_loaded", "Config geladen"));
+  } catch (e) {
+    toastError(t("ui.toast.config_load_failed", "Config laden fehlgeschlagen"), e.message);
+  }
+}
+
+async function loadConfigRevisions() {
+  const { currentRunId } = getRunState();
+  if (!currentRunId) return;
+  try {
+    const resp = await api.get(API_ENDPOINTS.runs.configRevisions(currentRunId));
+    const select = document.getElementById("resume-config-revision");
+    if (!select) return;
+    select.innerHTML = "";
+    select.appendChild(el("option", { value: "" }, t("ui.option.current", "Aktuell")));
+    const items = resp?.items || [];
+    for (const item of items) {
+      const id = item.revision_id || item.id || "";
+      const label = item.label || item.source || id;
+      const created = item.created_at ? ` (${item.created_at.split("T")[0]})` : "";
+      select.appendChild(el("option", { value: id }, `${label}${created}`));
+    }
+  } catch {}
+}
+
+async function loadRevisionIntoEditor() {
+  const { currentRunId } = getRunState();
+  if (!currentRunId) return;
+  const select = document.getElementById("resume-config-revision");
+  const revId = select?.value;
+  if (!revId) {
+    toast(t("ui.toast.select_revision", "Bitte Revision auswählen"), "", "info");
+    return;
+  }
+  try {
+    const resp = await api.get(API_ENDPOINTS.runs.configRevision(currentRunId, revId));
+    const yaml = resp?.config || "";
+    const editor = document.getElementById("resume-config-yaml");
+    if (editor) editor.value = yaml;
+    toastSuccess(t("ui.toast.revision_loaded", "Revision geladen"));
+  } catch (e) {
+    toastError(t("ui.toast.revision_load_failed", "Revision laden fehlgeschlagen"), e.message);
   }
 }
 
@@ -366,6 +538,44 @@ function handleWsMessage(data, logViewer, phases) {
     }
   }
 
+  // Resume events
+  if (type === "resume_start") {
+    const fromPhase = payload.from_phase || data.from_phase || "";
+    logViewer.addLine(data.ts || formatTime(), "INFO", `Resume | start | ${fromPhase}`);
+    if (fromPhase) {
+      updatePhaseState(fromPhase, "running", 0);
+      updateInfo("info-status", `running — ${fromPhase}`);
+    }
+    setRunState({ status: "running" });
+    setRunButtonsActive(true);
+  }
+  if (type === "resume_end") {
+    const success = payload.success ?? data.success ?? false;
+    const fromPhase = payload.from_phase || data.from_phase || "";
+    logViewer.addLine(data.ts || formatTime(), success ? "INFO" : "ERROR", `Resume | ${success ? "OK" : "ERROR"} | ${fromPhase}`);
+    if (success) {
+      updateStat("stat-status", "completed");
+      updateInfo("info-status", "completed");
+      setRunState({ status: "completed" });
+      setRunButtonsActive(false);
+      stopPolling();
+      disconnectWebSocket();
+      toastSuccess(t("ui.toast.run_done", "Run abgeschlossen"));
+      enableStatsButtons(getRunState().currentRunId);
+      clearSelectedPhase();
+      const panel = document.getElementById("resume-panel");
+      if (panel) panel.style.display = "none";
+    } else {
+      updateStat("stat-status", "failed");
+      updateInfo("info-status", "failed");
+      setRunState({ status: "failed" });
+      setRunButtonsActive(false);
+      stopPolling();
+      const err = payload.error || data.error || "";
+      toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), err || fromPhase);
+    }
+  }
+
   // Queue progress
   if (type === "queue_progress" && payload) {
     if (payload.message) logViewer.addLine(data.ts || formatTime(), "INFO", payload.message);
@@ -388,6 +598,7 @@ function handleWsMessage(data, logViewer, phases) {
     if (type === "run_end") {
       disconnectWebSocket();
       toastSuccess(t("ui.toast.run_done", "Run abgeschlossen"));
+      enableStatsButtons(getRunState().currentRunId);
       if (getRunState().currentRunId) refreshRunStatus(getRunState().currentRunId);
     }
   }
@@ -406,4 +617,112 @@ function updateInfo(id, value) {
 function formatTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
+
+function injectSirilCatalogDir(yaml, catalogDir) {
+  if (!yaml || !catalogDir) return yaml;
+  if (/siril_catalog_dir:\s*(?:~|null)\s*$/m.test(yaml)) {
+    return yaml.replace(/siril_catalog_dir:\s*(?:~|null)\s*$/m, `siril_catalog_dir: "${catalogDir}"`);
+  }
+  if (!/siril_catalog_dir:/m.test(yaml)) {
+    if (/^pcc:/m.test(yaml)) {
+      return yaml.replace(/^pcc:/m, `pcc:\n  siril_catalog_dir: "${catalogDir}"`);
+    }
+    return yaml + `\npcc:\n  siril_catalog_dir: "${catalogDir}"\n`;
+  }
+  return yaml;
+}
+
+function enableStatsButtons(runId) {
+  const genBtn = document.getElementById("stats-generate-btn");
+  const openBtn = document.getElementById("stats-open-btn");
+  const reportBtn = document.getElementById("stats-report-btn");
+  if (genBtn) genBtn.disabled = !runId;
+  if (openBtn) openBtn.disabled = true;
+  if (reportBtn) reportBtn.disabled = true;
+  if (runId) checkStatsAvailable(runId);
+}
+
+async function checkStatsAvailable(runId) {
+  try {
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId));
+    const openBtn = document.getElementById("stats-open-btn");
+    const reportBtn = document.getElementById("stats-report-btn");
+    const hasReport = !!status?.report_path;
+    if (openBtn) openBtn.disabled = !hasReport;
+    if (reportBtn) reportBtn.disabled = !hasReport;
+  } catch {}
+}
+
+async function generateStats() {
+  const runId = getRunState().currentRunId;
+  if (!runId) return;
+  const genBtn = document.getElementById("stats-generate-btn");
+  if (genBtn) genBtn.disabled = true;
+  try {
+    toast(t("ui.toast.stats_generating", "Stats werden generiert..."), "", "info");
+    const result = await api.post(API_ENDPOINTS.runs.stats(runId), {});
+    const jobId = result?.job_id;
+    if (jobId) {
+      await pollJob(jobId);
+      toastSuccess(t("ui.toast.stats_done", "Stats generiert"));
+      await checkStatsAvailable(runId);
+    } else {
+      await checkStatsAvailable(runId);
+    }
+  } catch (e) {
+    toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), e.message);
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
+async function pollJob(jobId) {
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
+      if (job?.state === "ok" || job?.state === "done" || job?.state === "completed") return job;
+      if (job?.state === "error" || job?.state === "failed" || job?.state === "cancelled") throw new Error(job?.error || "Job failed");
+    } catch (e) {
+      if (e.message?.includes("failed") || e.message?.includes("cancelled")) throw e;
+    }
+  }
+  throw new Error("Job timeout");
+}
+
+async function openStatsFolder() {
+  const runId = getRunState().currentRunId;
+  if (!runId) return;
+  try {
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId));
+    const dir = status?.output_dir;
+    if (!dir) {
+      toastError(t("ui.toast.stats_folder_unavailable", "Stats-Ordner nicht verfügbar"));
+      return;
+    }
+    await api.post(API_ENDPOINTS.fs.openPath, { path: dir });
+  } catch (e) {
+    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
+  }
+}
+
+async function openStatsReport() {
+  const runId = getRunState().currentRunId;
+  if (!runId) return;
+  try {
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId));
+    const reportPath = status?.report_path;
+    if (!reportPath) {
+      toastError(t("ui.toast.stats_folder_unavailable", "Report nicht verfügbar"));
+      return;
+    }
+    const artifactRelPath = reportPath.includes("/artifacts/")
+      ? reportPath.substring(reportPath.indexOf("/artifacts/") + "/artifacts/".length)
+      : "report.html";
+    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, artifactRelPath));
+    window.open(url, "_blank");
+  } catch (e) {
+    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
+  }
 }

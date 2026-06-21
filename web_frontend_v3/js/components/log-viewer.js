@@ -17,11 +17,11 @@ export function createLogViewer() {
     el("div", { class: "tc-card-title tc-flex tc-justify-between tc-items-center" },
       el("span", {}, t("ui.title.live_log", "Live Log")),
       el("div", { class: "tc-flex tc-gap-2 tc-items-center" },
-        levelFilterButton("All"),
-        levelFilterButton("INFO"),
-        levelFilterButton("WARN"),
-        levelFilterButton("ERROR"),
-        levelFilterButton("DEBUG"),
+        levelFilterButton("All", ""),
+        levelFilterButton("INFO", "INFO"),
+        levelFilterButton("WARN", "WARN"),
+        levelFilterButton("ERROR", "ERROR"),
+        levelFilterButton("DEBUG", "DEBUG"),
         el("button", {
           class: "tc-btn tc-btn-sm",
           id: "log-pause-btn",
@@ -45,9 +45,9 @@ export function createLogViewer() {
 
   updateFilterButtonStates();
 
-  function levelFilterButton(level) {
+  function levelFilterButton(level, colorKey) {
     const btn = el("button", {
-      class: "tc-btn tc-btn-sm",
+      class: `tc-btn tc-btn-sm tc-log-filter-${colorKey || "all"}`,
       "data-level": level,
       onclick: () => {
         if (level === "All") {
@@ -67,12 +67,15 @@ export function createLogViewer() {
     const buttons = wrapper.querySelectorAll("[data-level]");
     buttons.forEach(btn => {
       const level = btn.dataset.level;
+      const colorKey = btn.className.match(/tc-log-filter-(\w+)/)?.[1] || "all";
+      let active;
       if (level === "All") {
-        const allActive = filterLevels.size === 5;
-        btn.classList.toggle("tc-btn-active", allActive);
+        active = filterLevels.size === 5;
       } else {
-        btn.classList.toggle("tc-btn-active", filterLevels.has(level));
+        active = filterLevels.has(level);
       }
+      btn.classList.toggle("tc-log-filter-active", active);
+      btn.classList.toggle("tc-log-filter-inactive", !active);
     });
   }
 
