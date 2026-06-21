@@ -1,0 +1,562 @@
+name: Release tile_compile GUI3
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (z.B. v1.2.3)"
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag (z.B. v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tile-compile-gui3-${{ inputs.tag || github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    name: Resolve Release Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.ref_type }}" != "branch" ]]; then
+            echo "Workflow dispatch must run from a branch, not from tag '${{ github.ref_name }}'." >&2
+            echo "Select the branch with the release fixes in the GitHub Actions UI and pass the release tag only via the input field." >&2
+            exit 1
+          fi
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            TAG="${{ inputs.tag }}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          TAG="${TAG#refs/tags/}"
+          if [[ -z "$TAG" ]]; then
+            echo "Tag konnte nicht ermittelt werden." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG"
+          echo "Source ref: ${{ github.ref }} (${{ github.sha }})"
+
+  package-linux:
+    name: Package GUI3 Linux
+    runs-on: ubuntu-22.04
+    needs: meta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config zip ccache \
+            desktop-file-utils squashfs-tools \
+            libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
+            libcurl4-openssl-dev
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-linux-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-
+
+      - name: Build runner binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CCACHE_DIR="${HOME}/.ccache"
+          export CCACHE_MAXSIZE=500M
+          ccache -z
+          cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui3-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build tile_compile_cpp/build-gui3-release -j"$(nproc)"
+          cmake -S web_backend_cpp -B web_backend_cpp/build-gui3-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build web_backend_cpp/build-gui3-release -j"$(nproc)"
+          ccache -s
+
+      - name: Assemble GUI3 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          mkdir -p artifacts
+          ROOT="bundle/tile_compile_gui3-linux-${TAG}"
+          PAYLOAD="${ROOT}/payload"
+          mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/web_backend_cpp/build"
+          cp packaging/gui3/start_gui3.sh "${ROOT}/start_gui3.sh"
+          cp packaging/gui3/start_gui3.command "${ROOT}/start_gui3.command"
+          chmod +x "${ROOT}/start_gui3.sh" "${ROOT}/start_gui3.command"
+          cp -a web_frontend_v3 "${PAYLOAD}/"
+          if [[ -f agent_service/package.json ]]; then
+            echo "Bundling optional PI agent_service"
+            (
+              cd agent_service
+              if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+                npm ci
+              else
+                npm install
+              fi
+              if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+                npm run build
+              fi
+              npm prune --omit=dev
+            )
+            cp -a agent_service "${PAYLOAD}/agent_service"
+            rm -f "${PAYLOAD}/agent_service/.env"
+            find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
+          fi
+          cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.schema.json "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/build-gui3-release/tile_compile_runner "${PAYLOAD}/tile_compile_cpp/build/"
+          cp tile_compile_cpp/build-gui3-release/tile_compile_cli "${PAYLOAD}/tile_compile_cpp/build/"
+          cp web_backend_cpp/build-gui3-release/tile_compile_web_backend "${PAYLOAD}/web_backend_cpp/build/"
+          bundle_linux_libs() {
+            local exe="$1"
+            ldd "$exe" \
+              | awk '/=> \// { print $3 }' \
+              | sort -u \
+              | while read -r dep; do
+                  [[ -f "$dep" ]] || continue
+                  local basename="$(basename "$dep")"
+                  # Skip only core system libraries guaranteed on all Linux systems
+                  case "$basename" in
+                    libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*) continue ;;
+                    ld-linux*.so.*|linux-vdso.so.*) continue ;;
+                  esac
+                  cp -n "$dep" "${PAYLOAD}/tile_compile_cpp/lib/" || true
+                done
+          }
+          bundle_linux_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
+          bundle_linux_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
+          bundle_linux_libs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
+          printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui3-release-tag"
+          (
+            cd bundle
+            zip -r "../artifacts/tile_compile_gui3-linux-${TAG}.zip" "tile_compile_gui3-linux-${TAG}"
+          )
+
+      - name: Build Linux AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          ROOT="${PWD}/bundle/tile_compile_gui3-linux-${TAG}"
+          APPDIR="${PWD}/bundle/AppDir"
+          APPIMAGE_TOOL="${PWD}/appimagetool-x86_64.AppImage"
+          APPIMAGE_OUT="${PWD}/artifacts/tile_compile_gui3-linux-x86_64-${TAG}.AppImage"
+
+          rm -rf "${APPDIR}"
+          mkdir -p \
+            "${APPDIR}/usr/lib/tile_compile_gui3" \
+            "${APPDIR}/usr/share/applications" \
+            "${APPDIR}/usr/share/icons/hicolor/scalable/apps"
+
+          cp -a "${ROOT}/." "${APPDIR}/usr/lib/tile_compile_gui3/"
+
+          cat > "${APPDIR}/AppRun" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          exec "${HERE}/usr/lib/tile_compile_gui3/start_gui3.sh" "$@"
+          EOF
+          chmod +x "${APPDIR}/AppRun"
+
+          cat > "${APPDIR}/usr/share/applications/tile_compile_gui3.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Tile-Compile GUI3
+          Comment=Tile-based quality reconstruction for astronomical image stacks
+          Exec=AppRun
+          Icon=tile_compile_gui3
+          Categories=Science;Graphics;
+          Terminal=true
+          EOF
+
+          cat > "${APPDIR}/usr/share/icons/hicolor/scalable/apps/tile_compile_gui3.svg" <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+            <rect width="256" height="256" rx="32" fill="#10151d"/>
+            <rect x="32" y="32" width="192" height="192" rx="18" fill="#182434" stroke="#6ec1ff" stroke-width="8"/>
+            <path d="M64 96h128M64 128h128M64 160h128M96 64v128M128 64v128M160 64v128" stroke="#6ec1ff" stroke-width="10" stroke-linecap="round" opacity="0.35"/>
+            <circle cx="92" cy="92" r="10" fill="#ffd166"/>
+            <circle cx="128" cy="128" r="14" fill="#72f1b8"/>
+            <circle cx="164" cy="110" r="9" fill="#ff7a90"/>
+            <circle cx="152" cy="164" r="11" fill="#ffd166"/>
+            <circle cx="102" cy="158" r="8" fill="#72f1b8"/>
+          </svg>
+          EOF
+
+          cp "${APPDIR}/usr/share/applications/tile_compile_gui3.desktop" "${APPDIR}/tile_compile_gui3.desktop"
+          cp "${APPDIR}/usr/share/icons/hicolor/scalable/apps/tile_compile_gui3.svg" "${APPDIR}/tile_compile_gui3.svg"
+          desktop-file-validate "${APPDIR}/tile_compile_gui3.desktop"
+
+          curl -fsSL -o "${APPIMAGE_TOOL}" \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x "${APPIMAGE_TOOL}"
+
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export ARCH=x86_64
+          "${APPIMAGE_TOOL}" "${APPDIR}" "${APPIMAGE_OUT}"
+          chmod +x "${APPIMAGE_OUT}"
+
+      - name: Smoke test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          ROOT="${PWD}/bundle/tile_compile_gui3-linux-${TAG}"
+          export HOME="${PWD}/smoke-home-linux"
+          export TILE_COMPILE_GUI3_NO_BROWSER=1
+          export TILE_COMPILE_AI_AGENT_AUTOSTART=0
+          setsid bash "${ROOT}/start_gui3.sh" >/tmp/out_gui3_smoke_linux.txt 2>&1 &
+          START_PID=$!
+          python3 - <<'PY'
+          import json
+          import time
+          from urllib.request import Request, urlopen
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with urlopen("http://127.0.0.1:8080/api/app/state", timeout=2) as resp:
+                      data = json.load(resp)
+                      assert isinstance(data, dict)
+                      break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit("backend smoke test failed")
+
+          payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
+          req = Request(
+              "http://127.0.0.1:8080/api/config/validate",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(req, timeout=10) as resp:
+              result = json.load(resp)
+              assert isinstance(result, dict)
+              assert "ok" in result
+          PY
+          kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
+          wait "${START_PID}" 2>/dev/null || true
+          pkill -f tile_compile_web_backend 2>/dev/null || true
+
+      - name: Smoke test AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          APPIMAGE="${PWD}/artifacts/tile_compile_gui3-linux-x86_64-${TAG}.AppImage"
+          export HOME="${PWD}/smoke-home-linux-appimage"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export TILE_COMPILE_GUI3_NO_BROWSER=1
+          export TILE_COMPILE_AI_AGENT_AUTOSTART=0
+          rm -rf "${HOME}"
+          mkdir -p "${HOME}"
+          setsid "${APPIMAGE}" >/tmp/out_gui3_smoke_linux_appimage.txt 2>&1 &
+          START_PID=$!
+          python3 - <<'PY'
+          import json
+          import time
+          from urllib.request import urlopen
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with urlopen("http://127.0.0.1:8080/api/app/state", timeout=2) as resp:
+                      data = json.load(resp)
+                      assert isinstance(data, dict)
+                      break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit("appimage smoke test failed")
+          PY
+          kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
+          wait "${START_PID}" 2>/dev/null || true
+          pkill -f tile_compile_web_backend 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_gui3-linux-${{ needs.meta.outputs.tag }}
+          path: |
+            artifacts/tile_compile_gui3-linux-${{ needs.meta.outputs.tag }}.zip
+            artifacts/tile_compile_gui3-linux-x86_64-${{ needs.meta.outputs.tag }}.AppImage
+
+  package-macos:
+    name: Package GUI3 macOS (${{ matrix.variant_name }})
+    runs-on: ${{ matrix.runner }}
+    needs: meta
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            variant_name: Apple Silicon
+            artifact_suffix: macos-apple
+            deployment_target: '14.0'
+          - runner: macos-15-intel
+            variant_name: Intel
+            artifact_suffix: macos-intel
+            deployment_target: '13.0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl zip gcc
+
+      - name: Build, bundle and smoke test GUI3
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          bash packaging/gui3/build_local_macos.sh \
+            --tag "${TAG}" \
+            --artifact-prefix "tile_compile_gui3-${{ matrix.artifact_suffix }}" \
+            --build-type Release \
+            --build-suffix build-gui3-release \
+            --macos-target "${MACOSX_DEPLOYMENT_TARGET}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_gui3-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}
+          path: artifacts/tile_compile_gui3-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}.zip
+
+  package-windows:
+    name: Package GUI3 Windows
+    runs-on: windows-2022
+    needs: meta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js for optional PI agent service
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup MSYS2 dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-eigen3
+            mingw-w64-x86_64-opencv
+            mingw-w64-x86_64-cfitsio
+            mingw-w64-x86_64-yaml-cpp
+            mingw-w64-x86_64-nlohmann-json
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-ntldd
+
+      - name: Build runner binaries
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui3-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF
+          cmake --build tile_compile_cpp/build-gui3-release -j"$(nproc)"
+          cmake -S web_backend_cpp -B web_backend_cpp/build-gui3-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
+          cmake --build web_backend_cpp/build-gui3-release -j"$(nproc)"
+
+      - name: Build optional PI agent service (Windows)
+        if: ${{ hashFiles('agent_service/package.json') != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd agent_service
+          if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+          if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
+            npm run build
+          fi
+          npm prune --omit=dev
+
+      - name: Assemble GUI3 bundle
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.meta.outputs.tag }}"
+          ROOT="bundle/tile_compile_gui3-windows-${TAG}"
+          PAYLOAD="${ROOT}/payload"
+          DIST_BIN="${PAYLOAD}/tile_compile_cpp/build"
+          BACKEND_BIN_DIR="${PAYLOAD}/web_backend_cpp/build"
+          mkdir -p "${DIST_BIN}" "${PAYLOAD}/tile_compile_cpp/lib" "${BACKEND_BIN_DIR}"
+          cp packaging/gui3/start_gui3.bat "${ROOT}/start_gui3.bat"
+          cp packaging/gui3/start_gui3.ps1 "${ROOT}/start_gui3.ps1"
+          cp -a web_frontend_v3 "${PAYLOAD}/"
+          if [[ -f agent_service/package.json ]]; then
+            echo "Bundling optional PI agent_service"
+            cp -a agent_service "${PAYLOAD}/agent_service"
+            rm -f "${PAYLOAD}/agent_service/.env"
+            find "${PAYLOAD}/agent_service" -type d \( -name .git -o -name .cache \) -prune -exec rm -rf {} +
+          fi
+          cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/tile_compile.schema.json "${PAYLOAD}/tile_compile_cpp/"
+          cp tile_compile_cpp/build-gui3-release/tile_compile_runner.exe "${DIST_BIN}/"
+          cp tile_compile_cpp/build-gui3-release/tile_compile_cli.exe "${DIST_BIN}/"
+          cp web_backend_cpp/build-gui3-release/tile_compile_web_backend.exe "${BACKEND_BIN_DIR}/"
+          copy_deps() {
+            local exe="$1"
+            ntldd -R "$exe" 2>/dev/null \
+              | awk '{
+                  for (i = 1; i <= NF; ++i) {
+                    path = $i
+                    gsub(/\r/, "", path)
+                    if (tolower(path) ~ /\.dll$/ && (path ~ /^[A-Za-z]:/ || path ~ /^\//)) print path;
+                  }
+                }' \
+              | sort -u \
+              | while read -r dep; do
+                  [[ -f "$dep" ]] || continue
+                  cp -n "$dep" "${PAYLOAD}/tile_compile_cpp/lib/" || true
+                done
+          }
+          copy_deps "${DIST_BIN}/tile_compile_runner.exe"
+          copy_deps "${DIST_BIN}/tile_compile_cli.exe"
+          copy_deps "${BACKEND_BIN_DIR}/tile_compile_web_backend.exe"
+          printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui3-release-tag"
+
+      - name: Smoke test bundle
+        shell: pwsh
+        run: |
+          $Tag = "${{ needs.meta.outputs.tag }}"
+          $root = Join-Path $PWD "bundle\tile_compile_gui3-windows-$Tag"
+          $homeDir = Join-Path $PWD "smoke-home-windows"
+          New-Item -ItemType Directory -Path $homeDir -Force | Out-Null
+          $env:USERPROFILE = $homeDir
+          $env:TILE_COMPILE_GUI3_NO_BROWSER = "1"
+          $env:TILE_COMPILE_AI_AGENT_AUTOSTART = "0"
+          $startScript = Join-Path $root "start_gui3.ps1"
+          $launcher = Start-Process -FilePath "powershell" -ArgumentList @("-ExecutionPolicy","Bypass","-File",$startScript) -PassThru
+          $deadline = (Get-Date).AddSeconds(90)
+          $ok = $false
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8080/api/app/state" -UseBasicParsing -TimeoutSec 2
+              if ($resp.StatusCode -lt 500) {
+                $ok = $true
+                break
+              }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ok) {
+            throw "backend smoke test failed"
+          }
+          if ($launcher -and -not $launcher.HasExited) {
+            cmd /c "taskkill /PID $($launcher.Id) /T /F" | Out-Null
+          }
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          $Tag = "${{ needs.meta.outputs.tag }}"
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          $src = "bundle\tile_compile_gui3-windows-$Tag"
+          $dst = "artifacts\tile_compile_gui3-windows-$Tag.zip"
+          if (Test-Path $dst) { Remove-Item -Force $dst }
+          Compress-Archive -Path $src -DestinationPath $dst -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_gui3-windows-${{ needs.meta.outputs.tag }}
+          path: artifacts/tile_compile_gui3-windows-${{ needs.meta.outputs.tag }}.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [meta, package-linux, package-macos, package-windows]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd dist
+            find . -type f \( -name "*.zip" -o -name "*.AppImage" \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          )
+
+      - name: Create / update release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: ${{ needs.meta.outputs.tag }}
+          generate_release_notes: false
+          files: |
+            dist/**/*.zip
+            dist/**/*.AppImage
+            dist/SHA256SUMS.txt
