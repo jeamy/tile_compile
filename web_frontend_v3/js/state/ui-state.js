@@ -1,0 +1,36 @@
+// js/state/ui-state.js – Locale, Theme, activeTab, activeSubTab
+
+import { getStore, setState, subscribe } from "./store.js";
+
+const DEFAULT = {
+  locale: "de",
+  theme: "dark",
+  activeTab: "processing",
+  activeSubTab: {},
+};
+
+const store = getStore("ui-state", DEFAULT);
+
+export function getUiState() {
+  return store.getState();
+}
+
+export function setUiState(patch) {
+  store.setState(patch);
+  if (patch.theme) {
+    document.documentElement.setAttribute("data-theme", patch.theme);
+  }
+  if (patch.locale) {
+    document.documentElement.setAttribute("lang", patch.locale);
+  }
+}
+
+export function onUiStateChange(fn) {
+  return store.subscribe(fn);
+}
+
+export function initUiState() {
+  const state = store.getState();
+  document.documentElement.setAttribute("data-theme", state.theme);
+  document.documentElement.setAttribute("lang", state.locale);
+}

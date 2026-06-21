@@ -628,6 +628,9 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
+## v0.3.4 (2026-06-16)
+- Bug fixes
+
 ## v0.3.3 (2026-06-16)
 
 **PI – AI-assisted configuration recommendations:**

@@ -1,0 +1,635 @@
+/* css/components.css – Buttons, Cards, Inputs, Badges, Tabs, Toast */
+
+/* ── Buttons ────────────────────────────────────── */
+.tc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.tc-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--muted);
+}
+
+.tc-btn:active {
+  transform: translateY(1px);
+}
+
+.tc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tc-btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.tc-btn-primary:hover {
+  filter: brightness(1.1);
+  background: var(--primary);
+}
+
+.tc-btn-secondary {
+  background: transparent;
+  border-color: var(--border);
+}
+
+.tc-btn-danger {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
+.tc-btn-sm {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+
+/* ── Cards ──────────────────────────────────────── */
+.tc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+.tc-card-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Inputs ─────────────────────────────────────── */
+.tc-input,
+.tc-select {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  transition: border-color var(--transition);
+  width: 100%;
+}
+
+.tc-input:focus,
+.tc-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
+.tc-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tc-input-group .tc-input {
+  flex: 1;
+}
+
+.tc-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+  font-weight: 500;
+}
+
+/* ── Checkboxes ─────────────────────────────────── */
+.tc-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.tc-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* ── Badges ─────────────────────────────────────── */
+.tc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.tc-badge-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.tc-badge-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.tc-badge-error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.tc-badge-info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+/* ── Tabs ───────────────────────────────────────── */
+.tc-tabs {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.tc-tab {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.tc-tab:hover {
+  color: var(--foreground);
+  background: var(--surface-2);
+}
+
+.tc-tab.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* ── Progress ───────────────────────────────────── */
+.tc-progress {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tc-progress-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 300ms ease;
+}
+
+/* ── Toast ──────────────────────────────────────── */
+.tc-toast-container {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.tc-toast {
+  min-width: 280px;
+  max-width: 400px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  pointer-events: auto;
+  animation: tc-slide-in 200ms ease;
+  border-left: 4px solid var(--muted);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.tc-toast-success { border-left-color: var(--success); }
+.tc-toast-warning { border-left-color: var(--warning); }
+.tc-toast-error   { border-left-color: var(--error); }
+.tc-toast-info    { border-left-color: var(--info); }
+
+.tc-toast-title {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.tc-toast-body {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.tc-toast-close {
+  float: right;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+.tc-toast-close:hover { opacity: 1; }
+
+@keyframes tc-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+/* ── Modal ──────────────────────────────────────── */
+.tc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.tc-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  max-width: 800px;
+  max-height: 80vh;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tc-modal-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tc-modal-body {
+  padding: var(--space-4);
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ── Accordion ──────────────────────────────────── */
+.tc-accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.tc-accordion-header {
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tc-accordion-body {
+  padding: var(--space-4);
+  display: none;
+}
+
+.tc-accordion.open .tc-accordion-body { display: block; }
+
+/* ── Queue Editor ───────────────────────────────── */
+.tc-queue-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tc-queue-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 120px 120px 50px 32px;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.tc-queue-filter-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tc-queue-filter-stack .tc-select,
+.tc-queue-filter-stack .tc-input {
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+}
+
+/* ── Calibration Panel ──────────────────────────── */
+.tc-cal-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.tc-cal-row:last-child { border-bottom: none; }
+
+.tc-cal-disabled .tc-input,
+.tc-cal-disabled .tc-label {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── Scan Result Card ───────────────────────────── */
+.tc-scan-result .tc-grid-2 {
+  gap: var(--space-3);
+}
+
+/* ── Guardrail Badges ───────────────────────────── */
+.tc-guardrail-badges {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── Btn Danger ─────────────────────────────────── */
+.tc-btn-danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.tc-btn-danger:hover {
+  background: var(--error-bg);
+}
+
+/* ── YAML Diff ──────────────────────────────────── */
+.tc-diff-added {
+  color: var(--success);
+  background: var(--success-bg);
+  padding: 1px 4px;
+}
+
+.tc-diff-removed {
+  color: var(--error);
+  background: var(--error-bg);
+  padding: 1px 4px;
+}
+
+.tc-diff-unchanged {
+  color: var(--muted);
+  padding: 1px 4px;
+}
+
+/* ── Phase List ─────────────────────────────────── */
+.tc-phase-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tc-phase-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.tc-phase-item.done {
+  color: var(--success);
+}
+
+.tc-phase-item.active {
+  background: var(--info-bg);
+  color: var(--info);
+  font-weight: 600;
+}
+
+.tc-phase-item.pending {
+  color: var(--muted);
+}
+
+.tc-phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.tc-phase-item.done .tc-phase-dot {
+  background: var(--success);
+}
+
+.tc-phase-item.active .tc-phase-dot {
+  background: var(--info);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.tc-phase-progress {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* ── Run List ───────────────────────────────────── */
+.tc-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tc-run-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.tc-run-item:hover {
+  background: var(--surface-2);
+}
+
+.tc-run-item.active {
+  border-color: var(--primary);
+  background: var(--surface-2);
+}
+
+/* ── WCS Results ────────────────────────────────── */
+.tc-wcs-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* ── Modal ─────────────────────────────────────── */
+.tc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.tc-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 500px;
+  max-width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.tc-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.tc-modal-title {
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.tc-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Path Picker ───────────────────────────────── */
+.tc-path-picker {
+  min-width: 600px;
+}
+
+.tc-path-picker-cwd {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.tc-path-picker-cwd .tc-input {
+  flex: 1;
+}
+
+.tc-path-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4);
+  min-height: 250px;
+  max-height: 400px;
+}
+
+.tc-path-picker-row {
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tc-path-picker-row:hover {
+  background: var(--surface-2);
+}
+
+.tc-path-picker-row.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+/* ── Param Category ────────────────────────────── */
+.tc-param-category {
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
+.tc-param-category:hover {
+  background: var(--surface-2);
+}
+
+.tc-param-category.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* ── Diff ──────────────────────────────────────── */
+.tc-diff-added {
+  color: var(--success);
+  background: var(--success-bg);
+  padding: 0 var(--space-1);
+}
+
+.tc-diff-removed {
+  color: var(--error);
+  background: var(--error-bg);
+  padding: 0 var(--space-1);
+}
+
+.tc-diff-unchanged {
+  color: var(--muted);
+}

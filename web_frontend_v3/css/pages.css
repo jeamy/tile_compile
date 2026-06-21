@@ -1,0 +1,184 @@
+/* css/pages.css – Seitenspezifische Styles */
+
+/* ── Input & Scan ───────────────────────────────── */
+.tc-input-scan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .tc-input-scan-grid { grid-template-columns: 1fr; }
+}
+
+.tc-queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.tc-queue-table th {
+  text-align: left;
+  padding: var(--space-2);
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.tc-queue-table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Parameter Studio ───────────────────────────── */
+.tc-param-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: var(--space-4);
+  height: 100%;
+}
+
+@media (max-width: 1200px) {
+  .tc-param-grid {
+    grid-template-columns: 200px 1fr;
+  }
+  .tc-param-explain { display: none; }
+}
+
+.tc-param-category {
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  transition: background var(--transition);
+}
+
+.tc-param-category:hover { background: var(--surface-2); }
+.tc-param-category.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* ── Run Monitor ────────────────────────────────── */
+.tc-phase-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tc-phase-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.tc-phase-item.active {
+  background: var(--primary-soft);
+}
+
+.tc-phase-item.done {
+  color: var(--muted);
+}
+
+.tc-phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.tc-phase-item.active .tc-phase-dot { background: var(--primary); }
+.tc-phase-item.done .tc-phase-dot { background: var(--success); }
+.tc-phase-item.error .tc-phase-dot { background: var(--error); }
+
+/* ── Log Viewer ─────────────────────────────────── */
+.tc-log-viewer {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: var(--space-2);
+  height: 300px;
+  overflow-y: auto;
+}
+
+.tc-log-line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px 0;
+  line-height: 1.6;
+}
+
+.tc-log-time { color: var(--muted); flex-shrink: 0; }
+.tc-log-level { font-weight: 600; flex-shrink: 0; width: 60px; }
+.tc-log-level-INFO  { color: var(--info); }
+.tc-log-level-WARN  { color: var(--warning); }
+.tc-log-level-ERROR { color: var(--error); }
+.tc-log-level-DEBUG { color: var(--muted); }
+.tc-log-msg { color: var(--foreground); }
+
+.tc-log-phase-marker {
+  border-top: 1px dashed var(--border);
+  margin: var(--space-1) 0;
+}
+
+/* ── Run History ────────────────────────────────── */
+.tc-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tc-run-item {
+  display: grid;
+  grid-template-columns: 60px 80px 140px 1fr 40px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.tc-run-item:hover { background: var(--surface-2); }
+.tc-run-item.selected {
+  background: var(--primary-soft);
+}
+
+/* ── Tools (Raw Stack, Astrometry, PCC) ─────────── */
+.tc-tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .tc-tools-grid { grid-template-columns: 1fr; }
+}
+
+.tc-wcs-results {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.tc-color-matrix {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
