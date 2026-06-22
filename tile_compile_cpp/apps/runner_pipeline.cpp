@@ -551,9 +551,10 @@ std::vector<fs::path> select_dark_inputs(
     return matched;
   }
 
-  selection_info["used_all_candidates"] = false;
-  selection_info["fallback_reason"] = "no_matching_darks";
-  return {};
+  // No darks matched gain/exposure — fall back to all darks with warning
+  selection_info["used_all_candidates"] = true;
+  selection_info["fallback_reason"] = "no_matching_darks_gain_or_exposure";
+  return all_darks;
 }
 
 /// @brief Resolves calibration master.
@@ -712,16 +713,17 @@ bool run_scan_input_calibration(
       const auto all_darks = discover_calibration_frames(dark_dir, cal.pattern);
       selected_dark_inputs =
           select_dark_inputs(all_darks, input_frames, cal, dark_selection);
-      if (selected_dark_inputs.empty()) {
+      if (selected_dark_inputs.empty() && !all_darks.empty()) {
+        // No darks matched but candidates exist — warn and use all
+        emitter.warning(
+            run_id,
+            "Calibration dark: no dark frames matched light GAIN and exposure, using all darks as fallback",
+            log_file);
+        selected_dark_inputs = all_darks;
+      } else if (selected_dark_inputs.empty()) {
         out.artifact["steps"]["dark"]["selection"] = dark_selection;
         error_out =
-            "Calibration dark rejected: no dark frames matched light GAIN and exposure";
-        if (dark_selection.contains("light_gain")) {
-          error_out += " (light GAIN " +
-                       std::to_string(
-                           dark_selection["light_gain"].get<double>()) +
-                       ")";
-        }
+            "Calibration dark rejected: no dark frames found in darks_dir";
         return false;
       }
       if (dark_selection.value("used_all_candidates", false) &&
@@ -745,10 +747,9 @@ bool run_scan_input_calibration(
     out.artifact["steps"]["dark"]["input_count"] =
         static_cast<int>(dark_master.input_frames.size());
     out.artifact["steps"]["dark"]["selection"] = dark_selection;
-    if (!require_gain_match(input_frames, dark_master.input_frames, "dark",
-                            out.artifact["steps"]["dark"], error_out)) {
-      return false;
-    }
+    warn_if_gain_mismatch(input_frames, dark_master.input_frames, "dark",
+                           run_id, emitter, log_file,
+                           out.artifact["steps"]["dark"]);
     const bool dark_needs_bias_correction =
         cal.use_bias && !cal.dark_already_bias_corrected;
     out.artifact["steps"]["dark"]["bias_corrected_before_apply"] =
@@ -775,6 +776,8 @@ bool run_scan_input_calibration(
     out.artifact["steps"]["flat"]["input_count"] =
         static_cast<int>(flat_master.input_frames.size());
     out.artifact["steps"]["flat"]["normalization_median"] = flat_median;
+    warn_if_gain_mismatch(input_frames, flat_master.input_frames, "flat", run_id,
+                          emitter, log_file, out.artifact["steps"]["flat"]);
   }
 
   const fs::path calibrated_dir = run_dir / "outputs" / "calibrated";

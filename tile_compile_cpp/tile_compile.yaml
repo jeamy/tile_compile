@@ -37,7 +37,8 @@ linearity:
   min_overall_linearity: 0.9
   strictness: strict
 calibration:
-  use_bias: false
+  darks_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/tele_exp_10_gain_60_bin_1_2026-01-10-13-40-32-627
+  flat_master: ""
   use_dark: true
   use_flat: false
   bias_use_master: false
@@ -49,7 +50,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 2
   bias_dir: ""
-  flat_master: ""
 assumptions:
   frames_min: 50
   frames_reduced_threshold: 150
