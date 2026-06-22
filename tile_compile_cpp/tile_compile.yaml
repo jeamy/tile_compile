@@ -38,7 +38,7 @@ linearity:
   strictness: strict
 calibration:
   darks_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/tele_exp_10_gain_60_bin_1_2026-01-10-13-40-32-627
-  flat_master: ""
+  flat_master: 
   use_dark: true
   use_flat: false
   bias_use_master: false
@@ -49,7 +49,8 @@ calibration:
   dark_match_exposure_tolerance_percent: 5
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 2
-  bias_dir: ""
+  bias_dir: 
+  use_bias: false
 assumptions:
   frames_min: 50
   frames_reduced_threshold: 150
@@ -179,7 +180,7 @@ synthetic:
       - 30
 astrometry:
   enabled: true
-  astap_bin: ~
+  astap_bin: null
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 bge:
@@ -219,7 +220,7 @@ bge:
     rbf_lambda: 0.01
     rbf_epsilon: 1
 pcc:
-  enabled: false
+  enabled: true
   source: siril
   mag_limit: 14
   mag_bright_limit: 6
@@ -240,7 +241,7 @@ pcc:
   chroma_strength: 0.7
   k_max: 2.4
   max_condition_number: 3
-  max_residual_rms: 0.5
+  max_residual_rms: 0.9
 hypermetric_stretch:
   enabled: true
   require_successful_pcc: true

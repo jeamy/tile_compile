@@ -343,25 +343,31 @@ function syncCalibrationToDraft() {
   const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
   const flatDir = flatMaster ? "" : (cal.flat_dir || "");
 
+  const useBias = cal.bias_enabled ?? false;
+  const useDark = cal.dark_enabled ?? false;
+  const useFlat = cal.flat_enabled ?? false;
+
   const entries = [
-    ["calibration.use_bias", cal.bias_enabled ?? false],
-    ["calibration.bias_use_master", !!biasMaster],
-    ["calibration.bias_dir", biasDir],
-    ["calibration.bias_master", biasMaster],
-    ["calibration.use_dark", cal.dark_enabled ?? false],
-    ["calibration.dark_use_master", !!darkMaster],
-    ["calibration.darks_dir", darkDir],
-    ["calibration.dark_master", darkMaster],
-    ["calibration.use_flat", cal.flat_enabled ?? false],
-    ["calibration.flat_use_master", !!flatMaster],
-    ["calibration.flats_dir", flatDir],
-    ["calibration.flat_master", flatMaster],
+    ["calibration.use_bias", useBias],
+    ["calibration.bias_use_master", useBias && !!biasMaster],
+    ["calibration.bias_dir", useBias ? biasDir : ""],
+    ["calibration.bias_master", useBias ? biasMaster : ""],
+    ["calibration.use_dark", useDark],
+    ["calibration.dark_use_master", useDark && !!darkMaster],
+    ["calibration.darks_dir", useDark ? darkDir : ""],
+    ["calibration.dark_master", useDark ? darkMaster : ""],
+    ["calibration.use_flat", useFlat],
+    ["calibration.flat_use_master", useFlat && !!flatMaster],
+    ["calibration.flats_dir", useFlat ? flatDir : ""],
+    ["calibration.flat_master", useFlat ? flatMaster : ""],
   ];
 
   let changed = false;
   for (const [path, val] of entries) {
     if (val === undefined || val === null) continue;
-    if (val === "") continue;
+    // Allow empty string to clear existing values, but skip booleans that are false
+    // (false is the default and would cause unnecessary dirty flags)
+    if (val === "" && !getNestedValue(draft, path)) continue;
     setConfigValue(draft, path, val);
     changed = true;
   }
@@ -379,6 +385,16 @@ function setConfigValue(obj, path, value) {
     cur = cur[parts[i]];
   }
   cur[parts[parts.length - 1]] = value;
+}
+
+function getNestedValue(obj, path) {
+  const parts = path.split(".");
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = cur[p];
+  }
+  return cur;
 }
 
 function formatValue(v) {
@@ -517,19 +533,195 @@ async function doSave() {
 }
 
 async function doSaveAs() {
-  const name = prompt(t("ui.dialog.save_file", "Datei speichern unter") + ":", "tile_compile.example.yaml");
-  if (!name || !name.trim()) return;
   const { draft, draftYaml } = getConfigState();
   if (!draft && !draftYaml) return;
-  toast(t("ui.toast.saving", "Speichere..."), "", "info");
-  try {
-    const yamlText = draftYaml || stringifyYaml(draft);
-    const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText, path: name.trim() });
-    toastSuccess(t("ui.toast.saved", "Config saved"), result?.path || name.trim());
-    loadPresets();
-  } catch (e) {
-    toastError(t("ui.toast.save_failed", "Save failed"), e.message || String(e));
+
+  // Build modal dialog
+  const overlay = el("div", {
+    class: "tc-modal-overlay",
+    style: { position: "fixed", top: "0", left: "0", width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: "9999", display: "flex", alignItems: "center", justifyContent: "center" },
+  });
+
+  const modal = el("div", {
+    class: "tc-modal",
+    style: { minWidth: "520px", maxWidth: "640px" },
+  });
+
+  let selectedDir = "";
+  let selectedFile = "tile_compile.yaml";
+
+  // Directory input with browse button
+  const dirInput = el("input", {
+    class: "tc-input",
+    type: "text",
+    placeholder: t("ui.dialog.select_dir", "Verzeichnis wählen oder eingeben"),
+    value: "",
+    style: { flex: "1 1 auto" },
+    id: "saveas-dir-input",
+  });
+
+  // File list area
+  const fileList = el("div", {
+    class: "tc-flex-col tc-gap-1",
+    style: { maxHeight: "200px", overflow: "auto", border: "1px solid var(--border)", borderRadius: "4px", padding: "8px", marginTop: "8px" },
+    id: "saveas-file-list",
+  });
+
+  // Filename input
+  const fileInput = el("input", {
+    class: "tc-input",
+    type: "text",
+    value: selectedFile,
+    placeholder: "tile_compile.yaml",
+    style: { flex: "1 1 auto" },
+    id: "saveas-file-input",
+  });
+
+  // Current browsing directory
+  let currentDir = "";
+
+  // Load presets/directory listing
+  async function loadDirListing(dir) {
+    try {
+      const data = await api.get(API_ENDPOINTS.config.presets(dir || undefined));
+      currentDir = data?.dir || dir || "";
+      dirInput.value = currentDir;
+      clear(fileList);
+
+      // Up button
+      if (currentDir) {
+        const upRow = el("div", {
+          class: "tc-text-sm tc-flex tc-items-center tc-gap-2",
+          style: { padding: "4px 6px", borderRadius: "4px", cursor: "pointer" },
+          onclick: () => {
+            const parent = currentDir.replace(/\/[^\/]+$/, "") || "";
+            loadDirListing(parent);
+          },
+          onmouseenter: (e) => { e.target.style.background = "var(--surface-2)"; },
+          onmouseleave: (e) => { e.target.style.background = ""; },
+        },
+          el("span", { style: { flexShrink: "0" } }, "⬆"),
+          el("span", {}, ".."),
+        );
+        fileList.appendChild(upRow);
+      }
+
+      const items = data?.items || [];
+      if (items.length === 0 && !currentDir) {
+        fileList.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_files", "Keine Dateien gefunden")));
+      }
+      for (const item of items) {
+        const name = item.name || item.label || item.path || "";
+        const path = item.path || name;
+        const isDir = item.is_dir || false;
+        const row = el("div", {
+          class: "tc-text-sm tc-flex tc-items-center tc-gap-2",
+          style: { padding: "4px 6px", borderRadius: "4px", cursor: "pointer" },
+          onclick: () => {
+            if (isDir) {
+              dirInput.value = path;
+              selectedDir = path;
+              loadDirListing(path);
+            } else {
+              fileInput.value = name;
+              selectedFile = name;
+            }
+          },
+          onmouseenter: (e) => { e.target.style.background = "var(--surface-2)"; },
+          onmouseleave: (e) => { e.target.style.background = ""; },
+        },
+          el("span", { style: { flexShrink: "0" } }, isDir ? "📁" : "📄"),
+          el("span", {}, name),
+        );
+        fileList.appendChild(row);
+      }
+    } catch (e) {
+      clear(fileList);
+      fileList.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_files", "Keine Dateien gefunden")));
+    }
   }
+
+  // Browse button
+  const browseBtn = el("button", {
+    class: "tc-btn tc-btn-sm",
+    onclick: () => {
+      loadDirListing(dirInput.value.trim());
+    },
+  }, t("ui.button.browse", "Browse"));
+
+  dirInput.addEventListener("input", () => { selectedDir = dirInput.value.trim(); });
+  fileInput.addEventListener("input", () => { selectedFile = fileInput.value.trim(); });
+
+  // Buttons
+  const cancelBtn = el("button", {
+    class: "tc-btn",
+    onclick: () => overlay.remove(),
+  }, t("ui.button.cancel", "Abbrechen"));
+
+  const confirmBtn = el("button", {
+    class: "tc-btn tc-btn-primary",
+    onclick: async () => {
+      const dir = dirInput.value.trim();
+      const file = fileInput.value.trim();
+      if (!file) {
+        toastError(t("ui.toast.save_failed", "Save failed"), t("ui.error.no_filename", "Kein Dateiname angegeben"));
+        return;
+      }
+      let fullPath = file;
+      if (dir) {
+        fullPath = dir.endsWith("/") ? dir + file : dir + "/" + file;
+      }
+      overlay.remove();
+      toast(t("ui.toast.saving", "Speichere..."), "", "info");
+      try {
+        const yamlText = draftYaml || stringifyYaml(draft);
+        const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText, path: fullPath });
+        toastSuccess(t("ui.toast.saved", "Config saved"), result?.path || fullPath);
+        loadPresets();
+      } catch (e) {
+        toastError(t("ui.toast.save_failed", "Save failed"), e.message || String(e));
+      }
+    },
+  }, t("ui.button.save", "Speichern"));
+
+  const modalBody = el("div", {
+    class: "tc-modal-body",
+    style: { padding: "16px 20px", overflow: "auto" },
+  });
+
+  modalBody.append(
+    el("div", { class: "tc-flex tc-gap-2 tc-items-center" },
+      el("span", { class: "tc-text-sm", style: { flexShrink: "0" } }, t("ui.label.directory", "Verzeichnis")),
+      dirInput,
+      browseBtn,
+    ),
+    fileList,
+    el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mt-2" },
+      el("span", { class: "tc-text-sm", style: { flexShrink: "0" } }, t("ui.label.filename", "Dateiname")),
+      fileInput,
+    ),
+  );
+
+  const modalFooter = el("div", {
+    class: "tc-modal-footer",
+    style: { padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: "8px", justifyContent: "flex-end" },
+  });
+  modalFooter.append(cancelBtn, confirmBtn);
+
+  modal.append(
+    el("div", { class: "tc-modal-header" },
+      el("div", { class: "tc-modal-title" }, t("ui.dialog.save_file", "Datei speichern unter")),
+    ),
+    modalBody,
+    modalFooter,
+  );
+
+  overlay.append(modal);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+
+  // Load initial directory listing
+  loadDirListing("");
 }
 
 function categoryItem(label, active = false) {

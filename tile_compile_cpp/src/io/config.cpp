@@ -637,9 +637,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto a = node["astrometry"];
     if (a["enabled"])
       cfg.astrometry.enabled = a["enabled"].as<bool>();
-    if (a["astap_bin"])
+    if (a["astap_bin"] && !a["astap_bin"].IsNull())
       cfg.astrometry.astap_bin = a["astap_bin"].as<std::string>();
-    if (a["astap_data_dir"])
+    if (a["astap_data_dir"] && !a["astap_data_dir"].IsNull())
       cfg.astrometry.astap_data_dir = a["astap_data_dir"].as<std::string>();
     if (a["search_radius"])
       cfg.astrometry.search_radius = a["search_radius"].as<int>();

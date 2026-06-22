@@ -93,12 +93,21 @@ export function createRunMonitorPage() {
   // Log viewer (component-based)
   const logViewer = createLogViewer();
 
-  page.append(control, runInfo, phases, resumePanel, stats, logViewer.wrapper);
+  // Warning banner — collects calibration/run warnings and shows them as a batch
+  const warningBanner = el("div", { id: "run-warning-banner", class: "tc-card", style: "display:none" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-gap-2" },
+      el("span", { class: "tc-badge tc-badge-warning" }, "⚠"),
+      el("span", {}, t("ui.title.warnings", "Warnungen")),
+    ),
+    el("div", { id: "run-warning-list", class: "tc-flex-col tc-gap-1" }),
+  );
+
+  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, logViewer.wrapper);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
     if (event.type === "ws:message") {
-      handleWsMessage(event.data, logViewer, phases);
+      handleWsMessage(event.data, logViewer, phases, warningBanner);
     } else if (event.type === "ws:open") {
       toast(t("ui.toast.ws_connected", "WebSocket verbunden"), "", "info");
     } else if (event.type === "ws:close") {
@@ -224,7 +233,7 @@ async function restoreCurrentRun() {
       updateInfo("info-run-name", runName);
       await refreshRunStatus(current.run_id);
       // Load existing logs from REST endpoint
-      await loadInitialLogs(current.run_id, logViewer);
+      await loadInitialLogs(current.run_id, logViewer, warningBanner);
       if (isRunning) {
         connectWebSocket(current.run_id, getResumeActive() || getResumePending());
         startPolling(current.run_id);
@@ -235,7 +244,7 @@ async function restoreCurrentRun() {
   } catch {}
 }
 
-async function loadInitialLogs(runId, logViewer) {
+async function loadInitialLogs(runId, logViewer, warningBanner) {
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId));
     if (!logs || !Array.isArray(logs.lines)) return;
@@ -243,11 +252,13 @@ async function loadInitialLogs(runId, logViewer) {
       let ts = formatTime();
       let level = "INFO";
       let text = "";
+      let evType = "";
       if (typeof line === "string") {
         try {
           const ev = JSON.parse(line);
           ts = ev.ts ? ev.ts.split("T")[1]?.replace("Z", "") || ev.ts : formatTime();
           level = (ev.type === "error" || ev.type === "warning") ? ev.type.toUpperCase() : "INFO";
+          evType = ev.type || "";
           text = formatEventMessage(ev);
         } catch {
           text = line;
@@ -255,6 +266,7 @@ async function loadInitialLogs(runId, logViewer) {
       } else {
         ts = line.ts || line.time || formatTime();
         level = line.level || "INFO";
+        evType = line.type || "";
         text = line.message || line.text || "";
       }
       if (logViewer) {
@@ -267,6 +279,10 @@ async function loadInitialLogs(runId, logViewer) {
         div.innerHTML = `<span class="tc-log-time">${ts}</span><span class="tc-log-level tc-log-level-${level}">${level}</span><span class="tc-log-msg">${text}</span>`;
         body.appendChild(div);
         body.scrollTop = body.scrollHeight;
+      }
+      // Feed warnings/errors into the warning banner
+      if (warningBanner && (evType === "warning" || evType === "error" || level === "WARNING" || level === "ERROR")) {
+        addRunWarning(warningBanner, text, evType === "error" || level === "ERROR" ? "error" : "warning");
       }
     }
   } catch {}
@@ -401,6 +417,7 @@ async function startRun() {
     };
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
+    clearRunWarnings();
     const result = await api.post(API_ENDPOINTS.runs.start, payload);
     const runId = result?.run_id || result?.id;
     if (runId) {
@@ -566,7 +583,7 @@ async function loadRevisionIntoEditor() {
   }
 }
 
-function handleWsMessage(data, logViewer, phases) {
+function handleWsMessage(data, logViewer, phases, warningBanner) {
   if (!data) return;
 
   const type = data.type || "";
@@ -580,10 +597,11 @@ function handleWsMessage(data, logViewer, phases) {
     logViewer.addLine(ts, level, msg);
   }
 
-  // Warning / error events also go to log
+  // Warning / error events also go to log and warning banner
   if (type === "warning" || type === "error") {
     const msg = payload.message || payload.text || data.message || data.text || JSON.stringify(payload);
     logViewer.addLine(data.ts || formatTime(), type.toUpperCase(), msg);
+    if (warningBanner) addRunWarning(warningBanner, msg, type);
   }
 
   // Phase events: phase_start, phase_progress, phase_end
@@ -720,6 +738,39 @@ function formatTime() {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
 
+const runWarnings = new Set();
+
+function addRunWarning(banner, msg, type) {
+  if (!msg || !banner) return;
+  const key = `${type}:${msg}`;
+  if (runWarnings.has(key)) return;
+  runWarnings.add(key);
+
+  const list = banner.querySelector("#run-warning-list");
+  if (!list) return;
+
+  const isError = type === "error";
+  const item = el("div", {
+    class: `tc-text-sm tc-flex tc-items-start tc-gap-2 ${isError ? "tc-text-error" : "tc-text-warning"}`,
+    style: "padding:4px 0",
+  },
+    el("span", { style: "flex-shrink:0" }, isError ? "✖" : "⚠"),
+    el("span", {}, msg),
+  );
+  list.appendChild(item);
+  banner.style.display = "";
+}
+
+function clearRunWarnings() {
+  runWarnings.clear();
+  const banner = document.getElementById("run-warning-banner");
+  if (banner) {
+    banner.style.display = "none";
+    const list = banner.querySelector("#run-warning-list");
+    if (list) list.innerHTML = "";
+  }
+}
+
 function injectCalibrationIntoYaml(yaml, cal) {
   if (!yaml || !cal) return yaml;
 
@@ -733,17 +784,32 @@ function injectCalibrationIntoYaml(yaml, cal) {
 
   const entries = [
     ["use_bias", cal.bias_enabled ? "true" : "false"],
-    ["bias_use_master", biasMaster ? "true" : "false"],
-    ["bias_dir", biasDir],
-    ["bias_master", biasMaster],
+    ...(cal.bias_enabled ? [
+      ["bias_use_master", biasMaster ? "true" : "false"],
+      ["bias_dir", biasDir],
+      ["bias_master", biasMaster],
+    ] : [
+      ["bias_dir", ""],
+      ["bias_master", ""],
+    ]),
     ["use_dark", cal.dark_enabled ? "true" : "false"],
-    ["dark_use_master", darkMaster ? "true" : "false"],
-    ["darks_dir", darkDir],
-    ["dark_master", darkMaster],
+    ...(cal.dark_enabled ? [
+      ["dark_use_master", darkMaster ? "true" : "false"],
+      ["darks_dir", darkDir],
+      ["dark_master", darkMaster],
+    ] : [
+      ["darks_dir", ""],
+      ["dark_master", ""],
+    ]),
     ["use_flat", cal.flat_enabled ? "true" : "false"],
-    ["flat_use_master", flatMaster ? "true" : "false"],
-    ["flats_dir", flatDir],
-    ["flat_master", flatMaster],
+    ...(cal.flat_enabled ? [
+      ["flat_use_master", flatMaster ? "true" : "false"],
+      ["flats_dir", flatDir],
+      ["flat_master", flatMaster],
+    ] : [
+      ["flats_dir", ""],
+      ["flat_master", ""],
+    ]),
   ];
 
   for (const [yamlKey, rawVal] of entries) {

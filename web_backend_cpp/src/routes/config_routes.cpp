@@ -409,10 +409,13 @@ void register_config_routes(CrowApp& app,
         }
         if (!fs::is_directory(presets_dir)) return json_resp({{"items", items}, {"dir", presets_dir.string()}, {"fallback_used", fallback_used}});
         for (auto& entry : fs::directory_iterator(presets_dir)) {
-            if (!entry.is_regular_file()) continue;
-            std::string ext = entry.path().extension().string();
-            if (ext != ".yaml" && ext != ".yml") continue;
-            items.push_back({{"id", entry.path().stem().string()}, {"name", entry.path().filename().string()}, {"path", entry.path().string()}});
+            if (entry.is_directory()) {
+                items.push_back({{"id", entry.path().filename().string()}, {"name", entry.path().filename().string()}, {"path", entry.path().string()}, {"is_dir", true}});
+            } else if (entry.is_regular_file()) {
+                std::string ext = entry.path().extension().string();
+                if (ext != ".yaml" && ext != ".yml") continue;
+                items.push_back({{"id", entry.path().stem().string()}, {"name", entry.path().filename().string()}, {"path", entry.path().string()}, {"is_dir", false}});
+            }
         }
         return json_resp({{"items", items}, {"dir", presets_dir.string()}, {"fallback_used", fallback_used}});
     });
