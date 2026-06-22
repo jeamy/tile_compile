@@ -84,10 +84,14 @@ void register_app_state_routes(CrowApp& app,
 
         nlohmann::json current_run = nlohmann::json::object();
         if (!current_run_id.empty()) {
+            const auto job = latest_run_job(state->job_store, current_run_id);
+            std::string alt_runs_dir;
+            if (job && job->data.is_object()) {
+                alt_runs_dir = job->data.value("runs_dir", "");
+            }
             try {
-                auto run_dir    = rt.resolve_run_dir(current_run_id);
+                auto run_dir    = rt.resolve_run_dir(current_run_id, alt_runs_dir);
                 auto run_status = read_run_status(run_dir);
-                const auto job = latest_run_job(state->job_store, current_run_id);
                 apply_job_state_to_run_status(run_status, job);
                 apply_runtime_liveness_to_run_status(run_status, job, rt.runner_exe, current_run_id, run_dir.string());
                 current_run = {
@@ -99,7 +103,6 @@ void register_app_state_routes(CrowApp& app,
                 };
             } catch (...) {
                 current_run = {{"run_id", current_run_id}, {"status", "unknown"}};
-                const auto job = latest_run_job(state->job_store, current_run_id);
                 apply_job_state_to_run_status(current_run, job);
                 apply_runtime_liveness_to_run_status(current_run, job, rt.runner_exe, current_run_id, std::string());
             }
