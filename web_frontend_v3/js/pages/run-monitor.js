@@ -385,6 +385,12 @@ async function startRun() {
       configYaml = injectSirilCatalogDir(configYaml, pccCatalogDir);
     }
 
+    // Inject calibration settings from Input & Scan tab into config YAML
+    const calValues = inputStore.getState().calValues || {};
+    if (configYaml && calValues && Object.keys(calValues).length > 0) {
+      configYaml = injectCalibrationIntoYaml(configYaml, calValues);
+    }
+
     const payload = {
       input_dir: sd.input_dir || "",
       runs_dir: sd.runs_dir || "",
@@ -712,6 +718,30 @@ function updateInfo(id, value) {
 function formatTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
+
+function injectCalibrationIntoYaml(yaml, cal) {
+  if (!yaml || !cal) return yaml;
+  const replacements = [
+    { key: "use_bias", yamlKey: "use_bias", val: cal.bias_enabled },
+    { key: "bias_dir", yamlKey: "bias_dir", val: cal.bias_dir },
+    { key: "bias_master", yamlKey: "bias_master", val: cal.bias_master },
+    { key: "use_dark", yamlKey: "use_dark", val: cal.dark_enabled },
+    { key: "darks_dir", yamlKey: "darks_dir", val: cal.dark_dir },
+    { key: "dark_master", yamlKey: "dark_master", val: cal.dark_master },
+    { key: "use_flat", yamlKey: "use_flat", val: cal.flat_enabled },
+    { key: "flats_dir", yamlKey: "flats_dir", val: cal.flat_dir },
+    { key: "flat_master", yamlKey: "flat_master", val: cal.flat_master },
+  ];
+  for (const { key, yamlKey, val } of replacements) {
+    if (val === undefined || val === null) continue;
+    const strVal = typeof val === "string" ? `"${val}"` : String(val);
+    const regex = new RegExp(`^(\\s*)${yamlKey}:\\s*.*$`, "m");
+    if (regex.test(yaml)) {
+      yaml = yaml.replace(regex, `$1${yamlKey}: ${strVal}`);
+    }
+  }
+  return yaml;
 }
 
 function injectSirilCatalogDir(yaml, catalogDir) {
