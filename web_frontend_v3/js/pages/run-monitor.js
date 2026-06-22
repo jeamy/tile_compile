@@ -722,26 +722,51 @@ function formatTime() {
 
 function injectCalibrationIntoYaml(yaml, cal) {
   if (!yaml || !cal) return yaml;
-  const replacements = [
-    { key: "use_bias", yamlKey: "use_bias", val: cal.bias_enabled },
-    { key: "bias_dir", yamlKey: "bias_dir", val: cal.bias_dir },
-    { key: "bias_master", yamlKey: "bias_master", val: cal.bias_master },
-    { key: "use_dark", yamlKey: "use_dark", val: cal.dark_enabled },
-    { key: "darks_dir", yamlKey: "darks_dir", val: cal.dark_dir },
-    { key: "dark_master", yamlKey: "dark_master", val: cal.dark_master },
-    { key: "use_flat", yamlKey: "use_flat", val: cal.flat_enabled },
-    { key: "flats_dir", yamlKey: "flats_dir", val: cal.flat_dir },
-    { key: "flat_master", yamlKey: "flat_master", val: cal.flat_master },
+
+  // Determine effective values: prefer master over dir when both set
+  const biasMaster = cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "";
+  const biasDir = biasMaster ? "" : (cal.bias_dir || "");
+  const darkMaster = cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "";
+  const darkDir = darkMaster ? "" : (cal.dark_dir || "");
+  const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
+  const flatDir = flatMaster ? "" : (cal.flat_dir || "");
+
+  const entries = [
+    ["use_bias", cal.bias_enabled ? "true" : "false"],
+    ["bias_use_master", biasMaster ? "true" : "false"],
+    ["bias_dir", biasDir],
+    ["bias_master", biasMaster],
+    ["use_dark", cal.dark_enabled ? "true" : "false"],
+    ["dark_use_master", darkMaster ? "true" : "false"],
+    ["darks_dir", darkDir],
+    ["dark_master", darkMaster],
+    ["use_flat", cal.flat_enabled ? "true" : "false"],
+    ["flat_use_master", flatMaster ? "true" : "false"],
+    ["flats_dir", flatDir],
+    ["flat_master", flatMaster],
   ];
-  for (const { key, yamlKey, val } of replacements) {
-    if (val === undefined || val === null) continue;
-    const strVal = typeof val === "string" ? `"${val}"` : String(val);
-    const regex = new RegExp(`^(\\s*)${yamlKey}:\\s*.*$`, "m");
-    if (regex.test(yaml)) {
-      yaml = yaml.replace(regex, `$1${yamlKey}: ${strVal}`);
+
+  for (const [yamlKey, rawVal] of entries) {
+    if (rawVal === undefined || rawVal === null) continue;
+    const strVal = typeof rawVal === "string" ? `"${rawVal}"` : String(rawVal);
+    const replaceRegex = new RegExp(`^(\\s*)${yamlKey}:\\s*.*$`, "m");
+    if (replaceRegex.test(yaml)) {
+      yaml = yaml.replace(replaceRegex, `$1${yamlKey}: ${strVal}`);
+    } else {
+      // Key doesn't exist yet — insert under calibration: section
+      yaml = insertKeyUnderSection(yaml, "calibration", yamlKey, strVal);
     }
   }
   return yaml;
+}
+
+function insertKeyUnderSection(yaml, section, key, value) {
+  const sectionRegex = new RegExp(`^(${section}:\\s*\\n)`, "m");
+  if (sectionRegex.test(yaml)) {
+    return yaml.replace(sectionRegex, `$1  ${key}: ${value}\n`);
+  }
+  // Section doesn't exist — append it
+  return yaml + `\n${section}:\n  ${key}: ${value}\n`;
 }
 
 function injectSirilCatalogDir(yaml, catalogDir) {

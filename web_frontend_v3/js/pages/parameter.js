@@ -334,22 +334,35 @@ function syncCalibrationToDraft() {
   if (!cal || Object.keys(cal).length === 0) return;
   const { draft } = getConfigState();
   if (!draft) return;
-  const mapping = [
-    { calKey: "bias_enabled", path: "calibration.use_bias" },
-    { calKey: "bias_dir", path: "calibration.bias_dir" },
-    { calKey: "bias_master", path: "calibration.bias_master" },
-    { calKey: "dark_enabled", path: "calibration.use_dark" },
-    { calKey: "dark_dir", path: "calibration.darks_dir" },
-    { calKey: "dark_master", path: "calibration.dark_master" },
-    { calKey: "flat_enabled", path: "calibration.use_flat" },
-    { calKey: "flat_dir", path: "calibration.flats_dir" },
-    { calKey: "flat_master", path: "calibration.flat_master" },
+
+  // Prefer master over dir when both set
+  const biasMaster = cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "";
+  const biasDir = biasMaster ? "" : (cal.bias_dir || "");
+  const darkMaster = cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "";
+  const darkDir = darkMaster ? "" : (cal.dark_dir || "");
+  const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
+  const flatDir = flatMaster ? "" : (cal.flat_dir || "");
+
+  const entries = [
+    ["calibration.use_bias", cal.bias_enabled ?? false],
+    ["calibration.bias_use_master", !!biasMaster],
+    ["calibration.bias_dir", biasDir],
+    ["calibration.bias_master", biasMaster],
+    ["calibration.use_dark", cal.dark_enabled ?? false],
+    ["calibration.dark_use_master", !!darkMaster],
+    ["calibration.darks_dir", darkDir],
+    ["calibration.dark_master", darkMaster],
+    ["calibration.use_flat", cal.flat_enabled ?? false],
+    ["calibration.flat_use_master", !!flatMaster],
+    ["calibration.flats_dir", flatDir],
+    ["calibration.flat_master", flatMaster],
   ];
+
   let changed = false;
-  for (const { calKey, path } of mapping) {
-    if (cal[calKey] === undefined || cal[calKey] === null) continue;
-    if (cal[calKey] === "") continue;
-    setConfigValue(draft, path, cal[calKey]);
+  for (const [path, val] of entries) {
+    if (val === undefined || val === null) continue;
+    if (val === "") continue;
+    setConfigValue(draft, path, val);
     changed = true;
   }
   if (changed) {
