@@ -14,6 +14,7 @@ import { parseYaml } from "../utils/yaml-parse.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
+import { getStore } from "../state/store.js";
 
 export function createParameterPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -148,6 +149,8 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
     await loadSchema();
   }
   await loadConfig();
+  // Sync calibration values from Input & Scan tab into config draft
+  syncCalibrationToDraft();
   renderCategories();
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
@@ -323,6 +326,36 @@ function showExplainForPath(path, fieldSchema) {
     deprecated: Boolean(fieldSchema?.deprecated),
   };
   updateExplainPanel(entry);
+}
+
+function syncCalibrationToDraft() {
+  const inputStore = getStore("input-scan", { calValues: {} });
+  const cal = inputStore.getState().calValues;
+  if (!cal || Object.keys(cal).length === 0) return;
+  const { draft } = getConfigState();
+  if (!draft) return;
+  const mapping = [
+    { calKey: "bias_enabled", path: "calibration.use_bias" },
+    { calKey: "bias_dir", path: "calibration.bias_dir" },
+    { calKey: "bias_master", path: "calibration.bias_master" },
+    { calKey: "dark_enabled", path: "calibration.use_dark" },
+    { calKey: "dark_dir", path: "calibration.darks_dir" },
+    { calKey: "dark_master", path: "calibration.dark_master" },
+    { calKey: "flat_enabled", path: "calibration.use_flat" },
+    { calKey: "flat_dir", path: "calibration.flats_dir" },
+    { calKey: "flat_master", path: "calibration.flat_master" },
+  ];
+  let changed = false;
+  for (const { calKey, path } of mapping) {
+    if (cal[calKey] === undefined || cal[calKey] === null) continue;
+    if (cal[calKey] === "") continue;
+    setConfigValue(draft, path, cal[calKey]);
+    changed = true;
+  }
+  if (changed) {
+    markDirty();
+    setConfigState({ draft, draftYaml: stringifyYaml(draft) });
+  }
 }
 
 function setConfigValue(obj, path, value) {
