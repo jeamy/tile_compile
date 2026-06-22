@@ -475,6 +475,12 @@ while time.time() < deadline:
     except Exception:
         time.sleep(1)
 else:
+    import sys
+    try:
+        with open("/tmp/out_gui3_smoke_macos.txt") as f:
+            print(f.read(), file=sys.stderr)
+    except Exception:
+        pass
     raise SystemExit("backend smoke test failed")
 
 payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")

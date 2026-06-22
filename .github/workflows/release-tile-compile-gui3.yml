@@ -260,6 +260,12 @@ jobs:
               except Exception:
                   time.sleep(1)
           else:
+              import sys
+              try:
+                  with open("/tmp/out_gui3_smoke_linux.txt") as f:
+                      print(f.read(), file=sys.stderr)
+              except Exception:
+                  pass
               raise SystemExit("backend smoke test failed")
 
           payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
@@ -307,6 +313,12 @@ jobs:
               except Exception:
                   time.sleep(1)
           else:
+              import sys
+              try:
+                  with open("/tmp/out_gui3_smoke_linux_appimage.txt") as f:
+                      print(f.read(), file=sys.stderr)
+              except Exception:
+                  pass
               raise SystemExit("appimage smoke test failed")
           PY
           kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
@@ -495,7 +507,8 @@ jobs:
           $env:TILE_COMPILE_GUI3_NO_BROWSER = "1"
           $env:TILE_COMPILE_AI_AGENT_AUTOSTART = "0"
           $startScript = Join-Path $root "start_gui3.ps1"
-          $launcher = Start-Process -FilePath "powershell" -ArgumentList @("-ExecutionPolicy","Bypass","-File",$startScript) -PassThru
+          $logFile = Join-Path $PWD "smoke-home-windows\gui3_smoke.txt"
+          $launcher = Start-Process -FilePath "powershell" -ArgumentList @("-ExecutionPolicy","Bypass","-File",$startScript) -PassThru -RedirectStandardOutput $logFile -RedirectStandardError (Join-Path $PWD "smoke-home-windows\gui3_smoke_err.txt")
           $deadline = (Get-Date).AddSeconds(90)
           $ok = $false
           while ((Get-Date) -lt $deadline) {
@@ -509,6 +522,15 @@ jobs:
             Start-Sleep -Seconds 1
           }
           if (-not $ok) {
+            if (Test-Path $logFile) {
+              Write-Host "=== Backend output ===" -ForegroundColor Yellow
+              Get-Content $logFile | ForEach-Object { Write-Host $_ }
+            }
+            $errFile = Join-Path $PWD "smoke-home-windows\gui3_smoke_err.txt"
+            if (Test-Path $errFile) {
+              Write-Host "=== Backend stderr ===" -ForegroundColor Yellow
+              Get-Content $errFile | ForEach-Object { Write-Host $_ }
+            }
             throw "backend smoke test failed"
           }
           if ($launcher -and -not $launcher.HasExited) {

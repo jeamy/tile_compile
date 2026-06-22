@@ -276,8 +276,10 @@ run_backend_foreground() {
   if [[ "${exit_code}" -ne 0 ]]; then
     log ""
     log "Backend wurde mit Exit-Code ${exit_code} beendet."
-    log "Druecke Enter zum Schliessen..."
-    read -r
+    if [[ -t 0 ]]; then
+      log "Druecke Enter zum Schliessen..."
+      read -r
+    fi
   fi
   
   return "${exit_code}"
