@@ -8,6 +8,7 @@
 # - Balanced autotune strategy with higher flatness weight
 # - Optimized for strong gradients while preserving nebulosity structure
 
+method: aqmh
 run_dir: ./run_ic434_test
 log_level: info
 
@@ -21,6 +22,10 @@ output:
   crop_to_nonzero_bbox: true
 
 data:
+  color_mode: OSC
+  bayer_pattern: RGGB
+  image_width: 0
+  image_height: 0
   linear_required: true
 
 input:
@@ -140,8 +145,11 @@ global_metrics:
   weight_exponent_scale: 1.2
   weights:
     background: 0.40
+    fwhm: 0.0
     noise: 0.35
     gradient: 0.25
+    roundness: 0.0
+    star_count: 0.0
   clamp: [-3.0, 3.0]
 
 tile:
@@ -150,9 +158,20 @@ tile:
   max_divisor: 6
   overlap_fraction: 0.30
   star_min_count: 5
+  star_soft_count: 3
 
 local_metrics:
   clamp: [-3.0, 3.0]
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6
@@ -193,6 +212,7 @@ astrometry:
 
 bge:
   enabled: false
+  tile_weight_lambda_structure: 1.0
   
   # Autotune: Balanced strategy with emphasis on flatness
   autotune:
@@ -336,3 +356,4 @@ runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
   allow_emergency_mode: true
+  tile_reconstruction_diagnostics: full

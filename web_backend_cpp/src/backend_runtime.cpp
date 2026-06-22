@@ -286,8 +286,22 @@ bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& r
 /// @brief Resolves run dir.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-fs::path BackendRuntime::resolve_run_dir(const std::string& run_id) const {
+fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::string& alt_runs_dir) const {
     if (run_id.empty()) throw std::invalid_argument("run_id is empty");
+    // Try alt_runs_dir first if provided (e.g. from job data for custom runs_dir)
+    if (!alt_runs_dir.empty()) {
+        fs::path alt_candidate = fs::path(alt_runs_dir) / run_id;
+        if (fs::is_directory(alt_candidate)) return alt_candidate;
+        std::error_code ec;
+        if (fs::is_directory(alt_runs_dir, ec)) {
+            for (auto& entry : fs::directory_iterator(alt_runs_dir)) {
+                if (!entry.is_directory()) continue;
+                std::string name = entry.path().filename().string();
+                if (name == run_id || name.find(run_id) == 0)
+                    return entry.path();
+            }
+        }
+    }
     fs::path candidate = runs_dir / run_id;
     if (fs::is_directory(candidate)) return candidate;
     for (auto& entry : fs::directory_iterator(runs_dir)) {

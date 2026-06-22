@@ -884,10 +884,14 @@ void register_runs_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/runs/<string>/status").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
         run_id = decode_run_id_param(run_id);
+        const auto job = latest_run_job(state->job_store, run_id);
+        std::string alt_runs_dir;
+        if (job && job->data.is_object()) {
+            alt_runs_dir = job->data.value("runs_dir", "");
+        }
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            auto run_dir = state->runtime.resolve_run_dir(run_id, alt_runs_dir);
             auto status  = read_run_status(run_dir);
-            const auto job = latest_run_job(state->job_store, run_id);
             apply_job_state_to_run_status(status, job);
             apply_runtime_liveness_to_run_status(status, job, state->runtime.runner_exe, run_id, run_dir.string());
             return json_resp({

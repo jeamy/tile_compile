@@ -147,7 +147,7 @@ AiConfig default_ai_config(const BackendRuntime& runtime) {
     if (slash != std::string::npos) config.provider = config.model.substr(0, slash);
     config.temperature = env_double("AI_SCAN_TEMPERATURE", 0.0, 0.0, 2.0);
     config.max_tokens = env_int("AI_SCAN_MAX_TOKENS", 8000, 1, 200000);
-    config.timeout_ms = env_int("AI_SCAN_TIMEOUT_MS", 120000, 1000, 600000);
+    config.timeout_ms = env_int("AI_SCAN_TIMEOUT_MS", 600000, 1000, 1200000);
     config.sidecar_url = env_string("AI_AGENT_URL", "http://127.0.0.1:3001");
     (void)runtime;
     return config;
@@ -177,7 +177,7 @@ AiConfig ai_config_from_json(const nlohmann::json& value, const BackendRuntime& 
     config.model = json_string_field(value, "model", config.model);
     config.temperature = json_double_field(value, "temperature", config.temperature, 0.0, 2.0);
     config.max_tokens = json_int_field(value, "max_tokens", config.max_tokens, 1, 200000);
-    config.timeout_ms = json_int_field(value, "timeout_ms", config.timeout_ms, 1000, 600000);
+    config.timeout_ms = json_int_field(value, "timeout_ms", config.timeout_ms, 1000, 1200000);
     config.send_paths = json_bool_field(value, "send_paths", config.send_paths);
     config.persist_recommendations = json_bool_field(value, "persist_recommendations", config.persist_recommendations);
     config.sidecar_url = json_string_field(value, "sidecar_url", config.sidecar_url);

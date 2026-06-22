@@ -2071,6 +2071,7 @@ bool run_phase_registration_prewarp(
   int reg_reject_shift_outliers = 0;
   int reg_reject_low_cc_protected = 0;
   int reg_reject_deep_chain_outliers = 0;
+  int reg_meridian_flip_detected = 0;
   core::json reg_rejected_frames = core::json::array();
   std::vector<uint8_t> reg_rejected_mask(frames.size(), 0);
   if (cfg.registration.reject_outliers) {
@@ -2155,6 +2156,26 @@ bool run_phase_registration_prewarp(
     VectorXf trend_coeffs(3);
     trend_coeffs.setZero();
     if (have_orientation_trend) {
+      // Meridian-flip normalization: if a subset of anchors is ~pi offset
+      // from the majority (180° rotation from a meridian flip), align them
+      // so the polynomial fit sees a continuous curve.  Without this, the
+      // fit would try to interpolate between the two clusters and produce
+      // a meaningless trend that rejects all pre-flip frames.
+      const float median_ang = robust_median(trend_ang_anchors);
+      constexpr float kPi = 3.14159265358979323846f;
+      int flip_anchors = 0;
+      for (auto &ang : trend_ang_anchors) {
+        const float offset = std::remainder(ang - median_ang, 2.0f * kPi);
+        if (std::fabs(offset) > 0.75f * kPi) {
+          ang += (offset > 0.0f ? -kPi : kPi);
+          ++flip_anchors;
+        }
+      }
+      if (flip_anchors > 0) {
+        std::cout << "[REG-FILTER] meridian-flip normalization: aligned "
+                  << flip_anchors << " anchor(s) by 180° for trend fit"
+                  << std::endl;
+      }
       // Unwrap so the fit sees a continuous curve (no 2pi jumps).
       const std::vector<float> trend_ang_unwrapped =
           unwrap_angle_sequence(trend_ang_anchors);
@@ -2239,6 +2260,13 @@ bool run_phase_registration_prewarp(
       // This catches frames that would otherwise slip past the shift-outlier
       // guard when the half-turn median is polluted by a locally dense
       // cluster of false solutions.
+      //
+      // Exception: a deviation of ~180° indicates a meridian flip, which is
+      // a legitimate physical event.  The flip-corrected trend fit should
+      // already align pre-flip anchors, but frames registered independently
+      // may still show ~180° residual.  Accept these and let the shift
+      // check (which uses half_turn_shift_limit for half-turn-family warps)
+      // catch genuinely false matches.
       if (!reject && have_orientation_trend) {
         const float ang_rad = std::atan2(w(0, 1), w(0, 0));
         const float predicted_rad = predicted_trend_angle_rad(fi);
@@ -2254,9 +2282,16 @@ bool run_phase_registration_prewarp(
         }
         const float diff_deg = std::fabs(diff) * 57.29577951f;
         if (diff_deg > kOrientationTrendDeviationDeg) {
-          reject = true;
-          ++reg_reject_orientation_outliers;
-          reject_reasons.push_back("orientation_trend");
+          // Check if this is a legitimate meridian flip (~180° offset).
+          constexpr float kMeridianFlipToleranceDeg = 15.0f;
+          const float flip_residual = std::fabs(diff_deg - 180.0f);
+          if (flip_residual < kMeridianFlipToleranceDeg) {
+            ++reg_meridian_flip_detected;
+          } else {
+            reject = true;
+            ++reg_reject_orientation_outliers;
+            reject_reasons.push_back("orientation_trend");
+          }
         }
       }
 
@@ -2894,7 +2929,8 @@ bool run_phase_registration_prewarp(
       reg_reject_cc_outliers > 0 ||
       reg_reject_shift_outliers > 0 ||
       reg_reject_low_cc_protected > 0 ||
-      reg_reject_deep_chain_outliers > 0) {
+      reg_reject_deep_chain_outliers > 0 ||
+      reg_meridian_flip_detected > 0) {
     std::cout << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
               << " reflection=" << reg_reject_reflection_outliers
@@ -2903,6 +2939,7 @@ bool run_phase_registration_prewarp(
               << " shift=" << reg_reject_shift_outliers
               << " deep_chain=" << reg_reject_deep_chain_outliers
               << " low_cc_protected=" << reg_reject_low_cc_protected
+              << " meridian_flip_detected=" << reg_meridian_flip_detected
               << std::endl;
   }
   global_reg_extra["diag"]["reg_reject_orientation_outliers"] =
@@ -2914,6 +2951,7 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
   global_reg_extra["diag"]["reg_reject_low_cc_protected"] = reg_reject_low_cc_protected;
   global_reg_extra["diag"]["reg_reject_deep_chain_outliers"] = reg_reject_deep_chain_outliers;
+  global_reg_extra["diag"]["reg_meridian_flip_detected"] = reg_meridian_flip_detected;
   global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
   global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
 

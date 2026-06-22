@@ -628,6 +628,20 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 
 ## Versions
 
+## v0.3.5 (2026-06-22)
+
+**GUI v3 – New Web Frontend:**
+- New web frontend (v3) with improved Parameter Studio, Run Monitor, and Input & Scan tab.
+- "Save As" dialog with directory browser: save file to selectable directory and filename via modal dialog.
+- Warning banner in Run Monitor prominently displays warnings and errors during runs.
+- Calibration gain mismatch: Dark/Flat calibration with mismatched gain now produces a warning instead of aborting.
+
+**Astrometry Fix:**
+- YAML `~` (null) for `astap_bin` was incorrectly parsed as string "null", causing ASTAP not to be found. Fix: null values are correctly treated as empty string, allowing the default path to be used.
+
+## v0.3.4 (2026-06-16)
+- Bug fixes
+
 ## v0.3.3 (2026-06-16)
 
 **PI – AI-assisted configuration recommendations:**
@@ -870,6 +884,16 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 - First public release
 
 ## Changelog
+
+### (2026-06-22)
+
+**GUI v3, calibration improvements, astrometry fix (`v0.3.5`):**
+
+- **New web frontend (v3):** Improved Parameter Studio, Run Monitor, and Input & Scan tab with modern UI components.
+- **"Save As" dialog with directory browser:** Modal dialog to select directory and filename for saving config files. Backend `/api/config/presets` now returns subdirectories (`is_dir` field) alongside YAML files.
+- **Calibration gain mismatch:** Dark/Flat calibration with mismatched gain now produces a warning instead of aborting the run. `select_dark_inputs` falls back to all available darks when no exact match is found.
+- **Warning banner in Run Monitor:** Warnings and errors from the runner are prominently displayed in a dedicated banner during runs.
+- **Astrometry fix:** YAML `~` (null) for `astap_bin` was incorrectly parsed as string `"null"` by yaml-cpp, causing `fs::exists("null")` to fail and ASTAP to be reported as "not found". Fix: `IsNull()` check added before parsing `astap_bin` and `astap_data_dir` in `config.cpp`, so null values are treated as empty string and the default path (`astap_data_dir/astap_cli`) is used.
 
 ### (2026-06-20)
 

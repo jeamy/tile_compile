@@ -138,8 +138,12 @@ start_agent_service() {
     fi
   fi
   log "Starte PI AI sidecar."
+  # Use clean LD_LIBRARY_PATH for node so it uses system libraries, not bundled ones
+  local saved_ld_lp="${LD_LIBRARY_PATH:-}"
+  unset LD_LIBRARY_PATH
   npm --prefix "${agent_dir}" start &
   AI_AGENT_PID=$!
+  export LD_LIBRARY_PATH="${saved_ld_lp}"
   trap cleanup_agent_service EXIT INT TERM
 }
 
@@ -262,8 +266,10 @@ run_backend_foreground() {
   if [[ "${exit_code}" -ne 0 ]]; then
     log ""
     log "Backend wurde mit Exit-Code ${exit_code} beendet."
-    log "Druecke Enter zum Schliessen..."
-    read -r
+    if [[ -t 0 ]]; then
+      log "Druecke Enter zum Schliessen..."
+      read -r
+    fi
   fi
   
   return "${exit_code}"

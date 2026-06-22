@@ -1,3 +1,4 @@
+method: aqmh
 run_dir: ./run_m104_altaz_rotation_poor_seeing
 log_level: info
 
@@ -23,6 +24,9 @@ output:
 
 data:
   color_mode: OSC
+  bayer_pattern: RGGB
+  image_width: 0
+  image_height: 0
   linear_required: true
 
 input:
@@ -100,13 +104,25 @@ global_metrics:
   weight_exponent_scale: 1.3
   weights:
     background: 0.40
+    fwhm: 0.0
     noise: 0.35
     gradient: 0.25
+    roundness: 0.0
+    star_count: 0.0
   clamp: [-2.5, 2.5]
 
 local_metrics:
   clamp: [-3.0, 3.0]
   k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6
@@ -122,6 +138,7 @@ tile:
   max_divisor: 6
   overlap_fraction: 0.30
   star_min_count: 5
+  star_soft_count: 3
 
 synthetic:
   weighting: tile_weighted
@@ -268,6 +285,8 @@ aqmh:
 
 stacking:
   method: rej
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   sigma_clip:
     sigma_low: 3.0
     sigma_high: 2.0  # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
@@ -291,6 +310,7 @@ runtime_limits:
   memory_budget: 2048
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
+  tile_reconstruction_diagnostics: full
 
 validation:
   max_background_rms_increase_percent: 2

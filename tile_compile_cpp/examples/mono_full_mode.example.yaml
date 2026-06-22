@@ -2,6 +2,7 @@
 # Zielzustand: MONO-Datensatz mit N_usable >= assumptions.frames_reduced_threshold
 # Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.
 
+method: aqmh
 run_dir: ./run_mono_full_mode
 log_level: info # trace|debug|info|warn|error
 
@@ -154,8 +155,11 @@ global_metrics:
   weight_exponent_scale: 1.8 # k in G_f = exp(k*Q_f)
   weights:
     background: 0.4 # Gewicht fuer Hintergrundmetrik
+    fwhm: 0.0
     noise: 0.3 # Gewicht fuer Rauschmetrik
     gradient: 0.30 # Gewicht fuer Struktur/Gradientenenergie
+    roundness: 0.0
+    star_count: 0.0
   clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
 
 tile:
@@ -164,9 +168,20 @@ tile:
   max_divisor: 6 # Begrenzung der Tileunterteilung
   overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
   star_min_count: 8 # Schwelle fuer star tile Klassifikation
+  star_soft_count: 4
 
 local_metrics:
   clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: false
+    radius: 0
+    blend: 0.0
+  spatial_regularization:
+    enabled: false
+    lambda: 0.0
+    passes: 0
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6 # Gewicht Stern-FWHM
@@ -195,6 +210,7 @@ astrometry:
 
 bge:
   enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
+  tile_weight_lambda_structure: 1.0
   autotune:
     enabled: false # optionales deterministisches BGE-Autotuning (v3.3.6 §6.3.7)
     strategy: conservative # conservative | extended
@@ -248,6 +264,11 @@ pcc:
   annulus_outer_fwhm_mult: 5.0
   min_aperture_px: 4.0
   siril_catalog_dir: "" # leer => Standardkatalogpfad
+  apply_attenuation: true
+  chroma_strength: 0.7
+  k_max: 2.4
+  max_condition_number: 3
+  max_residual_rms: 0.5
 
 hypermetric_stretch:
   enabled: true # VeraLux HMS nach PCC; erzeugt outputs/stacked_rgb_hms.fits
@@ -293,6 +314,8 @@ aqmh:
 
 stacking:
   method: rej # rej|average
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   sigma_clip:
     sigma_low: 2.0 # Hintergrundrauschen breit halten
     sigma_high: 1.5 # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
@@ -322,3 +345,4 @@ runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: false # Full-Mode-Profil: kein Emergency-Override
+  tile_reconstruction_diagnostics: full

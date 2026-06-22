@@ -156,6 +156,7 @@ size_t count_existing_event_lines(const fs::path& run_dir) {
 struct RunWsContext {
     std::shared_ptr<AppState> state;
     std::string run_id;
+    std::string alt_runs_dir;
     std::atomic<bool> stop{false};
     size_t cursor{0};
     std::string last_terminal_state;
@@ -266,8 +267,13 @@ std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& stat
     auto ctx = std::make_shared<RunWsContext>();
     ctx->state = state;
     ctx->run_id = run_id;
+    // Get alt_runs_dir from job data so we can find runs in custom runs_dir locations
+    const auto job = latest_run_job(state->job_store, run_id);
+    if (job && job->data.is_object()) {
+        ctx->alt_runs_dir = job->data.value("runs_dir", "");
+    }
     try {
-        const fs::path run_dir = state->runtime.resolve_run_dir(run_id);
+        const fs::path run_dir = state->runtime.resolve_run_dir(run_id, ctx->alt_runs_dir);
         // Stream only events appended after the websocket is opened.
         // Historical logs are loaded via the REST endpoints and replaying old
         // terminal events breaks resume monitoring by closing the fresh stream.
@@ -382,7 +388,7 @@ bool send_json(crow::websocket::connection& conn, const json& j) {
 void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsContext>& ctx) {
     while (!ctx->stop.load()) {
         try {
-            const auto run_dir = ctx->state->runtime.resolve_run_dir(ctx->run_id);
+            const auto run_dir = ctx->state->runtime.resolve_run_dir(ctx->run_id, ctx->alt_runs_dir);
             const auto event_file = find_event_file(run_dir);
             if (!event_file.empty()) {
                 std::ifstream in(event_file);

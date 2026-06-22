@@ -1,0 +1,78 @@
+/* css/tokens.css – Design-Tokens (Colors, Spacing, Typography) */
+
+/* Light Theme (Default) */
+:root {
+  --bg:           #ffffff;
+  --bg-page:      #eef4fa;
+  --bg-page-2:    #dde8f2;
+  --surface:      #ffffff;
+  --surface-2:    #f8fafb;
+  --foreground:   #1b2737;
+  --muted:        #5d7087;
+  --primary:      #15808d;
+  --primary-soft: #d9f0f3;
+  --border:       #cfdbe7;
+  --success:      #166534;
+  --success-bg:   #dff7e8;
+  --warning:      #92400e;
+  --warning-bg:   #fef3c7;
+  --error:        #991b1b;
+  --error-bg:     #fee2e2;
+  --info:         #1d4ed8;
+  --info-bg:      #dbeafe;
+
+  --radius:       12px;
+  --radius-sm:    8px;
+  --radius-lg:    16px;
+
+  --font-ui:      "Inter", system-ui, -apple-system, sans-serif;
+  --font-title:   "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", "Fira Code", "Courier New", monospace;
+
+  --text-xs:      12px;
+  --text-sm:      14px;
+  --text-base:    16px;
+  --text-lg:      18px;
+  --text-xl:      20px;
+  --text-2xl:     24px;
+
+  --space-1:      4px;
+  --space-2:      8px;
+  --space-3:      12px;
+  --space-4:      16px;
+  --space-5:      20px;
+  --space-6:      24px;
+  --space-8:      32px;
+
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.05);
+  --shadow:       0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg:    0 8px 24px rgba(0,0,0,0.12);
+
+  --transition:   150ms ease;
+}
+
+/* Dark Theme */
+html[data-theme="dark"] {
+  --bg:           #0f172a;
+  --bg-page:      #0d1117;
+  --bg-page-2:    #161b22;
+  --surface:      #1e293b;
+  --surface-2:    #334155;
+  --foreground:   #f1f5f9;
+  --muted:        #94a3b8;
+  --primary:      #2dd4bf;
+  --primary-soft: #134e4a;
+  --border:       #334155;
+  --success:      #4ade75;
+  --success-bg:   #052e16;
+  --warning:      #fbbf24;
+  --warning-bg:   #422006;
+  --error:        #f87171;
+  --error-bg:     #450a0a;
+  --info:         #60a5fa;
+  --info-bg:      #172554;
+
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.3);
+  --shadow:       0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg:    0 8px 24px rgba(0,0,0,0.5);
+}

@@ -75,7 +75,7 @@ struct BackendRuntime {
     static BackendRuntime from_env();
 
     /// @brief Resolves a run id or run path to the concrete run directory.
-    fs::path resolve_run_dir(const std::string& run_id) const;
+    fs::path resolve_run_dir(const std::string& run_id, const std::string& alt_runs_dir = "") const;
     /// @brief Normalizes and validates a user-provided input path.
     PathResolution resolve_input_path(const fs::path& p, bool must_exist = false) const;
     /// @brief Returns whether a path is inside one of the configured or granted roots.
