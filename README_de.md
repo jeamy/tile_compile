@@ -638,6 +638,17 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Versionen
 
+## v0.3.5 (2026-06-22)
+
+**GUI v3 – Neues Web-Frontend:**
+- Neues Web-Frontend (v3) mit verbessertem Parameter Studio, Run Monitor und Input & Scan Tab.
+- "Save As"-Dialog mit Verzeichnis-Browser: Datei speichern unter mit auswählbarem Verzeichnis und Dateiname über modalen Dialog.
+- Warning-Banner im Run Monitor zeigt Warnungen und Fehler während des Laufs prominent an.
+- Kalibrierungs-Gain-Mismatch: Dark/Flat-Kalibrierung mit abweichendem Gain erzeugt Warnung statt Abbruch.
+
+**Astrometry-Fix:**
+- YAML `~` (null) für `astap_bin` wurde fälschlich als String "null" geparsed, wodurch ASTAP nicht gefunden wurde. Fix: Null-Werte werden korrekt als leerer String interpretiert, der Default-Pfad wird verwendet.
+
 ## v0.3.4 (2026-06-16)
 - Bug fixes
 
