@@ -72,7 +72,7 @@ function Start-AgentServiceIfAvailable {
     }
   }
   Write-Info "Starte PI AI sidecar."
-  return Start-Process -FilePath "npm" -ArgumentList @("--prefix", $AgentDir, "start") -WorkingDirectory $InstallRoot -NoNewWindow -PassThru
+  return Start-Process -FilePath "cmd" -ArgumentList @("/c", "npm", "--prefix", $AgentDir, "start") -WorkingDirectory $InstallRoot -NoNewWindow -PassThru
 }
 
 function Sync-Payload {
