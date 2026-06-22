@@ -438,6 +438,46 @@ assemble_bundle() {
 
 smoke_test() {
   local root="${ROOT}"
+  local backend_bin="${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
+  local lib_dir="${PAYLOAD}/tile_compile_cpp/lib"
+
+  echo "[gui3-package] Smoke test: otool -L backend"
+  otool -L "${backend_bin}" || true
+  echo "[gui3-package] Smoke test: otool -L runner"
+  otool -L "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner" || true
+
+  echo "[gui3-package] Smoke test: direct binary load check"
+  local dyld_path="${lib_dir}"
+  if [[ -d "${PAYLOAD}/web_backend_cpp/lib" ]]; then
+    dyld_path="${dyld_path}:${PAYLOAD}/web_backend_cpp/lib"
+  fi
+  DYLD_LIBRARY_PATH="${dyld_path}" \
+    TILE_COMPILE_PROJECT_ROOT="${PAYLOAD}" \
+    TILE_COMPILE_UI_DIR="${PAYLOAD}/web_frontend_v3" \
+    TILE_COMPILE_HOST="127.0.0.1" \
+    TILE_COMPILE_PORT="$((PORT + 1))" \
+    TILE_COMPILE_RUNS_DIR="/tmp/gui3_smoke_runs" \
+    TILE_COMPILE_CLI="${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli" \
+    TILE_COMPILE_RUNNER="${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner" \
+    TILE_COMPILE_CONFIG="${PAYLOAD}/tile_compile_cpp/tile_compile.yaml" \
+    TILE_COMPILE_SCHEMA="${PAYLOAD}/tile_compile_cpp/tile_compile.schema.yaml" \
+    TILE_COMPILE_PRESETS_DIR="${PAYLOAD}/tile_compile_cpp/examples" \
+    "${backend_bin}" >/tmp/out_gui3_bincheck.txt 2>&1 &
+  local bin_pid=$!
+  sleep 3
+  if kill -0 "${bin_pid}" 2>/dev/null; then
+    echo "[gui3-package] Binary started OK (pid=${bin_pid}), stopping..."
+    kill "${bin_pid}" 2>/dev/null || true
+    wait "${bin_pid}" 2>/dev/null || true
+  else
+    wait "${bin_pid}" 2>/dev/null || true
+    local bin_exit=$?
+    echo "[gui3-package] Binary exited early with code ${bin_exit}"
+  fi
+  cat /tmp/out_gui3_bincheck.txt 2>/dev/null || true
+  echo "[gui3-package] Smoke test: direct binary load check done"
+  pkill -f tile_compile_web_backend 2>/dev/null || true
+
   export HOME="${PROJECT_ROOT}/smoke-home-macos"
   export TILE_COMPILE_GUI3_NO_BROWSER=1
   export TILE_COMPILE_GUI3_PORT="${PORT}"
@@ -445,15 +485,7 @@ smoke_test() {
   rm -rf "${HOME}"
   mkdir -p "${HOME}"
   export SMOKE_START_SCRIPT="${root}/start_gui3.sh"
-  python3 - <<'PY' &
-import os, subprocess, sys
-os.setsid()
-subprocess.Popen(
-    ["bash", os.environ["SMOKE_START_SCRIPT"]],
-    stdout=open("/tmp/out_gui3_smoke_macos.txt", "w"),
-    stderr=subprocess.STDOUT,
-)
-PY
+  bash "${root}/start_gui3.sh" >/tmp/out_gui3_smoke_macos.txt 2>&1 &
   local start_pid=$!
   trap 'kill "${start_pid}" 2>/dev/null || true; pkill -f tile_compile_web_backend 2>/dev/null || true' EXIT
   python3 - <<'PY'

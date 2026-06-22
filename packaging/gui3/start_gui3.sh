@@ -298,14 +298,30 @@ main() {
     exit 1
   fi
 
+  log "Payload bereit. Erstelle Verzeichnisse..."
   mkdir -p "${LOG_DIR}" "${RUNS_DIR}"
 
+  log "Pruefe Backend-Binary: ${BACKEND_BIN}"
+  if [[ ! -x "${BACKEND_BIN}" ]]; then
+    log "FEHLER: Backend-Binary nicht gefunden oder nicht ausfuehrbar: ${BACKEND_BIN}"
+    if [[ -f "${BACKEND_BIN}" ]]; then
+      log "  Datei existiert, ist aber nicht ausfuehrbar."
+      ls -la "${BACKEND_BIN}" || true
+    else
+      log "  Datei existiert nicht."
+      ls -la "$(dirname "${BACKEND_BIN}")" || true
+    fi
+    exit 1
+  fi
+
+  log "Pruefe ob Backend bereits laeuft..."
   if server_ready; then
     log "GUI3-Backend laeuft bereits."
     open_browser
     exit 0
   fi
 
+  log "Starte Backend..."
   run_backend_foreground
 }
 
