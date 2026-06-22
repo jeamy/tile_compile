@@ -895,6 +895,16 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 
 ## Changelog
 
+### (22.06.2026)
+
+**GUI v3, Kalibrierungs-Verbesserungen, Astrometry-Fix (`v0.3.5`):**
+
+- **Neues Web-Frontend (v3):** Verbessertes Parameter Studio, Run Monitor und Input & Scan Tab mit modernen UI-Komponenten.
+- **"Save As"-Dialog mit Verzeichnis-Browser:** Modal-Dialog zur Auswahl von Verzeichnis und Dateiname beim Speichern von Config-Dateien. Backend `/api/config/presets` gibt nun auch Unterverzeichnisse zurück (`is_dir`-Feld) neben YAML-Dateien.
+- **Kalibrierungs-Gain-Mismatch:** Dark/Flat-Kalibrierung mit abweichendem Gain erzeugt nun Warnung statt Abbruch. `select_dark_inputs` fällt auf alle verfügbaren Darks zurück, wenn kein exakter Match gefunden wird.
+- **Warning-Banner im Run Monitor:** Warnungen und Fehler vom Runner werden prominent in einem eigenen Banner während des Laufs angezeigt.
+- **Astrometry-Fix:** YAML `~` (null) für `astap_bin` wurde von yaml-cpp fälschlich als String `"null"` geparsed, wodurch `fs::exists("null")` fehlschlug und ASTAP als "not found" gemeldet wurde. Fix: `IsNull()`-Prüfung vor dem Parsen von `astap_bin` und `astap_data_dir` in `config.cpp` hinzugefügt, sodass null-Werte als leerer String behandelt und der Default-Pfad (`astap_data_dir/astap_cli`) verwendet wird.
+
 ### (20.06.2026)
 
 **PCC-Fix, KI-Prompt-Anpassungen, Build- und Smoke-Test-Korrekturen (`v0.3.4`):**
