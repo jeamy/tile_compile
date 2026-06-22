@@ -179,6 +179,14 @@ if (Test-ServerReady) {
 }
 
 Write-Info "Starte Crow-Backend im Vordergrund auf $Url (Ctrl+C zum Beenden)."
+Write-Info ""
+Write-Info "Installationsverzeichnis: $InstallRoot"
+Write-Info "  - Runs / Ergebnisse:     $RunsDir"
+Write-Info "  - Logs:                  $LogDir"
+Write-Info "  - Konfigurationen:       $(Join-Path $InstallRoot 'tile_compile_cpp\tile_compile.yaml')"
+Write-Info "  - Beispiel-Konfigs:      $(Join-Path $InstallRoot 'tile_compile_cpp\examples')"
+Write-Info "User-Daten (Runs, Konfigurationen, ASTAP, PCC) bleiben bei Updates erhalten."
+Write-Info ""
 $BrowserUrl = $Url
 if ($env:TILE_COMPILE_GUI3_NO_BROWSER -ne "1") {
   Start-Job -ScriptBlock {

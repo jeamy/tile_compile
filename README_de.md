@@ -93,7 +93,7 @@ aqmh:
 - **AQMH Praxisbeispiele:** [Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md)
 - Konfigurationsreferenz (vollständig): [Konfigurationsreferenz](docs/configuration_reference.md)
 - Englisches README: [English README](README.md)
-- GUI2 Paketierung und Start: [GUI2 README](packaging/gui2/README.md)
+- GUI3 Paketierung und Start: [GUI3 README (DE)](packaging/gui3/README_de.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
 - Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
@@ -134,8 +134,8 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | Komponente | Verzeichnis | Status | Stack |
 |-----------|-------------|--------|-------|
 | Kernpipeline | `tile_compile_cpp/` | Aktiv | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
-| GUI2 Backend | `web_backend_cpp/` | Aktiv | Crow + C++17 |
-| GUI2 Frontend | `web_frontend/` | Aktiv | HTML + CSS + JavaScript |
+| GUI3 Backend | `web_backend_cpp/` | Aktiv | Crow + C++17 |
+| GUI3 Frontend | `web_frontend_v3/` | Aktiv | HTML + CSS + JavaScript (ESM) |
 
 ## Pipeline-Phasen
 
@@ -202,22 +202,23 @@ Die Dateinamen verwenden nicht mehr das ältere Präfix `tile_compile.`.
 
 Siehe auch: [Examples README](tile_compile_cpp/examples/README.md) für Einsatzzweck und Tuning-Schwerpunkt der einzelnen Profile.
 
-## Binary Releases (GUI2)
+## Binary Releases (GUI3)
 
-Vorkompilierte GUI2-Release-Bundles werden über [GitHub Releases](https://github.com/jeamy/tile_compile/releases) veröffentlicht.
+Vorkompilierte GUI3-Release-Bundles werden über [GitHub Releases](https://github.com/jeamy/tile_compile/releases) veröffentlicht.
 
 Jedes Bundle enthält:
 
-- GUI2 Frontend (`web_frontend/`)
+- GUI3 Frontend (`web_frontend_v3/`)
 - Crow-Backend (`web_backend_cpp/`)
 - native C++ Werkzeuge (`tile_compile_runner`, `tile_compile_cli`, `tile_compile_web_backend`)
 - Starter für Linux, macOS und Windows
+- optionaler PI AI-Sidecar (`agent_service/`, erfordert Node.js >= 20)
 
-Zur Laufzeit arbeitet GUI2 über das lokale Crow/C++-Backend als Adapter auf den C++ Runner und die C++ CLI.
+Zur Laufzeit arbeitet GUI3 über das lokale Crow/C++-Backend als Adapter auf den C++ Runner und die C++ CLI.
 
 ## Schnellstart
 
-### GUI2 (empfohlen)
+### GUI3 (empfohlen)
 
 Entwicklungsstart aus dem Repository-Root:
 
@@ -233,32 +234,33 @@ http://127.0.0.1:8080/ui/
 
 Release-Bundle-Start:
 
-- Linux: `start_gui2.sh`
-- macOS: `start_gui2.command`
-- Windows: `start_gui2.bat`
+- Linux: `start_gui3.sh`
+- macOS: `start_gui3.command`
+- Windows: `start_gui3.bat`
 
-Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installationsverzeichnis, startet das Crow-Backend im Vordergrund und öffnet den Browser auf die lokale GUI2-URL.
+Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installationsverzeichnis, startet das Crow-Backend im Vordergrund und öffnet den Browser auf die lokale GUI3-URL.
 
 **Installations- und Update-Verhalten:**
 
 - Beim ersten Start kopiert der Starter alle Anwendungsdateien nach `~/tilecompile/` (Linux/macOS) bzw. `%USERPROFILE%\tilecompile\` (Windows).
 - Nach dem ersten erfolgreichen Start können Sie das heruntergeladene Paket-Archiv und den entpackten Ordner bedenkenlos löschen – alle Daten wurden in Ihr Benutzerverzeichnis kopiert.
-- Bei Updates werden nur die Anwendungsdateien (`web_frontend/`, `web_backend_cpp/`, `tile_compile_cpp/`) ersetzt. Ihre Benutzerdaten (Konfigurationen, Runs, ASTAP-Katalog, PCC-Datenbank) bleiben unberührt.
+- Bei Updates werden nur die Anwendungsdateien (`web_frontend_v3/`, `web_backend_cpp/`, `tile_compile_cpp/`, `agent_service/`) ersetzt. Ihre Benutzerdaten (Konfigurationen, Runs, ASTAP-Katalog, PCC-Datenbank) bleiben unberührt.
 
 Hinweis zur macOS-Installation:
 
-- Unter macOS 15.x, einschließlich Sequoia 15.1, bietet Gatekeeper für unbekannte Entwickler teils nicht mehr den früheren Rechtsklick-Override an. Wenn `start_gui2.command` oder andere scripts blockiert werden, öffne `Systemeinstellungen -> Datenschutz & Sicherheit`, scrolle nach unten und erlaube dort den blockierten Eintrag wie `start_gui2.command` explizit, bevor du ihn erneut startest.
+- Unter macOS 15.x, einschließlich Sequoia 15.1, bietet Gatekeeper für unbekannte Entwickler teils nicht mehr den früheren Rechtsklick-Override an. Wenn `start_gui3.command` oder andere scripts blockiert werden, öffne `Systemeinstellungen -> Datenschutz & Sicherheit`, scrolle nach unten und erlaube dort den blockierten Eintrag wie `start_gui3.command` explizit, bevor du ihn erneut startest.
 
-Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
+Mindestbetriebssysteme für die aktuellen GUI3-Release-Bundles:
 
-- Linux: x86_64-Linux mit `glibc >= 2.35` (Ubuntu 22.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
+- Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
 - macOS: macOS 15
 - Windows: Windows 10 x64 oder neuer
 
 Hinweise:
 
-- macOS ist derzeit ab Version 13 vorgesehen. Es ist also nicht erst macOS 15+ nötig, aber macOS 12 und älter sind nicht die dokumentierte Release-Basis.
+- macOS-Release-Bundles werden mit explizitem Deployment-Target gebaut und sind ab macOS 13 lauffähig.
 - Linux-Bundles enthalten keine `glibc`; ältere Distributionen als die aktuelle Build-Basis sind daher nicht garantiert lauffähig.
+- Der optionale PI AI-Sidecar (`agent_service/`) erfordert **Node.js >= 20**. Wenn Node.js nicht installiert oder zu alt ist, startet das Backend ohne AI-Sidecar und gibt eine Warnung aus. Siehe [GUI3 README](packaging/gui3/README.md) für Details.
 
 ### C++ CLI / Runner
 
@@ -274,6 +276,7 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 - cfitsio
 - yaml-cpp
 - nlohmann-json
+- Node.js >= 20 (nur für optionalen PI AI-Sidecar / `agent_service/`)
 
 #### Voraussetzungen für GPU-Beschleunigung
 
@@ -336,7 +339,7 @@ brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openss
 Hinweise:
 
 - Die obigen Paketbeispiele reichen für CPU-Builds aus. Sie garantieren keine GPU-Beschleunigung, weil das jeweilige OpenCV-Paket auf dem Host die CUDA-Module enthalten muss.
-- Wenn ein heruntergeladenes GUI2-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
+- Wenn ein heruntergeladenes GUI3-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
 
 Windows:
 
@@ -354,11 +357,11 @@ cmake --build . -j$(nproc)
 
 ### Release-Build und Packaging
 
-GUI2-Release-Bundles werden gebaut über:
+GUI3-Release-Bundles werden gebaut über:
 
-- `.github/workflows/release-tile-compile-gui2.yml`
+- `.github/workflows/release-tile-compile-gui3.yml`
 
-Der Workflow baut die Qt-freien C++-Binaries, bündelt `web_backend_cpp/` und `web_frontend/`, ergänzt die GUI2-Starter und erzeugt ZIP-Artefakte für Linux, macOS und Windows.
+Der Workflow baut die Qt-freien C++-Binaries, bündelt `web_backend_cpp/` und `web_frontend_v3/`, ergänzt die GUI3-Starter und erzeugt ZIP-Artefakte für Linux, macOS und Windows.
 
 Bewusst nicht enthalten:
 
@@ -492,12 +495,12 @@ Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrah
 ./tile_compile_cli save-gui-state [--path <datei>] [--stdin | <JSON>]
 ```
 
-### GUI2-Integration
+### GUI3-Integration
 
-Der empfohlene UI-Pfad ist die webbasierte GUI2:
+Der empfohlene UI-Pfad ist die webbasierte GUI3:
 
 - Backend: `web_backend_cpp/`
-- Frontend: `web_frontend/`
+- Frontend: `web_frontend_v3/`
 - Orchestrierung: Crow-Backend -> `tile_compile_cli` / `tile_compile_runner`
 
 Entwicklungsstart:
@@ -553,7 +556,7 @@ Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktio
 
 ## Diagnosebericht (`report.html` über C++-Backend)
 
-Erzeuge einen HTML-Qualitätsbericht aus einem abgeschlossenen Lauf entweder über GUI2 oder direkt über die CLI:
+Erzeuge einen HTML-Qualitätsbericht aus einem abgeschlossenen Lauf entweder über GUI3 oder direkt über die CLI:
 
 ```bash
 ./tile_compile_cli generate-report runs/<run_id>
@@ -587,8 +590,8 @@ Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` 
 
 ```text
 tile_compile/
-├── web_frontend/           # GUI2 HTML/CSS/JS Frontend
-├── web_backend_cpp/        # GUI2 Crow/C++ Backend
+├── web_frontend_v3/        # GUI3 HTML/CSS/JS Frontend
+├── web_backend_cpp/        # GUI3 Crow/C++ Backend
 ├── tile_compile_cpp/
 │   ├── apps/                # Runner/CLI Entry-Points
 │   ├── include/tile_compile/
@@ -599,13 +602,12 @@ tile_compile/
 │   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml
-├── packaging/gui2/          # GUI2 Starter und Bundle-Helfer
+├── packaging/gui3/          # GUI3 Starter und Bundle-Helfer
 ├── docker/                  # Docker Build-/Runtime-Images
 ├── docs/
 │   ├── v3/                  # Methodik-Dokumente
 │   └── process_flow/        # Implementierungs-Prozessfluss
-├── start_backend.sh         # Dev-Start fuer Crow-Backend + GUI2
-├── start_gui2_docker.sh     # GUI2 in Docker starten
+├── start_backend.sh         # Dev-Start fuer Crow-Backend + GUI3
 ├── README.md
 └── README_de.md
 ```

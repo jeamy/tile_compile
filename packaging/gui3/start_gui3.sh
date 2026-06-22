@@ -256,6 +256,13 @@ run_backend_foreground() {
   log "  Oeffne im Browser: ${URL}"
   log "==================================================================="
   log ""
+  log "Installationsverzeichnis: ${INSTALL_ROOT}"
+  log "  - Runs / Ergebnisse:     ${RUNS_DIR}"
+  log "  - Logs:                  ${LOG_DIR}"
+  log "  - Konfigurationen:       ${INSTALL_ROOT}/tile_compile_cpp/tile_compile.yaml"
+  log "  - Beispiel-Konfigs:      ${INSTALL_ROOT}/tile_compile_cpp/examples/"
+  log "User-Daten (Runs, Konfigurationen, ASTAP, PCC) bleiben bei Updates erhalten."
+  log ""
   
   if [[ "${TILE_COMPILE_GUI3_NO_BROWSER:-0}" != "1" ]]; then
     ( sleep 2; open_browser ) &

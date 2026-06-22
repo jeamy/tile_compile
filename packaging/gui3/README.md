@@ -1,5 +1,7 @@
 # tile_compile GUI3 Release Bundle
 
+German version: [README_de.md](README_de.md)
+
 This directory contains the launcher scripts and packaging helpers for the GUI3 release bundle. GUI3 consists of the web frontend v3, the Crow/C++ backend, and the native C++ runner/CLI.
 
 ## Bundle Layout
