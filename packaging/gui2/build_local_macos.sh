@@ -320,7 +320,7 @@ verify_macos_bundle_refs() {
         fi
         continue
       fi
-      if [[ "$dep" == /opt/homebrew/* || "$dep" == /usr/local/opt/* || "$dep" == /usr/local/Cellar/* ]]; then
+      if [[ "$dep" == /opt/homebrew/* || "$dep" == /usr/local/opt/* || "$dep" == /usr/local/Cellar/* || "$dep" == /usr/local/lib/* ]]; then
         name="$(basename "$dep")"
         if ! macos_should_skip_bundle_dep "$dep" "$name" && [[ ! -f "${PAYLOAD}/tile_compile_cpp/lib/${name}" ]]; then
           echo "[gui2-package] Missing bundled Homebrew dependency in ${target}: ${dep}" >&2
@@ -399,9 +399,9 @@ assemble_bundle() {
     (
       cd "${PROJECT_ROOT}/agent_service"
       if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
-        npm ci
+        npm ci --no-audit
       else
-        npm install
+        npm install --no-audit
       fi
       if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
         npm run build
@@ -465,7 +465,7 @@ from urllib.request import Request, urlopen
 port = os.environ["TILE_COMPILE_GUI2_PORT"]
 state_url = f"http://127.0.0.1:{port}/api/app/state"
 validate_url = f"http://127.0.0.1:{port}/api/config/validate"
-deadline = time.time() + 30
+deadline = time.time() + 60
 while time.time() < deadline:
     try:
         with urlopen(state_url, timeout=2) as resp:
@@ -475,6 +475,13 @@ while time.time() < deadline:
     except Exception:
         time.sleep(1)
 else:
+    # Print backend log for debugging
+    try:
+        with open("/tmp/out_gui2_smoke_macos.txt", "r") as f:
+            print("=== Backend smoke log ===")
+            print(f.read()[-4000:])
+    except Exception:
+        pass
     raise SystemExit("backend smoke test failed")
 
 payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")

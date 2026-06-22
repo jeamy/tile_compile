@@ -126,9 +126,9 @@ jobs:
             (
               cd agent_service
               if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
-                npm ci
+                npm ci --no-audit
               else
-                npm install
+                npm install --no-audit
               fi
               if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
                 npm run build
@@ -260,6 +260,12 @@ jobs:
               except Exception:
                   time.sleep(1)
           else:
+              try:
+                  with open("/tmp/out_gui2_smoke_linux.txt", "r") as f:
+                      print("=== Backend smoke log ===")
+                      print(f.read()[-4000:])
+              except Exception:
+                  pass
               raise SystemExit("backend smoke test failed")
 
           payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
@@ -307,6 +313,12 @@ jobs:
               except Exception:
                   time.sleep(1)
           else:
+              try:
+                  with open("/tmp/out_gui2_smoke_linux_appimage.txt", "r") as f:
+                      print("=== AppImage smoke log ===")
+                      print(f.read()[-4000:])
+              except Exception:
+                  pass
               raise SystemExit("appimage smoke test failed")
           PY
           kill -- -"${START_PID}" 2>/dev/null || kill "${START_PID}" 2>/dev/null || true
@@ -428,9 +440,9 @@ jobs:
           set -euo pipefail
           cd agent_service
           if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
-            npm ci
+            npm ci --no-audit
           else
-            npm install
+            npm install --no-audit
           fi
           if npm run | grep -Eq '^[[:space:]]+build($|:)'; then
             npm run build
