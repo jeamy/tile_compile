@@ -169,12 +169,12 @@ endif()
 # -----------------------------------------------------------------------
 # Optional: UI-Verzeichnis beim Build in das Output-Dir kopieren
 # -----------------------------------------------------------------------
-if(EXISTS "${CMAKE_SOURCE_DIR}/../web_frontend/dist")
+if(EXISTS "${CMAKE_SOURCE_DIR}/../web_frontend_v3/index.html")
     add_custom_command(TARGET tile_compile_web_backend POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/../web_frontend/dist
+            ${CMAKE_SOURCE_DIR}/../web_frontend_v3
             ${CMAKE_BINARY_DIR}/ui
-        COMMENT "Copying frontend dist to build/ui"
+        COMMENT "Copying web_frontend_v3 to build/ui"
     )
 endif()
 

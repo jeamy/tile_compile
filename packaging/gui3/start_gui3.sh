@@ -130,6 +130,13 @@ start_agent_service() {
     log "WARNUNG: npm nicht gefunden; PI AI sidecar wird nicht gestartet."
     return 0
   fi
+  local node_major
+  node_major=$(node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo "0")
+  if [[ "${node_major}" -lt 20 ]]; then
+    log "WARNUNG: Node.js ${node_major} ist zu alt für PI AI sidecar (>= 20 erforderlich, wegen RegExp v-flag in pi-tui)."
+    log "PI AI sidecar wird nicht gestartet. Bitte Node.js auf >= 20 aktualisieren."
+    return 0
+  fi
   if [[ ! -f "${agent_dir}/dist/server.js" ]]; then
     log "PI AI sidecar build fehlt; fuehre npm run build aus."
     if ! npm --prefix "${agent_dir}" run build; then

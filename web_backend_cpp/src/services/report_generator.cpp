@@ -192,8 +192,8 @@ fs::path report_i18n_path(const std::string& locale) {
     const std::string ui_dir = env_or("TILE_COMPILE_UI_DIR", "");
     if (!ui_dir.empty()) return fs::path(ui_dir) / "i18n" / ("report_" + locale + ".json");
     const std::string project_root = env_or("TILE_COMPILE_PROJECT_ROOT", "");
-    if (!project_root.empty()) return fs::path(project_root) / "web_frontend" / "i18n" / ("report_" + locale + ".json");
-    return fs::path("web_frontend") / "i18n" / ("report_" + locale + ".json");
+    if (!project_root.empty()) return fs::path(project_root) / "web_frontend_v3" / "i18n" / ("report_" + locale + ".json");
+    return fs::path("web_frontend_v3") / "i18n" / ("report_" + locale + ".json");
 }
 
 json read_json_if_exists(const fs::path& path);

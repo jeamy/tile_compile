@@ -46,6 +46,17 @@ function Start-AgentServiceIfAvailable {
     Write-Info "WARNUNG: npm nicht gefunden; PI AI sidecar wird nicht gestartet."
     return $null
   }
+  $nodeVersion = & node -e 'console.log(process.versions.node)' 2>$null
+  if ($nodeVersion) {
+    $nodeMajor = [int]($nodeVersion.Split('.')[0])
+  } else {
+    $nodeMajor = 0
+  }
+  if ($nodeMajor -lt 20) {
+    Write-Info "WARNUNG: Node.js $nodeVersion ist zu alt fuer PI AI sidecar (>= 20 erforderlich, wegen RegExp v-flag in pi-tui)."
+    Write-Info "PI AI sidecar wird nicht gestartet. Bitte Node.js auf >= 20 aktualisieren."
+    return $null
+  }
   $ServerJs = Join-Path $AgentDir "dist\server.js"
   if (-not (Test-Path $ServerJs)) {
     Write-Info "PI AI sidecar build fehlt; fuehre npm run build aus."

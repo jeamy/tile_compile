@@ -151,7 +151,7 @@ void BackendHarness::start() {
         setenv("TILE_COMPILE_CONFIG", _config_path.c_str(), 1);
         setenv("TILE_COMPILE_PRESETS_DIR", _presets_dir.c_str(), 1);
         setenv("TILE_COMPILE_RUNTIME_DIR", _runtime_dir.c_str(), 1);
-        setenv("TILE_COMPILE_UI_DIR", (_repo_root / "web_frontend").c_str(), 1);
+        setenv("TILE_COMPILE_UI_DIR", (_repo_root / "web_frontend_v3").c_str(), 1);
         setenv("TILE_COMPILE_CLI", _cli_path.c_str(), 1);
         setenv("TILE_COMPILE_RUNNER", _runner_path.c_str(), 1);
         setenv("TILE_COMPILE_HOST", "127.0.0.1", 1);

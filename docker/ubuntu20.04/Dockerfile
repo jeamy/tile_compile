@@ -55,7 +55,7 @@ RUN apt-get update \
 WORKDIR /opt/tile_compile
 
 # Frontend
-COPY web_frontend /opt/tile_compile/web_frontend
+COPY web_frontend_v3 /opt/tile_compile/web_frontend_v3
 
 # Runtime config/examples
 COPY tile_compile_cpp/examples /opt/tile_compile/tile_compile_cpp/examples
@@ -79,7 +79,7 @@ ENV TILE_COMPILE_RUNS_DIR=/data/runs
 ENV TILE_COMPILE_CONFIG=/opt/tile_compile/tile_compile_cpp/tile_compile.yaml
 ENV TILE_COMPILE_SCHEMA=/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml
 ENV TILE_COMPILE_PRESETS_DIR=/opt/tile_compile/tile_compile_cpp/examples
-ENV TILE_COMPILE_UI_DIR=/opt/tile_compile/web_frontend
+ENV TILE_COMPILE_UI_DIR=/opt/tile_compile/web_frontend_v3
 ENV TILE_COMPILE_PROJECT_ROOT=/opt/tile_compile
 ENV TILE_COMPILE_ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/tmp
 

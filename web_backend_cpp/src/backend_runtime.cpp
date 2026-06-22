@@ -23,7 +23,7 @@ fs::path weakly_normalize(const fs::path& p) {
 bool looks_like_project_root(const fs::path& dir) {
     if (dir.empty()) return false;
     std::error_code ec;
-    return fs::is_directory(dir / "web_frontend", ec) &&
+    return fs::is_directory(dir / "web_frontend_v3", ec) &&
            fs::is_directory(dir / "web_backend_cpp", ec) &&
            fs::is_directory(dir / "tile_compile_cpp", ec);
 }
@@ -208,7 +208,7 @@ BackendRuntime BackendRuntime::from_env() {
 
     std::string ui_str = env_string("TILE_COMPILE_UI_DIR", "");
     if (ui_str.empty())
-        rt.ui_dir = rt.project_root / "web_frontend";
+        rt.ui_dir = rt.project_root / "web_frontend_v3";
     else
         rt.ui_dir = fs::path(ui_str);
 
