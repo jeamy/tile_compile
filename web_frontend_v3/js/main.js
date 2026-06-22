@@ -10,6 +10,7 @@ import { createGuardrailBadges } from "./components/guardrail-badges.js";
 import { refreshGuardrails } from "./services/guardrail-service.js";
 import { toast } from "./components/toast.js";
 import { el, clear } from "./utils/dom.js";
+import { onAiChange } from "./state/ai-state.js";
 
 import { createProcessingPage } from "./pages/processing.js";
 import { createToolsPage } from "./pages/tools.js";
@@ -74,6 +75,20 @@ async function init() {
   navigateToTab(tab);
 
   setupKeyboardShortcuts();
+
+  // Global AI analysis state indicator: update sub-tab badge when
+  // analysis is running, so the user sees it even on other tabs.
+  onAiChange((aiState) => {
+    const subTabBtn = document.querySelector('[data-subtab="parameter"]');
+    if (!subTabBtn) return;
+    const existing = subTabBtn.querySelector('.tc-badge-running');
+    if (aiState.loading && !existing) {
+      const badge = el('span', { class: 'tc-badge-running', style: { marginLeft: '6px', fontSize: '10px', color: 'var(--accent)' } }, '\u25cf');
+      subTabBtn.appendChild(badge);
+    } else if (!aiState.loading && existing) {
+      existing.remove();
+    }
+  });
 }
 
 function navigateToTab(tab) {

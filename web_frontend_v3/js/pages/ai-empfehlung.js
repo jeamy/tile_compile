@@ -2,7 +2,7 @@
 
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { getAiState, setAiState, getAiFormData, setAiFormData } from "../state/ai-state.js";
+import { getAiState, setAiState, getAiFormData, setAiFormData, onAiChange } from "../state/ai-state.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
@@ -141,10 +141,30 @@ export function createAiEmpfehlungPage() {
     renderTrafficLog(aiState.trafficLog);
   }
 
+  // Live-update: subscribe to ai-state changes so traffic log and
+  // recommendations update in real-time even after tab switches.
+  // The subscription is cleaned up when the page is destroyed (clear).
+  _aiUnsub?.();
+  _aiUnsub = onAiChange((state) => {
+    if (state.trafficLog) {
+      renderTrafficLog(state.trafficLog);
+    }
+    if (state.loading) {
+      const recsContainer = document.getElementById("ai-recommendations");
+      if (recsContainer && recsContainer.children.length === 0) {
+        recsContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.toast.analysis_creating", "KI-Analyse wird erstellt...") + " (läuft im Hintergrund)"));
+      }
+    }
+    if (state.currentAnalysis?.recommendations) {
+      renderRecommendations(state.currentAnalysis.recommendations);
+    }
+  });
+
   return page;
 }
 
 let _allModels = [];
+let _aiUnsub = null;
 
 async function loadModels() {
   const statusEl = document.getElementById("ai-model-status");
