@@ -158,6 +158,8 @@ jobs:
                   case "$basename" in
                     libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*) continue ;;
                     ld-linux*.so.*|linux-vdso.so.*) continue ;;
+                    libstdc++.so.*|libgcc_s.so.*) continue ;;
+                    libcrypto.so.*|libssl.so.*|libz.so.*) continue ;;
                   esac
                   cp -n "$dep" "${PAYLOAD}/tile_compile_cpp/lib/" || true
                 done
