@@ -1097,10 +1097,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   std::string run_id = run_id_override.empty() ? core::get_run_id() : run_id_override;
-  fs::path run_dir = fs::absolute(runs / run_id);
-  fs::create_directories(run_dir / "logs");
-  fs::create_directories(run_dir / "outputs");
-  fs::create_directories(run_dir / "artifacts");
+  fs::path run_dir;
+  try {
+    run_dir = fs::absolute(runs / run_id);
+  } catch (...) {
+    // fs::absolute() can fail on Windows with UNC paths (\\server\share).
+    // Fall back to lexical normalization — the path is still usable.
+    run_dir = (runs / run_id).lexically_normal();
+  }
+  try {
+    fs::create_directories(run_dir / "logs");
+    fs::create_directories(run_dir / "outputs");
+    fs::create_directories(run_dir / "artifacts");
+  } catch (const std::exception& e) {
+    std::cerr << "Error: cannot create run directories in " << run_dir
+              << ": " << e.what() << std::endl;
+    return 1;
+  }
 
   if (use_stdin_config) {
     std::ofstream out(run_dir / "config.yaml", std::ios::out);

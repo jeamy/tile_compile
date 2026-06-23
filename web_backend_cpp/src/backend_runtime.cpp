@@ -3,12 +3,12 @@
 #include <cstdlib>
 #include <sstream>
 #include <system_error>
+#include <vector>
 
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #include <windows.h>
+#include <winnetwk.h>
+#pragma comment(lib, "mpr.lib")
 #endif
 
 namespace {
@@ -271,6 +271,36 @@ BackendRuntime BackendRuntime::from_env() {
                 const std::string normalized = rt.normalize_path(drive_root).string();
                 if (!normalized.empty()) rt._allowed_roots.insert(normalized);
             }
+        }
+    }
+    // Enumerate UNC network shares (\\server\share) and add as allowed roots
+    {
+        HANDLE hEnum = nullptr;
+        if (WNetOpenEnum(RESOURCE_GLOBALNET, RESOURCETYPE_DISK, 0, nullptr, &hEnum) == NO_ERROR) {
+            DWORD count = 1;
+            DWORD bufSize = 16384;
+            std::vector<char> buf(bufSize);
+            for (;;) {
+                count = 1;
+                DWORD result = WNetEnumResource(hEnum, &count, buf.data(), &bufSize);
+                if (result == NO_ERROR && count > 0) {
+                    auto* res = reinterpret_cast<NETRESOURCEA*>(buf.data());
+                    for (DWORD i = 0; i < count; ++i) {
+                        if (res[i].lpRemoteName && res[i].dwType == RESOURCETYPE_DISK) {
+                            std::string unc_path(res[i].lpRemoteName);
+                            // Normalize and add as allowed root
+                            const std::string normalized = rt.normalize_path(fs::path(unc_path)).string();
+                            if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+                        }
+                    }
+                } else if (result == ERROR_MORE_DATA) {
+                    buf.resize(bufSize);
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            if (hEnum) WNetCloseEnum(hEnum);
         }
     }
 #endif

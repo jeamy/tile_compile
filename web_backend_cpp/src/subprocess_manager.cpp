@@ -280,8 +280,25 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     const BackendGuardLimits limits = limits_override ? *limits_override : backend_guard_limits_from_env();
 
 #ifdef _WIN32
+    // Build a Windows command line with proper quoting.
+    // Each argument must be double-quoted, and any backslashes preceding a
+    // closing quote must be doubled (e.g. C:\path\ -> "C:\path\\").
+    // See: https://learn.microsoft.com/en-us/archive/blogs/twistylittlepassagesallalike/everyone-quotes-command-line-arguments-the-wrong-way
     std::string cmd;
-    for (auto& a : args) { cmd += "\"" + a + "\" "; }
+    for (auto& a : args) {
+        cmd += '"';
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (a[i] == '"') {
+                cmd += "\\\"";
+            } else if (a[i] == '\\' && i + 1 == a.size()) {
+                // Trailing backslash before closing quote: double it
+                cmd += "\\\\";
+            } else {
+                cmd += a[i];
+            }
+        }
+        cmd += "\" ";
+    }
 
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -302,16 +319,34 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     si.hStdInput  = hStdinR;
     si.dwFlags |= STARTF_USESTDHANDLES;
 
+    // CreateProcessA does not support UNC paths (\\server\share) as lpCurrentDirectory.
+    // If cwd is a UNC path, pass nullptr so the child inherits the parent's CWD.
+    const char* cwd_ptr = nullptr;
+    if (!cwd.empty()) {
+        if (cwd.size() >= 2 && cwd[0] == '\\' && cwd[1] == '\\') {
+            // UNC path — cannot be used as lpCurrentDirectory
+            cwd_ptr = nullptr;
+        } else {
+            cwd_ptr = cwd.c_str();
+        }
+    }
+
     PROCESS_INFORMATION pi{};
     bool ok = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr,
                              TRUE, 0, nullptr,
-                             cwd.empty() ? nullptr : cwd.c_str(),
+                             cwd_ptr,
                              &si, &pi);
     CloseHandle(hStdoutW);
     CloseHandle(hStderrW);
     CloseHandle(hStdinR);
 
-    if (!ok) { CloseHandle(hStdinW); res.exit_code = -1; return res; }
+    if (!ok) {
+        DWORD err = GetLastError();
+        CloseHandle(hStdinW);
+        res.exit_code = -1;
+        res.stderr_str = "CreateProcessA failed (error " + std::to_string(err) + "): " + cmd;
+        return res;
+    }
 
     if (!stdin_text.empty()) {
         DWORD written = 0;

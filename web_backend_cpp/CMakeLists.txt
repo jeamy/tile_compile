@@ -174,6 +174,7 @@ if(WIN32)
     target_link_libraries(tile_compile_web_backend PRIVATE
         ws2_32
         mswsock
+        mpr
     )
 endif()
 

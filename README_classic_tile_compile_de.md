@@ -16,7 +16,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](docs/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](docs/process_flow/README_de.md)
 - Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
-- GUI2 Paketierung und Start: [GUI2 README](packaging/gui2/README.md)
+- GUI3 Paketierung und Start: [GUI3 README](packaging/gui3/README.md)
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
@@ -510,7 +510,7 @@ tile_compile/
 │   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml
-├── packaging/gui2/          # GUI2 Starter und Bundle-Helfer
+├── packaging/gui3/          # GUI3 Starter und Bundle-Helfer
 ├── docker/                  # Docker Build-/Runtime-Images
 ├── docs/
 │   ├── v3/                  # Methodik-Dokumente

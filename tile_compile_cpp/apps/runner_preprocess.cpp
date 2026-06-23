@@ -1780,12 +1780,23 @@ int preprocess_command(const std::string& config_path,
     const std::string run_id =
         run_id_override.empty() ? ("preprocessing_" + core::get_run_id()) : run_id_override;
     const fs::path runs = fs::path(runs_dir);
-    const fs::path run_dir = fs::absolute(runs / run_id);
+    fs::path run_dir;
+    try {
+      run_dir = fs::absolute(runs / run_id);
+    } catch (...) {
+      run_dir = (runs / run_id).lexically_normal();
+    }
     const fs::path proj_root =
         project_root.empty() ? fs::current_path() : fs::path(project_root);
     const fs::path artifact_dir = run_dir / "artifacts" / "preprocess";
-    fs::create_directories(artifact_dir);
-    fs::create_directories(run_dir / "outputs");
+    try {
+      fs::create_directories(artifact_dir);
+      fs::create_directories(run_dir / "outputs");
+    } catch (const std::exception& e) {
+      std::cerr << "Error: cannot create preprocessing directories in " << run_dir
+                << ": " << e.what() << "\n";
+      return 1;
+    }
 
     core::write_text(artifact_dir / "effective_config.json", config_to_json(cfg).dump(2));
 

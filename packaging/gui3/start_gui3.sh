@@ -268,7 +268,7 @@ run_backend_foreground() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     log "DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-<unset>}"
     log "otool -L ${BACKEND_BIN}:"
-    otool -L "${BACKEND_BIN}" 2>&1 | while IFS= read -r line; do log "  ${line}"; done
+    { otool -L "${BACKEND_BIN}" 2>&1 || log "  (otool unavailable)"; } | while IFS= read -r line; do log "  ${line}"; done
     local _lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
     if [[ -d "${_lib_dir}" ]]; then
       log "Bundled libs in ${_lib_dir}:"
