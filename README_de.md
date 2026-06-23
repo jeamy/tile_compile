@@ -96,8 +96,9 @@ aqmh:
 - GUI3 Paketierung und Start: [GUI3 README (DE)](packaging/gui3/README_de.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan - Funktionsweise des Systems](docs/process_flow/data_flow_user_description_de.md)
 - Vollständige Dokumentation: [https://jeamy.github.io/tile_compile/](https://jeamy.github.io/tile_compile/)
+- **GUI3 Benutzerhandbuch (Schritt-für-Schritt):** [docs/gui3_user_guide_de.md](docs/gui3_user_guide_de.md)
 - Raw Stack GUI-Anleitung (Deutsch): [docs/raw_stack_gui_de.md](docs/raw_stack_gui_de.md)
-- Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
+- Schritt-für-Schritt-Anleitung (Classic/Entwickler): [Schritt-für-Schritt-Anleitung](docs/tbqr_step_by_step_de.md)
 - **PI – KI-gestützte Empfehlungen:** [docs/PI/pi_ki_empfehlungen_de.md](docs/PI/pi_ki_empfehlungen_de.md)
 
 ### Classic Tile-Compile (TBQR) Dokumentation
@@ -107,6 +108,18 @@ aqmh:
 - Normative TBQR-Methodik: [Tile-Based Quality Reconstruction Methodology v3.3.9](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
 - Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](docs/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](docs/process_flow/README_de.md)
+
+## Typischer Workflow (GUI3)
+
+Der normale Anwender-Workflow mit GUI3 umfasst drei Schritte:
+
+1. **Eingabe scannen** — Tab *Processing → Input & Scan*: Eingabeordner mit FITS-Lights wählen, optional Kalibrierungs-Frames (Bias/Dark/Flat) angeben, Scan starten. Der Scan erkennt Frames, Auflösung und Farbmodus.
+2. **Parameter einstellen** — Tab *Processing → Parameter*: Beispielkonfiguration laden oder eigene Werte anpassen. Wichtige Parameter: Registrierung (Rotation, Transform-Modell), AQMH (Cherry-Pick, Pyramidenskalen), Stacking-Methode, Bayer-Pattern. Konfiguration validieren und speichern.
+3. **Run starten und überwachen** — Tab *Processing → Run Monitor*: Run starten, Phasen-Fortschritt in Echtzeit verfolgen, bei Bedarf abbrechen oder später ab einer bestimmten Phase fortsetzen (Resume).
+
+Nach Abschluss: Ergebnisse unter `runs/<run_id>/outputs/` liegen. Diagnosebericht über *Stats erstellen* im Run Monitor oder über die Run History generieren.
+
+Ausführliche Anleitung: [GUI3 Benutzerhandbuch](docs/gui3_user_guide_de.md)
 
 ## Datenquellen Für Das Paper-Beispiel
 
@@ -548,11 +561,15 @@ Für optionale Farbkalibrierung und astrometrisches Solving kann die Pipeline ex
   - Kann wiederverwendet werden, falls bereits von Siril heruntergeladen.
   - Typischer lokaler Pfad: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
   - Upstream-Quelle (Katalog-Release): `https://zenodo.org/records/14738271`
+  - **In GUI3 herunterladen**: Tab *Tools → PCC → Download Missing* lädt fehlende Katalog-Chunks (~2 GB, 48 Chunks) automatisch herunter.
 - **ASTAP** (für Astrometrie / WCS Plate Solving)
   - Benötigt ASTAP plus eine Sterndatenbank (z.B. D50 für Deep-Sky-Nutzung).
   - Offizielle Seite/Downloads: `https://www.hnsky.org/astap.htm`
+  - **In GUI3 herunterladen**: Tab *Tools → Astrometry → Install CLI* und *Download Catalog* laden ASTAP-Binary und Sterndatenbank direkt herunter.
 
-Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY- und PCC-Phasen können je nach Konfiguration übersprungen werden oder fehlschlagen.
+Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY- und PCC-Phasen können je nach Konfiguration übersprungen werden oder fehlschlagen. BGE (Background Gradient Extraction) funktioniert unabhängig von externen Katalogen.
+
+Ausführliche Anleitung zum Setup: [GUI3 Benutzerhandbuch — Astrometry und PCC einrichten](docs/gui3_user_guide_de.md#6-astrometry-und-pcc-einrichten)
 
 ## Diagnosebericht (`report.html` über C++-Backend)
 

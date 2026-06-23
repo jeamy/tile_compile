@@ -4,11 +4,35 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <sstream>
 #include <string_view>
 #include <thread>
 
 namespace {
+
+/// @brief Returns a CA bundle path that libcurl can use, or an empty string if none found.
+/// @details On macOS, Homebrew builds of libcurl often lack a compiled-in CA path.
+/// Checks CURL_CA_BUNDLE env var first, then known macOS Homebrew locations.
+std::string find_ca_bundle() {
+    if (const char* env = std::getenv("CURL_CA_BUNDLE")) {
+        if (env[0] != '\0') return env;
+    }
+#ifdef __APPLE__
+    static const char* const candidates[] = {
+        "/opt/homebrew/etc/openssl@3/cert.pem",
+        "/usr/local/etc/openssl@3/cert.pem",
+        "/opt/homebrew/etc/openssl@1.1/cert.pem",
+        "/usr/local/etc/openssl@1.1/cert.pem",
+        "/opt/homebrew/etc/ca-certificates/cert.pem",
+        "/usr/local/etc/ca-certificates/cert.pem",
+    };
+    for (const char* p : candidates) {
+        if (std::ifstream(p).good()) return p;
+    }
+#endif
+    return {};
+}
 
 struct DownloadContext {
     fs::path dest;
@@ -203,6 +227,12 @@ DownloadResult download_once(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    {
+        const std::string ca_bundle = find_ca_bundle();
+        if (!ca_bundle.empty()) {
+            curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle.c_str());
+        }
+    }
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, options.timeout_s);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, options.user_agent.c_str());
     if (ctx.requested_existing > 0 && options.resume) {

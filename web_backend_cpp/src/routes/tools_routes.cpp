@@ -599,12 +599,32 @@ bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::str
 /// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
+#ifdef _WIN32
+    // On Windows, bzip2 is typically not installed; prefer 7z which ships with many setups
+    // and can extract .bz2 files natively.
+    fs::path out_path = archive;
+    out_path.replace_extension(); // strip .bz2 to get target path
+    auto seven_res = run_subprocess({"7z", "e", "-y", ("-o" + archive.parent_path().string()), archive.string()});
+    if (seven_res.exit_code == 0) return true;
+    std::string seven_err = seven_res.stderr_str.empty() ? seven_res.stdout_str : seven_res.stderr_str;
+
+    // Fallback: bzip2 if the user has it in PATH
+    auto bz2_res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
+    if (bz2_res.exit_code == 0) return true;
+    std::string bz2_err = bz2_res.stderr_str.empty() ? bz2_res.stdout_str : bz2_res.stderr_str;
+
+    error = "bz2 decompression failed.";
+    if (!seven_err.empty()) error += " 7z: " + seven_err;
+    if (!bz2_err.empty()) error += " bzip2: " + bz2_err;
+    return false;
+#else
     auto res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
     if (res.exit_code != 0) {
         error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
         return false;
     }
     return true;
+#endif
 }
 
 /// @brief Implements curl discard write.
