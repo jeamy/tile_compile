@@ -59,11 +59,11 @@ jobs:
     needs: meta
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js for optional PI agent service
         if: ${{ hashFiles('agent_service/package.json') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
@@ -79,7 +79,7 @@ jobs:
             libcurl4-openssl-dev
 
       - name: Setup ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: ccache-linux-${{ github.sha }}
@@ -326,7 +326,7 @@ jobs:
           pkill -f tile_compile_web_backend 2>/dev/null || true
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tile_compile_gui3-linux-${{ needs.meta.outputs.tag }}
           path: |
@@ -353,11 +353,11 @@ jobs:
             deployment_target: '13.0'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js for optional PI agent service
         if: ${{ hashFiles('agent_service/package.json') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
@@ -381,7 +381,7 @@ jobs:
             --macos-target "${MACOSX_DEPLOYMENT_TARGET}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tile_compile_gui3-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}
           path: artifacts/tile_compile_gui3-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}.zip
@@ -392,11 +392,11 @@ jobs:
     needs: meta
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js for optional PI agent service
         if: ${{ hashFiles('agent_service/package.json') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
@@ -548,7 +548,7 @@ jobs:
           Compress-Archive -Path $src -DestinationPath $dst -Force
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tile_compile_gui3-windows-${{ needs.meta.outputs.tag }}
           path: artifacts/tile_compile_gui3-windows-${{ needs.meta.outputs.tag }}.zip
@@ -559,7 +559,7 @@ jobs:
     needs: [meta, package-linux, package-macos, package-windows]
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
 
