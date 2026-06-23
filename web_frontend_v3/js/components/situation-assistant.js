@@ -141,14 +141,3 @@ function formatPreviewVal(v) {
   return String(v);
 }
 
-export function getSelectedScenarios() {
-  const result = [];
-  for (const cb of document.querySelectorAll("#scenario-list input[type=checkbox]")) {
-    if (cb.checked) {
-      const label = cb.parentElement?.textContent?.trim() || "";
-      const scenario = SCENARIOS.find(s => s.label === label);
-      if (scenario) result.push(scenario.id);
-    }
-  }
-  return result;
-}

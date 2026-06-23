@@ -8,11 +8,12 @@ import { createScanResultCard } from "../components/scan-result-card.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
-import { getUiState, setUiState } from "../state/ui-state.js";
 import { getScanState, setScanState } from "../state/scan-state.js";
 import { getStore } from "../state/store.js";
 import { setRunState } from "../state/run-state.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
+import { pollJob } from "../utils/poll.js";
+import { goToSubTab } from "../utils/navigation.js";
 import { t } from "../i18n/i18n.js";
 
 const inputStore = getStore("input-scan", {
@@ -131,7 +132,7 @@ export function createInputScanPage() {
     }, t("ui.button.scan", "Scan starten")),
     el("button", {
       class: "tc-btn",
-      onclick: () => goToSubTab("parameter"),
+      onclick: () => goToSubTab("processing", "parameter"),
     }, "\u25b6 " + t("ui.button.next", "Next")),
   );
 
@@ -188,25 +189,12 @@ async function doScan() {
 }
 
 async function pollScanJob(jobId) {
-  const maxAttempts = 120;
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    const job = await api.get(API_ENDPOINTS.scan.jobStatus(jobId));
-    const state = job?.state;
-    if (state === "done" || state === "completed" || state === "ok") {
-      const latest = await api.get(API_ENDPOINTS.scan.latest);
-      return latest;
-    }
-    if (state === "error" || state === "failed") {
-      throw new Error(job?.error || "Scan failed");
-    }
-  }
-  throw new Error("Scan timeout");
+  return pollJob(jobId, {
+    endpoint: API_ENDPOINTS.scan.jobStatus,
+    intervalMs: 1000,
+    timeoutMs: 120000,
+    errorLabel: "Scan",
+    onDone: async () => api.get(API_ENDPOINTS.scan.latest),
+  });
 }
 
-function goToSubTab(subId) {
-  const ui = getUiState();
-  setUiState({ activeSubTab: { ...ui.activeSubTab, processing: subId } });
-  window.location.hash = "#processing";
-  window.dispatchEvent(new Event("tc-subtab-change"));
-}

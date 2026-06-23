@@ -1,12 +1,14 @@
 // js/pages/run-history.js – Sub-Tab: Run-Historie mit Detail-View
 
-import { el, clear } from "../utils/dom.js";
+import { el, clear, statItem } from "../utils/dom.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
+import { pollJob } from "../utils/poll.js";
+import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 
 const store = getStore("run-history", {
   selectedRunId: null,
@@ -189,8 +191,8 @@ async function selectRun(runId) {
       actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")));
 
       const genBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !isTerminal, onclick: () => generateStatsForRun(runId) }, t("ui.button.generate_stats", "Generate Stats"));
-      const openBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsForRun(runId, status?.run_dir) }, t("ui.button.open_stats_folder", "Open Stats Folder"));
-      const reportBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openReportForRun(runId, status?.run_dir) }, t("ui.button.open_stats_report", "Open Report"));
+      const openBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsFolder(runId, status?.run_dir) }, t("ui.button.open_stats_folder", "Open Stats Folder"));
+      const reportBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsReport(runId, status?.run_dir) }, t("ui.button.open_stats_report", "Open Report"));
       actions.appendChild(genBtn);
       actions.appendChild(openBtn);
       actions.appendChild(reportBtn);
@@ -200,13 +202,6 @@ async function selectRun(runId) {
   } catch (e) {
     body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, e.message));
   }
-}
-
-function statItem(label, value) {
-  return el("div", {},
-    el("div", { class: "tc-label" }, label),
-    el("div", { class: "tc-text-sm tc-mono" }, String(value)),
-  );
 }
 
 async function viewArtifact(runId, path) {
@@ -408,10 +403,10 @@ async function renderCompare() {
 
   const btnRow = el("div", { class: "tc-flex tc-gap-2 tc-mt-3" });
   if (snapA.hasReport) {
-    btnRow.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => openReportForRun(selectedId, snapA.runDir) }, t("ui.button.open_report_a", "Report A")));
+    btnRow.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => openStatsReport(selectedId, snapA.runDir) }, t("ui.button.open_report_a", "Report A")));
   }
   if (snapB.hasReport) {
-    btnRow.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => openReportForRun(compareId, snapB.runDir) }, t("ui.button.open_report_b", "Report B")));
+    btnRow.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => openStatsReport(compareId, snapB.runDir) }, t("ui.button.open_report_b", "Report B")));
   }
   body.appendChild(btnRow);
 }
@@ -422,55 +417,12 @@ async function generateStatsForRun(runId) {
     const result = await api.post(API_ENDPOINTS.runs.stats(runId), {});
     const jobId = result?.job_id;
     if (jobId) {
-      for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        let job;
-        try { job = await api.get(API_ENDPOINTS.jobs.byId(jobId)); } catch { continue; }
-        if (job?.state === "ok" || job?.state === "done" || job?.state === "completed") {
-          toastSuccess(t("ui.toast.stats_done", "Stats generiert"));
-          selectRun(runId);
-          return;
-        }
-        if (job?.state === "error" || job?.state === "failed" || job?.state === "cancelled") {
-          toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), job?.error || "");
-          return;
-        }
-      }
-      toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), "Timeout");
+      await pollJob(jobId, { intervalMs: 1000, timeoutMs: 120000 });
+      toastSuccess(t("ui.toast.stats_done", "Stats generiert"));
+      selectRun(runId);
     }
   } catch (e) {
     toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), e.message);
   }
 }
 
-async function openStatsForRun(runId, runDir) {
-  try {
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir || ""));
-    const dir = status?.output_dir;
-    if (!dir) {
-      toastError(t("ui.toast.stats_folder_unavailable", "Stats-Ordner nicht verfügbar"));
-      return;
-    }
-    await api.post(API_ENDPOINTS.fs.openPath, { path: dir });
-  } catch (e) {
-    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
-  }
-}
-
-async function openReportForRun(runId, runDir) {
-  try {
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir || ""));
-    const reportPath = status?.report_path;
-    if (!reportPath) {
-      toastError(t("ui.toast.stats_folder_unavailable", "Report nicht verfügbar"));
-      return;
-    }
-    const artifactRelPath = reportPath.includes("/artifacts/")
-      ? reportPath.substring(reportPath.indexOf("/artifacts/") + "/artifacts/".length)
-      : "report.html";
-    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, artifactRelPath));
-    window.open(url, "_blank");
-  } catch (e) {
-    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
-  }
-}

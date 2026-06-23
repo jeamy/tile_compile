@@ -1,6 +1,6 @@
 // js/components/scan-result-card.js – Scan-Ergebnis Anzeige
 
-import { el } from "../utils/dom.js";
+import { el, statItem } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 
 export function createScanResultCard(result) {
@@ -101,13 +101,6 @@ function createFrameListSection(frames, total, truncated) {
   tableWrap.appendChild(table);
 
   return el("div", { class: "tc-mt-2" }, toggleBtn, tableWrap);
-}
-
-function statItem(label, value) {
-  return el("div", {},
-    el("div", { class: "tc-label" }, label),
-    el("div", { class: "tc-text-sm tc-mono" }, String(value)),
-  );
 }
 
 function calBadge(label, status) {

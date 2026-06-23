@@ -152,7 +152,7 @@
   .tc-header {
     flex-wrap: wrap;
     height: auto;
-    padding: var(--space-2) var(--space-2);
+    padding: var(--space-2);
     gap: var(--space-2);
   }
 
@@ -182,15 +182,6 @@
 
   .tc-content {
     padding: var(--space-2);
-  }
-
-  .tc-queue-row {
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
-  }
-
-  .tc-queue-filter-stack {
-    flex-direction: row;
   }
 }
 

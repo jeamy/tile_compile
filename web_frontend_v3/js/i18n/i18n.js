@@ -33,10 +33,3 @@ export function t(key, fallback, params) {
   return msg;
 }
 
-export function getLocale() {
-  return currentLocale;
-}
-
-export function setLocale(locale) {
-  return loadLocale(locale);
-}

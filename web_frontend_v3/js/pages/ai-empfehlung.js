@@ -6,6 +6,7 @@ import { getAiState, setAiState, getAiFormData, setAiFormData, onAiChange } from
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
+import { pollJob } from "../utils/poll.js";
 
 export function createAiEmpfehlungPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -337,19 +338,11 @@ async function createAnalysis(force = false) {
 }
 
 async function pollJobResult(jobId, timeoutMs = 600000) {
-  const maxAttempts = Math.ceil(timeoutMs / 2000);
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const job = await api.get(API_ENDPOINTS.scan.jobStatus(jobId));
-    const state = job?.state;
-    if (state === "done" || state === "completed" || state === "ok") {
-      return job?.data?.result || job?.data || null;
-    }
-    if (state === "error" || state === "failed") {
-      throw new Error(job?.error || "Job failed");
-    }
-  }
-  throw new Error("Job timeout");
+  return pollJob(jobId, {
+    endpoint: API_ENDPOINTS.scan.jobStatus,
+    timeoutMs,
+    onDone: (job) => job?.data?.result || job?.data || null,
+  });
 }
 
 function renderRecommendations(recs) {

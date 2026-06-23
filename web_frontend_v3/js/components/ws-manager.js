@@ -62,6 +62,3 @@ function notify(event) {
   listeners.forEach(fn => fn(event));
 }
 
-export function isConnected() {
-  return ws && ws.readyState === WebSocket.OPEN;
-}

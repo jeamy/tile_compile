@@ -14,13 +14,6 @@ export function createYamlDiff(before = "", after = "") {
   return wrapper;
 }
 
-export function updateYamlDiff(before, after) {
-  const body = document.getElementById("yaml-diff-body");
-  if (!body) return;
-  body.innerHTML = "";
-  body.appendChild(renderDiff(before, after));
-}
-
 function renderDiff(before, after) {
   const diff = formatYamlDiff(before, after);
   if (diff.length === 0) {

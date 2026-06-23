@@ -1,12 +1,13 @@
 // js/pages/astrometry.js – Sub-Tab: Astrometry (Plate Solving via ASTAP)
 
-import { el } from "../utils/dom.js";
+import { el, setBadge } from "../utils/dom.js";
 import { createPathInput } from "../components/path-input.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
+import { pollJob } from "../utils/poll.js";
 
 const store = getStore("astrometry", {
   solveData: { solve_file: "", output_path: "", downsample: "0" },
@@ -110,14 +111,6 @@ async function detectAstap() {
   }
 }
 
-function setBadge(badgeEl, ok, text) {
-  if (!badgeEl) return;
-  badgeEl.textContent = text;
-  badgeEl.className = `tc-badge ${ok ? "tc-badge-success" : "tc-badge-error"}`;
-  badgeEl.style.flexShrink = "0";
-  badgeEl.style.whiteSpace = "nowrap";
-}
-
 async function installCli() {
   try {
     toast(t("ui.toast.installing_cli", "Installiere CLI..."), "", "info");
@@ -176,22 +169,7 @@ async function solve() {
 }
 
 async function pollSolveJob(jobId, timeoutMs = 300000) {
-  const maxAttempts = Math.ceil(timeoutMs / 2000);
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
-    const state = job?.state;
-    if (state === "ok" || state === "done" || state === "completed") {
-      return job?.data || job;
-    }
-    if (state === "error" || state === "failed") {
-      const stderr = job?.data?.stderr || "";
-      const stdout = job?.data?.stdout || "";
-      const detail = stderr || stdout || job?.error || "Solve failed";
-      throw new Error(detail.substring(0, 500));
-    }
-  }
-  throw new Error("Solve timeout");
+  return pollJob(jobId, { timeoutMs, errorLabel: "Solve" });
 }
 
 async function saveSolved() {

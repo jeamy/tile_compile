@@ -1,6 +1,5 @@
 // js/pages/processing.js – Tab 1: Container + Sub-Tab-Orchestrierung
 
-import { el } from "../utils/dom.js";
 import { createInputScanPage } from "./input-scan.js";
 import { createParameterPage } from "./parameter.js";
 import { createRunMonitorPage } from "./run-monitor.js";

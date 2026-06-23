@@ -45,39 +45,9 @@ export function getStore(key, initialState) {
   return stores.get(key);
 }
 
-export function getState(key) {
-  return getStore(key).getState();
-}
-
-export function setState(key, patch) {
-  getStore(key).setState(patch);
-}
-
-export function subscribe(key, fn) {
-  return getStore(key).subscribe(fn);
-}
-
 // Server-UI-State sync
 let _api = null;
 
 export function setApi(api) {
   _api = api;
-}
-
-export async function loadServerUiState() {
-  if (!_api) return {};
-  try {
-    return await _api.get("/api/app/ui-state");
-  } catch {
-    return {};
-  }
-}
-
-export async function syncServerUiState(patch) {
-  if (!_api) return;
-  try {
-    await _api.patch("/api/app/ui-state", patch);
-  } catch (e) {
-    console.error("Server UI state sync failed:", e);
-  }
 }

@@ -31,7 +31,3 @@ export function onAiChange(fn) { return store.subscribe(fn); }
 export function getAiFormData() { return store.getState().aiFormData; }
 export function setAiFormData(patch) { store.setState({ aiFormData: { ...getAiFormData(), ...patch } }); }
 
-export function addTrafficEntry(entry) {
-  const { trafficLog } = store.getState();
-  store.setState({ trafficLog: [...trafficLog, entry] });
-}

@@ -2,7 +2,7 @@
 
 import { el, clear } from "../utils/dom.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
-import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, humanizeCategory, setConfigState, markDirty } from "../state/config-state.js";
+import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, humanizeCategory, setConfigState, markDirty, deepClone } from "../state/config-state.js";
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
@@ -102,7 +102,7 @@ export function createParameterPage() {
   const nextBar = el("div", { class: "tc-flex tc-justify-end tc-mt-4", id: "param-nextbar" },
     el("button", {
       class: "tc-btn",
-      onclick: () => goToSubTab("run-monitor"),
+      onclick: () => goToSubTab("processing", "run-monitor"),
     }, "\u25b6 " + t("ui.button.next", "Next")),
   );
 
@@ -437,35 +437,6 @@ function updateDiff() {
 
 }
 
-function deepDiffPaths(before, after, prefix = "", out = []) {
-  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
-  for (const key of allKeys) {
-    const path = prefix ? `${prefix}.${key}` : key;
-    const bv = before?.[key];
-    const av = after?.[key];
-    if (bv === av) continue;
-    if (bv !== null && av !== null && typeof bv === "object" && !Array.isArray(bv) && typeof av === "object" && !Array.isArray(av)) {
-      deepDiffPaths(bv, av, path, out);
-    } else if (Array.isArray(bv) && Array.isArray(av)) {
-      if (JSON.stringify(bv) !== JSON.stringify(av)) out.push({ path, oldValue: bv, newValue: av });
-    } else {
-      if (bv === undefined) out.push({ path, oldValue: null, newValue: av });
-      else if (av === undefined) out.push({ path, oldValue: bv, newValue: null });
-      else out.push({ path, oldValue: bv, newValue: av });
-    }
-  }
-  return out;
-}
-
-function formatVal(v) {
-  if (v === null) return "null";
-  if (v === true) return "true";
-  if (v === false) return "false";
-  if (Array.isArray(v)) return `[${v.map(formatVal).join(", ")}]`;
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
-
 function getConfigValue(obj, path) {
   const parts = path.split(".");
   let val = obj;
@@ -745,9 +716,9 @@ async function doReset() {
     }
     const yamlText = stringifyYaml(defaults);
     setConfigState({
-      config: JSON.parse(JSON.stringify(defaults)),
+      config: deepClone(defaults),
       configYaml: yamlText,
-      draft: JSON.parse(JSON.stringify(defaults)),
+      draft: deepClone(defaults),
       draftYaml: yamlText,
       dirty: false,
     });
@@ -805,9 +776,9 @@ async function applyPreset() {
     const yamlText = result?.config || "";
     const parsed = parseYaml(yamlText);
     setConfigState({
-      config: JSON.parse(JSON.stringify(parsed)),
+      config: deepClone(parsed),
       configYaml: yamlText,
-      draft: JSON.parse(JSON.stringify(parsed)),
+      draft: deepClone(parsed),
       draftYaml: yamlText,
       dirty: false,
     });
@@ -821,38 +792,13 @@ async function applyPreset() {
   }
 }
 
-function goToSubTab(subId) {
-  const ui = getUiState();
-  setUiState({ activeSubTab: { ...ui.activeSubTab, processing: subId } });
-  window.location.hash = "#processing";
-  window.dispatchEvent(new Event("tc-subtab-change"));
-}
-
-function reapplySituations(scenarios) {
-  const { config } = getConfigState();
-  if (!config) return;
-  const freshDraft = JSON.parse(JSON.stringify(config));
-  if (scenarios && scenarios.length > 0) {
-    const deltas = getScenarioDeltas(scenarios);
-    for (const [path, info] of deltas) {
-      const value = info.values[info.values.length - 1];
-      setConfigValue(freshDraft, path, value);
-    }
-  }
-  markDirty();
-  setConfigState({ draft: freshDraft, draftYaml: stringifyYaml(freshDraft) });
-  const savedCat = getUiState().selectedCategory || "all";
-  renderEditorForCategory(savedCat);
-  updateDiff();
-}
-
 function applySituationDeltas(scenarios) {
   const { config } = getConfigState();
   if (!config) {
     toastError("Config nicht geladen");
     return;
   }
-  const freshDraft = JSON.parse(JSON.stringify(config));
+  const freshDraft = deepClone(config);
   let applied = 0;
   if (scenarios && scenarios.length > 0) {
     const deltas = getScenarioDeltas(scenarios);

@@ -21,10 +21,7 @@ const store = getStore("config-state", {
 
 export function getConfigState() { return store.getState(); }
 export function setConfigState(patch) { store.setState(patch); }
-export function onConfigChange(fn) { return store.subscribe(fn); }
-
 export function markDirty() { store.setState({ dirty: true }); }
-export function markClean() { store.setState({ dirty: false }); }
 
 function flattenSchemaPaths(node, prefix = [], out = new Set()) {
   if (!node || typeof node !== "object" || !node.properties || typeof node.properties !== "object") return out;
@@ -111,7 +108,7 @@ export async function saveConfig() {
   }
 }
 
-function deepClone(obj) {
+export function deepClone(obj) {
   if (obj === null || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(deepClone);
   const clone = {};

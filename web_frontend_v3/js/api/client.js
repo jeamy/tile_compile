@@ -1,6 +1,6 @@
 // js/api/client.js – ApiClient (aus GUI2 migriert, 1:1)
 
-export class ApiClient {
+class ApiClient {
   constructor(baseUrl = "/") {
     this.setBase(baseUrl);
   }

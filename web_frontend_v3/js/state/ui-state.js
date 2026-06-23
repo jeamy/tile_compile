@@ -1,6 +1,6 @@
 // js/state/ui-state.js – Locale, Theme, activeTab, activeSubTab
 
-import { getStore, setState, subscribe } from "./store.js";
+import { getStore } from "./store.js";
 
 const DEFAULT = {
   locale: "de",
@@ -26,10 +26,6 @@ export function setUiState(patch) {
   if (patch.locale) {
     document.documentElement.setAttribute("lang", patch.locale);
   }
-}
-
-export function onUiStateChange(fn) {
-  return store.subscribe(fn);
 }
 
 export function initUiState() {

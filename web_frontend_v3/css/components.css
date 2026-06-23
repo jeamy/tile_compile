@@ -301,32 +301,6 @@
   z-index: 999;
 }
 
-.tc-modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  max-width: 800px;
-  max-height: 80vh;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-}
-
-.tc-modal-header {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.tc-modal-body {
-  padding: var(--space-4);
-  overflow-y: auto;
-  flex: 1;
-}
-
 /* ── Accordion ──────────────────────────────────── */
 .tc-accordion {
   border: 1px solid var(--border);
@@ -433,19 +407,6 @@
 .tc-diff-added {
   color: var(--success);
   background: var(--success-bg);
-  padding: 1px 4px;
-  font-size: 0.6rem;
-}
-
-.tc-diff-removed {
-  color: var(--error);
-  background: var(--error-bg);
-  padding: 1px 4px;
-  font-size: 0.6rem;
-}
-
-.tc-diff-unchanged {
-  color: var(--muted);
   padding: 1px 4px;
   font-size: 0.6rem;
 }
@@ -595,14 +556,6 @@
   background: var(--surface-2);
 }
 
-/* ── WCS Results ────────────────────────────────── */
-.tc-wcs-results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-}
-
 /* ── Modal ─────────────────────────────────────── */
 .tc-modal-overlay {
   position: fixed;
@@ -689,25 +642,6 @@
 .tc-path-picker-row.active {
   background: var(--primary-soft);
   color: var(--primary);
-}
-
-/* ── Param Category ────────────────────────────── */
-.tc-param-category {
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  user-select: none;
-}
-
-.tc-param-category:hover {
-  background: var(--surface-2);
-}
-
-.tc-param-category.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 500;
 }
 
 /* ── Diff ──────────────────────────────────────── */

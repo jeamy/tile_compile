@@ -2,7 +2,7 @@
 
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { createPhaseList, setPhaseList, updatePhaseState, updatePhaseStates, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
+import { createPhaseList, setPhaseList, updatePhaseState, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
 import { createLogViewer } from "../components/log-viewer.js";
 import { connectWebSocket, disconnectWebSocket, onWebSocketMessage } from "../components/ws-manager.js";
 import { api } from "../api/client.js";
@@ -11,6 +11,8 @@ import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { getStore } from "../state/store.js";
 import { getConfigState, validateConfig } from "../state/config-state.js";
+import { pollJob } from "../utils/poll.js";
+import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -75,8 +77,8 @@ export function createRunMonitorPage() {
 
   // Stats panel
   const statsGenerateBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-generate-btn", disabled: true, onclick: () => generateStats() }, t("ui.button.generate_stats", "Generate Stats"));
-  const statsOpenBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-open-btn", disabled: true, onclick: () => openStatsFolder() }, t("ui.button.open_stats_folder", "Open Stats Folder"));
-  const statsReportBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-report-btn", disabled: true, onclick: () => openStatsReport() }, t("ui.button.open_stats_report", "Open Report"));
+  const statsOpenBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-open-btn", disabled: true, onclick: () => { const rid = getRunState().currentRunId; if (rid) openStatsFolder(rid); } }, t("ui.button.open_stats_folder", "Open Stats Folder"));
+  const statsReportBtn = el("button", { class: "tc-btn tc-btn-sm", id: "stats-report-btn", disabled: true, onclick: () => { const rid = getRunState().currentRunId; if (rid) openStatsReport(rid); } }, t("ui.button.open_stats_report", "Open Report"));
   const stats = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between" },
       el("span", {}, t("ui.title.stats", "Stats")),
@@ -201,17 +203,17 @@ async function restoreCurrentRun() {
     // Always show scan info immediately, even without active run
     if (scan) {
       const frames = scan.frames_detected || scan.frames_total || 0;
-      if (frames > 0) updateInfo("info-frames", frames);
-      if (scan.input_path) updateInfo("info-output-dir", scan.input_path);
-      if (scan.color_mode) updateInfo("info-color-mode", scan.color_mode);
+      if (frames > 0) updateStat("info-frames", frames);
+      if (scan.input_path) updateStat("info-output-dir", scan.input_path);
+      if (scan.color_mode) updateStat("info-color-mode", scan.color_mode);
     }
 
     // Also check input-scan store for immediate display
     const inputStore = getStore("input-scan", { scanData: {}, queueItems: [] });
     const sd = inputStore.getState().scanData || {};
-    if (sd.input_dir && (!scan || !scan.input_path)) updateInfo("info-output-dir", sd.input_dir);
-    if (sd.color_mode && (!scan || !scan.color_mode)) updateInfo("info-color-mode", sd.color_mode);
-    if (sd.run_name) updateInfo("info-run-name", sd.run_name);
+    if (sd.input_dir && (!scan || !scan.input_path)) updateStat("info-output-dir", sd.input_dir);
+    if (sd.color_mode && (!scan || !scan.color_mode)) updateStat("info-color-mode", sd.color_mode);
+    if (sd.run_name) updateStat("info-run-name", sd.run_name);
 
     if (current?.run_id) {
       const backendRunning = current.status === "running";
@@ -226,11 +228,11 @@ async function restoreCurrentRun() {
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
       updateStat("stat-status", isRunning ? "running" : (current.status || "running"));
-      updateInfo("info-run-id", current.run_id);
-      updateInfo("info-status", isRunning ? "running" : (current.status || "running"));
-      if (current.run_dir) updateInfo("info-run-dir", current.run_dir);
+      updateStat("info-run-id", current.run_id);
+      updateStat("info-status", isRunning ? "running" : (current.status || "running"));
+      if (current.run_dir) updateStat("info-run-dir", current.run_dir);
       const runName = current.run_id.replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
-      updateInfo("info-run-name", runName);
+      updateStat("info-run-name", runName);
       await refreshRunStatus(current.run_id);
       // Load existing logs from REST endpoint
       await loadInitialLogs(current.run_id, logViewer, warningBanner);
@@ -335,19 +337,19 @@ async function refreshRunStatus(runId) {
       setRunState({ phases: status.phases });
     }
 
-    updateInfo("info-run-id", status.run_id || runId);
-    updateInfo("info-run-dir", status.run_dir || "\u2014");
-    updateInfo("info-status", status.status || "\u2014");
-    updateInfo("info-color-mode", status.color_mode || "\u2014");
-    updateInfo("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
+    updateStat("info-run-id", status.run_id || runId);
+    updateStat("info-run-dir", status.run_dir || "\u2014");
+    updateStat("info-status", status.status || "\u2014");
+    updateStat("info-color-mode", status.color_mode || "\u2014");
+    updateStat("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
 
     if (status.run_dir) {
       setRunState({ currentRunDir: status.run_dir });
-      updateInfo("info-output-dir", status.run_dir + "/outputs");
+      updateStat("info-output-dir", status.run_dir + "/outputs");
     }
 
     const runName = (status.run_id || runId).replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
-    updateInfo("info-run-name", runName);
+    updateStat("info-run-name", runName);
 
     const queue = status.queue;
     if (Array.isArray(queue) && queue.length > 0) {
@@ -355,7 +357,7 @@ async function refreshRunStatus(runId) {
       for (const item of queue) {
         if (item.input_dir) totalInputs++;
       }
-      if (totalInputs > 0) updateInfo("info-frames", `${queue.length} Queue Items`);
+      if (totalInputs > 0) updateStat("info-frames", `${queue.length} Queue Items`);
     }
 
     updateStat("stat-run-id", status.run_id || runId);
@@ -366,7 +368,7 @@ async function refreshRunStatus(runId) {
       const scan = appState?.scan?.last_scan;
       if (scan) {
         const frames = scan.frames_detected || scan.frames_total || 0;
-        if (frames > 0) updateInfo("info-frames", frames);
+        if (frames > 0) updateStat("info-frames", frames);
       }
     }
   } catch {}
@@ -445,7 +447,7 @@ async function stopRun() {
     setRunState({ status: "stopped" });
     setRunButtonsActive(false);
     updateStat("stat-status", "stopped");
-    updateInfo("info-status", "stopped");
+    updateStat("info-status", "stopped");
     stopPolling();
     disconnectWebSocket();
     toastSuccess(t("ui.toast.run_stopped", "Run gestoppt"));
@@ -488,7 +490,7 @@ async function resumeRun() {
     setRunState({ status: "running" });
     setRunButtonsActive(true);
     updateStat("stat-status", "running");
-    updateInfo("info-status", `running — ${phase}`);
+    updateStat("info-status", `running — ${phase}`);
     const newPhases = resetPhasesForResume(phase);
     if (newPhases.length > 0) setRunState({ phases: newPhases });
     connectWebSocket(currentRunId, true);
@@ -632,12 +634,12 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     const runStatus = data.state || payload.status || data.status || "";
     if (runStatus) {
       updateStat("stat-status", runStatus);
-      updateInfo("info-status", runStatus);
+      updateStat("info-status", runStatus);
       setRunState({ status: runStatus });
     }
     const currentPhase = payload.current_phase || data.phase || "";
     if (currentPhase && currentPhase !== "null" && runStatus === "running") {
-      updateInfo("info-status", `${runStatus} — ${currentPhase}`);
+      updateStat("info-status", `${runStatus} — ${currentPhase}`);
     }
   }
 
@@ -651,7 +653,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (fromPhase) {
       updatePhaseState(fromPhase, "running", 0);
       savePhaseToStore(fromPhase, "running", 0);
-      updateInfo("info-status", `running — ${fromPhase}`);
+      updateStat("info-status", `running — ${fromPhase}`);
     }
     setRunState({ status: "running" });
     setRunButtonsActive(true);
@@ -669,7 +671,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
         savePhaseToStore(fromPhase, "ok", 100);
       }
       updateStat("stat-status", "completed");
-      updateInfo("info-status", "completed");
+      updateStat("info-status", "completed");
       setRunState({ status: "completed" });
       setRunButtonsActive(false);
       stopPolling();
@@ -683,7 +685,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
       refreshRunStatus(getRunState().currentRunId);
     } else {
       updateStat("stat-status", "failed");
-      updateInfo("info-status", "failed");
+      updateStat("info-status", "failed");
       setRunState({ status: "failed" });
       setRunButtonsActive(false);
       stopPolling();
@@ -710,7 +712,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     }
     const finalStatus = data.status || payload.status || payload.state || "completed";
     updateStat("stat-status", finalStatus);
-    updateInfo("info-status", finalStatus);
+    updateStat("info-status", finalStatus);
     setRunState({ status: finalStatus });
     setRunButtonsActive(false);
     stopPolling();
@@ -724,11 +726,6 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
 }
 
 function updateStat(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = String(value);
-}
-
-function updateInfo(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = String(value);
 }
@@ -880,7 +877,7 @@ async function generateStats() {
     const result = await api.post(API_ENDPOINTS.runs.stats(runId), {});
     const jobId = result?.job_id;
     if (jobId) {
-      await pollJob(jobId);
+      await pollJob(jobId, { intervalMs: 1000, timeoutMs: 120000 });
       toastSuccess(t("ui.toast.stats_done", "Stats generiert"));
       await checkStatsAvailable(runId);
     } else {
@@ -893,52 +890,3 @@ async function generateStats() {
   }
 }
 
-async function pollJob(jobId) {
-  for (let i = 0; i < 120; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    try {
-      const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
-      if (job?.state === "ok" || job?.state === "done" || job?.state === "completed") return job;
-      if (job?.state === "error" || job?.state === "failed" || job?.state === "cancelled") throw new Error(job?.error || "Job failed");
-    } catch (e) {
-      if (e.message?.includes("failed") || e.message?.includes("cancelled")) throw e;
-    }
-  }
-  throw new Error("Job timeout");
-}
-
-async function openStatsFolder() {
-  const runId = getRunState().currentRunId;
-  if (!runId) return;
-  try {
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId));
-    const dir = status?.output_dir;
-    if (!dir) {
-      toastError(t("ui.toast.stats_folder_unavailable", "Stats-Ordner nicht verfügbar"));
-      return;
-    }
-    await api.post(API_ENDPOINTS.fs.openPath, { path: dir });
-  } catch (e) {
-    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
-  }
-}
-
-async function openStatsReport() {
-  const runId = getRunState().currentRunId;
-  if (!runId) return;
-  try {
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(runId));
-    const reportPath = status?.report_path;
-    if (!reportPath) {
-      toastError(t("ui.toast.stats_folder_unavailable", "Report nicht verfügbar"));
-      return;
-    }
-    const artifactRelPath = reportPath.includes("/artifacts/")
-      ? reportPath.substring(reportPath.indexOf("/artifacts/") + "/artifacts/".length)
-      : "report.html";
-    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, artifactRelPath));
-    window.open(url, "_blank");
-  } catch (e) {
-    toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);
-  }
-}

@@ -104,17 +104,6 @@ export function updatePhaseState(phaseName, status, pct) {
   }
 }
 
-export function updatePhaseStates(states) {
-  const list = document.getElementById("phase-list");
-  if (!list) return;
-  for (const item of list.querySelectorAll(".tc-phase-item")) {
-    const name = item.dataset.phase;
-    const state = states[name] || "pending";
-    const wasSelected = item.classList.contains("tc-phase-selected");
-    item.className = `tc-phase-item ${state}${wasSelected ? " tc-phase-selected" : ""}`;
-  }
-}
-
 export function resetPhasesForResume(fromPhase) {
   const list = document.getElementById("phase-list");
   if (!list) return [];

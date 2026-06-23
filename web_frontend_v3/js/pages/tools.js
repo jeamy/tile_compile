@@ -1,6 +1,5 @@
 // js/pages/tools.js – Tab 2: Container + Sub-Tab-Orchestrierung
 
-import { el } from "../utils/dom.js";
 import { createRawStackPage } from "./raw-stack.js";
 import { createAstrometryPage } from "./astrometry.js";
 import { createPccPage } from "./pcc.js";

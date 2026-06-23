@@ -1,12 +1,13 @@
 // js/pages/pcc.js – Sub-Tab: PCC (Photometric Color Calibration)
 
-import { el } from "../utils/dom.js";
+import { el, setBadge } from "../utils/dom.js";
 import { createPathInput } from "../components/path-input.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
+import { pollJob } from "../utils/poll.js";
 
 const store = getStore("pcc", {
   pccData: { rgb_fits: "", wcs_file: "", output_rgb: "", catalog_source: "siril", catalog_dir: "", mag_limit: 14.0, mag_bright_limit: 6.0, min_stars: 10, sigma_clip: 2.5 },
@@ -119,18 +120,10 @@ async function checkSirilStatus() {
     const missing = result?.missing || [];
     const ok = installed > 0 && missing.length === 0;
     const text = ok ? `${installed}/${total}` : (installed > 0 ? `${installed}/${total} (${missing.length} fehlen)` : "✗");
-    setPccBadge(badge, ok, text);
+    setBadge(badge, ok, text);
   } catch (e) {
-    setPccBadge(badge, false, "✗");
+    setBadge(badge, false, "✗");
   }
-}
-
-function setPccBadge(badgeEl, ok, text) {
-  if (!badgeEl) return;
-  badgeEl.textContent = text;
-  badgeEl.className = `tc-badge ${ok ? "tc-badge-success" : "tc-badge-error"}`;
-  badgeEl.style.flexShrink = "0";
-  badgeEl.style.whiteSpace = "nowrap";
 }
 
 async function downloadMissing() {
@@ -217,22 +210,7 @@ async function resumeDownloadPolling(jobId) {
 }
 
 async function pollDownloadJob(jobId, timeoutMs = 600000, onProgress = null) {
-  const maxAttempts = Math.ceil(timeoutMs / 2000);
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
-    const state = job?.state;
-    if (onProgress) onProgress(job);
-    if (state === "ok" || state === "done" || state === "completed") {
-      return job?.data || job;
-    }
-    if (state === "error" || state === "failed") {
-      const stderr = job?.data?.stderr || "";
-      const detail = stderr || job?.error || "Download failed";
-      throw new Error(detail.substring(0, 500));
-    }
-  }
-  throw new Error("Download timeout");
+  return pollJob(jobId, { timeoutMs, onProgress, errorLabel: "Download" });
 }
 
 async function checkOnline() {
@@ -301,22 +279,7 @@ async function runPcc() {
 }
 
 async function pollPccJob(jobId, timeoutMs = 300000) {
-  const maxAttempts = Math.ceil(timeoutMs / 2000);
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
-    const state = job?.state;
-    if (state === "ok" || state === "done" || state === "completed") {
-      return job?.data || job;
-    }
-    if (state === "error" || state === "failed") {
-      const stderr = job?.data?.stderr || "";
-      const stdout = job?.data?.stdout || "";
-      const detail = stderr || stdout || job?.error || "PCC failed";
-      throw new Error(detail.substring(0, 500));
-    }
-  }
-  throw new Error("PCC timeout");
+  return pollJob(jobId, { timeoutMs, errorLabel: "PCC" });
 }
 
 async function saveCorrected() {

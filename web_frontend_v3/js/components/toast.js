@@ -38,10 +38,3 @@ export function toastError(title, body, duration = 0) {
   toast(title, body, "error", duration);
 }
 
-export function toastWarning(title, body, duration = 10000) {
-  toast(title, body, "warning", duration);
-}
-
-export function toastInfo(title, body, duration) {
-  toast(title, body, "info", duration);
-}

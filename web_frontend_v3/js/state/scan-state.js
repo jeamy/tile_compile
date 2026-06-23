@@ -10,4 +10,3 @@ const store = getStore("scan-state", {
 
 export function getScanState() { return store.getState(); }
 export function setScanState(patch) { store.setState(patch); }
-export function onScanChange(fn) { return store.subscribe(fn); }

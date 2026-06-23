@@ -1,13 +1,5 @@
 // js/utils/dom.js – DOM-Helper
 
-export function $(selector, parent = document) {
-  return parent.querySelector(selector);
-}
-
-export function $$(selector, parent = document) {
-  return [...parent.querySelectorAll(selector)];
-}
-
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -40,10 +32,17 @@ export function clear(node) {
   return node;
 }
 
-export function fragment(...children) {
-  const frag = document.createDocumentFragment();
-  for (const child of children.flat()) {
-    frag.append(child instanceof Node ? child : document.createTextNode(String(child)));
-  }
-  return frag;
+export function setBadge(badgeEl, ok, text) {
+  if (!badgeEl) return;
+  badgeEl.textContent = text;
+  badgeEl.className = `tc-badge ${ok ? "tc-badge-success" : "tc-badge-error"}`;
+  badgeEl.style.flexShrink = "0";
+  badgeEl.style.whiteSpace = "nowrap";
+}
+
+export function statItem(label, value) {
+  return el("div", {},
+    el("div", { class: "tc-label" }, label),
+    el("div", { class: "tc-text-sm tc-mono" }, String(value)),
+  );
 }

@@ -4,6 +4,13 @@
 #include <sstream>
 #include <system_error>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 /// @brief Implements weakly normalize.
@@ -70,14 +77,24 @@ std::string env_string(const char* name, const char* def = "") {
     return v ? v : def;
 }
 
-/// Splits a colon-separated path list string into individual path strings.
+/// Splits a path list string into individual path strings.
+/// On Windows, semicolons are used as separators (colons would break drive letters).
 std::vector<std::string> split_colon_paths(const std::string& s) {
     std::vector<std::string> result;
+    if (s.empty()) return result;
+#ifdef _WIN32
+    std::istringstream iss(s);
+    std::string part;
+    while (std::getline(iss, part, ';')) {
+        if (!part.empty()) result.push_back(std::move(part));
+    }
+#else
     std::istringstream iss(s);
     std::string part;
     while (std::getline(iss, part, ':')) {
         if (!part.empty()) result.push_back(std::move(part));
     }
+#endif
     return result;
 }
 
@@ -226,19 +243,37 @@ BackendRuntime BackendRuntime::from_env() {
     std::string port_str = env_string("TILE_COMPILE_PORT", "8000");
     try { rt.port = std::stoi(port_str); } catch (...) { rt.port = 8000; }
 
-    const char* home_env = std::getenv("HOME");
     for (const auto& root : {
              rt.project_root,
              rt.runs_dir,
-             fs::path(home_env ? home_env : ""),
+#ifdef _WIN32
+             fs::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : ""),
+             fs::path(std::getenv("HOMEPATH") ? std::getenv("HOMEPATH") : ""),
+#else
+             fs::path(std::getenv("HOME") ? std::getenv("HOME") : ""),
              fs::path("/tmp"),
              fs::path("/media"),
+#endif
          }) {
         if (!root.empty()) {
             const std::string normalized = rt.normalize_path(root).string();
             if (!normalized.empty()) rt._allowed_roots.insert(normalized);
         }
     }
+
+#ifdef _WIN32
+    {
+        const DWORD drives = GetLogicalDrives();
+        for (int i = 0; i < 26; ++i) {
+            if (drives & (1u << i)) {
+                char drive_letter = static_cast<char>('A' + i);
+                fs::path drive_root = fs::path(std::string(1, drive_letter) + ":\\");
+                const std::string normalized = rt.normalize_path(drive_root).string();
+                if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+            }
+        }
+    }
+#endif
 
     std::string allowed_roots = env_string("TILE_COMPILE_ALLOWED_ROOTS", "");
     for (const auto& root : split_colon_paths(allowed_roots)) {
