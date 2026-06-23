@@ -79,6 +79,25 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(crow)
 
+# Patch Crow: wrap remote_endpoint() in try/catch to prevent worker crashes
+# on Windows when clients disconnect abruptly (asio throws on invalid handle).
+if(EXISTS "${crow_SOURCE_DIR}/include/crow/socket_adaptors.h")
+    file(READ "${crow_SOURCE_DIR}/include/crow/socket_adaptors.h" _crow_socket_src)
+    string(FIND "${_crow_socket_src}" "catch (...)" _crow_patch_marker)
+    if(_crow_patch_marker EQUAL -1)
+        string(REPLACE
+            "return socket_.remote_endpoint();"
+            "try { return socket_.remote_endpoint(); } catch (...) { return tcp::endpoint(); }"
+            _crow_socket_patched "${_crow_socket_src}")
+        string(REPLACE
+            "return raw_socket().remote_endpoint();"
+            "try { return raw_socket().remote_endpoint(); } catch (...) { return tcp::endpoint(); }"
+            _crow_socket_patched "${_crow_socket_patched}")
+        file(WRITE "${crow_SOURCE_DIR}/include/crow/socket_adaptors.h" "${_crow_socket_patched}")
+        message(STATUS "Crow: patched socket_adaptors.h for Windows remote_endpoint safety")
+    endif()
+endif()
+
 # Asio standalone (no Boost)
 add_library(asio_header INTERFACE)
 target_include_directories(asio_header INTERFACE
