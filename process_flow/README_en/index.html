@@ -1914,7 +1914,10 @@
 <p>This document describes the <strong>actual execution flow of the C++ implementation</strong> (<code>tile_compile_cpp/apps/runner_pipeline.cpp</code>) of tile-based quality reconstruction for deep-sky objects according to methodology v3.</p>
 <p>The pipeline processes <strong>FITS frames</strong> (mono or OSC/CFA) and produces a weighted, tile-based reconstruction result with optional clustering, synthetic frames and sigma-clipping stacking.</p>
 <p><strong>Implementation:</strong> C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.</p>
-<p><strong>GUI2 integration:</strong> The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking <code>tile_compile_cli</code> and <code>tile_compile_runner</code>; it does not reimplement the processing logic.</p>
+<p><strong>GUI3 integration:</strong> The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking <code>tile_compile_cli</code> and <code>tile_compile_runner</code>; it does not reimplement the processing logic.</p>
+<blockquote>
+<p><strong>Default method: AQMH</strong> — Since v0.3.0, the default reconstruction method is <code>aqmh</code> (Adaptive Quality Map Harvesting). AQMH replaces classic tile-based local metrics (phase 8) and tile reconstruction (phase 9) with pixel-wise pyramid quality maps and independent weighted reconstruction. Phases 10–11 (clustering, synthetic frames) are skipped. See <a href="../phase_0_overview/">Pipeline Overview</a> for the AQMH vs. classic comparison.</p>
+</blockquote>
 <h2 id="current-pipeline-phases-c-implementation-v33">Current pipeline phases (C++ implementation, v3.3)<a class="headerlink" href="#current-pipeline-phases-c-implementation-v33" title="Permanent link">&para;</a></h2>
 <p>Source of the phase order: <code>tile_compile::Phase</code> in <code>include/tile_compile/core/types.hpp</code>.</p>
 <table>
