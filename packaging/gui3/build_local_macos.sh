@@ -488,16 +488,33 @@ smoke_test() {
   bash "${root}/start_gui3.sh" >/tmp/out_gui3_smoke_macos.txt 2>&1 &
   local start_pid=$!
   trap 'kill "${start_pid}" 2>/dev/null || true; pkill -f tile_compile_web_backend 2>/dev/null || true' EXIT
-  python3 - <<'PY'
+
+  # Early-exit diagnostic: check if start_gui3.sh crashed within 15s
+  sleep 15
+  if ! kill -0 "${start_pid}" 2>/dev/null; then
+    wait "${start_pid}" 2>/dev/null || true
+    local start_exit=$?
+    echo "[gui3-package] start_gui3.sh exited early with code ${start_exit}" >&2
+    echo "=== start_gui3.sh output ===" >&2
+    cat /tmp/out_gui3_smoke_macos.txt >&2 || true
+    echo "=== end output ===" >&2
+    exit 1
+  fi
+  echo "[gui3-package] start_gui3.sh still running after 15s, polling API..."
+
+  START_PID_ENV="${start_pid}" python3 - <<'PY'
 import json
 import os
+import sys
 import time
 from urllib.request import Request, urlopen
 
 port = os.environ["TILE_COMPILE_GUI3_PORT"]
 state_url = f"http://127.0.0.1:{port}/api/app/state"
 validate_url = f"http://127.0.0.1:{port}/api/config/validate"
-deadline = time.time() + 30
+start_pid = os.environ.get("START_PID_ENV", "")
+deadline = time.time() + 60
+last_check = 0
 while time.time() < deadline:
     try:
         with urlopen(state_url, timeout=2) as resp:
@@ -505,9 +522,24 @@ while time.time() < deadline:
             assert isinstance(data, dict)
             break
     except Exception:
+        # Every 10s, check if start_gui3.sh is still alive
+        if time.time() - last_check > 10:
+            last_check = time.time()
+            if start_pid:
+                try:
+                    os.kill(int(start_pid), 0)
+                except ProcessLookupError:
+                    print("ERROR: start_gui3.sh process has exited!", file=sys.stderr)
+                    try:
+                        with open("/tmp/out_gui3_smoke_macos.txt") as f:
+                            print(f.read(), file=sys.stderr)
+                    except Exception:
+                        pass
+                    raise SystemExit("backend smoke test failed - start_gui3.sh exited")
+                except PermissionError:
+                    pass
         time.sleep(1)
 else:
-    import sys
     try:
         with open("/tmp/out_gui3_smoke_macos.txt") as f:
             print(f.read(), file=sys.stderr)

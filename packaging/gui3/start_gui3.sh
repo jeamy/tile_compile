@@ -263,13 +263,28 @@ run_backend_foreground() {
   log "  - Beispiel-Konfigs:      ${INSTALL_ROOT}/tile_compile_cpp/examples/"
   log "User-Daten (Runs, Konfigurationen, ASTAP, PCC) bleiben bei Updates erhalten."
   log ""
-  
+
+  # Diagnostic: verify library paths on macOS
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    log "DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-<unset>}"
+    log "otool -L ${BACKEND_BIN}:"
+    otool -L "${BACKEND_BIN}" 2>&1 | while IFS= read -r line; do log "  ${line}"; done
+    local _lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
+    if [[ -d "${_lib_dir}" ]]; then
+      log "Bundled libs in ${_lib_dir}:"
+      ls -la "${_lib_dir}" 2>&1 | while IFS= read -r line; do log "  ${line}"; done
+    else
+      log "WARNUNG: lib-Verzeichnis fehlt: ${_lib_dir}"
+    fi
+  fi
+
   if [[ "${TILE_COMPILE_GUI3_NO_BROWSER:-0}" != "1" ]]; then
     ( sleep 2; open_browser ) &
   fi
-  
+
   start_agent_service
 
+  log "Starte Backend-Binary: ${BACKEND_BIN}"
   local exit_code=0
   "${BACKEND_BIN}" || exit_code=$?
   
@@ -301,6 +316,7 @@ main() {
   log "Payload bereit. Erstelle Verzeichnisse..."
   mkdir -p "${LOG_DIR}" "${RUNS_DIR}"
 
+  # Post-copy verification
   log "Pruefe Backend-Binary: ${BACKEND_BIN}"
   if [[ ! -x "${BACKEND_BIN}" ]]; then
     log "FEHLER: Backend-Binary nicht gefunden oder nicht ausfuehrbar: ${BACKEND_BIN}"
@@ -312,6 +328,10 @@ main() {
       ls -la "$(dirname "${BACKEND_BIN}")" || true
     fi
     exit 1
+  fi
+  local _installed_lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
+  if [[ ! -d "${_installed_lib_dir}" ]]; then
+    log "WARNUNG: lib-Verzeichnis fehlt im Installationsverzeichnis: ${_installed_lib_dir}"
   fi
 
   log "Pruefe ob Backend bereits laeuft..."
