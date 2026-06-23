@@ -79,6 +79,10 @@ nav:
     - CLI Reference: getting_started/cli_reference.md
     - Configuration: getting_started/configuration.md
   - User Guide:
+    - GUI3 User Guide (EN): gui3_user_guide_en.md
+    - GUI3 Benutzerhandbuch (DE): gui3_user_guide_de.md
+    - Raw Stack GUI (EN): raw_stack_gui_en.md
+    - Raw Stack GUI (DE): raw_stack_gui_de.md
     - Pipeline Overview: process_flow/phase_0_overview.md
     - Phase 1 – Registration: process_flow/phase_1_registration.md
     - Phase 2 – Normalization & Metrics: process_flow/phase_2_normalization_metrics.md

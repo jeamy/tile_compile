@@ -1,9 +1,269 @@
+# Pipeline Overview — AQMH (Default) vs. Classic Tile Compile
+
+> **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_local_metrics.cpp`
+> **Default method:** `aqmh` (Adaptive Quality Map Harvesting)
+> **Alternative method:** `classic_tile_compile`
+
+## Übersicht
+
+tile_compile unterstützt zwei Rekonstruktionsmethoden, die über `method` in der Konfiguration gewählt werden:
+
+| Method | Beschreibung | Standard |
+|--------|-------------|----------|
+| **`aqmh`** | Adaptive Quality Map Harvesting — pixelweise Qualitätsbewertung mit Pyramidendarstellung, Cherry-Pick-Frame-Selektion, unabhängige Rekonstruktion | ✅ Default |
+| **`classic_tile_compile`** | Klassische tile-basierte Rekonstruktion mit lokalen Tile-Metriken, Clustering und synthetischen Frames | Optional |
+
+```cpp
+// config.cpp: normalizeMethod()
+if (config.method.empty()) config.method = "aqmh";
+if (config.method == "aqmh") config.aqmh.enabled = true;
+else if (config.method == "classic_tile_compile") config.aqmh.enabled = false;
+```
+
+## Pipeline-Phasen (gesamt, 0–18)
+
+| ID | Enum | AQMH-Verhalten | Classic-Verhalten |
+|----|------|---------------|-------------------|
+| 0 | `SCAN_INPUT` | Identisch | Identisch |
+| 1 | `REGISTRATION` | Identisch | Identisch |
+| 2 | `PREWARP` | Identisch | Identisch |
+| 3 | `CHANNEL_SPLIT` | Identisch (Metadaten) | Identisch (Metadaten) |
+| 4 | `NORMALIZATION` | Identisch | Identisch |
+| 5 | `GLOBAL_METRICS` | Identisch | Identisch |
+| 6 | `TILE_GRID` | Identisch | Identisch |
+| 7 | `COMMON_OVERLAP` | Identisch | Identisch |
+| 8 | `LOCAL_METRICS` | **AQMH_QUALITY_MAPS** — Pyramid-Qualitätskarten pro Frame werden berechnet und gecacht | **Classic LOCAL_METRICS** — Tile-Metriken (FWHM, Roundness, Contrast, Star Count) pro (frame, tile) |
+| 9 | `TILE_RECONSTRUCTION` | **Pixelweise AQMH-Rekonstruktion** mit `reconstruct_aqmh_weighted()` — Cherry-Pick-Selektion, Sigma-Clip | **Tile-basierte Rekonstruktion** mit `W_f,t = G_f × L_f,t`, OLA |
+| 10 | `STATE_CLUSTERING` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv (wenn N ≥ Schwellwert) — 6D State-Vector Clustering |
+| 11 | `SYNTHETIC_FRAMES` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv — gewichtete Cluster-Mittelwerte |
+| 12 | `STACKING` | Durchlauf der AQMH-Rekonstruktion | Sigma-Clip-Stacking der synthetischen Frames |
+| 13 | `DEBAYER` | Identisch | Identisch |
+| 14 | `ASTROMETRY` | Identisch (optional) | Identisch (optional) |
+| 15 | `BGE` | Identisch (optional) | Identisch (optional) |
+| 16 | `PCC` | Identisch (optional) | Identisch (optional) |
+| 17 | `HYPERMETRIC_STRETCH` | Identisch (optional) | Identisch (optional) |
+| 18 | `DONE` | Identisch | Identisch |
+
+> **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Phase.
+
+## AQMH-spezifische Phasen im Detail
+
+### Phase 8: AQMH_QUALITY_MAPS (ersetzt LOCAL_METRICS)
+
+Wenn `aqmh.enabled = true`:
+
+- Classic Tile-Metriken werden **nicht berechnet** (`compute_classic_local_metrics = false`)
+- Stattdessen werden **pyramid-basierte Qualitätskarten** pro Frame berechnet:
+  - Multi-Scale-Sharpness und SNR über Pyramid-Level
+  - Artefakt-Detektion (`k_artifact`, `frac_artifact_max`)
+  - Qualitätskarte `Q_map` pro Frame wird in `QualityMapCache` gespeichert (`runs/<id>/cache/aqmh/`)
+- Phase-Anzeige: `AQMH_QUALITY_MAPS` statt `LOCAL_METRICS`
+- Artifact: `aqmh_metrics.json` (statt `local_metrics.json`)
+
+```cpp
+// runner_phase_local_metrics.cpp
+const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
+const std::string phase_display_name =
+    compute_classic_local_metrics ? "LOCAL_METRICS" : "AQMH_QUALITY_MAPS";
+```
+
+#### AQMH-Konfiguration
+
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `aqmh.pyramid.scales` | Anzahl Pyramid-Level (1–8) | 4 |
+| `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 16 |
+| `aqmh.pyramid.w_sharp` | Gewicht Sharpness | 0.6 |
+| `aqmh.pyramid.w_snr` | Gewicht SNR | 0.4 |
+| `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 2.0 |
+| `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.1 |
+| `aqmh.storage.resolution_divisor` | Speicher-Auflösungsteiler (1/2/4) | 2 |
+| `aqmh.storage.dtype` | Speichertyp (float32/uint16/uint8) | float32 |
+| `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 4 |
+| `aqmh.cherry_pick.enabled` | Cherry-Pick-Frame-Selektion | false |
+| `aqmh.cherry_pick.k_min` | Min. Frames pro Pixel | 3 |
+| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.5 |
+
+### Phase 9: AQMH-Rekonstruktion (ersetzt TILE_RECONSTRUCTION)
+
+Wenn `aqmh.enabled = true`:
+
+- **Pixelweise Rekonstruktion** statt tile-basiert:
+  - Für jeden Pixel: Quality-Map-Werte aller Frames werden mit globalen Gewichten `G_f` kombiniert
+  - Sigma-Clip-Rejection auf Pixel-Ebene
+  - Optional Cherry-Pick: nur die `k` besten Frames pro Pixel werden verwendet
+- Kein Clustering, keine synthetischen Frames
+- Artifact: `tile_reconstruction.json` mit `"method": "aqmh"` und Cherry-Pick-Diagnostik
+
+```cpp
+// runner_pipeline.cpp
+if (cfg.aqmh.enabled) {
+    auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+        frames.size(), aqmh_frame_loader, aqmh_cache.get(),
+        global_weights, common_valid_mask,
+        canvas_width, canvas_height, aqmh_recon_cfg);
+    recon = aqmh_recon.output;
+}
+```
+
+### Phase 10–11: STATE_CLUSTERING und SYNTHETIC_FRAMES (skipped)
+
+Bei AQMH werden beide Phasen übersprungen:
+
+```cpp
+const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
+// -> phase_end(STATE_CLUSTERING, "skipped", {"reason": "aqmh_independent_reconstruction"})
+// -> phase_end(SYNTHETIC_FRAMES, "skipped", {"reason": "aqmh_independent_reconstruction"})
+```
+
+## Pipeline-Flow-Diagramm (AQMH, Default)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               INPUT: MONO / OSC RAW FITS FRAMES             │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 0: SCAN_INPUT         │
+              │  • FITS dimensions + header  │
+              │  • Color mode (MONO/OSC)     │
+              │  • Bayer pattern detection   │
+              │  • Linearity validation      │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 1: REGISTRATION       │
+              │  • Cascaded fallbacks        │
+              │  • CC / warp metrics         │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 2: PREWARP            │
+              │  • Full-frame canvas warp    │
+              │  • CFA-safe (OSC)            │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 3: CHANNEL_SPLIT      │
+              │  (metadata-only)             │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 4: NORMALIZATION      │
+              │  • Sigma-clip BG mask        │
+              │  • Additive background B_f   │
+              │  • Photometric scale P_f     │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 5: GLOBAL_METRICS     │
+              │  • B_f, σ_f, E_f per frame   │
+              │  • G_f = exp(α·B̃+β·σ̃+γ·Ẽ)    │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 6: TILE_GRID          │
+              │  • FWHM probe (central ROI)  │
+              │  • Uniform tile grid         │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 7: COMMON_OVERLAP     │
+              │  • Pixelwise valid overlap   │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 8: AQMH_QUALITY_MAPS  │
+              │  • Pyramid quality maps      │
+              │  • Multi-scale sharpness+SNR │
+              │  • QualityMapCache (disk)    │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 9: TILE_RECONSTRUCTION│
+              │  • Pixel-wise AQMH weighted  │
+              │  • Sigma-clip rejection      │
+              │  • Cherry-pick (optional)    │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 10: STATE_CLUSTERING  │
+              │  ⏭ SKIPPED (aqmh)            │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 11: SYNTHETIC_FRAMES  │
+              │  ⏭ SKIPPED (aqmh)            │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 12: STACKING          │
+              │  • Pass-through (AQMH)       │
+              │  • Validation block          │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │  PHASE 13: DEBAYER           │
+              │  • OSC: NN demosaic -> RGB   │
+              │  • MONO: pass-through        │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 14: ASTROMETRY       │
+              │  • ASTAP solve / WCS        │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 15: BGE              │
+              │  • Optional gradient removal│
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 16: PCC              │
+              │  • Photometric color cal.   │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 17: HMS              │
+              │  • HyperMetric Stretch      │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 18: DONE             │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  OUTPUTS:                   │
+              │  • stacked.fits             │
+              │  • reconstructed_L.fit      │
+              │  • stacked_rgb.fits (OSC)   │
+              │  • stacked_rgb_solve.fits   │
+              │  • stacked_rgb_bge.fits     │
+              │  • stacked_rgb_pcc.fits     │
+              │  • stacked_rgb_hms.fits     │
+              │  • aqmh_metrics.json        │
+              │  • 12 artifact JSON files   │
+              │  • run_events.jsonl         │
+              └─────────────────────────────┘
+```
+
+## Classic Tile Compile Pipeline (method: classic_tile_compile)
+
+Bei `method: classic_tile_compile` gelten die Phasen 8–11 wie ursprünglich:
+
+- **Phase 8: LOCAL_METRICS** — Tile-Metriken (FWHM, Roundness, Contrast, Star Count) pro (frame, tile)
+- **Phase 9: TILE_RECONSTRUCTION** — `W_f,t = G_f × L_f,t`, tile-basierte gewichtete Rekonstruktion mit OLA
+- **Phase 10: STATE_CLUSTERING** — 6D State-Vector Clustering (aktiv wenn N ≥ Schwellwert)
+- **Phase 11: SYNTHETIC_FRAMES** — Gewichtete Cluster-Mittelwerte, Frame-Reduktion N → K
+
+Siehe die einzelnen Phase-Dokumente für Details zur Classic-Pipeline.
+
+---
+
 # Phase 0: SCAN_INPUT — Input-Scan, Erkennung und Linearitätsprüfung
 
 > **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::SCAN_INPUT`
-
-## Übersicht
 
 Phase 0 ist die Eingangsphase der Pipeline. Sie liest den ersten Frame, erkennt den Bildmodus und das Bayer-Pattern, führt eine optionale Linearitätsprüfung durch und bereitet die Run-Infrastruktur vor.
 

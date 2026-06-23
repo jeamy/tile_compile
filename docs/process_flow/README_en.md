@@ -8,7 +8,9 @@ The pipeline processes **FITS frames** (mono or OSC/CFA) and produces a weighted
 
 **Implementation:** C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-**GUI2 integration:** The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
+**GUI3 integration:** The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
+
+> **Default method: AQMH** — Since v0.3.0, the default reconstruction method is `aqmh` (Adaptive Quality Map Harvesting). AQMH replaces classic tile-based local metrics (phase 8) and tile reconstruction (phase 9) with pixel-wise pyramid quality maps and independent weighted reconstruction. Phases 10–11 (clustering, synthetic frames) are skipped. See [Pipeline Overview](phase_0_overview.md) for the AQMH vs. classic comparison.
 
 ## Current pipeline phases (C++ implementation, v3.3)
 

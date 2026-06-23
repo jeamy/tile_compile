@@ -4,39 +4,28 @@
 
 Download ready-to-use binaries from [GitHub Releases](https://github.com/jeamy/tile_compile/releases):
 
-### GUI2 (CLI + Web Interface)
+### GUI3 (Browser Interface — Recommended)
 
 | Platform | Download |
 |----------|----------|
-| Linux x86_64 (zip) | `tile_compile_gui2-linux-v{version}.zip` |
-| Linux x86_64 (AppImage) | `tile_compile_gui2-linux-x86_64-v{version}.AppImage` |
-| macOS Apple Silicon | `tile_compile_gui2-macos-apple-v{version}.zip` |
-| macOS Intel | `tile_compile_gui2-macos-intel-v{version}.zip` |
-| Windows x64 | `tile_compile_gui2-windows-v{version}.zip` |
+| Linux x86_64 (zip) | `tile_compile_gui3-linux-v{version}.zip` |
+| macOS Apple Silicon | `tile_compile_gui3-macos-apple-v{version}.zip` |
+| macOS Intel | `tile_compile_gui3-macos-intel-v{version}.zip` |
+| Windows x64 | `tile_compile_gui3-windows-v{version}.zip` |
 
-### Linux (GUI2 zip)
+### Linux
 
 ```bash
-# Download latest release (replace v0.2.5 with latest)
+# Download latest release
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-v0.2.5.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.0.zip
 
 # Extract
 unzip tile_compile.zip
-cd tile_compile_gui2-linux-v0.2.5
+cd tile_compile_gui3-linux-v0.3.0
 
-# Verify
-./tile_compile_runner --version
-./start_backend.sh  # Start GUI2 backend
-```
-
-### Linux (AppImage)
-
-```bash
-curl -L -o tile_compile.AppImage \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-x86_64-v0.2.5.AppImage
-chmod +x tile_compile.AppImage
-./tile_compile.AppImage
+# Start GUI3 (browser opens automatically)
+./start_gui3.sh  # http://127.0.0.1:8080/ui/
 ```
 
 ### macOS
@@ -44,26 +33,32 @@ chmod +x tile_compile.AppImage
 ```bash
 # Apple Silicon
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-apple-v0.2.5.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-apple-v0.3.0.zip
 
 # Or Intel
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-macos-intel-v0.2.5.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-intel-v0.3.0.zip
 
 unzip tile_compile.zip
-cd tile_compile_gui2-macos-*/
-./tile_compile_runner --version
+cd tile_compile_gui3-macos-*/
+./start_gui3.command  # Browser opens automatically
 ```
+
+> **macOS note:** If Gatekeeper blocks the launcher: `System Settings → Privacy & Security`, scroll down and allow the blocked entry.
 
 ### Windows
 
-1. Download `tile_compile_gui2-windows-v0.2.5.zip`
+1. Download `tile_compile_gui3-windows-v0.3.0.zip`
 2. Extract to desired location
 3. Run:
    ```cmd
-   tile_compile_runner.exe --version
-   start_backend.bat  :: Optional: start GUI2
+   start_gui3.bat
+   :: Browser opens automatically at http://127.0.0.1:8080/ui/
    ```
+
+> **First launch:** All application files are copied to `~/tilecompile/` (or `%USERPROFILE%\tilecompile\` on Windows). The downloaded archive can be deleted afterwards. On updates, only application files are replaced — user data (runs, catalogs) is preserved.
+
+> Full GUI3 workflow guide: [GUI3 User Guide](../gui3_user_guide_en.md)
 
 ---
 
@@ -186,7 +181,9 @@ Inside the container:
 
 ---
 
-## GUI2 Backend (Optional)
+## Web Backend (Optional, for development)
+
+The GUI3 release bundle includes a pre-built backend. To build the backend manually:
 
 ```bash
 cd web_backend_cpp
@@ -250,3 +247,5 @@ mkdocs build    # output: site/
 # Quick scan
 ./tile_compile_cli scan /path/to/lights --frames-min 30
 ```
+
+For the full GUI3 workflow (scan, parameters, run, results), see the [GUI3 User Guide](../gui3_user_guide_en.md).

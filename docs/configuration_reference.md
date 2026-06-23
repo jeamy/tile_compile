@@ -51,6 +51,23 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 Grundlegende Pipeline-Steuerung.
 
+### `method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `aqmh`, `classic_tile_compile` |
+| **Default** | `"aqmh"` |
+
+**Zweck:** Wählt die Rekonstruktionsmethode.
+
+- **`aqmh`** (Default): Adaptive Quality Map Harvesting — pixelweise Qualitätsbewertung mit Pyramidendarstellung. Ersetzt Phasen 8–11 (Local Metrics, Tile Reconstruction, Clustering, Synthetic Frames) durch unabhängige pixelweise Rekonstruktion. Siehe [§12b](#12b-aqmh-adaptive-quality-map-harvesting).
+- **`classic_tile_compile`**: Klassische tile-basierte Rekonstruktion mit lokalen Tile-Metriken, Clustering und synthetischen Frames.
+
+> **Hinweis:** `aqmh.enabled` wird automatisch aus `method` abgeleitet (`aqmh` → `true`, `classic_tile_compile` → `false`). Es wird empfohlen, `method` zu setzen statt `aqmh.enabled` direkt zu setzen.
+
+---
+
 ### `pipeline.mode`
 
 | Eigenschaft | Wert |

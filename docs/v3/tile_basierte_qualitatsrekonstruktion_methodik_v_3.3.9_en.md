@@ -117,19 +117,21 @@ For the CFA-proxy-equivalent variant, all of the following remain mandatory:
 
 ## 3. Pipeline Overview (Normative)
 
+> **Two reconstruction paths:** The classic tile-based path (steps 1–10 below) and the AQMH path (§5.12). AQMH (Adaptive Quality Map Harvesting) is the **default** since v0.3.0; it replaces steps 6–9 with pixel-wise quality maps and independent reconstruction. The classic path is available via `method: classic_tile_compile`.
+
 1. Registration and geometric harmonization
 2. Channel separation (explicit or deferred via a CFA-proxy-equivalent core)
 3. Global linear normalization
 4. Global frame metrics and global weights
 5. Tile geometry
-6. Local tile metrics and local weights
-7. Tile reconstruction (overlap-add)
-8. State-based clustering (full mode only)
-9. Synthetic frames (full mode only)
-10. Final linear stacking
+6. Local tile metrics and local weights *(classic only; AQMH: quality map computation, see §5.12)*
+7. Tile reconstruction (overlap-add) *(classic only; AQMH: pixel-wise weighted reconstruction, see §5.12)*
+8. State-based clustering (full mode only) *(classic only; AQMH: skipped)*
+9. Synthetic frames (full mode only) *(classic only; AQMH: skipped)*
+10. Final linear stacking *(classic only; AQMH: pass-through)*
 11. Post-processing (optional, not part of the quality core)
 
-Mandatory core: 1-10.  
+Mandatory core: 1-10 (classic) or 1-5 + §5.12 (AQMH).  
 Optional/feature-gated: local denoisers, deterministic defect-pixel suppression / cosmetic correction, alternative post-stack clipping policies, WCS/PCC, post-PCC isolated chroma-speckle suppression.
 
 ---
@@ -784,6 +786,125 @@ Final result per channel:
 - Cluster support is preserved through `M_{k,c}`.
 - The estimator remains linear in synthetic frames.
 - Dominance is bounded via optional weight capping.
+
+
+## 5.12 AQMH — Adaptive Quality Map Harvesting (Alternative Reconstruction Path)
+
+> **Status:** Implementation extension (v0.3.0+). AQMH is the **default reconstruction method** in the C++ implementation. It replaces the classic tile-based reconstruction path (§5.5–§5.11) with a pixel-wise quality-map-driven approach. The classic path remains available via `method: classic_tile_compile`.
+
+### 5.12.1 Motivation and Scope
+
+AQMH (Adaptive Quality Map Harvesting) replaces the tile-grid-based local quality evaluation (§5.5) and tile-based overlap-add reconstruction (§5.7) with a **pixel-wise** quality assessment using Laplacian pyramid decomposition.
+
+Key differences from the classic path:
+
+| Aspect | Classic (§5.5–§5.11) | AQMH (§5.12) |
+|--------|----------------------|--------------|
+| Quality evaluation | Tile-grid-based, per (frame, tile) | Pixel-wise, multi-scale pyramid |
+| Reconstruction unit | Tile with overlap-add (OLA) | Pixel-wise weighted mean |
+| Clustering (§5.9) | Active in full mode | **Skipped** |
+| Synthetic frames (§5.10) | Active in full mode | **Skipped** |
+| Final stacking (§5.11) | Sigma-clip on synthetic frames | Pass-through of AQMH output |
+| Phase display | `LOCAL_METRICS` | `AQMH_QUALITY_MAPS` |
+
+### 5.12.2 Quality Map Computation
+
+For each frame `f`, a quality map `Q_f(x, y)` is computed using a Laplacian pyramid with `S` scales (default `S = 4`).
+
+**Per-pixel quality index:**
+
+```
+Q_f(x, y) = w_sharp · Q_sharp_f(x, y) + w_snr · Q_snr_f(x, y)
+```
+
+where:
+
+- `Q_sharp_f` — normalized sharpness from Laplacian pyramid level responses
+- `Q_snr_f` — normalized signal-to-noise ratio from local statistics
+- `w_sharp` (default 0.6), `w_snr` (default 0.4) — configurable weights, must be non-negative with positive sum
+
+**Artefact suppression:** Pixels whose local variance exceeds `k_artifact · MAD` are flagged as artefacts. Windows with more than `frac_artifact_max` artefact fraction are discarded entirely.
+
+**Quality map storage:** Maps are cached to disk (`runs/<id>/cache/aqmh/`) with configurable resolution divisor (1/2/4) and data type (float32/uint16/uint8). A resident-memory cache (`max_resident_maps`) limits RAM usage during reconstruction.
+
+### 5.12.3 Pixel-Wise Weighted Reconstruction
+
+The reconstruction replaces the tile-based OLA (§5.7) with a direct pixel-wise weighted combination:
+
+```
+recon(x, y) = Σ_f W_f(x, y) · I_f(x, y) / Σ_f W_f(x, y)
+```
+
+where the per-pixel weight combines the AQMH quality map with the global frame weight:
+
+```
+W_f(x, y) = G_f · Q_f(x, y)
+```
+
+- `G_f` — global frame weight from §5.3 (unchanged)
+- `Q_f(x, y)` — AQMH quality map value for frame `f` at pixel `(x, y)`
+
+**Sigma-clip rejection** is applied at pixel level before the weighted mean, using the same `sigma_low`, `sigma_high`, `min_fraction` parameters as classic stacking.
+
+### 5.12.4 Cherry-Pick Frame Selection (Optional)
+
+When `aqmh.cherry_pick.enabled: true`, only the top `k` frames per pixel are used in the weighted mean:
+
+```
+k = max(k_min, floor(k_frac · N))
+```
+
+- `k_min` (default 3) — minimum frames per pixel, prevents underdetermination
+- `k_frac` (default 0.30) — fraction of best frames to select
+
+This implements a **per-pixel** quality-based selection that respects the "no frame selection" invariant (§1.2) — no entire frames are removed; selection is purely pixel-local.
+
+### 5.12.5 Skipped Phases
+
+When AQMH is active (`method: aqmh`):
+
+- **§5.5 Local Tile Metrics** — replaced by quality map computation (§5.12.2)
+- **§5.9 State-Based Clustering** — skipped (`reason: aqmh_independent_reconstruction`)
+- **§5.10 Synthetic Frames** — skipped (`reason: aqmh_independent_reconstruction`)
+- **§5.11 Final Linear Stacking** — pass-through; AQMH output is used directly
+
+### 5.12.6 Conformance with Core Invariants
+
+AQMH preserves the mandatory core invariants:
+
+1. **Linearity** (§1.3): The weighted mean is linear in pixel values. Sigma-clipping is an auxiliary statistical nonlinearity, as permitted.
+2. **No frame selection** (§1.2): All frames contribute to the quality maps. Cherry-pick selects per-pixel, not per-frame.
+3. **Deterministic execution**: Quality map computation and weighted reconstruction are deterministic for identical inputs.
+4. **Global weights preserved**: `G_f` from §5.3 is used unchanged.
+
+### 5.12.7 Configuration Parameters
+
+| Parameter | Type | Default | Range | Purpose |
+|-----------|------|---------|-------|---------|
+| `method` | string | `"aqmh"` | `aqmh`, `classic_tile_compile` | Selects reconstruction method |
+| `aqmh.enabled` | bool | `true` | — | Auto-derived from `method` |
+| `aqmh.pyramid.scales` | int | `4` | 1–8 | Laplacian pyramid levels |
+| `aqmh.pyramid.base_window_px` | int | `16` | ≥1 | Base window size |
+| `aqmh.pyramid.w_sharp` | float | `0.6` | ≥0 | Sharpness weight |
+| `aqmh.pyramid.w_snr` | float | `0.4` | ≥0 | SNR weight |
+| `aqmh.pyramid.k_artifact` | float | `3.0` | >0 | Artefact MAD multiplier |
+| `aqmh.pyramid.frac_artifact_max` | float | `0.25` | (0,1] | Max artefact fraction |
+| `aqmh.storage.resolution_divisor` | int | `2` | 1,2,4 | Map resolution divisor |
+| `aqmh.storage.dtype` | string | `"float32"` | float32,uint16,uint8 | Map data type |
+| `aqmh.storage.max_resident_maps` | int | `2` | 0–16 | Max resident maps in RAM |
+| `aqmh.cherry_pick.enabled` | bool | `false` | — | Per-pixel frame selection |
+| `aqmh.cherry_pick.k_min` | int | `3` | ≥1 | Min frames per pixel |
+| `aqmh.cherry_pick.k_frac` | float | `0.30` | (0,1] | Best-frame fraction |
+| `aqmh.diagnostics.tau_artifact` | float | `0.1` | — | Artefact diagnostic threshold |
+
+### 5.12.8 Artifact Output
+
+AQMH produces `aqmh_metrics.json` (in addition to `tile_reconstruction.json` with `"method": "aqmh"`):
+
+- Per-frame quality map statistics (sharpness p50, SNR p50, scene-dependent SNR)
+- Omitted pyramid scales
+- Cache statistics (bytes read/written, hits/misses)
+- Cherry-pick diagnostics (active fraction, mean/median k, k-heatmap)
 
 
 ## 6. Post-Processing (Not Part of the Mandatory Core)
