@@ -253,7 +253,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../phase_0_overview/" class="md-tabs__link">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
           
   
   
@@ -341,7 +341,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../about/" class="md-tabs__link">
+        <a href="../../about.md" class="md-tabs__link">
           
   
   
@@ -631,6 +631,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -677,6 +685,118 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1446,7 +1566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../about/" class="md-nav__link">
+      <a href="../../about.md" class="md-nav__link">
         
   
   
@@ -1893,6 +2013,11 @@
 </tr>
 <tr>
 <td>17</td>
+<td><code>HYPERMETRIC_STRETCH</code></td>
+<td>VeraLux HyperMetric Stretch after PCC</td>
+</tr>
+<tr>
+<td>18</td>
 <td><code>DONE</code></td>
 <td>Final status (<code>ok</code> or <code>validation_failed</code>)</td>
 </tr>
@@ -1901,14 +2026,14 @@
 <p>Note: <strong>Validation</strong> is a quality block between <code>STACKING</code> and <code>DEBAYER</code>, but it is not its own enum phase.</p>
 <p>Note: <strong>BGE</strong> is an optional <strong>dedicated phase</strong> between <code>ASTROMETRY</code> and <code>PCC</code>.</p>
 <h2 id="document-structure">Document structure<a class="headerlink" href="#document-structure" title="Permanent link">&para;</a></h2>
-<p>The <strong>authoritative phase order</strong> is the v3.3 list above (0..17).</p>
+<p>The <strong>authoritative phase order</strong> is the v3.3 list above (0..18).</p>
 <p>High-level mapping:</p>
 <ul>
 <li>Input + mode + linearity + disk precheck -&gt; <code>SCAN_INPUT</code></li>
 <li>Registration / prewarp -&gt; <code>REGISTRATION</code>, <code>PREWARP</code></li>
 <li>Normalization + global/local weights + reconstruction -&gt; <code>NORMALIZATION</code> through <code>TILE_RECONSTRUCTION</code> (including <code>COMMON_OVERLAP</code>)</li>
 <li>Optional full-mode block -&gt; <code>STATE_CLUSTERING</code>, <code>SYNTHETIC_FRAMES</code></li>
-<li>Finalization path -&gt; <code>STACKING</code>, <code>DEBAYER</code>, <code>ASTROMETRY</code>, <code>BGE</code> (optional but its own phase), <code>PCC</code>, <code>DONE</code></li>
+<li>Finalization path -&gt; <code>STACKING</code>, <code>DEBAYER</code>, <code>ASTROMETRY</code>, <code>BGE</code> (optional but its own phase), <code>PCC</code>, <code>HYPERMETRIC_STRETCH</code>, <code>DONE</code></li>
 </ul>
 <hr />
 <h2 id="pipeline-flow-diagram-c-implementation-v33">Pipeline flow diagram (C++ implementation, v3.3)<a class="headerlink" href="#pipeline-flow-diagram-c-implementation-v33" title="Permanent link">&para;</a></h2>
@@ -2036,26 +2161,33 @@
 </span><span id="__span-0-122"><a id="__codelineno-0-122" name="__codelineno-0-122" href="#__codelineno-0-122"></a>              └──────────────┬──────────────┘
 </span><span id="__span-0-123"><a id="__codelineno-0-123" name="__codelineno-0-123" href="#__codelineno-0-123"></a>                             │
 </span><span id="__span-0-124"><a id="__codelineno-0-124" name="__codelineno-0-124" href="#__codelineno-0-124"></a>              ┌──────────────▼──────────────┐
-</span><span id="__span-0-125"><a id="__codelineno-0-125" name="__codelineno-0-125" href="#__codelineno-0-125"></a>              │  PHASE 17: DONE             │
-</span><span id="__span-0-126"><a id="__codelineno-0-126" name="__codelineno-0-126" href="#__codelineno-0-126"></a>              │  • Final status emit        │
-</span><span id="__span-0-127"><a id="__codelineno-0-127" name="__codelineno-0-127" href="#__codelineno-0-127"></a>              └──────────────┬──────────────┘
-</span><span id="__span-0-128"><a id="__codelineno-0-128" name="__codelineno-0-128" href="#__codelineno-0-128"></a>                             │
-</span><span id="__span-0-129"><a id="__codelineno-0-129" name="__codelineno-0-129" href="#__codelineno-0-129"></a>              ┌──────────────▼──────────────┐
-</span><span id="__span-0-130"><a id="__codelineno-0-130" name="__codelineno-0-130" href="#__codelineno-0-130"></a>              │  OUTPUTS:                   │
-</span><span id="__span-0-131"><a id="__codelineno-0-131" name="__codelineno-0-131" href="#__codelineno-0-131"></a>              │  • stacked.fits             │
-</span><span id="__span-0-132"><a id="__codelineno-0-132" name="__codelineno-0-132" href="#__codelineno-0-132"></a>              │  • reconstructed_L.fit      │
-</span><span id="__span-0-133"><a id="__codelineno-0-133" name="__codelineno-0-133" href="#__codelineno-0-133"></a>              │  • stacked_rgb.fits (OSC)   │
-</span><span id="__span-0-134"><a id="__codelineno-0-134" name="__codelineno-0-134" href="#__codelineno-0-134"></a>              │  • stacked_rgb_solve.fits   │
-</span><span id="__span-0-135"><a id="__codelineno-0-135" name="__codelineno-0-135" href="#__codelineno-0-135"></a>              │  • stacked_rgb_bge.fits     │
-</span><span id="__span-0-136"><a id="__codelineno-0-136" name="__codelineno-0-136" href="#__codelineno-0-136"></a>              │  • stacked_rgb_pcc.fits     │
-</span><span id="__span-0-137"><a id="__codelineno-0-137" name="__codelineno-0-137" href="#__codelineno-0-137"></a>              │  • R/G/B .fit (OSC)         │
-</span><span id="__span-0-138"><a id="__codelineno-0-138" name="__codelineno-0-138" href="#__codelineno-0-138"></a>              │  • 12 artifact JSON files   │
-</span><span id="__span-0-139"><a id="__codelineno-0-139" name="__codelineno-0-139" href="#__codelineno-0-139"></a>              │  • run_events.jsonl         │
-</span><span id="__span-0-140"><a id="__codelineno-0-140" name="__codelineno-0-140" href="#__codelineno-0-140"></a>              └─────────────────────────────┘
+</span><span id="__span-0-125"><a id="__codelineno-0-125" name="__codelineno-0-125" href="#__codelineno-0-125"></a>              │  PHASE 17: HMS              │
+</span><span id="__span-0-126"><a id="__codelineno-0-126" name="__codelineno-0-126" href="#__codelineno-0-126"></a>              │  • VeraLux HyperMetric      │
+</span><span id="__span-0-127"><a id="__codelineno-0-127" name="__codelineno-0-127" href="#__codelineno-0-127"></a>              │  • Stretch after PCC        │
+</span><span id="__span-0-128"><a id="__codelineno-0-128" name="__codelineno-0-128" href="#__codelineno-0-128"></a>              └──────────────┬──────────────┘
+</span><span id="__span-0-129"><a id="__codelineno-0-129" name="__codelineno-0-129" href="#__codelineno-0-129"></a>                             │
+</span><span id="__span-0-130"><a id="__codelineno-0-130" name="__codelineno-0-130" href="#__codelineno-0-130"></a>              ┌──────────────▼──────────────┐
+</span><span id="__span-0-131"><a id="__codelineno-0-131" name="__codelineno-0-131" href="#__codelineno-0-131"></a>              │  PHASE 18: DONE             │
+</span><span id="__span-0-132"><a id="__codelineno-0-132" name="__codelineno-0-132" href="#__codelineno-0-132"></a>              │  • Final status emit        │
+</span><span id="__span-0-133"><a id="__codelineno-0-133" name="__codelineno-0-133" href="#__codelineno-0-133"></a>              └──────────────┬──────────────┘
+</span><span id="__span-0-134"><a id="__codelineno-0-134" name="__codelineno-0-134" href="#__codelineno-0-134"></a>                             │
+</span><span id="__span-0-135"><a id="__codelineno-0-135" name="__codelineno-0-135" href="#__codelineno-0-135"></a>              ┌──────────────▼──────────────┐
+</span><span id="__span-0-136"><a id="__codelineno-0-136" name="__codelineno-0-136" href="#__codelineno-0-136"></a>              │  OUTPUTS:                   │
+</span><span id="__span-0-137"><a id="__codelineno-0-137" name="__codelineno-0-137" href="#__codelineno-0-137"></a>              │  • stacked.fits             │
+</span><span id="__span-0-138"><a id="__codelineno-0-138" name="__codelineno-0-138" href="#__codelineno-0-138"></a>              │  • reconstructed_L.fit      │
+</span><span id="__span-0-139"><a id="__codelineno-0-139" name="__codelineno-0-139" href="#__codelineno-0-139"></a>              │  • stacked_rgb.fits (OSC)   │
+</span><span id="__span-0-140"><a id="__codelineno-0-140" name="__codelineno-0-140" href="#__codelineno-0-140"></a>              │  • stacked_rgb_solve.fits   │
+</span><span id="__span-0-141"><a id="__codelineno-0-141" name="__codelineno-0-141" href="#__codelineno-0-141"></a>              │  • stacked_rgb_bge.fits     │
+</span><span id="__span-0-142"><a id="__codelineno-0-142" name="__codelineno-0-142" href="#__codelineno-0-142"></a>              │  • stacked_rgb_pcc.fits     │
+</span><span id="__span-0-143"><a id="__codelineno-0-143" name="__codelineno-0-143" href="#__codelineno-0-143"></a>              │  • stacked_rgb_hms.fits     │
+</span><span id="__span-0-144"><a id="__codelineno-0-144" name="__codelineno-0-144" href="#__codelineno-0-144"></a>              │  • R/G/B .fit (OSC)         │
+</span><span id="__span-0-145"><a id="__codelineno-0-145" name="__codelineno-0-145" href="#__codelineno-0-145"></a>              │  • 12 artifact JSON files   │
+</span><span id="__span-0-146"><a id="__codelineno-0-146" name="__codelineno-0-146" href="#__codelineno-0-146"></a>              │  • run_events.jsonl         │
+</span><span id="__span-0-147"><a id="__codelineno-0-147" name="__codelineno-0-147" href="#__codelineno-0-147"></a>              └─────────────────────────────┘
 </span></code></pre></div>
 <h2 id="core-principles-c-implementation">Core principles (C++ implementation)<a class="headerlink" href="#core-principles-c-implementation" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>Linearity:</strong> no non-linear operations (no stretch). Linearity is checked in phase 0.</li>
+<li><strong>Core linearity:</strong> phases up to and including PCC stay linear; HMS is an explicit final stretch phase after PCC.</li>
 <li><strong>No hard frame selection:</strong> frames are kept; failed registration falls back to identity warp with CC=0.</li>
 <li><strong>Mono + OSC:</strong> both modes in one pipeline, CFA-aware for OSC.</li>
 <li><strong>Strictly sequential:</strong> no feedback loops; deterministic execution order.</li>
@@ -2067,7 +2199,7 @@
 <h2 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">&para;</a></h2>
 <h3 id="fullnormal-mode-n-frames_reduced_threshold">Full/normal mode (N ≥ frames_reduced_threshold)<a class="headerlink" href="#fullnormal-mode-n-frames_reduced_threshold" title="Permanent link">&para;</a></h3>
 <ul>
-<li>All enum phases 0..17 are executed.</li>
+<li>All enum phases 0..18 are executed.</li>
 <li>State clustering is enabled.</li>
 <li>Synthetic frames are generated.</li>
 <li>Sigma-clipping rejection stacking.</li>

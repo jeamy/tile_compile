@@ -1,0 +1,2720 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/gui3_user_guide_en/">
+      
+      
+        <link rel="prev" href="../getting_started/configuration/">
+      
+      
+        <link rel="next" href="../gui3_user_guide_de/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>GUI3 User Guide (EN) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gui3-user-guide-english" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GUI3 User Guide (EN)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../about.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-installation-and-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Installation and Startup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Installation and Startup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#release-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Bundle
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-scanning-input-input-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Scanning Input (Input &amp; Scan)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Scanning Input (Input &amp; Scan)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scan-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scan Result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-queue-for-mono" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run Queue (for MONO)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-adjusting-parameters-parameter-studio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Adjusting Parameters (Parameter Studio)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Adjusting Parameters (Parameter Studio)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameter-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Categories
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-starting-and-monitoring-a-run-run-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Starting and Monitoring a Run (Run Monitor)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Starting and Monitoring a Run (Run Monitor)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#starting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run Monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aborting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aborting a Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-viewing-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Viewing Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Viewing Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diagnostic-report-reporthtml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostic Report (report.html)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-setting-up-astrometry-and-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Setting Up Astrometry and PCC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Setting Up Astrometry and PCC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#astap-for-astrometry-wcs-plate-solving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ASTAP (for Astrometry / WCS Plate Solving)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#siril-gaia-dr3-xp-catalog-for-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Siril Gaia DR3 XP Catalog (for PCC)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-catalogs-are-missing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When Catalogs Are Missing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-raw-stack-standalone-preprocessing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Raw Stack (Standalone Preprocessing)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-run-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Run History
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-installation-and-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Installation and Startup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Installation and Startup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#release-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Bundle
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-scanning-input-input-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Scanning Input (Input &amp; Scan)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Scanning Input (Input &amp; Scan)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scan-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scan Result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-queue-for-mono" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run Queue (for MONO)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-adjusting-parameters-parameter-studio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Adjusting Parameters (Parameter Studio)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Adjusting Parameters (Parameter Studio)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameter-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameter Categories
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-starting-and-monitoring-a-run-run-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Starting and Monitoring a Run (Run Monitor)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Starting and Monitoring a Run (Run Monitor)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#starting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run Monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aborting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aborting a Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-viewing-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Viewing Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Viewing Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diagnostic-report-reporthtml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostic Report (report.html)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-setting-up-astrometry-and-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Setting Up Astrometry and PCC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Setting Up Astrometry and PCC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#astap-for-astrometry-wcs-plate-solving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ASTAP (for Astrometry / WCS Plate Solving)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#siril-gaia-dr3-xp-catalog-for-pcc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Siril Gaia DR3 XP Catalog (for PCC)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-catalogs-are-missing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When Catalogs Are Missing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-raw-stack-standalone-preprocessing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Raw Stack (Standalone Preprocessing)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-run-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Run History
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="gui3-user-guide-english">GUI3 User Guide (English)<a class="headerlink" href="#gui3-user-guide-english" title="Permanent link">&para;</a></h1>
+<p>This guide describes the practical workflow with the GUI3 web interface: from installation through scanning input data, adjusting parameters, to starting and monitoring a run.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>GUI3 consists of three main areas:</p>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>Sub-Tabs</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Processing</strong></td>
+<td>Input &amp; Scan, Parameter, Run Monitor</td>
+<td>Main workflow: scan input, adjust parameters, start and monitor runs</td>
+</tr>
+<tr>
+<td><strong>Tools</strong></td>
+<td>Raw Stack, Astrometry, PCC</td>
+<td>Standalone tools for preprocessing, plate solving, and color calibration</td>
+</tr>
+<tr>
+<td><strong>History</strong></td>
+<td>Run History</td>
+<td>Browse, compare, and generate reports for completed runs</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="1-installation-and-startup">1. Installation and Startup<a class="headerlink" href="#1-installation-and-startup" title="Permanent link">&para;</a></h2>
+<h3 id="release-bundle">Release Bundle<a class="headerlink" href="#release-bundle" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Download the release ZIP from <a href="https://github.com/jeamy/tile_compile/releases">GitHub Releases</a>.</li>
+<li>Extract and run the launcher:</li>
+<li><strong>Linux</strong>: <code>./start_gui3.sh</code></li>
+<li><strong>macOS</strong>: Double-click <code>start_gui3.command</code> (or run <code>./start_gui3.command</code> in Terminal)</li>
+<li><strong>Windows</strong>: Double-click <code>start_gui3.bat</code></li>
+<li>On first launch, all application files are copied to <code>~/tilecompile/</code> (or <code>%USERPROFILE%\tilecompile\</code> on Windows).</li>
+<li>The browser opens automatically at <code>http://127.0.0.1:8080/ui/</code>.</li>
+</ol>
+<blockquote>
+<p><strong>macOS note:</strong> If Gatekeeper blocks the launcher: open <code>System Settings → Privacy &amp; Security</code>, scroll down, and explicitly allow the blocked entry.</p>
+<p><strong>After installation:</strong> The downloaded archive and extracted folder can be deleted. All files have been copied to your user directory. On updates, only application files are replaced — user data (runs, catalogs) is preserved.</p>
+</blockquote>
+<hr />
+<h2 id="2-scanning-input-input-scan">2. Scanning Input (Input &amp; Scan)<a class="headerlink" href="#2-scanning-input-input-scan" title="Permanent link">&para;</a></h2>
+<p>The first step is scanning the FITS input data.</p>
+<h3 id="steps">Steps<a class="headerlink" href="#steps" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Select <strong>Tab Processing → Sub-Tab Input &amp; Scan</strong>.</li>
+<li><strong>Input folder</strong>: Enter the path to the directory containing FITS light frames (e.g., <code>/data/M31/lights</code>).</li>
+<li><strong>File pattern</strong>: Default is <code>*.fits</code>. Alternatively <code>*.fit</code> or <code>light_*.fits</code>.</li>
+<li><strong>Output folder (Runs-Dir)</strong>: Target directory for run outputs. A directory under <code>~/tilecompile/runs/</code> is suggested by default.</li>
+<li><strong>Run name</strong>: Optional name for the run folder (e.g., <code>M31_altaz_test</code>).</li>
+<li><strong>Parameters</strong>:</li>
+<li><strong>Frames Minimum</strong>: Minimum number of frames, otherwise abort (default: 30).</li>
+<li><strong>Max. Frames</strong>: 0 = use all frames.</li>
+<li><strong>Sort order</strong>: <code>numeric</code>, <code>alphabetic</code>, or <code>timestamp</code>.</li>
+<li><strong>Color mode</strong>: <code>OSC</code> (One-Shot-Color / Bayer) or <code>MONO</code>.</li>
+<li><strong>Compute checksums</strong>: Optional, for integrity verification.</li>
+<li><strong>Calibration</strong> (optional): Specify bias, dark, and flat folders and enable the respective checkboxes.</li>
+<li>Click <strong>Start Scan</strong>.</li>
+</ol>
+<h3 id="scan-result">Scan Result<a class="headerlink" href="#scan-result" title="Permanent link">&para;</a></h3>
+<p>After completion, the scan result card shows:
+- Number of frames found
+- Resolution and color mode of the frames
+- Frame sizes and checksums (if enabled)</p>
+<h3 id="run-queue-for-mono">Run Queue (for MONO)<a class="headerlink" href="#run-queue-for-mono" title="Permanent link">&para;</a></h3>
+<p>MONO users can add multiple input folders (L/R/G/B) via the Run Queue. Each queue entry is processed as a separate channel.</p>
+<hr />
+<h2 id="3-adjusting-parameters-parameter-studio">3. Adjusting Parameters (Parameter Studio)<a class="headerlink" href="#3-adjusting-parameters-parameter-studio" title="Permanent link">&para;</a></h2>
+<p>After scanning, switch to the <strong>Parameter</strong> sub-tab.</p>
+<h3 id="loading-configuration">Loading Configuration<a class="headerlink" href="#loading-configuration" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Load example config</strong>: Choose one of the bundled example YAMLs via the configuration selector (e.g., <code>M42.global_medium.yaml</code>).</li>
+<li><strong>Empty configuration</strong>: Start with default values.</li>
+<li><strong>Upload existing config</strong>: Upload your own YAML file.</li>
+</ul>
+<h3 id="parameter-categories">Parameter Categories<a class="headerlink" href="#parameter-categories" title="Permanent link">&para;</a></h3>
+<p>The Parameter Studio is organized into categories:</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Key Parameters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Pipeline</strong></td>
+<td><code>pipeline.mode</code> (production/preview), <code>method</code> (aqmh/classic_tile_compile)</td>
+</tr>
+<tr>
+<td><strong>Registration</strong></td>
+<td><code>registration.allow_rotation</code>, <code>registration.transform_model</code> (similarity/affine), <code>registration.engine</code></td>
+</tr>
+<tr>
+<td><strong>AQMH</strong></td>
+<td><code>aqmh.enabled</code>, <code>aqmh.pyramid.scales</code>, <code>aqmh.cherry_pick.enabled</code>, <code>aqmh.storage.max_resident_maps</code></td>
+</tr>
+<tr>
+<td><strong>Reconstruction</strong></td>
+<td>Tile geometry, reconstruction mode</td>
+</tr>
+<tr>
+<td><strong>Stacking</strong></td>
+<td><code>stacking.method</code> (sigma_clip/median/average), sigma-clip parameters</td>
+</tr>
+<tr>
+<td><strong>Debayer</strong></td>
+<td><code>data.bayer_pattern</code> (RGGB/BGGR/GBRG/GRBG)</td>
+</tr>
+<tr>
+<td><strong>Astrometry</strong></td>
+<td><code>astrometry.astap_bin</code>, <code>astrometry.astap_data_dir</code></td>
+</tr>
+<tr>
+<td><strong>BGE</strong></td>
+<td><code>bge.enabled</code>, <code>bge.fit_method</code>, <code>bge.autotune</code></td>
+</tr>
+<tr>
+<td><strong>PCC</strong></td>
+<td><code>pcc.source</code> (auto/siril/vizier_gaia/vizier_apass), <code>pcc.mag_limit</code>, <code>pcc.siril_catalog_dir</code></td>
+</tr>
+<tr>
+<td><strong>HyperMetric Stretch</strong></td>
+<td><code>hypermetric_stretch.enabled</code>, color strategy, convergence</td>
+</tr>
+<tr>
+<td><strong>Calibration</strong></td>
+<td>Bias/Dark/Flat paths</td>
+</tr>
+<tr>
+<td><strong>Assumptions</strong></td>
+<td><code>frames_min</code>, <code>frames_reduced_threshold</code></td>
+</tr>
+<tr>
+<td><strong>Runtime Limits</strong></td>
+<td><code>hard_abort_hours</code>, <code>acceleration_backend</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Expand a parameter category and adjust values.</li>
+<li>Click <strong>Validate</strong> to check the configuration against the schema.</li>
+<li>On validation errors: review error messages and correct.</li>
+<li>Click <strong>Save</strong> to save the configuration.</li>
+</ol>
+<blockquote>
+<p><strong>Tip:</strong> For initial attempts, the default configuration with <code>method: aqmh</code> works well. The most important adjustments are <code>registration.allow_rotation</code> (keep <code>true</code> for Alt/Az mounts) and <code>data.bayer_pattern</code> (cross-check with FITS headers).</p>
+</blockquote>
+<hr />
+<h2 id="4-starting-and-monitoring-a-run-run-monitor">4. Starting and Monitoring a Run (Run Monitor)<a class="headerlink" href="#4-starting-and-monitoring-a-run-run-monitor" title="Permanent link">&para;</a></h2>
+<h3 id="starting-a-run">Starting a Run<a class="headerlink" href="#starting-a-run" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Switch from the <strong>Parameter</strong> sub-tab to <strong>Run Monitor</strong>, or click <strong>Next ▶</strong> directly from the Input &amp; Scan tab.</li>
+<li>In the Run Monitor, click <strong>Start Run</strong>.</li>
+<li>The runner starts as a background process. The Run Monitor shows progress in real time.</li>
+</ol>
+<h3 id="run-monitor">Run Monitor<a class="headerlink" href="#run-monitor" title="Permanent link">&para;</a></h3>
+<p>The Run Monitor displays:</p>
+<ul>
+<li><strong>Current phase</strong>: Which pipeline phase is running (SCAN_INPUT → REGISTRATION → ... → PCC → DONE)</li>
+<li><strong>Phase progress</strong>: Status of each phase (pending, running, ok, skipped, error)</li>
+<li><strong>Event timeline</strong>: Live events from <code>run_events.jsonl</code></li>
+<li><strong>Warnings and errors</strong>: Prominently displayed in the warning banner</li>
+<li><strong>Run statistics</strong>: Processed frames, estimated time remaining (if available)</li>
+</ul>
+<h3 id="aborting-a-run">Aborting a Run<a class="headerlink" href="#aborting-a-run" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Click <strong>Stop</strong> to abort the running run.</li>
+</ul>
+<h3 id="resume">Resume<a class="headerlink" href="#resume" title="Permanent link">&para;</a></h3>
+<p>After completion (or abort), a run can be resumed from a specific phase:</p>
+<ol>
+<li>Click <strong>Resume</strong> in the Run Monitor.</li>
+<li>Select a phase (e.g., <code>ASTROMETRY</code>, <code>BGE</code>, <code>PCC</code>, <code>HYPERMETRIC_STRETCH</code>).</li>
+<li>The runner uses the existing run directory and jumps directly to the selected phase.</li>
+</ol>
+<blockquote>
+<p>Common resume points: <code>ASTROMETRY</code> (re-solve), <code>BGE</code> (re-extract background), <code>PCC</code> (re-calibrate color).</p>
+</blockquote>
+<hr />
+<h2 id="5-viewing-results">5. Viewing Results<a class="headerlink" href="#5-viewing-results" title="Permanent link">&para;</a></h2>
+<h3 id="output-files">Output Files<a class="headerlink" href="#output-files" title="Permanent link">&para;</a></h3>
+<p>After completion, results are located under <code>&lt;runs_dir&gt;/&lt;run_name&gt;/</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>runs/&lt;run_id&gt;/
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── outputs/
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── stacked.fits              # Linear sum image
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── reconstructed_L.fit       # MONO reconstruction
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── stacked_rgb.fits          # OSC RGB
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── stacked_rgb_solve.fits    # WCS solved
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── stacked_rgb_bge.fits      # After BGE (before PCC)
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── stacked_rgb_pcc.fits      # After PCC
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   └── stacked_rgb_hms.fits      # After HyperMetric Stretch (optional)
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── artifacts/
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── report.html               # Diagnostic report
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── report.css
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── *.png                     # Diagrams/heatmaps
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   ├── normalization.json
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   ├── global_registration.json
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│   ├── bge.json
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│   └── ...
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>├── logs/
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│   └── run_events.jsonl          # Event timeline
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>└── config.yaml                   # Run configuration snapshot
+</span></code></pre></div>
+<h3 id="diagnostic-report-reporthtml">Diagnostic Report (report.html)<a class="headerlink" href="#diagnostic-report-reporthtml" title="Permanent link">&para;</a></h3>
+<p>An HTML diagnostic report can be generated via the Run Monitor or Run History:</p>
+<ul>
+<li><strong>Run Monitor</strong>: Click <strong>Generate Stats</strong>.</li>
+<li><strong>Run History</strong>: Select a run and generate report.</li>
+<li><strong>CLI</strong>: <code>./tile_compile_cli generate-report runs/&lt;run_id&gt;</code></li>
+</ul>
+<p>The report includes:
+- Normalization/background trends
+- Global quality distributions and weights
+- Registration drift/CC/rotation
+- Tile and reconstruction heatmaps
+- BGE diagnostics
+- Validation metrics (including tile-pattern indicators)
+- Pipeline timeline and frame-usage funnel</p>
+<hr />
+<h2 id="6-setting-up-astrometry-and-pcc">6. Setting Up Astrometry and PCC<a class="headerlink" href="#6-setting-up-astrometry-and-pcc" title="Permanent link">&para;</a></h2>
+<p>Astrometry (plate solving) and PCC (photometric color calibration) are optional phases that require external data.</p>
+<h3 id="astap-for-astrometry-wcs-plate-solving">ASTAP (for Astrometry / WCS Plate Solving)<a class="headerlink" href="#astap-for-astrometry-wcs-plate-solving" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Install ASTAP</strong>: Download the binary from <a href="https://www.hnsky.org/astap.htm">https://www.hnsky.org/astap.htm</a>.</li>
+<li><strong>Download star database</strong>: At minimum D50 (for deep-sky) or G18 (for wide-field).</li>
+<li><strong>Configure in GUI3</strong>:</li>
+<li>Tab <strong>Tools → Sub-Tab Astrometry</strong></li>
+<li><strong>ASTAP CLI</strong>: Path to the <code>astap</code> binary (e.g., <code>/usr/local/bin/astap</code>)</li>
+<li><strong>Star Database Dir</strong>: Path to the catalog directory (e.g., <code>/usr/local/share/astap</code>)</li>
+<li>Click <strong>Detect ASTAP</strong> to verify the installation.</li>
+<li>Alternatively: use <strong>Install CLI</strong> and <strong>Download Catalog</strong> directly from the GUI.</li>
+</ol>
+<blockquote>
+<p>ASTAP catalogs can also be downloaded directly via GUI3 (Tools → Astrometry → Download Catalog).</p>
+</blockquote>
+<h3 id="siril-gaia-dr3-xp-catalog-for-pcc">Siril Gaia DR3 XP Catalog (for PCC)<a class="headerlink" href="#siril-gaia-dr3-xp-catalog-for-pcc" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Catalog data</strong>: The Siril Gaia DR3 XP sampled catalog is required for photometric color calibration.</li>
+<li><strong>Configure in GUI3</strong>:</li>
+<li>Tab <strong>Tools → Sub-Tab PCC</strong></li>
+<li><strong>Catalog Dir</strong>: Path to the catalog directory (default: <code>~/.local/share/siril/siril_cat1_healpix8_xpsamp/</code>)</li>
+<li>Click <strong>Download Missing</strong> to download missing catalog chunks (48 chunks, ~2 GB total).</li>
+<li>The download runs in the background with a progress indicator.</li>
+</ol>
+<blockquote>
+<p>If the catalog has already been downloaded by <a href="https://siril.org/">Siril</a>, the same folder can be reused.</p>
+</blockquote>
+<ol>
+<li><strong>PCC parameters</strong> (in Parameter Studio):</li>
+<li><code>pcc.source</code>: <code>auto</code> (recommended), <code>siril</code>, <code>vizier_gaia</code>, or <code>vizier_apass</code></li>
+<li><code>pcc.mag_limit</code>: Magnitude limit for stars (default: 14.0)</li>
+<li><code>pcc.siril_catalog_dir</code>: Path to the Siril catalog (if different from default)</li>
+</ol>
+<h3 id="when-catalogs-are-missing">When Catalogs Are Missing<a class="headerlink" href="#when-catalogs-are-missing" title="Permanent link">&para;</a></h3>
+<p>If ASTAP or the Siril catalog are not installed:
+- Core reconstruction (registration, AQMH, stacking, debayer) still works.
+- The <code>ASTROMETRY</code> and <code>PCC</code> phases will be marked as <code>skipped</code> or fail, depending on configuration.
+- BGE (Background Gradient Extraction) works independently of external catalogs.</p>
+<hr />
+<h2 id="7-raw-stack-standalone-preprocessing">7. Raw Stack (Standalone Preprocessing)<a class="headerlink" href="#7-raw-stack-standalone-preprocessing" title="Permanent link">&para;</a></h2>
+<p>The <strong>Raw Stack</strong> sub-tab (under Tools) offers separate linear preprocessing of FITS lights up to a finished stack, independent from the Tile Compile Run Studio.</p>
+<p>Pipeline steps:
+1. Input Scan
+2. Calibration (Bias/Dark/Flat)
+3. CFA/Mono Prep
+4. Reference Selection
+5. Registration
+6. Quality Analysis
+7. Frame Filtering
+8. Stacking (Sigma-Clip/Median/Winsor)
+9. Astrometry (optional)
+10. BGE (optional)
+11. PCC (optional)
+12. HyperMetric Stretch (optional)
+13. Report</p>
+<blockquote>
+<p>Detailed documentation: <a href="../raw_stack_gui_de/">docs/raw_stack_gui_de.md</a></p>
+</blockquote>
+<hr />
+<h2 id="8-run-history">8. Run History<a class="headerlink" href="#8-run-history" title="Permanent link">&para;</a></h2>
+<p>Under <strong>Tab History → Sub-Tab Run History</strong>, completed runs can be browsed:</p>
+<ul>
+<li>List of all runs with status, date, frame count</li>
+<li>View run details (configuration, phase status, artifacts)</li>
+<li>Generate reports</li>
+<li>Compare runs</li>
+<li>Open run directory in file manager</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

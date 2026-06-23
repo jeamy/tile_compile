@@ -253,7 +253,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../phase_0_overview/" class="md-tabs__link">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
           
   
   
@@ -341,7 +341,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../about/" class="md-tabs__link">
+        <a href="../../about.md" class="md-tabs__link">
           
   
   
@@ -631,6 +631,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -677,6 +685,118 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1446,7 +1566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../about/" class="md-nav__link">
+      <a href="../../about.md" class="md-nav__link">
         
   
   
@@ -2145,7 +2265,7 @@
 </span></code></pre></div>
 <p>The implementation follows a linear pipeline approach as required by the specification, with no feedback loops detected in the codebase.</p>
 <p>Current enum phase sequence (source of truth: <code>include/tile_compile/core/types.hpp</code>):</p>
-<p><code>0 SCAN_INPUT -&gt; 1 REGISTRATION -&gt; 2 PREWARP -&gt; 3 CHANNEL_SPLIT -&gt; 4 NORMALIZATION -&gt; 5 GLOBAL_METRICS -&gt; 6 TILE_GRID -&gt; 7 COMMON_OVERLAP -&gt; 8 LOCAL_METRICS -&gt; 9 TILE_RECONSTRUCTION -&gt; 10 STATE_CLUSTERING -&gt; 11 SYNTHETIC_FRAMES -&gt; 12 STACKING -&gt; 13 DEBAYER -&gt; 14 ASTROMETRY -&gt; 15 BGE -&gt; 16 PCC -&gt; 17 DONE</code></p>
+<p><code>0 SCAN_INPUT -&gt; 1 REGISTRATION -&gt; 2 PREWARP -&gt; 3 CHANNEL_SPLIT -&gt; 4 NORMALIZATION -&gt; 5 GLOBAL_METRICS -&gt; 6 TILE_GRID -&gt; 7 COMMON_OVERLAP -&gt; 8 LOCAL_METRICS -&gt; 9 TILE_RECONSTRUCTION -&gt; 10 STATE_CLUSTERING -&gt; 11 SYNTHETIC_FRAMES -&gt; 12 STACKING -&gt; 13 DEBAYER -&gt; 14 ASTROMETRY -&gt; 15 BGE -&gt; 16 PCC -&gt; 17 HYPERMETRIC_STRETCH -&gt; 18 DONE</code></p>
 <h2 id="2-registration-analysis">2. Registration Analysis<a class="headerlink" href="#2-registration-analysis" title="Permanent link">&para;</a></h2>
 <h3 id="21-observations">2.1 Observations<a class="headerlink" href="#21-observations" title="Permanent link">&para;</a></h3>
 <p>The registration module uses a cascaded fallback strategy with CFA-aware full-frame prewarping. The current pipeline performs registration before channel processing and keeps CFA structure intact until debayer.</p>

@@ -257,7 +257,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="process_flow/phase_0_overview/" class="md-tabs__link">
+        <a href="gui3_user_guide_en/" class="md-tabs__link">
           
   
   
@@ -345,7 +345,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="about/" class="md-tabs__link">
+        <a href="about.md" class="md-tabs__link">
           
   
   
@@ -488,10 +488,21 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#download-pre-built-binary-no-build-required" class="md-nav__link">
+  <a href="#download-gui3-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Pre-built Binary (No Build Required)
+        Download GUI3 (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typical-gui3-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical GUI3 Workflow
       
     </span>
   </a>
@@ -743,6 +754,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -789,6 +808,118 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1558,7 +1689,7 @@
   
   
     <li class="md-nav__item">
-      <a href="about/" class="md-nav__link">
+      <a href="about.md" class="md-nav__link">
         
   
   
@@ -1664,10 +1795,21 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#download-pre-built-binary-no-build-required" class="md-nav__link">
+  <a href="#download-gui3-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Pre-built Binary (No Build Required)
+        Download GUI3 (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typical-gui3-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typical GUI3 Workflow
       
     </span>
   </a>
@@ -1725,41 +1867,47 @@
 <p>tile_compile is a scientific-grade image stacking pipeline designed for astrophotography. It reconstructs high-quality images from multiple light frames through:</p>
 <ul>
 <li><strong>Advanced Registration</strong> – Global + sequential alignment with astrometric fallback</li>
-<li><strong>Tile-based Reconstruction</strong> – Local quality-weighted stacking</li>
+<li><strong>Tile-based Reconstruction</strong> – Local quality-weighted stacking (AQMH)</li>
 <li><strong>Background Gradient Extraction (BGE)</strong> – Remove light pollution gradients</li>
 <li><strong>Photometric Color Calibration (PCC)</strong> – Accurate color using reference stars</li>
 <li><strong>Quality-driven Clustering</strong> – Separate frames by seeing conditions</li>
+<li><strong>Modern GUI3</strong> – Browser-based interface with full workflow support</li>
 </ul>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
-<h3 id="download-pre-built-binary-no-build-required">Download Pre-built Binary (No Build Required)<a class="headerlink" href="#download-pre-built-binary-no-build-required" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Linux GUI2 (CLI + Web Interface)</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>-L<span class="w"> </span>-o<span class="w"> </span>tile_compile.zip<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui2-linux-v0.2.4.zip
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>unzip<span class="w"> </span>tile_compile.zip<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>tile_compile_gui2-linux-v0.2.4
+<h3 id="download-gui3-recommended">Download GUI3 (Recommended)<a class="headerlink" href="#download-gui3-recommended" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Linux GUI3 (Browser Interface)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>-L<span class="w"> </span>-o<span class="w"> </span>tile_compile_gui3.zip<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.0.zip
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>unzip<span class="w"> </span>tile_compile_gui3.zip<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>tile_compile_gui3-linux-v0.3.0
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>./tile_compile_runner<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span>--config<span class="w"> </span>tile_compile.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span>--input-dir<span class="w"> </span>/path/to/lights<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>--runs-dir<span class="w"> </span>./runs
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># Or start web UI</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>./start_backend.sh<span class="w">  </span><span class="c1"># http://localhost:8080/ui/</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Start GUI3 (browser opens automatically)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>./start_gui3.sh<span class="w">  </span><span class="c1"># http://127.0.0.1:8080/ui/</span>
 </span></code></pre></div>
-<p>Also available: <a href="getting_started/installation/">AppImage</a>, <a href="getting_started/installation/">macOS</a>, <a href="getting_started/installation/">Windows</a>, or <a href="getting_started/installation/">build from source</a>.</p>
+<p>Also available: <a href="getting_started/installation/">macOS</a>, <a href="getting_started/installation/">Windows</a>, or <a href="getting_started/installation/">build from source</a>.</p>
+<h3 id="typical-gui3-workflow">Typical GUI3 Workflow<a class="headerlink" href="#typical-gui3-workflow" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Scan Input</strong> – Select FITS lights folder, optional calibration frames</li>
+<li><strong>Adjust Parameters</strong> – Load example config or customize settings</li>
+<li><strong>Start &amp; Monitor</strong> – Run with real-time phase progress tracking</li>
+<li><strong>View Results</strong> – Stacked images, diagnostic reports, quality metrics</li>
+</ol>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>
+<li><strong><a href="gui3_user_guide_en/">GUI3 User Guide (EN)</a></strong> – Complete step-by-step guide</li>
+<li><strong><a href="gui3_user_guide_de/">GUI3 Benutzerhandbuch (DE)</a></strong> – Deutsche Schritt-für-Schritt-Anleitung</li>
 <li><a href="getting_started/installation/">Installation</a></li>
-<li><a href="getting_started/cli_reference/">CLI Reference</a></li>
 <li><a href="configuration_reference/">Configuration Reference</a></li>
-<li><a href="process_flow/phase_0_overview/">Pipeline Overview</a></li>
+<li><a href="raw_stack_gui_en/">Raw Stack GUI (EN)</a></li>
+<li><a href="raw_stack_gui_de/">Raw Stack GUI (DE)</a></li>
 </ul>
 <h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Multiple Config Modes</strong> – From emergency (fast) to full (maximum quality)</li>
-<li><strong>Smart Telescopes</strong> – Optimized for Seestar, Dwarf II, etc.</li>
+<li><strong>Modern GUI3</strong> – Browser-based interface with Processing, Tools, and History tabs</li>
+<li><strong>AQMH Method</strong> – Advanced tile-based quality reconstruction (default)</li>
 <li><strong>Resume Capability</strong> – Continue from any pipeline phase</li>
+<li><strong>Smart Telescopes</strong> – Optimized for Seestar, Dwarf II, etc.</li>
+<li><strong>Astrometry &amp; PCC</strong> – Built-in plate solving and color calibration</li>
 <li><strong>Docker Support</strong> – Containerized execution</li>
-<li><strong>GUI2 Web Interface</strong> – Browser-based parameter studio</li>
 </ul>
 <hr />
 <p><em><a href="https://github.com/jeamy/tile_compile">View on GitHub</a></em></p>

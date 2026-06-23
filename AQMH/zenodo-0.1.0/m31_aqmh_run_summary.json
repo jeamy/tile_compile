@@ -1,0 +1,28 @@
+{
+  "frames": 645,
+  "frames_written": 645,
+  "canvas": [
+    3924,
+    2310
+  ],
+  "stored_map": [
+    1962,
+    1155
+  ],
+  "map_mean_avg": 0.49619829654693604,
+  "map_mean_std": 0.0016375350323430296,
+  "artifact_frac_avg": 0.051158592104911804,
+  "map_mean_min": 0.48798826336860657,
+  "map_mean_max": 0.5001311898231506,
+  "artifact_frac_min": 0.04867659509181976,
+  "artifact_frac_max": 0.060436658561229706,
+  "sharpness_p50_median": 536.4517822265625,
+  "snr_p50_median": 0.32951945066452026,
+  "common_fraction": 0.9748177493590338,
+  "reconstruction_fraction": 0.9822757942023997,
+  "num_tiles": 209,
+  "tile_size": 296,
+  "stride_px": 208,
+  "fwhm_improvement_percent": 57.32664489746094,
+  "background_rms_increase_percent": -82.93243408203125
+}

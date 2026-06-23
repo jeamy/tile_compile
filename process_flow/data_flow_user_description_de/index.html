@@ -253,7 +253,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../phase_0_overview/" class="md-tabs__link">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
           
   
   
@@ -341,7 +341,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../about/" class="md-tabs__link">
+        <a href="../../about.md" class="md-tabs__link">
           
   
   
@@ -631,6 +631,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -677,6 +685,118 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1446,7 +1566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../about/" class="md-nav__link">
+      <a href="../../about.md" class="md-nav__link">
         
   
   
@@ -1771,10 +1891,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#17-abschluss-done" class="md-nav__link">
+  <a href="#17-hypermetric-stretch-hypermetric_stretch-optional" class="md-nav__link">
     <span class="md-ellipsis">
       
-        17) Abschluss (DONE)
+        17) HyperMetric Stretch (HYPERMETRIC_STRETCH, optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#18-abschluss-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        18) Abschluss (DONE)
       
     </span>
   </a>
@@ -1908,7 +2039,8 @@
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>   -&gt; ASTROMETRY
 </span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>   -&gt; [optional] BGE
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>   -&gt; [optional] PCC
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>   -&gt; DONE
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>   -&gt; [optional] HYPERMETRIC_STRETCH
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>   -&gt; DONE
 </span></code></pre></div>
 <hr />
 <h2 id="warum-tile-basiert-gearbeitet-wird">Warum tile-basiert gearbeitet wird<a class="headerlink" href="#warum-tile-basiert-gearbeitet-wird" title="Permanent link">&para;</a></h2>
@@ -2205,7 +2337,24 @@
 <li>PCC-Diagnostik und ggf. Katalog-Nebenprodukte</li>
 </ul>
 <hr />
-<h2 id="17-abschluss-done">17) Abschluss (<code>DONE</code>)<a class="headerlink" href="#17-abschluss-done" title="Permanent link">&para;</a></h2>
+<h2 id="17-hypermetric-stretch-hypermetric_stretch-optional">17) HyperMetric Stretch (<code>HYPERMETRIC_STRETCH</code>, optional)<a class="headerlink" href="#17-hypermetric-stretch-hypermetric_stretch-optional" title="Permanent link">&para;</a></h2>
+<p><strong>Ziel</strong></p>
+<ul>
+<li>das PCC-kalibrierte RGB-Bild mit VeraLux HMS final und reproduzierbar stretchen</li>
+</ul>
+<p><strong>Verarbeitung</strong></p>
+<ul>
+<li>liest das PCC-RGB-Ergebnis, typischerweise <code>outputs/stacked_rgb_pcc.fits</code></li>
+<li>ermittelt bzw. nutzt das konfigurierte Sensorprofil, den adaptiven Anchor und Auto-LogD</li>
+<li>wendet die HyperMetric-Stretch-Kurve und die Farb-Erhaltung an</li>
+</ul>
+<p><strong>Ausgabe</strong></p>
+<ul>
+<li>gestretchtes RGB-Bild, typischerweise <code>outputs/stacked_rgb_hms.fits</code></li>
+<li>bei <code>write_channels: true</code> zusätzlich <code>hms_R.fit</code>, <code>hms_G.fit</code>, <code>hms_B.fit</code></li>
+</ul>
+<hr />
+<h2 id="18-abschluss-done">18) Abschluss (<code>DONE</code>)<a class="headerlink" href="#18-abschluss-done" title="Permanent link">&para;</a></h2>
 <p><strong>Ziel</strong></p>
 <ul>
 <li>den Run in einen konsistenten Endzustand überführen</li>
@@ -2225,7 +2374,7 @@
 <ul>
 <li><code>outputs/</code></li>
 <li>finale und abgeleitete FITS-Produkte</li>
-<li>z. B. <code>stacked.fits</code>, <code>stacked_rgb.fits</code>, <code>stacked_rgb_bge.fits</code>, <code>stacked_rgb_pcc.fits</code></li>
+<li>z. B. <code>stacked.fits</code>, <code>stacked_rgb.fits</code>, <code>stacked_rgb_bge.fits</code>, <code>stacked_rgb_pcc.fits</code>, <code>stacked_rgb_hms.fits</code></li>
 <li><code>artifacts/</code></li>
 <li>JSON-Diagnostik pro Phase</li>
 <li>Report-Dateien und Diagramme</li>
@@ -2239,6 +2388,7 @@
 <h2 id="resume-von-post-run-phasen">Resume von Post-Run-Phasen<a class="headerlink" href="#resume-von-post-run-phasen" title="Permanent link">&para;</a></h2>
 <p>Wenn ein Run bereits existiert, können Post-Processing-Phasen erneut auf Basis des vorhandenen Run-Zustands ausgeführt werden:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./tile_compile_runner resume --run-dir runs/&lt;run_id&gt; --from-phase ASTROMETRY
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>./tile_compile_runner resume --run-dir runs/&lt;run_id&gt; --from-phase HYPERMETRIC_STRETCH
 </span></code></pre></div>
 <p>Dabei werden insbesondere verwendet:</p>
 <ul>

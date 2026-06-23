@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-finales-stacking-und-output" class="md-skip">
+        <a href="#common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-hms-finales-stacking-und-output" class="md-skip">
           Skip to content
         </a>
       
@@ -259,7 +259,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../phase_0_overview/" class="md-tabs__link">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
           
   
   
@@ -347,7 +347,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../about/" class="md-tabs__link">
+        <a href="../../about.md" class="md-tabs__link">
           
   
   
@@ -639,6 +639,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -686,6 +694,118 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1266,10 +1386,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-17-done" class="md-nav__link">
+  <a href="#phase-17-hypermetric_stretch" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 17: DONE
+        Phase 17: HYPERMETRIC_STRETCH
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-18-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 18: DONE
       
     </span>
   </a>
@@ -1840,7 +1971,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../about/" class="md-nav__link">
+      <a href="../../about.md" class="md-nav__link">
         
   
   
@@ -2239,10 +2370,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-17-done" class="md-nav__link">
+  <a href="#phase-17-hypermetric_stretch" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 17: DONE
+        Phase 17: HYPERMETRIC_STRETCH
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-18-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 18: DONE
       
     </span>
   </a>
@@ -2277,17 +2419,18 @@
 
 
 
-<h1 id="common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-finales-stacking-und-output">COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC — Finales Stacking und Output<a class="headerlink" href="#common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-finales-stacking-und-output" title="Permanent link">&para;</a></h1>
+<h1 id="common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-hms-finales-stacking-und-output">COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC + HMS — Finales Stacking und Output<a class="headerlink" href="#common_overlap-synthetic_frames-stacking-validation-debayer-astrometry-bge-pcc-hms-finales-stacking-und-output" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p><strong>C++ Implementierung:</strong> <code>runner_pipeline.cpp</code>, <code>runner_phase_registration.cpp</code> (aktueller v3.3 Stand)
-<strong>Phase-Enums:</strong> <code>COMMON_OVERLAP</code> (7), <code>SYNTHETIC_FRAMES</code> (11), <code>STACKING</code> (12), <em>Validation</em> (kein Enum), <code>DEBAYER</code> (13), <code>ASTROMETRY</code> (14), <code>BGE</code> (15, optional), <code>PCC</code> (16), <code>DONE</code> (17)</p>
+<strong>Phase-Enums:</strong> <code>COMMON_OVERLAP</code> (7), <code>SYNTHETIC_FRAMES</code> (11), <code>STACKING</code> (12), <em>Validation</em> (kein Enum), <code>DEBAYER</code> (13), <code>ASTROMETRY</code> (14), <code>BGE</code> (15, optional), <code>PCC</code> (16), <code>HYPERMETRIC_STRETCH</code> (17, optional), <code>DONE</code> (18)</p>
 </blockquote>
 <h2 id="ubersicht">Übersicht<a class="headerlink" href="#ubersicht" title="Permanent link">&para;</a></h2>
-<p>Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal, führen optional BGE vor PCC aus und erzeugen die finalen FITS-Outputs. Für <code>v3.3.9</code> sind dabei besonders wichtig:</p>
+<p>Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal, führen optional BGE vor PCC aus, kalibrieren per PCC und können danach VeraLux HMS als finale Stretch-Phase ausführen. Für <code>v3.3.9</code> sind dabei besonders wichtig:</p>
 <ul>
 <li>support-aware Gültigkeitssemantik an Rand- und Canvas-Bereichen,</li>
 <li>massenerhaltende Cluster-Semantik im Full Mode,</li>
 <li>BGE als strikt additiver Schritt vor PCC.</li>
+<li>HMS als explizit nichtlinearer, finaler Post-PCC-Output-Schritt.</li>
 </ul>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────────────────────────────────────┐
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  PREWARP (Phase 2, vorgelagert)                      │
@@ -2352,9 +2495,16 @@
 </span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>└──────────────────────┬───────────────────────────────┘
 </span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>                       │
 </span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>┌──────────────────────▼───────────────────────────────┐
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>│  DONE (Phase 17)                                     │
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>│  • run_end(ok) oder run_end(validation_failed)       │
-</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>└──────────────────────────────────────────────────────┘
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>│  HMS (Phase 17)                                      │
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>│  • VeraLux HyperMetric Stretch nach PCC              │
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>│  • stacked_rgb_hms.fits                              │
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a>│  (übersprungen, wenn disabled oder PCC fehlt)         │
+</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>└──────────────────────┬───────────────────────────────┘
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a>                       │
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a>┌──────────────────────▼───────────────────────────────┐
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a>│  DONE (Phase 18)                                     │
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>│  • run_end(ok) oder run_end(validation_failed)       │
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>└──────────────────────────────────────────────────────┘
 </span></code></pre></div>
 <h2 id="canvas-und-common-overlap-kontext">Canvas- und Common-Overlap-Kontext<a class="headerlink" href="#canvas-und-common-overlap-kontext" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2731,6 +2881,11 @@
 <td>PCC-kalibrierter RGB-Cube</td>
 </tr>
 <tr>
+<td><code>stacked_rgb_hms.fits</code></td>
+<td>OSC</td>
+<td>VeraLux HMS-gestretchter RGB-Cube nach PCC</td>
+</tr>
+<tr>
 <td><code>pcc_R.fit</code></td>
 <td>OSC</td>
 <td>PCC-kalibrierter R-Kanal</td>
@@ -2744,6 +2899,21 @@
 <td><code>pcc_B.fit</code></td>
 <td>OSC</td>
 <td>PCC-kalibrierter B-Kanal</td>
+</tr>
+<tr>
+<td><code>hms_R.fit</code></td>
+<td>OSC</td>
+<td>Optionaler HMS-R-Kanal (<code>write_channels: true</code>)</td>
+</tr>
+<tr>
+<td><code>hms_G.fit</code></td>
+<td>OSC</td>
+<td>Optionaler HMS-G-Kanal (<code>write_channels: true</code>)</td>
+</tr>
+<tr>
+<td><code>hms_B.fit</code></td>
+<td>OSC</td>
+<td>Optionaler HMS-B-Kanal (<code>write_channels: true</code>)</td>
 </tr>
 <tr>
 <td><code>synthetic_*.fit</code></td>
@@ -2804,17 +2974,35 @@
 </ul>
 <p>Bei fehlenden Katalogsternen oder Fit-Problemen wird die Phase als <code>skipped</code> beendet.</p>
 <p><code>v3.3.9</code> ergänzt außerdem einen optionalen post-PCC Cleanup-Schritt für <strong>isolierte Chroma-Speckles</strong> im expliziten RGB-Bereich. Dieser gehört nicht mehr zum linearen Kern, ist aber als optionale Nachverarbeitung ausdrücklich erlaubt.</p>
-<h2 id="phase-17-done">Phase 17: DONE<a class="headerlink" href="#phase-17-done" title="Permanent link">&para;</a></h2>
-<div class="language-cpp highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">emitter</span><span class="p">.</span><span class="n">phase_start</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">Phase</span><span class="o">::</span><span class="n">DONE</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;DONE&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">emitter</span><span class="p">.</span><span class="n">phase_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">Phase</span><span class="o">::</span><span class="n">DONE</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ok&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">run_validation_failed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="n">emitter</span><span class="p">.</span><span class="n">run_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="nb">false</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;validation_failed&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="p">}</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="n">emitter</span><span class="p">.</span><span class="n">run_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="nb">true</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ok&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<h2 id="phase-17-hypermetric_stretch">Phase 17: HYPERMETRIC_STRETCH<a class="headerlink" href="#phase-17-hypermetric_stretch" title="Permanent link">&para;</a></h2>
+<p>HMS läuft nach PCC, wenn:</p>
+<ul>
+<li><code>cfg.hypermetric_stretch.enabled = true</code></li>
+<li>RGB-Daten vorhanden sind</li>
+<li>bei <code>require_successful_pcc: true</code> ein erfolgreiches PCC-Ergebnis vorhanden ist</li>
+</ul>
+<p>Wirkung:</p>
+<ul>
+<li>liest das PCC-kalibrierte RGB-Ergebnis</li>
+<li>löst <code>sensor_profile</code> bzw. <code>fallback_profile</code> in VeraLux-Luminanzgewichte auf</li>
+<li>bestimmt je nach Konfiguration den adaptiven Anchor und <code>log_d</code></li>
+<li>schreibt standardmäßig <code>outputs/stacked_rgb_hms.fits</code></li>
+</ul>
+<p>HMS ist die erste explizit nichtlineare finale Stretch-Phase im Output-Pfad. Der lineare Core bis einschließlich PCC bleibt dadurch unverändert nachvollziehbar; das gestretchte Bild ist ein zusätzliches Präsentations-/Weiterverarbeitungsprodukt.</p>
+<p>Resume:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>./tile_compile_runner resume --run-dir runs/&lt;run_id&gt; --from-phase HYPERMETRIC_STRETCH
+</span></code></pre></div>
+<h2 id="phase-18-done">Phase 18: DONE<a class="headerlink" href="#phase-18-done" title="Permanent link">&para;</a></h2>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">emitter</span><span class="p">.</span><span class="n">phase_start</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">Phase</span><span class="o">::</span><span class="n">DONE</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;DONE&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">emitter</span><span class="p">.</span><span class="n">phase_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="n">Phase</span><span class="o">::</span><span class="n">DONE</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ok&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">run_validation_failed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">    </span><span class="n">emitter</span><span class="p">.</span><span class="n">run_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="nb">false</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;validation_failed&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="p">}</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="n">emitter</span><span class="p">.</span><span class="n">run_end</span><span class="p">(</span><span class="n">run_id</span><span class="p">,</span><span class="w"> </span><span class="nb">true</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ok&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">log_file</span><span class="p">);</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -2844,15 +3032,15 @@
 </table>
 <hr />
 <h2 id="cli-optionen">CLI-Optionen<a class="headerlink" href="#cli-optionen" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>tile_compile_runner run \
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    --config &lt;path&gt;        # config.yaml
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    --input-dir &lt;path&gt;     # FITS Input-Verzeichnis
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    --runs-dir &lt;path&gt;      # Runs-Ausgabe-Verzeichnis
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    --project-root &lt;path&gt;  # Projekt-Root (optional)
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    --max-frames &lt;n&gt;       # Frame-Limit (0 = kein Limit)
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    --max-tiles &lt;n&gt;        # Tile-Limit im Tile-Pfad (ab Phase 6)
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    --dry-run              # Kein Processing
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    --stdin                # Config von stdin lesen
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>tile_compile_runner run \
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    --config &lt;path&gt;        # config.yaml
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    --input-dir &lt;path&gt;     # FITS Input-Verzeichnis
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    --runs-dir &lt;path&gt;      # Runs-Ausgabe-Verzeichnis
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    --project-root &lt;path&gt;  # Projekt-Root (optional)
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    --max-frames &lt;n&gt;       # Frame-Limit (0 = kein Limit)
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    --max-tiles &lt;n&gt;        # Tile-Limit im Tile-Pfad (ab Phase 6)
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>    --dry-run              # Kein Processing
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>    --stdin                # Config von stdin lesen
 </span></code></pre></div>
 
 

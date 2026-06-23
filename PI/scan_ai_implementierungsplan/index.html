@@ -1,0 +1,3065 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/PI/scan_ai_implementierungsplan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>PI Scan-AI Implementierungsplan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-scan-ai-implementierungsplan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PI Scan-AI Implementierungsplan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v3.3.9 Specification (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tbqr_step_by_step_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR Step-by-Step (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readme
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/#changelog" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-umsetzungsstand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Umsetzungsstand
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-architekturentscheidungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Architekturentscheidungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-zielarchitektur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Zielarchitektur
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Zielarchitektur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-komponenten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Komponenten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-datenfluss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Datenfluss
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-konfiguration-und-secrets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Konfiguration und Secrets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Konfiguration und Secrets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-default-konfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Default-Konfiguration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-credential-quellen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Credential-Quellen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-secret-regeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Secret-Regeln
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-api-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. API-Contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. API-Contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-c-backend-routen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 C++ Backend-Routen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-sidecar-routen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Sidecar-Routen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-scan-analysis-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Scan Analysis Request
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-agent-response" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Agent Response
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-implementierungsphasen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Implementierungsphasen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Implementierungsphasen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-abhaengigkeiten-und-entscheidungen-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Abhaengigkeiten und Entscheidungen [erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-sidecar-grundgeruest-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Sidecar-Grundgeruest [erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-sidecar-analyse-service-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Sidecar Analyse-Service [erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-c-ai-service-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: C++ AI-Service [erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-schema-und-config-validierung-erledigt-im-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Schema- und Config-Validierung [erledigt im Backend]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-frontend-integration-basis-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Frontend Integration [Basis erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-jobstore-revisions-und-audit-teilweise-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: JobStore, Revisions und Audit [teilweise erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-7-tests-teilweise-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7: Tests [teilweise erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-8-build-und-betrieb-teilweise-erledigt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8: Build und Betrieb [teilweise erledigt]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-detaillierte-dateiliste" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Detaillierte Dateiliste
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Detaillierte Dateiliste">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-neu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Neu
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-zu-aendern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Zu aendern
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-detaillierter-ablauf-fuer-apiscananalysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Detaillierter Ablauf fuer /api/scan/analysis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-detaillierter-ablauf-fuer-apiscananalysisapply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Detaillierter Ablauf fuer /api/scan/analysis/apply
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-risiken-und-gegenmassnahmen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Risiken und Gegenmassnahmen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-akzeptanzkriterien" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Akzeptanzkriterien
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Akzeptanzkriterien">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#must-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Must-have
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#should-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Should-have
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nice-to-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nice-to-have
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-implementierungsreihenfolge-kompakt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Implementierungsreihenfolge kompakt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-scan-ai-implementierungsplan">PI Scan-AI Implementierungsplan<a class="headerlink" href="#pi-scan-ai-implementierungsplan" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Implementierung begonnen, Backend-Grundgeruest erledigt<br />
+<strong>Datum:</strong> 2026-06-15<br />
+<strong>Ziel:</strong> PI Scan-AI in <code>tile_compile</code> integrieren, damit Scan-Ergebnisse in validierte Parameter-Studio-Empfehlungen uebersetzt werden koennen.<br />
+<strong>Grundsatz:</strong> AI ist standardmaessig aus. Ohne explizite Aktivierung und gueltige Credentials werden keine externen AI-Requests ausgefuehrt.</p>
+<hr />
+<h2 id="0-umsetzungsstand">0. Umsetzungsstand<a class="headerlink" href="#0-umsetzungsstand" title="Permanent link">&para;</a></h2>
+<p>Stand: 2026-06-15.</p>
+<p>Erledigt:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Optionales <code>agent_service</code> Node/TypeScript-Projekt angelegt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>@earendil-works/pi-coding-agent</code> als Dependency vorgesehen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>.env.example</code> und <code>.env</code>-Laden aus Projektwurzel und <code>agent_service/.env</code> vorgesehen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sidecar-Routen <code>/health</code>, <code>/models</code>, <code>/auth</code>, <code>DELETE /auth/:provider</code>, <code>/test</code>, <code>/analyze</code> angelegt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> C++ AI-Service und Sidecar-HTTP-Client angelegt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> C++ Backend-Routen <code>/api/ai/*</code> und <code>/api/scan/analysis*</code> registriert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> AI ist default aus.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend funktioniert ohne laufenden Sidecar weiter.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/ai/models</code> meldet fehlenden Sidecar strukturiert als <code>AI_AGENT_UNAVAILABLE</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> API-Keys werden nicht in Backend-Config, UI-State oder Responses gespeichert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Frontend-API-Konstanten fuer AI/Scan-Analysis ergaenzt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Release-/Packaging-Skripte bundeln den optionalen <code>agent_service</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend-Test fuer Default-off und Sidecar-unavailable angelegt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>cmake --build web_backend_cpp/build</code> erfolgreich.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>ctest --output-on-failure -R web_backend_cpp_ai_routes</code> erfolgreich.</li>
+</ul>
+<p>In Arbeit/offen:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Schema-/Config-Validierung der AI-Empfehlungen im Backend umsetzen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/scan/analysis/apply</code> im Backend implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Frontend-Basis fuer Settings, Analyseanzeige und Review-/Apply-Flow integrieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sidecar TypeScript Build nach Dependency-Installation verifiziert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Secret-Redaction-Audit auf Sidecar-Logs erweitern.</li>
+</ul>
+<h2 id="1-architekturentscheidungen">1. Architekturentscheidungen<a class="headerlink" href="#1-architekturentscheidungen" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Der PI Agent wird als lokaler Node/TypeScript-Sidecar implementiert.</li>
+<li>Das C++ Backend bleibt fuer Scan, Jobs, Config-Patches und Validierung verantwortlich.</li>
+<li>Der Sidecar kennt Provider, Modelle, AuthStorage und <code>.env</code>.</li>
+<li>Das Backend validiert alle AI-Empfehlungen gegen Schema und bestehende Config-Validierung.</li>
+<li>Die UI zeigt AI als optionales Feature. Manuelle Szenario-Deltas bleiben immer verfuegbar.</li>
+<li>Intern wird <code>updates: [{path, value}]</code> als kanonisches Patch-Format verwendet.</li>
+<li><code>force</code> ist nur ein expliziter One-shot fuer eine bestaetigte UI-Aktion und speichert keine dauerhafte Aktivierung.</li>
+</ol>
+<hr />
+<h2 id="2-zielarchitektur">2. Zielarchitektur<a class="headerlink" href="#2-zielarchitektur" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>web_frontend
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  -&gt; C++ Web Backend
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>     -&gt; tile_compile_cli scan / config validate / config patch
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>     -&gt; Node PI Sidecar
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        -&gt; @earendil-works/pi-coding-agent
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>           -&gt; PI AuthStorage
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>           -&gt; PI ModelRegistry
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>           -&gt; externe AI Provider
+</span></code></pre></div>
+<h3 id="21-komponenten">2.1 Komponenten<a class="headerlink" href="#21-komponenten" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Komponente</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>web_frontend/src/app.js</code></td>
+<td>Scan-Flow, AI-Settings, Analyseanzeige, Apply-Flow</td>
+</tr>
+<tr>
+<td><code>web_frontend/src/constants.js</code></td>
+<td>API-Endpunkte fuer AI und Scan-Analysis</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/routes/ai_routes.cpp</code></td>
+<td>C++ REST-Routen fuer AI-Config, Modelle, Auth, Analyse, Apply</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/ai_service.cpp</code></td>
+<td>Backend-seitiger Client zum Sidecar und Filter-/Validierungslogik</td>
+</tr>
+<tr>
+<td><code>agent_service/src/server.ts</code></td>
+<td>Lokaler HTTP-Server fuer PI-Integration</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/frameAnalysisService.ts</code></td>
+<td>PI Session, Prompt, JSON-Parsing</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/authService.ts</code></td>
+<td>AuthStorage, <code>.env</code>, Provider-Key-Status</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/modelService.ts</code></td>
+<td>PI ModelRegistry und Modellliste</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-datenfluss">2.2 Datenfluss<a class="headerlink" href="#22-datenfluss" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+  participant UI as Frontend
+  participant BE as C++ Backend
+  participant CLI as tile_compile_cli
+  participant PI as PI Sidecar
+  participant CFG as Config Validation
+
+  UI-&gt;&gt;BE: POST /api/scan
+  BE-&gt;&gt;CLI: scan --json
+  CLI--&gt;&gt;BE: ScanResult
+  BE--&gt;&gt;UI: scan job id/result
+  UI-&gt;&gt;BE: POST /api/scan/analysis
+  BE-&gt;&gt;BE: AI enabled? model available? scan exists?
+  BE-&gt;&gt;PI: POST /analyze
+  PI-&gt;&gt;PI: ModelRegistry + AuthStorage + prompt
+  PI--&gt;&gt;BE: pi.scan-analysis.v1 JSON
+  BE-&gt;&gt;BE: filter recommendations by schema paths
+  BE-&gt;&gt;CFG: validate patched config
+  CFG--&gt;&gt;BE: ok/errors/warnings
+  BE--&gt;&gt;UI: validated recommendations
+  UI-&gt;&gt;BE: POST /api/scan/analysis/apply
+  BE-&gt;&gt;CFG: patch + validate + optionally save revision
+  BE--&gt;&gt;UI: revision_id / applied paths</code></pre>
+<hr />
+<h2 id="3-konfiguration-und-secrets">3. Konfiguration und Secrets<a class="headerlink" href="#3-konfiguration-und-secrets" title="Permanent link">&para;</a></h2>
+<h3 id="31-default-konfiguration">3.1 Default-Konfiguration<a class="headerlink" href="#31-default-konfiguration" title="Permanent link">&para;</a></h3>
+<p>AI ist per Default aus:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">ai</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">scan_analysis</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">manual</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8000</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">timeout_ms</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120000</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">send_paths</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">persist_recommendations</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">sidecar_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://127.0.0.1:3001&quot;</span>
+</span></code></pre></div>
+<p>Diese Werte duerfen in App-State oder lokaler Backend-Settings-Datei stehen. Wenn sie in <code>tile_compile.yaml</code> aufgenommen werden, dann nur nicht-sensitive Werte.</p>
+<h3 id="32-credential-quellen">3.2 Credential-Quellen<a class="headerlink" href="#32-credential-quellen" title="Permanent link">&para;</a></h3>
+<p>Der Sidecar muss API-Keys aus diesen Quellen erkennen:</p>
+<ol>
+<li>PI <code>AuthStorage</code></li>
+<li>Prozess-Environment</li>
+<li><code>agent_service/.env</code></li>
+<li>Projektwurzel <code>.env</code></li>
+</ol>
+<p>Vorgesehene Variablen:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>AI_SCAN_ENABLED=false
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>AI_SCAN_MODEL=anthropic/claude-sonnet-4-6
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>AI_SCAN_MAX_TOKENS=8000
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>AI_SCAN_TEMPERATURE=0
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>AI_SCAN_TIMEOUT_MS=120000
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>ANTHROPIC_API_KEY=...
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>OPENAI_API_KEY=...
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>GOOGLE_API_KEY=...
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>GEMINI_API_KEY=...
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>MISTRAL_API_KEY=...
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>GROQ_API_KEY=...
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>OPENROUTER_API_KEY=...
+</span></code></pre></div>
+<p>Provider-spezifische Namen werden an PI angepasst. Wenn PI fuer einen Provider andere Variablen erwartet, mappt der Sidecar die bekannte <code>.env</code>-Variable auf PI <code>AuthStorage</code> oder auf die PI-kompatible Environment-Form.</p>
+<h3 id="33-secret-regeln">3.3 Secret-Regeln<a class="headerlink" href="#33-secret-regeln" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Keine API-Keys in <code>tile_compile.yaml</code>.</li>
+<li>Keine API-Keys in Config-Revisions.</li>
+<li>Keine API-Keys in JobStore.</li>
+<li>Keine API-Keys in UI-State.</li>
+<li>Keine API-Keys in Logs.</li>
+<li>API-Responses duerfen nur Status und Quelle enthalten, zum Beispiel <code>source: "env"</code> oder <code>source: "auth_storage"</code>.</li>
+</ul>
+<hr />
+<h2 id="4-api-contract">4. API-Contract<a class="headerlink" href="#4-api-contract" title="Permanent link">&para;</a></h2>
+<h3 id="41-c-backend-routen">4.1 C++ Backend-Routen<a class="headerlink" href="#41-c-backend-routen" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Methode</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/api/ai/config</code></td>
+<td>GET</td>
+<td>Aktuelle AI-Settings ohne Secrets</td>
+</tr>
+<tr>
+<td><code>/api/ai/config</code></td>
+<td>PATCH</td>
+<td>Nicht-sensitive AI-Settings aktualisieren</td>
+</tr>
+<tr>
+<td><code>/api/ai/models</code></td>
+<td>GET</td>
+<td>Provider/Modelle aus PI Registry plus Auth-Status</td>
+</tr>
+<tr>
+<td><code>/api/ai/auth</code></td>
+<td>POST</td>
+<td>API-Key fuer Provider im PI AuthStorage speichern</td>
+</tr>
+<tr>
+<td><code>/api/ai/test</code></td>
+<td>POST</td>
+<td>Provider/Modell-Verbindung testen</td>
+</tr>
+<tr>
+<td><code>/api/ai/auth/&lt;provider&gt;</code></td>
+<td>DELETE</td>
+<td>Gespeicherten Key entfernen, <code>.env</code> bleibt unangetastet</td>
+</tr>
+<tr>
+<td><code>/api/scan/analysis</code></td>
+<td>POST</td>
+<td>Scan-AI-Analyse starten</td>
+</tr>
+<tr>
+<td><code>/api/scan/analysis/latest</code></td>
+<td>GET</td>
+<td>Letzte Analyse abrufen</td>
+</tr>
+<tr>
+<td><code>/api/scan/analysis/apply</code></td>
+<td>POST</td>
+<td>Validierte Empfehlungen anwenden</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-sidecar-routen">4.2 Sidecar-Routen<a class="headerlink" href="#42-sidecar-routen" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Methode</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/health</code></td>
+<td>GET</td>
+<td>Sidecar erreichbar?</td>
+</tr>
+<tr>
+<td><code>/models</code></td>
+<td>GET</td>
+<td>PI Registry Provider/Modelle/Auth-Status</td>
+</tr>
+<tr>
+<td><code>/auth</code></td>
+<td>POST</td>
+<td>Provider-Key speichern</td>
+</tr>
+<tr>
+<td><code>/auth/:provider</code></td>
+<td>DELETE</td>
+<td>Provider-Key entfernen</td>
+</tr>
+<tr>
+<td><code>/test</code></td>
+<td>POST</td>
+<td>Minimalen Modelltest ausfuehren</td>
+</tr>
+<tr>
+<td><code>/analyze</code></td>
+<td>POST</td>
+<td>Scan-Metriken analysieren</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-scan-analysis-request">4.3 Scan Analysis Request<a class="headerlink" href="#43-scan-analysis-request" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;scan_job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;optional&quot;</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;scan_result&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;base_config&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">&quot;persist&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">&quot;force&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;optional provider/model-id&quot;</span><span class="p">,</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">&quot;selected_profile&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;optional&quot;</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Regeln:</p>
+<ul>
+<li>Wenn <code>scan_result</code> fehlt, nimmt das Backend <code>/api/scan/latest</code>.</li>
+<li>Wenn <code>base_config</code> fehlt, nimmt das Backend <code>/api/config/defaults</code> oder den aktiven Draft.</li>
+<li>Wenn AI deaktiviert ist und <code>force=false</code>, antwortet das Backend mit <code>AI_DISABLED</code>.</li>
+<li><code>force=true</code> ist nur fuer eine explizite UI-Aktion zulaessig und darf keine dauerhafte Aktivierung speichern.</li>
+</ul>
+<h3 id="44-agent-response">4.4 Agent Response<a class="headerlink" href="#44-agent-response" title="Permanent link">&para;</a></h3>
+<p>Der Sidecar muss ausschliesslich JSON liefern:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pi.scan-analysis.v1&quot;</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Kurze technische Zusammenfassung&quot;</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.86</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;detected_scenarios&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rotation&quot;</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Starke Rotation&quot;</span><span class="p">,</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.82</span><span class="p">,</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="nt">&quot;evidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;rotation proxy high&quot;</span><span class="p">]</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">  </span><span class="nt">&quot;recommendations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;registration.engine&quot;</span><span class="p">,</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">      </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;triangle_star_matching&quot;</span><span class="p">,</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">      </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Rotation spricht fuer sternbasierte Registrierung.&quot;</span><span class="p">,</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.9</span><span class="p">,</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">      </span><span class="nt">&quot;risk&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;low&quot;</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">  </span><span class="nt">&quot;warnings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="w">  </span><span class="nt">&quot;review_required&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Kanonisches Backend-Apply-Format:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;updates&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;registration.engine&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;triangle_star_matching&quot;</span><span class="p">},</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;registration.transform_model&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;affine&quot;</span><span class="p">}</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Das Backend kann daraus fuer die UI einen verschachtelten Patch ableiten. Intern sollte aber <code>updates[]</code> verwendet werden, weil <code>/api/config/patch</code> bereits mit Dotted Paths arbeitet.</p>
+<hr />
+<h2 id="5-implementierungsphasen">5. Implementierungsphasen<a class="headerlink" href="#5-implementierungsphasen" title="Permanent link">&para;</a></h2>
+<h3 id="phase-0-abhaengigkeiten-und-entscheidungen-erledigt">Phase 0: Abhaengigkeiten und Entscheidungen <code>[erledigt]</code><a class="headerlink" href="#phase-0-abhaengigkeiten-und-entscheidungen-erledigt" title="Permanent link">&para;</a></h3>
+<p><strong>Ziel:</strong> Projektstruktur und Laufzeitmodell festlegen.</p>
+<p>Aufgaben:</p>
+<ul>
+<li>Node-Version fuer <code>agent_service</code> dokumentieren.</li>
+<li><code>agent_service/package.json</code> anlegen.</li>
+<li>Dependency <code>@earendil-works/pi-coding-agent</code> aufnehmen.</li>
+<li>Dependency fuer HTTP-Server waehlen. Empfehlung: <code>express</code> oder Node <code>http</code>.</li>
+<li>Dependency fuer <code>.env</code> laden. Empfehlung: <code>dotenv</code>.</li>
+<li>Sidecar-Port konfigurieren, default <code>127.0.0.1:3001</code>.</li>
+<li>C++ HTTP-Client festlegen. Empfehlung: libcurl, falls im Build akzeptiert.</li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li><code>agent_service</code> kann lokal starten.</li>
+<li><code>/health</code> liefert <code>ok</code>.</li>
+<li>Ohne AI-Key startet der Sidecar trotzdem.</li>
+</ul>
+<h3 id="phase-1-sidecar-grundgeruest-erledigt">Phase 1: Sidecar-Grundgeruest <code>[erledigt]</code><a class="headerlink" href="#phase-1-sidecar-grundgeruest-erledigt" title="Permanent link">&para;</a></h3>
+<p>Neue Dateien:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>agent_service/
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  package.json
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  tsconfig.json
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  .env.example
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  src/
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    server.ts
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    types.ts
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    config.ts
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    services/
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>      authService.ts
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>      modelService.ts
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>      frameAnalysisService.ts
+</span></code></pre></div>
+<p>Funktionen:</p>
+<ul>
+<li><code>.env</code> aus <code>agent_service/.env</code> und Projektwurzel laden.</li>
+<li>PI <code>AuthStorage</code> initialisieren.</li>
+<li>PI <code>ModelRegistry</code> initialisieren.</li>
+<li><code>/models</code> implementieren.</li>
+<li><code>/test</code> implementieren.</li>
+<li><code>/auth</code> und <code>DELETE /auth/:provider</code> implementieren.</li>
+<li>Secret-Werte in Logs konsequent redigieren.</li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li><code>/models</code> liefert Provider/Modelle, auch wenn keine Keys vorhanden sind.</li>
+<li><code>.env</code>-Keys werden als verfuegbar erkannt.</li>
+<li>UI/Backend sieht nur <code>available</code>, <code>missing_auth</code>, <code>auth_source</code>, nicht den Key.</li>
+</ul>
+<h3 id="phase-2-sidecar-analyse-service-erledigt">Phase 2: Sidecar Analyse-Service <code>[erledigt]</code><a class="headerlink" href="#phase-2-sidecar-analyse-service-erledigt" title="Permanent link">&para;</a></h3>
+<p><code>frameAnalysisService.ts</code> implementiert:</p>
+<ul>
+<li>Modell aus <code>provider/model-id</code> aufloesen.</li>
+<li>Verfuegbarkeit mit <code>ModelRegistry.getAvailable()</code> pruefen.</li>
+<li>Session mit <code>createAgentSession(...)</code> erstellen.</li>
+<li>Prompt bauen.</li>
+<li>Textdelta sammeln.</li>
+<li>JSON extrahieren und parsen.</li>
+<li>Antwort gegen Minimalcontract pruefen.</li>
+</ul>
+<p>Prompt-Regeln:</p>
+<ul>
+<li>Keine Rohframes anfordern.</li>
+<li>Keine absoluten Pfade verwenden, wenn <code>send_paths=false</code>.</li>
+<li>Keine Werte erfinden.</li>
+<li>Nur erlaubte Schema-Pfade verwenden.</li>
+<li>Unsichere Empfehlungen mit niedriger Confidence oder <code>review_required=true</code>.</li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li><code>/analyze</code> liefert bei deaktivierter/fehlender Auth einen klaren Fehler.</li>
+<li>Gueltige Analyse liefert <code>schema_version: pi.scan-analysis.v1</code>.</li>
+<li>Ungueltige Modellnamen werden klar gemeldet.</li>
+</ul>
+<h3 id="phase-3-c-ai-service-erledigt">Phase 3: C++ AI-Service <code>[erledigt]</code><a class="headerlink" href="#phase-3-c-ai-service-erledigt" title="Permanent link">&para;</a></h3>
+<p>Neue Dateien:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>web_backend_cpp/include/services/ai_service.hpp
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>web_backend_cpp/src/services/ai_service.cpp
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>web_backend_cpp/include/routes/ai_routes.hpp
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>web_backend_cpp/src/routes/ai_routes.cpp
+</span></code></pre></div>
+<p>Wichtig: <code>AppState</code> ist aktuell ein <code>struct</code> in <code>web_backend_cpp/include/app_state.hpp</code>. Um Include-Zyklen zu vermeiden, sollte <code>ai_service.hpp</code> nicht zwingend in <code>app_state.hpp</code> eingebettet werden. Einfacher ist:</p>
+<ul>
+<li>AI-Service als lokale Helper-Klasse/Funktion in <code>ai_routes.cpp</code>, oder</li>
+<li><code>std::shared_ptr&lt;void&gt;</code> vermeiden und stattdessen <code>AiBackendClient</code> in Route-Datei erzeugen, oder</li>
+<li>Forward Declaration sauber einsetzen.</li>
+</ul>
+<p>Empfehlung fuer ersten Schritt: kein permanentes <code>state-&gt;ai_service</code>. Die Routen erzeugen einen leichten <code>AiBackendClient</code> mit <code>state-&gt;runtime</code> und aktueller Config.</p>
+<p>Aufgaben:</p>
+<ul>
+<li>HTTP-Client zum Sidecar implementieren.</li>
+<li>Timeout beachten.</li>
+<li><code>/api/ai/config</code> aus App-State oder lokaler Settings-Datei lesen/schreiben.</li>
+<li><code>/api/ai/models</code>, <code>/api/ai/auth</code>, <code>/api/ai/test</code> zum Sidecar proxyen.</li>
+<li><code>/api/scan/analysis</code> implementieren.</li>
+<li><code>/api/scan/analysis/latest</code> aus JobStore lesen.</li>
+<li><code>/api/scan/analysis/apply</code> ueber vorhandene Config-Patch-/Validate-Logik ausfuehren.</li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li>Backend kompiliert ohne laufenden Sidecar.</li>
+<li><code>/api/ai/models</code> meldet Sidecar-unreachable strukturiert.</li>
+<li><code>/api/scan/analysis</code> blockiert Scan nicht.</li>
+<li>Fehler im Sidecar fuehren zu <code>AI_AGENT_UNAVAILABLE</code>, nicht zu Backend-Crash.</li>
+</ul>
+<h3 id="phase-4-schema-und-config-validierung-erledigt-im-backend">Phase 4: Schema- und Config-Validierung <code>[erledigt im Backend]</code><a class="headerlink" href="#phase-4-schema-und-config-validierung-erledigt-im-backend" title="Permanent link">&para;</a></h3>
+<p>Diese Phase ist kritisch. AI-Ausgabe ist untrusted.</p>
+<p>Validierungsschritte:</p>
+<ol>
+<li>Response ist JSON-Object.</li>
+<li><code>schema_version == "pi.scan-analysis.v1"</code>.</li>
+<li><code>recommendations[]</code> ist Array.</li>
+<li>Jeder <code>path</code> ist ein bekannter Schema-Pfad aus <code>/api/config/schema</code>.</li>
+<li>Jeder <code>value</code> passt grob zum Schema-Typ.</li>
+<li>Updates werden auf Base-Config angewendet.</li>
+<li>Ergebnis wird mit bestehender <code>/api/config/validate</code>-Logik validiert.</li>
+<li>Nur valide Updates werden als <code>applicable=true</code> markiert.</li>
+<li>Unsichere Updates behalten <code>review_required=true</code>.</li>
+</ol>
+<p>Logikfehler vermeiden:</p>
+<ul>
+<li>Ein verschachteltes <code>config_patch</code> darf nicht per <code>contains("registration.engine")</code> gelesen werden.</li>
+<li>Dotted Path Updates immer ueber vorhandene <code>set_dotted(...)</code>-Semantik anwenden.</li>
+<li><code>selected_paths</code> muss gegen validierte Recommendations laufen, nicht gegen rohe AI-Antwort.</li>
+<li><code>persist=true</code> darf erst nach erfolgreicher Validierung speichern.</li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li>Unbekannte Pfade werden verworfen und gemeldet.</li>
+<li>Falsche Typen werden verworfen und gemeldet.</li>
+<li>Validierungsfehler werden der UI angezeigt.</li>
+<li>Keine Teilpersistenz bei invalidem Gesamtpatch, ausser der User waehlte explizit nur valide Einzelupdates.</li>
+</ul>
+<h3 id="phase-5-frontend-integration-basis-erledigt">Phase 5: Frontend Integration <code>[Basis erledigt]</code><a class="headerlink" href="#phase-5-frontend-integration-basis-erledigt" title="Permanent link">&para;</a></h3>
+<p>Anzupassende Dateien:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>web_frontend/src/constants.js
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>web_frontend/src/api.js
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>web_frontend/src/app.js
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>web_frontend/input-scan.html
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>web_frontend/parameter-studio.html
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>web_frontend/i18n/de.json
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>web_frontend/i18n/en.json
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>web_frontend/style.css
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>web_frontend/layout-panels.css
+</span></code></pre></div>
+<p>UI-Orte:</p>
+<ul>
+<li>Input Scan: Button <code>KI-Analyse erstellen</code> nach erfolgreichem Scan.</li>
+<li>Parameter Studio: AI-Settings und Analyse-Deltas.</li>
+<li>Dashboard optional: AI-Status und letzter Analysehinweis.</li>
+</ul>
+<p>UI-Zustaende:</p>
+<ul>
+<li><code>AI deaktiviert</code></li>
+<li><code>AI aktiviert, Provider fehlt</code></li>
+<li><code>AI aktiviert, API-Key fehlt</code></li>
+<li><code>Sidecar nicht erreichbar</code></li>
+<li><code>Analyse laeuft</code></li>
+<li><code>Analyse erfolgreich</code></li>
+<li><code>Analyse mit Warnungen</code></li>
+<li><code>Analyse fehlgeschlagen</code></li>
+</ul>
+<p>Aktionen:</p>
+<ul>
+<li>AI aktivieren/deaktivieren.</li>
+<li>Provider/Modell aus PI Registry waehlen.</li>
+<li>API-Key eingeben.</li>
+<li>Verbindung testen.</li>
+<li>Analyse starten.</li>
+<li>Empfehlungen einzeln auswaehlen.</li>
+<li>Alle validen Empfehlungen anwenden.</li>
+<li>Zum Parameter Studio mit aktiver Kategorie springen.</li>
+</ul>
+<p>Sicherheitsregeln UI:</p>
+<ul>
+<li>API-Key-Feld darf nie mit bestehendem Key vorbelegt werden.</li>
+<li><code>.env</code>-Key darf nur als <code>aus .env erkannt</code> angezeigt werden.</li>
+<li>Externe AI-Request-Aktion muss erkennbar sein.</li>
+</ul>
+<h3 id="phase-6-jobstore-revisions-und-audit-teilweise-erledigt">Phase 6: JobStore, Revisions und Audit <code>[teilweise erledigt]</code><a class="headerlink" href="#phase-6-jobstore-revisions-und-audit-teilweise-erledigt" title="Permanent link">&para;</a></h3>
+<p>Analyse-Jobs:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan_ai_analysis&quot;</span><span class="p">,</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">&quot;data&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">&quot;analysis_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;job-id&quot;</span><span class="p">,</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="nt">&quot;scan_job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan-id&quot;</span><span class="p">,</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span><span class="nt">&quot;provider&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span><span class="p">,</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.86</span><span class="p">,</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="nt">&quot;recommendations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="nt">&quot;validated_updates&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="nt">&quot;rejected_updates&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">    </span><span class="nt">&quot;warnings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Keine Secrets in Job-Daten.</p>
+<p>Revision-Metadaten:</p>
+<ul>
+<li><code>source: pi_scan_ai</code></li>
+<li><code>analysis_id</code></li>
+<li><code>scan_job_id</code></li>
+<li><code>provider</code></li>
+<li><code>model</code></li>
+<li><code>confidence</code></li>
+<li><code>applied_paths</code></li>
+<li><code>rejected_paths</code></li>
+</ul>
+<p>Akzeptanz:</p>
+<ul>
+<li><code>/api/scan/analysis/latest</code> findet die letzte Analyse.</li>
+<li>Apply erzeugt eine Config-Revision mit Quelle <code>pi_scan_ai</code>.</li>
+<li>Revision enthaelt keine Secrets.</li>
+</ul>
+<h3 id="phase-7-tests-teilweise-erledigt">Phase 7: Tests <code>[teilweise erledigt]</code><a class="headerlink" href="#phase-7-tests-teilweise-erledigt" title="Permanent link">&para;</a></h3>
+<p>Backend-Tests:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> AI default disabled.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/scan/analysis</code> gibt <code>AI_DISABLED</code>, wenn disabled.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>force=true</code> wird nur pro Request akzeptiert und speichert kein enabled.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sidecar unavailable -&gt; strukturierter Fehler.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Unknown path -&gt; rejected update.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Wrong type -&gt; rejected update.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Valid update -&gt; validated.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply ohne Analyse-ID -&gt; Fehlerantwort.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply mit selected_paths -&gt; nur diese Pfade.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Keine Secrets in Responses fuer Backend-Config/Auth-Proxy.</li>
+</ul>
+<p>Sidecar-Tests:</p>
+<ul>
+<li><code>.env</code> wird geladen.</li>
+<li>Environment priorisiert gegenueber Projekt-<code>.env</code>.</li>
+<li>AuthStorage priorisiert gegenueber Environment.</li>
+<li><code>/models</code> redigiert Secrets.</li>
+<li>ungueltiges Modell -&gt; Fehler.</li>
+<li>leere AI-Antwort -&gt; Fehler.</li>
+<li>JSON mit Markdown-Wrapper wird extrahiert.</li>
+</ul>
+<p>Frontend-Tests oder manuelle Checkliste:</p>
+<ul>
+<li>AI Settings laden.</li>
+<li>Providerliste anzeigen.</li>
+<li><code>.env</code>-Status anzeigen ohne Key.</li>
+<li>Analysebutton nur sinnvoll nach Scan.</li>
+<li>Analyseergebnis zeigt Empfehlungen und Warnungen.</li>
+<li>Apply aktualisiert Config-Draft/Revision.</li>
+</ul>
+<h3 id="phase-8-build-und-betrieb-teilweise-erledigt">Phase 8: Build und Betrieb <code>[teilweise erledigt]</code><a class="headerlink" href="#phase-8-build-und-betrieb-teilweise-erledigt" title="Permanent link">&para;</a></h3>
+<p>Build:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>cmake --build web_backend_cpp/build</code> fuer C++ Backend.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>npm install</code> im <code>agent_service</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>npm run build</code> im <code>agent_service</code>.</li>
+<li>Optional <code>npm run dev</code> fuer lokalen Sidecar.</li>
+</ul>
+<p>Runtime:</p>
+<ul>
+<li>Sidecar startet separat oder wird durch Startscript gestartet.</li>
+<li>Backend bleibt funktionsfaehig, wenn Sidecar fehlt.</li>
+<li><code>start_backend.sh</code> kann optional Sidecar-Start aufnehmen, aber darf Backend nicht hart davon abhaengig machen.</li>
+</ul>
+<p>Konfiguration:</p>
+<ul>
+<li><code>AI_SCAN_ENABLED=false</code> default.</li>
+<li>Sidecar URL via Env oder App-State.</li>
+<li>Timeout default 120s.</li>
+</ul>
+<hr />
+<h2 id="6-detaillierte-dateiliste">6. Detaillierte Dateiliste<a class="headerlink" href="#6-detaillierte-dateiliste" title="Permanent link">&para;</a></h2>
+<h3 id="61-neu">6.1 Neu<a class="headerlink" href="#61-neu" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Datei</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agent_service/package.json</code></td>
+<td>Node-Projekt mit PI Dependency</td>
+</tr>
+<tr>
+<td><code>agent_service/tsconfig.json</code></td>
+<td>TypeScript Build</td>
+</tr>
+<tr>
+<td><code>agent_service/.env.example</code></td>
+<td>Beispiel ohne echte Keys</td>
+</tr>
+<tr>
+<td><code>agent_service/src/server.ts</code></td>
+<td>HTTP API</td>
+</tr>
+<tr>
+<td><code>agent_service/src/types.ts</code></td>
+<td>Request/Response Types</td>
+</tr>
+<tr>
+<td><code>agent_service/src/config.ts</code></td>
+<td>Env-/Runtime-Konfig</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/authService.ts</code></td>
+<td>AuthStorage + <code>.env</code></td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/modelService.ts</code></td>
+<td>ModelRegistry</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/frameAnalysisService.ts</code></td>
+<td>PI Analyse</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/include/routes/ai_routes.hpp</code></td>
+<td>Route Declaration</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/routes/ai_routes.cpp</code></td>
+<td>REST Routen</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/include/services/ai_service.hpp</code></td>
+<td>Backend AI Client/Helpers</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/ai_service.cpp</code></td>
+<td>Sidecar HTTP Client + Validation</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/tests/test_ai_routes.cpp</code></td>
+<td>API Tests</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/tests/test_ai_service.cpp</code></td>
+<td>Validation Tests</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-zu-aendern">6.2 Zu aendern<a class="headerlink" href="#62-zu-aendern" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Datei</th>
+<th>Aenderung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>web_backend_cpp/src/main.cpp</code></td>
+<td><code>register_ai_routes(app, state)</code> registrieren</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/CMakeLists.txt</code></td>
+<td>neue C++ Dateien und Tests einbinden</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/include/backend_runtime.hpp</code></td>
+<td>AI/Sidecar Settings, falls Runtime-basiert</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/backend_runtime.cpp</code></td>
+<td>Defaults und Env lesen</td>
+</tr>
+<tr>
+<td><code>web_frontend/src/constants.js</code></td>
+<td>AI Endpunkte</td>
+</tr>
+<tr>
+<td><code>web_frontend/src/api.js</code></td>
+<td>optional API Helper oder direkte <code>api.get/post</code> Nutzung</td>
+</tr>
+<tr>
+<td><code>web_frontend/src/app.js</code></td>
+<td>UI-Flow</td>
+</tr>
+<tr>
+<td><code>web_frontend/input-scan.html</code></td>
+<td>Analysepanel</td>
+</tr>
+<tr>
+<td><code>web_frontend/parameter-studio.html</code></td>
+<td>AI Settings/Review</td>
+</tr>
+<tr>
+<td><code>web_frontend/i18n/de.json</code></td>
+<td>Texte</td>
+</tr>
+<tr>
+<td><code>web_frontend/i18n/en.json</code></td>
+<td>Texte</td>
+</tr>
+<tr>
+<td><code>web_frontend/style.css</code> / <code>layout-panels.css</code></td>
+<td>UI Styles</td>
+</tr>
+<tr>
+<td><code>start_backend.sh</code></td>
+<td>optional Sidecar-Start</td>
+</tr>
+<tr>
+<td><code>.gitignore</code></td>
+<td><code>.env</code>, <code>agent_service/node_modules</code>, Build-Ausgaben</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7-detaillierter-ablauf-fuer-apiscananalysis">7. Detaillierter Ablauf fuer <code>/api/scan/analysis</code><a class="headerlink" href="#7-detaillierter-ablauf-fuer-apiscananalysis" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Request parsen.</li>
+<li>ScanResult bestimmen:</li>
+<li><code>body.scan_result</code>, oder</li>
+<li><code>scan_job_id</code>, oder</li>
+<li><code>latest_scan_job(...)</code>.</li>
+<li>AI Config laden.</li>
+<li>Wenn disabled und kein explizit bestaetigter One-shot: <code>AI_DISABLED</code>.</li>
+<li>Sidecar Health pruefen.</li>
+<li>Modell bestimmen:</li>
+<li>Request <code>model</code>, oder</li>
+<li>Config <code>model</code>, oder</li>
+<li>Fehler <code>AI_MODEL_NOT_CONFIGURED</code>.</li>
+<li>Modelle/Auth vom Sidecar pruefen.</li>
+<li>Base Config bestimmen.</li>
+<li>Schema-Pfade flatten.</li>
+<li>Request minimieren:<ul>
+<li>keine Rohframes</li>
+<li>keine absoluten Pfade, wenn <code>send_paths=false</code></li>
+<li>Frame-Liste limitieren</li>
+<li>Warnungen/Fehler beibehalten</li>
+</ul>
+</li>
+<li>Sidecar <code>/analyze</code> aufrufen.</li>
+<li>Response validieren.</li>
+<li>Recommendations normalisieren zu <code>updates[]</code>.</li>
+<li>Updates gegen Schema filtern.</li>
+<li>Patch auf Base Config anwenden.</li>
+<li>Config validieren.</li>
+<li>Analyse-Job speichern.</li>
+<li>JSON Response an UI.</li>
+</ol>
+<hr />
+<h2 id="8-detaillierter-ablauf-fuer-apiscananalysisapply">8. Detaillierter Ablauf fuer <code>/api/scan/analysis/apply</code><a class="headerlink" href="#8-detaillierter-ablauf-fuer-apiscananalysisapply" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Request parsen.</li>
+<li><code>analysis_id</code> laden.</li>
+<li>Analyse-Job muss Typ <code>scan_ai_analysis</code> haben.</li>
+<li><code>selected_paths</code> aus Request lesen.</li>
+<li>Nur zuvor validierte Updates verwenden.</li>
+<li>Falls <code>selected_paths</code> leer:</li>
+<li>entweder alle validen Updates anwenden, oder</li>
+<li>wenn UI <code>apply_all=false</code>, Fehler melden.</li>
+<li>Aktuelle Config laden.</li>
+<li>Updates anwenden.</li>
+<li>Config validieren.</li>
+<li>Bei <code>persist=true</code> speichern.</li>
+<li>Revision mit Quelle <code>pi_scan_ai</code> anlegen.</li>
+<li>Response mit <code>revision_id</code>, <code>applied_paths</code>, <code>warnings</code>.</li>
+</ol>
+<hr />
+<h2 id="9-risiken-und-gegenmassnahmen">9. Risiken und Gegenmassnahmen<a class="headerlink" href="#9-risiken-und-gegenmassnahmen" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Risiko</th>
+<th>Gegenmassnahme</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Externe AI-Requests unerwartet</td>
+<td>Default-off, sichtbare UI-Aktion, <code>mode=manual</code></td>
+</tr>
+<tr>
+<td>Secrets landen in Logs</td>
+<td>Redaction helper, Tests, keine Secret-Responses</td>
+</tr>
+<tr>
+<td>AI empfiehlt ungueltige Config</td>
+<td>Schema-Filter + Config-Validate</td>
+</tr>
+<tr>
+<td>Sidecar faellt aus</td>
+<td>Backend bleibt nutzbar, strukturierter Fehler</td>
+</tr>
+<tr>
+<td>Modellliste aendert sich</td>
+<td>PI <code>ModelRegistry</code> dynamisch abfragen</td>
+</tr>
+<tr>
+<td>Lange Analyse blockiert UI</td>
+<td>Analyse als Job/async Status, Timeout</td>
+</tr>
+<tr>
+<td>Absolute Pfade werden gesendet</td>
+<td><code>send_paths=false</code> default, Sanitizer</td>
+</tr>
+<tr>
+<td>Kosten durch Auto-Analyse</td>
+<td><code>mode=after_scan</code> nur opt-in</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10-akzeptanzkriterien">10. Akzeptanzkriterien<a class="headerlink" href="#10-akzeptanzkriterien" title="Permanent link">&para;</a></h2>
+<h3 id="must-have">Must-have<a class="headerlink" href="#must-have" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> AI ist default aus.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ohne Sidecar funktioniert Scan unveraendert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ohne API-Key gibt es keine externen Requests.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>.env</code> und Prozess-Environment werden als Credential-Quelle erkannt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> API-Keys werden nie in Config, Revisions, JobStore, Logs oder UI-State gespeichert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Alle PI-Registry-Modelle werden angezeigt, soweit PI sie liefert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/scan/analysis</code> erzeugt validierte Recommendations.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Unbekannte/ungueltige Recommendations werden verworfen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply erzeugt validierte Config und optional Revision.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Parameter Studio zeigt Confidence, Risiko, Begruendung und Warnungen.</li>
+</ul>
+<h3 id="should-have">Should-have<a class="headerlink" href="#should-have" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> One-shot Analyse auch bei disabled moeglich, aber nur nach UI-Bestaetigung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sidecar-/Modelstatus im UI sichtbar.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Analyse kann timeouted werden.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Deterministischer Fallback zeigt vorhandene Szenario-Deltas.</li>
+</ul>
+<h3 id="nice-to-have">Nice-to-have<a class="headerlink" href="#nice-to-have" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Analyseprofile fuer <code>cheap</code>, <code>balanced</code>, <code>best</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Kosten-/Token-Schaetzung vor Request.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Analysevergleich zwischen Modellen.</li>
+</ul>
+<hr />
+<h2 id="11-rollback">11. Rollback<a class="headerlink" href="#11-rollback" title="Permanent link">&para;</a></h2>
+<p>Rollback muss trivial bleiben:</p>
+<ol>
+<li>Sidecar nicht starten.</li>
+<li>AI Config <code>enabled=false</code>.</li>
+<li><code>register_ai_routes(...)</code> kann notfalls entfernt werden.</li>
+<li>Backend und Frontend funktionieren weiter mit Scan, Config und Parameter Studio.</li>
+</ol>
+<p>Da AI optional ist, darf kein bestehender Stacking- oder Scan-Pfad von AI abhaengig werden.</p>
+<hr />
+<h2 id="12-implementierungsreihenfolge-kompakt">12. Implementierungsreihenfolge kompakt<a class="headerlink" href="#12-implementierungsreihenfolge-kompakt" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Sidecar Skeleton + <code>/health</code>.</li>
+<li><code>.env</code> + AuthStorage + ModelRegistry.</li>
+<li><code>/models</code>, <code>/auth</code>, <code>/test</code>.</li>
+<li><code>FrameAnalysisService</code> + <code>/analyze</code>.</li>
+<li>C++ AI Backend Client.</li>
+<li>C++ AI Routes.</li>
+<li>Schema-/Config-Validation. <code>[erledigt im Backend]</code></li>
+<li>JobStore/Revision Integration. <code>[erledigt im Backend]</code></li>
+<li>Frontend Settings. <code>[Basis erledigt]</code></li>
+<li>Frontend Scan-Analysepanel. <code>[Basis erledigt]</code></li>
+<li>Apply-Flow im Parameter Studio. <code>[Basis erledigt]</code></li>
+<li>Tests und Secret-Redaction-Audit.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
