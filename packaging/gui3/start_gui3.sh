@@ -31,11 +31,11 @@ install_launcher_scripts() {
   local dst_sh="${INSTALL_ROOT}/start_gui3.sh"
   local dst_command="${INSTALL_ROOT}/start_gui3.command"
 
-  if [[ -f "${src_sh}" && ! -f "${dst_sh}" ]]; then
+  if [[ -f "${src_sh}" ]]; then
     cp -a "${src_sh}" "${dst_sh}"
     chmod +x "${dst_sh}"
   fi
-  if [[ -f "${src_command}" && ! -f "${dst_command}" ]]; then
+  if [[ -f "${src_command}" ]]; then
     cp -a "${src_command}" "${dst_command}"
     chmod +x "${dst_command}"
   fi

@@ -122,11 +122,29 @@ function Sync-Payload {
   }
 }
 
-if (-not (Test-Path $PayloadDir)) {
-  throw "payload\ fehlt."
+function Install-LauncherScripts {
+  $srcPs1 = Join-Path $ScriptDir "start_gui3.ps1"
+  $dstPs1 = Join-Path $InstallRoot "start_gui3.ps1"
+  if (Test-Path $srcPs1) {
+    Copy-Item -Path $srcPs1 -Destination $dstPs1 -Force
+  }
+  $srcBat = Join-Path $ScriptDir "start_gui3.bat"
+  $dstBat = Join-Path $InstallRoot "start_gui3.bat"
+  if (Test-Path $srcBat) {
+    Copy-Item -Path $srcBat -Destination $dstBat -Force
+  }
 }
 
-Sync-Payload
+$HasPayload = Test-Path $PayloadDir
+$ScriptInInstall = (Test-Path (Join-Path $ScriptDir "web_backend_cpp")) -or (Test-Path (Join-Path $ScriptDir "tile_compile_cpp"))
+
+if ($HasPayload) {
+  Sync-Payload
+  Install-LauncherScripts
+} elseif (-not $ScriptInInstall) {
+  throw "payload\ fehlt und Installationslayout unvollstaendig."
+}
+
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 New-Item -ItemType Directory -Path $RunsDir -Force | Out-Null
 
