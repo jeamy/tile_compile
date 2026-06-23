@@ -17,10 +17,29 @@ import { goToSubTab } from "../utils/navigation.js";
 import { t } from "../i18n/i18n.js";
 
 const inputStore = getStore("input-scan", {
-  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "/media/data/programming/tile_compile/runs", run_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
+  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "", run_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
   queueItems: [],
   calValues: {},
 });
+
+let backendRunsDir = "";
+
+async function ensureRunsDir() {
+  if (backendRunsDir) return backendRunsDir;
+  try {
+    const appState = await api.get(API_ENDPOINTS.app.state);
+    backendRunsDir = appState?.project?.runs_dir || "";
+    if (backendRunsDir) {
+      const sd = getScanData();
+      if (!sd.runs_dir) {
+        setScanData({ runs_dir: backendRunsDir });
+        const runsInput = document.querySelector('input[data-field="runs_dir"]');
+        if (runsInput) runsInput.value = backendRunsDir;
+      }
+    }
+  } catch {}
+  return backendRunsDir;
+}
 
 function getScanData() { return inputStore.getState().scanData; }
 function setScanData(patch) { inputStore.setState({ scanData: { ...getScanData(), ...patch } }); }
@@ -30,6 +49,7 @@ function getCalValues() { return inputStore.getState().calValues; }
 function setCalValues(v) { inputStore.setState({ calValues: v }); }
 
 export function createInputScanPage() {
+  ensureRunsDir();
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
 
   // Input section
@@ -145,10 +165,11 @@ async function doScan() {
     const sd = getScanData();
     setRunState({ currentRunId: null, currentRunDir: null, status: null, phases: [], resumeActive: false, resumePending: false });
     toast(t("ui.toast.scan_starting", "Scan wird gestartet..."), "", "info");
+    const effectiveInputDir = sd.input_dir || sd.runs_dir || backendRunsDir || "";
     const payload = {
-      input_dir: sd.input_dir,
+      input_dir: effectiveInputDir,
       pattern: sd.pattern,
-      runs_dir: sd.runs_dir,
+      runs_dir: sd.runs_dir || backendRunsDir || "",
       run_name: sd.run_name,
       color_mode: sd.color_mode,
       frame_min: sd.frame_min,
