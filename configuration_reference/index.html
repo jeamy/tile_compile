@@ -1218,6 +1218,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pipelinemode" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4609,6 +4620,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pipelinemode" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7527,6 +7549,38 @@
 <hr />
 <h2 id="1-pipeline">1. Pipeline<a class="headerlink" href="#1-pipeline" title="Permanent link">&para;</a></h2>
 <p>Grundlegende Pipeline-Steuerung.</p>
+<h3 id="method"><code>method</code><a class="headerlink" href="#method" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Eigenschaft</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Typ</strong></td>
+<td>string (enum)</td>
+</tr>
+<tr>
+<td><strong>Werte</strong></td>
+<td><code>aqmh</code>, <code>classic_tile_compile</code></td>
+</tr>
+<tr>
+<td><strong>Default</strong></td>
+<td><code>"aqmh"</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Zweck:</strong> Wählt die Rekonstruktionsmethode.</p>
+<ul>
+<li><strong><code>aqmh</code></strong> (Default): Adaptive Quality Map Harvesting — pixelweise Qualitätsbewertung mit Pyramidendarstellung. Ersetzt Phasen 8–11 (Local Metrics, Tile Reconstruction, Clustering, Synthetic Frames) durch unabhängige pixelweise Rekonstruktion. Siehe <a href="#12b-aqmh-adaptive-quality-map-harvesting">§12b</a>.</li>
+<li><strong><code>classic_tile_compile</code></strong>: Klassische tile-basierte Rekonstruktion mit lokalen Tile-Metriken, Clustering und synthetischen Frames.</li>
+</ul>
+<blockquote>
+<p><strong>Hinweis:</strong> <code>aqmh.enabled</code> wird automatisch aus <code>method</code> abgeleitet (<code>aqmh</code> → <code>true</code>, <code>classic_tile_compile</code> → <code>false</code>). Es wird empfohlen, <code>method</code> zu setzen statt <code>aqmh.enabled</code> direkt zu setzen.</p>
+</blockquote>
+<hr />
 <h3 id="pipelinemode"><code>pipeline.mode</code><a class="headerlink" href="#pipelinemode" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
