@@ -1,0 +1,264 @@
+# GUI3 Benutzerhandbuch (Deutsch)
+
+Dieses Handbuch beschreibt den praktischen Workflow mit der GUI3-Weboberfläche: von der Installation über den Scan der Eingabedaten, die Parametereinstellung bis zum Start und Monitoring eines Runs.
+
+## Übersicht
+
+GUI3 besteht aus drei Hauptbereichen:
+
+| Tab | Sub-Tabs | Zweck |
+|-----|----------|------|
+| **Processing** | Input & Scan, Parameter, Run Monitor | Hauptworkflow: Eingabe scannen, Parameter einstellen, Run starten und überwachen |
+| **Tools** | Raw Stack, Astrometry, PCC | Eigenständige Werkzeuge für Vorverarbeitung, Plate Solving und Farbkalibrierung |
+| **History** | Run History | Abgeschlossene Runs durchsuchen, vergleichen und Reports generieren |
+
+---
+
+## 1. Installation und Start
+
+### Release-Bundle
+
+1. Release-ZIP von [GitHub Releases](https://github.com/jeamy/tile_compile/releases) herunterladen.
+2. Entpacken und den Starter ausführen:
+   - **Linux**: `./start_gui3.sh`
+   - **macOS**: Doppelklick auf `start_gui3.command` (oder `./start_gui3.command` im Terminal)
+   - **Windows**: Doppelklick auf `start_gui3.bat`
+3. Beim ersten Start werden alle Anwendungsdateien nach `~/tilecompile/` (bzw. `%USERPROFILE%\tilecompile\`) kopiert.
+4. Der Browser öffnet sich automatisch auf `http://127.0.0.1:8080/ui/`.
+
+> **macOS-Hinweis:** Falls Gatekeeper den Starter blockiert: `Systemeinstellungen → Datenschutz & Sicherheit` öffnen und den blockierten Eintrag explizit erlauben.
+
+> **Nach der Installation:** Das heruntergeladene Archiv und der entpackte Ordner können gelöscht werden. Alle Dateien wurden in das Benutzerverzeichnis kopiert. Bei Updates werden nur Anwendungsdateien ersetzt — Benutzerdaten (Runs, Kataloge) bleiben erhalten.
+
+---
+
+## 2. Eingabe scannen (Input & Scan)
+
+Der erste Schritt ist das Scannen der FITS-Eingabedaten.
+
+### Schritte
+
+1. **Tab Processing → Sub-Tab Input & Scan** auswählen.
+2. **Eingabeordner** wählen: Pfad zum Verzeichnis mit den FITS-Light-Frames angeben (z.B. `/data/M31/lights`).
+3. **Dateimuster** einstellen: Standard ist `*.fits`. Alternativ `*.fit` oder `light_*.fits`.
+4. **Ausgabeordner (Runs-Dir)** wählen: Zielverzeichnis für Run-Outputs. Standardmäßig wird ein Verzeichnis unter `~/tilecompile/runs/` vorgeschlagen.
+5. **Run Name** vergeben: Optionaler Name für den Run-Ordner (z.B. `M31_altaz_test`).
+6. **Parameter einstellen**:
+   - **Frames Minimum**: Mindestanzahl Frames, sonst Abbruch (Standard: 30).
+   - **Max. Frames**: 0 = alle Frames verwenden.
+   - **Sortierung**: `numeric`, `alphabetic` oder `timestamp`.
+   - **Farbmodus**: `OSC` (One-Shot-Color / Bayer) oder `MONO`.
+   - **Checksummen berechnen**: Optional, für Integritätsprüfung.
+7. **Kalibrierung** (optional): Bias-, Dark- und Flat-Ordner angeben und die jeweiligen Checkboxen aktivieren.
+8. **Scan starten** klicken.
+
+### Scan-Ergebnis
+
+Nach Abschluss zeigt die Scan-Result-Karte:
+- Anzahl gefundener Frames
+- Auflösung und Farbmodus der Frames
+- Frames-Größen und Checksummen (falls aktiviert)
+
+### Run-Queue (für MONO)
+
+MONO-Nutzer können mehrere Eingabeordner (L/R/G/B) über die Run-Queue hinzufügen. Jede Queue-Eingabe wird als separater Kanal verarbeitet.
+
+---
+
+## 3. Parameter einstellen (Parameter Studio)
+
+Nach dem Scan wechseln Sie zum Sub-Tab **Parameter**.
+
+### Konfiguration laden
+
+- **Beispielkonfiguration laden**: Über den Konfigurations-Selector eine der mitgelieferten Beispiel-YAMLs wählen (z.B. `M42.global_medium.yaml`).
+- **Leere Konfiguration**: Mit Default-Werten starten.
+- **Bestehende Konfiguration hochladen**: Eine eigene YAML-Datei hochladen.
+
+### Parameter-Kategorien
+
+Das Parameter Studio ist in Kategorien gegliedert:
+
+| Kategorie | Wichtige Parameter |
+|-----------|-------------------|
+| **Pipeline** | `pipeline.mode` (production/preview), `method` (aqmh/classic_tile_compile) |
+| **Registrierung** | `registration.allow_rotation`, `registration.transform_model` (similarity/affine), `registration.engine` |
+| **AQMH** | `aqmh.enabled`, `aqmh.pyramid.scales`, `aqmh.cherry_pick.enabled`, `aqmh.storage.max_resident_maps` |
+| **Rekonstruktion** | Tile-Geometrie, Rekonstruktionsmodus |
+| **Stacking** | `stacking.method` (sigma_clip/median/average), Sigma-Clip-Parameter |
+| **Debayer** | `data.bayer_pattern` (RGGB/BGGR/GBRG/GRBG) |
+| **Astrometry** | `astrometry.astap_bin`, `astrometry.astap_data_dir` |
+| **BGE** | `bge.enabled`, `bge.fit_method`, `bge.autotune` |
+| **PCC** | `pcc.source` (auto/siril/vizier_gaia/vizier_apass), `pcc.mag_limit`, `pcc.siril_catalog_dir` |
+| **HyperMetric Stretch** | `hypermetric_stretch.enabled`, Farbstrategie, Konvergenz |
+| **Kalibrierung** | Bias/Dark/Flat-Pfade |
+| **Assumptions** | `frames_min`, `frames_reduced_threshold` |
+| **Runtime Limits** | `hard_abort_hours`, `acceleration_backend` |
+
+### Workflow
+
+1. Parameter-Kategorie aufklappen und Werte anpassen.
+2. **Validate** klicken, um die Konfiguration gegen das Schema zu prüfen.
+3. Bei Validierungsfehlern: Fehlermeldungen beachten und korrigieren.
+4. **Save** klicken, um die Konfiguration zu speichern.
+
+> **Tipp:** Für erste Versuche ist die Default-Konfiguration mit `method: aqmh` bereits gut brauchbar. Die wichtigsten Anpassungen sind `registration.allow_rotation` (bei Alt/Az-Montierung auf `true` belassen) und `data.bayer_pattern` (mit den FITS-Headern abgleichen).
+
+---
+
+## 4. Run starten und überwachen (Run Monitor)
+
+### Run starten
+
+1. Vom Sub-Tab **Parameter** auf **Run Monitor** wechseln, oder direkt vom Input & Scan-Tab auf **Next ▶** klicken.
+2. Im Run Monitor auf **Run starten** klicken.
+3. Der Runner wird als Hintergrundprozess gestartet. Der Run Monitor zeigt den Fortschritt in Echtzeit.
+
+### Run Monitor
+
+Der Run Monitor zeigt:
+
+- **Aktuelle Phase**: Welche Pipeline-Phase gerade läuft (SCAN_INPUT → REGISTRATION → ... → PCC → DONE)
+- **Phasen-Fortschritt**: Status jeder Phase (pending, running, ok, skipped, error)
+- **Event-Timeline**: Live-Events aus `run_events.jsonl`
+- **Warnungen und Fehler**: Prominent angezeigt im Warnungs-Banner
+- **Run-Statistiken**: Verarbeitete Frames, verbleibende Zeit (falls verfügbar)
+
+### Run abbrechen
+
+- **Stop** klicken, um den laufenden Run abzubrechen.
+
+### Resume (Fortsetzen)
+
+Nach Abschluss (oder Abbruch) kann ein Run ab einer bestimmten Phase fortgesetzt werden:
+
+1. Im Run Monitor **Resume** klicken.
+2. Phase wählen (z.B. `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`).
+3. Der Runner verwendet das bestehende Run-Verzeichnis und springt direkt zur gewählten Phase.
+
+> Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrahieren), `PCC` (Farbe neu kalibrieren).
+
+---
+
+## 5. Ergebnisse ansehen
+
+### Ausgabedateien
+
+Nach Abschluss liegen die Ergebnisse unter `<runs_dir>/<run_name>/`:
+
+```
+runs/<run_id>/
+├── outputs/
+│   ├── stacked.fits              # Lineares Summenbild
+│   ├── reconstructed_L.fit       # MONO-Rekonstruktion
+│   ├── stacked_rgb.fits          # OSC-RGB
+│   ├── stacked_rgb_solve.fits    # Mit WCS gelöst
+│   ├── stacked_rgb_bge.fits      # Nach BGE (vor PCC)
+│   ├── stacked_rgb_pcc.fits      # Nach PCC
+│   └── stacked_rgb_hms.fits      # Nach HyperMetric Stretch (optional)
+├── artifacts/
+│   ├── report.html               # Diagnosebericht
+│   ├── report.css
+│   ├── *.png                     # Diagramme/Heatmaps
+│   ├── normalization.json
+│   ├── global_registration.json
+│   ├── bge.json
+│   └── ...
+├── logs/
+│   └── run_events.jsonl          # Event-Timeline
+└── config.yaml                   # Run-Snapshot der Konfiguration
+```
+
+### Diagnosebericht (report.html)
+
+Über den Run Monitor oder die Run History kann ein HTML-Diagnosebericht generiert werden:
+
+- **Run Monitor**: Button **Stats erstellen** klicken.
+- **Run History**: Run auswählen und Report generieren.
+- **CLI**: `./tile_compile_cli generate-report runs/<run_id>`
+
+Der Bericht enthält:
+- Normalisierungs-/Hintergrund-Trends
+- Globale Qualitätsverteilungen und Gewichte
+- Registrierungs-Drift/CC/Rotation
+- Tile- und Rekonstruktions-Heatmaps
+- BGE-Diagnostik
+- Validierungsmetriken (inkl. Tile-Pattern-Indikatoren)
+- Pipeline-Zeitachse und Frame-Usage-Funnel
+
+---
+
+## 6. Astrometry und PCC einrichten
+
+Astrometrie (Plate Solving) und PCC (Photometrische Farbkalibrierung) sind optionale Phasen, die externe Daten benötigen.
+
+### ASTAP (für Astrometry / WCS Plate Solving)
+
+1. **ASTAP installieren**: Binary von [https://www.hnsky.org/astap.htm](https://www.hnsky.org/astap.htm) herunterladen.
+2. **Sterndatenbank herunterladen**: Mindestens D50 (für Deep-Sky) oder G18 (für Weitwinkel).
+3. **In GUI3 einrichten**:
+   - Tab **Tools → Sub-Tab Astrometry**
+   - **ASTAP CLI**: Pfad zum `astap`-Binary (z.B. `/usr/local/bin/astap`)
+   - **Star Database Dir**: Pfad zum Katalogverzeichnis (z.B. `/usr/local/share/astap`)
+   - **Detect ASTAP** klicken, um die Installation zu prüfen.
+   - Alternativ: **Install CLI** und **Download Catalog** direkt über die GUI.
+
+> Die ASTAP-Kataloge können auch direkt über die GUI3 heruntergeladen werden (Tools → Astrometry → Download Catalog).
+
+### Siril Gaia DR3 XP Katalog (für PCC)
+
+1. **Katalogdaten**: Der Siril Gaia DR3 XP sampled catalog wird für die photometrische Farbkalibrierung benötigt.
+2. **In GUI3 einrichten**:
+   - Tab **Tools → Sub-Tab PCC**
+   - **Catalog Dir**: Pfad zum Katalogverzeichnis (Standard: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`)
+   - **Download Missing** klicken, um fehlende Katalog-Chunks herunterzuladen (48 Chunks, insgesamt ~2 GB).
+   - Der Download erfolgt im Hintergrund mit Fortschrittsanzeige.
+
+> Falls der Katalog bereits von [Siril](https://siril.org/) heruntergeladen wurde, kann derselbe Ordner wiederverwendet werden.
+
+3. **PCC-Parameter** (im Parameter Studio):
+   - `pcc.source`: `auto` (empfohlen), `siril`, `vizier_gaia` oder `vizier_apass`
+   - `pcc.mag_limit`: Grenzgröße für Sterne (Standard: 14.0)
+   - `pcc.siril_catalog_dir`: Pfad zum Siril-Katalog (falls abweichend)
+
+### Wenn Kataloge fehlen
+
+Wenn ASTAP oder der Siril-Katalog nicht installiert sind:
+- Die Kernrekonstruktion (Registrierung, AQMH, Stacking, Debayer) funktioniert weiterhin.
+- Die Phasen `ASTROMETRY` und `PCC` werden als `skipped` markiert oder schlagen fehl, je nach Konfiguration.
+- BGE (Background Gradient Extraction) funktioniert unabhängig von externen Katalogen.
+
+---
+
+## 7. Raw Stack (eigenständige Vorverarbeitung)
+
+Der Sub-Tab **Raw Stack** (unter Tools) bietet ein separates lineares Preprocessing von FITS-Lights bis zum fertigen Stack, unabhängig vom Tile-Compile-Run-Studio.
+
+Pipeline-Schritte:
+1. Input Scan
+2. Calibration (Bias/Dark/Flat)
+3. CFA/Mono Prep
+4. Reference Selection
+5. Registration
+6. Quality Analysis
+7. Frame Filtering
+8. Stacking (Sigma-Clip/Median/Winsor)
+9. Astrometry (optional)
+10. BGE (optional)
+11. PCC (optional)
+12. HyperMetric Stretch (optional)
+13. Report
+
+> Detaillierte Dokumentation: [docs/raw_stack_gui_de.md](raw_stack_gui_de.md)
+
+---
+
+## 8. Run History
+
+Unter **Tab History → Sub-Tab Run History** können abgeschlossene Runs durchsucht werden:
+
+- Liste aller Runs mit Status, Datum, Frame-Anzahl
+- Run-Details einsehen (Konfiguration, Phasen-Status, Artefakte)
+- Reports generieren
+- Runs vergleichen
+- Run-Verzeichnis im Dateimanager öffnen
