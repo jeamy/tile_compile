@@ -398,9 +398,15 @@ async function startRun() {
     const pccStore = getStore("pcc", { pccData: {} });
     const pccCatalogDir = pccStore.getState().pccData?.catalog_dir || "";
 
+    const astroStore = getStore("astrometry", {});
+    const astapDataDir = astroStore.getState().astapDataDir || "";
+
     let configYaml = getConfigState().draftYaml || getConfigState().configYaml || "";
     if (configYaml && pccCatalogDir) {
       configYaml = injectSirilCatalogDir(configYaml, pccCatalogDir);
+    }
+    if (configYaml && astapDataDir) {
+      configYaml = injectAstapDataDir(configYaml, astapDataDir);
     }
 
     // Inject calibration settings from Input & Scan tab into config YAML
@@ -830,6 +836,18 @@ function insertKeyUnderSection(yaml, section, key, value) {
   }
   // Section doesn't exist — append it
   return yaml + `\n${section}:\n  ${key}: ${value}\n`;
+}
+
+function injectAstapDataDir(yaml, dataDir) {
+  if (!yaml || !dataDir) return yaml;
+  // Replace any existing astap_data_dir value (empty, null, or existing path)
+  if (/astap_data_dir:/m.test(yaml)) {
+    return yaml.replace(/astap_data_dir:.*$/m, `astap_data_dir: "${dataDir}"`);
+  }
+  if (/^astrometry:/m.test(yaml)) {
+    return yaml.replace(/^astrometry:/m, `astrometry:\n  astap_data_dir: "${dataDir}"`);
+  }
+  return yaml + `\nastrometry:\n  astap_data_dir: "${dataDir}"\n`;
 }
 
 function injectSirilCatalogDir(yaml, catalogDir) {

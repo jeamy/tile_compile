@@ -11,6 +11,8 @@ import { pollJob } from "../utils/poll.js";
 
 const store = getStore("astrometry", {
   solveData: { solve_file: "", output_path: "", downsample: "0" },
+  astapDataDir: "",
+  astapCliPath: "",
 });
 
 function getSolveData() { return store.getState().solveData; }
@@ -22,10 +24,10 @@ let _astapDbInput = null;
 export function createAstrometryPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
 
-  const astapCliGroup = createPathInput({ label: t("ui.field.astap_cli", "ASTAP CLI"), mode: "file", placeholder: "astap_cli", value: "" });
+  const astapCliGroup = createPathInput({ label: t("ui.field.astap_cli", "ASTAP CLI"), mode: "file", placeholder: "astap_cli", value: store.getState().astapCliPath || "", onInput: (v) => store.setState({ astapCliPath: v }) });
   _astapCliInput = astapCliGroup.querySelector("input[type=text]");
 
-  const astapDbGroup = createPathInput({ label: t("ui.field.star_db_dir", "Star Database Dir"), mode: "dir", placeholder: "", value: "" });
+  const astapDbGroup = createPathInput({ label: t("ui.field.star_db_dir", "Star Database Dir"), mode: "dir", placeholder: "", value: store.getState().astapDataDir || "", onInput: (v) => store.setState({ astapDataDir: v }) });
   _astapDbInput = astapDbGroup.querySelector("input[type=text]");
 
   const setupCard = el("div", { class: "tc-card" },
@@ -41,9 +43,9 @@ export function createAstrometryPage() {
       ),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => detectAstap(astapCliInput, astapDbInput) }, t("ui.button.detect_astap", "Detect ASTAP")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => installCli(astapDbInput?.value || "") }, t("ui.button.install_cli", "Install CLI")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadCatalog(astapDbInput?.value || "") }, t("ui.button.download_catalog", "Download Catalog")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => detectAstap(_astapCliInput, _astapDbInput) }, t("ui.button.detect_astap", "Detect ASTAP")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => installCli(_astapDbInput?.value || "") }, t("ui.button.install_cli", "Install CLI")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadCatalog(_astapDbInput?.value || "") }, t("ui.button.download_catalog", "Download Catalog")),
     ),
   );
 
@@ -81,7 +83,7 @@ export function createAstrometryPage() {
 
   page.append(setupCard, solveCard, resultsCard);
 
-  detectAstap(astapCliInput, astapDbInput);
+  detectAstap(_astapCliInput, _astapDbInput);
 
   return page;
 }
@@ -91,8 +93,8 @@ async function detectAstap(cliInput, dbInput) {
   const dbBadge = document.getElementById("astap-db-badge");
   try {
     const result = await api.post(API_ENDPOINTS.astrometry.detect, {});
-    if (result?.binary && cliInput) cliInput.value = result.binary;
-    if (result?.data_dir && dbInput) dbInput.value = result.data_dir;
+    if (result?.binary && cliInput) { cliInput.value = result.binary; store.setState({ astapCliPath: result.binary }); }
+    if (result?.data_dir && dbInput) { dbInput.value = result.data_dir; store.setState({ astapDataDir: result.data_dir }); }
 
     const cliOk = !!result?.installed;
     setBadge(cliBadge, cliOk, cliOk ? "OK" : "✗");

@@ -35,6 +35,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -5485,6 +5486,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
       std::string astap_bin = cfg.astrometry.astap_bin;
       if (astap_bin.empty()) astap_bin = astap_data + "/astap_cli";
+      // Fallback: if configured/default path doesn't exist, try locating binary on PATH
+      if (!fs::exists(astap_bin)) {
+        for (const char* name : {"astap_cli", "astap"}) {
+          const std::string which_cmd = std::string("which ") + name + " 2>/dev/null";
+          if (FILE* fp = popen(which_cmd.c_str(), "r")) {
+            char buf[512] = {};
+            if (fgets(buf, sizeof(buf), fp)) {
+              std::string found(buf);
+              while (!found.empty() && (found.back() == '\n' || found.back() == '\r' || found.back() == ' '))
+                found.pop_back();
+              if (!found.empty() && fs::exists(found)) { astap_bin = found; pclose(fp); break; }
+            }
+            pclose(fp);
+          }
+        }
+      }
+      // If astap_data dir from config doesn't exist, derive it from binary location
+      if (!fs::exists(astap_data) && fs::exists(astap_bin)) {
+        astap_data = fs::path(astap_bin).parent_path().string();
+      }
 
       if (!fs::exists(astap_bin)) {
         emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
