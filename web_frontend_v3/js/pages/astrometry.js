@@ -16,31 +16,34 @@ const store = getStore("astrometry", {
 function getSolveData() { return store.getState().solveData; }
 function setSolveData(patch) { store.setState({ solveData: { ...getSolveData(), ...patch } }); }
 
+let _astapCliInput = null;
+let _astapDbInput = null;
+
 export function createAstrometryPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
+
+  const astapCliGroup = createPathInput({ label: t("ui.field.astap_cli", "ASTAP CLI"), mode: "file", placeholder: "astap_cli", value: "" });
+  _astapCliInput = astapCliGroup.querySelector("input[type=text]");
+
+  const astapDbGroup = createPathInput({ label: t("ui.field.star_db_dir", "Star Database Dir"), mode: "dir", placeholder: "", value: "" });
+  _astapDbInput = astapDbGroup.querySelector("input[type=text]");
 
   const setupCard = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.astap_setup", "ASTAP Setup")),
     el("div", { class: "tc-grid-2" },
       el("div", {},
-        el("label", { class: "tc-label" }, t("ui.field.astap_cli", "ASTAP CLI")),
-        el("div", { class: "tc-flex tc-items-center tc-gap-2" },
-          el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: "/usr/local/bin/astap", id: "astap-cli" }),
-          el("span", { class: "tc-badge", id: "astap-cli-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
-        ),
+        astapCliGroup,
+        el("span", { class: "tc-badge", id: "astap-cli-badge", style: { whiteSpace: "nowrap" } }, "…"),
       ),
       el("div", {},
-        el("label", { class: "tc-label" }, t("ui.field.star_db_dir", "Star Database Dir")),
-        el("div", { class: "tc-flex tc-items-center tc-gap-2" },
-          el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: "/usr/local/share/astap", id: "astap-db" }),
-          el("span", { class: "tc-badge", id: "astap-db-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
-        ),
+        astapDbGroup,
+        el("span", { class: "tc-badge", id: "astap-db-badge", style: { whiteSpace: "nowrap" } }, "…"),
       ),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-mt-2" },
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => detectAstap() }, t("ui.button.detect_astap", "Detect ASTAP")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => installCli() }, t("ui.button.install_cli", "Install CLI")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadCatalog() }, t("ui.button.download_catalog", "Download Catalog")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => detectAstap(astapCliInput, astapDbInput) }, t("ui.button.detect_astap", "Detect ASTAP")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => installCli(astapDbInput?.value || "") }, t("ui.button.install_cli", "Install CLI")),
+      el("button", { class: "tc-btn tc-btn-sm", onclick: () => downloadCatalog(astapDbInput?.value || "") }, t("ui.button.download_catalog", "Download Catalog")),
     ),
   );
 
@@ -78,18 +81,18 @@ export function createAstrometryPage() {
 
   page.append(setupCard, solveCard, resultsCard);
 
-  detectAstap();
+  detectAstap(astapCliInput, astapDbInput);
 
   return page;
 }
 
-async function detectAstap() {
+async function detectAstap(cliInput, dbInput) {
   const cliBadge = document.getElementById("astap-cli-badge");
   const dbBadge = document.getElementById("astap-db-badge");
   try {
     const result = await api.post(API_ENDPOINTS.astrometry.detect, {});
-    if (result?.binary) document.getElementById("astap-cli").value = result.binary;
-    if (result?.data_dir) document.getElementById("astap-db").value = result.data_dir;
+    if (result?.binary && cliInput) cliInput.value = result.binary;
+    if (result?.data_dir && dbInput) dbInput.value = result.data_dir;
 
     const cliOk = !!result?.installed;
     setBadge(cliBadge, cliOk, cliOk ? "OK" : "✗");
@@ -111,20 +114,20 @@ async function detectAstap() {
   }
 }
 
-async function installCli() {
+async function installCli(dataDir = "") {
   try {
     toast(t("ui.toast.installing_cli", "Installiere CLI..."), "", "info");
-    await api.post(API_ENDPOINTS.astrometry.installCli, {});
+    await api.post(API_ENDPOINTS.astrometry.installCli, dataDir ? { astap_data_dir: dataDir } : {});
     toastSuccess(t("ui.toast.cli_installed", "CLI installiert"));
   } catch (e) {
     toastError(t("ui.toast.install_failed", "Installation fehlgeschlagen"), e.message);
   }
 }
 
-async function downloadCatalog() {
+async function downloadCatalog(dataDir = "") {
   try {
     toast(t("ui.toast.downloading_catalog", "Katalog wird heruntergeladen..."), "", "info");
-    await api.post(API_ENDPOINTS.astrometry.downloadCatalog, {});
+    await api.post(API_ENDPOINTS.astrometry.downloadCatalog, dataDir ? { astap_data_dir: dataDir } : {});
     toastSuccess(t("ui.toast.catalog_downloaded", "Katalog heruntergeladen"));
   } catch (e) {
     toastError(t("ui.toast.download_failed", "Download fehlgeschlagen"), e.message);
@@ -139,8 +142,8 @@ async function solve() {
       return;
     }
     toast(t("ui.toast.solving", "Plate Solve l\u00e4uft..."), "", "info");
-    const astapCli = document.getElementById("astap-cli")?.value || "";
-    const astapDb = document.getElementById("astap-db")?.value || "";
+    const astapCli = _astapCliInput?.value || "";
+    const astapDb = _astapDbInput?.value || "";
     const payload = {
       solve_file: sd.solve_file,
       astap_cli: astapCli,

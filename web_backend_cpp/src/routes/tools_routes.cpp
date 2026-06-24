@@ -173,6 +173,8 @@ std::string astap_cli_download_url() {
 #else
     return "https://sourceforge.net/projects/astap-program/files/macOS%20installer/astap_command-line_version_macOS_x86_64.zip/download";
 #endif
+#elif defined(_WIN32)
+    return "https://sourceforge.net/projects/astap-program/files/windows_installer/astap_command-line_version_Windows_x64.zip/download";
 #else
     return "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_command-line_version_Linux_amd64.zip/download";
 #endif
@@ -185,6 +187,11 @@ fs::path default_astap_data_dir() {
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "astap";
     }
+#ifdef _WIN32
+    if (const char* la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
+        return fs::path(la) / "tile_compile" / "astap";
+    }
+#endif
     return user_home_dir() / ".local" / "share" / "tile_compile" / "astap";
 }
 
@@ -195,6 +202,11 @@ fs::path default_siril_catalog_dir() {
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
     }
+#ifdef _WIN32
+    if (const char* la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
+        return fs::path(la) / "tile_compile" / "siril_cat1_healpix8_xpsamp";
+    }
+#endif
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";
 }
 

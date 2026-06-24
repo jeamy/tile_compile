@@ -49,11 +49,9 @@ export function createPccPage() {
       ),
     ),
     el("div", { class: "tc-mt-2" },
-      el("label", { class: "tc-label" }, t("ui.field.catalog_dir", "Catalog Dir")),
-      el("div", { class: "tc-flex tc-items-center tc-gap-2" },
-        el("input", { type: "text", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: getPccData().catalog_dir, id: "pcc-catalog-dir", oninput: (e) => setPccData({ catalog_dir: e.target.value }) }),
-        el("span", { class: "tc-badge", id: "pcc-catalog-badge", style: { flexShrink: "0", whiteSpace: "nowrap" } }, "…"),
-      ),
+      createPathInput({ label: t("ui.field.catalog_dir", "Catalog Dir"), mode: "dir", placeholder: "", value: getPccData().catalog_dir, onInput: (v) => { setPccData({ catalog_dir: v }); const inp = document.getElementById("pcc-catalog-dir"); if (inp) inp.value = v; } }),
+      el("input", { type: "hidden", id: "pcc-catalog-dir", value: getPccData().catalog_dir }),
+      el("span", { class: "tc-badge", id: "pcc-catalog-badge", style: { whiteSpace: "nowrap" } }, "…"),
     ),
     el("div", { class: "tc-flex tc-gap-3 tc-items-center tc-mt-2" },
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => checkSirilStatus() }, t("ui.button.check_catalog", "Check Catalog")),
@@ -107,12 +105,10 @@ export function createPccPage() {
 
 async function checkSirilStatus() {
   const badge = document.getElementById("pcc-catalog-badge");
-  const dirInput = document.getElementById("pcc-catalog-dir");
   try {
-    const dir = dirInput?.value || getPccData().catalog_dir || "";
+    const dir = getPccData().catalog_dir || "";
     const result = await api.get(API_ENDPOINTS.pcc.sirilStatus(dir));
-    if (result?.catalog_dir && dirInput && !dirInput.value) {
-      dirInput.value = result.catalog_dir;
+    if (result?.catalog_dir && !getPccData().catalog_dir) {
       setPccData({ catalog_dir: result.catalog_dir });
     }
     const installed = result?.installed || 0;

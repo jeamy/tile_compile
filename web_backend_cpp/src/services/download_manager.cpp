@@ -1,5 +1,8 @@
 #include "services/download_manager.hpp"
 #include <curl/curl.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <fstream>
 #include <algorithm>
 #include <chrono>
@@ -29,6 +32,35 @@ std::string find_ca_bundle() {
     };
     for (const char* p : candidates) {
         if (std::ifstream(p).good()) return p;
+    }
+#endif
+#ifdef _WIN32
+    // curl-ca-bundle.crt is shipped alongside the backend executable in the GUI installer.
+    // Also check common system and Git-for-Windows locations.
+    {
+        // Resolve directory of current executable via GetModuleFileNameA
+        char exe_path[MAX_PATH] = {0};
+        if (GetModuleFileNameA(nullptr, exe_path, MAX_PATH) > 0) {
+            std::string exe_dir(exe_path);
+            const auto slash = exe_dir.find_last_of("\\/");
+            if (slash != std::string::npos) exe_dir.resize(slash + 1);
+            const std::string next_to_exe = exe_dir + "curl-ca-bundle.crt";
+            if (std::ifstream(next_to_exe).good()) return next_to_exe;
+        }
+    }
+    // Git-for-Windows bundles a CA cert
+    if (const char* pf = std::getenv("ProgramFiles")) {
+        const std::string git_bundle = std::string(pf) + "\\Git\\mingw64\\ssl\\certs\\ca-bundle.crt";
+        if (std::ifstream(git_bundle).good()) return git_bundle;
+    }
+    if (const char* pf = std::getenv("ProgramFiles(x86)")) {
+        const std::string git_bundle = std::string(pf) + "\\Git\\mingw64\\ssl\\certs\\ca-bundle.crt";
+        if (std::ifstream(git_bundle).good()) return git_bundle;
+    }
+    // Mozilla bundle sometimes placed by curl-for-windows or MSYS2
+    if (const char* la = std::getenv("LOCALAPPDATA")) {
+        const std::string msys_bundle = std::string(la) + "\\Programs\\MSYS2\\mingw64\\ssl\\certs\\ca-bundle.crt";
+        if (std::ifstream(msys_bundle).good()) return msys_bundle;
     }
 #endif
     return {};
