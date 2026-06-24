@@ -21,7 +21,6 @@
 #include <chrono>
 #include <cctype>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -43,6 +42,7 @@ using tile_compile::TileMetrics;
 using tile_compile::TileType;
 using tile_compile::runner::WarpBounds;
 using tile_compile::runner::compute_warps_bounds;
+namespace runner = tile_compile::runner;
 
 /// @brief Implements shell quote.
 /// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
@@ -1575,45 +1575,39 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     std::string astap_data = cfg.astrometry.astap_data_dir;
     if (astap_data.empty()) {
+#ifdef _WIN32
+      if (const char *la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
+        astap_data = std::string(la) + "\\tile_compile\\astap";
+      }
+#else
       const char *home = std::getenv("HOME");
       if (home)
         astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+#endif
     }
-    std::string astap_bin = cfg.astrometry.astap_bin;
-    if (astap_bin.empty())
-      astap_bin = astap_data + "/astap_cli";
-    // Fallback: if configured/default path doesn't exist, try locating binary on PATH
-    if (!fs::exists(astap_bin)) {
-      for (const char* name : {"astap_cli", "astap"}) {
-        const std::string which_cmd = std::string("which ") + name + " 2>/dev/null";
-        if (FILE* fp = popen(which_cmd.c_str(), "r")) {
-          char buf[512] = {};
-          if (fgets(buf, sizeof(buf), fp)) {
-            std::string found(buf);
-            while (!found.empty() && (found.back() == '\n' || found.back() == '\r' || found.back() == ' '))
-              found.pop_back();
-            if (!found.empty() && fs::exists(found)) { astap_bin = found; pclose(fp); break; }
-          }
-          pclose(fp);
-        }
+    fs::path astap_bin_path = runner::resolve_astap_binary_path(cfg.astrometry.astap_bin, astap_data);
+    // If the resolved binary lives outside the configured data dir, use its parent as data dir
+    if (!astap_bin_path.empty()) {
+      std::error_code ec;
+      fs::path data_dir_path(astap_data);
+      auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
+      if (ec || relative.empty() || relative.begin() == relative.end() || *relative.begin() == "..") {
+        astap_data = astap_bin_path.parent_path().string();
       }
     }
-    // If astap_data dir from config doesn't exist, derive it from binary location
-    if (!fs::exists(astap_data) && fs::exists(astap_bin)) {
-      astap_data = fs::path(astap_bin).parent_path().string();
-    }
 
-    if (!fs::exists(astap_bin)) {
+    if (astap_bin_path.empty()) {
+      const std::string reported_bin = cfg.astrometry.astap_bin.empty() ? astap_data + "/astap_cli" : cfg.astrometry.astap_bin;
       emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
                         {{"reason", "astap_not_found"},
-                         {"astap_bin", astap_bin}},
+                         {"astap_bin", reported_bin}},
                         log_file);
       return;
     }
 
-    std::string cmd = shell_quote(astap_bin) + " -f " +
-                      shell_quote(rgb_path.string()) + " -d " +
-                      shell_quote(astap_data) + " -r " +
+    std::string cmd = runner::shell_quote(astap_bin_path.string()) + " -f " +
+                      runner::shell_quote(rgb_path.string()) + " -d " +
+                      runner::shell_quote(astap_data) + " -r " +
                       std::to_string(cfg.astrometry.search_radius);
 
     std::cout << "[ASTROMETRY][resume] Running: " << cmd << std::endl;

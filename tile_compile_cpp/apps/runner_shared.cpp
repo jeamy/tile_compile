@@ -7,11 +7,15 @@
 #include "tile_compile/registration/global_registration.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <thread>
 
@@ -1511,6 +1515,126 @@ int default_parallel_workers(size_t items, int requested_workers) {
   const int requested = requested_workers > 0 ? requested_workers : hardware_limit;
   const int limit = std::min(hardware_limit, requested);
   return std::max(1, std::min<int>(limit, static_cast<int>(std::max<size_t>(1, items))));
+}
+
+/// @brief Platform-aware shell quoting for external commands.
+std::string shell_quote(const std::string &s) {
+#ifdef _WIN32
+  std::string out;
+  out.reserve(s.size() + 2);
+  out.push_back('"');
+  for (char c : s) {
+    if (c == '"') out += "\\\"";
+    else out.push_back(c);
+  }
+  out.push_back('"');
+  return out;
+#else
+  std::string out;
+  out.reserve(s.size() + 2);
+  out.push_back('\'');
+  for (char c : s) {
+    if (c == '\'') out += "'\\''";
+    else out.push_back(c);
+  }
+  out.push_back('\'');
+  return out;
+#endif
+}
+
+namespace {
+
+bool astap_binary_exists(const fs::path &candidate) {
+  if (candidate.empty()) return false;
+  std::error_code ec;
+  if (fs::is_regular_file(candidate, ec)) return true;
+#ifdef _WIN32
+  // Also try the .exe extension on Windows
+  fs::path with_exe = candidate;
+  std::string ext = with_exe.extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (ext != ".exe") {
+    with_exe += ".exe";
+    if (fs::is_regular_file(with_exe, ec)) return true;
+  }
+#endif
+  return false;
+}
+
+std::optional<std::string> popen_first_line(const std::string &cmd) {
+  FILE *fp = popen(cmd.c_str(), "r");
+  if (!fp) return std::nullopt;
+  char buf[512] = {};
+  if (fgets(buf, sizeof(buf), fp)) {
+    std::string found(buf);
+    while (!found.empty() &&
+           (found.back() == '\n' || found.back() == '\r' || found.back() == ' '))
+      found.pop_back();
+    pclose(fp);
+    if (!found.empty()) return found;
+  } else {
+    pclose(fp);
+  }
+  return std::nullopt;
+}
+
+} // namespace
+
+/// @brief Resolve an ASTAP CLI binary path across platforms.
+/// @details Tries the configured path, the data directory, PATH lookup, and common
+/// install locations. On Windows, .exe extensions are handled automatically.
+fs::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
+                                    const std::string &astap_data_dir) {
+  // 1. Explicitly configured path
+  if (!astap_bin_cfg.empty()) {
+    fs::path explicit_path(astap_bin_cfg);
+    if (astap_binary_exists(explicit_path)) return explicit_path;
+  }
+
+  // 2. Inside the configured data directory
+  if (!astap_data_dir.empty()) {
+    fs::path data_dir_path(astap_data_dir);
+    for (const char *name : {"astap_cli", "astap"}) {
+      fs::path candidate = data_dir_path / name;
+      if (astap_binary_exists(candidate)) return candidate;
+    }
+  }
+
+  // 3. PATH lookup
+  for (const char *name : {"astap_cli", "astap"}) {
+#ifdef _WIN32
+    std::string cmd = std::string("where ") + name + " 2>nul";
+#else
+    std::string cmd = std::string("which ") + name + " 2>/dev/null";
+#endif
+    auto found = popen_first_line(cmd);
+    if (found && astap_binary_exists(*found)) return fs::path(*found);
+  }
+
+  // 4. Common Windows install locations
+#ifdef _WIN32
+  auto probe_common_dirs = [](const std::vector<fs::path> &roots) -> fs::path {
+    for (const auto &root : roots) {
+      if (root.empty()) continue;
+      for (const char *name : {"astap_cli.exe", "astap.exe"}) {
+        fs::path candidate = root / "astap" / name;
+        if (astap_binary_exists(candidate)) return candidate;
+        candidate = root / name;
+        if (astap_binary_exists(candidate)) return candidate;
+      }
+    }
+    return {};
+  };
+  std::vector<fs::path> roots;
+  if (const char *pf = std::getenv("ProgramFiles")) roots.emplace_back(pf);
+  if (const char *pf = std::getenv("ProgramFiles(x86)")) roots.emplace_back(pf);
+  if (const char *la = std::getenv("LOCALAPPDATA")) roots.emplace_back(la);
+  fs::path common = probe_common_dirs(roots);
+  if (!common.empty()) return common;
+#endif
+
+  return {};
 }
 
 } // namespace tile_compile::runner

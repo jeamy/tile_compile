@@ -332,7 +332,10 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     }
 
     PROCESS_INFORMATION pi{};
-    bool ok = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr,
+    // CreateProcessA may modify the command-line buffer, so provide a mutable copy.
+    std::vector<char> cmd_buf(cmd.begin(), cmd.end());
+    cmd_buf.push_back('\0');
+    bool ok = CreateProcessA(nullptr, cmd_buf.data(), nullptr, nullptr,
                              TRUE, 0, nullptr,
                              cwd_ptr,
                              &si, &pi);

@@ -92,7 +92,10 @@ async function detectAstap(cliInput, dbInput) {
   const cliBadge = document.getElementById("astap-cli-badge");
   const dbBadge = document.getElementById("astap-db-badge");
   try {
-    const result = await api.post(API_ENDPOINTS.astrometry.detect, {});
+    const detectPayload = {};
+    if (cliInput?.value) detectPayload.astap_cli = cliInput.value;
+    if (dbInput?.value) detectPayload.astap_data_dir = dbInput.value;
+    const result = await api.post(API_ENDPOINTS.astrometry.detect, detectPayload);
     if (result?.binary && cliInput) { cliInput.value = result.binary; store.setState({ astapCliPath: result.binary }); }
     if (result?.data_dir && dbInput) { dbInput.value = result.data_dir; store.setState({ astapDataDir: result.data_dir }); }
 

@@ -67,6 +67,13 @@ int compute_adaptive_worker_count(
 /// Determine default parallel workers for CPU bound tasks without memory capping.
 int default_parallel_workers(size_t items, int requested_workers = 0);
 
+/// Platform-aware shell quoting for external commands.
+std::string shell_quote(const std::string &s);
+
+/// Resolve an ASTAP CLI binary path across platforms.
+std::filesystem::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
+                                                const std::string &astap_data_dir);
+
 /// Simple parallel-for loop over indices [0, count).
 template <typename Fn>
 void parallel_for_indices(size_t count, int workers, Fn fn) {
