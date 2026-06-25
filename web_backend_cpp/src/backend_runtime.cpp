@@ -250,7 +250,7 @@ BackendRuntime BackendRuntime::from_env() {
     if (runs_dir_str.empty())
         rt.runs_dir = rt.project_root / "runs";
     else
-        rt.runs_dir = fs::path(runs_dir_str);
+        rt.runs_dir = weakly_normalize(fs::path(runs_dir_str));
 
     std::string config_str = env_string("TILE_COMPILE_CONFIG", "");
     if (config_str.empty())
@@ -423,7 +423,8 @@ fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::s
         if (fs::is_directory(alt_candidate)) return alt_candidate;
         std::error_code ec;
         if (fs::is_directory(alt_runs_dir, ec)) {
-            for (auto& entry : fs::directory_iterator(alt_runs_dir)) {
+            for (auto& entry : fs::directory_iterator(alt_runs_dir, ec)) {
+                if (ec) break;
                 if (!entry.is_directory()) continue;
                 std::string name = entry.path().filename().string();
                 if (name == run_id || name.find(run_id) == 0)
@@ -433,11 +434,15 @@ fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::s
     }
     fs::path candidate = runs_dir / run_id;
     if (fs::is_directory(candidate)) return candidate;
-    for (auto& entry : fs::directory_iterator(runs_dir)) {
-        if (!entry.is_directory()) continue;
-        std::string name = entry.path().filename().string();
-        if (name == run_id || name.find(run_id) == 0)
-            return entry.path();
+    std::error_code ec2;
+    if (fs::is_directory(runs_dir, ec2)) {
+        for (auto& entry : fs::directory_iterator(runs_dir, ec2)) {
+            if (ec2) break;
+            if (!entry.is_directory()) continue;
+            std::string name = entry.path().filename().string();
+            if (name == run_id || name.find(run_id) == 0)
+                return entry.path();
+        }
     }
     throw std::runtime_error("run_dir not found for run_id: " + run_id);
 }
