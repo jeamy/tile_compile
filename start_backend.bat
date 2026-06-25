@@ -52,6 +52,8 @@ set "CMAKE_EXTRA_ARGS="
 rem --- Auto-detect vcpkg or MSYS2 for Windows dependency resolution ---
 set "CMAKE_TOOLCHAIN_FILE="
 set "CMAKE_PREFIX_PATH_ARG="
+set "CMAKE_GENERATOR_ARG="
+set "CMAKE_COMPILER_ARG="
 
 if defined VCPKG_ROOT (
   if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
@@ -61,21 +63,28 @@ if defined VCPKG_ROOT (
 )
 if not defined CMAKE_TOOLCHAIN_FILE (
   if exist "C:\msys64\mingw64" (
-    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/mingw64"
-    echo [backend] Using MSYS2 MinGW64: C:\msys64\mingw64
+    set "MSYS2_PREFIX=C:/msys64/mingw64"
+    echo [backend] Using MSYS2 MinGW64: !MSYS2_PREFIX!
   ) else if exist "C:\msys64\ucrt64" (
-    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/ucrt64"
-    echo [backend] Using MSYS2 UCRT64: C:\msys64\ucrt64
+    set "MSYS2_PREFIX=C:/msys64/ucrt64"
+    echo [backend] Using MSYS2 UCRT64: !MSYS2_PREFIX!
   ) else if exist "C:\msys64\clang64" (
-    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/clang64"
-    echo [backend] Using MSYS2 Clang64: C:\msys64\clang64
+    set "MSYS2_PREFIX=C:/msys64/clang64"
+    echo [backend] Using MSYS2 Clang64: !MSYS2_PREFIX!
+  )
+  if defined MSYS2_PREFIX (
+    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=!MSYS2_PREFIX!"
+    set "CMAKE_GENERATOR_ARG=-G "MinGW Makefiles""
+    set "CMAKE_COMPILER_ARG=-DCMAKE_C_COMPILER=!MSYS2_PREFIX!/bin/gcc.exe -DCMAKE_CXX_COMPILER=!MSYS2_PREFIX!/bin/g++.exe"
   )
 )
 
 if defined CMAKE_TOOLCHAIN_FILE (
   set "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE="!CMAKE_TOOLCHAIN_FILE!""
 )
-if defined CMAKE_PREFIX_PATH_ARG (
+if defined CMAKE_GENERATOR_ARG (
+  set "CMAKE_EXTRA_ARGS=!CMAKE_EXTRA_ARGS! !CMAKE_GENERATOR_ARG! !CMAKE_COMPILER_ARG! !CMAKE_PREFIX_PATH_ARG!"
+) else if defined CMAKE_PREFIX_PATH_ARG (
   set "CMAKE_EXTRA_ARGS=!CMAKE_EXTRA_ARGS! !CMAKE_PREFIX_PATH_ARG!"
 )
 
@@ -91,7 +100,7 @@ if /i "%~1"=="--build-type" ( set "BUILD_TYPE=%~2" & shift & shift & goto parse_
 if /i "%~1"=="--runs-dir" ( set "TILE_COMPILE_RUNS_DIR=%~2" & shift & shift & goto parse_args )
 if /i "%~1"=="--no-build" ( set "DO_BUILD=0" & shift & goto parse_args )
 if /i "%~1"=="--vcpkg-root" ( set "VCPKG_ROOT=%~2" & shift & shift & goto parse_args )
-if /i "%~1"=="--msys2-prefix" ( set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=%~2" & set "CMAKE_TOOLCHAIN_FILE=" & shift & shift & goto parse_args )
+if /i "%~1"=="--msys2-prefix" ( set "MSYS2_PREFIX=%~2" & set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=%~2" & set "CMAKE_GENERATOR_ARG=-G "MinGW Makefiles"" & set "CMAKE_COMPILER_ARG=-DCMAKE_C_COMPILER=%~2/bin/gcc.exe -DCMAKE_CXX_COMPILER=%~2/bin/g++.exe" & set "CMAKE_TOOLCHAIN_FILE=" & shift & shift & goto parse_args )
 if /i "%~1"=="-h" ( call :usage & exit /b 0 )
 if /i "%~1"=="--help" ( call :usage & exit /b 0 )
 echo [backend] Unknown argument: %~1

@@ -465,6 +465,29 @@ Docker-relevant settings in `.env`:
 
 CLI arguments (`--input-dir`, `--runs-dir`, etc.) override `.env` values.
 
+#### Docker Compose (alternative)
+
+Instead of the start scripts, you can use `docker compose`:
+
+```bash
+# Run from project root – --env-file is required for volume interpolation
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml logs -f
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml down
+```
+
+`--env-file .env` enables variable interpolation (`INPUT_DIR`, `RUNS_DIR`, `HOST_PORT`) from the root `.env`.
+The `env_file` directive in the compose file additionally injects API keys into the container.
+
+#### GUI paths inside the container
+
+| GUI field | Container path | Source |
+|-----------|----------------|--------|
+| Input directory | `/data/input` | Mount of `INPUT_DIR` (host) |
+| Runs directory | `/data/runs` | Auto-filled from backend env (`TILE_COMPILE_RUNS_DIR`) |
+
+The runs directory is auto-populated in the GUI. The input directory must be entered manually (`/data/input`).
+
 #### Container architecture
 
 ```

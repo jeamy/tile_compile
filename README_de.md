@@ -475,6 +475,29 @@ Docker-relevanten Einstellungen in `.env`:
 
 CLI-Argumente (`--input-dir`, `--runs-dir` etc.) überschreiben `.env`-Werte.
 
+#### Docker Compose (Alternative)
+
+Statt der Start-Skripte kann auch `docker compose` verwendet werden:
+
+```bash
+# Aus dem Projektverzeichnis – --env-file ist erforderlich für Volume-Interpolation
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml logs -f
+docker compose --env-file .env -f docker/ubuntu24.04/docker-compose.yml down
+```
+
+`--env-file .env` aktiviert die Variablen-Interpolation (`INPUT_DIR`, `RUNS_DIR`, `HOST_PORT`) aus der Root-`.env`.
+Die `env_file`-Direktive in der compose-Datei injiziert zusätzlich API-Keys in den Container.
+
+#### GUI-Pfade im Container
+
+| GUI-Feld | Container-Pfad | Quelle |
+|----------|----------------|--------|
+| Eingabeverzeichnis | `/data/input` | Mount von `INPUT_DIR` (Host) |
+| Runs-Verzeichnis | `/data/runs` | Auto-Ausfüllung via Backend-Env (`TILE_COMPILE_RUNS_DIR`) |
+
+Das Runs-Verzeichnis wird in der GUI automatisch gesetzt. Das Eingabeverzeichnis muss manuell eingegeben werden (`/data/input`).
+
 #### Container-Architektur
 
 ```
