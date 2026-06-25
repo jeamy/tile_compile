@@ -239,7 +239,7 @@ pcc:
   annulus_inner_fwhm_mult: 3
   annulus_outer_fwhm_mult: 5
   min_aperture_px: 4
-  siril_catalog_dir: /media/data/Astro/siril_catalog
+  siril_catalog_dir: ""
   apply_attenuation: true
   chroma_strength: 0.7
   k_max: 2.4

@@ -295,6 +295,12 @@ static std::string apply_color_mode_to_yaml(const std::string& base_yaml, const 
     }
 }
 
+static std::string normalize_path_separators(const std::string& p) {
+    std::string out = p;
+    std::replace(out.begin(), out.end(), '\\', '/');
+    return out;
+}
+
 static std::string apply_astrometry_paths_to_yaml(const std::string& base_yaml, 
                                                    const std::string& astap_bin,
                                                    const std::string& astap_data_dir) {
@@ -302,8 +308,8 @@ static std::string apply_astrometry_paths_to_yaml(const std::string& base_yaml,
     try {
         YAML::Node root = YAML::Load(base_yaml);
         if (!root["astrometry"] || !root["astrometry"].IsMap()) root["astrometry"] = YAML::Node(YAML::NodeType::Map);
-        if (!astap_bin.empty()) root["astrometry"]["astap_bin"] = astap_bin;
-        if (!astap_data_dir.empty()) root["astrometry"]["astap_data_dir"] = astap_data_dir;
+        if (!astap_bin.empty()) root["astrometry"]["astap_bin"] = normalize_path_separators(astap_bin);
+        if (!astap_data_dir.empty()) root["astrometry"]["astap_data_dir"] = normalize_path_separators(astap_data_dir);
         std::ostringstream oss;
         oss << root;
         return oss.str();

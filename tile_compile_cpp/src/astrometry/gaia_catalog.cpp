@@ -171,6 +171,8 @@ static std::vector<int> query_disc_nested(int order, double theta_center,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 std::string default_siril_gaia_catalog_dir() {
+    const char *env_dir = std::getenv("TILE_COMPILE_SIRIL_CATALOG_DIR");
+    if (env_dir && env_dir[0] != '\0') return std::string(env_dir);
     const char *home = std::getenv("HOME");
     if (!home) return "";
     return std::string(home) + "/.local/share/siril/siril_cat1_healpix8_xpsamp";
