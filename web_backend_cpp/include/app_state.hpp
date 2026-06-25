@@ -21,6 +21,7 @@ struct AppState {
 
     mutable std::mutex state_mutex;
     std::string current_run_id;
+    std::string current_run_dir;  // absolute path, if known (e.g. network drive / non-default runs_dir)
     std::string active_config_revision_id;
     std::string last_scan_input_path;
     nlohmann::json ui_state = nlohmann::json::object();

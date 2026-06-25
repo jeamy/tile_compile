@@ -417,6 +417,15 @@ bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& r
 /// access, process handling, and error reporting localized to this backend component.
 fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::string& alt_runs_dir) const {
     if (run_id.empty()) throw std::invalid_argument("run_id is empty");
+    // If run_id is already an absolute path to an existing directory, return it directly.
+    // This handles custom runs_dir / network drives where the frontend passes the full path.
+    {
+        fs::path as_path(run_id);
+        if (as_path.is_absolute()) {
+            std::error_code ec;
+            if (fs::is_directory(as_path, ec) && !ec) return as_path;
+        }
+    }
     // Try alt_runs_dir first if provided (e.g. from job data for custom runs_dir)
     if (!alt_runs_dir.empty()) {
         fs::path alt_candidate = fs::path(alt_runs_dir) / run_id;

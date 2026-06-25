@@ -136,6 +136,9 @@ export function createRunMonitorPage() {
 let pollTimer = null;
 let resumePendingTimer = null;
 
+// Returns the most specific run key for API calls: full path if known, else run_id.
+// This allows the backend to locate runs on network drives or non-default runs_dir.
+function getRunApiKey() { const { currentRunDir, currentRunId } = getRunState(); return currentRunDir || currentRunId || ""; }
 function getResumePending() { return getRunState().resumePending || false; }
 function setResumePending(v) { setRunState({ resumePending: v }); }
 function getResumeActive() { return getRunState().resumeActive || false; }
@@ -526,7 +529,7 @@ async function loadRunConfig(phase) {
   const { currentRunId } = getRunState();
   if (!currentRunId) return;
   try {
-    const resp = await api.get(API_ENDPOINTS.runs.config(currentRunId));
+    const resp = await api.get(API_ENDPOINTS.runs.config(getRunApiKey()));
     const yaml = resp?.config_yaml || resp?.config || "";
     const editor = document.getElementById("resume-config-yaml");
     if (editor) editor.value = yaml;
@@ -542,7 +545,7 @@ async function loadCurrentConfig() {
   const { currentRunId } = getRunState();
   if (!currentRunId) return;
   try {
-    const resp = await api.get(API_ENDPOINTS.runs.config(currentRunId));
+    const resp = await api.get(API_ENDPOINTS.runs.config(getRunApiKey()));
     const yaml = resp?.config_yaml || resp?.config || "";
     const editor = document.getElementById("resume-config-yaml");
     if (editor) editor.value = yaml;
@@ -556,7 +559,7 @@ async function loadConfigRevisions() {
   const { currentRunId } = getRunState();
   if (!currentRunId) return;
   try {
-    const resp = await api.get(API_ENDPOINTS.runs.configRevisions(currentRunId));
+    const resp = await api.get(API_ENDPOINTS.runs.configRevisions(getRunApiKey()));
     const select = document.getElementById("resume-config-revision");
     if (!select) return;
     select.innerHTML = "";
@@ -581,7 +584,7 @@ async function loadRevisionIntoEditor() {
     return;
   }
   try {
-    const resp = await api.get(API_ENDPOINTS.runs.configRevision(currentRunId, revId));
+    const resp = await api.get(API_ENDPOINTS.runs.configRevision(getRunApiKey(), revId));
     const yaml = resp?.config || "";
     const editor = document.getElementById("resume-config-yaml");
     if (editor) editor.value = yaml;

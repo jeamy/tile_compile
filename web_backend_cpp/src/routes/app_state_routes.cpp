@@ -64,6 +64,7 @@ void register_app_state_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/app/state").methods("GET"_method)
     ([state](const crow::request&) {
         std::string current_run_id;
+        std::string current_run_dir_hint;
         std::string active_config_revision_id;
         std::string last_scan_input_path;
         nlohmann::json ui_state = nlohmann::json::object();
@@ -72,7 +73,8 @@ void register_app_state_routes(CrowApp& app,
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             load_ui_state_unlocked(state);
-            current_run_id = state->current_run_id;
+            current_run_id       = state->current_run_id;
+            current_run_dir_hint = state->current_run_dir;
             active_config_revision_id = state->active_config_revision_id;
             last_scan_input_path = state->last_scan_input_path;
             ui_state = state->ui_state;
@@ -85,8 +87,8 @@ void register_app_state_routes(CrowApp& app,
         nlohmann::json current_run = nlohmann::json::object();
         if (!current_run_id.empty()) {
             const auto job = latest_run_job(state->job_store, current_run_id);
-            std::string alt_runs_dir;
-            if (job && job->data.is_object()) {
+            std::string alt_runs_dir = current_run_dir_hint;
+            if (alt_runs_dir.empty() && job && job->data.is_object()) {
                 alt_runs_dir = job->data.value("runs_dir", "");
             }
             try {

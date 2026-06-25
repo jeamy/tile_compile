@@ -1253,11 +1253,20 @@ void register_runs_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/set-current").methods("POST"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
+        std::string run_dir_hint;
+        if (auto body_opt = tile_compile::routes::parse_body(req))
+            run_dir_hint = body_opt->value("run_dir", "");
+        // If run_id itself looks like an absolute path, use it as the dir hint
+        if (run_dir_hint.empty()) {
+            fs::path as_path(run_id);
+            if (as_path.is_absolute()) run_dir_hint = run_id;
+        }
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
-            state->current_run_id = run_id;
+            state->current_run_id  = run_id;
+            state->current_run_dir = run_dir_hint;
         }
         state->ui_event_store.push("run.set_current", "runs.run_set_current", {{"run_id", run_id}}, run_id);
         return json_resp({{"ok", true}, {"run_id", run_id}});

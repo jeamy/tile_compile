@@ -215,7 +215,9 @@ async function viewArtifact(runId, path) {
 
 async function setRunCurrent(runId) {
   try {
-    await api.post(API_ENDPOINTS.runs.setCurrent(runId), {});
+    const cached = getRunsCache().find(r => (r.run_id || r.id) === runId);
+    const runDir = cached?.path || cached?.run_dir || "";
+    await api.post(API_ENDPOINTS.runs.setCurrent(runId), runDir ? { run_dir: runDir } : {});
     toastSuccess(t("ui.toast.set_current", "Als aktuell gesetzt"));
     const ui = getUiState();
     setUiState({ activeTab: "processing", activeSubTab: { ...ui.activeSubTab, processing: "run-monitor" } });
