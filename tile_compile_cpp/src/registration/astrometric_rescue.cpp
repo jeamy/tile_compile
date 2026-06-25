@@ -78,7 +78,7 @@ static std::string shell_quote(const std::string& s) {
   out.reserve(s.size() + 2);
   out.push_back('"');
   for (char c : s) {
-    if (c == '"') out += "\\"";
+    if (c == '"') { out += '\\'; out += '"'; }
     else out.push_back(c);
   }
   out.push_back('"');
