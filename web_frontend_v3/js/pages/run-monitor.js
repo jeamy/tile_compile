@@ -777,13 +777,15 @@ function clearRunWarnings() {
 function injectCalibrationIntoYaml(yaml, cal) {
   if (!yaml || !cal) return yaml;
 
+  const normPath = (p) => (p || "").replace(/\\/g, '/');
+
   // Determine effective values: prefer master over dir when both set
-  const biasMaster = cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "";
-  const biasDir = biasMaster ? "" : (cal.bias_dir || "");
-  const darkMaster = cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "";
-  const darkDir = darkMaster ? "" : (cal.dark_dir || "");
-  const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
-  const flatDir = flatMaster ? "" : (cal.flat_dir || "");
+  const biasMaster = normPath(cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "");
+  const biasDir = biasMaster ? "" : normPath(cal.bias_dir || "");
+  const darkMaster = normPath(cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "");
+  const darkDir = darkMaster ? "" : normPath(cal.dark_dir || "");
+  const flatMaster = normPath(cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "");
+  const flatDir = flatMaster ? "" : normPath(cal.flat_dir || "");
 
   const entries = [
     ["use_bias", cal.bias_enabled ? "true" : "false"],
