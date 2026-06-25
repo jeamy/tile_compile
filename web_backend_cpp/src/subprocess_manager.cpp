@@ -1,5 +1,6 @@
 #include "subprocess_manager.hpp"
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 #include <array>
 #include <stdexcept>

@@ -1,22 +1,31 @@
 #include "backend_test_harness.hpp"
 
 #include <curl/curl.h>
-#include <arpa/inet.h>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
-#include <netinet/in.h>
 #include <sstream>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <cstdio>
 #include <thread>
-#include <unistd.h>
+
+#ifdef _WIN32
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  include <windows.h>
+#  include <io.h>
+#  pragma comment(lib, "ws2_32.lib")
+#else
+#  include <arpa/inet.h>
+#  include <netinet/in.h>
+#  include <sys/socket.h>
+#  include <sys/types.h>
+#  include <sys/wait.h>
+#  include <fcntl.h>
+#  include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 

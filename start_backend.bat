@@ -131,7 +131,7 @@ if "%DO_BUILD%"=="1" (
   )
 
   echo [backend] Configuring C++ backend in %BUILD_DIR%
-  cmake -S "%PROJECT_ROOT%\web_backend_cpp" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% !CMAKE_EXTRA_ARGS!
+  cmake -S "%PROJECT_ROOT%\web_backend_cpp" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF !CMAKE_EXTRA_ARGS!
   if errorlevel 1 (
     echo [backend] ERROR: Backend cmake configure failed.
     exit /b 1

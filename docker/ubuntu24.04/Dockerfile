@@ -97,6 +97,7 @@ ENV TILE_COMPILE_RUNNER=/opt/tile_compile/tile_compile_cpp/build/tile_compile_ru
 ENV TILE_COMPILE_HOST=0.0.0.0
 ENV TILE_COMPILE_PORT=8080
 ENV TILE_COMPILE_RUNS_DIR=/data/runs
+ENV TILE_COMPILE_INPUT_DIR=/data/input
 ENV TILE_COMPILE_CONFIG=/opt/tile_compile/tile_compile_cpp/tile_compile.yaml
 ENV TILE_COMPILE_SCHEMA=/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml
 ENV TILE_COMPILE_PRESETS_DIR=/opt/tile_compile/tile_compile_cpp/examples

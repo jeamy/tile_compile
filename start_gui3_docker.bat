@@ -95,6 +95,7 @@ docker run -d ^
   -e TILE_COMPILE_PORT="8080" ^
   -e TILE_COMPILE_ALLOWED_ROOTS="%ALLOWED_ROOTS%" ^
   -e TILE_COMPILE_RUNS_DIR="/data/runs" ^
+  -e TILE_COMPILE_INPUT_DIR="/data/input" ^
   -e TILE_COMPILE_UI_DIR="/opt/tile_compile/web_frontend_v3" ^
   -e TILE_COMPILE_CONFIG="/opt/tile_compile/tile_compile_cpp/tile_compile.yaml" ^
   -e TILE_COMPILE_SCHEMA="/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml" ^

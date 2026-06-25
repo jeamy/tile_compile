@@ -32,6 +32,7 @@ services:
       TILE_COMPILE_PORT: 8080
       TILE_COMPILE_ALLOWED_ROOTS: /opt/tile_compile:/data/input:/data/runs:/tmp
       TILE_COMPILE_RUNS_DIR: /data/runs
+      TILE_COMPILE_INPUT_DIR: /data/input
       TILE_COMPILE_UI_DIR: /opt/tile_compile/web_frontend_v3
       TILE_COMPILE_CONFIG: /opt/tile_compile/tile_compile_cpp/tile_compile.yaml
       TILE_COMPILE_SCHEMA: /opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml

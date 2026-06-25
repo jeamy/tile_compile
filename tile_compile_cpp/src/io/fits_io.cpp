@@ -632,7 +632,7 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
         throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
     
-    long naxes[2] = {data.cols(), data.rows()};
+    long naxes[2] = {static_cast<long>(data.cols()), static_cast<long>(data.rows())};
     
     fits_create_img(fptr, FLOAT_IMG, 2, naxes, &status);
     if (status) {
@@ -691,7 +691,7 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     }
     
     // Create 3D image cube: NAXIS1=width, NAXIS2=height, NAXIS3=3 (RGB planes)
-    long naxes[3] = {R.cols(), R.rows(), 3};
+    long naxes[3] = {static_cast<long>(R.cols()), static_cast<long>(R.rows()), 3};
     
     fits_create_img(fptr, FLOAT_IMG, 3, naxes, &status);
     if (status) {

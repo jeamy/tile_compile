@@ -299,13 +299,18 @@ BackendRuntime BackendRuntime::from_env() {
 #else
              fs::path(std::getenv("HOME") ? std::getenv("HOME") : ""),
              fs::path("/tmp"),
-             fs::path("/media"),
 #endif
          }) {
         if (!root.empty()) {
             const std::string normalized = rt.normalize_path(root).string();
             if (!normalized.empty()) rt._allowed_roots.insert(normalized);
         }
+    }
+
+    std::string input_dir_str = env_string("TILE_COMPILE_INPUT_DIR", "");
+    if (!input_dir_str.empty()) {
+        const std::string normalized = rt.normalize_path(fs::path(input_dir_str)).string();
+        if (!normalized.empty()) rt._allowed_roots.insert(normalized);
     }
 
 #ifdef _WIN32
