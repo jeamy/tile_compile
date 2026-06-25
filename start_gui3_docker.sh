@@ -4,14 +4,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
-IMAGE_TAG="${IMAGE_TAG:-tile-compile-web-backend:ubuntu20.04}"
+IMAGE_TAG="${IMAGE_TAG:-tile-compile-web-backend:ubuntu24.04}"
 CONTAINER_NAME="${CONTAINER_NAME:-tile-compile-web-backend}"
 HOST_PORT="${HOST_PORT:-8080}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_ROOT}/tmp/docker-input}"
 RUNS_DIR="${RUNS_DIR:-${PROJECT_ROOT}/tmp/docker-runs}"
 EXTRA_ALLOWED_ROOTS="${EXTRA_ALLOWED_ROOTS:-}"
-ENV_FILE="${ENV_FILE:-${PROJECT_ROOT}/.env}"
+ENV_FILE="${ENV_FILE:-}"
 NO_AGENT="${NO_AGENT:-0}"
+
+# Resolve .env: explicit --env-file > root .env > agent_service .env
+if [[ -z "${ENV_FILE}" ]]; then
+  if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+    ENV_FILE="${PROJECT_ROOT}/.env"
+  elif [[ -f "${PROJECT_ROOT}/agent_service/.env" ]]; then
+    ENV_FILE="${PROJECT_ROOT}/agent_service/.env"
+  else
+    ENV_FILE="${PROJECT_ROOT}/.env"
+  fi
+fi
+AGENT_ENV_FILE="${PROJECT_ROOT}/agent_service/.env"
 
 usage() {
   cat <<EOF
@@ -56,7 +68,7 @@ mkdir -p "${INPUT_DIR}" "${RUNS_DIR}"
 
 if [[ "${DO_BUILD}" == "1" ]]; then
   echo "[docker] Building ${IMAGE_TAG}"
-  docker build -t "${IMAGE_TAG}" -f "${PROJECT_ROOT}/docker/ubuntu20.04/Dockerfile" "${PROJECT_ROOT}"
+  docker build -t "${IMAGE_TAG}" -f "${PROJECT_ROOT}/docker/ubuntu24.04/Dockerfile" "${PROJECT_ROOT}"
 fi
 
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
@@ -76,11 +88,17 @@ fi
 ENV_FILE_FLAGS=()
 if [[ -f "${ENV_FILE}" ]]; then
   echo "[docker] Mounting .env from ${ENV_FILE}"
-  ENV_FILE_FLAGS=(
+  ENV_FILE_FLAGS+=(
     -v "${ENV_FILE}:/opt/tile_compile/.env:ro"
   )
 else
   echo "[docker] WARNING: .env not found at ${ENV_FILE} – sidecar will run without API keys"
+fi
+if [[ -f "${AGENT_ENV_FILE}" && "${AGENT_ENV_FILE}" != "${ENV_FILE}" ]]; then
+  echo "[docker] Mounting agent_service/.env from ${AGENT_ENV_FILE}"
+  ENV_FILE_FLAGS+=(
+    -v "${AGENT_ENV_FILE}:/opt/tile_compile/agent_service/.env:ro"
+  )
 fi
 
 AGENT_FLAGS=()

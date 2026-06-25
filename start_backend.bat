@@ -47,6 +47,37 @@ if not defined HOST set "HOST=127.0.0.1"
 if not defined PORT set "PORT=8080"
 
 set "DO_BUILD=1"
+set "CMAKE_EXTRA_ARGS="
+
+rem --- Auto-detect vcpkg or MSYS2 for Windows dependency resolution ---
+set "CMAKE_TOOLCHAIN_FILE="
+set "CMAKE_PREFIX_PATH_ARG="
+
+if defined VCPKG_ROOT (
+  if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
+    set "CMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+    echo [backend] Using vcpkg toolchain: !CMAKE_TOOLCHAIN_FILE!
+  )
+)
+if not defined CMAKE_TOOLCHAIN_FILE (
+  if exist "C:\msys64\mingw64" (
+    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/mingw64"
+    echo [backend] Using MSYS2 MinGW64: C:\msys64\mingw64
+  ) else if exist "C:\msys64\ucrt64" (
+    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/ucrt64"
+    echo [backend] Using MSYS2 UCRT64: C:\msys64\ucrt64
+  ) else if exist "C:\msys64\clang64" (
+    set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=C:/msys64/clang64"
+    echo [backend] Using MSYS2 Clang64: C:\msys64\clang64
+  )
+)
+
+if defined CMAKE_TOOLCHAIN_FILE (
+  set "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE="!CMAKE_TOOLCHAIN_FILE!""
+)
+if defined CMAKE_PREFIX_PATH_ARG (
+  set "CMAKE_EXTRA_ARGS=!CMAKE_EXTRA_ARGS! !CMAKE_PREFIX_PATH_ARG!"
+)
 
 rem --- Parse command-line args ---
 :parse_args
@@ -59,6 +90,8 @@ if /i "%~1"=="--backend-bin" ( set "BACKEND_BIN=%~2" & shift & shift & goto pars
 if /i "%~1"=="--build-type" ( set "BUILD_TYPE=%~2" & shift & shift & goto parse_args )
 if /i "%~1"=="--runs-dir" ( set "TILE_COMPILE_RUNS_DIR=%~2" & shift & shift & goto parse_args )
 if /i "%~1"=="--no-build" ( set "DO_BUILD=0" & shift & goto parse_args )
+if /i "%~1"=="--vcpkg-root" ( set "VCPKG_ROOT=%~2" & shift & shift & goto parse_args )
+if /i "%~1"=="--msys2-prefix" ( set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=%~2" & set "CMAKE_TOOLCHAIN_FILE=" & shift & shift & goto parse_args )
 if /i "%~1"=="-h" ( call :usage & exit /b 0 )
 if /i "%~1"=="--help" ( call :usage & exit /b 0 )
 echo [backend] Unknown argument: %~1
@@ -74,7 +107,7 @@ if "%DO_BUILD%"=="1" (
   if not exist "%CPP_BUILD_DIR%" mkdir "%CPP_BUILD_DIR%"
 
   echo [backend] Configuring C++ core in %CPP_BUILD_DIR%
-  cmake -S "%PROJECT_ROOT%\tile_compile_cpp" -B "%CPP_BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE%
+  cmake -S "%PROJECT_ROOT%\tile_compile_cpp" -B "%CPP_BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% !CMAKE_EXTRA_ARGS!
   if errorlevel 1 (
     echo [backend] ERROR: C++ core cmake configure failed.
     exit /b 1
@@ -87,7 +120,7 @@ if "%DO_BUILD%"=="1" (
   )
 
   echo [backend] Configuring C++ backend in %BUILD_DIR%
-  cmake -S "%PROJECT_ROOT%\web_backend_cpp" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE%
+  cmake -S "%PROJECT_ROOT%\web_backend_cpp" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% !CMAKE_EXTRA_ARGS!
   if errorlevel 1 (
     echo [backend] ERROR: Backend cmake configure failed.
     exit /b 1
@@ -186,6 +219,8 @@ echo   --backend-bin ^<path^>  Backend binary path (default: %BACKEND_BIN%)
 echo   --build-type ^<type^>   CMake build type (default: %BUILD_TYPE%)
 echo   --runs-dir ^<path^>     Runs directory (default: %TILE_COMPILE_RUNS_DIR%)
 echo   --no-build            Skip cmake configure/build step
+echo   --vcpkg-root ^<path^>   Override VCPKG_ROOT for dependency resolution
+echo   --msys2-prefix ^<p^>   Override MSYS2 prefix (e.g. C:/msys64/ucrt64)
 echo   -h, --help            Show this help
 echo.
 echo Env overrides:

@@ -25,7 +25,7 @@ elif ! command -v node >/dev/null 2>&1; then
   echo "[entrypoint] WARNING: node not found; PI AI sidecar will not be started."
 else
   echo "[entrypoint] Starting PI AI sidecar from ${AGENT_SERVICE_DIR}"
-  node "${AGENT_SERVICE_DIR}/dist/server.js" &
+  (cd "${AGENT_SERVICE_DIR}" && node "${AGENT_SERVICE_DIR}/dist/server.js") &
   SIDECAR_PID=$!
   echo "[entrypoint] PI AI sidecar pid=${SIDECAR_PID}"
   # Give sidecar a moment to bind

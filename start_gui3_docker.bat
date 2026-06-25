@@ -10,14 +10,22 @@ set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_ROOT=%SCRIPT_DIR%"
 
-set "IMAGE_TAG=tile-compile-web-backend:ubuntu20.04"
+set "IMAGE_TAG=tile-compile-web-backend:ubuntu24.04"
 set "CONTAINER_NAME=tile-compile-web-backend"
 set "HOST_PORT=8080"
 set "INPUT_DIR=%PROJECT_ROOT%\tmp\docker-input"
 set "RUNS_DIR=%PROJECT_ROOT%\tmp\docker-runs"
 set "ENV_FILE=%PROJECT_ROOT%\.env"
+set "AGENT_ENV_FILE=%PROJECT_ROOT%\agent_service\.env"
 set "NO_AGENT=0"
 set "DO_BUILD=1"
+
+rem Resolve .env: check root first, then agent_service
+if not exist "%ENV_FILE%" (
+  if exist "%AGENT_ENV_FILE%" (
+    set "ENV_FILE=%AGENT_ENV_FILE%"
+  )
+)
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -41,7 +49,7 @@ if not exist "%RUNS_DIR%" mkdir "%RUNS_DIR%"
 
 if "%DO_BUILD%"=="1" (
   echo [docker] Building %IMAGE_TAG%
-  docker build -t "%IMAGE_TAG%" -f "%PROJECT_ROOT%\docker\ubuntu20.04\Dockerfile" "%PROJECT_ROOT%"
+  docker build -t "%IMAGE_TAG%" -f "%PROJECT_ROOT%\docker\ubuntu24.04\Dockerfile" "%PROJECT_ROOT%"
   if errorlevel 1 (
     echo [docker] ERROR: Docker build failed.
     exit /b 1
@@ -59,12 +67,17 @@ set "MOUNT_EXTRA="
 set "ENV_FILE_FLAGS="
 set "AGENT_FLAGS="
 
-rem Check for .env file
+rem Check for .env file(s)
+set "ENV_FILE_FLAGS="
 if exist "%ENV_FILE%" (
   echo [docker] Mounting .env from %ENV_FILE%
   set "ENV_FILE_FLAGS=-v "%ENV_FILE%:/opt/tile_compile/.env:ro""
 ) else (
   echo [docker] WARNING: .env not found at %ENV_FILE% - sidecar will run without API keys
+)
+if exist "%AGENT_ENV_FILE%" if not "%AGENT_ENV_FILE%"=="%ENV_FILE%" (
+  echo [docker] Mounting agent_service/.env from %AGENT_ENV_FILE%
+  set "ENV_FILE_FLAGS=!ENV_FILE_FLAGS! -v "%AGENT_ENV_FILE%:/opt/tile_compile/agent_service/.env:ro""
 )
 
 if "%NO_AGENT%"=="1" (

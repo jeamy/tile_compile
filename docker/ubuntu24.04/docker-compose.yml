@@ -1,0 +1,44 @@
+# docker-compose.yml for tile_compile web backend (ubuntu24.04)
+#
+# Usage:
+#   docker compose -f docker/ubuntu24.04/docker-compose.yml up -d --build
+#   docker compose -f docker/ubuntu24.04/docker-compose.yml logs -f
+#   docker compose -f docker/ubuntu24.04/docker-compose.yml down
+#
+# .env resolution:
+#   Both project-root .env and agent_service/.env are loaded via env_file.
+#   API keys from either file are injected into the container environment.
+#   The sidecar's dotenv loader (override:false) picks them up automatically.
+#   If neither file exists, the sidecar runs without API keys (graceful degradation).
+
+services:
+  tile-compile-web-backend:
+    image: tile-compile-web-backend:ubuntu24.04
+    build:
+      context: ../..
+      dockerfile: docker/ubuntu24.04/Dockerfile
+    container_name: tile-compile-web-backend
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - "${INPUT_DIR:-./tmp/docker-input}:/data/input"
+      - "${RUNS_DIR:-./tmp/docker-runs}:/data/runs"
+    env_file:
+      - path: ../../.env
+        required: false
+      - path: ../../agent_service/.env
+        required: false
+    environment:
+      TILE_COMPILE_PROJECT_ROOT: /opt/tile_compile
+      TILE_COMPILE_HOST: 0.0.0.0
+      TILE_COMPILE_PORT: 8080
+      TILE_COMPILE_ALLOWED_ROOTS: /opt/tile_compile:/data/input:/data/runs:/tmp
+      TILE_COMPILE_RUNS_DIR: /data/runs
+      TILE_COMPILE_UI_DIR: /opt/tile_compile/web_frontend_v3
+      TILE_COMPILE_CONFIG: /opt/tile_compile/tile_compile_cpp/tile_compile.yaml
+      TILE_COMPILE_SCHEMA: /opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml
+      TILE_COMPILE_PRESETS_DIR: /opt/tile_compile/tile_compile_cpp/examples
+      TILE_COMPILE_CLI: /opt/tile_compile/tile_compile_cpp/build/tile_compile_cli
+      TILE_COMPILE_RUNNER: /opt/tile_compile/tile_compile_cpp/build/tile_compile_runner
+      TILE_COMPILE_AI_AGENT_AUTOSTART: "${TILE_COMPILE_AI_AGENT_AUTOSTART:-1}"
+#    restart: unless-stopped

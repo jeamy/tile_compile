@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 AS builder
+FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -23,10 +23,10 @@ RUN apt-get update \
 WORKDIR /src
 COPY . /src
 
-RUN cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
+RUN cmake -S tile_compile_cpp -B tile_compile_cpp/build-release -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTS=OFF \
-    && cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
+    && cmake --build tile_compile_cpp/build-release -j"$(nproc)"
 
 RUN cmake -S web_backend_cpp -B web_backend_cpp/build-release -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
@@ -41,7 +41,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN cd /src/agent_service && npm install && npm run build
 
 
-FROM ubuntu:20.04 AS runtime
+FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -75,8 +75,8 @@ COPY tile_compile_cpp/tile_compile.schema.yaml /opt/tile_compile/tile_compile_cp
 COPY tile_compile_cpp/tile_compile.schema.json /opt/tile_compile/tile_compile_cpp/tile_compile.schema.json
 
 # Built binaries
-COPY --from=builder /src/tile_compile_cpp/build-gui2-release/tile_compile_runner /opt/tile_compile/tile_compile_cpp/build/tile_compile_runner
-COPY --from=builder /src/tile_compile_cpp/build-gui2-release/tile_compile_cli /opt/tile_compile/tile_compile_cpp/build/tile_compile_cli
+COPY --from=builder /src/tile_compile_cpp/build-release/tile_compile_runner /opt/tile_compile/tile_compile_cpp/build/tile_compile_runner
+COPY --from=builder /src/tile_compile_cpp/build-release/tile_compile_cli /opt/tile_compile/tile_compile_cpp/build/tile_compile_cli
 COPY --from=builder /src/web_backend_cpp/build-release/tile_compile_web_backend /opt/tile_compile/web_backend_cpp/build/tile_compile_web_backend
 
 # PI AI sidecar (pre-built in builder stage)
@@ -86,7 +86,7 @@ COPY --from=builder /src/agent_service/package.json /opt/tile_compile/agent_serv
 COPY --from=builder /src/agent_service/package-lock.json /opt/tile_compile/agent_service/package-lock.json
 
 # Entrypoint script (starts sidecar + backend)
-COPY docker/ubuntu20.04/entrypoint.sh /opt/tile_compile/entrypoint.sh
+COPY docker/ubuntu24.04/entrypoint.sh /opt/tile_compile/entrypoint.sh
 RUN chmod +x /opt/tile_compile/entrypoint.sh
 
 # Default runtime paths inside container
