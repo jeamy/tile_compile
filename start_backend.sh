@@ -215,7 +215,7 @@ if [[ "${DO_BUILD}" == "1" ]]; then
   echo "[backend] Configuring C++ backend in ${BUILD_DIR}"
   BACKEND_CMAKE_ARGS=(-DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
   if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
-    BACKEND_CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=${_BREW_PREFIX:-$(brew --prefix)}")
+    BACKEND_CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=${_BREW_PREFIX}")
   fi
   cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BUILD_DIR}" "${BACKEND_CMAKE_ARGS[@]}"
   echo "[backend] Building tile_compile_web_backend"
