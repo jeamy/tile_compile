@@ -840,26 +840,28 @@ function insertKeyUnderSection(yaml, section, key, value) {
 
 function injectAstapDataDir(yaml, dataDir) {
   if (!yaml || !dataDir) return yaml;
+  const safeDir = dataDir.replace(/\\/g, '/');
   // Replace any existing astap_data_dir value (empty, null, or existing path)
   if (/astap_data_dir:/m.test(yaml)) {
-    return yaml.replace(/astap_data_dir:.*$/m, `astap_data_dir: "${dataDir}"`);
+    return yaml.replace(/astap_data_dir:.*$/m, `astap_data_dir: "${safeDir}"`);
   }
   if (/^astrometry:/m.test(yaml)) {
-    return yaml.replace(/^astrometry:/m, `astrometry:\n  astap_data_dir: "${dataDir}"`);
+    return yaml.replace(/^astrometry:/m, `astrometry:\n  astap_data_dir: "${safeDir}"`);
   }
-  return yaml + `\nastrometry:\n  astap_data_dir: "${dataDir}"\n`;
+  return yaml + `\nastrometry:\n  astap_data_dir: "${safeDir}"\n`;
 }
 
 function injectSirilCatalogDir(yaml, catalogDir) {
   if (!yaml || !catalogDir) return yaml;
+  const safeCatalogDir = catalogDir.replace(/\\/g, '/');
   if (/siril_catalog_dir:\s*(?:~|null)\s*$/m.test(yaml)) {
-    return yaml.replace(/siril_catalog_dir:\s*(?:~|null)\s*$/m, `siril_catalog_dir: "${catalogDir}"`);
+    return yaml.replace(/siril_catalog_dir:\s*(?:~|null)\s*$/m, `siril_catalog_dir: "${safeCatalogDir}"`);
   }
   if (!/siril_catalog_dir:/m.test(yaml)) {
     if (/^pcc:/m.test(yaml)) {
-      return yaml.replace(/^pcc:/m, `pcc:\n  siril_catalog_dir: "${catalogDir}"`);
+      return yaml.replace(/^pcc:/m, `pcc:\n  siril_catalog_dir: "${safeCatalogDir}"`);
     }
-    return yaml + `\npcc:\n  siril_catalog_dir: "${catalogDir}"\n`;
+    return yaml + `\npcc:\n  siril_catalog_dir: "${safeCatalogDir}"\n`;
   }
   return yaml;
 }
