@@ -349,12 +349,14 @@ macOS (Homebrew, core libs):
 xcode-select --install
 brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl
 brew install opencv
+brew upgrade yaml-cpp  # ensure >= 0.8 to avoid linker errors on Intel Macs
 ```
 
 Notes:
 
 - `ninja` is required for the local GUI3 packaging scripts.
 - On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 15 for OpenCV, unless you provide a separate working OpenCV installation yourself.
+- On macOS Intel (x86_64), a linker error referencing `YAML::FpToString` can occur if the installed yaml-cpp is too old. Run `brew upgrade yaml-cpp` to fix it, then delete the build directory and reconfigure.
 - The package examples above are sufficient for CPU builds. They do not guarantee GPU acceleration, because the OpenCV package on the host may not include CUDA modules.
 - If a downloaded GUI3/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
@@ -369,7 +371,7 @@ Windows:
 cd tile_compile_cpp
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . -j$(nproc)
+cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 ```
 
 ### Release build + packaging

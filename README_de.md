@@ -346,11 +346,17 @@ sudo dnf install -y \
 macOS (Homebrew, Kernbibliotheken):
 
 ```bash
-brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl
+xcode-select --install
+brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl
+brew install opencv
+brew upgrade yaml-cpp  # mind. 0.8 sicherstellen, um Linker-Fehler auf Intel-Macs zu vermeiden
 ```
 
 Hinweise:
 
+- `ninja` wird für die lokalen GUI3-Packaging-Skripte benötigt.
+- Unter macOS 12 wird die Standard-Homebrew-`opencv`-Formel derzeit nicht unterstützt. Der Homebrew-basierte Pfad setzt daher effektiv macOS 15 für OpenCV voraus, sofern keine eigene funktionierende OpenCV-Installation bereitgestellt wird.
+- Unter macOS Intel (x86_64) kann ein Linker-Fehler mit `YAML::FpToString` auftreten, wenn yaml-cpp zu alt ist. `brew upgrade yaml-cpp` beheben, dann Build-Verzeichnis löschen und neu konfigurieren.
 - Die obigen Paketbeispiele reichen für CPU-Builds aus. Sie garantieren keine GPU-Beschleunigung, weil das jeweilige OpenCV-Paket auf dem Host die CUDA-Module enthalten muss.
 - Wenn ein heruntergeladenes GUI3-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
 
@@ -365,7 +371,7 @@ Windows:
 cd tile_compile_cpp
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . -j$(nproc)
+cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 ```
 
 ### Release-Build und Packaging

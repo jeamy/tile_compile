@@ -193,6 +193,10 @@ if [[ "${DO_BUILD}" == "1" ]]; then
   CPP_CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
   )
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    _BREW_PREFIX="$(brew --prefix)"
+    CPP_CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=${_BREW_PREFIX}")
+  fi
   if [[ -n "${TILE_COMPILE_OPENCV_DIR}" ]]; then
     CPP_CMAKE_ARGS+=("-DOpenCV_DIR=${TILE_COMPILE_OPENCV_DIR}")
   fi
@@ -209,7 +213,11 @@ if [[ "${DO_BUILD}" == "1" ]]; then
   cmake --build "${CPP_BUILD_DIR}" --parallel "$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)" --target tile_compile_runner tile_compile_cli
 
   echo "[backend] Configuring C++ backend in ${BUILD_DIR}"
-  cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+  BACKEND_CMAKE_ARGS=(-DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    BACKEND_CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=${_BREW_PREFIX:-$(brew --prefix)}")
+  fi
+  cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BUILD_DIR}" "${BACKEND_CMAKE_ARGS[@]}"
   echo "[backend] Building tile_compile_web_backend"
   cmake --build "${BUILD_DIR}" --parallel "$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)"
 fi
