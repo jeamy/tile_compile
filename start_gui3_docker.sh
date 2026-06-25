@@ -17,6 +17,8 @@ CONTAINER_NAME="${CONTAINER_NAME:-tile-compile-web-backend}"
 HOST_PORT="${HOST_PORT:-8080}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_ROOT}/tmp/docker-input}"
 RUNS_DIR="${RUNS_DIR:-${PROJECT_ROOT}/tmp/docker-runs}"
+ASTAP_DATA_DIR="${ASTAP_DATA_DIR:-${PROJECT_ROOT}/tmp/docker-astap}"
+SIRIL_CATALOG_DIR="${SIRIL_CATALOG_DIR:-${PROJECT_ROOT}/tmp/docker-siril}"
 EXTRA_ALLOWED_ROOTS="${EXTRA_ALLOWED_ROOTS:-}"
 ENV_FILE="${ENV_FILE:-}"
 NO_AGENT="${NO_AGENT:-0}"
@@ -65,7 +67,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-mkdir -p "${INPUT_DIR}" "${RUNS_DIR}"
+mkdir -p "${INPUT_DIR}" "${RUNS_DIR}" "${ASTAP_DATA_DIR}" "${SIRIL_CATALOG_DIR}"
 
 if [[ "${DO_BUILD}" == "1" ]]; then
   echo "[docker] Building ${IMAGE_TAG}"
@@ -77,7 +79,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   docker rm -f "${CONTAINER_NAME}" >/dev/null
 fi
 
-ALLOWED_ROOTS="/opt/tile_compile:/data/input:/data/runs:/tmp"
+ALLOWED_ROOTS="/opt/tile_compile:/data/input:/data/runs:/data/astap:/data/siril:/tmp"
 MOUNT_EXTRA=()
 if [[ -n "${EXTRA_ALLOWED_ROOTS}" ]]; then
   mkdir -p "${EXTRA_ALLOWED_ROOTS}"
@@ -107,6 +109,8 @@ docker run -d \
   -p "${HOST_PORT}:8080" \
   -v "${INPUT_DIR}:/data/input" \
   -v "${RUNS_DIR}:/data/runs" \
+  -v "${ASTAP_DATA_DIR}:/data/astap" \
+  -v "${SIRIL_CATALOG_DIR}:/data/siril" \
   "${MOUNT_EXTRA[@]}" \
   "${ENV_FILE_FLAGS[@]}" \
   "${AGENT_FLAGS[@]}" \
@@ -116,6 +120,8 @@ docker run -d \
   -e TILE_COMPILE_ALLOWED_ROOTS="${ALLOWED_ROOTS}" \
   -e TILE_COMPILE_RUNS_DIR="/data/runs" \
   -e TILE_COMPILE_INPUT_DIR="/data/input" \
+  -e TILE_COMPILE_ASTAP_DATA_DIR="/data/astap" \
+  -e TILE_COMPILE_SIRIL_CATALOG_DIR="/data/siril" \
   -e TILE_COMPILE_UI_DIR="/opt/tile_compile/web_frontend_v3" \
   -e TILE_COMPILE_CONFIG="/opt/tile_compile/tile_compile_cpp/tile_compile.yaml" \
   -e TILE_COMPILE_SCHEMA="/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml" \

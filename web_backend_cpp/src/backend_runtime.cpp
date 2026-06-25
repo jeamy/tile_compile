@@ -313,6 +313,18 @@ BackendRuntime BackendRuntime::from_env() {
         if (!normalized.empty()) rt._allowed_roots.insert(normalized);
     }
 
+    std::string astap_data_dir_str = env_string("TILE_COMPILE_ASTAP_DATA_DIR", "");
+    if (!astap_data_dir_str.empty()) {
+        const std::string normalized = rt.normalize_path(fs::path(astap_data_dir_str)).string();
+        if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+    }
+
+    std::string siril_catalog_dir_str = env_string("TILE_COMPILE_SIRIL_CATALOG_DIR", "");
+    if (!siril_catalog_dir_str.empty()) {
+        const std::string normalized = rt.normalize_path(fs::path(siril_catalog_dir_str)).string();
+        if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+    }
+
 #ifdef _WIN32
     {
         const DWORD drives = GetLogicalDrives();

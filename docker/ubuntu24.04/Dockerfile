@@ -90,7 +90,7 @@ COPY docker/ubuntu24.04/entrypoint.sh /opt/tile_compile/entrypoint.sh
 RUN chmod +x /opt/tile_compile/entrypoint.sh
 
 # Default runtime paths inside container
-RUN mkdir -p /data/input /data/runs /opt/tile_compile/web_backend_cpp/build
+RUN mkdir -p /data/input /data/runs /data/astap /data/siril /opt/tile_compile/web_backend_cpp/build
 
 ENV TILE_COMPILE_CLI=/opt/tile_compile/tile_compile_cpp/build/tile_compile_cli
 ENV TILE_COMPILE_RUNNER=/opt/tile_compile/tile_compile_cpp/build/tile_compile_runner
@@ -98,12 +98,14 @@ ENV TILE_COMPILE_HOST=0.0.0.0
 ENV TILE_COMPILE_PORT=8080
 ENV TILE_COMPILE_RUNS_DIR=/data/runs
 ENV TILE_COMPILE_INPUT_DIR=/data/input
+ENV TILE_COMPILE_ASTAP_DATA_DIR=/data/astap
+ENV TILE_COMPILE_SIRIL_CATALOG_DIR=/data/siril
 ENV TILE_COMPILE_CONFIG=/opt/tile_compile/tile_compile_cpp/tile_compile.yaml
 ENV TILE_COMPILE_SCHEMA=/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml
 ENV TILE_COMPILE_PRESETS_DIR=/opt/tile_compile/tile_compile_cpp/examples
 ENV TILE_COMPILE_UI_DIR=/opt/tile_compile/web_frontend_v3
 ENV TILE_COMPILE_PROJECT_ROOT=/opt/tile_compile
-ENV TILE_COMPILE_ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/tmp
+ENV TILE_COMPILE_ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/data/astap:/data/siril:/tmp
 ENV TILE_COMPILE_AGENT_SERVICE_DIR=/opt/tile_compile/agent_service
 ENV TILE_COMPILE_AI_AGENT_AUTOSTART=1
 ENV AI_AGENT_HOST=127.0.0.1

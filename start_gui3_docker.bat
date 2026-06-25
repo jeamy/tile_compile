@@ -26,6 +26,8 @@ if not defined CONTAINER_NAME set "CONTAINER_NAME=tile-compile-web-backend"
 if not defined HOST_PORT set "HOST_PORT=8080"
 if not defined INPUT_DIR set "INPUT_DIR=%PROJECT_ROOT%\tmp\docker-input"
 if not defined RUNS_DIR set "RUNS_DIR=%PROJECT_ROOT%\tmp\docker-runs"
+if not defined ASTAP_DATA_DIR set "ASTAP_DATA_DIR=%PROJECT_ROOT%\tmp\docker-astap"
+if not defined SIRIL_CATALOG_DIR set "SIRIL_CATALOG_DIR=%PROJECT_ROOT%\tmp\docker-siril"
 set "NO_AGENT=0"
 set "DO_BUILD=1"
 
@@ -64,7 +66,7 @@ if not errorlevel 1 (
   docker rm -f "%CONTAINER_NAME%" >nul 2>&1
 )
 
-set "ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/tmp"
+set "ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/data/astap:/data/siril:/tmp"
 set "MOUNT_EXTRA="
 set "ENV_FILE_FLAGS="
 set "AGENT_FLAGS="
@@ -88,6 +90,8 @@ docker run -d ^
   -p "%HOST_PORT%:8080" ^
   -v "%INPUT_DIR%:/data/input" ^
   -v "%RUNS_DIR%:/data/runs" ^
+  -v "%ASTAP_DATA_DIR%:/data/astap" ^
+  -v "%SIRIL_CATALOG_DIR%:/data/siril" ^
   !ENV_FILE_FLAGS! ^
   !AGENT_FLAGS! ^
   -e TILE_COMPILE_PROJECT_ROOT="/opt/tile_compile" ^
@@ -96,6 +100,8 @@ docker run -d ^
   -e TILE_COMPILE_ALLOWED_ROOTS="%ALLOWED_ROOTS%" ^
   -e TILE_COMPILE_RUNS_DIR="/data/runs" ^
   -e TILE_COMPILE_INPUT_DIR="/data/input" ^
+  -e TILE_COMPILE_ASTAP_DATA_DIR="/data/astap" ^
+  -e TILE_COMPILE_SIRIL_CATALOG_DIR="/data/siril" ^
   -e TILE_COMPILE_UI_DIR="/opt/tile_compile/web_frontend_v3" ^
   -e TILE_COMPILE_CONFIG="/opt/tile_compile/tile_compile_cpp/tile_compile.yaml" ^
   -e TILE_COMPILE_SCHEMA="/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml" ^

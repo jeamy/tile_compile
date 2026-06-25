@@ -184,6 +184,8 @@ std::string astap_cli_download_url() {
 /// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 fs::path default_astap_data_dir() {
+    const std::string env_dir = getenv_or("TILE_COMPILE_ASTAP_DATA_DIR");
+    if (!env_dir.empty()) return fs::path(env_dir);
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "astap";
     }
@@ -199,6 +201,8 @@ fs::path default_astap_data_dir() {
 /// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 fs::path default_siril_catalog_dir() {
+    const std::string env_dir = getenv_or("TILE_COMPILE_SIRIL_CATALOG_DIR");
+    if (!env_dir.empty()) return fs::path(env_dir);
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
         return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
     }
@@ -907,6 +911,19 @@ void register_tools_routes(CrowApp& app,
                 if (!dl.ok) {
                     if (dl.error == "cancelled" || state->job_store.is_cancelled(job_id)) throw JobCancelled();
                     throw std::runtime_error(dl.error);
+                }
+                // Validate ZIP magic bytes (PK\x03\x04) – SourceForge sometimes
+                // returns an HTML redirect page instead of the actual file.
+                {
+                    std::ifstream chk(archive, std::ios::binary);
+                    char magic[4] = {0, 0, 0, 0};
+                    chk.read(magic, 4);
+                    if (magic[0] != 'P' || magic[1] != 'K' || magic[2] != '\x03' || magic[3] != '\x04') {
+                        std::error_code rm_ec2; fs::remove(archive, rm_ec2);
+                        throw std::runtime_error(
+                            "Download returned an invalid file (not a ZIP archive). "
+                            "SourceForge may have returned an HTML page. Please retry.");
+                    }
                 }
 
                 set_download_state(state, job_id, {{"stage", "extract"}, {"archive", archive.string()}});

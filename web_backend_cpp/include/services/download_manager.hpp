@@ -15,7 +15,8 @@ struct DownloadOptions {
     int retry_count{2};
     double retry_backoff_s{1.5};
     bool resume{true};
-    std::string user_agent{"TileCompileGUI2/1.0"};
+    std::string user_agent{"Mozilla/5.0 (compatible; TileCompileGUI/1.0)"};
+    long max_redirects{20};
 };
 
 /// @brief Final outcome and transfer metadata for a download attempt sequence.

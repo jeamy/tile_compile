@@ -23,6 +23,8 @@ services:
     volumes:
       - "${INPUT_DIR:-./tmp/docker-input}:/data/input"
       - "${RUNS_DIR:-./tmp/docker-runs}:/data/runs"
+      - "${ASTAP_DATA_DIR:-./tmp/docker-astap}:/data/astap"
+      - "${SIRIL_CATALOG_DIR:-./tmp/docker-siril}:/data/siril"
     env_file:
       - path: ../../.env
         required: false
@@ -30,9 +32,11 @@ services:
       TILE_COMPILE_PROJECT_ROOT: /opt/tile_compile
       TILE_COMPILE_HOST: 0.0.0.0
       TILE_COMPILE_PORT: 8080
-      TILE_COMPILE_ALLOWED_ROOTS: /opt/tile_compile:/data/input:/data/runs:/tmp
+      TILE_COMPILE_ALLOWED_ROOTS: /opt/tile_compile:/data/input:/data/runs:/data/astap:/data/siril:/tmp
       TILE_COMPILE_RUNS_DIR: /data/runs
       TILE_COMPILE_INPUT_DIR: /data/input
+      TILE_COMPILE_ASTAP_DATA_DIR: /data/astap
+      TILE_COMPILE_SIRIL_CATALOG_DIR: /data/siril
       TILE_COMPILE_UI_DIR: /opt/tile_compile/web_frontend_v3
       TILE_COMPILE_CONFIG: /opt/tile_compile/tile_compile_cpp/tile_compile.yaml
       TILE_COMPILE_SCHEMA: /opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml

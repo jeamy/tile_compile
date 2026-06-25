@@ -468,6 +468,8 @@ Docker-relevanten Einstellungen in `.env`:
 |----------|-------------|-----------------------------|
 | `INPUT_DIR` | Host-Verzeichnis mit FITS-Lights (gemountet nach `/data/input`) | `./tmp/docker-input` |
 | `RUNS_DIR` | Host-Verzeichnis für Run-Output (gemountet nach `/data/runs`) | `./tmp/docker-runs` |
+| `ASTAP_DATA_DIR` | Host-Verzeichnis mit ASTAP-Binary und Sternkatalog (gemountet nach `/data/astap`) | `./tmp/docker-astap` |
+| `SIRIL_CATALOG_DIR` | Host-Verzeichnis mit Siril/PCC-Gaia-Katalog (gemountet nach `/data/siril`) | `./tmp/docker-siril` |
 | `HOST_PORT` | Host-Port → Container 8080 | `8080` |
 | `IMAGE_TAG` | Docker-Image-Tag | `tile-compile-web-backend:ubuntu24.04` |
 | `CONTAINER_NAME` | Container-Name | `tile-compile-web-backend` |
