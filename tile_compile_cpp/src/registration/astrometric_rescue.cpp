@@ -58,12 +58,32 @@ bool is_astap_available(const std::string& astap_bin_hint,
   return has_catalog;
 }
 
+// Wrap command for Windows cmd.exe (cmd /c "...")
+static std::string system_cmd(const std::string& cmd) {
+#ifdef _WIN32
+  return "cmd /c \"" + cmd + "\"";
+#else
+  return cmd;
+#endif
+}
+
 // Shell-Quote Helper (kopiert aus runner_pipeline.cpp)
 /// @brief Implements shell quote.
 /// @details Part of ASTAP-backed astrometric registration rescue helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 static std::string shell_quote(const std::string& s) {
+#ifdef _WIN32
+  std::string out;
+  out.reserve(s.size() + 2);
+  out.push_back('"');
+  for (char c : s) {
+    if (c == '"') out += "\\"";
+    else out.push_back(c);
+  }
+  out.push_back('"');
+  return out;
+#else
   std::string out;
   out.reserve(s.size() + 2);
   out.push_back('\'');
@@ -76,6 +96,7 @@ static std::string shell_quote(const std::string& s) {
   }
   out.push_back('\'');
   return out;
+#endif
 }
 
 /// @brief Implements try astrometric rescue.
@@ -172,7 +193,7 @@ AstrometricRescueResult try_astrometric_rescue(
       " -r " + std::to_string(search_radius_deg);
 
   std::cout << "[ASTROMETRIC-RESCUE] Running ASTAP for moving frame: " << cmd_mov << std::endl;
-  int ret_mov = std::system(cmd_mov.c_str());
+  int ret_mov = std::system(system_cmd(cmd_mov).c_str());
 
   // WCS parsen
   astro::WCS wcs_mov;
@@ -198,7 +219,7 @@ AstrometricRescueResult try_astrometric_rescue(
       " -r " + std::to_string(search_radius_deg);
 
   std::cout << "[ASTROMETRIC-RESCUE] Running ASTAP for reference frame: " << cmd_ref << std::endl;
-  int ret_ref = std::system(cmd_ref.c_str());
+  int ret_ref = std::system(system_cmd(cmd_ref).c_str());
 
   astro::WCS wcs_ref;
   bool have_wcs_ref = false;
@@ -300,7 +321,7 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
       shell_quote(mov_fits_path) +
       " -d " + shell_quote(astap_data) +
       " -r " + std::to_string(search_radius_deg);
-  int ret_mov = std::system(cmd_mov.c_str());
+  int ret_mov = std::system(system_cmd(cmd_mov).c_str());
 
   astro::WCS wcs_mov;
   bool have_wcs_mov = false;
@@ -322,7 +343,7 @@ AstrometricRescueResult try_astrometric_rescue_from_paths(
       shell_quote(ref_fits_path) +
       " -d " + shell_quote(astap_data) +
       " -r " + std::to_string(search_radius_deg);
-  int ret_ref = std::system(cmd_ref.c_str());
+  int ret_ref = std::system(system_cmd(cmd_ref).c_str());
 
   astro::WCS wcs_ref;
   bool have_wcs_ref = false;

@@ -1517,6 +1517,15 @@ int default_parallel_workers(size_t items, int requested_workers) {
   return std::max(1, std::min<int>(limit, static_cast<int>(std::max<size_t>(1, items))));
 }
 
+/// @brief Wrap a command for execution via std::system (cmd /c "..." on Windows).
+std::string system_cmd(const std::string &cmd) {
+#ifdef _WIN32
+  return "cmd /c \"" + cmd + "\"";
+#else
+  return cmd;
+#endif
+}
+
 /// @brief Platform-aware shell quoting for external commands.
 std::string shell_quote(const std::string &s) {
 #ifdef _WIN32

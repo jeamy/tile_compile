@@ -1253,7 +1253,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
       const std::string cmd = runner::shell_quote(astap_bin_path.string()) + " -f " +
                               runner::shell_quote(stack.stacked_rgb_path.string()) + " -d " +
                               runner::shell_quote(astap_data) + " -r " + std::to_string(search_radius);
-      const int ret = std::system(cmd.c_str());
+      const int ret = std::system(runner::system_cmd(cmd).c_str());
       fs::path wcs_path = stack.stacked_rgb_path;
       wcs_path.replace_extension(".wcs");
       if (ret == 0 && fs::exists(wcs_path)) {

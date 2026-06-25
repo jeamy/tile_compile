@@ -73,6 +73,7 @@ using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 using tile_compile::runner::resolve_astap_binary_path;
 using tile_compile::runner::shell_quote;
+using tile_compile::runner::system_cmd;
 
 using NormalizationScales = image::NormalizationScales;
 
@@ -5515,7 +5516,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             " -r " + std::to_string(cfg.astrometry.search_radius);
 
         std::cout << "[ASTROMETRY] Running: " << cmd << std::endl;
-        int ret = std::system(cmd.c_str());
+        int ret = std::system(system_cmd(cmd).c_str());
 
         // ASTAP writes a .wcs file next to the input
         fs::path wcs_path = stacked_rgb_solve_path;
