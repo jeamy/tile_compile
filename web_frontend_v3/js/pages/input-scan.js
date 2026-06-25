@@ -31,7 +31,8 @@ async function ensureRunsDir() {
     backendRunsDir = appState?.project?.runs_dir || "";
     if (backendRunsDir) {
       const sd = getScanData();
-      if (!sd.runs_dir) {
+      const storedRunsDir = (sd.runs_dir || "").trim();
+      if (!storedRunsDir || !storedRunsDir.startsWith(backendRunsDir)) {
         setScanData({ runs_dir: backendRunsDir });
         const runsInput = document.querySelector('input[data-field="runs_dir"]');
         if (runsInput) runsInput.value = backendRunsDir;

@@ -458,8 +458,35 @@ nlohmann::json parse_astrometry_wcs_summary(const fs::path& wcs_path) {
 /// access, process handling, and error reporting localized to this backend component.
 bool extract_zip_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef _WIN32
-    auto res = run_subprocess({"powershell", "-NoProfile", "-Command",
-        "Expand-Archive -LiteralPath '" + archive.string() + "' -DestinationPath '" + dest.string() + "' -Force"});
+    // PowerShell -EncodedCommand avoids all quoting/escaping issues when
+    // launched via CreateProcessA. The command must be UTF-16LE base64.
+    const std::string arc_str = archive.string();
+    const std::string dst_str = dest.string();
+    // Build the PS command string
+    const std::string ps_cmd =
+        "$src='" + arc_str + "';$dst='" + dst_str +
+        "';Expand-Archive -LiteralPath $src -DestinationPath $dst -Force";
+    // Encode as UTF-16LE then base64
+    std::string utf16le;
+    utf16le.reserve(ps_cmd.size() * 2);
+    for (unsigned char c : ps_cmd) {
+        utf16le.push_back(static_cast<char>(c));
+        utf16le.push_back('\0');
+    }
+    // base64 encode
+    static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded;
+    encoded.reserve(((utf16le.size() + 2) / 3) * 4);
+    for (size_t i = 0; i < utf16le.size(); i += 3) {
+        unsigned char b0 = static_cast<unsigned char>(utf16le[i]);
+        unsigned char b1 = (i + 1 < utf16le.size()) ? static_cast<unsigned char>(utf16le[i + 1]) : 0;
+        unsigned char b2 = (i + 2 < utf16le.size()) ? static_cast<unsigned char>(utf16le[i + 2]) : 0;
+        encoded.push_back(b64[b0 >> 2]);
+        encoded.push_back(b64[((b0 & 3) << 4) | (b1 >> 4)]);
+        encoded.push_back((i + 1 < utf16le.size()) ? b64[((b1 & 15) << 2) | (b2 >> 6)] : '=');
+        encoded.push_back((i + 2 < utf16le.size()) ? b64[b2 & 63] : '=');
+    }
+    auto res = run_subprocess({"powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded});
 #else
     auto res = run_subprocess({"unzip", "-o", archive.string(), "-d", dest.string()});
 #endif
