@@ -16,6 +16,42 @@ namespace {
 
 namespace fs = std::filesystem;
 
+/// @brief Replaces backslashes inside double-quoted YAML strings with forward
+/// slashes so that Windows paths (e.g. "C:\Users\...") do not cause yaml-cpp
+/// to fail with "bad character found while scanning hex number".
+/// Only processes characters inside double-quoted scalars; leaves the rest
+/// of the YAML text untouched.
+static std::string sanitize_yaml_windows_paths(const std::string& yaml) {
+    std::string out;
+    out.reserve(yaml.size());
+    bool in_dq = false;
+    for (size_t i = 0; i < yaml.size(); ++i) {
+        char c = yaml[i];
+        if (!in_dq) {
+            if (c == '"') in_dq = true;
+            out.push_back(c);
+        } else {
+            if (c == '\\' && i + 1 < yaml.size()) {
+                char next = yaml[i + 1];
+                // Keep valid YAML escape sequences (e.g. \n \t \\ \" \/ \uXXXX)
+                static const char valid[] = "\"\\0abtnvfrNLP_e \t/x u U";
+                bool valid_esc = false;
+                for (char v : valid) { if (next == v) { valid_esc = true; break; } }
+                if (!valid_esc) {
+                    // Treat as literal backslash in a Windows path → forward slash
+                    out.push_back('/');
+                } else {
+                    out.push_back(c);
+                }
+            } else {
+                if (c == '"') in_dq = false;
+                out.push_back(c);
+            }
+        }
+    }
+    return out;
+}
+
 /// @brief Checks between 0 1.
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -172,11 +208,22 @@ void round_yaml_numeric_scalars_inplace(YAML::Node node) {
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+Config Config::from_yaml_text(const std::string &yaml_text) {
+  const std::string sanitized = sanitize_yaml_windows_paths(yaml_text);
+  YAML::Node node = YAML::Load(sanitized);
+  return from_yaml(node);
+}
+
 Config Config::load(const fs::path &path) {
   if (!fs::exists(path)) {
     throw ConfigError("Config file not found: " + path.string());
   }
-  YAML::Node node = YAML::LoadFile(path.string());
+  std::ifstream f(path);
+  if (!f) throw ConfigError("Cannot open config file: " + path.string());
+  std::ostringstream ss;
+  ss << f.rdbuf();
+  const std::string sanitized = sanitize_yaml_windows_paths(ss.str());
+  YAML::Node node = YAML::Load(sanitized);
   return from_yaml(node);
 }
 

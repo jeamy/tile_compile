@@ -772,8 +772,7 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
     if (!path.empty()) result["path"] = path;
     
     try {
-        YAML::Node node = YAML::Load(yaml_text);
-        tile_compile::config::Config cfg = tile_compile::config::Config::from_yaml(node);
+        tile_compile::config::Config cfg = tile_compile::config::Config::from_yaml_text(yaml_text);
         cfg.validate();
         result["valid"] = true;
     } catch (const std::exception& e) {

@@ -203,7 +203,7 @@ if not exist "%TILE_COMPILE_AGENT_SERVICE_DIR%\dist\server.js" (
   popd
 )
 echo [backend] Starting PI AI sidecar from %TILE_COMPILE_AGENT_SERVICE_DIR%
-start "PI AI Sidecar" /b cmd /c "pushd "%TILE_COMPILE_AGENT_SERVICE_DIR%" && npm start"
+start "PI AI Sidecar" cmd /c "pushd "%TILE_COMPILE_AGENT_SERVICE_DIR%" && npm start & pause"
 set "AI_AGENT_STARTED=1"
 
 :start_backend
@@ -213,13 +213,15 @@ echo [backend] Runner: %TILE_COMPILE_RUNNER%
 echo [backend] CLI:    %TILE_COMPILE_CLI%
 echo [backend] Config: %TILE_COMPILE_CONFIG%
 echo [backend] Runs:   %TILE_COMPILE_RUNS_DIR%
-"%BACKEND_BIN%"
-set "BACKEND_EXIT=%errorlevel%"
 
-rem --- Cleanup sidecar ---
+rem Run backend via PowerShell so cleanup fires even after Ctrl+C / batch abort
 if defined AI_AGENT_STARTED (
-  echo [backend] Stopping PI AI sidecar
-  taskkill /fi "WINDOWTITLE eq PI AI Sidecar*" /f >nul 2>&1
+  powershell -NoProfile -NonInteractive -Command ^
+    "try { & '%BACKEND_BIN%' } finally { taskkill /fi 'WINDOWTITLE eq PI AI Sidecar*' /f 2>$null }"
+  set "BACKEND_EXIT=%errorlevel%"
+) else (
+  "%BACKEND_BIN%"
+  set "BACKEND_EXIT=%errorlevel%"
 )
 
 exit /b %BACKEND_EXIT%

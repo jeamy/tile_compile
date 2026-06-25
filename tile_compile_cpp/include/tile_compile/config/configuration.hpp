@@ -470,6 +470,7 @@ struct Config {
 
   static Config load(const fs::path &path);
   static Config from_yaml(const YAML::Node &node);
+  static Config from_yaml_text(const std::string &yaml_text);
 
   void save(const fs::path &path) const;
   YAML::Node to_yaml() const;

@@ -968,7 +968,7 @@ PCCCatalogQueryResult query_pcc_catalog_stars(const astrometry::WCS &wcs,
 
   auto try_siril = [&]() -> bool {
     std::string cat_dir = cfg.siril_catalog_dir;
-    if (cat_dir.empty()) {
+    if (cat_dir.empty() || !astrometry::is_siril_gaia_catalog_available(cat_dir)) {
       cat_dir = astrometry::default_siril_gaia_catalog_dir();
     }
     if (!astrometry::is_siril_gaia_catalog_available(cat_dir)) {

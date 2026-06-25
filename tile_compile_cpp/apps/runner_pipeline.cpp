@@ -1066,8 +1066,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 << std::endl;
       return 1;
     }
-    YAML::Node node = YAML::Load(cfg_text);
-    cfg = config::Config::from_yaml(node);
+    cfg = config::Config::from_yaml_text(cfg_text);
     cfg.validate();
     proj_root =
         project_root.empty() ? fs::current_path() : fs::path(project_root);
