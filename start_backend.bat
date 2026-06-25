@@ -182,22 +182,28 @@ if !NODE_MAJOR! LSS 20 (
 )
 if not exist "%TILE_COMPILE_AGENT_SERVICE_DIR%\node_modules" (
   echo [backend] PI AI sidecar: npm install
-  call npm --prefix "%TILE_COMPILE_AGENT_SERVICE_DIR%" install
+  pushd "%TILE_COMPILE_AGENT_SERVICE_DIR%"
+  call npm install
   if errorlevel 1 (
+    popd
     echo [backend] WARNING: npm install failed; starting without sidecar.
     goto start_backend
   )
+  popd
 )
 if not exist "%TILE_COMPILE_AGENT_SERVICE_DIR%\dist\server.js" (
   echo [backend] PI AI sidecar: npm run build
-  call npm --prefix "%TILE_COMPILE_AGENT_SERVICE_DIR%" run build
+  pushd "%TILE_COMPILE_AGENT_SERVICE_DIR%"
+  call npm run build
   if errorlevel 1 (
+    popd
     echo [backend] WARNING: sidecar build failed; starting without sidecar.
     goto start_backend
   )
+  popd
 )
 echo [backend] Starting PI AI sidecar from %TILE_COMPILE_AGENT_SERVICE_DIR%
-start "PI AI Sidecar" /b cmd /c "npm --prefix "%TILE_COMPILE_AGENT_SERVICE_DIR%" start"
+start "PI AI Sidecar" /b cmd /c "pushd "%TILE_COMPILE_AGENT_SERVICE_DIR%" && npm start"
 set "AI_AGENT_STARTED=1"
 
 :start_backend
