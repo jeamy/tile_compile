@@ -2,6 +2,7 @@
 
 import { el, clear } from "../utils/dom.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
+import { goToSubTab } from "../utils/navigation.js";
 import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, humanizeCategory, setConfigState, markDirty, deepClone } from "../state/config-state.js";
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";

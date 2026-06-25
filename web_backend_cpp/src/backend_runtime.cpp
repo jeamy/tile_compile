@@ -128,6 +128,53 @@ uintmax_t parse_uintmax_env(const char* name, uintmax_t fallback, uintmax_t min_
 
 }
 
+/// @brief Resolves an executable name to an absolute path.
+/// @details Tries the value as-is, then relative to the backend executable's directory,
+/// then relative to the current working directory, and finally on Windows appends `.exe`.
+/// This ensures subprocess launches find the runner/CLI even when the backend is started from a different directory.
+fs::path resolve_executable_path(const fs::path& candidate) {
+    if (candidate.empty()) return {};
+    std::error_code ec;
+
+#ifdef _WIN32
+    const bool has_ext = candidate.has_extension();
+#else
+    const bool has_ext = true;
+#endif
+
+    auto probe = [&](const fs::path& p) -> fs::path {
+        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) return p;
+#ifdef _WIN32
+        if (!has_ext) {
+            fs::path with_exe = p;
+            with_exe += ".exe";
+            if (fs::exists(with_exe, ec) && fs::is_regular_file(with_exe, ec)) return with_exe;
+        }
+#endif
+        return {};
+    };
+
+    if (candidate.is_absolute()) return probe(candidate);
+
+    fs::path backend_dir;
+#ifdef _WIN32
+    char buf[MAX_PATH] = {};
+    if (GetModuleFileNameA(nullptr, buf, MAX_PATH) > 0) {
+        backend_dir = fs::path(buf).parent_path();
+    }
+#else
+    if (const char* self = std::getenv("_"); self && self[0]) {
+        backend_dir = fs::path(self).parent_path();
+    }
+#endif
+    if (!backend_dir.empty()) {
+        if (auto p = probe(backend_dir / candidate); !p.empty()) return p;
+    }
+    if (auto p = probe(fs::current_path() / candidate); !p.empty()) return p;
+
+    return candidate;
+}
+
 /// @brief Implements backend guard limits from env.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -237,8 +284,8 @@ BackendRuntime BackendRuntime::from_env() {
     rt.ui_events_path = rt.runtime_dir / "ui_events.jsonl";
 
     rt.host = env_string("TILE_COMPILE_HOST", env_string("HOST", "127.0.0.1").c_str());
-    rt.cli_exe    = env_string("TILE_COMPILE_CLI",    "tile_compile_cli");
-    rt.runner_exe = env_string("TILE_COMPILE_RUNNER", "tile_compile_runner");
+    rt.cli_exe    = resolve_executable_path(env_string("TILE_COMPILE_CLI",    "tile_compile_cli")).string();
+    rt.runner_exe = resolve_executable_path(env_string("TILE_COMPILE_RUNNER", "tile_compile_runner")).string();
 
     std::string port_str = env_string("TILE_COMPILE_PORT", "8000");
     try { rt.port = std::stoi(port_str); } catch (...) { rt.port = 8000; }

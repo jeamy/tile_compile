@@ -34,6 +34,12 @@ RUN cmake -S web_backend_cpp -B web_backend_cpp/build-release -G Ninja \
       -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF \
     && cmake --build web_backend_cpp/build-release -j"$(nproc)"
 
+# Build PI AI sidecar (agent_service) – Node.js 22 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+RUN cd /src/agent_service && npm install && npm run build
+
 
 FROM ubuntu:20.04 AS runtime
 
@@ -52,6 +58,11 @@ RUN apt-get update \
         libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Node.js 22 LTS for PI AI sidecar
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/tile_compile
 
 # Frontend
@@ -68,6 +79,16 @@ COPY --from=builder /src/tile_compile_cpp/build-gui2-release/tile_compile_runner
 COPY --from=builder /src/tile_compile_cpp/build-gui2-release/tile_compile_cli /opt/tile_compile/tile_compile_cpp/build/tile_compile_cli
 COPY --from=builder /src/web_backend_cpp/build-release/tile_compile_web_backend /opt/tile_compile/web_backend_cpp/build/tile_compile_web_backend
 
+# PI AI sidecar (pre-built in builder stage)
+COPY --from=builder /src/agent_service/dist /opt/tile_compile/agent_service/dist
+COPY --from=builder /src/agent_service/node_modules /opt/tile_compile/agent_service/node_modules
+COPY --from=builder /src/agent_service/package.json /opt/tile_compile/agent_service/package.json
+COPY --from=builder /src/agent_service/package-lock.json /opt/tile_compile/agent_service/package-lock.json
+
+# Entrypoint script (starts sidecar + backend)
+COPY docker/ubuntu20.04/entrypoint.sh /opt/tile_compile/entrypoint.sh
+RUN chmod +x /opt/tile_compile/entrypoint.sh
+
 # Default runtime paths inside container
 RUN mkdir -p /data/input /data/runs /opt/tile_compile/web_backend_cpp/build
 
@@ -82,7 +103,12 @@ ENV TILE_COMPILE_PRESETS_DIR=/opt/tile_compile/tile_compile_cpp/examples
 ENV TILE_COMPILE_UI_DIR=/opt/tile_compile/web_frontend_v3
 ENV TILE_COMPILE_PROJECT_ROOT=/opt/tile_compile
 ENV TILE_COMPILE_ALLOWED_ROOTS=/opt/tile_compile:/data/input:/data/runs:/tmp
+ENV TILE_COMPILE_AGENT_SERVICE_DIR=/opt/tile_compile/agent_service
+ENV TILE_COMPILE_AI_AGENT_AUTOSTART=1
+ENV AI_AGENT_HOST=127.0.0.1
+ENV AI_AGENT_PORT=3001
+ENV AI_AGENT_URL=http://127.0.0.1:3001
 
 EXPOSE 8080
 
-CMD ["/opt/tile_compile/web_backend_cpp/build/tile_compile_web_backend"]
+CMD ["/opt/tile_compile/entrypoint.sh"]

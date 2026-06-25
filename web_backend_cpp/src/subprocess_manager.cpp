@@ -300,6 +300,8 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
         cmd += "\" ";
     }
 
+    std::cerr << "[subprocess] Windows command line: " << cmd << std::endl;
+
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;

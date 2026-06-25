@@ -397,45 +397,72 @@ Windows-Hinweis (Docker / CLI-Workflow):
 
 ### Docker Build + Run (empfohlen für isolierte Umgebungen)
 
-Ein Hilfsskript ist verfügbar unter:
-`tile_compile_cpp/scripts/docker_compile_and_run.sh`
+Das Docker-Image enthält den C++-Backend, Runner, CLI, das Web-Frontend (v3) und den PI AI-Sidecar (Node.js 22 LTS).
+Das Entrypoint-Skript (`docker/ubuntu20.04/entrypoint.sh`) startet Sidecar und Backend automatisch.
 
-Was es tut:
+#### Schnellstart
 
-- `build-image`: baut ein Docker-Image und kompiliert `tile_compile_cpp` im Container
-- `run-shell`: startet eine interaktive Shell im kompilierten Container
-- `run-app`: führt `tile_compile_runner` direkt im Container aus
+**Linux / macOS:**
+```bash
+./start_gui3_docker.sh
+```
+Öffnen: http://127.0.0.1:8080/ui/
 
-Standard-Volume-Mapping für Runs:
+**Windows:**
+```cmd
+start_gui3_docker.bat
+```
 
-- Host: `tile_compile_cpp/runs`
-- Container: `/workspace/tile_compile_cpp/runs`
-
-Beispiele:
+#### Optionen
 
 ```bash
-# Docker-Image bauen und im Container kompilieren
+./start_gui3_docker.sh --help
+```
+
+| Option | Beschreibung | Standardwert |
+|--------|-------------|--------------|
+| `--image-tag <tag>` | Docker-Image-Tag | `tile-compile-web-backend:ubuntu20.04` |
+| `--name <name>` | Container-Name | `tile-compile-web-backend` |
+| `--port <port>` | Host-Port → Container 8080 | `8080` |
+| `--input-dir <path>` | Host-Eingabeverzeichnis (Mount) | `./tmp/docker-input` |
+| `--runs-dir <path>` | Host-Runs-Verzeichnis (Mount) | `./tmp/docker-runs` |
+| `--env-file <path>` | `.env`-Datei mit API-Keys (read-only gemountet) | `./.env` |
+| `--no-agent` | PI AI-Sidecar im Container deaktivieren | (standardmäßig aktiv) |
+| `--no-build` | `docker build` überspringen | (standardmäßig build) |
+| `--extra-root <path>` | Zusätzliches Allowed-Root unter `/data/extra` | — |
+
+#### `.env`-Datei
+
+Die `.env`-Datei liefert API-Keys und Konfiguration für den PI AI-Sidecar.
+Kopiere `agent_service/.env.example` nach `.env` im Projektverzeichnis und trage deine Keys ein:
+
+```bash
+cp agent_service/.env.example .env
+# .env bearbeiten – AI_SCAN_ENABLED, Modell, API-Keys etc. setzen
+```
+
+Die Datei wird read-only in den Container nach `/opt/tile_compile/.env` gemountet.
+Der Sidecar lädt sie automatisch via `dotenv`.
+
+#### Container-Architektur
+
+```
+entrypoint.sh
+  ├── PI AI-Sidecar (node dist/server.js)  →  127.0.0.1:3001
+  └── C++-Backend (tile_compile_web_backend)  →  0.0.0.0:8080
+        └── verbindet sich mit Sidecar unter http://127.0.0.1:3001
+```
+
+#### Erweitert: Nur-CLI-Docker (Legacy)
+
+Für den reinen C++-Runner im Container (ohne Backend/UI) steht weiterhin das Legacy-Skript zur Verfügung:
+
+```bash
 ./tile_compile_cpp/scripts/docker_compile_and_run.sh build-image
-
-# interaktive Shell im Container öffnen
-./tile_compile_cpp/scripts/docker_compile_and_run.sh run-shell
-
-# Pipeline im Container ausführen
 ./tile_compile_cpp/scripts/docker_compile_and_run.sh run-app -- run \
   --config /mnt/config/tile_compile.yaml \
   --input-dir /mnt/input \
   --runs-dir /workspace/tile_compile_cpp/runs
-```
-
-Verwende `run-shell`, wenn du zusätzliche Mounts benötigst (z.B. Config/Input-Verzeichnisse) und starte den Runner dann manuell.
-
-#### Windows-Start-Hinweise (Docker)
-
-Führe das Hilfsskript in einer Linux-Shell (WSL2 Ubuntu) aus:
-
-```bash
-bash scripts/docker_compile_and_run.sh build-image
-bash scripts/docker_compile_and_run.sh run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir /workspace/tile_compile_cpp/runs
 ```
 
 ### CLI-Runner
