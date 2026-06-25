@@ -308,6 +308,87 @@ DownloadResult download_once(const std::string& url,
     return result;
 }
 
+/// @brief Downloads a URL to a string buffer (for small pages like SourceForge wait pages).
+static std::string fetch_to_string(const std::string& url, const DownloadOptions& options) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return {};
+    std::string buf;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, options.max_redirects);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, options.user_agent.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    {
+        const std::string ca = find_ca_bundle();
+        if (!ca.empty()) curl_easy_setopt(curl, CURLOPT_CAINFO, ca.c_str());
+    }
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+        +[](char* ptr, size_t size, size_t nmemb, void* ud) -> size_t {
+            auto* s = static_cast<std::string*>(ud);
+            if (s->size() + size * nmemb > 512 * 1024) return 0; // limit 512 KB
+            s->append(ptr, size * nmemb);
+            return size * nmemb;
+        });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    return buf;
+}
+
+/// @brief Resolves a SourceForge /download URL by fetching the waitpage and
+///        extracting the real mirror URL from the meta http-equiv="refresh" tag.
+/// Returns the resolved URL, or the original if no redirect found.
+static std::string resolve_sourceforge_url(const std::string& url, const DownloadOptions& options) {
+    // Only attempt resolution for sourceforge.net /download URLs
+    if (url.find("sourceforge.net") == std::string::npos) return url;
+    if (url.rfind("/download") == std::string::npos && url.find("?") == std::string::npos) return url;
+
+    const std::string html = fetch_to_string(url, options);
+    if (html.empty()) return url;
+
+    // Look for: <meta http-equiv="refresh" content="5; url=https://...">
+    // Case-insensitive search for the pattern
+    auto ci_find = [](const std::string& haystack, const std::string& needle) -> size_t {
+        auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+            [](char a, char b){ return std::tolower((unsigned char)a) == std::tolower((unsigned char)b); });
+        return it == haystack.end() ? std::string::npos : static_cast<size_t>(it - haystack.begin());
+    };
+
+    const size_t meta_pos = ci_find(html, "http-equiv=\"refresh\"");
+    if (meta_pos == std::string::npos) return url;
+
+    // Find url= after the meta tag
+    const size_t url_pos = ci_find(html.substr(meta_pos), "url=");
+    if (url_pos == std::string::npos) return url;
+
+    size_t start = meta_pos + url_pos + 4; // skip "url="
+    if (start >= html.size()) return url;
+
+    // Strip optional surrounding quotes
+    char quote = html[start];
+    if (quote == '"' || quote == '\'') ++start;
+
+    // Find end: quote, ">", space, or "&gt;"
+    size_t end = start;
+    while (end < html.size()) {
+        char c = html[end];
+        if (c == '"' || c == '\'' || c == '>' || c == ' ' || c == '\n') break;
+        if (html.substr(end, 4) == "&amp") break;
+        ++end;
+    }
+
+    const std::string resolved = html.substr(start, end - start);
+    if (resolved.find("http") == 0 && resolved.find("sourceforge.net") == std::string::npos) {
+        return resolved; // Got a real mirror URL
+    }
+    // Also accept downloads.sourceforge.net direct links
+    if (resolved.find("downloads.sourceforge.net") != std::string::npos) {
+        return resolved;
+    }
+    return url;
+}
+
 } // namespace
 
 DownloadResult download_file_with_retry(const std::string& url,
@@ -316,10 +397,12 @@ DownloadResult download_file_with_retry(const std::string& url,
                                         DownloadShouldCancel should_cancel,
                                         DownloadProgressCallback on_progress,
                                         DownloadStateCallback on_state) {
+    // For SourceForge URLs, resolve the meta-refresh waitpage to get the real mirror URL.
+    const std::string resolved_url = resolve_sourceforge_url(url, options);
     const int attempts_total = std::max(1, options.retry_count + 1);
     DownloadResult last;
     for (int attempt = 1; attempt <= attempts_total; ++attempt) {
-        last = download_once(url, dest, options, attempt, should_cancel, on_progress, on_state);
+        last = download_once(resolved_url, dest, options, attempt, should_cancel, on_progress, on_state);
         if (last.ok || last.error == "cancelled") return last;
 
         const bool retrying = attempt < attempts_total;

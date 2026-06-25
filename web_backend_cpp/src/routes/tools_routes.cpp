@@ -174,7 +174,7 @@ std::string astap_cli_download_url() {
     return "https://sourceforge.net/projects/astap-program/files/macOS%20installer/astap_command-line_version_macOS_x86_64.zip/download";
 #endif
 #elif defined(_WIN32)
-    return "https://sourceforge.net/projects/astap-program/files/windows_installer/astap_command-line_version_Windows_x64.zip/download";
+    return "https://sourceforge.net/projects/astap-program/files/windows_installer/astap_command-line_version_win64.zip/download";
 #else
     return "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_command-line_version_Linux_amd64.zip/download";
 #endif
