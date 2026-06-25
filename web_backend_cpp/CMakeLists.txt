@@ -11,8 +11,13 @@ endif()
 option(TILE_COMPILE_BACKEND_STATIC_STDLIB "Link libgcc/libstdc++ statically for release builds" OFF)
 option(BUILD_TESTS "Build backend test executables" ON)
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra")
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG /MP")
+    set(CMAKE_CXX_FLAGS_DEBUG   "/Od /W4 /MP")
+else()
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra")
+endif()
 
 # -----------------------------------------------------------------------
 # Dependencies shared with tile_compile_cpp — reuse parent variables if

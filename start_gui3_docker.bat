@@ -10,22 +10,24 @@ set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_ROOT=%SCRIPT_DIR%"
 
-set "IMAGE_TAG=tile-compile-web-backend:ubuntu24.04"
-set "CONTAINER_NAME=tile-compile-web-backend"
-set "HOST_PORT=8080"
-set "INPUT_DIR=%PROJECT_ROOT%\tmp\docker-input"
-set "RUNS_DIR=%PROJECT_ROOT%\tmp\docker-runs"
+rem --- Load .env for defaults (INPUT_DIR, RUNS_DIR, HOST_PORT, etc.) ---
 set "ENV_FILE=%PROJECT_ROOT%\.env"
-set "AGENT_ENV_FILE=%PROJECT_ROOT%\agent_service\.env"
-set "NO_AGENT=0"
-set "DO_BUILD=1"
-
-rem Resolve .env: check root first, then agent_service
-if not exist "%ENV_FILE%" (
-  if exist "%AGENT_ENV_FILE%" (
-    set "ENV_FILE=%AGENT_ENV_FILE%"
+if exist "%ENV_FILE%" (
+  for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    set "line=%%a"
+    if not "!line:~0,1!"=="#" (
+      if not "%%a"=="" set "%%a=%%b"
+    )
   )
 )
+
+set "IMAGE_TAG=tile-compile-web-backend:ubuntu24.04"
+if not defined CONTAINER_NAME set "CONTAINER_NAME=tile-compile-web-backend"
+if not defined HOST_PORT set "HOST_PORT=8080"
+if not defined INPUT_DIR set "INPUT_DIR=%PROJECT_ROOT%\tmp\docker-input"
+if not defined RUNS_DIR set "RUNS_DIR=%PROJECT_ROOT%\tmp\docker-runs"
+set "NO_AGENT=0"
+set "DO_BUILD=1"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -75,11 +77,6 @@ if exist "%ENV_FILE%" (
 ) else (
   echo [docker] WARNING: .env not found at %ENV_FILE% - sidecar will run without API keys
 )
-if exist "%AGENT_ENV_FILE%" if not "%AGENT_ENV_FILE%"=="%ENV_FILE%" (
-  echo [docker] Mounting agent_service/.env from %AGENT_ENV_FILE%
-  set "ENV_FILE_FLAGS=!ENV_FILE_FLAGS! -v "%AGENT_ENV_FILE%:/opt/tile_compile/agent_service/.env:ro""
-)
-
 if "%NO_AGENT%"=="1" (
   set "AGENT_FLAGS=-e TILE_COMPILE_AI_AGENT_AUTOSTART=0"
   echo [docker] PI AI sidecar disabled

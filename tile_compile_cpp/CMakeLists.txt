@@ -109,8 +109,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Compiler flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /W4 /MP")
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG /MP")
+else()
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+endif()
 
 # Find dependencies
 find_package(PkgConfig QUIET)

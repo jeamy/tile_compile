@@ -17,7 +17,6 @@ export function loadEnv() {
     : path.resolve(agentDir, "..");
 
   loadEnvFile(path.join(projectRoot, ".env"));
-  loadEnvFile(path.join(agentDir, ".env"));
 }
 
 function envBool(name: string, fallback: boolean): boolean {

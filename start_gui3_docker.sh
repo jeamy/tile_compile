@@ -4,6 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
+# Load .env for default values (INPUT_DIR, RUNS_DIR, HOST_PORT, etc.)
+if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${PROJECT_ROOT}/.env"
+  set +a
+fi
+
 IMAGE_TAG="${IMAGE_TAG:-tile-compile-web-backend:ubuntu24.04}"
 CONTAINER_NAME="${CONTAINER_NAME:-tile-compile-web-backend}"
 HOST_PORT="${HOST_PORT:-8080}"
@@ -13,17 +21,10 @@ EXTRA_ALLOWED_ROOTS="${EXTRA_ALLOWED_ROOTS:-}"
 ENV_FILE="${ENV_FILE:-}"
 NO_AGENT="${NO_AGENT:-0}"
 
-# Resolve .env: explicit --env-file > root .env > agent_service .env
+# Resolve .env: explicit --env-file > root .env
 if [[ -z "${ENV_FILE}" ]]; then
-  if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    ENV_FILE="${PROJECT_ROOT}/.env"
-  elif [[ -f "${PROJECT_ROOT}/agent_service/.env" ]]; then
-    ENV_FILE="${PROJECT_ROOT}/agent_service/.env"
-  else
-    ENV_FILE="${PROJECT_ROOT}/.env"
-  fi
+  ENV_FILE="${PROJECT_ROOT}/.env"
 fi
-AGENT_ENV_FILE="${PROJECT_ROOT}/agent_service/.env"
 
 usage() {
   cat <<EOF
@@ -94,13 +95,6 @@ if [[ -f "${ENV_FILE}" ]]; then
 else
   echo "[docker] WARNING: .env not found at ${ENV_FILE} – sidecar will run without API keys"
 fi
-if [[ -f "${AGENT_ENV_FILE}" && "${AGENT_ENV_FILE}" != "${ENV_FILE}" ]]; then
-  echo "[docker] Mounting agent_service/.env from ${AGENT_ENV_FILE}"
-  ENV_FILE_FLAGS+=(
-    -v "${AGENT_ENV_FILE}:/opt/tile_compile/agent_service/.env:ro"
-  )
-fi
-
 AGENT_FLAGS=()
 if [[ "${NO_AGENT}" == "1" ]]; then
   AGENT_FLAGS=(-e TILE_COMPILE_AI_AGENT_AUTOSTART=0)

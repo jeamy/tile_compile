@@ -398,7 +398,7 @@ Windows-Hinweis (Docker / CLI-Workflow):
 ### Docker Build + Run (empfohlen für isolierte Umgebungen)
 
 Das Docker-Image enthält den C++-Backend, Runner, CLI, das Web-Frontend (v3) und den PI AI-Sidecar (Node.js 22 LTS).
-Das Entrypoint-Skript (`docker/ubuntu20.04/entrypoint.sh`) startet Sidecar und Backend automatisch.
+Das Entrypoint-Skript (`docker/ubuntu24.04/entrypoint.sh`) startet Sidecar und Backend automatisch.
 
 #### Schnellstart
 
@@ -413,6 +413,24 @@ Das Entrypoint-Skript (`docker/ubuntu20.04/entrypoint.sh`) startet Sidecar und B
 start_gui3_docker.bat
 ```
 
+#### Eingabedaten und Run-Output
+
+Host-Verzeichnisse werden in den Container gemountet:
+
+| Mount | Host (Default) | Container-Pfad | Zweck |
+|-------|----------------|----------------|-------|
+| Input | `./tmp/docker-input` | `/data/input` | FITS-Light-Frames |
+| Runs | `./tmp/docker-runs` | `/data/runs` | Run-Output, Artefakte, Logs |
+| Extra | `--extra-root <path>` | `/data/extra` | Zusätzliches Allowed-Root |
+
+Lege die FITS-Dateien in `./tmp/docker-input/` ab (oder eigenen Pfad mit `--input-dir` angeben).
+In der GUI als Eingabeverzeichnis `/data/input` und als Runs-Verzeichnis `/data/runs` eintragen.
+
+```bash
+# Eigenes Eingabeverzeichnis
+./start_gui3_docker.sh --input-dir /pfad/zu/meinen/fits --runs-dir /pfad/zu/runs
+```
+
 #### Optionen
 
 ```bash
@@ -421,7 +439,7 @@ start_gui3_docker.bat
 
 | Option | Beschreibung | Standardwert |
 |--------|-------------|--------------|
-| `--image-tag <tag>` | Docker-Image-Tag | `tile-compile-web-backend:ubuntu20.04` |
+| `--image-tag <tag>` | Docker-Image-Tag | `tile-compile-web-backend:ubuntu24.04` |
 | `--name <name>` | Container-Name | `tile-compile-web-backend` |
 | `--port <port>` | Host-Port → Container 8080 | `8080` |
 | `--input-dir <path>` | Host-Eingabeverzeichnis (Mount) | `./tmp/docker-input` |
@@ -433,16 +451,29 @@ start_gui3_docker.bat
 
 #### `.env`-Datei
 
-Die `.env`-Datei liefert API-Keys und Konfiguration für den PI AI-Sidecar.
-Kopiere `agent_service/.env.example` nach `.env` im Projektverzeichnis und trage deine Keys ein:
+Die `.env`-Datei liefert API-Keys, Docker-Mount-Pfade und Konfiguration für den PI AI-Sidecar.
+Kopiere `.env.example` nach `.env` im Projektverzeichnis und trage deine Einstellungen ein:
 
 ```bash
-cp agent_service/.env.example .env
-# .env bearbeiten – AI_SCAN_ENABLED, Modell, API-Keys etc. setzen
+cp .env.example .env
+# .env bearbeiten – INPUT_DIR, RUNS_DIR, AI_SCAN_ENABLED, Modell, API-Keys etc. setzen
 ```
 
 Die Datei wird read-only in den Container nach `/opt/tile_compile/.env` gemountet.
 Der Sidecar lädt sie automatisch via `dotenv`.
+
+Docker-relevanten Einstellungen in `.env`:
+
+| Variable | Beschreibung | Default falls nicht gesetzt |
+|----------|-------------|-----------------------------|
+| `INPUT_DIR` | Host-Verzeichnis mit FITS-Lights (gemountet nach `/data/input`) | `./tmp/docker-input` |
+| `RUNS_DIR` | Host-Verzeichnis für Run-Output (gemountet nach `/data/runs`) | `./tmp/docker-runs` |
+| `HOST_PORT` | Host-Port → Container 8080 | `8080` |
+| `IMAGE_TAG` | Docker-Image-Tag | `tile-compile-web-backend:ubuntu24.04` |
+| `CONTAINER_NAME` | Container-Name | `tile-compile-web-backend` |
+| `EXTRA_ALLOWED_ROOTS` | Zusätzlicher Host-Pfad, gemountet nach `/data/extra` | — |
+
+CLI-Argumente (`--input-dir`, `--runs-dir` etc.) überschreiben `.env`-Werte.
 
 #### Container-Architektur
 
