@@ -76,6 +76,8 @@ if not defined CMAKE_TOOLCHAIN_FILE (
     set "CMAKE_PREFIX_PATH_ARG=-DCMAKE_PREFIX_PATH=!MSYS2_PREFIX!"
     set "CMAKE_GENERATOR_ARG=-G "MinGW Makefiles""
     set "CMAKE_COMPILER_ARG=-DCMAKE_C_COMPILER=!MSYS2_PREFIX!/bin/gcc.exe -DCMAKE_CXX_COMPILER=!MSYS2_PREFIX!/bin/g++.exe"
+    set "PATH=!MSYS2_PREFIX!\bin;!PATH!"
+    echo [backend] Added !MSYS2_PREFIX!\bin to PATH
   )
 )
 
