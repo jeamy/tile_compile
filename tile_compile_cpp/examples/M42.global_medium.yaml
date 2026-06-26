@@ -19,8 +19,25 @@ bge:
     enabled: true
     holdout_fraction: 0.2
     max_evals: 32
-    strategy: extended
+    strategy: conservative
   enabled: false
+  method: none
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
   fit:
     huber_delta: 1.5
     irls_max_iterations: 10
@@ -46,7 +63,7 @@ bge:
   sample_estimator: quantile # quantile|sigma_clipped_median|sextractor_mode|biweight
   min_sample_bg_value: 1.0
   sample_quantile: 0.18
-  structure_thresh_percentile: 0.9
+  structure_thresh_percentile: 0.8
 calibration:
   bias_dir: ""
   bias_master: ""

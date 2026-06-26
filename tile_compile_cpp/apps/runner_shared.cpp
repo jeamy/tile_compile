@@ -610,6 +610,25 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   dst.enabled = src.enabled;
+  dst.method = src.method;
+  dst.autobge.num_sample_points = src.autobge.num_sample_points;
+  dst.autobge.poly_degree = src.autobge.poly_degree;
+  dst.autobge.rbf_smooth = src.autobge.rbf_smooth;
+  dst.autobge.downsample_scale = src.autobge.downsample_scale;
+  dst.autobge.patch_size = src.autobge.patch_size;
+  dst.autobge.patch_estimator = src.autobge.patch_estimator;
+  dst.autobge.stretch_mode = src.autobge.stretch_mode;
+  dst.autobge.stretch_target_median = src.autobge.stretch_target_median;
+  dst.autobge.border_margin = src.autobge.border_margin;
+  dst.autobge.bright_exclusion_fraction =
+      src.autobge.bright_exclusion_fraction;
+  dst.autobge.gradient_descent_max_iters =
+      src.autobge.gradient_descent_max_iters;
+  dst.autobge.random_seed = src.autobge.random_seed;
+  dst.autobge.normalize_between_stages =
+      src.autobge.normalize_between_stages;
+  dst.autobge.apply_guards = src.autobge.apply_guards;
+  dst.autobge.mono_mode = src.autobge.mono_mode;
   dst.sample_quantile = src.sample_quantile;
   dst.sample_estimator = src.sample_estimator;
   dst.min_sample_bg_value = src.min_sample_bg_value;
@@ -817,6 +836,7 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   out["image_width"] = diag.image_width;
   out["image_height"] = diag.image_height;
   out["grid_spacing"] = diag.grid_spacing;
+  out["bge_method"] = diag.bge_method;
   out["method"] = diag.method;
   out["robust_loss"] = diag.robust_loss;
   out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;

@@ -406,7 +406,8 @@ Bei Fehlschlag wird die Phase als `skipped` mit Grund (`astap_not_found`, `solve
 
 BGE wird ausgeführt, wenn:
 
-- `cfg.bge.enabled = true`
+- `cfg.bge.method` auf `classic` oder `autobge` steht
+- Legacy-Kompatibilität: fehlt `bge.method`, dann entspricht `bge.enabled=true` der Methode `classic`
 - RGB-Daten vorhanden sind (`have_rgb`)
 - tile-basierte Metrik-/Grid-Daten verfügbar und konsistent sind
 
@@ -419,6 +420,7 @@ Wirkung:
 
 - BGE ist strikt **additiv**,
 - BGE ist **kanalweise**,
+- `bge.method=classic` und `bge.method=autobge` sind gegenseitig exklusiv; `none` überspringt die Phase,
 - BGE darf keine Core-Gewichte (`G`, `L`, `W`) verändern,
 - canvas-ungültige Pixel dürfen nicht in BGE-Samples eingehen.
 

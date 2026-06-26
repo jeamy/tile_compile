@@ -119,6 +119,7 @@ aqmh:
 ```yaml
 bge:
   enabled: true
+  method: classic
   autotune:
     enabled: false
     strategy: conservative
@@ -143,6 +144,7 @@ bge:
 ```yaml
 bge:
   enabled: true
+  method: classic
   sample_quantile: 0.15  # Noch konservativer
   structure_thresh_percentile: 0.95  # Mehr Tiles ausschließen
   min_valid_sample_fraction_for_apply: 0.30
@@ -159,6 +161,7 @@ bge:
 ```yaml
 bge:
   enabled: true
+  method: classic
   min_valid_sample_fraction_for_apply: 0.28  # Toleranter fuer dichte Nebel-/Sternfelder
   min_valid_samples_for_apply: 96
   fit:
@@ -170,12 +173,37 @@ bge:
 ```yaml
 bge:
   enabled: true
+  method: classic
   sample_quantile: 0.25  # Weniger konservativ
   min_valid_sample_fraction_for_apply: 0.30
   min_valid_samples_for_apply: 96
   fit:
     method: poly  # Einfacher für schwache Gradienten
     polynomial_order: 2
+```
+
+**AutoBGE explizit wählen (geplant, opt-in):**
+
+```yaml
+bge:
+  enabled: true       # Legacy-Kompatibilität; method ist maßgeblich
+  method: autobge    # none | classic | autobge
+  autobge:
+    num_sample_points: 0
+    poly_degree: 2
+    rbf_smooth: 0.1
+    downsample_scale: 4
+    patch_size: 15
+    patch_estimator: median
+    stretch_mode: linear  # none | linear | mtf
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.5
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
 ```
 
 **Wichtig:** BGE läuft **vor** PCC. Wenn BGE aktiviert ist, sollte PCC danach bessere Ergebnisse liefern.

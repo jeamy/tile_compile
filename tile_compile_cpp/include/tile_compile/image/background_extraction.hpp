@@ -2,6 +2,8 @@
 
 #include "tile_compile/core/types.hpp"
 #include <Eigen/Dense>
+#include <array>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -10,6 +12,24 @@ namespace tile_compile::image {
 // BGE Configuration (matches YAML structure from v3.3 §6.3)
 struct BGEConfig {
     bool enabled = false;
+    std::string method = "none"; // none | classic | autobge
+    struct AutoBGEConfig {
+        int num_sample_points = 0;
+        int poly_degree = 2;
+        float rbf_smooth = 0.1f;
+        int downsample_scale = 4;
+        int patch_size = 15;
+        std::string patch_estimator = "median";
+        std::string stretch_mode = "linear";
+        float stretch_target_median = 0.25f;
+        int border_margin = 10;
+        float bright_exclusion_fraction = 0.5f;
+        int gradient_descent_max_iters = 100;
+        int random_seed = 42;
+        bool normalize_between_stages = true;
+        bool apply_guards = true;
+        std::string mono_mode = "rgb_duplicate";
+    } autobge;
     // Internal safety knob (not YAML-exposed): relax channel acceptance
     // guards for controlled fallback retries on difficult fields.
     bool internal_relaxed_channel_guards = false;
@@ -188,6 +208,7 @@ struct BGEDiagnostics {
     int image_width = 0;
     int image_height = 0;
     int grid_spacing = 0;
+    std::string bge_method = "none";
     std::string method;
     std::string robust_loss;
     std::string insufficient_cell_strategy;
@@ -295,5 +316,71 @@ float spatial_background_spread(const Matrix2Df& img,
     const std::vector<uint8_t>* valid_mask = nullptr);
 float coarse_background_plane_slope(const Matrix2Df& img,
     const std::vector<uint8_t>* valid_mask = nullptr);
+
+// ===== AutoBGE (two-stage poly+RBF background extraction) =====
+
+struct StretchParams {
+    std::vector<float> original_mins;
+    std::vector<float> original_medians;
+    std::vector<float> linear_offsets;
+    std::vector<float> linear_scales;
+    std::vector<float> mtf_targets;
+    std::string mode;
+    bool was_single_channel = false;
+};
+
+struct SamplePoint {
+    int x = 0;
+    int y = 0;
+};
+
+struct AutoBGEResult {
+    bool success = false;
+    bool mono_input = false;
+    std::array<BackgroundModel, 3> channel_models;
+    std::vector<BGEChannelDiagnostics> channel_diagnostics;
+};
+
+Matrix2Df transform_to_autobge_working_space(
+    const Matrix2Df& channel, const BGEConfig::AutoBGEConfig& config,
+    StretchParams* params, int channel_index,
+    const std::vector<uint8_t>* valid_mask = nullptr);
+
+Matrix2Df transform_from_autobge_working_space(
+    const Matrix2Df& channel, const StretchParams& params, int channel_index);
+
+Matrix2Df downsample_area(const Matrix2Df& image, int scale);
+
+Matrix2Df upscale_lanczos4(const Matrix2Df& background, int target_rows, int target_cols);
+
+std::vector<SamplePoint> generate_autobge_sample_points(
+    const Matrix2Df& image_downsampled,
+    const BGEConfig::AutoBGEConfig& config,
+    const std::vector<uint8_t>* valid_mask_downsampled = nullptr,
+    std::mt19937* rng = nullptr,
+    bool random_downselection = true);
+
+Matrix2Df fit_polynomial_autobge(
+    const Matrix2Df& image_downsampled,
+    const std::vector<SamplePoint>& points,
+    const BGEConfig::AutoBGEConfig& config,
+    int target_rows, int target_cols);
+
+Matrix2Df fit_rbf_autobge(
+    const Matrix2Df& image_downsampled,
+    const std::vector<SamplePoint>& points,
+    const BGEConfig::AutoBGEConfig& config,
+    int target_rows, int target_cols);
+
+AutoBGEResult build_autobge_models(
+    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B,
+    const BGEConfig& config);
+
+bool finalize_bge_from_channel_models(
+    Matrix2Df& R, Matrix2Df& G, Matrix2Df& B,
+    const std::array<BackgroundModel, 3>& channel_models,
+    const std::vector<BGEChannelDiagnostics>& channel_diagnostics,
+    const BGEConfig& config,
+    BGEDiagnostics* diagnostics);
 
 } // namespace tile_compile::image

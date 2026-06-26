@@ -339,9 +339,9 @@ Der Parameter-Sub-Tab bekommt einen **internen Tab-Umschalter**:
 │ │   Begründung: Alt-Az Mount → starke Feldrotation...     │ │
 │ │   Aktuell: triangle_star_matching → Empfohlen: hybrid   │ │
 │ │                                                          │ │
-│ │ ☑ bge.fit.method: rbf                                   │ │
+│ │ ☑ bge.method: classic                                   │ │
 │ │   Begründung: Starker Gradient bei M31...               │ │
-│ │   Aktuell: rbf → Empfohlen: rbf (bereits optimal)       │ │
+│ │   Aktuell: none → Empfohlen: classic                    │ │
 │ │                                                          │ │
 │ │ ☐ aqmh.cherry_pick.enabled: true                        │ │
 │ │   Begründung: 325 Frames, einige mit Seeing-Schwankung  │ │

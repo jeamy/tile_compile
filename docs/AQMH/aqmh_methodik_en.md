@@ -181,7 +181,7 @@ Scene-dependence guard: `Phi_snr_s` is a local support-quality proxy, not a sour
 4. `Phi_artifact_s(x,y) = 1 - clip(frac_out_s(x,y) / frac_artifact_max, 0, 1)`  
    with normative default `frac_artifact_max = 0.25`.
 
-`Phi_artifact_s = 1` indicates a clean region; `Phi_artifact_s = 0` indicates that at least `frac_artifact_max` (default 10%) of pixels in the window are outliers.
+`Phi_artifact_s = 1` indicates a clean region; `Phi_artifact_s = 0` indicates that at least `frac_artifact_max` (default 25%) of pixels in the window are outliers.
 
 #### 2.3.3 Per-Scale Quality Map
 
@@ -460,8 +460,8 @@ aqmh:
     base_window_px: 4   # window radius R_s in downscaled pixels (default: 4)
     w_sharp: 0.6        # sharpness weight in per-scale sigmoid (default: 0.6)
     w_snr: 0.4          # SNR weight in per-scale sigmoid (default: 0.4)
-    k_artifact: 3.0     # outlier detection threshold (default: 5.0)
-    frac_artifact_max: 0.25  # artifact gate threshold (default: 0.10)
+    k_artifact: 3.0     # outlier detection threshold (default: 3.0)
+    frac_artifact_max: 0.25  # artifact gate threshold (default: 0.25)
 ```
 
 ### 7.3 Storage Configuration

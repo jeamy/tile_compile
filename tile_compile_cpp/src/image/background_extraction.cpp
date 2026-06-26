@@ -8,6 +8,7 @@
 #include <iostream>
 #include <limits>
 #include <queue>
+#include <random>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
@@ -3702,7 +3703,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     diagnostics->image_width = 0;
     diagnostics->image_height = 0;
     diagnostics->grid_spacing = 0;
-    diagnostics->method = config.fit.method;
+    diagnostics->bge_method = config.method;
+    diagnostics->method =
+        config.method == "classic" ? config.fit.method : config.method;
     diagnostics->robust_loss = config.fit.robust_loss;
     diagnostics->insufficient_cell_strategy =
         config.grid.insufficient_cell_strategy;
@@ -3729,7 +3732,63 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     diagnostics->channels.clear();
   }
 
+  if (config.method == "none") {
+    return false;
+  }
+  if (config.method == "autobge") {
+    const int H = R.rows();
+    const int W = R.cols();
+    const bool have_canvas_mask =
+        !config.common_valid_mask.empty() &&
+        config.common_mask_rows == H &&
+        config.common_mask_cols == W &&
+        static_cast<int>(config.common_valid_mask.size()) == H * W;
+    if (!have_canvas_mask) {
+      if (diagnostics != nullptr) {
+        diagnostics->failure_reason = "missing_canvas_mask";
+      }
+      std::cerr << "[BGE] AutoBGE: missing/invalid canvas mask" << std::endl;
+      return false;
+    }
+    enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
+    if (diagnostics != nullptr) {
+      diagnostics->attempted = true;
+      diagnostics->bge_method = "autobge";
+      diagnostics->method = "autobge";
+      diagnostics->image_width = W;
+      diagnostics->image_height = H;
+    }
+    std::cerr << "[BGE] AutoBGE: starting two-stage background extraction" << std::endl;
+
+    AutoBGEResult autobge_result = build_autobge_models(R, G, B, config);
+
+    if (!autobge_result.success) {
+      if (diagnostics != nullptr) {
+        diagnostics->success = false;
+        diagnostics->failure_reason = "autobge_no_channel_models_succeeded";
+      }
+      std::cerr << "[BGE] AutoBGE: no channel models succeeded, skipping" << std::endl;
+      return false;
+    }
+
+    bool applied = finalize_bge_from_channel_models(
+        R, G, B, autobge_result.channel_models,
+        autobge_result.channel_diagnostics, config, diagnostics);
+
+    if (applied && diagnostics != nullptr) {
+      diagnostics->success = true;
+      std::cerr << "[BGE] AutoBGE: background extraction applied successfully" << std::endl;
+    }
+    return applied;
+  }
   if (!config.enabled) {
+    return false;
+  }
+  if (config.method != "classic") {
+    if (diagnostics != nullptr) {
+      diagnostics->failure_reason = "invalid_bge_method";
+    }
+    std::cerr << "[BGE] Invalid BGE method: " << config.method << std::endl;
     return false;
   }
 
@@ -3756,7 +3815,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
   std::cout << "[BGE] Starting background extraction (v3.3 §6.3)" << std::endl;
   std::cout << "[BGE] Image size: " << W << "x" << H << std::endl;
-  std::cout << "[BGE] Method: " << config.fit.method << std::endl;
+  std::cout << "[BGE] Engine: " << config.method << std::endl;
+  std::cout << "[BGE] Classic fit method: " << config.fit.method << std::endl;
 
   // Compute grid spacing (v3.3 §6.3.8)
   int grid_spacing = compute_grid_spacing(W, H, tile_grid.tile_size, config);
@@ -4596,5 +4656,6 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   }
   return any_channel_applied;
 }
+
 
 } // namespace tile_compile::image

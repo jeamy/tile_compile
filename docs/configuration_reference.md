@@ -1769,16 +1769,48 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 - `fwhm`: skaliert die effektive Sternmasken-Dilatation pro Tile.
 - `quality_score`: geht als zusätzlicher Gewichtungsfaktor in die Tile-Sample-Relevanz ein.
 
-### `bge.enabled`
+### `bge.method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `none`, `classic`, `autobge` |
+| **Default** | `none` |
+
+**Zweck:** Wählt die BGE-Engine. `none` deaktiviert BGE vollständig, `classic` nutzt die bestehende grid-/tile-basierte BGE-Implementierung, `autobge` wählt die zweistufige Poly+RBF-AutoBGE-Implementierung. Wenn `bge.method` vorhanden ist, ist dieser Wert maßgeblich.
+
+### `bge.enabled` (Legacy)
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert/deaktiviert Background Gradient Extraction.
+**Zweck:** Rückwärtskompatibilität für ältere Konfigurationen. Wenn `bge.method` fehlt, wird `enabled: true` als `method: classic` interpretiert und `enabled: false` als `method: none`. Wenn `bge.method` vorhanden ist, gewinnt `method`.
 
-**Empfehlung:** Aktivieren bei sichtbaren Gradienten (städtische Lichtverschmutzung, Mondlicht) oder wenn PCC Farbverschiebungen über das Bildfeld zeigt.
+**Empfehlung:** Für neue Konfigurationen `bge.method: none|classic|autobge` verwenden.
+
+### `bge.autobge.*`
+
+| Eigenschaft | Default |
+|-------------|---------|
+| `num_sample_points` | `0` |
+| `poly_degree` | `2` |
+| `rbf_smooth` | `0.1` |
+| `downsample_scale` | `4` |
+| `patch_size` | `15` |
+| `patch_estimator` | `median` |
+| `stretch_mode` | `linear` |
+| `stretch_target_median` | `0.25` |
+| `border_margin` | `10` |
+| `bright_exclusion_fraction` | `0.5` |
+| `gradient_descent_max_iters` | `100` |
+| `random_seed` | `42` |
+| `normalize_between_stages` | `true` |
+| `apply_guards` | `true` |
+| `mono_mode` | `rgb_duplicate` |
+
+**Zweck:** Parameter für `bge.method: autobge`. `stretch_mode: linear` ist der konservative Default, weil die spätere HyperMetric-Stretch-Phase unabhängig am Ende arbeitet und BGE additiv im linearen Bild bleiben soll. `mtf` ist nur für AutoBGE-Parität/Experimente gedacht.
 
 ### `bge.tile_weight_lambda_structure`
 

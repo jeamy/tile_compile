@@ -1195,7 +1195,9 @@ void register_runs_routes(CrowApp& app,
             return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
         }
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             auto full = resolve_artifact_path(run_dir, rel_path);
             if (!full) {
                 return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
@@ -1220,10 +1222,12 @@ void register_runs_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts/raw/<path>").methods("GET"_method)
-    ([state](const crow::request&, std::string run_id, std::string rel_path) {
+    ([state](const crow::request& req, std::string run_id, std::string rel_path) {
         run_id = decode_run_id_param(run_id);
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             auto full = resolve_artifact_path(run_dir, rel_path);
             if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
             if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());

@@ -592,6 +592,10 @@
   font-size: var(--text-base);
 }
 
+.tc-modal-body {
+  padding: var(--space-3) var(--space-4);
+}
+
 .tc-modal-footer {
   display: flex;
   justify-content: flex-end;

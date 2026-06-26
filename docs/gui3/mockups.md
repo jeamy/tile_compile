@@ -380,11 +380,11 @@ User öffnet Parameter-Tab
 │  │                                                                │ │
 │  │  ────────────────────────────────────────────────────────────  │ │
 │  │                                                                │ │
-│  │  ☐ bge.fit.method                                             │ │
-│  │     Aktuell: rbf                                               │ │
-│  │     Empfohlen: rbf (bereits optimal)                           │ │
-│  │     Begründung: RBF ist die beste Wahl für ausgedehnte         │ │
-│  │     Gradienten bei Galaxienfeldern. Keine Änderung nötig.      │ │
+│  │  ☐ bge.method                                                 │ │
+│  │     Aktuell: none                                              │ │
+│  │     Empfohlen: classic                                         │ │
+│  │     Begründung: Sichtbarer großskaliger Gradient. Classic      │ │
+│  │     nutzt den bestehenden robusten RBF-Fit.                    │ │
 │  │                                                                │ │
 │  │  ────────────────────────────────────────────────────────────  │ │
 │  │                                                                │ │

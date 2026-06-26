@@ -612,7 +612,7 @@ json compact_scan_metrics_for_analysis_context(const json& scan_metrics) {
             json item = json::object();
             for (const std::string key : {
                      "index", "frame_index", "file", "filename",
-                     "fwhm", "background", "noise", "gradient_energy", "roundness",
+                     "fwhm", "background", "noise", "gradient_energy", "sky_gradient", "roundness",
                      "star_count", "header"
                  }) {
                 if (frame.contains(key)) item[key] = frame[key];

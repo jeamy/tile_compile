@@ -572,6 +572,7 @@ bool run_phase_channel_split_normalization_global_metrics(
           m.background = 0.0f;
           m.noise = 0.0f;
           m.gradient_energy = 0.0f;
+          m.sky_gradient = 0.0f;
           m.quality_score = 1.0f;
           frame_metrics[i] = m;
           frame_star_metrics[i] = metrics::FrameStarMetrics{};
@@ -680,6 +681,7 @@ bool run_phase_channel_split_normalization_global_metrics(
       m["background"] = frame_metrics[i].background;
       m["noise"] = frame_metrics[i].noise;
       m["gradient_energy"] = frame_metrics[i].gradient_energy;
+      m["sky_gradient"] = frame_metrics[i].sky_gradient;
       m["quality_score"] = frame_metrics[i].quality_score;
       m["global_weight"] = (i < static_cast<size_t>(global_weights.size()))
                                ? global_weights[static_cast<int>(i)]

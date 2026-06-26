@@ -694,8 +694,52 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["bge"]) {
     auto b = node["bge"];
+    const bool has_method = static_cast<bool>(b["method"]);
     if (b["enabled"])
       cfg.bge.enabled = b["enabled"].as<bool>();
+    if (has_method) {
+      cfg.bge.method = b["method"].as<std::string>();
+      cfg.bge.enabled = (cfg.bge.method != "none");
+    } else {
+      cfg.bge.method = cfg.bge.enabled ? "classic" : "none";
+    }
+    if (b["autobge"]) {
+      auto a = b["autobge"];
+      if (a["num_sample_points"])
+        cfg.bge.autobge.num_sample_points = a["num_sample_points"].as<int>();
+      if (a["poly_degree"])
+        cfg.bge.autobge.poly_degree = a["poly_degree"].as<int>();
+      if (a["rbf_smooth"])
+        cfg.bge.autobge.rbf_smooth = a["rbf_smooth"].as<float>();
+      if (a["downsample_scale"])
+        cfg.bge.autobge.downsample_scale = a["downsample_scale"].as<int>();
+      if (a["patch_size"])
+        cfg.bge.autobge.patch_size = a["patch_size"].as<int>();
+      if (a["patch_estimator"])
+        cfg.bge.autobge.patch_estimator = a["patch_estimator"].as<std::string>();
+      if (a["stretch_mode"])
+        cfg.bge.autobge.stretch_mode = a["stretch_mode"].as<std::string>();
+      if (a["stretch_target_median"])
+        cfg.bge.autobge.stretch_target_median =
+            a["stretch_target_median"].as<float>();
+      if (a["border_margin"])
+        cfg.bge.autobge.border_margin = a["border_margin"].as<int>();
+      if (a["bright_exclusion_fraction"])
+        cfg.bge.autobge.bright_exclusion_fraction =
+            a["bright_exclusion_fraction"].as<float>();
+      if (a["gradient_descent_max_iters"])
+        cfg.bge.autobge.gradient_descent_max_iters =
+            a["gradient_descent_max_iters"].as<int>();
+      if (a["random_seed"])
+        cfg.bge.autobge.random_seed = a["random_seed"].as<int>();
+      if (a["normalize_between_stages"])
+        cfg.bge.autobge.normalize_between_stages =
+            a["normalize_between_stages"].as<bool>();
+      if (a["apply_guards"])
+        cfg.bge.autobge.apply_guards = a["apply_guards"].as<bool>();
+      if (a["mono_mode"])
+        cfg.bge.autobge.mono_mode = a["mono_mode"].as<std::string>();
+    }
     if (b["sample_quantile"])
       cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
     if (b["sample_estimator"])
@@ -1220,6 +1264,28 @@ YAML::Node Config::to_yaml() const {
   node["astrometry"]["search_radius"] = astrometry.search_radius;
 
   node["bge"]["enabled"] = bge.enabled;
+  node["bge"]["method"] = bge.method;
+  node["bge"]["autobge"]["num_sample_points"] =
+      bge.autobge.num_sample_points;
+  node["bge"]["autobge"]["poly_degree"] = bge.autobge.poly_degree;
+  node["bge"]["autobge"]["rbf_smooth"] = bge.autobge.rbf_smooth;
+  node["bge"]["autobge"]["downsample_scale"] = bge.autobge.downsample_scale;
+  node["bge"]["autobge"]["patch_size"] = bge.autobge.patch_size;
+  node["bge"]["autobge"]["patch_estimator"] =
+      bge.autobge.patch_estimator;
+  node["bge"]["autobge"]["stretch_mode"] = bge.autobge.stretch_mode;
+  node["bge"]["autobge"]["stretch_target_median"] =
+      bge.autobge.stretch_target_median;
+  node["bge"]["autobge"]["border_margin"] = bge.autobge.border_margin;
+  node["bge"]["autobge"]["bright_exclusion_fraction"] =
+      bge.autobge.bright_exclusion_fraction;
+  node["bge"]["autobge"]["gradient_descent_max_iters"] =
+      bge.autobge.gradient_descent_max_iters;
+  node["bge"]["autobge"]["random_seed"] = bge.autobge.random_seed;
+  node["bge"]["autobge"]["normalize_between_stages"] =
+      bge.autobge.normalize_between_stages;
+  node["bge"]["autobge"]["apply_guards"] = bge.autobge.apply_guards;
+  node["bge"]["autobge"]["mono_mode"] = bge.autobge.mono_mode;
   node["bge"]["sample_quantile"] = bge.sample_quantile;
   node["bge"]["sample_estimator"] = bge.sample_estimator;
   node["bge"]["min_sample_bg_value"] = bge.min_sample_bg_value;
@@ -1735,6 +1801,62 @@ void Config::validate() const {
     throw ValidationError("synthetic.frames_max must be >= frames_min");
   }
 
+  if (bge.method != "none" && bge.method != "classic" &&
+      bge.method != "autobge") {
+    throw ValidationError("bge.method must be one of: none|classic|autobge");
+  }
+  if (bge.method == "autobge") {
+    if (bge.autobge.num_sample_points < 0) {
+      throw ValidationError("bge.autobge.num_sample_points must be >= 0");
+    }
+    if (bge.autobge.poly_degree < 1 || bge.autobge.poly_degree > 6) {
+      throw ValidationError("bge.autobge.poly_degree must be in [1,6]");
+    }
+    if (bge.autobge.rbf_smooth < 0.0f) {
+      throw ValidationError("bge.autobge.rbf_smooth must be >= 0");
+    }
+    if (bge.autobge.downsample_scale < 1) {
+      throw ValidationError("bge.autobge.downsample_scale must be >= 1");
+    }
+    if (bge.autobge.patch_size < 3 ||
+        (bge.autobge.patch_size % 2) == 0) {
+      throw ValidationError("bge.autobge.patch_size must be odd and >= 3");
+    }
+    if (bge.autobge.patch_estimator != "median" &&
+        bge.autobge.patch_estimator != "sigma_clipped_median") {
+      throw ValidationError(
+          "bge.autobge.patch_estimator must be one of: median|sigma_clipped_median");
+    }
+    if (bge.autobge.stretch_mode != "none" &&
+        bge.autobge.stretch_mode != "linear" &&
+        bge.autobge.stretch_mode != "mtf") {
+      throw ValidationError(
+          "bge.autobge.stretch_mode must be one of: none|linear|mtf");
+    }
+    if (bge.autobge.stretch_target_median <= 0.0f ||
+        bge.autobge.stretch_target_median > 1.0f) {
+      throw ValidationError(
+          "bge.autobge.stretch_target_median must be in (0,1]");
+    }
+    if (bge.autobge.border_margin < 0) {
+      throw ValidationError("bge.autobge.border_margin must be >= 0");
+    }
+    if (bge.autobge.bright_exclusion_fraction <= 0.0f ||
+        bge.autobge.bright_exclusion_fraction >= 1.0f) {
+      throw ValidationError(
+          "bge.autobge.bright_exclusion_fraction must be in (0,1)");
+    }
+    if (bge.autobge.gradient_descent_max_iters < 1) {
+      throw ValidationError(
+          "bge.autobge.gradient_descent_max_iters must be >= 1");
+    }
+    if (bge.autobge.mono_mode != "rgb_duplicate" &&
+        bge.autobge.mono_mode != "disabled") {
+      throw ValidationError(
+          "bge.autobge.mono_mode must be one of: rgb_duplicate|disabled");
+    }
+  }
+
   if (bge.tile_weight_lambda_structure <= 0.0f) {
     throw ValidationError("bge.tile_weight_lambda_structure must be > 0");
   }
@@ -2132,6 +2254,9 @@ std::string get_schema_json() {
                       "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
     "bge": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
+                      "method":{"type":"string","enum":["none","classic","autobge"],"default":"none"},
+                      "autobge":{"type":"object","properties":{"num_sample_points":{"type":"integer","minimum":0,"default":0},"poly_degree":{"type":"integer","minimum":1,"maximum":6,"default":2},"rbf_smooth":{"type":"number","minimum":0,"default":0.1},"downsample_scale":{"type":"integer","minimum":1,"default":4},"patch_size":{"type":"integer","minimum":3,"default":15},"patch_estimator":{"type":"string","enum":["median","sigma_clipped_median"],"default":"median"},"stretch_mode":{"type":"string","enum":["none","linear","mtf"],"default":"linear"},"stretch_target_median":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25},"border_margin":{"type":"integer","minimum":0,"default":10},"bright_exclusion_fraction":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.5},"gradient_descent_max_iters":{"type":"integer","minimum":1,"default":100},"random_seed":{"type":"integer","default":42},"normalize_between_stages":{"type":"boolean","default":true},"apply_guards":{"type":"boolean","default":true},"mono_mode":{"type":"string","enum":["rgb_duplicate","disabled"],"default":"rgb_duplicate"}}},
+                      "tile_weight_lambda_structure":{"type":"number","minimum":0},
                       "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
                       "sample_estimator":{"type":"string","enum":["quantile","sigma_clipped_median","sextractor_mode","biweight"]},
                       "min_sample_bg_value":{"type":"number","minimum":0},

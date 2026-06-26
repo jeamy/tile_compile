@@ -13,6 +13,7 @@ import { getStore } from "../state/store.js";
 import { getConfigState, validateConfig } from "../state/config-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
+import { promptGrantRoot } from "../components/path-picker-modal.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -429,10 +430,29 @@ async function startRun() {
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
     clearRunWarnings();
-    const result = await api.post(API_ENDPOINTS.runs.start, payload);
+    let result;
+    try {
+      result = await api.post(API_ENDPOINTS.runs.start, payload);
+    } catch (startErr) {
+      if (startErr.status === 403 &&
+          startErr.payload?.code === "PATH_NOT_ALLOWED") {
+        const deniedPath = startErr.payload?.details?.path ||
+                           startErr.payload?.details?.denied_path ||
+                           sd.input_dir || "";
+        const granted = await promptGrantRoot(deniedPath,
+                                              startErr.payload?.details?.allowed_roots);
+        if (granted) {
+          result = await api.post(API_ENDPOINTS.runs.start, payload);
+        } else {
+          throw startErr;
+        }
+      } else {
+        throw startErr;
+      }
+    }
     const runId = result?.run_id || result?.id;
     if (runId) {
-      const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p, status: "pending", pct: 0 }));
+      const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p.phase, status: "pending", pct: 0, label: p.label }));
       setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false });
       setRunButtonsActive(true);
       updateStat("stat-run-id", runId);
@@ -622,12 +642,14 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (!phaseName || phaseName === "null") return;
     const status = type === "phase_start" ? "running" : type === "phase_end" ? (payload.status || "ok") : (payload.status || "running");
     const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;
-    updatePhaseState(phaseName, status, pct);
+    const label = payload.label || null;
+    updatePhaseState(phaseName, status, pct, label);
     savePhaseToStore(phaseName, status, pct);
     if (payload.elapsed || data.elapsed) updateStat("stat-elapsed", payload.elapsed || data.elapsed);
     // Also log phase events
     const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
-    logViewer.addLine(data.ts || formatTime(), "INFO", `${phaseName} | ${type.replace("phase_", "")}${pctStr}`);
+    const logLabel = label || phaseName;
+    logViewer.addLine(data.ts || formatTime(), "INFO", `${logLabel} | ${type.replace("phase_", "")}${pctStr}`);
   }
 
   // Run status with full phase array

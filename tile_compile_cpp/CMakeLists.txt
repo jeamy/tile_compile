@@ -426,6 +426,7 @@ set(LIB_SOURCES
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
     src/image/background_extraction.cpp
+    src/image/autobge.cpp
     src/image/hypermetric_stretch.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
@@ -547,6 +548,7 @@ if(BUILD_TESTS)
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
             tests/test_background_extraction.cpp
+            tests/test_autobge.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp

@@ -145,10 +145,7 @@ function switchView(view, page, paramTab, aiTab) {
 }
 
 async function initParameterData(restoreView = null, page = null, paramTab = null, aiTab = null) {
-  const { schemaPaths } = getConfigState();
-  if (!schemaPaths || !Array.isArray(schemaPaths)) {
-    await loadSchema();
-  }
+  await loadSchema();
   await loadConfig();
   // Sync calibration values from Input & Scan tab into config draft
   syncCalibrationToDraft();
@@ -192,17 +189,37 @@ function renderCategories() {
   }
 }
 
+const BGE_CLASSIC_ONLY_PREFIXES = [
+  "bge.fit.", "bge.grid.", "bge.mask.", "bge.autotune.",
+  "bge.sample_quantile", "bge.sample_estimator",
+  "bge.min_sample_bg_value", "bge.min_tiles_per_cell",
+  "bge.min_valid_sample_fraction_for_apply", "bge.min_valid_samples_for_apply",
+  "bge.tile_weight_lambda_structure",
+];
+const BGE_AUTOBGE_ONLY_PREFIXES = ["bge.autobge."];
+
+function isBgeParamVisible(path, bgeMethod) {
+  const isClassicOnly = BGE_CLASSIC_ONLY_PREFIXES.some(p => path === p || path.startsWith(p));
+  const isAutobgeOnly = BGE_AUTOBGE_ONLY_PREFIXES.some(p => path === p || path.startsWith(p));
+  if (!isClassicOnly && !isAutobgeOnly) return true;
+  if (bgeMethod === "autobge") return isAutobgeOnly;
+  return isClassicOnly;
+}
+
 function renderEditorForCategory(category) {
   const { schema, schemaPaths, config, draft } = getConfigState();
   const editorBody = document.getElementById("param-editor-body");
   if (!editorBody || !schemaPaths) return;
   clear(editorBody);
 
+  const bgeMethod = draft?.bge?.method ?? "none";
+
   const paths = category === "all"
     ? [...schemaPaths]
     : [...schemaPaths].filter(p => p.startsWith(category + ".") || p === category);
 
   for (const path of paths) {
+    if (!isBgeParamVisible(path, bgeMethod)) continue;
     const value = draft ? getConfigValue(draft, path) : "";
     const fieldSchema = getSchemaForPath(schema, path);
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));
@@ -236,6 +253,14 @@ function editableParamRow(path, value, fieldSchema) {
     markDirty();
     setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
     updateDiff();
+    if (path === "bge.method") {
+      const draft = getConfigState().draft;
+      if (draft?.bge) {
+        draft.bge.enabled = (rawVal !== "none");
+      }
+      const savedCat = getUiState().selectedCategory || "all";
+      renderEditorForCategory(savedCat);
+    }
   };
 
   const shortHelp = shortHelpForPath(path, fieldSchema);
