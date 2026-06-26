@@ -177,9 +177,10 @@ std::string default_siril_gaia_catalog_dir() {
     const std::string subdir = "siril_cat1_healpix8_xpsamp";
     auto check = [&](const std::string& base) -> std::string {
         if (base.empty()) return "";
-        // Try both with and without "siril" intermediate directory
+        // Try common subdirectory layouts: siril/, tile_compile/, or direct
         for (const auto& candidate : {
             base + "/siril/" + subdir,
+            base + "/tile_compile/" + subdir,
             base + "/" + subdir,
         }) {
             if (fs::exists(candidate)) return candidate;

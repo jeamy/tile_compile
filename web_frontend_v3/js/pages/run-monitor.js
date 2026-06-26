@@ -859,8 +859,8 @@ function injectAstapDataDir(yaml, dataDir) {
 function injectSirilCatalogDir(yaml, catalogDir) {
   if (!yaml || !catalogDir) return yaml;
   const safeCatalogDir = catalogDir.replace(/\\/g, '/');
-  if (/siril_catalog_dir:\s*(?:~|null)\s*$/m.test(yaml)) {
-    return yaml.replace(/siril_catalog_dir:\s*(?:~|null)\s*$/m, `siril_catalog_dir: "${safeCatalogDir}"`);
+  if (/siril_catalog_dir:\s*(?:~|null|""|'')\s*$/m.test(yaml)) {
+    return yaml.replace(/siril_catalog_dir:\s*(?:~|null|""|'')\s*$/m, `siril_catalog_dir: "${safeCatalogDir}"`);
   }
   if (!/siril_catalog_dir:/m.test(yaml)) {
     if (/^pcc:/m.test(yaml)) {
