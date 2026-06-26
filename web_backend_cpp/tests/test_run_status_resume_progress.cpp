@@ -237,7 +237,7 @@ int main(int argc, char** argv) {
 
         const auto resumed = harness.post_json("/api/runs/resume_overlay_without_events/resume", {
             {"from_phase", "BGE"},
-            {"run_dir", (harness.fixture_root() / "runs" / "resume_overlay_without_events").string()},
+            {"run_dir", "runs/resume_overlay_without_events"},
             {"config_yaml", "data:\n  color_mode: OSC\n"}
         });
         expect_equal(resumed["_http_status"].get<long>(), 202L, "resume overlay launch status");
@@ -265,6 +265,18 @@ int main(int argc, char** argv) {
 
         const auto resumed_job = harness.wait_for_job(resumed["job_id"].get<std::string>(), 5.0);
         expect_equal(resumed_job["state"].get<std::string>(), "ok", "resume overlay job completes");
+        expect_equal(resumed_job["data"]["run_dir"].get<std::string>(),
+                     (harness.fixture_root() / "runs" / "resume_overlay_without_events").string(),
+                     "relative resume run_dir is normalized in job data");
+        const auto& resume_command = resumed_job["data"]["command"];
+        bool found_normalized_run_dir_arg = false;
+        for (size_t i = 0; i + 1 < resume_command.size(); ++i) {
+            if (resume_command[i].get<std::string>() == "--run-dir" &&
+                resume_command[i + 1].get<std::string>() == (harness.fixture_root() / "runs" / "resume_overlay_without_events").string()) {
+                found_normalized_run_dir_arg = true;
+            }
+        }
+        expect_true(found_normalized_run_dir_arg, "relative resume run_dir is normalized before runner launch");
 
         const auto aqmh_resume_overlay_run_dir = harness.create_run("aqmh_resume_overlay_alias", {
             {{"ts", "2026-03-10T15:00:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},

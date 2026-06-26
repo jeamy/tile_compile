@@ -1644,9 +1644,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                               .string()}},
                         log_file);
     } else {
-      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
-                        {{"reason", "solve_failed"}, {"exit_code", ret}},
-                        log_file);
+      // Re-solve failed — try to fall back to existing WCS file
+      if (fs::exists(wcs_path)) {
+        try {
+          wcs = astro::parse_wcs_file(wcs_path.string());
+          have_wcs = wcs.valid();
+        } catch (const std::exception &) {
+          have_wcs = false;
+        }
+      }
+      if (have_wcs) {
+        emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                          {{"reason", "solve_failed_existing_wcs"}, {"exit_code", ret}},
+                          log_file);
+      } else {
+        emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                          {{"reason", "solve_failed"}, {"exit_code", ret}},
+                          log_file);
+      }
     }
   };
 

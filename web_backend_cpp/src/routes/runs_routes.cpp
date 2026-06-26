@@ -239,6 +239,30 @@ static std::optional<ConfigRevision> resolve_config_revision(const std::shared_p
     return state->revision_store.get(revision_id);
 }
 
+static std::optional<crow::response> resolve_request_run_dir(const std::shared_ptr<AppState>& state,
+                                                             const std::string& run_id,
+                                                             const std::string& run_dir_str,
+                                                             fs::path& run_dir) {
+    if (run_dir_str.empty()) {
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::exception& e) {
+            return err_resp(e.what(), 404);
+        }
+        return std::nullopt;
+    }
+
+    auto resolved = state->runtime.resolve_input_path(fs::path(run_dir_str), true);
+    run_dir = resolved.path;
+    if (resolved.status == PathStatus::not_allowed) {
+        return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
+    }
+    if (resolved.status == PathStatus::not_found || !fs::is_directory(run_dir)) {
+        return err_resp("PATH_NOT_FOUND", "run_dir does not exist: " + run_dir.string(), 404, {{"path", run_dir.string()}});
+    }
+    return std::nullopt;
+}
+
 static void persist_run_config_snapshot(const fs::path& run_dir,
                                         const std::string& yaml_text,
                                         const std::string& source,
@@ -1072,15 +1096,7 @@ void register_runs_routes(CrowApp& app,
         if (from_phase.empty()) return err_resp("RESUME_PHASE_REQUIRED", "from_phase is required for resume", 409, nlohmann::json::object());
 
         fs::path run_dir;
-        try {
-            run_dir = run_dir_str.empty() ? state->runtime.resolve_run_dir(run_id) : fs::path(run_dir_str);
-        } catch (const std::exception& e) {
-            return err_resp(e.what(), 404);
-        }
-
-        if (!state->runtime.is_path_allowed(run_dir)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
-        }
+        if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
 
         const fs::path run_config_path = run_dir / "config.yaml";
         std::string requested_yaml = config_yaml;
@@ -1279,15 +1295,7 @@ void register_runs_routes(CrowApp& app,
         std::string run_dir_str = body_opt ? body_opt->value("run_dir", "") : "";
 
         fs::path run_dir;
-        try {
-            run_dir = run_dir_str.empty() ? state->runtime.resolve_run_dir(run_id) : fs::path(run_dir_str);
-        } catch (const std::exception& e) {
-            return err_resp(e.what(), 404);
-        }
-
-        if (!state->runtime.is_path_allowed(run_dir)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
-        }
+        if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
 
         std::string job_id = tile_compile::routes::spawn_job(state, "stats", run_id,
             nlohmann::json({{"run_id", run_id}, {"run_dir", run_dir.string()}}),
@@ -1306,11 +1314,7 @@ void register_runs_routes(CrowApp& app,
         try {
             std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
             fs::path run_dir;
-            if (!run_dir_str.empty()) run_dir = fs::path(run_dir_str);
-            else run_dir = state->runtime.resolve_run_dir(run_id);
-            if (!state->runtime.is_path_allowed(run_dir)) {
-                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
-            }
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             fs::path stats_dir  = run_dir / "artifacts";
             fs::path report_path = stats_dir / "report.html";
             fs::path summary_path = stats_dir / "stats.json";
