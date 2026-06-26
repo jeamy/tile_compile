@@ -204,11 +204,26 @@ fs::path default_siril_catalog_dir() {
     const std::string env_dir = getenv_or("TILE_COMPILE_SIRIL_CATALOG_DIR");
     if (!env_dir.empty()) return fs::path(env_dir);
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
-        return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
+        const fs::path p = install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
+        if (fs::exists(p)) return p;
     }
 #ifdef _WIN32
     if (const char* la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
-        return fs::path(la) / "tile_compile" / "siril_cat1_healpix8_xpsamp";
+        // Siril's own install location (preferred)
+        const fs::path siril_path = fs::path(la) / "siril" / "siril_cat1_healpix8_xpsamp";
+        if (fs::exists(siril_path)) return siril_path;
+        // tile_compile bundled location
+        const fs::path tc_path = fs::path(la) / "tile_compile" / "siril_cat1_healpix8_xpsamp";
+        if (fs::exists(tc_path)) return tc_path;
+        return siril_path;  // default suggestion even if not yet present
+    }
+#elif defined(__APPLE__)
+    {
+        const fs::path home = user_home_dir();
+        if (!home.empty()) {
+            const fs::path p = home / "Library" / "Application Support" / "siril" / "siril_cat1_healpix8_xpsamp";
+            if (fs::exists(p)) return p;
+        }
     }
 #endif
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";

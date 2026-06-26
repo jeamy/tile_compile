@@ -173,9 +173,55 @@ static std::vector<int> query_disc_nested(int order, double theta_center,
 std::string default_siril_gaia_catalog_dir() {
     const char *env_dir = std::getenv("TILE_COMPILE_SIRIL_CATALOG_DIR");
     if (env_dir && env_dir[0] != '\0') return std::string(env_dir);
+
+    const std::string subdir = "siril_cat1_healpix8_xpsamp";
+    auto check = [&](const std::string& base) -> std::string {
+        if (base.empty()) return "";
+        // Try both with and without "siril" intermediate directory
+        for (const auto& candidate : {
+            base + "/siril/" + subdir,
+            base + "/" + subdir,
+        }) {
+            if (fs::exists(candidate)) return candidate;
+        }
+        // Return the primary candidate even if it doesn't exist yet (will be checked by caller)
+        return base + "/siril/" + subdir;
+    };
+
+#ifdef _WIN32
+    // Windows: %LOCALAPPDATA%\siril\siril_cat1_healpix8_xpsamp
+    const char *localappdata = std::getenv("LOCALAPPDATA");
+    if (localappdata && localappdata[0] != '\0') {
+        std::string p = check(std::string(localappdata));
+        if (fs::exists(p)) return p;
+    }
+    // Fallback: %USERPROFILE%\.local\share\siril\siril_cat1_healpix8_xpsamp
+    const char *userprofile = std::getenv("USERPROFILE");
+    if (userprofile && userprofile[0] != '\0') {
+        std::string p = check(std::string(userprofile) + "/.local/share");
+        if (fs::exists(p)) return p;
+    }
+    if (localappdata && localappdata[0] != '\0')
+        return std::string(localappdata) + "/siril/" + subdir;
+    return "";
+#elif defined(__APPLE__)
+    // macOS: ~/Library/Application Support/siril/siril_cat1_healpix8_xpsamp
+    const char *home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        std::string p = check(std::string(home) + "/Library/Application Support");
+        if (fs::exists(p)) return p;
+        // Also check standard Linux-style path (some macOS Siril builds use it)
+        p = check(std::string(home) + "/.local/share");
+        if (fs::exists(p)) return p;
+        return std::string(home) + "/Library/Application Support/siril/" + subdir;
+    }
+    return "";
+#else
+    // Linux: ~/.local/share/siril/siril_cat1_healpix8_xpsamp
     const char *home = std::getenv("HOME");
     if (!home) return "";
-    return std::string(home) + "/.local/share/siril/siril_cat1_healpix8_xpsamp";
+    return std::string(home) + "/.local/share/siril/" + subdir;
+#endif
 }
 
 /// @brief Checks siril gaia catalog available.

@@ -168,6 +168,12 @@ if ($env:TEMP) { $AllowedRoots += $env:TEMP }
 if ($env:TMP -and $env:TMP -ne $env:TEMP) { $AllowedRoots += $env:TMP }
 $env:TILE_COMPILE_ALLOWED_ROOTS = ($AllowedRoots | Where-Object { $_ } | Select-Object -Unique) -join ";"
 $env:TILE_COMPILE_INPUT_SEARCH_ROOTS = $env:TILE_COMPILE_ALLOWED_ROOTS
+if (-not $env:TILE_COMPILE_SIRIL_CATALOG_DIR) {
+  $SirilCatDir = Join-Path $env:LOCALAPPDATA "siril\siril_cat1_healpix8_xpsamp"
+  if (Test-Path $SirilCatDir) {
+    $env:TILE_COMPILE_SIRIL_CATALOG_DIR = $SirilCatDir
+  }
+}
 # Optionale Backend-Memory-Guard Overrides:
 # TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES (default 1048576)
 # TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES (default 131072)
