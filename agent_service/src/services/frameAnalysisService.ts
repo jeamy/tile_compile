@@ -389,7 +389,7 @@ export class FrameAnalysisService {
     if (scanMetrics && scanMetrics.aggregate) {
       const agg = scanMetrics.aggregate;
       metricsLines.push(`Sampled ${scanMetrics.sample_count ?? "?"} of ${scanMetrics.frames_total ?? frameCount} frames:`);
-      for (const key of ["fwhm", "background", "noise", "gradient_energy", "roundness", "star_count"]) {
+      for (const key of ["fwhm", "background", "noise", "gradient_energy", "sky_gradient", "roundness", "star_count"]) {
         const s = agg[key];
         if (!s) continue;
         if (s.min === s.max) {
@@ -510,6 +510,20 @@ export class FrameAnalysisService {
       "- If registration diagnostics are absent, do not infer registration stability from FWHM, star_count, background, noise, or gradient metrics alone.",
       "- For normalization/background extraction, require target_angular_size and measured background/gradient evidence.",
       "- For rejection/local quality weighting, require measured FWHM/noise/background/roundness/star_count spread.",
+      "",
+      "BGE (BACKGROUND GRADIENT EXTRACTION) RULES:",
+      "- sky_gradient is the BGE-relevant metric: it measures large-scale background variation (quadrant median diff / overall median). gradient_energy measures local pixel-scale structure (Sobel) and is NOT a reliable proxy for sky gradient strength. Always use sky_gradient (not gradient_energy) to decide whether BGE is needed.",
+      "- If sky_gradient >= 0.05 (median across frames): recommend bge.enabled=true and bge.method=classic with confidence >= 0.7. The gradient is strong enough to benefit from correction.",
+      "- If sky_gradient is 0.02–0.05: recommend bge.enabled=true with review_required=true and confidence <= 0.65. The gradient is moderate; BGE may help but could also introduce artifacts.",
+      "- If sky_gradient < 0.02: only recommend BGE with review_required=true and confidence <= 0.6 — the correction may be negligible.",
+      "- Prefer bge.method=classic over bge.method=autobge. AutoBGE uses a different internal workflow (downsampling, stretch, patch-based sampling) that can trigger flatness_worsened guard rejections, especially for weak gradients (<5% variation). Classic BGE with autotune is more robust.",
+      "- Prefer bge.fit.method=poly over rbf. Run analysis shows autotune consistently selects poly (polynomial) over rbf for weak-to-moderate gradients. RBF tends to overfit diffuse nebulosity.",
+      "- For nebulosity targets (IC434, Flame, Horsehead, etc.): use bge.autotune.strategy=extended to sweep additional estimators (sigma_clipped_median, biweight) and higher quantiles.",
+      "- For weak gradients (sky_gradient < 0.05): set bge.autotune.alpha_flatness=0.40 (more weight on flatness) and bge.autotune.beta_roughness=0.08 (less roughness penalty).",
+      "- For strong gradients (sky_gradient >= 0.05): keep bge.autotune.alpha_flatness=0.25 (default) and bge.autotune.beta_roughness=0.10 (default).",
+      "- Use bge.grid.insufficient_cell_strategy=radius_expand instead of discard to avoid losing grid cells at image borders.",
+      "- Use bge.sample_quantile=0.15 for conservative background sampling in nebula fields.",
+      "- Use bge.mask.star_dilate_px=6 and bge.mask.sat_dilate_px=6 for dense star fields.",
       "",
       "PIPELINE CAUSALITY (critical — your recommendations have downstream effects):",
       "- global_metrics.weights.* → determines per-frame stacking influence → affects PCC (Photometric Color Calibration) star-color measurement → affects final color balance.",

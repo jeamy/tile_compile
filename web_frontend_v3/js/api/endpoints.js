@@ -64,8 +64,17 @@ export const API_ENDPOINTS = {
     configRevisions: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions`,
     configRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}`,
     artifacts: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts`,
-    artifactView: (runId, path = "") => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/view?path=${encodeURIComponent(String(path || ""))}`,
-    artifactRaw: (runId, path = "") => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`,
+    artifactView: (runId, path = "", runDir = "") => {
+      const params = new URLSearchParams();
+      params.set("path", String(path || ""));
+      if (String(runDir || "").trim()) params.set("run_dir", String(runDir || "").trim());
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/view?${params.toString()}`;
+    },
+    artifactRaw: (runId, path = "", runDir = "") => {
+      const base = `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+      const query = String(runDir || "").trim() ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "";
+      return `${base}${query}`;
+    },
     delete: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/delete`,
     stop: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stop`,
     resume: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/resume`,

@@ -934,6 +934,52 @@ This ensures:
 
 Implementations must guarantee that grid resolution is coarser than tile resolution (`G >= 2*T`).
 
+#### 6.3.10 AutoBGE: Two-Stage Polynomial + RBF Background Extraction (Alternative to §6.3.2–6.3.9)
+
+When `bge.method = autobge`, an alternative background extraction algorithm is used instead of the tile-grid-based pipeline described in §6.3.2–6.3.9. AutoBGE is designed for datasets with complex, non-polynomial gradients that are poorly modeled by a single surface fit.
+
+**Configuration.** The following parameters control AutoBGE behavior:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `bge.autobge.num_sample_points` | `0` (auto) | Number of sample points; 0 = auto from `max(100, downsampled_area / 10000)` |
+| `bge.autobge.poly_degree` | `2` | Polynomial degree for first-stage fit |
+| `bge.autobge.rbf_smooth` | `0.1` | Multiquadric RBF smoothing parameter |
+| `bge.autobge.downsample_scale` | `4` | Area-based downsampling factor |
+| `bge.autobge.patch_size` | `15` | Odd patch size for local median estimation |
+| `bge.autobge.patch_estimator` | `median` | Patch estimator: `median` or `sigma_clipped_median` |
+| `bge.autobge.stretch_mode` | `linear` | Working-space stretch: `none`, `linear`, `mtf` |
+| `bge.autobge.stretch_target_median` | `0.25` | Target median for MTF stretch |
+| `bge.autobge.border_margin` | `10` | Pixel margin excluded from sampling |
+| `bge.autobge.bright_exclusion_fraction` | `0.5` | Fraction of brightest pixels excluded |
+| `bge.autobge.gradient_descent_max_iters` | `100` | Max iterations for dim-spot gradient descent |
+| `bge.autobge.mono_mode` | `rgb_duplicate` | Mono handling: `rgb_duplicate` or `disabled` |
+
+**Algorithm (Binding).**
+
+1. **Working-Space Transform.** Each channel is optionally stretched to enhance background visibility:
+   - `none`: no transform.
+   - `linear`: percentile-based linear stretch `(v - p01) / (p99 - p01)`.
+   - `mtf`: unlinked non-linear stretch targeting `stretch_target_median`.
+   The transform parameters are recorded per-channel for inverse transform of the background model.
+
+2. **Downsampling.** The stretched image is downsampled by `downsample_scale` using area-based averaging. This reduces computation and suppresses noise.
+
+3. **Sample Point Generation.** Sample points are placed on a regular grid within the usable image area (excluding `border_margin`). Bright pixels above the `bright_exclusion_fraction` percentile are excluded. Each grid point is refined by **gradient descent toward dimmer regions**: iteratively moving to the neighbor with the lowest local patch median. Duplicate points (converged to the same location) are removed.
+
+4. **Two-Stage Fitting.**
+   - **Stage 1 (Polynomial):** A 2D polynomial of degree `poly_degree` is fit to the sample point values via least-squares. The polynomial background is rendered at full resolution via Lanczos-4 upscaling.
+   - **Stage 2 (RBF on Residuals):** The polynomial background is subtracted from the downsampled image. New sample points are generated on the residual. A thin-plate spline RBF with linear affine term is fit to the residual samples. The RBF background is rendered at full resolution via Lanczos-4 upscaling.
+   - **Combination:** The total background model is `bg = bg_poly + bg_rbf`.
+
+5. **Inverse Transform.** The combined background model is transformed back from working space to the original data space using the inverse of the per-channel stretch.
+
+6. **Subtraction.** The background model is subtracted from each channel. Results are clamped to non-negative values.
+
+**Mono Handling.** If all three RGB channels are identical (mono input), AutoBGE processes only one channel. When `mono_mode = rgb_duplicate`, the single-channel model is applied to all three channels. When `mono_mode = disabled`, AutoBGE is skipped for mono input.
+
+**Compatibility.** AutoBGE does not use tile metrics or the tile grid. It operates directly on the stacked RGB image. The `bge.method` parameter is mutually exclusive: `none` disables BGE entirely, `classic` uses the tile-grid pipeline (§6.3.2–6.3.9), and `autobge` uses this section.
+
 
 ### 6.4 PCC
 

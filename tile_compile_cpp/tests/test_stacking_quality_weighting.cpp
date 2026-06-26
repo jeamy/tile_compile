@@ -5,6 +5,61 @@
 
 #include <cmath>
 
+TEST_CASE("bge_method_parses_legacy_enabled_and_explicit_method") {
+  YAML::Node legacy = YAML::Load(R"(
+bge:
+  enabled: true
+)");
+  auto legacy_cfg = tile_compile::config::Config::from_yaml(legacy);
+  REQUIRE(legacy_cfg.bge.enabled);
+  REQUIRE(legacy_cfg.bge.method == "classic");
+  REQUIRE_NOTHROW(legacy_cfg.validate());
+
+  YAML::Node explicit_none = YAML::Load(R"(
+bge:
+  enabled: true
+  method: none
+)");
+  auto none_cfg = tile_compile::config::Config::from_yaml(explicit_none);
+  REQUIRE_FALSE(none_cfg.bge.enabled);
+  REQUIRE(none_cfg.bge.method == "none");
+  REQUIRE_NOTHROW(none_cfg.validate());
+
+  YAML::Node explicit_autobge = YAML::Load(R"(
+bge:
+  enabled: false
+  method: autobge
+  autobge:
+    random_seed: 123
+    stretch_mode: linear
+)");
+  auto autobge_cfg = tile_compile::config::Config::from_yaml(explicit_autobge);
+  REQUIRE(autobge_cfg.bge.enabled);
+  REQUIRE(autobge_cfg.bge.method == "autobge");
+  REQUIRE(autobge_cfg.bge.autobge.random_seed == 123);
+  REQUIRE(autobge_cfg.bge.autobge.stretch_mode == "linear");
+  REQUIRE_NOTHROW(autobge_cfg.validate());
+}
+
+TEST_CASE("bge_autobge_parameters_validate") {
+  YAML::Node invalid_patch_size = YAML::Load(R"(
+bge:
+  method: autobge
+  autobge:
+    patch_size: 14
+)");
+  auto patch_cfg =
+      tile_compile::config::Config::from_yaml(invalid_patch_size);
+  REQUIRE_THROWS(patch_cfg.validate());
+
+  YAML::Node invalid_method = YAML::Load(R"(
+bge:
+  method: experimental
+)");
+  auto method_cfg = tile_compile::config::Config::from_yaml(invalid_method);
+  REQUIRE_THROWS(method_cfg.validate());
+}
+
 TEST_CASE("stacking_cluster_quality_weighting_parses_and_validates") {
   YAML::Node node = YAML::Load(R"(
 data:

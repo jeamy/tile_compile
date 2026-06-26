@@ -28,9 +28,9 @@ export async function openStatsReport(runId, runDir = "") {
       return;
     }
     const artifactRelPath = reportPath.includes("/artifacts/")
-      ? reportPath.substring(reportPath.indexOf("/artifacts/") + "/artifacts/".length)
-      : "report.html";
-    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, artifactRelPath));
+      ? "artifacts/" + reportPath.substring(reportPath.indexOf("/artifacts/") + "/artifacts/".length)
+      : "artifacts/report.html";
+    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactRaw(runId, artifactRelPath, runDir));
     window.open(url, "_blank");
   } catch (e) {
     toastError(t("ui.toast.open_failed", "Öffnen fehlgeschlagen"), e.message);

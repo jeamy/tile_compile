@@ -169,7 +169,7 @@ async function selectRun(runId) {
         artList.appendChild(el("div", { class: "tc-text-sm tc-mono" },
           el("a", {
             href: "#",
-            onclick: (e) => { e.preventDefault(); viewArtifact(runId, art.path || name); },
+            onclick: (e) => { e.preventDefault(); viewArtifact(runId, art.path || name, status?.run_dir); },
           }, name),
         ));
       }
@@ -204,9 +204,9 @@ async function selectRun(runId) {
   }
 }
 
-async function viewArtifact(runId, path) {
+async function viewArtifact(runId, path, runDir = "") {
   try {
-    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, path));
+    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, path, runDir));
     window.open(url, "_blank");
   } catch (e) {
     toastError(t("ui.toast.view_failed", "Anzeigen fehlgeschlagen"), e.message);

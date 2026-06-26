@@ -16,11 +16,28 @@ bge:
   autotune:
     alpha_flatness: 0.25
     beta_roughness: 0.1
-    enabled: false
+    enabled: true
     holdout_fraction: 0.25
     max_evals: 24
     strategy: conservative
   enabled: false
+  method: none
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
   fit:
     huber_delta: 1.5
     irls_max_iterations: 10

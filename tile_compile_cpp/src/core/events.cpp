@@ -60,6 +60,18 @@ void EventEmitter::phase_start(const std::string& run_id, Phase phase,
     emit(event, out);
 }
 
+void EventEmitter::phase_start(const std::string& run_id, Phase phase,
+                               const std::string& name, std::ostream& out,
+                               const json& extra) {
+    json event = base_event("phase_start", run_id);
+    event["phase"] = phase_to_int(phase);
+    event["phase_name"] = name;
+    for (auto& [key, value] : extra.items()) {
+        event[key] = value;
+    }
+    emit(event, out);
+}
+
 /// @brief Implements phase progress.
 /// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -177,6 +189,17 @@ void EventEmitter::phase_start(const std::string& run_id, const std::string& pha
     json event = base_event("phase_start", run_id);
     event["phase"] = -1;
     event["phase_name"] = phase_name;
+    emit(event, out);
+}
+
+void EventEmitter::phase_start(const std::string& run_id, const std::string& phase_name,
+                               std::ostream& out, const json& extra) {
+    json event = base_event("phase_start", run_id);
+    event["phase"] = -1;
+    event["phase_name"] = phase_name;
+    for (auto& [key, value] : extra.items()) {
+        event[key] = value;
+    }
     emit(event, out);
 }
 

@@ -31,12 +31,22 @@ export function setPhaseClickHandler(handler) {
   phaseClickHandler = handler;
 }
 
+export function getBgeLabel(configDraft) {
+  const bgeMethod = configDraft?.bge?.method || "none";
+  if (bgeMethod === "none") return "BGE (Skipped)";
+  if (bgeMethod === "classic") return "BGE (Classic)";
+  if (bgeMethod === "autobge") return "BGE (AutoBGE)";
+  return "BGE";
+}
+
 export function getPhasesForConfig(configDraft) {
-  if (!configDraft || typeof configDraft !== "object") return DEFAULT_PHASES;
+  if (!configDraft || typeof configDraft !== "object") return DEFAULT_PHASES.map(p => ({ phase: p, label: p }));
   const method = configDraft.method;
   const aqmhEnabled = configDraft.aqmh && configDraft.aqmh.enabled;
-  if (method === "classic_tile_compile" || aqmhEnabled === false) return CLASSIC_PHASES;
-  return AQMH_PHASES;
+  const basePhases = (method === "classic_tile_compile" || aqmhEnabled === false) ? CLASSIC_PHASES : AQMH_PHASES;
+  return basePhases.map(p => p === "BGE"
+    ? { phase: "BGE", label: getBgeLabel(configDraft), bgeMethod: configDraft?.bge?.method || "none" }
+    : { phase: p, label: p });
 }
 
 export function getSelectedPhase() {
@@ -61,7 +71,11 @@ export function createPhaseList(phases = DEFAULT_PHASES, states = {}) {
   const wrapper = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.phases", "Phasen")),
     el("div", { class: "tc-phase-list", id: "phase-list" },
-      ...phases.map(name => createPhaseItem(name, states[name] || "pending")),
+      ...phases.map(p => {
+        const phaseId = typeof p === "string" ? p : (p.phase || "");
+        const label = typeof p === "string" ? p : (p.label || p.phase || "");
+        return createPhaseItem(phaseId, states[phaseId] || "pending", 0, label);
+      }),
     ),
   );
   return wrapper;
@@ -73,11 +87,12 @@ export function setPhaseList(phases, states = {}) {
   clear(list);
   for (const phase of phases) {
     const name = typeof phase === "string" ? phase : (phase.phase || phase.name || "");
+    const label = typeof phase === "string" ? phase : (phase.label || phase.phase || "");
     const state = typeof phase === "object" ? (phase.status || states[name] || "pending") : (states[name] || "pending");
     let pct = typeof phase === "object" ? (phase.pct || 0) : 0;
     if (pct <= 1.0) pct *= 100;
     if (state === "ok" || state === "done" || state === "skipped") pct = 100;
-    list.appendChild(createPhaseItem(name, state, pct));
+    list.appendChild(createPhaseItem(name, state, pct, label));
   }
   if (selectedPhase) {
     const item = list.querySelector(`.tc-phase-item[data-phase="${selectedPhase}"]`);
@@ -85,7 +100,7 @@ export function setPhaseList(phases, states = {}) {
   }
 }
 
-export function updatePhaseState(phaseName, status, pct) {
+export function updatePhaseState(phaseName, status, pct, label) {
   const list = document.getElementById("phase-list");
   if (!list) return;
   for (const item of list.querySelectorAll(".tc-phase-item")) {
@@ -99,6 +114,10 @@ export function updatePhaseState(phaseName, status, pct) {
       if (pctEl) pctEl.textContent = displayPct > 0 ? `${Math.round(displayPct)}%` : "";
       const barFill = item.querySelector(".tc-phase-bar-fill");
       if (barFill) barFill.style.width = `${Math.min(100, Math.round(displayPct))}%`;
+      if (label) {
+        const labelEl = item.querySelector(".tc-phase-label");
+        if (labelEl) labelEl.textContent = label;
+      }
       return;
     }
   }
@@ -134,7 +153,7 @@ export function resetPhasesForResume(fromPhase) {
   return newPhases;
 }
 
-function createPhaseItem(name, state, pct = 0) {
+function createPhaseItem(name, state, pct = 0, label = name) {
   const pctLabel = pct > 0 ? `${Math.round(pct)}%` : "";
   const barWidth = Math.min(100, Math.round(pct || 0));
   const resumable = RESUMABLE_PHASES.has(name) && isPhaseResumable(state);
@@ -144,7 +163,7 @@ function createPhaseItem(name, state, pct = 0) {
     ...(resumable ? { onclick: () => onPhaseClick(name) } : {}),
   },
     el("span", { class: "tc-phase-dot" }),
-    el("span", {}, name),
+    el("span", { class: "tc-phase-label" }, label),
     el("div", { class: "tc-phase-bar" },
       el("div", { class: "tc-phase-bar-fill", style: `width:${barWidth}%` }),
     ),

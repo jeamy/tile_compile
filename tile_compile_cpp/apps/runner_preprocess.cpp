@@ -215,6 +215,47 @@ prep::Config parse_preprocessing_config(const json& j) {
     const auto& b = j["bge"];
     cfg.has_bge_config = true;
     cfg.bge.enabled = json_bool(b, "enabled", cfg.bge.enabled);
+    if (b.contains("method") && b["method"].is_string()) {
+      cfg.bge.method = b["method"].get<std::string>();
+      cfg.bge.enabled = (cfg.bge.method != "none");
+    } else {
+      cfg.bge.method = cfg.bge.enabled ? "classic" : "none";
+    }
+    const json autobge = json_object(b, "autobge");
+    cfg.bge.autobge.num_sample_points =
+        json_int(autobge, "num_sample_points", cfg.bge.autobge.num_sample_points);
+    cfg.bge.autobge.poly_degree =
+        json_int(autobge, "poly_degree", cfg.bge.autobge.poly_degree);
+    cfg.bge.autobge.rbf_smooth =
+        json_float(autobge, "rbf_smooth", cfg.bge.autobge.rbf_smooth);
+    cfg.bge.autobge.downsample_scale =
+        json_int(autobge, "downsample_scale", cfg.bge.autobge.downsample_scale);
+    cfg.bge.autobge.patch_size =
+        json_int(autobge, "patch_size", cfg.bge.autobge.patch_size);
+    cfg.bge.autobge.patch_estimator =
+        json_string(autobge, "patch_estimator", cfg.bge.autobge.patch_estimator);
+    cfg.bge.autobge.stretch_mode =
+        json_string(autobge, "stretch_mode", cfg.bge.autobge.stretch_mode);
+    cfg.bge.autobge.stretch_target_median =
+        json_float(autobge, "stretch_target_median",
+                   cfg.bge.autobge.stretch_target_median);
+    cfg.bge.autobge.border_margin =
+        json_int(autobge, "border_margin", cfg.bge.autobge.border_margin);
+    cfg.bge.autobge.bright_exclusion_fraction =
+        json_float(autobge, "bright_exclusion_fraction",
+                   cfg.bge.autobge.bright_exclusion_fraction);
+    cfg.bge.autobge.gradient_descent_max_iters =
+        json_int(autobge, "gradient_descent_max_iters",
+                 cfg.bge.autobge.gradient_descent_max_iters);
+    cfg.bge.autobge.random_seed =
+        json_int(autobge, "random_seed", cfg.bge.autobge.random_seed);
+    cfg.bge.autobge.normalize_between_stages =
+        json_bool(autobge, "normalize_between_stages",
+                  cfg.bge.autobge.normalize_between_stages);
+    cfg.bge.autobge.apply_guards =
+        json_bool(autobge, "apply_guards", cfg.bge.autobge.apply_guards);
+    cfg.bge.autobge.mono_mode =
+        json_string(autobge, "mono_mode", cfg.bge.autobge.mono_mode);
     cfg.bge.sample_quantile = json_float(b, "sample_quantile", cfg.bge.sample_quantile);
     cfg.bge.sample_estimator = json_string(b, "sample_estimator", cfg.bge.sample_estimator);
     cfg.bge.min_sample_bg_value = json_float(b, "min_sample_bg_value", cfg.bge.min_sample_bg_value);
@@ -1178,6 +1219,7 @@ std::vector<TileMetrics> measure_bge_tile_metrics(const Matrix2Df& R,
 config::BGEConfig default_preprocess_bge_config() {
   config::BGEConfig cfg;
   cfg.enabled = true;
+  cfg.method = "classic";
   cfg.min_valid_samples_for_apply = 16;
   cfg.min_valid_sample_fraction_for_apply = 0.10f;
   cfg.grid.N_g = 32;
@@ -1302,7 +1344,22 @@ PreprocessPostprocessResult run_preprocess_postprocess(
   }
 
   fs::path current_rgb = stack.stacked_rgb_path;
-  emitter.phase_start(run_id, prep::phase_to_string(prep::Phase::BGE), event_out);
+  // Determine BGE method for phase label before emitting phase_start
+  std::string bge_method_for_label;
+  if (!cfg.postprocess.bge) {
+    bge_method_for_label = "none";
+  } else if (cfg.has_bge_config) {
+    bge_method_for_label = cfg.bge.method;
+  } else {
+    bge_method_for_label = "classic";
+  }
+  const std::string bge_phase_label =
+      (bge_method_for_label == "none")    ? "BGE (Skipped)" :
+      (bge_method_for_label == "classic") ? "BGE (Classic)" :
+                                            "BGE (AutoBGE)";
+  emitter.phase_start(run_id, prep::phase_to_string(prep::Phase::BGE), event_out,
+                      {{"label", bge_phase_label},
+                       {"bge_method", bge_method_for_label}});
   if (!cfg.postprocess.bge) {
     add_phase_result(result.phases, "BGE", "skipped", {{"reason", "disabled"}});
     emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::BGE), "skipped",
@@ -1314,7 +1371,10 @@ PreprocessPostprocessResult run_preprocess_postprocess(
   } else {
     auto rgb = io::read_fits_rgb(current_rgb);
     config::BGEConfig bge_source = cfg.has_bge_config ? cfg.bge : default_preprocess_bge_config();
-    if (!cfg.has_bge_config) bge_source.enabled = true;
+    if (!cfg.has_bge_config) {
+      bge_source.enabled = true;
+      bge_source.method = "classic";
+    }
     float seeing_fwhm = accepted_median_fwhm(qa);
     if (pp.color_mode == tile_compile::ColorMode::OSC && seeing_fwhm > 0.0f) {
       seeing_fwhm *= 2.0f;

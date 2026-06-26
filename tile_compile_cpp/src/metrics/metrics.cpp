@@ -186,6 +186,39 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     m.background = masked_median(*metrics_frame, bg_mask);
     m.noise = masked_sigma_mad(*metrics_frame, bg_mask, m.background);
 
+    // Large-scale sky gradient: compare background medians of four quadrants.
+    // This captures the additive sky gradient (e.g. light pollution, moon glow)
+    // separately from gradient_energy which measures local pixel-scale structure.
+    {
+        const int h2 = metrics_frame->rows() / 2;
+        const int w2 = metrics_frame->cols() / 2;
+        float q[4] = {0, 0, 0, 0};
+        for (int qi = 0; qi < 4; ++qi) {
+            const int y0 = (qi / 2) * h2;
+            const int x0 = (qi % 2) * w2;
+            const int y1 = (qi / 2 == 0) ? h2 : metrics_frame->rows();
+            const int x1 = (qi % 2 == 0) ? w2 : metrics_frame->cols();
+            std::vector<float> qvals;
+            qvals.reserve(static_cast<size_t>(y1 - y0) * static_cast<size_t>(x1 - x0));
+            for (int y = y0; y < y1; ++y) {
+                const float* row = metrics_frame->data() + static_cast<size_t>(y) * static_cast<size_t>(metrics_frame->cols());
+                const uint8_t* mrow = bg_mask.ptr<uint8_t>(y);
+                for (int x = x0; x < x1; ++x) {
+                    if (mrow[x] != 0) qvals.push_back(row[x]);
+                }
+            }
+            q[qi] = qvals.empty() ? 0.0f : core::median_of(qvals);
+        }
+        float qmin = q[0], qmax = q[0];
+        for (int qi = 1; qi < 4; ++qi) {
+            qmin = std::min(qmin, q[qi]);
+            qmax = std::max(qmax, q[qi]);
+        }
+        m.sky_gradient = (m.background > 1e-6f)
+            ? (qmax - qmin) / m.background
+            : 0.0f;
+    }
+
     cv::Mat grad_x, grad_y;
     cv::Sobel(cv_used, grad_x, CV_32F, 1, 0);
     cv::Sobel(cv_used, grad_y, CV_32F, 0, 1);

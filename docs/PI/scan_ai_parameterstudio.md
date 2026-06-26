@@ -315,7 +315,7 @@ Request:
     "data.color_mode",
     "registration.engine",
     "registration.transform_model",
-    "bge.enabled"
+    "bge.method"
   ],
   "persist": true
 }
@@ -552,7 +552,9 @@ Parameter Studio kann die KI-Deltas als vorhandene Situation-Deltas darstellen, 
 | starke Rotation / Alt-Az | `registration.engine=triangle_star_matching`, `registration.transform_model=affine`, `registration.allow_rotation=true` |
 | grosse Drift | `registration.star_shift_radius_px` erhoehen |
 | schwache Sterne / Nebel | `registration.star_topk` erhoehen, lokale Hintergrundsubtraktion pruefen |
-| starker Hintergrundgradient | `bge.enabled=true`, `bge.fit.method=rbf`, robuste Quantil-Samples |
+| starker Hintergrundgradient | `bge.method=classic`, `bge.fit.method=poly`, `bge.autotune.strategy=extended`, `bge.sample_quantile=0.15`, `bge.grid.insufficient_cell_strategy=radius_expand` |
+| schwacher Hintergrundgradient (<5%) | `bge.method=classic`, `bge.fit.method=poly`, `bge.autotune.alpha_flatness=0.40` (mehr Gewicht auf Flatness), `bge.autotune.strategy=extended` |
+| AutoBGE `flatness_worsened` | Zu `bge.method=classic` wechseln; AutoBGE-Guards sind bei schwachen Gradienten zu streng |
 | sehr helle Sterne / Sättigung | PCC vorsichtiger, BGE-Maskendilatation erhoehen |
 | OSC mit Bayer-Pattern | `data.color_mode=OSC`, `data.bayer_pattern=<detected>` nur bei eindeutiger Evidenz |
 | MONO ohne Bayer-Hinweis | `data.color_mode=MONO`, kein Bayer-Patch |

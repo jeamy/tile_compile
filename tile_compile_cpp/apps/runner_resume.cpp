@@ -1780,20 +1780,27 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   auto run_bge_phase = [&]() -> bool {
     namespace image = tile_compile::image;
     core::EventEmitter emitter;
-    emitter.phase_start(run_id, Phase::BGE, "BGE", log_file);
+    const std::string bge_phase_label =
+        (cfg.bge.method == "none")    ? "BGE (Skipped)" :
+        (cfg.bge.method == "classic") ? "BGE (Classic)" :
+                                        "BGE (AutoBGE)";
+    emitter.phase_start(run_id, Phase::BGE, "BGE", log_file,
+                        {{"label", bge_phase_label},
+                         {"bge_method", cfg.bge.method}});
 
     io::FitsHeader bge_hdr = rgb.header;
     if (have_wcs) {
       inject_wcs_keywords(bge_hdr, wcs);
     }
 
-    if (!cfg.bge.enabled) {
+    if (cfg.bge.method == "none") {
       std::error_code ec_linear;
       std::error_code ec_display;
       fs::remove(stacked_rgb_bge_linear_path, ec_linear);
       fs::remove(stacked_rgb_bge_path, ec_display);
       emitter.phase_end(run_id, Phase::BGE, "skipped",
                         {{"reason", "disabled"},
+                         {"bge_method", cfg.bge.method},
                          {"artifact", (run_dir / "artifacts" / "bge.json").string()}},
                         log_file);
       return true;
@@ -1870,6 +1877,31 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     bge_artifact["local_metrics_tiles"] = static_cast<int>(bge_tile_metrics.size());
     bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());
     bge_artifact["config"] = {
+        {"enabled", cfg.bge.enabled},
+        {"method", cfg.bge.method},
+        {"autobge",
+         {
+             {"num_sample_points", cfg.bge.autobge.num_sample_points},
+             {"poly_degree", cfg.bge.autobge.poly_degree},
+             {"rbf_smooth", cfg.bge.autobge.rbf_smooth},
+             {"downsample_scale", cfg.bge.autobge.downsample_scale},
+             {"patch_size", cfg.bge.autobge.patch_size},
+             {"patch_estimator", cfg.bge.autobge.patch_estimator},
+             {"stretch_mode", cfg.bge.autobge.stretch_mode},
+             {"stretch_target_median", cfg.bge.autobge.stretch_target_median},
+             {"border_margin", cfg.bge.autobge.border_margin},
+             {"bright_exclusion_fraction",
+              cfg.bge.autobge.bright_exclusion_fraction},
+             {"gradient_descent_max_iters",
+              cfg.bge.autobge.gradient_descent_max_iters},
+             {"random_seed", cfg.bge.autobge.random_seed},
+             {"normalize_between_stages",
+              cfg.bge.autobge.normalize_between_stages},
+             {"apply_guards", cfg.bge.autobge.apply_guards},
+             {"mono_mode", cfg.bge.autobge.mono_mode},
+         }},
+        {"classic",
+         {
         {"sample_quantile", cfg.bge.sample_quantile},
         {"sample_estimator", cfg.bge.sample_estimator},
         {"min_sample_bg_value", cfg.bge.min_sample_bg_value},
@@ -1914,6 +1946,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
              {"beta_roughness", cfg.bge.autotune.beta_roughness},
              {"strategy", cfg.bge.autotune.strategy},
          }},
+        }},
     };
     const fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
     core::write_text(bge_artifact_path, bge_artifact.dump(2));

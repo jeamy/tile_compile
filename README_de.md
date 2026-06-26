@@ -743,8 +743,30 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Mathematische Basis: Inverse Hyperbolic Stretch (IHS) und Vector Color Preservation
 - Sensorik-Basis: hardware-spezifische Quantum-Efficiency-Gewichtung
 
+Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-Skript abgeleitet:
+
+- (c) Adrian Knagg-Baugh from Franklin Marek SAS code (2025)
+- AutoBGE for Siril
+- SPDX-License-Identifier: GPL-3.0-or-later
+- Version 2.0.2
+- Zwei-Stufen-Polynomial-+ RBF-Hintergrundmodell-Ansatz
+- Intelligente Sample-Point-Generierung mit Gradient-Descent zum dunkelsten lokalen Punkt
+
 
 ## Versionen
+
+## v0.3.8 (2026-06-26)
+
+- AutoBGE-Implementierung: Native C++-Portierung des AutoBGE-Siril-Skripts (Polynomial- + RBF-Hintergrundmodell, intelligente Sample-Point-Generierung mit Gradient Descent, Zwei-Stufen-Fit). Basierend auf dem AutoBGE-Siril-Skript von Adrian Knagg-Baugh.
+- AI-Update: `sky_gradient`-Metrik in `scan-metrics` zur Erfassung großskaliger Hintergrundverläufe hinzugefügt. BGE-Prompt-Regeln mit `sky_gradient`-basierten Entscheidungsschwellen aktualisiert.
+
+## v0.3.7 (2026-06-25)
+
+- Bug fixes.
+
+## v0.3.6 (2026-06-24)
+
+- Bug fixes.
 
 ## v0.3.5 (2026-06-22)
 
@@ -1002,6 +1024,13 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 - Erste öffentliche Version
 
 ## Changelog
+
+### (26.06.2026)
+
+**AutoBGE-Implementierung, AI-Update (`v0.3.8`):**
+
+- **AutoBGE:** Native C++-Implementierung der AutoBGE-Hintergrundgradienten-Extraktion, portiert vom AutoBGE-Siril-Skript (© Adrian Knagg-Baugh, 2025). Zwei-Stufen-Polynomial- + RBF-Hintergrundmodell mit intelligenter Sample-Point-Generierung und Gradient Descent zum dunkelsten lokalen Punkt. Integriert als `bge.method=autobge` neben dem bestehenden `classic`-BGE-Pfad.
+- **AI-Update:** Neue `sky_gradient`-Metrik in `scan-metrics` misst großskalige Hintergrundverläufe (Quadranten-Median-Differenz / Gesamt-Median), separat von `gradient_energy` (lokale Pixel-Skala, Sobel). Der AI-Sidecar-Prompt nutzt nun `sky_gradient` mit Entscheidungsschwellen (≥0,05 → BGE empfohlen; 0,02–0,05 → moderat; <0,02 → vernachlässigbar) für präzise BGE-Empfehlungen. BGE-Regeln aktualisiert: `classic` vor `autobge`, `poly` vor `rbf`, `extended`-Autotune-Strategie für Nebulosität.
 
 ### (22.06.2026)
 
@@ -1433,6 +1462,7 @@ Die HyperMetric-Stretch-Phase (HMS) wurde aus dem VeraLux HyperMetric Stretch Si
 **BGE (Background Gradient Extraction):**
 
 - Optionale BGE-Stufe vor PCC ergänzt, die den modellierten Hintergrund direkt von den RGB-Kanälen subtrahiert.
+- `bge.method` ist der aktive Selektor: `none` (Default), `classic` oder `autobge`; das alte `bge.enabled` bleibt nur Kompatibilität, wenn `method` fehlt.
 - Vordergrundbewusste BGE-Fit-Methode `modeled_mask_mesh` ergänzt, um in schwierigen Feldern mit großflächigen diffusen Objekten (z.B. M31/M42) Farbwolken vor PCC zu reduzieren.
 - Neues Artefakt `artifacts/bge.json` mit kanalweisen Diagnosedaten (Tile-Samples, Grid-Zellen, Residuenstatistik).
 - Report-Generator um eigenen BGE-Abschnitt mit Zusammenfassungsplots und Residuenanalyse erweitert.

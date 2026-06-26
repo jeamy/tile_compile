@@ -727,8 +727,30 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 - Math basis: Inverse Hyperbolic Stretch (IHS) and Vector Color Preservation
 - Sensor science: hardware-specific Quantum Efficiency weighting
 
+The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril script:
+
+- (c) Adrian Knagg-Baugh from Franklin Marek SAS code (2025)
+- AutoBGE for Siril
+- SPDX-License-Identifier: GPL-3.0-or-later
+- Version 2.0.2
+- Two-stage polynomial + RBF background model approach
+- Smart sample point generation with gradient descent to dimmest local spot
+
 
 ## Versions
+
+## v0.3.8 (2026-06-26)
+
+- AutoBGE implementation: native C++ port of the AutoBGE Siril script (polynomial + RBF background model, smart sample point generation with gradient descent, two-stage fit). Based on the AutoBGE Siril script by Adrian Knagg-Baugh.
+- AI update: `sky_gradient` metric added to scan-metrics for large-scale background gradient detection. BGE prompt rules updated with `sky_gradient`-based decision thresholds.
+
+## v0.3.7 (2026-06-25)
+
+- Bug fixes.
+
+## v0.3.6 (2026-06-24)
+
+- Bug fixes.
 
 ## v0.3.5 (2026-06-22)
 
@@ -986,6 +1008,13 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 - First public release
 
 ## Changelog
+
+### (2026-06-26)
+
+**AutoBGE implementation, AI update (`v0.3.8`):**
+
+- **AutoBGE:** Native C++ implementation of the AutoBGE background gradient extraction, ported from the AutoBGE Siril script (© Adrian Knagg-Baugh, 2025). Two-stage polynomial + RBF background model with smart sample point generation and gradient descent to dimmest local spot. Integrated as `bge.method=autobge` alongside the existing `classic` BGE path.
+- **AI update:** New `sky_gradient` metric in `scan-metrics` measures large-scale background gradient (quadrant median diff / overall median), separate from `gradient_energy` (local pixel-scale Sobel). The AI sidecar prompt now uses `sky_gradient` with decision thresholds (≥0.05 → recommend BGE; 0.02–0.05 → moderate; <0.02 → negligible) to provide accurate BGE recommendations. BGE rules updated: prefer `classic` over `autobge`, `poly` over `rbf`, `extended` autotune strategy for nebulosity.
 
 ### (2026-06-22)
 
@@ -1424,6 +1453,7 @@ The HyperMetric Stretch (HMS) phase is derived from the VeraLux HyperMetric Stre
 **BGE (Background Gradient Extraction):**
 
 - Added optional pre-PCC BGE stage that directly subtracts modeled background from RGB channels.
+- `bge.method` is the active selector: `none` (default), `classic`, or `autobge`; legacy `bge.enabled` remains compatibility-only when `method` is absent.
 - Added foreground-aware BGE fit method `modeled_mask_mesh` for difficult fields with large diffuse objects (e.g. M31/M42) to reduce color-cloud artifacts before PCC.
 - Added `artifacts/bge.json` with per-channel diagnostics (tile samples, grid cells, residual statistics).
 - Extended report generation to include a dedicated BGE section with summary plots and residual analysis.

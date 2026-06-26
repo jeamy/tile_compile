@@ -35,6 +35,7 @@ export function createPathInput(opts = {}) {
         });
         if (chosen) {
           input.value = chosen;
+          if (onInput) onInput(chosen);
           input.dispatchEvent(new Event("input"));
         }
       }

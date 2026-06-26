@@ -31,7 +31,7 @@ const SCENARIO_DELTAS = {
     ["synthetic.clustering.cluster_count_range", [3, 10]],
   ],
   gradient: [
-    ["bge.enabled", true],
+    ["bge.method", "autobge"],
     ["bge.fit.method", "rbf"],
     ["bge.fit.rbf_lambda", "1e-2"],
     ["bge.sample_estimator", "quantile"],
@@ -50,7 +50,7 @@ const SCENARIO_DELTAS = {
   wide_field: [
     ["registration.transform_model", "affine"],
     ["registration.star_topk", 300],
-    ["bge.fit.method", "rbf"],
+    ["bge.method", "autobge"],
   ],
 };
 

@@ -520,8 +520,8 @@ def mock_ai_empfehlung():
          "Alt-Az Mount erzeugt starke Feldrotation. hybrid_phase_ecc\nkompensiert Rotation + Translation gleichzeitig und ist robuster\nbei dithered frames.", "Risiko: niedrig", True),
         ("☑", "registration.star_topk", "180 → 250",
          "325 Frames mit Seeing-Schwankungen. Mehr Sterne geben\nrobusteren Match bei teilweise verwischten Frames.", "Risiko: minimal", True),
-        ("☐", "bge.fit.method", "rbf → rbf (bereits optimal)",
-         "RBF ist die beste Wahl für ausgedehnte Gradienten bei\nGalaxienfeldern. Keine Änderung nötig.", "Risiko: –", False),
+        ("☑", "bge.method", "none → classic",
+         "Sichtbarer großskaliger Gradient. Classic nutzt den\nbestehenden robusten RBF-Fit.", "Risiko: mittel", True),
         ("☑", "aqmh.cherry_pick.enabled", "false → true (k_frac=0.30, k_min=3)",
          "Bei 325 Frames mit Seeing-Schwankungen kann Cherry-Picking\ndie besten 30% auswählen und SQM deutlich verbessern.", "Risiko: mittel", True),
     ]

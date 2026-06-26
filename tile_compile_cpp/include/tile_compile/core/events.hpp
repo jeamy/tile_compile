@@ -17,7 +17,11 @@ public:
     void run_end(const std::string& run_id, bool success, const std::string& status, std::ostream& out);
     
     void phase_start(const std::string& run_id, Phase phase, const std::string& name, std::ostream& out);
+    void phase_start(const std::string& run_id, Phase phase, const std::string& name,
+                     std::ostream& out, const json& extra);
     void phase_start(const std::string& run_id, const std::string& phase_name, std::ostream& out);
+    void phase_start(const std::string& run_id, const std::string& phase_name,
+                     std::ostream& out, const json& extra);
     void phase_progress(const std::string& run_id, Phase phase, float progress, 
                         const std::string& message, std::ostream& out);
     void phase_progress(const std::string& run_id, const std::string& phase_name, float progress,

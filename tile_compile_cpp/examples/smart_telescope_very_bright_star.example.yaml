@@ -196,9 +196,26 @@ astrometry:
 
 bge:
   enabled: false # nur aktivieren, wenn zusaetzlich grossflaechige Gradienten sichtbar sind
+  method: none
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
   tile_weight_lambda_structure: 1.0
   autotune:
-    enabled: false # optionales deterministisches BGE-Autotuning
+    enabled: true # optionales deterministisches BGE-Autotuning
     strategy: conservative # conservative | extended
     max_evals: 24 # harte Obergrenze getesteter Kandidaten
     holdout_fraction: 0.25 # CV-Anteil, gueltig in [0.05, 0.50]

@@ -60,6 +60,11 @@ They are kept in sync with the active runner/config parser defaults, including:
   - Logs erscheinen unter `[AQMH]`; Ergebnis in `artifacts/aqmh.json`.
 - `bge.*` (Background Gradient Extraction, v3.3 §6.3)
   - **NEW in v3.3**: Optional pre-PCC background gradient removal
+  - `bge.method` is the authoritative selector:
+    - `none`: disabled (default)
+    - `classic`: current grid/tile BGE
+    - `autobge`: two-stage poly+RBF AutoBGE path
+  - `bge.enabled` is kept for legacy configs; when `bge.method` is present, `method` wins.
   - Removes large-scale gradients (light pollution, moonlight, airglow) before color calibration
   - Applied directly to RGB channels before PCC (not diagnostics-only)
   - Tile-based sampling with configurable quantile (default: 20th percentile)
@@ -83,7 +88,7 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `bge.autotune.holdout_fraction` (`0.05..0.50`)
     - `bge.autotune.alpha_flatness`
     - `bge.autotune.beta_roughness`
-  - **Disabled by default** - enable with `bge.enabled: true` when gradients are present
+  - **Disabled by default** - use `bge.method: classic` or `bge.method: autobge` when gradients are present
   - Recommended for urban/suburban imaging or when PCC shows color bias across the field
 - `pcc.*` (Photometric Color Calibration, v3.3.6 §6.4)
   - Includes local annulus background model:
@@ -161,7 +166,7 @@ They are kept in sync with the active runner/config parser defaults, including:
    - (optional, OSC) tune `chroma_denoise.blend.amount` and `chroma_denoise.apply_stage`
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
    - (optional) tune `stacking.common_overlap_*` only if you intentionally want more edge coverage
-   - (optional, v3.3) enable `bge.enabled: true` if gradients are visible (urban light pollution, moonlight)
+   - (optional, v3.3) set `bge.method: classic` or `bge.method: autobge` if gradients are visible (urban light pollution, moonlight)
    - (optional, v3.3) for dense nebulosity/star fields, reduce `bge.min_valid_sample_fraction_for_apply` carefully (e.g. `0.30 -> 0.28`)
    - (optional, v3.3) if mild red cast remains: reduce `bge.structure_thresh_percentile` (e.g. 0.90 -> 0.75)
    - (optional, v3.3) if residual cast persists: try `bge.fit.robust_loss: tukey`

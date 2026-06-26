@@ -389,7 +389,45 @@ properties:
     properties:
       enabled:
         type: boolean
-        description: "Background Gradient Equalizer. Fits and subtracts a smooth 2D background gradient across the stacked image. DANGER for extended emission nebulae (M42, Orion Nebula, large HII regions, large galaxies): the BGE gradient model cannot distinguish between real diffuse nebula emission and instrumental/sky gradients. It will model the nebula glow as background and subtract it, destroying the object. Only recommend enabling for compact targets (stars, small galaxies, tight clusters) where the object covers <5% of the frame area. For M42 or any target with large-scale diffuse emission, BGE must remain disabled (enabled: false)."
+        description: "Legacy compatibility flag. Prefer bge.method. If bge.method is present it is authoritative; otherwise enabled=true maps to method=classic and enabled=false maps to method=none."
+      method:
+        type: string
+        enum: [none, classic, autobge]
+        default: none
+        description: "BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine. This field is authoritative when present."
+      autobge:
+        type: object
+        properties:
+          num_sample_points:
+            type: integer
+            minimum: 0
+            default: 0
+            description: "Number of AutoBGE sample points. 0 lets the implementation derive a deterministic image-size-based count."
+          poly_degree: {type: integer, minimum: 1, maximum: 6, default: 2}
+          rbf_smooth: {type: number, minimum: 0, default: 0.1}
+          downsample_scale: {type: integer, minimum: 1, default: 4}
+          patch_size:
+            type: integer
+            minimum: 3
+            default: 15
+            description: "Odd patch size used for local background sampling."
+          patch_estimator: {type: string, enum: [median, sigma_clipped_median], default: median}
+          stretch_mode:
+            type: string
+            enum: [none, linear, mtf]
+            default: linear
+            description: "Working-space transform used only for AutoBGE sampling/fitting. Default linear preserves the additive background contract; mtf is an experimental AutoBGE-parity mode."
+          stretch_target_median: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.25}
+          border_margin: {type: integer, minimum: 0, default: 10}
+          bright_exclusion_fraction: {type: number, exclusiveMinimum: 0, exclusiveMaximum: 1, default: 0.5}
+          gradient_descent_max_iters: {type: integer, minimum: 1, default: 100}
+          random_seed: {type: integer, default: 42}
+          normalize_between_stages: {type: boolean, default: true}
+          apply_guards:
+            type: boolean
+            default: true
+            description: "When true, AutoBGE uses the shared outer BGE apply guards before mutating RGB output."
+          mono_mode: {type: string, enum: [rgb_duplicate, disabled], default: rgb_duplicate}
       autotune:
         type: object
         properties:

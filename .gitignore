@@ -111,3 +111,6 @@ zenodo-3.6.6/
 
 # Web backend runtime logs
 web_backend/runtime/*.jsonl
+
+# Backend persisted allowed roots
+.allowed_roots

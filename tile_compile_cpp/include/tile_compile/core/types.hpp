@@ -118,7 +118,8 @@ struct TileGrid {
 struct FrameMetrics {
     float background;      // B - median background level
     float noise;           // σ - robust noise estimate
-    float gradient_energy; // E - gradient energy
+    float gradient_energy; // E - gradient energy (local pixel-scale)
+    float sky_gradient;    // Large-scale background gradient (quadrant median diff / overall median)
     float quality_score;   // Combined quality score
 };
 

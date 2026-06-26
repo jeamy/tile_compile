@@ -198,46 +198,81 @@ astrometry:
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 
+# ============================================================================
+# BGE: Optimized for IC434 region based on run ic434-abge1_20260626_165450
+# ============================================================================
+# Run analysis findings:
+# - Gradient is very weak (~2.5% across 4296x3148 px)
+# - Autotune consistently selects poly over rbf (100% of channels)
+# - Autotune selects sample_quantile=0.15, structure_thresh=0.85 (R/G) / 0.90 (B)
+# - AutoBGE was rejected 3x by flatness_worsened guard; Classic BGE worked immediately
+# - 7/32 grid cells discarded at borders; radius_expand recovers them
+# - Guard flatness improved ~50%, slope reduced ~15x with classic BGE
+# ============================================================================
+
 bge:
-  enabled: false
-  # IC434/Horsehead: preserve real H-alpha nebulosity while suppressing
-  # large-scale chromatic sky gradients. Use robust sky sampling and a smooth
-  # RBF surface instead of poly3, because the previous run fitted R/B almost
-  # flat while G received a real correction surface.
+  enabled: true
+  method: classic
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 30
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
+  tile_weight_lambda_structure: 1.0
+  
+  # Autotune: Extended strategy for nebulosity, emphasis on flatness
   autotune:
     enabled: true
-    strategy: extended
-    max_evals: 48
-    holdout_fraction: 0.25
-    alpha_flatness: 0.8
-    beta_roughness: 0.15
-  sample_estimator: sextractor_mode # quantile|sigma_clipped_median|sextractor_mode|biweight
+    strategy: extended              # extended: sweeps more estimators/quantiles for nebulosity
+    max_evals: 32                   # 32 evals/channel for thorough optimization
+    holdout_fraction: 0.20
+    alpha_flatness: 0.40            # more weight on flatness for weak gradients
+    beta_roughness: 0.08            # less roughness penalty
+  
+  # Sampling parameters
+  sample_estimator: quantile # quantile|sigma_clipped_median|sextractor_mode|biweight
   min_sample_bg_value: 1.0
-  sample_quantile: 0.18
-  structure_thresh_percentile: 0.72
-  tile_weight_lambda_structure: 2.5
+  sample_quantile: 0.15             # conservative background sampling
+  structure_thresh_percentile: 0.85 # autotune selected 0.85 for R/G, 0.90 for B
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.25
-  min_valid_samples_for_apply: 100
+  min_valid_sample_fraction_for_apply: 0.28  # slightly relaxed for dense nebulosity/star fields
+  min_valid_samples_for_apply: 96
+  
+  # Masking
   mask:
-    star_dilate_px: 12
-    sat_dilate_px: 12
+    star_dilate_px: 6
+    sat_dilate_px: 6
+  
+  # Grid: Finer sampling for better gradient capture
   grid:
-    N_g: 64
-    G_min_px: 40
-    G_max_fraction: 0.14
+    N_g: 36                         # increased from 32 - more grid cells
+    G_min_px: 56                    # reduced from 64 - allow smaller cells
+    G_max_fraction: 0.25
     insufficient_cell_strategy: radius_expand
+  
+  # Fit: Poly preferred by autotune (selected 100% over rbf in run analysis)
   fit:
-    method: rbf
-    robust_loss: tukey
+    method: poly
+    robust_loss: huber
     huber_delta: 1.5
-    irls_max_iterations: 12
+    irls_max_iterations: 10
     irls_tolerance: 1e-4
-    polynomial_order: 3
+    polynomial_order: 2
     rbf_phi: multiquadric
-    rbf_mu_factor: 2.5
-    rbf_lambda: 3e-2
-    rbf_epsilon: 1e-6
+    rbf_mu_factor: 1.5
+    rbf_lambda: 0.01
+    rbf_epsilon: 1.0
 
 pcc:
   enabled: true

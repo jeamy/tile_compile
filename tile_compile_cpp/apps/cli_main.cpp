@@ -1075,6 +1075,7 @@ int cmd_scan_metrics(const std::string& input_path) {
         float background = 0.0f;
         float noise = 0.0f;
         float gradient_energy = 0.0f;
+        float sky_gradient = 0.0f;
         float fwhm = 0.0f;
         float fwhm_x = 0.0f;
         float fwhm_y = 0.0f;
@@ -1110,6 +1111,7 @@ int cmd_scan_metrics(const std::string& input_path) {
                 fr.background = fm.background;
                 fr.noise = fm.noise;
                 fr.gradient_energy = fm.gradient_energy;
+                fr.sky_gradient = fm.sky_gradient;
 
                 auto sm = metrics::measure_frame_stars(img, 0);
                 fr.fwhm = sm.fwhm;
@@ -1152,7 +1154,7 @@ int cmd_scan_metrics(const std::string& input_path) {
               << " frames completed." << std::endl;
 
     // Build output
-    std::vector<float> all_bg, all_noise, all_grad, all_fwhm, all_round;
+    std::vector<float> all_bg, all_noise, all_grad, all_sky, all_fwhm, all_round;
     std::vector<int> all_stars;
     int ok_count = 0;
 
@@ -1182,12 +1184,15 @@ int cmd_scan_metrics(const std::string& input_path) {
         if (fr.ok) {
             fj["background"] = fr.background;
             fj["noise"] = fr.noise;
+            fj["gradient_energy"] = fr.gradient_energy;
+            fj["sky_gradient"] = fr.sky_gradient;
             fj["fwhm"] = fr.fwhm;
             fj["roundness"] = fr.roundness;
             fj["star_count"] = fr.star_count;
             all_bg.push_back(fr.background);
             all_noise.push_back(fr.noise);
             all_grad.push_back(fr.gradient_energy);
+            all_sky.push_back(fr.sky_gradient);
             if (fr.fwhm > 0) all_fwhm.push_back(fr.fwhm);
             if (fr.roundness > 0) all_round.push_back(fr.roundness);
             all_stars.push_back(fr.star_count);
@@ -1217,6 +1222,7 @@ int cmd_scan_metrics(const std::string& input_path) {
     agg["background"] = agg_stats(all_bg);
     agg["noise"] = agg_stats(all_noise);
     agg["gradient_energy"] = agg_stats(all_grad);
+    agg["sky_gradient"] = agg_stats(all_sky);
     agg["fwhm"] = agg_stats(all_fwhm);
     agg["roundness"] = agg_stats(all_round);
     if (!all_stars.empty()) {

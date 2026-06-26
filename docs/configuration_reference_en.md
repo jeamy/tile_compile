@@ -1335,7 +1335,8 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `quality_score`: applied as an additional tile-sample reliability factor.
 
 **Key BGE parameters:**
-- `bge.enabled`: Enable/disable (default: `false`)
+- `bge.method`: Engine selector `none|classic|autobge` (default: `none`; authoritative when present)
+- `bge.enabled`: Legacy enable/disable. Used only when `bge.method` is absent.
 - `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `1.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
@@ -1351,16 +1352,48 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.alpha_flatness`: objective weight for flatness term (minimum `0`, default `0.25`)
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
-**Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+**Recommendation:** Set `bge.method: classic` or `bge.method: autobge` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
 
-### `bge.enabled`
+### `bge.method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `none`, `classic`, `autobge` |
+| **Default** | `none` |
+
+**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, and `autobge` selects the two-stage poly+RBF AutoBGE implementation. When present, this value is authoritative.
+
+### `bge.enabled` (legacy)
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Enable or disable BGE before PCC.
+**Purpose:** Backward compatibility for older configs. If `bge.method` is absent, `enabled: true` maps to `method: classic` and `enabled: false` maps to `method: none`. If `bge.method` is present, `method` wins.
+
+### `bge.autobge.*`
+
+| Property | Default |
+|----------|---------|
+| `num_sample_points` | `0` |
+| `poly_degree` | `2` |
+| `rbf_smooth` | `0.1` |
+| `downsample_scale` | `4` |
+| `patch_size` | `15` |
+| `patch_estimator` | `median` |
+| `stretch_mode` | `linear` |
+| `stretch_target_median` | `0.25` |
+| `border_margin` | `10` |
+| `bright_exclusion_fraction` | `0.5` |
+| `gradient_descent_max_iters` | `100` |
+| `random_seed` | `42` |
+| `normalize_between_stages` | `true` |
+| `apply_guards` | `true` |
+| `mono_mode` | `rgb_duplicate` |
+
+**Purpose:** Parameters for `bge.method: autobge`. `stretch_mode: linear` is the conservative default because the later HyperMetric Stretch phase runs independently at the end and BGE should preserve the additive linear-image contract. `mtf` is intended only for AutoBGE parity/experiments.
 
 ### `bge.tile_weight_lambda_structure`
 

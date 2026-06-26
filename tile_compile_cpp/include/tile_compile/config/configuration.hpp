@@ -315,6 +315,25 @@ struct AstrometryConfig {
 
 struct BGEConfig {
   bool enabled = false;
+  std::string method = "none"; // none | classic | autobge
+
+  struct AutoBGEConfig {
+    int num_sample_points = 0;
+    int poly_degree = 2;
+    float rbf_smooth = 0.1f;
+    int downsample_scale = 4;
+    int patch_size = 15;
+    std::string patch_estimator = "median";
+    std::string stretch_mode = "linear";
+    float stretch_target_median = 0.25f;
+    int border_margin = 10;
+    float bright_exclusion_fraction = 0.5f;
+    int gradient_descent_max_iters = 100;
+    int random_seed = 42;
+    bool normalize_between_stages = true;
+    bool apply_guards = true;
+    std::string mono_mode = "rgb_duplicate";
+  } autobge;
   
   // Tile sampling (v3.3 §6.3.2)
   float sample_quantile = 0.20f;

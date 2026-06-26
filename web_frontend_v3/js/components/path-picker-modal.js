@@ -4,6 +4,51 @@ import { el, clear } from "../utils/dom.js";
 import { api } from "../api/client.js";
 import { t } from "../i18n/i18n.js";
 
+export async function promptGrantRoot(path, _allowedRoots) {
+  return new Promise((resolve) => {
+    const rootToGrant = path.replace(/\/[^/]*$/, "") || path;
+
+    const overlay = el("div", { class: "tc-modal-overlay" });
+
+    const modal = el("div", { class: "tc-modal" },
+      el("div", { class: "tc-modal-header" },
+        el("span", { class: "tc-modal-title" },
+          t("ui.grant_root.title", "Pfad nicht erlaubt")),
+        el("button", { class: "tc-btn tc-btn-sm", onclick: () => close(false) }, "✕"),
+      ),
+      el("div", { class: "tc-modal-body" },
+        el("p", { style: "font-size: var(--text-sm); margin: 0 0 0.5em;" },
+          t("ui.grant_root.message",
+            "Der Pfad liegt außerhalb der erlaubten Verzeichnisse. Soll er für diese Sitzung freigegeben werden?")),
+        el("code", { class: "tc-code-block" }, rootToGrant),
+      ),
+      el("div", { class: "tc-modal-footer" },
+        el("button", { class: "tc-btn", onclick: () => close(false) },
+          t("ui.button.cancel", "Abbrechen")),
+        el("button", { class: "tc-btn tc-btn-primary", onclick: () => grant() },
+          t("ui.grant_root.allow", "Erlauben")),
+      ),
+    );
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function close(result) {
+      overlay.remove();
+      resolve(result);
+    }
+
+    async function grant() {
+      try {
+        await api.post("/api/fs/grant-root", { path: rootToGrant });
+        close(true);
+      } catch (e) {
+        close(false);
+      }
+    }
+  });
+}
+
 export function openPathPicker(opts = {}) {
   const {
     mode = "dir",
@@ -75,7 +120,15 @@ export function openPathPicker(opts = {}) {
         try {
           data = await api.get(`/api/fs/list?${params}`);
         } catch (firstErr) {
-          if (firstErr.status === 400 && path) {
+          if (firstErr.status === 403 &&
+              firstErr.payload?.code === "PATH_NOT_ALLOWED") {
+            const granted = await promptGrantRoot(path, firstErr.payload?.details?.allowed_roots);
+            if (granted) {
+              data = await api.get(`/api/fs/list?${params}`);
+            } else {
+              throw firstErr;
+            }
+          } else if (firstErr.status === 400 && path) {
             const parent = path.replace(/\/[^/]+$/, "");
             if (parent && parent !== path) {
               currentPath = parent;

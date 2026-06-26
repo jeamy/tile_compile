@@ -185,9 +185,26 @@ astrometry:
   search_radius: 183
 bge:
   enabled: false
+  method: none
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
   tile_weight_lambda_structure: 1
   autotune:
-    enabled: false
+    enabled: true
     strategy: conservative
     max_evals: 24
     holdout_fraction: 0.25
@@ -196,7 +213,7 @@ bge:
   sample_estimator: quantile
   min_sample_bg_value: 1
   sample_quantile: 0.2
-  structure_thresh_percentile: 0.9
+  structure_thresh_percentile: 0.8
   min_tiles_per_cell: 3
   min_valid_sample_fraction_for_apply: 0.3
   min_valid_samples_for_apply: 96

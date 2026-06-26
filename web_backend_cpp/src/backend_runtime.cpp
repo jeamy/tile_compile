@@ -1,6 +1,7 @@
 #include "backend_runtime.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include <system_error>
 #include <vector>
@@ -379,6 +380,24 @@ BackendRuntime BackendRuntime::from_env() {
         rt._input_search_roots.push_back(rt.normalize_path(fs::path(root)));
     }
 
+    // Load persisted granted roots from file
+    {
+        fs::path roots_file = rt.project_root / ".allowed_roots";
+        std::error_code ec;
+        if (fs::exists(roots_file, ec)) {
+            std::ifstream in(roots_file);
+            std::string line;
+            while (std::getline(in, line)) {
+                auto trimmed = line;
+                while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\r' || trimmed.back() == '\n'))
+                    trimmed.pop_back();
+                if (trimmed.empty()) continue;
+                const std::string normalized = rt.normalize_path(fs::path(trimmed)).string();
+                if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+            }
+        }
+    }
+
     return rt;
 }
 
@@ -517,4 +536,13 @@ std::vector<fs::path> BackendRuntime::input_search_roots() const {
 void BackendRuntime::grant_root(const fs::path& p) {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     _allowed_roots.insert(normalize_path(p).string());
+
+    // Persist to file so granted roots survive backend restarts
+    if (!project_root.empty()) {
+        fs::path roots_file = project_root / ".allowed_roots";
+        std::ofstream out(roots_file, std::ios::app);
+        if (out) {
+            out << normalize_path(p).string() << "\n";
+        }
+    }
 }
