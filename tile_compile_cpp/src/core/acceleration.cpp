@@ -4,9 +4,9 @@
 #include "tile_compile/image/normalization.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
-#include <mutex>
 #include <sstream>
 
 #if __has_include(<opencv2/core/cuda.hpp>)
@@ -131,15 +131,6 @@ bool opencv_opencl_runtime_available() {
 #else
   return false;
 #endif
-}
-
-/// @brief Implements opencl api mutex.
-/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::mutex &opencl_api_mutex() {
-  static std::mutex mutex;
-  return mutex;
 }
 
 /// @brief Lists missing backend reason.
@@ -317,20 +308,14 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
   try {
     cv::cuda::GpuMat d_src;
     cv::cuda::GpuMat d_dst;
-    if (stream) {
-      d_src.upload(src, *stream);
-      cv::cuda::warpAffine(d_src, d_dst, warp_matrix, output_size,
-                           cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
-                           cv::BORDER_CONSTANT, cv::Scalar(0), *stream);
-      d_dst.download(dst, *stream);
-      stream->waitForCompletion();
-    } else {
-      d_src.upload(src);
-      cv::cuda::warpAffine(d_src, d_dst, warp_matrix, output_size,
-                           cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
-                           cv::BORDER_CONSTANT, cv::Scalar(0));
-      d_dst.download(dst);
-    }
+    cv::cuda::Stream &cuda_stream =
+        stream ? *stream : cv::cuda::Stream::Null();
+    d_src.upload(src, cuda_stream);
+    cv::cuda::warpAffine(d_src, d_dst, warp_matrix, output_size,
+                         cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                         cv::BORDER_CONSTANT, cv::Scalar(0), cuda_stream);
+    d_dst.download(dst, cuda_stream);
+    cuda_stream.waitForCompletion();
     return !dst.empty();
   } catch (...) {
     return false;
@@ -386,10 +371,36 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
   cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
   cv::Mat a_w, b_w, c_w, d_w;
   const cv::Size out_size(out_w_sub, out_h_sub);
-  if (!cuda_warp_affine_impl(a_cv, make_warp(-0.25f, -0.25f), out_size, a_w, stream) ||
-      !cuda_warp_affine_impl(b_cv, make_warp(0.25f, -0.25f), out_size, b_w, stream) ||
-      !cuda_warp_affine_impl(c_cv, make_warp(-0.25f, 0.25f), out_size, c_w, stream) ||
-      !cuda_warp_affine_impl(d_cv, make_warp(0.25f, 0.25f), out_size, d_w, stream)) {
+  if (stream) {
+    // Keep all four CFA planes in one stream and synchronize once. Calling the
+    // single-plane wrapper here would force four upload/warp/download barriers.
+    try {
+      std::array<cv::cuda::GpuMat, 4> d_src;
+      std::array<cv::cuda::GpuMat, 4> d_dst;
+      const std::array<cv::Mat, 4> src = {a_cv, b_cv, c_cv, d_cv};
+      std::array<cv::Mat *, 4> dst = {&a_w, &b_w, &c_w, &d_w};
+      const std::array<cv::Mat, 4> warps = {
+          make_warp(-0.25f, -0.25f), make_warp(0.25f, -0.25f),
+          make_warp(-0.25f, 0.25f), make_warp(0.25f, 0.25f)};
+      for (size_t i = 0; i < src.size(); ++i) {
+        d_src[i].upload(src[i], *stream);
+        cv::cuda::warpAffine(d_src[i], d_dst[i], warps[i], out_size,
+                             cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                             cv::BORDER_CONSTANT, cv::Scalar(0), *stream);
+        d_dst[i].download(*dst[i], *stream);
+      }
+      stream->waitForCompletion();
+    } catch (...) {
+      return false;
+    }
+  } else if (!cuda_warp_affine_impl(a_cv, make_warp(-0.25f, -0.25f), out_size,
+                                     a_w, nullptr) ||
+             !cuda_warp_affine_impl(b_cv, make_warp(0.25f, -0.25f), out_size,
+                                     b_w, nullptr) ||
+             !cuda_warp_affine_impl(c_cv, make_warp(-0.25f, 0.25f), out_size,
+                                     c_w, nullptr) ||
+             !cuda_warp_affine_impl(d_cv, make_warp(0.25f, 0.25f), out_size,
+                                     d_w, nullptr)) {
     return false;
   }
 
@@ -1319,7 +1330,6 @@ bool cuda_sigma_clip_weighted_tile_impl(
 
     out.tile.resize(rows, cols);
     cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
-    s.waitForCompletion();
     final_out.download(out_host, s);
     s.waitForCompletion();
     return true;
@@ -1547,7 +1557,6 @@ bool cuda_sigma_clip_stack_impl(
 
     out.resize(rows, cols);
     cv::Mat out_host(rows, cols, CV_32F, out.data());
-    s.waitForCompletion();
     final_out.download(out_host, s);
     s.waitForCompletion();
     return true;
@@ -1853,6 +1862,47 @@ void AccelerationContext::synchronize() const {
     } catch (...) {
     }
   }
+#endif
+}
+
+struct WorkerCudaStreams::Impl {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  std::vector<cv::cuda::Stream> streams;
+#endif
+};
+
+WorkerCudaStreams::WorkerCudaStreams(bool enabled, size_t worker_count)
+    : impl_(std::make_unique<Impl>()) {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  if (enabled && worker_count > 0) {
+    impl_->streams.resize(worker_count);
+  }
+#else
+  (void)enabled;
+  (void)worker_count;
+#endif
+}
+
+WorkerCudaStreams::~WorkerCudaStreams() = default;
+WorkerCudaStreams::WorkerCudaStreams(WorkerCudaStreams &&) noexcept = default;
+WorkerCudaStreams &
+WorkerCudaStreams::operator=(WorkerCudaStreams &&) noexcept = default;
+
+cv::cuda::Stream *WorkerCudaStreams::get(size_t worker_index) noexcept {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  return worker_index < impl_->streams.size() ? &impl_->streams[worker_index]
+                                               : nullptr;
+#else
+  (void)worker_index;
+  return nullptr;
+#endif
+}
+
+size_t WorkerCudaStreams::size() const noexcept {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  return impl_->streams.size();
+#else
+  return 0;
 #endif
 }
 

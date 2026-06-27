@@ -3,6 +3,7 @@
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/events.hpp"
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/utils.hpp"
 #include <nlohmann/json.hpp>
 #include "tile_compile/image/cfa_processing.hpp"
@@ -761,6 +762,9 @@ bool run_preprocess_pipeline(
     std::mutex reg_mutex;
 
     const int reg_workers = std::max(1, cfg.runtime_limits.parallel_workers);
+    std::cout << "[REGISTRATION][preprocess] Using " << reg_workers
+              << " parallel workers cpu_workers=" << reg_workers
+              << " gpu=no backend=cpu" << std::endl;
 
     auto register_frame = [&](size_t fi) {
         if (static_cast<int>(fi) == out.reference_frame_index) return;
@@ -774,7 +778,9 @@ bool run_preprocess_pipeline(
             std::lock_guard<std::mutex> lk(reg_mutex);
             emitter.phase_progress(run_id, pname(preprocessing::Phase::REGISTRATION),
                                    pct, "frame " + std::to_string(fi) +
-                                   " skipped (proxy unavailable)", log_file);
+                                   " skipped (proxy unavailable) cpu_workers=" +
+                                   std::to_string(reg_workers) +
+                                   " gpu=no backend=cpu", log_file);
             return;
         }
         try {
@@ -812,7 +818,9 @@ bool run_preprocess_pipeline(
         std::lock_guard<std::mutex> lk(reg_mutex);
         emitter.phase_progress(run_id, pname(preprocessing::Phase::REGISTRATION),
                                pct, "registered " + std::to_string(done) +
-                               "/" + std::to_string(n_frames), log_file);
+                               "/" + std::to_string(n_frames) +
+                               " cpu_workers=" + std::to_string(reg_workers) +
+                               " gpu=no backend=cpu", log_file);
     };
 
     if (ref_proxy.size() > 0 && n_frames > 1) {
@@ -872,10 +880,26 @@ bool run_preprocess_pipeline(
     out.prewarped_frames = DiskCacheFrameStore(
         run_dir / ".prewarped_cache", n_frames, image_height, image_width);
 
+    const core::AccelerationContext acceleration(
+        cfg.runtime_limits.acceleration_backend);
+    const auto prewarp_selection =
+        acceleration.selection_for(core::AccelerationPhase::prewarp);
+    const core::AccelerationOps prewarp_ops(
+        acceleration, core::AccelerationPhase::prewarp);
+    core::WorkerCudaStreams prewarp_streams(
+        prewarp_selection.selected == core::AccelerationBackend::opencv_cuda,
+        static_cast<size_t>(reg_workers));
+    std::cout << "[PREWARP][preprocess] Using " << reg_workers
+              << " parallel workers cpu_workers=" << reg_workers
+              << " gpu=" << (prewarp_selection.using_gpu ? "yes" : "no")
+              << " backend="
+              << core::acceleration_backend_name(prewarp_selection.selected)
+              << std::endl;
+
     std::atomic<size_t> prewarp_next{0};
     std::atomic<size_t> prewarp_done{0};
     std::mutex prewarp_mutex;
-    auto prewarp_frame = [&](size_t fi) {
+    auto prewarp_frame = [&](size_t fi, int worker_index) {
         if (!out.frame_has_data[fi]) return;
         try {
             Matrix2Df img;
@@ -902,17 +926,19 @@ bool run_preprocess_pipeline(
                             true);
                     }
                 }
-                const WarpMatrix& W = out.frame_warps[fi];
-                const bool is_identity =
-                    (W - registration::identity_warp()).cwiseAbs().maxCoeff() < 1e-5f;
-                if (is_identity) {
-                    out.prewarped_frames.store(fi, img);
-                } else {
-                    Matrix2Df warped = image::apply_global_warp(
-                        img, W, out.color_mode, image_height, image_width);
+                Matrix2Df warped;
+                bool warped_has_data = false;
+                if (prewarp_ops.warp_affine_frame(
+                        std::move(img), out.frame_warps[fi], out.color_mode,
+                        image_height, image_width, 0, 0, warped, nullptr,
+                        &warped_has_data,
+                        prewarp_streams.get(static_cast<size_t>(worker_index))) &&
+                    warped_has_data) {
                     out.prewarped_frames.store(fi, warped);
+                    out.frame_has_data[fi] = 1;
+                } else {
+                    out.frame_has_data[fi] = 0;
                 }
-                out.frame_has_data[fi] = 1;
             }
         } catch (const std::exception& e) {
             out.frame_has_data[fi] = 0;
@@ -929,19 +955,27 @@ bool run_preprocess_pipeline(
                                    0.75f + 0.25f * static_cast<float>(done) /
                                    static_cast<float>(std::max(1, n_registered)),
                                    "prewarped " + std::to_string(done) + "/" +
-                                   std::to_string(n_registered), log_file);
+                                   std::to_string(n_registered) +
+                                   " cpu_workers=" +
+                                   std::to_string(reg_workers) + " gpu=" +
+                                   (prewarp_selection.using_gpu ? "yes" : "no") +
+                                   " backend=" +
+                                   core::acceleration_backend_name(
+                                       prewarp_selection.selected),
+                                   log_file);
         }
     };
-    auto prewarp_worker = [&]() {
+    auto prewarp_worker = [&](int worker_index) {
         while (true) {
             const size_t fi = prewarp_next.fetch_add(1);
             if (fi >= n_frames) break;
-            prewarp_frame(fi);
+            prewarp_frame(fi, worker_index);
         }
     };
     std::vector<std::thread> prewarp_workers;
     prewarp_workers.reserve(static_cast<size_t>(reg_workers));
-    for (int w = 0; w < reg_workers; ++w) prewarp_workers.emplace_back(prewarp_worker);
+    for (int w = 0; w < reg_workers; ++w)
+        prewarp_workers.emplace_back(prewarp_worker, w);
     for (auto& t : prewarp_workers) if (t.joinable()) t.join();
 
     emitter.phase_end(run_id, pname(preprocessing::Phase::REGISTRATION), "ok",

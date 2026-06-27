@@ -8,6 +8,7 @@
 #include <cmath>
 #include <numeric>
 #include <thread>
+#include <unordered_map>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -290,40 +291,32 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
       cv::Mat h_support(rows, cols, CV_32F, support.data());
       cv::cuda::GpuMat d_values, d_squares, d_support;
       cv::cuda::GpuMat d_sums, d_square_sums, d_counts;
-      if (stream) {
-        d_values.upload(h_values, *stream);
-        d_squares.upload(h_squares, *stream);
-        d_support.upload(h_support, *stream);
-        const auto filter = cv::cuda::createBoxFilter(
+      // CUDA filters keep internal work buffers and are not safe to share
+      // across workers. Cache by kernel size per worker thread instead.
+      thread_local std::unordered_map<int, cv::Ptr<cv::cuda::Filter>>
+          box_filter_cache;
+      const int kernel_key = kernel_size.width;
+      auto &filter = box_filter_cache[kernel_key];
+      if (!filter) {
+        filter = cv::cuda::createBoxFilter(
             CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
             cv::BORDER_CONSTANT);
-        filter->apply(d_values, d_sums, *stream);
-        filter->apply(d_squares, d_square_sums, *stream);
-        filter->apply(d_support, d_counts, *stream);
-        cv::Mat h_sums(rows, cols, CV_32F, sums.data());
-        cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
-        cv::Mat h_counts(rows, cols, CV_32F, counts.data());
-        d_sums.download(h_sums, *stream);
-        d_square_sums.download(h_square_sums, *stream);
-        d_counts.download(h_counts, *stream);
-        stream->waitForCompletion();
-      } else {
-        d_values.upload(h_values);
-        d_squares.upload(h_squares);
-        d_support.upload(h_support);
-        const auto filter = cv::cuda::createBoxFilter(
-            CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
-            cv::BORDER_CONSTANT);
-        filter->apply(d_values, d_sums);
-        filter->apply(d_squares, d_square_sums);
-        filter->apply(d_support, d_counts);
-        cv::Mat h_sums(rows, cols, CV_32F, sums.data());
-        cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
-        cv::Mat h_counts(rows, cols, CV_32F, counts.data());
-        d_sums.download(h_sums);
-        d_square_sums.download(h_square_sums);
-        d_counts.download(h_counts);
       }
+      cv::cuda::Stream &cuda_stream =
+          stream ? *stream : cv::cuda::Stream::Null();
+      d_values.upload(h_values, cuda_stream);
+      d_squares.upload(h_squares, cuda_stream);
+      d_support.upload(h_support, cuda_stream);
+      filter->apply(d_values, d_sums, cuda_stream);
+      filter->apply(d_squares, d_square_sums, cuda_stream);
+      filter->apply(d_support, d_counts, cuda_stream);
+      cv::Mat h_sums(rows, cols, CV_32F, sums.data());
+      cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
+      cv::Mat h_counts(rows, cols, CV_32F, counts.data());
+      d_sums.download(h_sums, cuda_stream);
+      d_square_sums.download(h_square_sums, cuda_stream);
+      d_counts.download(h_counts, cuda_stream);
+      cuda_stream.waitForCompletion();
 #else
       return false;
 #endif

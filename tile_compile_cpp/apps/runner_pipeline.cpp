@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -45,13 +46,6 @@
 #include <numeric>
 #include <optional>
 #include <opencv2/opencv.hpp>
-
-#if __has_include(<opencv2/core/cuda.hpp>)
-#include <opencv2/core/cuda.hpp>
-#define TILE_COMPILE_PIPELINE_HAS_CUDA 1
-#else
-#define TILE_COMPILE_PIPELINE_HAS_CUDA 0
-#endif
 
 #include <random>
 #include <sstream>
@@ -2432,6 +2426,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     std::cout << "[Phase 6] Using " << parallel_tiles
               << " parallel workers for " << tiles_phase56.size() << " tiles"
+              << " cpu_workers=" << parallel_tiles
+              << " gpu="
+              << (tile_reconstruction_acceleration.using_gpu ? "yes" : "no")
+              << " backend=" << core::acceleration_backend_name(
+                                     tile_reconstruction_acceleration.selected)
               << std::endl;
 
     tile_valid_counts.assign(tiles_phase56.size(), 0);
@@ -2501,12 +2500,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
-#if TILE_COMPILE_PIPELINE_HAS_CUDA
-    std::vector<cv::cuda::Stream> tile_rec_streams;
-    if (tile_reconstruction_acceleration.using_gpu && parallel_tiles > 1) {
-      tile_rec_streams.resize(static_cast<size_t>(parallel_tiles));
-    }
-#endif
+    core::WorkerCudaStreams tile_rec_streams(
+        tile_reconstruction_acceleration.selected ==
+            core::AccelerationBackend::opencv_cuda,
+        static_cast<size_t>(std::max(1, parallel_tiles)));
 
     const auto tile_ola_coeff_cache = build_tile_ola_coeff_cache(
         tiles_phase56, tile_window_cache, common_valid_mask, canvas_width,
@@ -3082,7 +3079,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         emitter.phase_progress_counts(
             run_id, Phase::TILE_RECONSTRUCTION, static_cast<int>(done),
             static_cast<int>(tiles_phase56.size()),
-            "workers=" + std::to_string(parallel_tiles), "tiles", log_file);
+            "workers=" + std::to_string(parallel_tiles) + " cpu_workers=" +
+                std::to_string(parallel_tiles) + " gpu=" +
+                (tile_reconstruction_acceleration.using_gpu ? "yes" : "no") +
+                " backend=" + core::acceleration_backend_name(
+                                   tile_reconstruction_acceleration.selected),
+            "tiles", log_file);
       }
     };
 
@@ -3097,10 +3099,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (int w = 0; w < parallel_tiles; ++w) {
         workers.emplace_back([&, w]() {
           cv::cuda::Stream *stream_ptr = nullptr;
-#if TILE_COMPILE_PIPELINE_HAS_CUDA
-          if (!tile_rec_streams.empty())
-            stream_ptr = &tile_rec_streams[static_cast<size_t>(w)];
-#endif
+          stream_ptr = tile_rec_streams.get(static_cast<size_t>(w));
           while (true) {
             size_t ti = next_tile.fetch_add(1);
             if (ti >= tiles_phase56.size())
@@ -3120,7 +3119,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cout << "  Processing " << tiles_phase56.size()
                 << " tiles serially..." << std::endl;
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-        process_tile(ti, nullptr);
+        process_tile(ti, tile_rec_streams.get(0));
       }
     }
 
@@ -4258,8 +4257,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               std::min<int>(subset_workers, static_cast<int>(tiles_phase56.size()));
           subset_workers = std::max(1, subset_workers);
         }
+        core::WorkerCudaStreams subset_streams(
+            tile_reconstruction_acceleration.selected ==
+                core::AccelerationBackend::opencv_cuda,
+            static_cast<size_t>(subset_workers));
 
-        auto process_tile = [&]() {
+        auto process_tile = [&](int worker_index) {
           std::vector<Matrix2Df> cluster_tiles;
           std::vector<float> cluster_weights;
           cluster_tiles.reserve(frame_mask.size());
@@ -4317,7 +4320,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   cfg.stacking.sigma_clip.sigma_low,
                   cfg.stacking.sigma_clip.sigma_high,
                   cfg.stacking.sigma_clip.max_iters,
-                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight,
+                  subset_streams.get(static_cast<size_t>(worker_index)));
               tile_rec = std::move(wr.tile);
             }
             if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
@@ -4366,14 +4370,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           std::vector<std::thread> workers;
           workers.reserve(static_cast<size_t>(subset_workers));
           for (int w = 0; w < subset_workers; ++w) {
-            workers.emplace_back(process_tile);
+            workers.emplace_back(process_tile, w);
           }
           for (auto &worker : workers) {
             if (worker.joinable())
               worker.join();
           }
         } else {
-          process_tile();
+          process_tile(0);
         }
 
         if (!any_tile.load(std::memory_order_relaxed))
@@ -4644,11 +4648,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         acceleration.selection_for(core::AccelerationPhase::stacking);
     const core::AccelerationOps stacking_ops(
         acceleration, core::AccelerationPhase::stacking);
+    core::WorkerCudaStreams stacking_streams(
+        stacking_acceleration.selected ==
+            core::AccelerationBackend::opencv_cuda,
+        detected_mode == ColorMode::OSC ? 3u : 1u);
     size_t stacking_input_count = 0;
     {
       std::ostringstream msg;
       msg << "STACKING acceleration "
-          << core::acceleration_selection_summary(stacking_acceleration);
+          << core::acceleration_selection_summary(stacking_acceleration)
+          << " cpu_workers=" << (detected_mode == ColorMode::OSC ? 3 : 1)
+          << " gpu=" << (stacking_acceleration.using_gpu ? "yes" : "no")
+          << " backend="
+          << core::acceleration_backend_name(stacking_acceleration.selected);
       if (!stacking_acceleration.request_honored &&
           !stacking_acceleration.fallback_reason.empty()) {
         emitter.warning(run_id, msg.str(), log_file);
@@ -4755,42 +4767,44 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (detected_mode == ColorMode::OSC &&
             !synth_R.empty() && synth_R.size() == valid_synth.size()) {
           if (!use_quality_weighting && cfg.stacking.method == "rej") {
-            recon_R = stacking_ops.sigma_clip_stack(
-                synth_R, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction);
-            recon_G = stacking_ops.sigma_clip_stack(
-                synth_G, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction);
-            recon_B = stacking_ops.sigma_clip_stack(
-                synth_B, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction);
+            auto stack_channel = [&](const std::vector<Matrix2Df> &channel,
+                                     size_t stream_index) {
+              return stacking_ops.sigma_clip_stack(
+                  channel, cfg.stacking.sigma_clip.sigma_low,
+                  cfg.stacking.sigma_clip.sigma_high,
+                  cfg.stacking.sigma_clip.max_iters,
+                  cfg.stacking.sigma_clip.min_fraction,
+                  stacking_streams.get(stream_index));
+            };
+            auto future_r = std::async(std::launch::async, stack_channel,
+                                       std::cref(synth_R), 0u);
+            auto future_g = std::async(std::launch::async, stack_channel,
+                                       std::cref(synth_G), 1u);
+            recon_B = stack_channel(synth_B, 2u);
+            recon_R = future_r.get();
+            recon_G = future_g.get();
           } else {
             std::vector<float> stack_weights(synth_R.size(), 1.0f);
             if (use_quality_weighting &&
                 cluster_stack_weights.size() == synth_R.size()) {
               stack_weights = cluster_stack_weights;
             }
-            auto wr_r = stacking_ops.sigma_clip_reduce(
-                synth_R, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-            auto wr_g = stacking_ops.sigma_clip_reduce(
-                synth_G, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-            auto wr_b = stacking_ops.sigma_clip_reduce(
-                synth_B, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-                cfg.stacking.sigma_clip.sigma_high,
-                cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+            auto reduce_channel = [&](const std::vector<Matrix2Df> &channel,
+                                      size_t stream_index) {
+              return stacking_ops.sigma_clip_reduce(
+                  channel, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+                  cfg.stacking.sigma_clip.sigma_high,
+                  cfg.stacking.sigma_clip.max_iters,
+                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight,
+                  stacking_streams.get(stream_index));
+            };
+            auto future_r = std::async(std::launch::async, reduce_channel,
+                                       std::cref(synth_R), 0u);
+            auto future_g = std::async(std::launch::async, reduce_channel,
+                                       std::cref(synth_G), 1u);
+            auto wr_b = reduce_channel(synth_B, 2u);
+            auto wr_r = future_r.get();
+            auto wr_g = future_g.get();
             recon_R = std::move(wr_r.tile);
             recon_G = std::move(wr_g.tile);
             recon_B = std::move(wr_b.tile);
@@ -4802,7 +4816,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 valid_synth, cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction);
+                cfg.stacking.sigma_clip.min_fraction,
+                stacking_streams.get(0));
           } else {
             std::vector<float> stack_weights(valid_synth.size(), 1.0f);
             if (use_quality_weighting &&
@@ -4813,7 +4828,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 valid_synth, stack_weights, cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+                cfg.stacking.sigma_clip.min_fraction, kEpsWeight,
+                stacking_streams.get(0));
             recon = std::move(wr.tile);
           }
         }

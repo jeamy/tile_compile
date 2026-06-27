@@ -21,13 +21,6 @@
 #include <unordered_map>
 #include <vector>
 
-#if __has_include(<opencv2/core/cuda.hpp>)
-#include <opencv2/core/cuda.hpp>
-#define TILE_COMPILE_LOCAL_METRICS_HAS_CUDA 1
-#else
-#define TILE_COMPILE_LOCAL_METRICS_HAS_CUDA 0
-#endif
-
 namespace tile_compile::runner {
 
 namespace core = tile_compile::core;
@@ -178,6 +171,8 @@ bool run_phase_local_metrics(
         cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
     std::cout << "[LOCAL_METRICS] Using " << local_metrics_workers
               << " parallel workers for " << frames.size() << " frames"
+              << " cpu_workers=" << local_metrics_workers
+              << " gpu=no backend=cpu"
               << std::endl;
     std::atomic<size_t> lm_next{0};
     std::atomic<size_t> lm_done{0};
@@ -368,16 +363,25 @@ bool run_phase_local_metrics(
 
       const int aqmh_workers = compute_adaptive_worker_count(
           cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
-      const int aqmh_effective_workers = aqmh_acceleration.using_gpu
-                                             ? std::min(aqmh_workers, 4)
-                                             : aqmh_workers;
+      const int aqmh_effective_workers = aqmh_workers;
       std::cout << "[AQMH] Using " << aqmh_effective_workers
-                << " parallel workers for quality-map computation" << std::endl;
+                << " parallel workers for quality-map computation"
+                << " cpu_workers=" << aqmh_effective_workers
+                << " gpu=" << (aqmh_acceleration.using_gpu ? "yes" : "no")
+                << " backend="
+                << core::acceleration_backend_name(aqmh_acceleration.selected)
+                << std::endl;
 
       emitter.phase_progress(run_id, Phase::LOCAL_METRICS, 0.0f,
                              "aqmh_maps starting: 0/" +
                                  std::to_string(frames.size()) + " workers=" +
-                                 std::to_string(aqmh_effective_workers),
+                                 std::to_string(aqmh_effective_workers) +
+                                 " cpu_workers=" +
+                                 std::to_string(aqmh_effective_workers) +
+                                 " gpu=" +
+                                 (aqmh_acceleration.using_gpu ? "yes" : "no") +
+                                 " backend=" + core::acceleration_backend_name(
+                                                    aqmh_acceleration.selected),
                              log_file);
 
       std::atomic<size_t> aqmh_next{0};
@@ -390,12 +394,9 @@ bool run_phase_local_metrics(
       std::mutex aqmh_progress_mutex;
       std::string aqmh_error;
 
-#if TILE_COMPILE_LOCAL_METRICS_HAS_CUDA
-      std::vector<cv::cuda::Stream> aqmh_streams;
-      if (aqmh_acceleration.using_gpu && aqmh_effective_workers > 1) {
-        aqmh_streams.resize(static_cast<size_t>(aqmh_effective_workers));
-      }
-#endif
+      core::WorkerCudaStreams aqmh_streams(
+          aqmh_acceleration.selected == core::AccelerationBackend::opencv_cuda,
+          static_cast<size_t>(aqmh_effective_workers));
 
       auto aqmh_worker = [&](int worker_idx) {
         while (true) {
@@ -415,11 +416,8 @@ bool run_phase_local_metrics(
                       frame, norm_scales[fi], detected_mode,
                       detected_bayer_str, 0, 0);
                 }
-                cv::cuda::Stream *stream_ptr = nullptr;
-#if TILE_COMPILE_LOCAL_METRICS_HAS_CUDA
-                if (!aqmh_streams.empty())
-                  stream_ptr = &aqmh_streams[static_cast<size_t>(worker_idx)];
-#endif
+                cv::cuda::Stream *stream_ptr =
+                    aqmh_streams.get(static_cast<size_t>(worker_idx));
                 const auto aqmh_result = metrics::compute_aqmh_quality_map(
                     frame, common_valid_mask, common_mask_width,
                     common_mask_height, cfg.aqmh.pyramid,
@@ -469,7 +467,12 @@ bool run_phase_local_metrics(
                 "aqmh_maps " + std::to_string(done) + "/" +
                     std::to_string(frames.size()) + " written=" +
                     std::to_string(aqmh_written.load(std::memory_order_relaxed)) +
-                    " workers=" + std::to_string(aqmh_effective_workers),
+                    " workers=" + std::to_string(aqmh_effective_workers) +
+                    " cpu_workers=" +
+                    std::to_string(aqmh_effective_workers) + " gpu=" +
+                    (aqmh_acceleration.using_gpu ? "yes" : "no") +
+                    " backend=" + core::acceleration_backend_name(
+                                       aqmh_acceleration.selected),
                 log_file);
           }
         }

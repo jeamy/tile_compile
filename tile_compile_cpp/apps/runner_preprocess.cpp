@@ -394,6 +394,8 @@ prep::Config parse_preprocessing_config(const json& j) {
         json_int(r, "parallel_workers", cfg.runtime_limits.parallel_workers);
     cfg.runtime_limits.memory_budget =
         json_int(r, "memory_budget", cfg.runtime_limits.memory_budget);
+    cfg.runtime_limits.acceleration_backend = json_string(
+        r, "acceleration_backend", cfg.runtime_limits.acceleration_backend);
   }
   prep::validate(cfg);
   return cfg;
@@ -494,6 +496,7 @@ json config_to_json(const prep::Config& cfg) {
       {"runtime_limits", {
           {"parallel_workers", cfg.runtime_limits.parallel_workers},
           {"memory_budget", cfg.runtime_limits.memory_budget},
+          {"acceleration_backend", cfg.runtime_limits.acceleration_backend},
       }},
   };
 }
@@ -1098,6 +1101,7 @@ PreprocessStackResult run_preprocess_stacking(
     diag["runtime_limits"] = {
         {"parallel_workers", cfg.runtime_limits.parallel_workers},
         {"memory_budget", cfg.runtime_limits.memory_budget},
+        {"acceleration_backend", cfg.runtime_limits.acceleration_backend},
     };
   }
   core::write_text(result.diagnostics_path, diag.dump(2));

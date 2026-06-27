@@ -300,7 +300,8 @@ function formatEventMessage(ev) {
   if (type === "phase_start") return `${phase} | start`;
   if (type === "phase_progress") {
     const pct = ev.pct != null ? ` (${Math.round(ev.pct)}%)` : "";
-    return `${phase} | progress${pct}`;
+    const substep = ev.substep || ev.payload?.substep || "";
+    return `${phase} | progress${pct}${substep ? ` | ${substep}` : ""}`;
   }
   if (type === "phase_end") {
     const status = ev.status || "ok";
@@ -649,7 +650,12 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     // Also log phase events
     const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
     const logLabel = label || phaseName;
-    logViewer.addLine(data.ts || formatTime(), "INFO", `${logLabel} | ${type.replace("phase_", "")}${pctStr}`);
+    const substep = payload.substep || data.substep || "";
+    logViewer.addLine(
+      data.ts || formatTime(),
+      "INFO",
+      `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
+    );
   }
 
   // Run status with full phase array
@@ -936,4 +942,3 @@ async function generateStats() {
     if (genBtn) genBtn.disabled = false;
   }
 }
-

@@ -108,6 +108,7 @@ struct ReportConfig {
 struct RuntimeLimitsConfig {
   int parallel_workers = 4;
   int memory_budget = 512;
+  std::string acceleration_backend = "auto";
 };
 
 struct Config {

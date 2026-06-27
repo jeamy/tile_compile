@@ -14,13 +14,6 @@
 
 #include <opencv2/opencv.hpp>
 
-#if __has_include(<opencv2/core/cuda.hpp>)
-#include <opencv2/core/cuda.hpp>
-#define TILE_COMPILE_PREWARP_HAS_CUDA 1
-#else
-#define TILE_COMPILE_PREWARP_HAS_CUDA 0
-#endif
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -787,6 +780,8 @@ bool run_phase_registration_prewarp(
             cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
         std::cout << "[REGISTRATION] Using " << reg_workers
                   << " parallel workers for " << frames.size() << " frames"
+                  << " cpu_workers=" << reg_workers
+                  << " gpu=no backend=cpu"
                   << std::endl;
         std::mutex reg_log_mutex;
         std::mutex reg_progress_mutex;
@@ -1085,7 +1080,10 @@ bool run_phase_registration_prewarp(
                   run_id, Phase::REGISTRATION, p,
                   "global_reg " + std::to_string(done) + "/" +
                       std::to_string(job_count) + " workers=" +
-                      std::to_string(current_reg_pass_workers),
+                      std::to_string(current_reg_pass_workers) +
+                      " cpu_workers=" +
+                      std::to_string(current_reg_pass_workers) +
+                      " gpu=no backend=cpu",
                   log_file);
             }
           }
@@ -3131,6 +3129,10 @@ bool run_phase_registration_prewarp(
       static_cast<size_t>(std::max(1, prewarp_workers)));
   std::cout << "[PREWARP] Using " << prewarp_workers
             << " parallel workers for " << frames.size() << " frames"
+            << " cpu_workers=" << prewarp_workers
+            << " gpu=" << (prewarp_acceleration.using_gpu ? "yes" : "no")
+            << " backend="
+            << core::acceleration_backend_name(prewarp_acceleration.selected)
             << std::endl;
   std::mutex prewarp_log_mutex;
   std::mutex prewarp_progress_mutex;
@@ -3140,12 +3142,9 @@ bool run_phase_registration_prewarp(
   std::atomic<bool> prewarp_failed{false};
   std::string prewarp_error;
 
-#if TILE_COMPILE_PREWARP_HAS_CUDA
-  std::vector<cv::cuda::Stream> prewarp_streams;
-  if (prewarp_acceleration.using_gpu && prewarp_workers > 1) {
-    prewarp_streams.resize(static_cast<size_t>(prewarp_workers));
-  }
-#endif
+  core::WorkerCudaStreams prewarp_streams(
+      prewarp_acceleration.selected == core::AccelerationBackend::opencv_cuda,
+      static_cast<size_t>(prewarp_workers));
 
   auto prewarp_worker = [&](int worker_index) {
     std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
@@ -3184,11 +3183,9 @@ bool run_phase_registration_prewarp(
         prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
                                       canvas_height, canvas_width, offset_x,
                                       offset_y, warped, &warped_valid_mask,
-                                      &warped_has_data
-#if TILE_COMPILE_PREWARP_HAS_CUDA
-                                      , prewarp_streams.empty() ? nullptr : &prewarp_streams[static_cast<size_t>(worker_index)]
-#endif
-                                      );
+                                      &warped_has_data,
+                                      prewarp_streams.get(
+                                          static_cast<size_t>(worker_index)));
         if (warped.size() > 0) {
           prewarped_frames.store(fi, warped);
           const bool stored = prewarped_frames.has_data(fi);
@@ -3235,7 +3232,11 @@ bool run_phase_registration_prewarp(
         emitter.phase_progress_counts(
             run_id, Phase::PREWARP, static_cast<int>(done),
             static_cast<int>(frames.size()), "prewarp workers=" +
-                                              std::to_string(prewarp_workers),
+                std::to_string(prewarp_workers) + " cpu_workers=" +
+                std::to_string(prewarp_workers) + " gpu=" +
+                (prewarp_acceleration.using_gpu ? "yes" : "no") +
+                " backend=" + core::acceleration_backend_name(
+                                   prewarp_acceleration.selected),
             "frames", log_file);
       }
     }

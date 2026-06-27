@@ -6,6 +6,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <thread>
+
 TEST_CASE("runtime_limits_acceleration_backend_parses_and_validates") {
   YAML::Node node = YAML::Load(R"(
 data:
@@ -185,6 +187,60 @@ TEST_CASE("acceleration_context_selects_or_explains_aqmh_cuda") {
     REQUIRE_FALSE(selection.using_gpu);
     REQUIRE_FALSE(selection.request_honored);
     REQUIRE_FALSE(selection.fallback_reason.empty());
+  }
+}
+
+TEST_CASE("worker_cuda_streams_match_selected_cuda_backend") {
+  tile_compile::core::AccelerationContext context("auto");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
+  const bool use_cuda =
+      selection.selected == tile_compile::core::AccelerationBackend::opencv_cuda;
+  tile_compile::core::WorkerCudaStreams streams(use_cuda, 3);
+  if (use_cuda) {
+    REQUIRE(streams.size() == 3);
+    REQUIRE(streams.get(0) != nullptr);
+    REQUIRE(streams.get(1) != nullptr);
+    REQUIRE(streams.get(0) != streams.get(1));
+  } else {
+    REQUIRE(streams.size() == 0);
+    REQUIRE(streams.get(0) == nullptr);
+  }
+}
+
+TEST_CASE("opencv_opencl_sigma_clip_is_safe_across_worker_threads") {
+  tile_compile::core::AccelerationContext context("opencv_opencl");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::stacking);
+  if (selection.selected !=
+      tile_compile::core::AccelerationBackend::opencv_opencl) {
+    return;
+  }
+
+  const tile_compile::core::AccelerationOps ops(
+      context, tile_compile::core::AccelerationPhase::stacking);
+  std::vector<tile_compile::Matrix2Df> frames;
+  for (int i = 0; i < 4; ++i) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(
+        64, 64, 10.0f + static_cast<float>(i)));
+  }
+  const std::vector<float> weights(frames.size(), 1.0f);
+  std::vector<tile_compile::Matrix2Df> results(4);
+  std::vector<std::thread> workers;
+  for (size_t worker = 0; worker < results.size(); ++worker) {
+    workers.emplace_back([&, worker] {
+      results[worker] =
+          ops.sigma_clip_reduce(frames, weights, 3.0f, 3.0f, 2, 0.5f,
+                                1.0e-6f)
+              .tile;
+    });
+  }
+  for (auto &worker : workers)
+    worker.join();
+  for (const auto &result : results) {
+    REQUIRE(result.rows() == 64);
+    REQUIRE(result.cols() == 64);
+    REQUIRE(result(0, 0) == Catch::Approx(11.5f).margin(1.0e-3f));
   }
 }
 

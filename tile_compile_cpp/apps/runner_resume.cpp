@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -1058,10 +1059,18 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         acceleration.selection_for(core::AccelerationPhase::stacking);
     const core::AccelerationOps stacking_ops(
         acceleration, core::AccelerationPhase::stacking);
+    core::WorkerCudaStreams stacking_streams(
+        stacking_acceleration.selected ==
+            core::AccelerationBackend::opencv_cuda,
+        detected_mode == ColorMode::OSC ? 3u : 1u);
     {
       std::ostringstream msg;
       msg << "STACKING acceleration "
-          << core::acceleration_selection_summary(stacking_acceleration);
+          << core::acceleration_selection_summary(stacking_acceleration)
+          << " cpu_workers=" << (detected_mode == ColorMode::OSC ? 3 : 1)
+          << " gpu=" << (stacking_acceleration.using_gpu ? "yes" : "no")
+          << " backend="
+          << core::acceleration_backend_name(stacking_acceleration.selected);
       if (!stacking_acceleration.request_honored &&
           !stacking_acceleration.fallback_reason.empty()) {
         emitter.warning(run_id, msg.str(), log_file);
@@ -1178,39 +1187,44 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         cfg.stacking.cluster_quality_weighting.enabled;
     if (detected_mode == ColorMode::OSC && synth_R.size() == valid_synth.size()) {
       if (!use_quality_weighting && cfg.stacking.method == "rej") {
-        recon_R = stacking_ops.sigma_clip_stack(
-            synth_R, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
-        recon_G = stacking_ops.sigma_clip_stack(
-            synth_G, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
-        recon_B = stacking_ops.sigma_clip_stack(
-            synth_B, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
+        auto stack_channel = [&](const std::vector<Matrix2Df> &channel,
+                                 size_t stream_index) {
+          return stacking_ops.sigma_clip_stack(
+              channel, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction,
+              stacking_streams.get(stream_index));
+        };
+        auto future_r = std::async(std::launch::async, stack_channel,
+                                   std::cref(synth_R), 0u);
+        auto future_g = std::async(std::launch::async, stack_channel,
+                                   std::cref(synth_G), 1u);
+        recon_B = stack_channel(synth_B, 2u);
+        recon_R = future_r.get();
+        recon_G = future_g.get();
       } else {
         std::vector<float> stack_weights(synth_R.size(), 1.0f);
         if (use_quality_weighting &&
             cluster_stack_weights.size() == synth_R.size()) {
           stack_weights = cluster_stack_weights;
         }
-        auto wr_r = stacking_ops.sigma_clip_reduce(
-            synth_R, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high,
-            cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-        auto wr_g = stacking_ops.sigma_clip_reduce(
-            synth_G, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high,
-            cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-        auto wr_b = stacking_ops.sigma_clip_reduce(
-            synth_B, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high,
-            cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        auto reduce_channel = [&](const std::vector<Matrix2Df> &channel,
+                                  size_t stream_index) {
+          return stacking_ops.sigma_clip_reduce(
+              channel, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight,
+              stacking_streams.get(stream_index));
+        };
+        auto future_r = std::async(std::launch::async, reduce_channel,
+                                   std::cref(synth_R), 0u);
+        auto future_g = std::async(std::launch::async, reduce_channel,
+                                   std::cref(synth_G), 1u);
+        auto wr_b = reduce_channel(synth_B, 2u);
+        auto wr_r = future_r.get();
+        auto wr_g = future_g.get();
         recon_R = std::move(wr_r.tile);
         recon_G = std::move(wr_g.tile);
         recon_B = std::move(wr_b.tile);
@@ -1221,7 +1235,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         recon = stacking_ops.sigma_clip_stack(
             valid_synth, cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
+            cfg.stacking.sigma_clip.min_fraction, stacking_streams.get(0));
       } else {
         std::vector<float> stack_weights(valid_synth.size(), 1.0f);
         if (use_quality_weighting &&
@@ -1232,7 +1246,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             valid_synth, stack_weights, cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high,
             cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight,
+            stacking_streams.get(0));
         recon = std::move(wr.tile);
       }
     }

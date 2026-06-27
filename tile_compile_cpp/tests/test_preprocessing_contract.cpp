@@ -39,6 +39,7 @@ TEST_CASE("preprocessing_contract_defaults_are_separate_from_main_pipeline") {
   REQUIRE(cfg.report.formats.size() == 3);
   REQUIRE(cfg.report.formats[2] == "html");
   REQUIRE(cfg.runtime_limits.parallel_workers == 4);
+  REQUIRE(cfg.runtime_limits.acceleration_backend == "auto");
   REQUIRE(cfg.runtime_limits.memory_budget == 512);
 
   prep::validate(cfg);

@@ -252,6 +252,12 @@ void validate(const Config& config) {
   if (config.runtime_limits.memory_budget < 1) {
     throw ValidationError("preprocessing.runtime_limits.memory_budget must be >= 1");
   }
+  if (!one_of(config.runtime_limits.acceleration_backend,
+              {"auto", "cpu", "opencv_cuda", "opencv_opencl", "opencl",
+               "cuda"})) {
+    throw ValidationError(
+        "preprocessing.runtime_limits.acceleration_backend is invalid");
+  }
 }
 
 } // namespace tile_compile::preprocessing

@@ -13,9 +13,7 @@
 
 #if __has_include(<opencv2/core/cuda.hpp>)
 #include <opencv2/core/cuda.hpp>
-#define TILE_COMPILE_ACCELERATION_HPP_HAS_CUDA 1
 #else
-#define TILE_COMPILE_ACCELERATION_HPP_HAS_CUDA 0
 namespace cv::cuda { class Stream; }
 #endif
 
@@ -110,6 +108,25 @@ public:
 private:
   std::string requested_backend_name_;
   AccelerationCapabilities capabilities_;
+};
+
+/// Owns one non-default CUDA stream per CPU worker. The implementation is
+/// hidden so CPU/OpenCL callers do not depend on CUDA implementation details.
+class WorkerCudaStreams {
+public:
+  WorkerCudaStreams(bool enabled, size_t worker_count);
+  ~WorkerCudaStreams();
+  WorkerCudaStreams(WorkerCudaStreams &&) noexcept;
+  WorkerCudaStreams &operator=(WorkerCudaStreams &&) noexcept;
+  WorkerCudaStreams(const WorkerCudaStreams &) = delete;
+  WorkerCudaStreams &operator=(const WorkerCudaStreams &) = delete;
+
+  cv::cuda::Stream *get(size_t worker_index) noexcept;
+  size_t size() const noexcept;
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 DeviceFrame make_device_frame(int rows, int cols, int channels = 1);

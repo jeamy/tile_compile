@@ -121,6 +121,10 @@ void validate_preprocessing_config(const nlohmann::json& cfg) {
     const auto runtime = object_at(cfg, "runtime_limits");
     if (number_at(runtime, "parallel_workers", 0.0) < 1.0) throw std::runtime_error("preprocessing.runtime_limits.parallel_workers must be >= 1");
     if (number_at(runtime, "memory_budget", 0.0) < 1.0) throw std::runtime_error("preprocessing.runtime_limits.memory_budget must be >= 1");
+    if (!one_of(runtime.value("acceleration_backend", "auto"),
+                {"auto", "cpu", "opencv_cuda", "opencv_opencl", "opencl", "cuda"})) {
+        throw std::runtime_error("preprocessing.runtime_limits.acceleration_backend is invalid");
+    }
 }
 
 nlohmann::json effective_parameters(const std::shared_ptr<AppState>& state) {
