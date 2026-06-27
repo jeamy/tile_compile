@@ -739,6 +739,10 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 
 ## Versions
 
+## v0.3.9 (2026-06-27)
+
+- GPU processing was optimized across PREWARP, AQMH, tile reconstruction, synthetic reconstruction, and stacking with dedicated worker streams and parallel RGB execution.
+
 ## v0.3.8 (2026-06-26)
 
 - AutoBGE implementation: native C++ port of the AutoBGE Siril script (polynomial + RBF background model, smart sample point generation with gradient descent, two-stage fit). Based on the AutoBGE Siril script by Adrian Knagg-Baugh.
@@ -1008,6 +1012,14 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 - First public release
 
 ## Changelog
+
+### (2026-06-27)
+
+**GPU performance optimizations (`v0.3.9`):**
+
+- Added centralized per-worker CUDA stream management across PREWARP, AQMH quality maps, tile and synthetic reconstruction, STACKING, resume, and the preprocessing pipeline.
+- Reduced synchronization and allocation overhead through batched OSC/CFA warps, cached per-worker AQMH CUDA filters, and concurrent RGB-channel stacking.
+- Removed the obsolete global OpenCV/OpenCL mutex and added CPU-worker, GPU-usage, and backend information to live progress logs.
 
 ### (2026-06-26)
 

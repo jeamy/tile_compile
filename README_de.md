@@ -755,6 +755,10 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 
 ## Versionen
 
+## v0.3.9 (2026-06-27)
+
+- Die GPU-Verarbeitung wurde in PREWARP, AQMH, Tile- und synthetischer Rekonstruktion sowie im Stacking durch dedizierte Worker-Streams und parallele RGB-Ausführung optimiert.
+
 ## v0.3.8 (2026-06-26)
 
 - AutoBGE-Implementierung: Native C++-Portierung des AutoBGE-Siril-Skripts (Polynomial- + RBF-Hintergrundmodell, intelligente Sample-Point-Generierung mit Gradient Descent, Zwei-Stufen-Fit). Basierend auf dem AutoBGE-Siril-Skript von Adrian Knagg-Baugh.
@@ -1024,6 +1028,14 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 - Erste öffentliche Version
 
 ## Changelog
+
+### (27.06.2026)
+
+**GPU-Performance-Optimierungen (`v0.3.9`):**
+
+- Zentrale CUDA-Stream-Verwaltung pro Worker für PREWARP, AQMH-Quality-Maps, Tile- und synthetische Rekonstruktion, STACKING, Resume und die Preprocessing-Pipeline ergänzt.
+- Synchronisations- und Allokationsaufwand durch gebündelte OSC/CFA-Warps, pro Worker gecachte AQMH-CUDA-Filter und paralleles RGB-Kanal-Stacking reduziert.
+- Den veralteten globalen OpenCV/OpenCL-Mutex entfernt und Live-Fortschrittslogs um CPU-Workerzahl, GPU-Nutzung und Backend ergänzt.
 
 ### (26.06.2026)
 
