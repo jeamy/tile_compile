@@ -162,6 +162,27 @@ TEST_CASE("aqmh_quality_map_cache_invalidates_on_map_affecting_config_change") {
   std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("aqmh_quality_map_cache_invalidates_on_execution_backend_change") {
+  const auto dir = unique_cache_dir("aqmh_cache_backend_invalidate");
+  std::filesystem::remove_all(dir);
+  std::vector<uint8_t> mask(static_cast<size_t>(6 * 6), 1u);
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  const std::string mask_hash =
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(mask, 6, 6);
+  {
+    tile_compile::metrics::QualityMapCache cache(
+        dir, "luma", 6, 6, pyramid, storage, mask_hash, "cpu");
+    cache.write(0, make_q_map(6, 6));
+    REQUIRE(cache.has(0));
+  }
+
+  tile_compile::metrics::QualityMapCache changed(
+      dir, "luma", 6, 6, pyramid, storage, mask_hash, "opencv_cuda");
+  REQUIRE_FALSE(changed.has(0));
+  std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("aqmh_quality_map_cache_lru_obeys_max_resident_maps") {
   const auto dir = unique_cache_dir("aqmh_cache_lru");
   std::filesystem::remove_all(dir);

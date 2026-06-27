@@ -1144,6 +1144,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                      {"frames_discovered", frames.size()},
                      {"dry_run", dry_run}},
                     log_file);
+  core::AccelerationContext acceleration(
+      cfg.runtime_limits.acceleration_backend);
+  core::write_text(run_dir / "artifacts" / "acceleration_context.json",
+                   acceleration.to_json().dump(2));
   const auto run_started_at = std::chrono::steady_clock::now();
   auto abort_if_runtime_limit_exceeded =
       [&](const std::string &checkpoint) -> bool {
@@ -1749,7 +1753,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   if (!runner::run_phase_registration_prewarp(
           run_id, cfg, frames, run_dir, height, width, detected_mode,
           detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
-          first_header, emitter, log_file, phase_registration_ctx)) {
+          first_header, acceleration, emitter, log_file,
+          phase_registration_ctx)) {
     return 1;
   }
   if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
@@ -2107,7 +2112,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             common_valid_mask, canvas_width, canvas_height,
             tile_common_valid,
             prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
-            false, emitter, log_file, local_metrics, local_weights,
+            false, acceleration, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median, aqmh_cache,
             canvas_tile_offset_x, canvas_tile_offset_y)) {
       return 1;
@@ -2177,12 +2182,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     };
 
     const bool osc_mode = (detected_mode == ColorMode::OSC);
-    const auto tile_reconstruction_acceleration =
-        core::select_acceleration_backend(
-            cfg.runtime_limits.acceleration_backend,
-            core::AccelerationPhase::tile_reconstruction);
+    const auto tile_reconstruction_acceleration = acceleration.selection_for(
+        core::AccelerationPhase::tile_reconstruction);
     const core::AccelerationOps tile_reconstruction_ops(
-        tile_reconstruction_acceleration);
+        acceleration, core::AccelerationPhase::tile_reconstruction);
     const auto tile_reconstruction_frame_batch = core::make_device_frame_batch(
         static_cast<size_t>(std::max(0, n_usable_frames)), canvas_height,
         canvas_width, 1);
@@ -2219,6 +2222,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const float eps_ws = kEpsWeightSum;
 
     if (cfg.aqmh.enabled) {
+      const auto aqmh_reconstruction_acceleration = acceleration.selection_for(
+          core::AccelerationPhase::aqmh_reconstruction);
+      log_file << "[AQMH_RECONSTRUCTION] "
+               << core::acceleration_selection_summary(
+                      aqmh_reconstruction_acceleration)
+               << std::endl;
       if (!aqmh_cache) {
         const std::string err =
             "AQMH enabled but AQMH quality-map cache is unavailable";
@@ -2270,6 +2279,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const auto aqmh_cache_stats = aqmh_cache->stats();
       core::json artifact;
       artifact["method"] = "aqmh";
+      artifact["acceleration"] = core::acceleration_selection_to_json(
+          aqmh_reconstruction_acceleration);
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["canvas_width"] = canvas_width;
       artifact["canvas_height"] = canvas_height;
@@ -4609,10 +4620,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
     const auto stacking_started_at = std::chrono::steady_clock::now();
-    const auto stacking_acceleration = core::select_acceleration_backend(
-        cfg.runtime_limits.acceleration_backend,
-        core::AccelerationPhase::stacking);
-    const core::AccelerationOps stacking_ops(stacking_acceleration);
+    const auto stacking_acceleration =
+        acceleration.selection_for(core::AccelerationPhase::stacking);
+    const core::AccelerationOps stacking_ops(
+        acceleration, core::AccelerationPhase::stacking);
     size_t stacking_input_count = 0;
     {
       std::ostringstream msg;

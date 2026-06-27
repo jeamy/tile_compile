@@ -22,8 +22,19 @@ enum class AccelerationBackend {
 
 enum class AccelerationPhase {
   prewarp = 0,
+  aqmh_maps,
+  aqmh_reconstruction,
   tile_reconstruction,
   stacking,
+};
+
+struct AccelerationCapabilities {
+  bool tile_compile_with_cuda = false;
+  bool opencv_cuda_runtime = false;
+  bool opencv_opencl_headers = false;
+  bool opencv_opencl_runtime = false;
+  int device_id = 0;
+  std::string device_name;
 };
 
 struct DeviceFrame {
@@ -76,6 +87,23 @@ AccelerationSelection select_acceleration_backend(
 json acceleration_selection_to_json(const AccelerationSelection &selection);
 std::string acceleration_selection_summary(const AccelerationSelection &selection);
 
+/// Run-scoped GPU/backend state. Runtime probing and device selection happen
+/// once; every phase derives its supported backend from this immutable state.
+class AccelerationContext {
+public:
+  explicit AccelerationContext(std::string requested_backend_name,
+                               int device_id = 0);
+
+  const AccelerationCapabilities &capabilities() const { return capabilities_; }
+  AccelerationSelection selection_for(AccelerationPhase phase) const;
+  json to_json() const;
+  void synchronize() const;
+
+private:
+  std::string requested_backend_name_;
+  AccelerationCapabilities capabilities_;
+};
+
 DeviceFrame make_device_frame(int rows, int cols, int channels = 1);
 DeviceFrameBatch make_device_frame_batch(size_t batch_size, int rows, int cols,
                                          int channels = 1);
@@ -89,6 +117,7 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch);
 class AccelerationOps {
 public:
   explicit AccelerationOps(AccelerationSelection selection);
+  AccelerationOps(const AccelerationContext &context, AccelerationPhase phase);
 
   const AccelerationSelection &selection() const { return selection_; }
 

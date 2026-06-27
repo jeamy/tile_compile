@@ -9,6 +9,25 @@
 #include <numeric>
 #include <thread>
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
+#if __has_include(<opencv2/core/cuda.hpp>) && \
+    __has_include(<opencv2/cudafilters.hpp>)
+#include <opencv2/core/cuda.hpp>
+#include <opencv2/cudafilters.hpp>
+#define TILE_COMPILE_AQMH_CUDA_FILTERS 1
+#else
+#define TILE_COMPILE_AQMH_CUDA_FILTERS 0
+#endif
+
+#if __has_include(<opencv2/core/ocl.hpp>)
+#include <opencv2/core/ocl.hpp>
+#define TILE_COMPILE_AQMH_OPENCL 1
+#else
+#define TILE_COMPILE_AQMH_OPENCL 0
+#endif
+
 namespace tile_compile::metrics {
 namespace {
 
@@ -233,6 +252,110 @@ Matrix2Df local_variance(const Matrix2Df &m, int r) {
     }
   }
   return out;
+}
+
+bool accelerated_local_variance(const Matrix2Df &m, int r,
+                                core::AccelerationBackend backend,
+                                Matrix2Df &out) {
+  if (backend != core::AccelerationBackend::opencv_cuda &&
+      backend != core::AccelerationBackend::opencv_opencl)
+    return false;
+  const int rows = static_cast<int>(m.rows());
+  const int cols = static_cast<int>(m.cols());
+  if (rows <= 0 || cols <= 0)
+    return false;
+
+  Matrix2Df values(rows, cols);
+  Matrix2Df squares(rows, cols);
+  Matrix2Df support(rows, cols);
+  const auto n = static_cast<std::ptrdiff_t>(m.size());
+#pragma omp simd
+  for (std::ptrdiff_t i = 0; i < n; ++i) {
+    const float v = m.data()[i];
+    const bool valid = finite(v);
+    const float clean = valid ? v : 0.0f;
+    values.data()[i] = clean;
+    squares.data()[i] = clean * clean;
+    support.data()[i] = valid ? 1.0f : 0.0f;
+  }
+
+  Matrix2Df sums(rows, cols), square_sums(rows, cols), counts(rows, cols);
+  const cv::Size kernel_size(2 * r + 1, 2 * r + 1);
+  try {
+    if (backend == core::AccelerationBackend::opencv_cuda) {
+#if TILE_COMPILE_AQMH_CUDA_FILTERS
+      cv::Mat h_values(rows, cols, CV_32F, values.data());
+      cv::Mat h_squares(rows, cols, CV_32F, squares.data());
+      cv::Mat h_support(rows, cols, CV_32F, support.data());
+      cv::cuda::GpuMat d_values, d_squares, d_support;
+      cv::cuda::GpuMat d_sums, d_square_sums, d_counts;
+      d_values.upload(h_values);
+      d_squares.upload(h_squares);
+      d_support.upload(h_support);
+      const auto filter = cv::cuda::createBoxFilter(
+          CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
+          cv::BORDER_CONSTANT);
+      filter->apply(d_values, d_sums);
+      filter->apply(d_squares, d_square_sums);
+      filter->apply(d_support, d_counts);
+      cv::Mat h_sums(rows, cols, CV_32F, sums.data());
+      cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
+      cv::Mat h_counts(rows, cols, CV_32F, counts.data());
+      d_sums.download(h_sums);
+      d_square_sums.download(h_square_sums);
+      d_counts.download(h_counts);
+#else
+      return false;
+#endif
+    } else {
+#if TILE_COMPILE_AQMH_OPENCL
+      cv::Mat h_values(rows, cols, CV_32F, values.data());
+      cv::Mat h_squares(rows, cols, CV_32F, squares.data());
+      cv::Mat h_support(rows, cols, CV_32F, support.data());
+      cv::UMat u_values, u_squares, u_support;
+      h_values.copyTo(u_values);
+      h_squares.copyTo(u_squares);
+      h_support.copyTo(u_support);
+      cv::UMat u_sums, u_square_sums, u_counts;
+      cv::boxFilter(u_values, u_sums, CV_32F, kernel_size, cv::Point(-1, -1),
+                    true, cv::BORDER_CONSTANT);
+      cv::boxFilter(u_squares, u_square_sums, CV_32F, kernel_size,
+                    cv::Point(-1, -1), true, cv::BORDER_CONSTANT);
+      cv::boxFilter(u_support, u_counts, CV_32F, kernel_size,
+                    cv::Point(-1, -1), true, cv::BORDER_CONSTANT);
+      cv::Mat h_sums(rows, cols, CV_32F, sums.data());
+      cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
+      cv::Mat h_counts(rows, cols, CV_32F, counts.data());
+      u_sums.copyTo(h_sums);
+      u_square_sums.copyTo(h_square_sums);
+      u_counts.copyTo(h_counts);
+#else
+      return false;
+#endif
+    }
+  } catch (...) {
+    return false;
+  }
+
+  out.resize(rows, cols);
+  out.setConstant(nan_value());
+  const float window_area = static_cast<float>(kernel_size.area());
+#pragma omp simd
+  for (std::ptrdiff_t i = 0; i < n; ++i) {
+    const float support_fraction = counts.data()[i];
+    const float count = support_fraction * window_area;
+    if (count > 0.0f && count < 3.0f) {
+      out.data()[i] = 0.0f;
+    } else if (count >= 3.0f) {
+      const double mean =
+          static_cast<double>(sums.data()[i]) / support_fraction;
+      const double mean_square =
+          static_cast<double>(square_sums.data()[i]) / support_fraction;
+      out.data()[i] = static_cast<float>(
+          std::max(0.0, mean_square - mean * mean));
+    }
+  }
+  return true;
 }
 
 struct LocalMeanResult {
@@ -531,7 +654,8 @@ Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
 AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
     int canvas_mask_width, int canvas_mask_height,
-    const config::AqmhPyramidConfig &cfg) {
+    const config::AqmhPyramidConfig &cfg,
+    core::AccelerationBackend backend) {
   AqmhQualityMapResult result;
   result.q_map = Matrix2Df::Zero(frame.rows(), frame.cols());
   if (frame.rows() <= 0 || frame.cols() <= 0)
@@ -554,7 +678,19 @@ AqmhQualityMapResult compute_aqmh_quality_map(
 
     const Matrix2Df img_s = downsample_valid_mean(masked, factor);
     const int radius = std::max(1, cfg.base_window_px);
-    const Matrix2Df sharp = local_variance(masked_laplacian(img_s), radius);
+    const Matrix2Df laplacian = masked_laplacian(img_s);
+    Matrix2Df sharp;
+    if (backend == core::AccelerationBackend::cpu) {
+      sharp = local_variance(laplacian, radius);
+    } else if (accelerated_local_variance(laplacian, radius, backend, sharp)) {
+      result.diagnostics.acceleration_used = true;
+    } else {
+      auto fallback = compute_aqmh_quality_map(
+          frame, canvas_mask, canvas_mask_width, canvas_mask_height, cfg,
+          core::AccelerationBackend::cpu);
+      fallback.diagnostics.acceleration_fallback = true;
+      return fallback;
+    }
     const LocalMeanResult local_img = local_mean_and_count(img_s, radius);
     bool scene_dependent = false;
     const Matrix2Df snr = phi_snr(img_s, local_img.mean, local_img.count,

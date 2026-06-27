@@ -2,6 +2,7 @@
 
 #include "runner_shared.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/normalization.hpp"
@@ -39,7 +40,8 @@ bool run_phase_local_metrics(
     const DiskCacheFrameStore &prewarped_frames,
     const std::vector<image::NormalizationScales> &norm_scales,
     ColorMode detected_mode, const std::string &detected_bayer_str,
-    bool apply_normalization_to_tiles, core::EventEmitter &emitter,
+    bool apply_normalization_to_tiles,
+    core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,

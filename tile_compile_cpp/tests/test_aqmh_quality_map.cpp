@@ -102,4 +102,70 @@ TEST_CASE("aqmh_quality_map_is_deterministic_and_clamped") {
     }
   }
 }
+
+TEST_CASE("aqmh_gpu_sharpness_path_matches_cpu_quality_map") {
+  constexpr int H = 64;
+  constexpr int W = 64;
+  tile_compile::Matrix2Df frame(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      frame(y, x) = 100.0f + 0.17f * static_cast<float>(x) +
+                    0.11f * static_cast<float>(y) +
+                    2.0f * std::sin(0.21f * static_cast<float>(x)) *
+                        std::cos(0.13f * static_cast<float>(y));
+    }
+  }
+  frame(21, 37) += 80.0f;
+  std::vector<uint8_t> mask(static_cast<size_t>(H * W), 1u);
+  for (int y = 0; y < H; ++y)
+    mask[static_cast<size_t>(y) * W] = 0u;
+
+  tile_compile::config::AqmhPyramidConfig cfg;
+  cfg.scales = 2;
+  const auto cpu = tile_compile::metrics::compute_aqmh_quality_map(
+      frame, mask, W, H, cfg, tile_compile::core::AccelerationBackend::cpu);
+
+  tile_compile::core::AccelerationContext context("auto");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
+  const auto accelerated = tile_compile::metrics::compute_aqmh_quality_map(
+      frame, mask, W, H, cfg, selection.selected);
+
+  if (selection.using_gpu)
+    REQUIRE(accelerated.diagnostics.acceleration_used);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      REQUIRE(accelerated.q_map(y, x) ==
+              Catch::Approx(cpu.q_map(y, x)).margin(2.0e-3f));
+    }
+  }
+}
+
+TEST_CASE("aqmh_opencl_sharpness_path_matches_cpu_quality_map") {
+  constexpr int H = 48;
+  constexpr int W = 48;
+  tile_compile::Matrix2Df frame = make_gradient(H, W);
+  for (int y = 4; y < H; y += 9)
+    for (int x = 3; x < W; x += 11)
+      frame(y, x) += static_cast<float>((x + y) % 17);
+  std::vector<uint8_t> mask(static_cast<size_t>(H * W), 1u);
+  tile_compile::config::AqmhPyramidConfig cfg;
+  cfg.scales = 1;
+
+  tile_compile::core::AccelerationContext context("opencv_opencl");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
+  if (!selection.using_gpu)
+    return;
+
+  const auto cpu = tile_compile::metrics::compute_aqmh_quality_map(
+      frame, mask, W, H, cfg, tile_compile::core::AccelerationBackend::cpu);
+  const auto opencl = tile_compile::metrics::compute_aqmh_quality_map(
+      frame, mask, W, H, cfg, selection.selected);
+  REQUIRE(opencl.diagnostics.acceleration_used);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x)
+      REQUIRE(opencl.q_map(y, x) ==
+              Catch::Approx(cpu.q_map(y, x)).margin(2.0e-3f));
+}
 #endif

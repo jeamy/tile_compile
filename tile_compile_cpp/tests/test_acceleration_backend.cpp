@@ -151,6 +151,43 @@ TEST_CASE("acceleration_selection_json_includes_opencl_capabilities") {
   REQUIRE(json.find("opencv_opencl_runtime") != json.end());
 }
 
+TEST_CASE("acceleration_context_keeps_run_scoped_cpu_selection") {
+  tile_compile::core::AccelerationContext context("cpu");
+  for (const auto phase : {
+           tile_compile::core::AccelerationPhase::prewarp,
+           tile_compile::core::AccelerationPhase::aqmh_maps,
+           tile_compile::core::AccelerationPhase::aqmh_reconstruction,
+           tile_compile::core::AccelerationPhase::tile_reconstruction,
+           tile_compile::core::AccelerationPhase::stacking}) {
+    const auto selection = context.selection_for(phase);
+    REQUIRE(selection.request_honored);
+    REQUIRE(selection.selected ==
+            tile_compile::core::AccelerationBackend::cpu);
+    REQUIRE_FALSE(selection.using_gpu);
+  }
+  const auto artifact = context.to_json();
+  REQUIRE(artifact["requested_backend"] == "cpu");
+  REQUIRE(artifact["phases"].contains("AQMH_MAPS"));
+  REQUIRE(artifact["phases"].contains("AQMH_RECONSTRUCTION"));
+}
+
+TEST_CASE("acceleration_context_selects_or_explains_aqmh_cuda") {
+  tile_compile::core::AccelerationContext context("opencv_cuda");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
+  if (selection.opencv_cuda_headers && selection.opencv_cuda_runtime) {
+    REQUIRE(selection.selected ==
+            tile_compile::core::AccelerationBackend::opencv_cuda);
+    REQUIRE(selection.using_gpu);
+    REQUIRE(selection.request_honored);
+  } else {
+    REQUIRE(selection.selected == tile_compile::core::AccelerationBackend::cpu);
+    REQUIRE_FALSE(selection.using_gpu);
+    REQUIRE_FALSE(selection.request_honored);
+    REQUIRE_FALSE(selection.fallback_reason.empty());
+  }
+}
+
 TEST_CASE("device_batch_descriptors_report_expected_sizes") {
   const auto frame_batch =
       tile_compile::core::make_device_frame_batch(5, 10, 12, 3);

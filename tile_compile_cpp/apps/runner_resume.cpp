@@ -1052,10 +1052,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
-    const auto stacking_acceleration = core::select_acceleration_backend(
-        cfg.runtime_limits.acceleration_backend,
-        core::AccelerationPhase::stacking);
-    const core::AccelerationOps stacking_ops(stacking_acceleration);
+    core::AccelerationContext acceleration(
+        cfg.runtime_limits.acceleration_backend);
+    const auto stacking_acceleration =
+        acceleration.selection_for(core::AccelerationPhase::stacking);
+    const core::AccelerationOps stacking_ops(
+        acceleration, core::AccelerationPhase::stacking);
     {
       std::ostringstream msg;
       msg << "STACKING acceleration "

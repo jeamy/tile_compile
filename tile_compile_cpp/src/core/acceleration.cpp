@@ -30,6 +30,13 @@
 #define TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM 0
 #endif
 
+#if __has_include(<opencv2/cudafilters.hpp>)
+#include <opencv2/cudafilters.hpp>
+#define TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS 1
+#else
+#define TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS 0
+#endif
+
 #if __has_include(<opencv2/core/ocl.hpp>)
 #include <opencv2/core/ocl.hpp>
 #include <opencv2/imgproc.hpp>
@@ -51,6 +58,10 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   switch (phase) {
   case AccelerationPhase::prewarp:
     return TILE_COMPILE_HAS_OPENCV_CUDA_WARPING != 0;
+  case AccelerationPhase::aqmh_maps:
+    return TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS != 0;
+  case AccelerationPhase::aqmh_reconstruction:
+    return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
   case AccelerationPhase::tile_reconstruction:
     return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
   case AccelerationPhase::stacking:
@@ -72,10 +83,12 @@ bool phase_supports_backend(AccelerationPhase phase,
     return true;
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
+           phase == AccelerationPhase::aqmh_maps ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
     return phase == AccelerationPhase::prewarp ||
+           phase == AccelerationPhase::aqmh_maps ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
@@ -1578,6 +1591,10 @@ std::string acceleration_phase_name(AccelerationPhase phase) {
   switch (phase) {
   case AccelerationPhase::prewarp:
     return "PREWARP";
+  case AccelerationPhase::aqmh_maps:
+    return "AQMH_MAPS";
+  case AccelerationPhase::aqmh_reconstruction:
+    return "AQMH_RECONSTRUCTION";
   case AccelerationPhase::tile_reconstruction:
     return "TILE_RECONSTRUCTION";
   case AccelerationPhase::stacking:
@@ -1697,6 +1714,130 @@ AccelerationSelection select_acceleration_backend(
 
   selection.using_gpu = requested_backend != AccelerationBackend::cpu;
   return selection;
+}
+
+AccelerationContext::AccelerationContext(std::string requested_backend_name,
+                                         int device_id)
+    : requested_backend_name_(core::to_lower(requested_backend_name)) {
+  if (requested_backend_name_.empty())
+    requested_backend_name_ = "auto";
+  capabilities_.tile_compile_with_cuda = TILE_COMPILE_WITH_CUDA != 0;
+  capabilities_.opencv_cuda_runtime = opencv_cuda_runtime_available();
+  capabilities_.opencv_opencl_headers = TILE_COMPILE_HAS_OPENCV_OPENCL != 0;
+  capabilities_.opencv_opencl_runtime = opencv_opencl_runtime_available();
+  capabilities_.device_id = std::max(0, device_id);
+
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  if (capabilities_.opencv_cuda_runtime) {
+    try {
+      const int count = cv::cuda::getCudaEnabledDeviceCount();
+      if (capabilities_.device_id >= count)
+        capabilities_.device_id = 0;
+      cv::cuda::setDevice(capabilities_.device_id);
+      cv::cuda::DeviceInfo info(capabilities_.device_id);
+      capabilities_.device_name = info.name();
+    } catch (...) {
+      capabilities_.opencv_cuda_runtime = false;
+    }
+  }
+#endif
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (capabilities_.device_name.empty() &&
+      capabilities_.opencv_opencl_runtime) {
+    try {
+      capabilities_.device_name = cv::ocl::Device::getDefault().name();
+    } catch (...) {
+    }
+  }
+#endif
+}
+
+AccelerationSelection
+AccelerationContext::selection_for(AccelerationPhase phase) const {
+  AccelerationSelection selection;
+  selection.phase = phase;
+  selection.tile_compile_with_cuda = capabilities_.tile_compile_with_cuda;
+  selection.opencv_cuda_headers = opencv_cuda_headers_available(phase);
+  selection.opencv_cuda_runtime = capabilities_.opencv_cuda_runtime;
+  selection.opencv_opencl_headers = capabilities_.opencv_opencl_headers;
+  selection.opencv_opencl_runtime = capabilities_.opencv_opencl_runtime;
+  selection.requested_name = requested_backend_name_;
+  selection.auto_requested = auto_backend_requested(selection.requested_name);
+
+  if (selection.auto_requested) {
+    selection.selected = choose_auto_backend(
+        phase, selection.tile_compile_with_cuda,
+        selection.opencv_cuda_runtime, selection.opencv_opencl_runtime);
+    selection.requested = selection.selected;
+    selection.gpu_requested = selection.selected != AccelerationBackend::cpu;
+    selection.using_gpu = selection.gpu_requested;
+    return selection;
+  }
+
+  AccelerationBackend requested = AccelerationBackend::cpu;
+  if (!parse_acceleration_backend(selection.requested_name, requested)) {
+    selection.request_honored = false;
+    selection.fallback_reason = "invalid_requested_backend";
+    return selection;
+  }
+  selection.requested = requested;
+  selection.selected = requested;
+  selection.gpu_requested = requested != AccelerationBackend::cpu;
+  const std::string missing = missing_backend_reason(
+      requested, selection.tile_compile_with_cuda,
+      selection.opencv_cuda_headers, selection.opencv_cuda_runtime,
+      selection.opencv_opencl_headers, selection.opencv_opencl_runtime);
+  if (!missing.empty()) {
+    selection.selected = AccelerationBackend::cpu;
+    selection.request_honored = false;
+    selection.fallback_reason = missing;
+    return selection;
+  }
+  if (!phase_supports_backend(phase, requested)) {
+    selection.selected = AccelerationBackend::cpu;
+    selection.request_honored = false;
+    selection.fallback_reason = unsupported_phase_reason(requested, phase);
+    return selection;
+  }
+  selection.using_gpu = selection.gpu_requested;
+  return selection;
+}
+
+json AccelerationContext::to_json() const {
+  json phases = json::object();
+  for (AccelerationPhase phase : {AccelerationPhase::prewarp,
+                                  AccelerationPhase::aqmh_maps,
+                                  AccelerationPhase::aqmh_reconstruction,
+                                  AccelerationPhase::tile_reconstruction,
+                                  AccelerationPhase::stacking}) {
+    phases[acceleration_phase_name(phase)] =
+        acceleration_selection_to_json(selection_for(phase));
+  }
+  return {{"requested_backend", requested_backend_name_},
+          {"device_id", capabilities_.device_id},
+          {"device_name", capabilities_.device_name},
+          {"opencv_cuda_runtime", capabilities_.opencv_cuda_runtime},
+          {"opencv_opencl_runtime", capabilities_.opencv_opencl_runtime},
+          {"phases", std::move(phases)}};
+}
+
+void AccelerationContext::synchronize() const {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS
+  if (capabilities_.opencv_cuda_runtime) {
+    try {
+      cv::cuda::Stream::Null().waitForCompletion();
+    } catch (...) {
+    }
+  }
+#endif
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (capabilities_.opencv_opencl_runtime) {
+    try {
+      cv::ocl::finish();
+    } catch (...) {
+    }
+  }
+#endif
 }
 
 /// @brief Implements acceleration selection to json.
@@ -1846,6 +1987,10 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch) {
 /// artifact, and error-handling semantics expected by callers.
 AccelerationOps::AccelerationOps(AccelerationSelection selection)
     : selection_(std::move(selection)) {}
+
+AccelerationOps::AccelerationOps(const AccelerationContext &context,
+                                 AccelerationPhase phase)
+    : selection_(context.selection_for(phase)) {}
 
 struct AccelerationOps::OverlapAddState {
   int rows = 0;

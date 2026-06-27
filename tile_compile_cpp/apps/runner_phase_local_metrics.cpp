@@ -143,7 +143,8 @@ bool run_phase_local_metrics(
     const DiskCacheFrameStore &prewarped_frames,
     const std::vector<image::NormalizationScales> &norm_scales,
     ColorMode detected_mode, const std::string &detected_bayer_str,
-    bool apply_normalization_to_tiles, core::EventEmitter &emitter,
+    bool apply_normalization_to_tiles,
+    core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
@@ -320,6 +321,18 @@ bool run_phase_local_metrics(
 
     std::vector<AqmhFrameDiag> aqmh_frame_diag(frames.size());
     if (cfg.aqmh.enabled) {
+      const auto aqmh_acceleration =
+          acceleration.selection_for(core::AccelerationPhase::aqmh_maps);
+      log_file << "[AQMH] "
+               << core::acceleration_selection_summary(aqmh_acceleration)
+               << std::endl;
+      if (!aqmh_acceleration.request_honored &&
+          !aqmh_acceleration.fallback_reason.empty()) {
+        emitter.warning(run_id,
+                        "AQMH acceleration fallback: " +
+                            aqmh_acceleration.fallback_reason,
+                        log_file);
+      }
       if (common_mask_width <= 0 || common_mask_height <= 0 ||
           common_valid_mask.size() !=
               static_cast<size_t>(common_mask_width) *
@@ -343,22 +356,28 @@ bool run_phase_local_metrics(
           common_valid_mask, common_mask_width, common_mask_height);
       out_aqmh_cache = std::make_unique<metrics::QualityMapCache>(
           run_dir / "cache" / "aqmh", "luma", common_mask_width,
-          common_mask_height, cfg.aqmh.pyramid, cfg.aqmh.storage, mask_hash);
+          common_mask_height, cfg.aqmh.pyramid, cfg.aqmh.storage, mask_hash,
+          core::acceleration_backend_name(aqmh_acceleration.selected));
 
       const int aqmh_workers = compute_adaptive_worker_count(
           cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
-      std::cout << "[AQMH] Using " << aqmh_workers
+      const int aqmh_effective_workers = aqmh_acceleration.using_gpu
+                                             ? 1
+                                             : aqmh_workers;
+      std::cout << "[AQMH] Using " << aqmh_effective_workers
                 << " parallel workers for quality-map computation" << std::endl;
 
       emitter.phase_progress(run_id, Phase::LOCAL_METRICS, 0.0f,
                              "aqmh_maps starting: 0/" +
                                  std::to_string(frames.size()) + " workers=" +
-                                 std::to_string(aqmh_workers),
+                                 std::to_string(aqmh_effective_workers),
                              log_file);
 
       std::atomic<size_t> aqmh_next{0};
       std::atomic<size_t> aqmh_done{0};
       std::atomic<size_t> aqmh_written{0};
+      std::atomic<size_t> aqmh_gpu_frames{0};
+      std::atomic<size_t> aqmh_gpu_fallbacks{0};
       std::atomic<bool> aqmh_failed{false};
       std::mutex aqmh_error_mutex;
       std::mutex aqmh_progress_mutex;
@@ -384,7 +403,12 @@ bool run_phase_local_metrics(
                 }
                 const auto aqmh_result = metrics::compute_aqmh_quality_map(
                     frame, common_valid_mask, common_mask_width,
-                    common_mask_height, cfg.aqmh.pyramid);
+                    common_mask_height, cfg.aqmh.pyramid,
+                    aqmh_acceleration.selected);
+                if (aqmh_result.diagnostics.acceleration_used)
+                  aqmh_gpu_frames.fetch_add(1, std::memory_order_relaxed);
+                if (aqmh_result.diagnostics.acceleration_fallback)
+                  aqmh_gpu_fallbacks.fetch_add(1, std::memory_order_relaxed);
                 // Each frame has a distinct cache path. QualityMapCache keeps
                 // only its shared statistics/LRU state under a short lock.
                 out_aqmh_cache->write(fi, aqmh_result.q_map);
@@ -426,16 +450,16 @@ bool run_phase_local_metrics(
                 "aqmh_maps " + std::to_string(done) + "/" +
                     std::to_string(frames.size()) + " written=" +
                     std::to_string(aqmh_written.load(std::memory_order_relaxed)) +
-                    " workers=" + std::to_string(aqmh_workers),
+                    " workers=" + std::to_string(aqmh_effective_workers),
                 log_file);
           }
         }
       };
 
-      if (aqmh_workers > 1) {
+      if (aqmh_effective_workers > 1) {
         std::vector<std::thread> workers;
-        workers.reserve(static_cast<size_t>(aqmh_workers));
-        for (int w = 0; w < aqmh_workers; ++w)
+        workers.reserve(static_cast<size_t>(aqmh_effective_workers));
+        for (int w = 0; w < aqmh_effective_workers; ++w)
           workers.emplace_back(aqmh_worker);
         for (auto &worker : workers) {
           if (worker.joinable())
@@ -459,6 +483,12 @@ bool run_phase_local_metrics(
 
       core::json aqmh_artifact;
       aqmh_artifact["enabled"] = true;
+      aqmh_artifact["acceleration"] =
+          core::acceleration_selection_to_json(aqmh_acceleration);
+      aqmh_artifact["acceleration"]["gpu_frames"] =
+          aqmh_gpu_frames.load(std::memory_order_relaxed);
+      aqmh_artifact["acceleration"]["gpu_fallbacks"] =
+          aqmh_gpu_fallbacks.load(std::memory_order_relaxed);
       aqmh_artifact["map_stream_id"] = out_aqmh_cache->map_stream_id();
       aqmh_artifact["cache_dir"] = out_aqmh_cache->cache_dir().string();
       aqmh_artifact["full_width"] = out_aqmh_cache->full_width();

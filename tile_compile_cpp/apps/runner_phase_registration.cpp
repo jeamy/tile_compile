@@ -248,7 +248,8 @@ bool run_phase_registration_prewarp(
     const std::vector<image::NormalizationScales> &norm_scales,
     const std::vector<FrameMetrics> &frame_metrics,
     const VectorXf &global_weights, const io::FitsHeader &first_header,
-    core::EventEmitter &emitter, std::ostream &log_file,
+    core::AccelerationContext &acceleration, core::EventEmitter &emitter,
+    std::ostream &log_file,
     PhaseRegistrationContext &out) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
@@ -3060,10 +3061,10 @@ bool run_phase_registration_prewarp(
     }
   }
 
-  const auto prewarp_acceleration = core::select_acceleration_backend(
-      cfg.runtime_limits.acceleration_backend,
-      core::AccelerationPhase::prewarp);
-  const core::AccelerationOps prewarp_ops(prewarp_acceleration);
+  const auto prewarp_acceleration =
+      acceleration.selection_for(core::AccelerationPhase::prewarp);
+  const core::AccelerationOps prewarp_ops(
+      acceleration, core::AccelerationPhase::prewarp);
   const auto prewarp_input_batch =
       core::make_device_frame_batch(frames.size(), height, width, 1);
   const auto prewarp_output_batch =

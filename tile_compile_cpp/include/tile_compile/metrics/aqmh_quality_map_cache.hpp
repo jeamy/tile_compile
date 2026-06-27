@@ -29,7 +29,8 @@ public:
                   int full_width, int full_height,
                   const config::AqmhPyramidConfig &pyramid_cfg,
                   const config::AqmhStorageConfig &storage_cfg,
-                  std::string canvas_mask_hash);
+                  std::string canvas_mask_hash,
+                  std::string execution_backend = "cpu");
 
   QualityMapCache(const QualityMapCache &) = delete;
   QualityMapCache &operator=(const QualityMapCache &) = delete;
@@ -70,6 +71,7 @@ private:
   config::AqmhStorageConfig storage_cfg_;
   std::string canvas_mask_hash_;
   std::string config_hash_;
+  std::string execution_backend_;
 
   mutable std::mutex mutex_;
   mutable AqmhQualityMapCacheStats stats_;

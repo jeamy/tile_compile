@@ -38,7 +38,8 @@ std::string make_config_hash(const config::AqmhPyramidConfig &pyramid,
                              const config::AqmhStorageConfig &storage,
                              int full_width, int full_height,
                              const std::string &stream_id,
-                             const std::string &mask_hash) {
+                             const std::string &mask_hash,
+                             const std::string &execution_backend) {
   std::ostringstream oss;
   oss << "v=" << kAqmhMapFormatVersion << '\n';
   oss << "stream=" << stream_id << '\n';
@@ -53,6 +54,7 @@ std::string make_config_hash(const config::AqmhPyramidConfig &pyramid,
   oss << "storage.resolution_divisor=" << storage.resolution_divisor << '\n';
   oss << "storage.dtype=" << storage.dtype << '\n';
   oss << "mask=" << mask_hash << '\n';
+  oss << "execution_backend=" << execution_backend << '\n';
   const std::string payload = oss.str();
   return core::sha256_bytes(
       std::vector<uint8_t>(payload.begin(), payload.end()));
@@ -65,11 +67,13 @@ Matrix2Df empty_matrix() { return Matrix2Df(); }
 QualityMapCache::QualityMapCache(
     fs::path cache_dir, std::string map_stream_id, int full_width,
     int full_height, const config::AqmhPyramidConfig &pyramid_cfg,
-    const config::AqmhStorageConfig &storage_cfg, std::string canvas_mask_hash)
+    const config::AqmhStorageConfig &storage_cfg, std::string canvas_mask_hash,
+    std::string execution_backend)
     : cache_dir_(std::move(cache_dir)), map_stream_id_(std::move(map_stream_id)),
       full_width_(full_width), full_height_(full_height),
       pyramid_cfg_(pyramid_cfg), storage_cfg_(storage_cfg),
-      canvas_mask_hash_(std::move(canvas_mask_hash)) {
+      canvas_mask_hash_(std::move(canvas_mask_hash)),
+      execution_backend_(std::move(execution_backend)) {
   if (full_width_ <= 0 || full_height_ <= 0) {
     throw std::invalid_argument("QualityMapCache requires positive full size");
   }
@@ -92,7 +96,7 @@ QualityMapCache::QualityMapCache(
                       storage_cfg_.resolution_divisor);
   config_hash_ = make_config_hash(pyramid_cfg_, storage_cfg_, full_width_,
                                   full_height_, map_stream_id_,
-                                  canvas_mask_hash_);
+                                  canvas_mask_hash_, execution_backend_);
   fs::create_directories(cache_dir_);
   if (!metadata_matches()) {
     cleanup();
@@ -259,6 +263,7 @@ fs::path QualityMapCache::metadata_path() const {
 }
 
 void QualityMapCache::write_metadata() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   json j;
   j["format_version"] = kAqmhMapFormatVersion;
   j["map_stream_id"] = map_stream_id_;
@@ -270,6 +275,7 @@ void QualityMapCache::write_metadata() const {
   j["resolution_divisor"] = storage_cfg_.resolution_divisor;
   j["canvas_mask_hash"] = canvas_mask_hash_;
   j["config_hash"] = config_hash_;
+  j["execution_backend"] = execution_backend_;
   j["pyramid"] = {{"scales", pyramid_cfg_.scales},
                   {"base_window_px", pyramid_cfg_.base_window_px},
                   {"w_sharp", pyramid_cfg_.w_sharp},
@@ -296,6 +302,8 @@ bool QualityMapCache::metadata_matches() const {
            j.value("resolution_divisor", -1) ==
                storage_cfg_.resolution_divisor &&
            j.value("canvas_mask_hash", std::string()) == canvas_mask_hash_ &&
+           j.value("execution_backend", std::string("cpu")) ==
+               execution_backend_ &&
            j.value("config_hash", std::string()) == config_hash_;
   } catch (...) {
     return false;

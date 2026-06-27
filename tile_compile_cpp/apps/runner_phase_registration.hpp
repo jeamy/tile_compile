@@ -2,6 +2,7 @@
 
 #include "runner_shared.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/normalization.hpp"
@@ -75,7 +76,8 @@ bool run_phase_registration_prewarp(
     const std::vector<image::NormalizationScales> &norm_scales,
     const std::vector<FrameMetrics> &frame_metrics,
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,
-    core::EventEmitter &emitter, std::ostream &log_file,
+    core::AccelerationContext &acceleration, core::EventEmitter &emitter,
+    std::ostream &log_file,
     PhaseRegistrationContext &out);
 
 } // namespace tile_compile::runner
