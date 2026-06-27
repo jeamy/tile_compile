@@ -14,6 +14,13 @@
 
 #include <opencv2/opencv.hpp>
 
+#if __has_include(<opencv2/core/cuda.hpp>)
+#include <opencv2/core/cuda.hpp>
+#define TILE_COMPILE_PREWARP_HAS_CUDA 1
+#else
+#define TILE_COMPILE_PREWARP_HAS_CUDA 0
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -3133,6 +3140,13 @@ bool run_phase_registration_prewarp(
   std::atomic<bool> prewarp_failed{false};
   std::string prewarp_error;
 
+#if TILE_COMPILE_PREWARP_HAS_CUDA
+  std::vector<cv::cuda::Stream> prewarp_streams;
+  if (prewarp_acceleration.using_gpu && prewarp_workers > 1) {
+    prewarp_streams.resize(static_cast<size_t>(prewarp_workers));
+  }
+#endif
+
   auto prewarp_worker = [&](int worker_index) {
     std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
     while (true) {
@@ -3170,7 +3184,11 @@ bool run_phase_registration_prewarp(
         prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
                                       canvas_height, canvas_width, offset_x,
                                       offset_y, warped, &warped_valid_mask,
-                                      &warped_has_data);
+                                      &warped_has_data
+#if TILE_COMPILE_PREWARP_HAS_CUDA
+                                      , prewarp_streams.empty() ? nullptr : &prewarp_streams[static_cast<size_t>(worker_index)]
+#endif
+                                      );
         if (warped.size() > 0) {
           prewarped_frames.store(fi, warped);
           const bool stored = prewarped_frames.has_data(fi);

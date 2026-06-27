@@ -11,6 +11,14 @@
 #include <unordered_map>
 #include <vector>
 
+#if __has_include(<opencv2/core/cuda.hpp>)
+#include <opencv2/core/cuda.hpp>
+#define TILE_COMPILE_ACCELERATION_HPP_HAS_CUDA 1
+#else
+#define TILE_COMPILE_ACCELERATION_HPP_HAS_CUDA 0
+namespace cv::cuda { class Stream; }
+#endif
+
 namespace tile_compile::core {
 
 enum class AccelerationBackend {
@@ -125,16 +133,19 @@ public:
                          int canvas_height, int canvas_width, int offset_x,
                          int offset_y, Matrix2Df &warped_out,
                          std::vector<uint8_t> *valid_mask_out = nullptr,
-                         bool *has_data_out = nullptr) const;
+                         bool *has_data_out = nullptr,
+                         cv::cuda::Stream *stream = nullptr) const;
 
   reconstruction::WeightedTileResult sigma_clip_reduce(
       const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
       float sigma_low, float sigma_high, int max_iters, float min_fraction,
-      float eps_weight) const;
+      float eps_weight,
+      cv::cuda::Stream *stream = nullptr) const;
 
   Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df> &frames,
                              float sigma_low, float sigma_high, int max_iters,
-                             float min_fraction) const;
+                             float min_fraction,
+                             cv::cuda::Stream *stream = nullptr) const;
 
   void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
                    const std::vector<float> &hann_x,
@@ -182,7 +193,8 @@ public:
       float sigma_high,
       int   max_iters,
       float min_fraction,
-      float eps_weight) const;
+      float eps_weight,
+      cv::cuda::Stream *stream = nullptr) const;
 
 private:
   struct OverlapAddState;

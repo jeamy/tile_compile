@@ -45,6 +45,14 @@
 #include <numeric>
 #include <optional>
 #include <opencv2/opencv.hpp>
+
+#if __has_include(<opencv2/core/cuda.hpp>)
+#include <opencv2/core/cuda.hpp>
+#define TILE_COMPILE_PIPELINE_HAS_CUDA 1
+#else
+#define TILE_COMPILE_PIPELINE_HAS_CUDA 0
+#endif
+
 #include <random>
 #include <sstream>
 #include <string>
@@ -2493,6 +2501,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
+#if TILE_COMPILE_PIPELINE_HAS_CUDA
+    std::vector<cv::cuda::Stream> tile_rec_streams;
+    if (tile_reconstruction_acceleration.using_gpu && parallel_tiles > 1) {
+      tile_rec_streams.resize(static_cast<size_t>(parallel_tiles));
+    }
+#endif
+
     const auto tile_ola_coeff_cache = build_tile_ola_coeff_cache(
         tiles_phase56, tile_window_cache, common_valid_mask, canvas_width,
         canvas_height);
@@ -2619,7 +2634,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
-    auto process_tile = [&](size_t ti) {
+    auto process_tile = [&](size_t ti, cv::cuda::Stream *tile_stream) {
       const Tile &t = tiles_phase56[ti];
       const bool tile_has_common_overlap =
           ti < tile_common_valid.size() && tile_common_valid[ti] != 0;
@@ -2812,7 +2827,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
-                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+                cfg.stacking.sigma_clip.min_fraction, kEpsWeight, tile_stream);
             used_weight_fallback = used_weight_fallback || wr.fallback_used;
             return std::move(wr.tile);
           }
@@ -2821,7 +2836,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight, tile_stream);
           used_weight_fallback = used_weight_fallback || wr.fallback_used;
           return std::move(wr.tile);
         };
@@ -2924,7 +2939,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               warped_tiles, batch_weights, cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight, tile_stream);
           used_weight_fallback = used_weight_fallback || wr.fallback_used;
 
           const float bw = static_cast<float>(warped_tiles.size());
@@ -3080,12 +3095,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::atomic<size_t> next_tile{0};
 
       for (int w = 0; w < parallel_tiles; ++w) {
-        workers.emplace_back([&]() {
+        workers.emplace_back([&, w]() {
+          cv::cuda::Stream *stream_ptr = nullptr;
+#if TILE_COMPILE_PIPELINE_HAS_CUDA
+          if (!tile_rec_streams.empty())
+            stream_ptr = &tile_rec_streams[static_cast<size_t>(w)];
+#endif
           while (true) {
             size_t ti = next_tile.fetch_add(1);
             if (ti >= tiles_phase56.size())
               break;
-            process_tile(ti);
+            process_tile(ti, stream_ptr);
           }
         });
       }
@@ -3100,7 +3120,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cout << "  Processing " << tiles_phase56.size()
                 << " tiles serially..." << std::endl;
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-        process_tile(ti);
+        process_tile(ti, nullptr);
       }
     }
 

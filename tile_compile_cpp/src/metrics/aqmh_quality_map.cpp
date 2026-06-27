@@ -256,7 +256,8 @@ Matrix2Df local_variance(const Matrix2Df &m, int r) {
 
 bool accelerated_local_variance(const Matrix2Df &m, int r,
                                 core::AccelerationBackend backend,
-                                Matrix2Df &out) {
+                                Matrix2Df &out,
+                                cv::cuda::Stream *stream) {
   if (backend != core::AccelerationBackend::opencv_cuda &&
       backend != core::AccelerationBackend::opencv_opencl)
     return false;
@@ -289,21 +290,40 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
       cv::Mat h_support(rows, cols, CV_32F, support.data());
       cv::cuda::GpuMat d_values, d_squares, d_support;
       cv::cuda::GpuMat d_sums, d_square_sums, d_counts;
-      d_values.upload(h_values);
-      d_squares.upload(h_squares);
-      d_support.upload(h_support);
-      const auto filter = cv::cuda::createBoxFilter(
-          CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
-          cv::BORDER_CONSTANT);
-      filter->apply(d_values, d_sums);
-      filter->apply(d_squares, d_square_sums);
-      filter->apply(d_support, d_counts);
-      cv::Mat h_sums(rows, cols, CV_32F, sums.data());
-      cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
-      cv::Mat h_counts(rows, cols, CV_32F, counts.data());
-      d_sums.download(h_sums);
-      d_square_sums.download(h_square_sums);
-      d_counts.download(h_counts);
+      if (stream) {
+        d_values.upload(h_values, *stream);
+        d_squares.upload(h_squares, *stream);
+        d_support.upload(h_support, *stream);
+        const auto filter = cv::cuda::createBoxFilter(
+            CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
+            cv::BORDER_CONSTANT);
+        filter->apply(d_values, d_sums, *stream);
+        filter->apply(d_squares, d_square_sums, *stream);
+        filter->apply(d_support, d_counts, *stream);
+        cv::Mat h_sums(rows, cols, CV_32F, sums.data());
+        cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
+        cv::Mat h_counts(rows, cols, CV_32F, counts.data());
+        d_sums.download(h_sums, *stream);
+        d_square_sums.download(h_square_sums, *stream);
+        d_counts.download(h_counts, *stream);
+        stream->waitForCompletion();
+      } else {
+        d_values.upload(h_values);
+        d_squares.upload(h_squares);
+        d_support.upload(h_support);
+        const auto filter = cv::cuda::createBoxFilter(
+            CV_32F, CV_32F, kernel_size, cv::Point(-1, -1),
+            cv::BORDER_CONSTANT);
+        filter->apply(d_values, d_sums);
+        filter->apply(d_squares, d_square_sums);
+        filter->apply(d_support, d_counts);
+        cv::Mat h_sums(rows, cols, CV_32F, sums.data());
+        cv::Mat h_square_sums(rows, cols, CV_32F, square_sums.data());
+        cv::Mat h_counts(rows, cols, CV_32F, counts.data());
+        d_sums.download(h_sums);
+        d_square_sums.download(h_square_sums);
+        d_counts.download(h_counts);
+      }
 #else
       return false;
 #endif
@@ -655,7 +675,8 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
     int canvas_mask_width, int canvas_mask_height,
     const config::AqmhPyramidConfig &cfg,
-    core::AccelerationBackend backend) {
+    core::AccelerationBackend backend,
+    cv::cuda::Stream *stream) {
   AqmhQualityMapResult result;
   result.q_map = Matrix2Df::Zero(frame.rows(), frame.cols());
   if (frame.rows() <= 0 || frame.cols() <= 0)
@@ -682,12 +703,12 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     Matrix2Df sharp;
     if (backend == core::AccelerationBackend::cpu) {
       sharp = local_variance(laplacian, radius);
-    } else if (accelerated_local_variance(laplacian, radius, backend, sharp)) {
+    } else if (accelerated_local_variance(laplacian, radius, backend, sharp, stream)) {
       result.diagnostics.acceleration_used = true;
     } else {
       auto fallback = compute_aqmh_quality_map(
           frame, canvas_mask, canvas_mask_width, canvas_mask_height, cfg,
-          core::AccelerationBackend::cpu);
+          core::AccelerationBackend::cpu, nullptr);
       fallback.diagnostics.acceleration_fallback = true;
       return fallback;
     }

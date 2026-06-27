@@ -29,6 +29,7 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
     int canvas_mask_width, int canvas_mask_height,
     const config::AqmhPyramidConfig &cfg,
-    core::AccelerationBackend backend = core::AccelerationBackend::cpu);
+    core::AccelerationBackend backend = core::AccelerationBackend::cpu,
+    cv::cuda::Stream *stream = nullptr);
 
 } // namespace tile_compile::metrics

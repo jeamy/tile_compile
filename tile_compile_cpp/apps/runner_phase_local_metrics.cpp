@@ -21,6 +21,13 @@
 #include <unordered_map>
 #include <vector>
 
+#if __has_include(<opencv2/core/cuda.hpp>)
+#include <opencv2/core/cuda.hpp>
+#define TILE_COMPILE_LOCAL_METRICS_HAS_CUDA 1
+#else
+#define TILE_COMPILE_LOCAL_METRICS_HAS_CUDA 0
+#endif
+
 namespace tile_compile::runner {
 
 namespace core = tile_compile::core;
@@ -362,7 +369,7 @@ bool run_phase_local_metrics(
       const int aqmh_workers = compute_adaptive_worker_count(
           cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
       const int aqmh_effective_workers = aqmh_acceleration.using_gpu
-                                             ? 1
+                                             ? std::min(aqmh_workers, 4)
                                              : aqmh_workers;
       std::cout << "[AQMH] Using " << aqmh_effective_workers
                 << " parallel workers for quality-map computation" << std::endl;
@@ -383,7 +390,14 @@ bool run_phase_local_metrics(
       std::mutex aqmh_progress_mutex;
       std::string aqmh_error;
 
-      auto aqmh_worker = [&]() {
+#if TILE_COMPILE_LOCAL_METRICS_HAS_CUDA
+      std::vector<cv::cuda::Stream> aqmh_streams;
+      if (aqmh_acceleration.using_gpu && aqmh_effective_workers > 1) {
+        aqmh_streams.resize(static_cast<size_t>(aqmh_effective_workers));
+      }
+#endif
+
+      auto aqmh_worker = [&](int worker_idx) {
         while (true) {
           const size_t fi = aqmh_next.fetch_add(1);
           if (fi >= frames.size())
@@ -401,10 +415,15 @@ bool run_phase_local_metrics(
                       frame, norm_scales[fi], detected_mode,
                       detected_bayer_str, 0, 0);
                 }
+                cv::cuda::Stream *stream_ptr = nullptr;
+#if TILE_COMPILE_LOCAL_METRICS_HAS_CUDA
+                if (!aqmh_streams.empty())
+                  stream_ptr = &aqmh_streams[static_cast<size_t>(worker_idx)];
+#endif
                 const auto aqmh_result = metrics::compute_aqmh_quality_map(
                     frame, common_valid_mask, common_mask_width,
                     common_mask_height, cfg.aqmh.pyramid,
-                    aqmh_acceleration.selected);
+                    aqmh_acceleration.selected, stream_ptr);
                 if (aqmh_result.diagnostics.acceleration_used)
                   aqmh_gpu_frames.fetch_add(1, std::memory_order_relaxed);
                 if (aqmh_result.diagnostics.acceleration_fallback)
@@ -460,13 +479,13 @@ bool run_phase_local_metrics(
         std::vector<std::thread> workers;
         workers.reserve(static_cast<size_t>(aqmh_effective_workers));
         for (int w = 0; w < aqmh_effective_workers; ++w)
-          workers.emplace_back(aqmh_worker);
+          workers.emplace_back(aqmh_worker, w);
         for (auto &worker : workers) {
           if (worker.joinable())
             worker.join();
         }
       } else {
-        aqmh_worker();
+        aqmh_worker(0);
       }
 
       if (aqmh_failed.load(std::memory_order_relaxed)) {
