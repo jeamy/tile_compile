@@ -1,5 +1,6 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 
 #include <filesystem>
@@ -121,6 +122,74 @@ TEST_CASE("aqmh_reconstruction_uses_per_pixel_quality_weights") {
   REQUIRE(out.output(0, 0) == Catch::Approx(10.0f).margin(1.0e-6f));
   REQUIRE(out.output(1, 1) == Catch::Approx(55.0f).margin(1.0e-6f));
   REQUIRE(out.zero_veto_pixels == 0);
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
+  constexpr int H = 16;
+  constexpr int W = 18;
+  const auto dir = unique_recon_cache_dir("aqmh_recon_cuda_reference");
+  std::filesystem::remove_all(dir);
+  auto cache = make_cache(dir, W, H);
+
+  std::vector<tile_compile::Matrix2Df> frames;
+  tile_compile::VectorXf global_weights(4);
+  global_weights << 1.0f, 0.8f, 1.2f, 1.0f;
+  for (int fi = 0; fi < 4; ++fi) {
+    tile_compile::Matrix2Df frame(H, W);
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        frame(y, x) = 10.0f + 0.1f * x + 0.2f * y + fi;
+        q(y, x) = 0.3f + 0.15f * fi + 0.001f * (x + y);
+      }
+    }
+    if (fi == 3)
+      frame(5, 7) = 500.0f;
+    q(2, 3) = 0.0f;
+    frames.push_back(std::move(frame));
+    cache.write(static_cast<size_t>(fi), q);
+  }
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  mask[0] = 0u;
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.sigma_low = 2.0f;
+  cfg.sigma_high = 2.0f;
+  cfg.min_fraction = 0.5f;
+
+  const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+
+  tile_compile::core::AccelerationContext context("opencv_cuda");
+  const auto selection = context.selection_for(
+      tile_compile::core::AccelerationPhase::aqmh_reconstruction);
+  if (selection.selected !=
+      tile_compile::core::AccelerationBackend::opencv_cuda) {
+    std::filesystem::remove_all(dir);
+    return;
+  }
+  tile_compile::core::AccelerationOps ops(
+      context, tile_compile::core::AccelerationPhase::aqmh_reconstruction);
+  tile_compile::core::WorkerCudaStreams streams(true, 1);
+  const auto gpu = ops.reconstruct_aqmh(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg, streams.get(0));
+
+  REQUIRE(gpu.acceleration_used);
+  REQUIRE_FALSE(gpu.acceleration_fallback);
+  REQUIRE(gpu.unsupported_pixels == cpu.unsupported_pixels);
+  REQUIRE(gpu.zero_veto_pixels == cpu.zero_veto_pixels);
+  REQUIRE(gpu.finite_map_samples == cpu.finite_map_samples);
+  REQUIRE(gpu.missing_map_samples == cpu.missing_map_samples);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      REQUIRE(gpu.output(y, x) ==
+              Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
+      REQUIRE(gpu.weight_sum(y, x) ==
+              Catch::Approx(cpu.weight_sum(y, x)).margin(2.0e-4f));
+    }
+  }
   std::filesystem::remove_all(dir);
 }
 #endif

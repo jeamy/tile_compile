@@ -2226,6 +2226,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (cfg.aqmh.enabled) {
       const auto aqmh_reconstruction_acceleration = acceleration.selection_for(
           core::AccelerationPhase::aqmh_reconstruction);
+      const core::AccelerationOps aqmh_reconstruction_ops(
+          acceleration, core::AccelerationPhase::aqmh_reconstruction);
+      core::WorkerCudaStreams aqmh_reconstruction_stream(
+          aqmh_reconstruction_acceleration.selected ==
+              core::AccelerationBackend::opencv_cuda,
+          1);
       log_file << "[AQMH_RECONSTRUCTION] "
                << core::acceleration_selection_summary(
                       aqmh_reconstruction_acceleration)
@@ -2261,10 +2267,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       };
 
       std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
-                << frames.size() << " frame slots" << std::endl;
-      const auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+                << frames.size() << " frame slots cpu_workers=1 gpu="
+                << (aqmh_reconstruction_acceleration.using_gpu &&
+                            !aqmh_recon_cfg.cherry_pick
+                        ? "yes"
+                        : "no")
+                << " backend="
+                << (aqmh_recon_cfg.cherry_pick
+                        ? "cpu(cherry_pick_fallback)"
+                        : core::acceleration_backend_name(
+                              aqmh_reconstruction_acceleration.selected))
+                << std::endl;
+      const auto aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
           frames.size(), aqmh_frame_loader, aqmh_cache.get(), global_weights,
-          common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg);
+          common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+          aqmh_reconstruction_stream.get(0));
 
       recon = aqmh_recon.output;
       weight_sum = aqmh_recon.weight_sum;
@@ -2292,6 +2309,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["zero_veto_pixels"] = aqmh_recon.zero_veto_pixels;
       artifact["finite_map_samples"] = aqmh_recon.finite_map_samples;
       artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
+      artifact["acceleration_used"] = aqmh_recon.acceleration_used;
+      artifact["acceleration_fallback"] = aqmh_recon.acceleration_fallback;
       artifact["sigma_low"] = aqmh_recon_cfg.sigma_low;
       artifact["sigma_high"] = aqmh_recon_cfg.sigma_high;
       artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;

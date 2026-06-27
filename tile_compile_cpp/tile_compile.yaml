@@ -65,15 +65,16 @@ bge:
     rbf_lambda: 0.01
     rbf_epsilon: 1
 calibration:
-  flat_master: ""
-  flats_dir: ""
-  dark_master: ""
-  dark_already_bias_corrected: false
-  darks_dir: ""
   use_flat: false
+  bias_master: ""
+  bias_dir: ""
+  flat_master: ""
+  darks_dir: ""
   use_bias: false
   bias_use_master: false
   flat_use_master: false
+  use_dark: false
+  dark_use_master: false
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:

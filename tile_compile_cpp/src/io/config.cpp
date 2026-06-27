@@ -2330,7 +2330,7 @@ std::string get_schema_json() {
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."},
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP, AQMH_MAPS, AQMH_RECONSTRUCTION, TILE_RECONSTRUCTION und STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."},
                       "tile_reconstruction_diagnostics":{"type":"string","enum":["full","minimal","off"]} } }
   }
 })";

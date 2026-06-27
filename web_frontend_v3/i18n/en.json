@@ -1197,7 +1197,7 @@
   "param.registration.auto_engine_rotation_threshold_deg.label": "Auto Engine Rotation Threshold",
   "param.registration.auto_engine_rotation_threshold_deg.short_help": "Rotation per frame in degrees above which auto_engine triggers the override. Default: 0.05 (triggers at ~0.6 deg/min for 5s exposures).",
   "param.runtime_limits.acceleration_backend.label": "Acceleration Backend",
-  "param.runtime_limits.acceleration_backend.short_help": "Acceleration backend for PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' detects GPU backends (CUDA/OpenCL). 'opencv_cuda' forces CUDA, 'opencv_opencl' forces OpenCL, 'cpu' disables GPU. Default: auto.",
+  "param.runtime_limits.acceleration_backend.short_help": "Acceleration backend for PREWARP, AQMH maps/reconstruction, TILE_RECONSTRUCTION, and STACKING. 'auto' detects GPU backends (CUDA/OpenCL). 'opencv_cuda' forces CUDA, 'opencv_opencl' forces OpenCL, 'cpu' disables GPU. Default: auto.",
   "param.runtime_limits.tile_reconstruction_diagnostics.label": "Tile Reconstruction Diagnostics",
   "param.runtime_limits.tile_reconstruction_diagnostics.short_help": "Diagnostics detail level for tile reconstruction: 'full' (complete), 'summary' (summary), 'off' (disabled). Default: full.",
   "param.stacking.common_overlap_required_fraction.label": "Common Overlap Required Fraction",

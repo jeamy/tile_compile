@@ -2,6 +2,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
 #include <algorithm>
 #include <array>
@@ -84,6 +85,7 @@ bool phase_supports_backend(AccelerationPhase phase,
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
            phase == AccelerationPhase::aqmh_maps ||
+           phase == AccelerationPhase::aqmh_reconstruction ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
@@ -1564,6 +1566,283 @@ bool cuda_sigma_clip_stack_impl(
     return false;
   }
 }
+
+bool cuda_reconstruct_aqmh_impl(
+    size_t frame_count,
+    const reconstruction::AqmhFrameLoader &load_frame,
+    metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
+    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const reconstruction::AqmhReconstructionConfig &cfg,
+    reconstruction::AqmhReconstructionResult &result,
+    cv::cuda::Stream *stream) {
+  if (cfg.cherry_pick || frame_count == 0 || !load_frame || !q_map_cache ||
+      width <= 0 || height <= 0) {
+    return false;
+  }
+  constexpr float kAqmhSigmaClipEpsVar = 1.0e-12f;
+
+  try {
+    cv::cuda::Stream &s = stream ? *stream : cv::cuda::Stream::Null();
+    const cv::Size size(width, height);
+    cv::cuda::GpuMat zeros(size, CV_32F);
+    cv::cuda::GpuMat eps(size, CV_32F);
+    zeros.setTo(cv::Scalar(0.0f), s);
+    eps.setTo(cv::Scalar(cfg.eps_weight), s);
+
+    std::vector<uint8_t> canvas_u8(static_cast<size_t>(width) * height,
+                                   canvas_mask.empty() ? 255u : 0u);
+    if (!canvas_mask.empty()) {
+      for (size_t i = 0; i < canvas_u8.size() && i < canvas_mask.size(); ++i)
+        canvas_u8[i] = canvas_mask[i] ? 255u : 0u;
+    }
+    cv::Mat canvas_host(height, width, CV_8U, canvas_u8.data());
+    cv::cuda::GpuMat canvas;
+    canvas.upload(canvas_host, s);
+
+    cv::cuda::GpuMat W(size, CV_32F), mean(size, CV_32F), M2(size, CV_32F);
+    cv::cuda::GpuMat finite_count(size, CV_32F), positive_count(size, CV_32F);
+    W.setTo(cv::Scalar(0.0f), s);
+    mean.setTo(cv::Scalar(0.0f), s);
+    M2.setTo(cv::Scalar(0.0f), s);
+    finite_count.setTo(cv::Scalar(0.0f), s);
+    positive_count.setTo(cv::Scalar(0.0f), s);
+
+    auto finite_mask = [&](const cv::cuda::GpuMat &src,
+                           cv::cuda::GpuMat &mask) {
+      cv::cuda::GpuMat lo, hi;
+      cv::cuda::compare(src, -std::numeric_limits<float>::max(), lo,
+                        cv::CMP_GE, s);
+      cv::cuda::compare(src, std::numeric_limits<float>::max(), hi,
+                        cv::CMP_LE, s);
+      cv::cuda::bitwise_and(lo, hi, mask, cv::noArray(), s);
+    };
+    auto mask_to_float = [&](const cv::cuda::GpuMat &mask,
+                             cv::cuda::GpuMat &out) {
+      mask.convertTo(out, CV_32F, 1.0 / 255.0, s);
+    };
+
+    uint64_t valid_px = 0;
+    for (uint8_t v : canvas_u8)
+      valid_px += v != 0;
+
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      Matrix2Df frame;
+      if (!load_frame(fi, frame) || frame.rows() != height ||
+          frame.cols() != width)
+        continue;
+      Matrix2Df q_map = q_map_cache->read_cached(fi);
+      if (q_map.rows() != height || q_map.cols() != width) {
+        result.missing_map_samples += valid_px;
+        continue;
+      }
+
+      const float gw = fi >= static_cast<size_t>(global_weights.size())
+                           ? 1.0f
+                           : (std::isfinite(global_weights[fi]) &&
+                                      global_weights[fi] > 0.0f
+                                  ? global_weights[fi]
+                                  : 0.0f);
+      cv::Mat frame_host(height, width, CV_32F, frame.data());
+      cv::Mat q_host(height, width, CV_32F, q_map.data());
+      cv::cuda::GpuMat d_frame, d_q;
+      d_frame.upload(frame_host, s);
+      d_q.upload(q_host, s);
+
+      cv::cuda::GpuMat finite_q, finite_frame;
+      finite_mask(d_q, finite_q);
+      finite_mask(d_frame, finite_frame);
+      cv::cuda::GpuMat finite_canvas;
+      cv::cuda::bitwise_and(finite_q, canvas, finite_canvas, cv::noArray(), s);
+      cv::cuda::GpuMat finite_f32;
+      mask_to_float(finite_canvas, finite_f32);
+      cv::cuda::add(finite_count, finite_f32, finite_count, cv::noArray(), -1,
+                    s);
+
+      cv::cuda::GpuMat q_clean(size, CV_32F);
+      q_clean.setTo(cv::Scalar(0.0f), s);
+      d_q.copyTo(q_clean, finite_q, s);
+      cv::cuda::max(q_clean, zeros, q_clean, s);
+      cv::cuda::GpuMat weight;
+      cv::cuda::multiply(q_clean, cv::Scalar(gw), weight, 1.0, -1, s);
+      cv::cuda::GpuMat positive;
+      cv::cuda::compare(weight, cfg.eps_weight, positive, cv::CMP_GT, s);
+      cv::cuda::bitwise_and(positive, finite_frame, positive, cv::noArray(), s);
+      cv::cuda::bitwise_and(positive, canvas, positive, cv::noArray(), s);
+
+      cv::cuda::GpuMat positive_f32;
+      mask_to_float(positive, positive_f32);
+      cv::cuda::add(positive_count, positive_f32, positive_count,
+                    cv::noArray(), -1, s);
+      cv::cuda::multiply(weight, positive_f32, weight, 1.0, -1, s);
+
+      cv::cuda::GpuMat frame_clean(size, CV_32F);
+      frame_clean.setTo(cv::Scalar(0.0f), s);
+      d_frame.copyTo(frame_clean, positive, s);
+      cv::cuda::GpuMat W_new;
+      cv::cuda::add(W, weight, W_new, cv::noArray(), -1, s);
+      cv::cuda::GpuMat W_safe;
+      cv::cuda::max(W_new, eps, W_safe, s);
+      cv::cuda::GpuMat delta;
+      cv::cuda::subtract(frame_clean, mean, delta, cv::noArray(), -1, s);
+      cv::cuda::GpuMat ratio;
+      cv::cuda::divide(weight, W_safe, ratio, 1.0, -1, s);
+      cv::cuda::GpuMat update;
+      cv::cuda::multiply(ratio, delta, update, 1.0, -1, s);
+      cv::cuda::GpuMat mean_new;
+      cv::cuda::add(mean, update, mean_new, cv::noArray(), -1, s);
+      cv::cuda::GpuMat delta2, term;
+      cv::cuda::subtract(frame_clean, mean_new, delta2, cv::noArray(), -1, s);
+      cv::cuda::multiply(delta, delta2, term, 1.0, -1, s);
+      cv::cuda::multiply(term, weight, term, 1.0, -1, s);
+      cv::cuda::add(M2, term, M2, cv::noArray(), -1, s);
+      W = W_new;
+      mean = mean_new;
+
+      for (int y = 0; y < height; ++y) {
+        const float *q = q_map.data() + static_cast<size_t>(y) * width;
+        for (int x = 0; x < width; ++x) {
+          if (!canvas_u8[static_cast<size_t>(y) * width + x])
+            continue;
+          if (std::isfinite(q[x]))
+            ++result.finite_map_samples;
+          else
+            ++result.missing_map_samples;
+        }
+      }
+    }
+
+    cv::cuda::GpuMat W_safe;
+    cv::cuda::max(W, eps, W_safe, s);
+    cv::cuda::GpuMat variance;
+    cv::cuda::divide(M2, W_safe, variance, 1.0, -1, s);
+    cv::cuda::max(variance, zeros, variance, s);
+    cv::cuda::GpuMat sigma;
+    cv::cuda::sqrt(variance, sigma, s);
+    cv::cuda::GpuMat lo_delta, hi_delta, lo, hi;
+    cv::cuda::multiply(sigma, cv::Scalar(cfg.sigma_low), lo_delta, 1.0, -1,
+                       s);
+    cv::cuda::multiply(sigma, cv::Scalar(cfg.sigma_high), hi_delta, 1.0, -1,
+                       s);
+    cv::cuda::subtract(mean, lo_delta, lo, cv::noArray(), -1, s);
+    cv::cuda::add(mean, hi_delta, hi, cv::noArray(), -1, s);
+
+    cv::cuda::GpuMat clipped_accum(size, CV_32F);
+    cv::cuda::GpuMat clipped_weight(size, CV_32F);
+    clipped_accum.setTo(cv::Scalar(0.0f), s);
+    clipped_weight.setTo(cv::Scalar(0.0f), s);
+
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      Matrix2Df frame;
+      if (!load_frame(fi, frame) || frame.rows() != height ||
+          frame.cols() != width)
+        continue;
+      Matrix2Df q_map = q_map_cache->read_cached(fi);
+      if (q_map.rows() != height || q_map.cols() != width)
+        continue;
+      const float gw = fi >= static_cast<size_t>(global_weights.size())
+                           ? 1.0f
+                           : (std::isfinite(global_weights[fi]) &&
+                                      global_weights[fi] > 0.0f
+                                  ? global_weights[fi]
+                                  : 0.0f);
+      cv::Mat frame_host(height, width, CV_32F, frame.data());
+      cv::Mat q_host(height, width, CV_32F, q_map.data());
+      cv::cuda::GpuMat d_frame, d_q;
+      d_frame.upload(frame_host, s);
+      d_q.upload(q_host, s);
+      cv::cuda::GpuMat finite_q, finite_frame;
+      finite_mask(d_q, finite_q);
+      finite_mask(d_frame, finite_frame);
+      cv::cuda::GpuMat q_clean(size, CV_32F);
+      q_clean.setTo(cv::Scalar(0.0f), s);
+      d_q.copyTo(q_clean, finite_q, s);
+      cv::cuda::max(q_clean, zeros, q_clean, s);
+      cv::cuda::GpuMat weight;
+      cv::cuda::multiply(q_clean, cv::Scalar(gw), weight, 1.0, -1, s);
+      cv::cuda::GpuMat valid_weight;
+      cv::cuda::compare(weight, cfg.eps_weight, valid_weight, cv::CMP_GT, s);
+      cv::cuda::bitwise_and(valid_weight, finite_frame, valid_weight,
+                            cv::noArray(), s);
+      cv::cuda::bitwise_and(valid_weight, canvas, valid_weight, cv::noArray(),
+                            s);
+      cv::cuda::GpuMat ge_lo, le_hi, in_range, sigma_small, keep;
+      cv::cuda::compare(d_frame, lo, ge_lo, cv::CMP_GE, s);
+      cv::cuda::compare(d_frame, hi, le_hi, cv::CMP_LE, s);
+      cv::cuda::bitwise_and(ge_lo, le_hi, in_range, cv::noArray(), s);
+      cv::cuda::compare(sigma, kAqmhSigmaClipEpsVar,
+                        sigma_small, cv::CMP_LE, s);
+      cv::cuda::bitwise_or(in_range, sigma_small, keep, cv::noArray(), s);
+      cv::cuda::bitwise_and(keep, valid_weight, keep, cv::noArray(), s);
+      cv::cuda::GpuMat keep_f32;
+      mask_to_float(keep, keep_f32);
+      cv::cuda::multiply(weight, keep_f32, weight, 1.0, -1, s);
+      cv::cuda::GpuMat frame_clean(size, CV_32F);
+      frame_clean.setTo(cv::Scalar(0.0f), s);
+      d_frame.copyTo(frame_clean, keep, s);
+      cv::cuda::GpuMat weighted_value;
+      cv::cuda::multiply(frame_clean, weight, weighted_value, 1.0, -1, s);
+      cv::cuda::add(clipped_accum, weighted_value, clipped_accum,
+                    cv::noArray(), -1, s);
+      cv::cuda::add(clipped_weight, weight, clipped_weight, cv::noArray(), -1,
+                    s);
+    }
+
+    Matrix2Df host_W(height, width), host_mean(height, width);
+    Matrix2Df host_finite(height, width), host_positive(height, width);
+    Matrix2Df host_clipped_accum(height, width), host_clipped_weight(height,
+                                                                        width);
+    cv::Mat h_W(height, width, CV_32F, host_W.data());
+    cv::Mat h_mean(height, width, CV_32F, host_mean.data());
+    cv::Mat h_finite(height, width, CV_32F, host_finite.data());
+    cv::Mat h_positive(height, width, CV_32F, host_positive.data());
+    cv::Mat h_ca(height, width, CV_32F, host_clipped_accum.data());
+    cv::Mat h_cw(height, width, CV_32F, host_clipped_weight.data());
+    W.download(h_W, s);
+    mean.download(h_mean, s);
+    finite_count.download(h_finite, s);
+    positive_count.download(h_positive, s);
+    clipped_accum.download(h_ca, s);
+    clipped_weight.download(h_cw, s);
+    s.waitForCompletion();
+
+    result.output = Matrix2Df::Zero(height, width);
+    result.weight_sum = host_W;
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        const size_t idx = static_cast<size_t>(y) * width + x;
+        if (!canvas_u8[idx]) {
+          result.weight_sum(y, x) = 0.0f;
+          continue;
+        }
+        if (host_finite(y, x) > 0.0f && host_positive(y, x) <= 0.0f) {
+          result.weight_sum(y, x) = 0.0f;
+          ++result.unsupported_pixels;
+          ++result.zero_veto_pixels;
+          continue;
+        }
+        if (host_W(y, x) <= cfg.eps_weight) {
+          result.weight_sum(y, x) = 0.0f;
+          ++result.unsupported_pixels;
+          continue;
+        }
+        const float min_kept =
+            std::max(0.0f, cfg.min_fraction) * host_W(y, x);
+        if (host_clipped_weight(y, x) > cfg.eps_weight &&
+            host_clipped_weight(y, x) >= min_kept) {
+          result.output(y, x) =
+              host_clipped_accum(y, x) / host_clipped_weight(y, x);
+          result.weight_sum(y, x) = host_clipped_weight(y, x);
+        } else {
+          result.output(y, x) = host_mean(y, x);
+        }
+      }
+    }
+    result.acceleration_used = true;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 #endif
 
 /// @brief Implements auto backend requested.
@@ -2268,6 +2547,34 @@ Matrix2Df AccelerationOps::sigma_clip_stack(const std::vector<Matrix2Df> &frames
 #endif
   return reconstruction::sigma_clip_stack(frames, sigma_low, sigma_high,
                                           max_iters, min_fraction);
+}
+
+reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
+    size_t frame_count,
+    const reconstruction::AqmhFrameLoader &load_frame,
+    metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
+    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const reconstruction::AqmhReconstructionConfig &cfg,
+    cv::cuda::Stream *stream) const {
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
+  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+      selection_.phase == AccelerationPhase::aqmh_reconstruction) {
+    reconstruction::AqmhReconstructionResult gpu_result;
+    if (cuda_reconstruct_aqmh_impl(
+            frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
+            width, height, cfg, gpu_result, stream)) {
+      return gpu_result;
+    }
+    auto cpu_result = reconstruction::reconstruct_aqmh_weighted(
+        frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
+        width, height, cfg);
+    cpu_result.acceleration_fallback = true;
+    return cpu_result;
+  }
+#endif
+  return reconstruction::reconstruct_aqmh_weighted(
+      frame_count, load_frame, q_map_cache, global_weights, canvas_mask, width,
+      height, cfg);
 }
 
 /// @brief Implements overlap add.

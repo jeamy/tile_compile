@@ -1034,6 +1034,7 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 **GPU-Performance-Optimierungen (`v0.3.9`):**
 
 - Zentrale CUDA-Stream-Verwaltung pro Worker für PREWARP, AQMH-Quality-Maps, Tile- und synthetische Rekonstruktion, STACKING, Resume und die Preprocessing-Pipeline ergänzt.
+- Streaming-CUDA-Beschleunigung für AQMH_RECONSTRUCTION ergänzt; der VRAM-Bedarf ist unabhängig von der Frameanzahl, mit automatischem CPU-Fallback für Cherry-Pick oder CUDA-Fehler.
 - Synchronisations- und Allokationsaufwand durch gebündelte OSC/CFA-Warps, pro Worker gecachte AQMH-CUDA-Filter und paralleles RGB-Kanal-Stacking reduziert.
 - Den veralteten globalen OpenCV/OpenCL-Mutex entfernt und Live-Fortschrittslogs um CPU-Workerzahl, GPU-Nutzung und Backend ergänzt.
 

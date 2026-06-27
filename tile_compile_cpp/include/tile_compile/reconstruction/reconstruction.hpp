@@ -64,6 +64,8 @@ struct AqmhReconstructionConfig {
 struct AqmhReconstructionResult {
     Matrix2Df output;
     Matrix2Df weight_sum;
+    bool acceleration_used = false;
+    bool acceleration_fallback = false;
     uint64_t unsupported_pixels = 0;
     uint64_t finite_map_samples = 0;
     uint64_t missing_map_samples = 0;

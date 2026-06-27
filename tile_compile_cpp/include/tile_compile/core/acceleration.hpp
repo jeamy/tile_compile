@@ -164,6 +164,15 @@ public:
                              float min_fraction,
                              cv::cuda::Stream *stream = nullptr) const;
 
+  reconstruction::AqmhReconstructionResult reconstruct_aqmh(
+      size_t frame_count,
+      const reconstruction::AqmhFrameLoader &load_frame,
+      metrics::QualityMapCache *q_map_cache,
+      const VectorXf &global_weights,
+      const std::vector<uint8_t> &canvas_mask, int width, int height,
+      const reconstruction::AqmhReconstructionConfig &cfg,
+      cv::cuda::Stream *stream = nullptr) const;
+
   void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
                    const std::vector<float> &hann_x,
                    const std::vector<float> &hann_y,
