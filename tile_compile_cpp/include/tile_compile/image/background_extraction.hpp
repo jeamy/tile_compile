@@ -325,6 +325,7 @@ struct StretchParams {
     std::vector<float> linear_offsets;
     std::vector<float> linear_scales;
     std::vector<float> mtf_targets;
+    std::vector<float> mtf_scales;  // p99-vmin scale used to normalize MTF input
     std::string mode;
     bool was_single_channel = false;
 };

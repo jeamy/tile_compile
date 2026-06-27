@@ -200,7 +200,7 @@ astrometry:
 
 bge:
   enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
-  method: none
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -220,7 +220,7 @@ bge:
   tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true # optionales deterministisches BGE-Autotuning (v3.3.6 §6.3.7)
-    strategy: conservative # conservative | extended
+    strategy: extended # conservative | extended
     max_evals: 24 # harte Obergrenze getesteter Kandidaten
     holdout_fraction: 0.25 # CV-Anteil, gueltig in [0.05, 0.50]
     alpha_flatness: 0.25 # Gewicht E_flat im Ziel J

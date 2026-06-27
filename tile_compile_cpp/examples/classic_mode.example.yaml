@@ -143,7 +143,7 @@ astrometry:
 
 bge:
   enabled: false
-  method: none
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2

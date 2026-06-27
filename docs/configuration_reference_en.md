@@ -28,6 +28,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
 9. [Tile Denoise](#9-tile-denoise)
+9b. [Chroma Denoise](#9b-chroma-denoise) **NEW**
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
@@ -209,6 +210,10 @@ Linearity correction settings.
 
 **Purpose:** Controls whether linearity violations fail, warn, or are ignored.
 
+- **`strict`**: Linearity violations cause the run to abort.
+- **`moderate`**: A warning is issued; processing continues.
+- **`permissive`**: Violations are silently ignored (not recommended for scientific workflows).
+
 ---
 
 ## 5. Calibration
@@ -223,6 +228,10 @@ Calibration frame processing.
 | **Default** | `false` (all three) |
 
 **Purpose:** Enable per-frame-type calibration stages.
+
+- **`use_bias`**: Subtracts readout noise (offset pedestal) from every light frame.
+- **`use_dark`**: Subtracts thermal noise (dark current) from every light frame. Requires matching exposure time.
+- **`use_flat`**: Divides by flat-field to correct vignetting and dust shadows.
 
 **Runtime behavior:** Each enabled stage requires at least one configured
 source:
@@ -677,7 +686,7 @@ Tile-based denoising settings.
 | **Type** | integer |
 | **Default** | `31` |
 
-**Purpose:** Blur radius used for local noise estimate.
+**Purpose:** Gaussian blur kernel size for local background/noise estimation. Must be odd. Larger kernels produce smoother noise estimates but may average over real structure. Range: >= 3. Recommended: 21–31.
 
 ### `tile_denoise.soft_threshold.alpha`
 
@@ -686,7 +695,7 @@ Tile-based denoising settings.
 | **Type** | number |
 | **Default** | `1.5` |
 
-**Purpose:** Soft-threshold aggressiveness.
+**Purpose:** Soft-thresholding strength factor (`tau = alpha * sigma_tile`). Higher values remove more noise but may blur faint detail. Range: > 0. Recommended: 1.5–2.0.
 
 ### `tile_denoise.soft_threshold.skip_star_tiles`
 
@@ -695,7 +704,7 @@ Tile-based denoising settings.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Avoid denoising in STAR tiles to protect stellar detail.
+**Purpose:** Skip denoising on STAR-classified tiles to protect stellar detail and PSF shape.
 
 ### `tile_denoise.wiener.enabled`
 
@@ -704,7 +713,7 @@ Tile-based denoising settings.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Optional Wiener denoise branch (off by default).
+**Purpose:** Enable Wiener filter denoise on tiles. Estimates SNR per tile and applies adaptive frequency-domain filtering. Disabled by default; enable for noisy data where soft-thresholding alone is insufficient.
 
 ### `tile_denoise.wiener.snr_threshold`
 
@@ -713,7 +722,7 @@ Tile-based denoising settings.
 | **Type** | number |
 | **Default** | `5.0` |
 
-**Purpose:** SNR threshold; tiles above this are typically not filtered.
+**Purpose:** SNR threshold; tiles above this SNR are typically not filtered (signal is strong enough). Range: >= 0. Recommended: 4–6.
 
 ### `tile_denoise.wiener.q_min` / `tile_denoise.wiener.q_max`
 
@@ -722,7 +731,7 @@ Tile-based denoising settings.
 | **Type** | number / number |
 | **Default** | `-0.5` / `1.0` |
 
-**Purpose:** Quality parameter search range for Wiener optimization.
+**Purpose:** Quality parameter search range for Wiener optimization. `q_min` is the lower bound, `q_max` is the upper bound of the adaptive filter parameter. Range: q_min >= -1, q_max <= 1.
 
 ### `tile_denoise.wiener.q_step`
 
@@ -731,7 +740,7 @@ Tile-based denoising settings.
 | **Type** | number |
 | **Default** | `0.1` |
 
-**Purpose:** Step size for q-parameter optimization.
+**Purpose:** Step size for q-parameter search. Smaller steps = finer adaptation but slower. Range: > 0. Recommended: 0.1.
 
 ### `tile_denoise.wiener.min_snr`
 
@@ -740,7 +749,7 @@ Tile-based denoising settings.
 | **Type** | number |
 | **Default** | `2.0` |
 
-**Purpose:** Minimum SNR for stable Wiener estimation.
+**Purpose:** Minimum SNR for applying Wiener filter at all. Tiles below this SNR are not filtered (too noisy for stable estimation). Range: >= 0. Recommended: 2.
 
 ### `tile_denoise.wiener.max_iterations`
 
@@ -749,7 +758,197 @@ Tile-based denoising settings.
 | **Type** | integer |
 | **Default** | `10` |
 
-**Purpose:** Maximum iterations for Wiener optimization.
+**Purpose:** Maximum iterations for Wiener filter convergence. More iterations = better convergence but slower. Range: >= 1. Recommended: 10.
+
+---
+
+## 9b. Chroma Denoise
+
+Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma.
+
+### `chroma_denoise.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Recommended for OSC data.
+
+### `chroma_denoise.color_space`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `ycbcr_linear`, `opponent_linear` |
+| **Default** | `"ycbcr_linear"` |
+
+**Purpose:** Color space transform used to isolate chroma channels. `ycbcr_linear` is the standard choice. `opponent_linear` uses an opponent color space which may perform better for certain sensors.
+
+### `chroma_denoise.apply_stage`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `pre_stack_tiles`, `post_stack_linear` |
+| **Default** | `"post_stack_linear"` |
+
+**Purpose:** Pipeline stage at which chroma denoise is applied. `pre_stack_tiles` applies denoise to individual tiles before reconstruction. `post_stack_linear` applies denoise to the final linear stacked image (recommended).
+
+### `chroma_denoise.protect_luma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** When true, the luma channel is protected from denoise — only chroma channels are filtered. Preserves star sharpness and fine detail.
+
+### `chroma_denoise.luma_guard_strength`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `0.75` |
+
+**Purpose:** Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification from chroma denoise side effects.
+
+### `chroma_denoise.blend.mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `chroma_only` |
+| **Default** | `"chroma_only"` |
+
+**Purpose:** Blending mode between original and denoised image. Currently only `chroma_only` is supported.
+
+### `chroma_denoise.blend.amount`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `0.95` |
+
+**Purpose:** Blend fraction between original and denoised chroma. 0 = no denoise, 1 = full denoise. Range 0–1. Recommended: 0.90–0.95.
+
+### `chroma_denoise.star_protection.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable star protection mask for chroma denoise. Prevents color noise removal from degrading star colors and halos.
+
+### `chroma_denoise.star_protection.threshold_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `2.5` |
+
+**Purpose:** Sigma threshold for star detection in protection mask. Lower values detect more stars (more aggressive protection). Range > 0. Recommended: 2.5–3.5.
+
+### `chroma_denoise.star_protection.dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `>= 0` |
+| **Default** | `2` |
+
+**Purpose:** Dilation radius for star protection mask in pixels. Expands the protection zone around detected stars to cover halos. Range >= 0. Recommended: 2–4.
+
+### `chroma_denoise.structure_protection.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable structure protection for chroma denoise. Prevents denoise from blurring nebula edges, galaxy arms, and other fine structures.
+
+### `chroma_denoise.structure_protection.gradient_percentile`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 100` |
+| **Default** | `87` |
+
+**Purpose:** Gradient percentile threshold for structure protection. Regions with gradient above this percentile are protected from denoise. Lower values protect more structure. Range 0–100. Recommended: 85–90.
+
+### `chroma_denoise.chroma_wavelet.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable wavelet-based chroma denoise. Decomposes chroma into wavelet levels and applies soft-thresholding to remove noise.
+
+### `chroma_denoise.chroma_wavelet.levels`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `>= 1` |
+| **Default** | `3` |
+
+**Purpose:** Number of wavelet decomposition levels. More levels capture larger-scale noise patterns. Range >= 1. Recommended: 3.
+
+### `chroma_denoise.chroma_wavelet.threshold_scale`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `1.8` |
+
+**Purpose:** Scale factor for wavelet noise threshold. Higher values remove more color noise. Range > 0. Recommended: 1.5–2.0.
+
+### `chroma_denoise.chroma_wavelet.soft_k`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `1.0` |
+
+**Purpose:** Soft-thresholding parameter k. Controls smoothness of threshold transition. Higher values = smoother transition. Range > 0. Recommended: 1.0.
+
+### `chroma_denoise.chroma_bilateral.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable bilateral filter for chroma denoise. Edge-preserving smoothing of color channels — smooths color noise while keeping color edges intact.
+
+### `chroma_denoise.chroma_bilateral.sigma_range`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `0.065` |
+
+**Purpose:** Range (color) sigma for bilateral filter. Controls how much color difference is tolerated before smoothing kicks in. Range > 0. Recommended: 0.05–0.08.
+
+### `chroma_denoise.chroma_bilateral.sigma_spatial`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `1.5` |
+
+**Purpose:** Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Larger values smooth over larger areas. Range > 0. Recommended: 1.5–3.0.
 
 ---
 
@@ -764,7 +963,7 @@ Global quality metrics.
 | **Type** | number |
 | **Default** | `0.4` |
 
-**Purpose:** Weight for background penalty term.
+**Purpose:** Weight for background penalty term in the global quality score. Higher values penalize frames with uneven or elevated backgrounds more strongly. Range 0–1. Recommended: 0.4.
 
 ### `global_metrics.weights.noise`
 
@@ -773,7 +972,7 @@ Global quality metrics.
 | **Type** | number |
 | **Default** | `0.3` |
 
-**Purpose:** Weight for noise penalty term.
+**Purpose:** Weight for noise penalty term in the global quality score. Higher values penalize noisy frames more strongly. Range 0–1. Recommended: 0.3.
 
 ### `global_metrics.weights.gradient`
 
@@ -782,7 +981,7 @@ Global quality metrics.
 | **Type** | number |
 | **Default** | `0.3` |
 
-**Purpose:** Weight for structure/sharpness term.
+**Purpose:** Weight for structure/sharpness penalty term in the global quality score. Higher values favor frames with better sharpness/structure. Range 0–1. Recommended: 0.3.
 
 ### `global_metrics.clamp`
 
@@ -791,7 +990,7 @@ Global quality metrics.
 | **Type** | array [2 numbers] |
 | **Default** | `[-3.0, 3.0]` |
 
-**Purpose:** Clamp range before exponential weighting.
+**Purpose:** Clamp range for the composite global quality z-score before exponential weight mapping. Prevents extreme outliers from dominating. Recommended: [-3.0, 3.0].
 
 ### `global_metrics.adaptive_weights`
 
@@ -800,7 +999,7 @@ Global quality metrics.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Auto-adjust global metric weights by variance.
+**Purpose:** Auto-adjust global metric weights based on observed variance across frames. When true, weights are normalized by the inverse variance of each metric, giving less variable metrics more influence. Recommended: false (manual weights are more predictable).
 
 ### `global_metrics.weight_exponent_scale`
 
@@ -809,7 +1008,7 @@ Global quality metrics.
 | **Type** | number |
 | **Default** | `1.0` |
 
-**Purpose:** Exponential scaling factor for global weight separation.
+**Purpose:** Exponential scaling factor for global weight separation. Controls how strongly quality differences translate into weight differences via `W_f = exp(k * Q_f)`. Values > 1 increase separation (good frames get more weight), < 1 soften it. Range > 0. Recommended: 1.0.
 
 ---
 
@@ -824,7 +1023,7 @@ Tile processing configuration.
 | **Type** | integer |
 | **Default** | `32` |
 
-**Purpose:** Base tile size factor (`T0 = size_factor * FWHM`).
+**Purpose:** Base tile size factor. Tile size is computed as `T0 = size_factor * FWHM` where FWHM is the median seeing FWHM in pixels. Larger values produce larger tiles (fewer tiles, faster but less spatial resolution). Range >= 1. Recommended: 32.
 
 ### `tile.min_size`
 
@@ -833,7 +1032,7 @@ Tile processing configuration.
 | **Type** | integer |
 | **Default** | `64` |
 
-**Purpose:** Minimum tile size in pixels.
+**Purpose:** Minimum tile size in pixels. Prevents tiles from becoming too small when FWHM is very small. Range >= 1. Recommended: 64.
 
 ### `tile.max_divisor`
 
@@ -842,7 +1041,7 @@ Tile processing configuration.
 | **Type** | integer |
 | **Default** | `6` |
 
-**Purpose:** Upper tile size bound via shorter side divisor.
+**Purpose:** Upper tile size bound via shorter side divisor. The maximum tile size is `min(shorter_side, shorter_side / max_divisor)`. Prevents tiles from becoming too large on big images. Range >= 1. Recommended: 6.
 
 ### `tile.overlap_fraction`
 
@@ -851,7 +1050,7 @@ Tile processing configuration.
 | **Type** | number |
 | **Default** | `0.25` |
 
-**Purpose:** Fractional overlap for overlap-add blending.
+**Purpose:** Fractional overlap between adjacent tiles for overlap-add (OLA) blending. Higher values produce smoother tile boundaries but increase compute. Range 0–0.5. Recommended: 0.25.
 
 ### `tile.star_min_count`
 
@@ -860,7 +1059,7 @@ Tile processing configuration.
 | **Type** | integer |
 | **Default** | `10` |
 
-**Purpose:** Threshold for STAR vs STRUCTURE tile classification.
+**Purpose:** Threshold for STAR vs STRUCTURE tile classification. Tiles with more than this many detected stars are classified as STAR tiles (stellar quality metrics apply). Range >= 0. Recommended: 10.
 
 ---
 
@@ -1216,7 +1415,7 @@ Synthetic frame generation.
 | **Values** | `global`, `tile_weighted` |
 | **Default** | `"global"` |
 
-**Purpose:** Weighting strategy for synthetic frame creation.
+**Purpose:** Weighting strategy for synthetic frame creation. `global` uses frame-level global quality weights. `tile_weighted` uses per-tile quality weights for more spatially selective synthesis.
 
 ### `synthetic.frames_min`
 
@@ -1225,7 +1424,7 @@ Synthetic frame generation.
 | **Type** | integer |
 | **Default** | `5` |
 
-**Purpose:** Minimum cluster size required to generate synthetic output.
+**Purpose:** Minimum cluster size required to generate a synthetic output frame. Clusters smaller than this are merged or skipped. Range >= 1. Recommended: 5.
 
 ### `synthetic.frames_max`
 
@@ -1234,7 +1433,7 @@ Synthetic frame generation.
 | **Type** | integer |
 | **Default** | `30` |
 
-**Purpose:** Upper limit for generated synthetic frames.
+**Purpose:** Upper limit for generated synthetic frames. Prevents excessive synthesis on very large datasets. Range >= 1. Recommended: 30.
 
 ### `synthetic.clustering.mode`
 
@@ -1244,7 +1443,7 @@ Synthetic frame generation.
 | **Values** | `kmeans`, `quantile` |
 | **Default** | `"kmeans"` |
 
-**Purpose:** Clustering method for synthetic generation.
+**Purpose:** Clustering method for synthetic frame generation. `kmeans` partitions frames into K clusters by quality. `quantile` uses quantile-based binning. Recommended: `kmeans`.
 
 ### `synthetic.clustering.cluster_count_range`
 
@@ -1253,7 +1452,7 @@ Synthetic frame generation.
 | **Type** | array [2 integers] |
 | **Default** | `[5, 30]` |
 
-**Purpose:** Min/max cluster count range.
+**Purpose:** Min/max cluster count search range for K-means clustering. The algorithm searches for the optimal K within this range. Recommended: [5, 30].
 
 ---
 
@@ -1373,27 +1572,152 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 
 **Purpose:** Backward compatibility for older configs. If `bge.method` is absent, `enabled: true` maps to `method: classic` and `enabled: false` maps to `method: none`. If `bge.method` is present, `method` wins.
 
-### `bge.autobge.*`
+### `bge.autobge.num_sample_points`
 
-| Property | Default |
-|----------|---------|
-| `num_sample_points` | `0` |
-| `poly_degree` | `2` |
-| `rbf_smooth` | `0.1` |
-| `downsample_scale` | `4` |
-| `patch_size` | `15` |
-| `patch_estimator` | `median` |
-| `stretch_mode` | `linear` |
-| `stretch_target_median` | `0.25` |
-| `border_margin` | `10` |
-| `bright_exclusion_fraction` | `0.5` |
-| `gradient_descent_max_iters` | `100` |
-| `random_seed` | `42` |
-| `normalize_between_stages` | `true` |
-| `apply_guards` | `true` |
-| `mono_mode` | `rgb_duplicate` |
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `0` |
 
-**Purpose:** Parameters for `bge.method: autobge`. `stretch_mode: linear` is the conservative default because the later HyperMetric Stretch phase runs independently at the end and BGE should preserve the additive linear-image contract. `mtf` is intended only for AutoBGE parity/experiments.
+**Purpose:** Number of AutoBGE sample points. `0` lets the implementation derive a deterministic image-size-based count (~1 point per 800 downsampled pixels, clamped to 200–3000). Higher values produce denser spatial sampling but increase runtime. Recommended: `0` (auto) for most cases, `800–1500` for large images with complex gradients.
+
+### `bge.autobge.poly_degree`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `1 – 6` |
+| **Default** | `2` |
+
+**Purpose:** Degree of the first-stage polynomial fit. `2` = quadratic (captures broad gradients), `3` = cubic (captures complex asymmetric gradients). Higher degrees risk overfitting to image structure. Recommended: `2` for most datasets, `3` only for very strong asymmetric gradients.
+
+### `bge.autobge.rbf_smooth`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `0.1` |
+
+**Purpose:** RBF smoothing factor for the second-stage residual fit. Higher values produce a smoother background model but may underfit local gradients. Range `0.01–1.0`. Recommended: `0.1` for typical images, `0.5` for smooth gradients.
+
+### `bge.autobge.downsample_scale`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `4` |
+
+**Purpose:** Integer downscaling factor for the working image used in AutoBGE sampling and fitting. `4` = 4x downsample (16x fewer pixels). Higher values speed up computation but reduce spatial resolution of the background model. Range `1–8`. Recommended: `4` for full-resolution images, `2` for small images.
+
+### `bge.autobge.patch_size`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `3` |
+| **Default** | `15` |
+
+**Purpose:** Odd patch size used for local background sampling. Each sample point measures the background in a patch of this size. Larger patches are more robust but average over more structure. Range `3–31`. Recommended: `15`.
+
+### `bge.autobge.patch_estimator`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `median`, `sigma_clipped_median` |
+| **Default** | `"median"` |
+
+**Purpose:** Local background estimator for each sample patch. `median` is fast and robust for most images. `sigma_clipped_median` iteratively rejects outliers and is better for fields with many stars or cosmic rays.
+
+### `bge.autobge.stretch_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `none`, `linear`, `mtf` |
+| **Default** | `"linear"` |
+
+**Purpose:** Working-space transform used only for AutoBGE sampling/fitting. `linear` is the conservative default because the later HyperMetric Stretch phase runs independently and BGE should preserve the additive linear-image contract. `mtf` is intended only for AutoBGE parity/experiments.
+
+### `bge.autobge.stretch_target_median`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `0.25` |
+
+**Purpose:** Target median for the working-space stretch (only used when `stretch_mode=mtf`). Controls the brightness of the stretched image used for sampling. Lower values sample darker background regions. Range `0.1–0.5`.
+
+### `bge.autobge.border_margin`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `10` |
+
+**Purpose:** Pixel margin excluded from sampling at the image border. Border pixels often contain stacking artifacts or vignetting. Increase for wide-field images with strong edge effects. Range `0–100`. Recommended: `10–30`.
+
+### `bge.autobge.bright_exclusion_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1)` |
+| **Default** | `0.5` |
+
+**Purpose:** Fraction of brightest pixels excluded from background sampling. `0.5` excludes the top 50% (conservative, good for nebula-rich fields). Lower values (`0.2–0.3`) include more pixels but risk contaminating the background model with bright structures. Range `0.1–0.8`.
+
+### `bge.autobge.gradient_descent_max_iters`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `100` |
+
+**Purpose:** Maximum iterations for the gradient-descent sample-point placement algorithm. Each iteration moves sample points toward dimmer local regions. Higher values find deeper background spots but increase runtime. Range `20–500`. Recommended: `100`.
+
+### `bge.autobge.random_seed`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `42` |
+
+**Purpose:** Random seed for deterministic sample-point generation. Same seed + same image = identical results. Change to get alternative sample placements for comparison.
+
+### `bge.autobge.normalize_between_stages`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** When true, normalizes the residual image between the polynomial first stage and the RBF second stage. Prevents the RBF from re-fitting large-scale gradients already captured by the polynomial. Recommended: `true`.
+
+### `bge.autobge.apply_guards`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** When true, AutoBGE uses the shared outer BGE apply guards (flatness/slope check) before mutating RGB output. Prevents degradation from poor fits. Recommended: `true`.
+
+### `bge.autobge.mono_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `rgb_duplicate`, `disabled` |
+| **Default** | `"rgb_duplicate"` |
+
+**Purpose:** Handling of mono (single-channel) images. `rgb_duplicate` copies the mono channel to R/G/B before BGE, allowing per-channel correction. `disabled` processes only the single channel. Use `rgb_duplicate` for OSC images debayered to mono.
 
 ### `bge.tile_weight_lambda_structure`
 
@@ -1403,7 +1727,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Range** | `> 0` |
 | **Default** | `1.0` |
 
-**Purpose:** Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Higher values down-weight structure-rich tiles more aggressively; `1.0` is the current moderate baseline.
+**Purpose:** Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Higher values down-weight structure-rich tiles more aggressively. Range `0.5–3.0`. Recommended: `1.0` for moderate fields, `2.0+` for dense nebulosity.
 
 ### `bge.sample_quantile`
 
@@ -1413,7 +1737,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Range** | `(0, 0.5]` |
 | **Default** | `0.20` |
 
-**Purpose:** Tile background quantile used to estimate robust background samples.
+**Purpose:** Tile background quantile used to estimate robust background samples. Lower values (`0.10–0.15`) are more conservative, resistant to nebula contamination. `0.50` = median, suitable for heavily masked fields. Range `(0, 0.5]`.
 
 ### `bge.structure_thresh_percentile`
 
@@ -1423,7 +1747,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Range** | `0 – 1` |
 | **Default** | `0.90` |
 
-**Purpose:** Structure-threshold percentile used to reject structure-rich tiles or pixels from BGE sampling.
+**Purpose:** Structure-threshold percentile used to reject structure-rich tiles or pixels from BGE sampling. `0.80` = moderate (excludes top 20%), `0.90` = strict (excludes top 10%). Lower values preserve more samples but risk structure contamination. Range `0.5–0.95`.
 
 ### `bge.min_tiles_per_cell`
 
@@ -1433,7 +1757,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `1` |
 | **Default** | `3` |
 
-**Purpose:** Minimum number of valid tiles required per BGE grid cell.
+**Purpose:** Minimum number of valid tiles required per BGE grid cell. Cells with fewer valid tiles trigger the `insufficient_cell_strategy`. Range `1–10`. Recommended: `3`.
 
 ### `bge.mask.star_dilate_px`
 
@@ -1443,7 +1767,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `0` |
 | **Default** | `4` |
 
-**Purpose:** Star-mask dilation radius in pixels for BGE sample protection.
+**Purpose:** Star-mask dilation radius in pixels. Expands the exclusion zone around detected stars to prevent star halos from contaminating background samples. Range `0–20`. Recommended: `4–6` for typical seeing, `8–12` for wide-field with bright stars.
 
 ### `bge.mask.sat_dilate_px`
 
@@ -1453,7 +1777,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `0` |
 | **Default** | `4` |
 
-**Purpose:** Saturation-mask dilation radius in pixels for BGE sample protection.
+**Purpose:** Saturation-mask dilation radius in pixels. Expands the exclusion zone around saturated pixels/cores. Range `0–20`. Recommended: `4–6`, increase for sensors with strong blooming.
 
 ### `bge.grid.N_g`
 
@@ -1463,7 +1787,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `1` |
 | **Default** | `32` |
 
-**Purpose:** Target BGE grid density / cell count driver.
+**Purpose:** Target BGE grid density. Grid cell size `G = min(W,H) / N_g`. Higher values create finer grids for better gradient capture but require more samples per cell. Range `16–64`. Recommended: `32–36` for typical DSO images, `48+` for wide-field.
 
 ### `bge.grid.G_min_px`
 
@@ -1473,7 +1797,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `1` |
 | **Default** | `64` |
 
-**Purpose:** Minimum pixel size of a BGE grid cell.
+**Purpose:** Minimum pixel size of a BGE grid cell. Prevents cells from becoming too small on large images. Range `32–128`. Recommended: `56–64`.
 
 ### `bge.grid.G_max_fraction`
 
@@ -1483,7 +1807,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Range** | `(0, 1]` |
 | **Default** | `0.25` |
 
-**Purpose:** Upper bound for grid-cell size relative to the image extent.
+**Purpose:** Upper bound for grid-cell size relative to the image extent. Prevents cells from becoming too large on small images. Range `0.1–0.5`. Recommended: `0.25`.
 
 ### `bge.grid.insufficient_cell_strategy`
 
@@ -1493,7 +1817,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Values** | `discard`, `nearest`, `radius_expand` |
 | **Default** | `"discard"` |
 
-**Purpose:** Fallback strategy for grid cells with too few valid samples.
+**Purpose:** Fallback strategy for grid cells with too few valid samples. `discard` excludes the cell from fitting (conservative). `nearest` fills from nearest valid cell. `radius_expand` enlarges the search radius to find more samples. Recommended: `radius_expand` for border cells.
 
 ### `bge.fit.method`
 
@@ -1503,7 +1827,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Values** | `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` |
 | **Default** | `"rbf"` |
 
-**Purpose:** Surface fitting method used by BGE.
+**Purpose:** Surface fitting method for the background model. `rbf` = Radial Basis Functions (flexible, recommended for most gradients). `poly` = robust polynomial (good for broad smooth gradients, faster). `spline` = thin-plate spline. `bicubic` = bicubic spline. `modeled_mask_mesh` = segmentation-based mesh fit for large nebulae.
 
 ### `bge.fit.irls_max_iterations`
 
@@ -1513,7 +1837,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `1` |
 | **Default** | `10` |
 
-**Purpose:** Maximum number of IRLS iterations for robust BGE fitting.
+**Purpose:** Maximum IRLS (Iteratively Reweighted Least Squares) iterations. Higher values allow better convergence but increase runtime. Range `5–20`. Recommended: `10`.
 
 ### `bge.fit.irls_tolerance`
 
@@ -1523,7 +1847,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `> 0` |
 | **Default** | `1e-4` |
 
-**Purpose:** Convergence tolerance for IRLS-based BGE fitting.
+**Purpose:** Convergence tolerance for IRLS. Iteration stops when the parameter change falls below this value. Range `1e-6–1e-3`. Recommended: `1e-4`.
 
 ### `bge.fit.polynomial_order`
 
@@ -1533,7 +1857,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Values** | `2`, `3` |
 | **Default** | `2` |
 
-**Purpose:** Polynomial order when `bge.fit.method=poly`.
+**Purpose:** Polynomial order when `bge.fit.method=poly`. `2` = quadratic (broad gradients, safe default). `3` = cubic (complex asymmetric gradients, higher overfitting risk). Recommended: `2`.
 
 ### `bge.fit.rbf_mu_factor`
 
@@ -1543,7 +1867,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `> 0` |
 | **Default** | `1.0` |
 
-**Purpose:** Scale factor for the adaptive RBF smoothing parameter.
+**Purpose:** RBF shape parameter `μ = rbf_mu_factor × G` (grid spacing). Controls the width of the basis functions. Higher values produce smoother surfaces. Range `0.5–3.0`. Recommended: `1.0–1.5`.
 
 ### `bge.fit.rbf_lambda`
 
@@ -1553,7 +1877,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `> 0` |
 | **Default** | `1e-6` |
 
-**Purpose:** Regularization strength for RBF fitting.
+**Purpose:** RBF regularization parameter λ. Prevents overfitting by penalizing large coefficients. Higher values = smoother but may underfit. Range `1e-6–0.1`. Recommended: `0.01–0.1`.
 
 ### `bge.fit.rbf_epsilon`
 
@@ -1563,7 +1887,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `> 0` |
 | **Default** | `1e-10` |
 
-**Purpose:** Epsilon / support parameter for the RBF kernel.
+**Purpose:** Numerical stabilization epsilon for thin-plate RBF at d=0. Prevents division by zero. Range `1e-10–1.0`. Recommended: `1e-10` for thinplate, `1.0` for multiquadric.
 
 ### `bge.min_valid_sample_fraction_for_apply`
 
@@ -1573,7 +1897,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Range** | `(0.0, 1.0]` |
 | **Default** | `0.30` |
 
-**Purpose:** Per-channel safety gate for BGE application. If `valid_tile_samples / total_tile_samples` is below this value, BGE is skipped for that channel.
+**Purpose:** Per-channel safety gate. If `valid_tile_samples / total_tile_samples` falls below this fraction, BGE is skipped for that channel. Prevents poor-quality correction from sparse sampling. Range `0.1–0.5`. Recommended: `0.25–0.30`.
 
 ### `bge.min_valid_samples_for_apply`
 
@@ -1583,7 +1907,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `1` |
 | **Default** | `96` |
 
-**Purpose:** Absolute per-channel safety gate for BGE application. If valid robust tile samples are fewer than this value, BGE is skipped for that channel.
+**Purpose:** Absolute per-channel safety gate. If fewer than this many valid robust tile samples are available, BGE is skipped for that channel. Range `24–200`. Recommended: `96`.
 
 ### `bge.fit.robust_loss`
 
@@ -1593,7 +1917,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Values** | `huber`, `tukey` |
 | **Default** | `"huber"` |
 
-**Purpose:** Robust loss function used in BGE IRLS fitting.
+**Purpose:** Robust loss function for IRLS fitting. `huber` = quadratic for small residuals, linear for large (moderate outlier rejection). `tukey` = completely rejects large residuals (aggressive outlier rejection). Recommended: `huber`.
 
 ### `bge.fit.huber_delta`
 
@@ -1603,7 +1927,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Minimum** | `> 0` |
 | **Default** | `1.5` |
 
-**Purpose:** Huber transition parameter (active when `bge.fit.robust_loss=huber`).
+**Purpose:** Huber loss transition parameter δ. Residuals below δ are quadratic, above δ are linear. Smaller δ rejects more outliers. Range `0.5–3.0`. Recommended: `1.5`.
 
 ---
 
@@ -1623,7 +1947,7 @@ Photometric Color Calibration settings.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Enable/disable photometric color calibration.
+**Purpose:** Enable/disable photometric color calibration. Matches catalog star colors to calibrate the RGB color balance of the stacked image.
 
 ### `pcc.source`
 
@@ -1642,7 +1966,7 @@ Photometric Color Calibration settings.
 | **Type** | number |
 | **Default** | `14.0` |
 
-**Purpose:** Faint magnitude limit.
+**Purpose:** Faint magnitude limit for PCC catalog star matching. Higher values include fainter stars. CAUTION: for small sensors or dense star fields, mag_limit > 15 can include stars below detection threshold. Range 1–22. Recommended: 14.
 
 ### `pcc.mag_bright_limit`
 
@@ -1651,7 +1975,7 @@ Photometric Color Calibration settings.
 | **Type** | number |
 | **Default** | `6.0` |
 
-**Purpose:** Bright-star upper magnitude cutoff.
+**Purpose:** Bright magnitude limit for PCC catalog star matching. Stars brighter than this are excluded (saturated stars give unreliable photometry). Range 0–15. Recommended: 6.
 
 ### `pcc.aperture_radius_px`, `pcc.annulus_inner_px`, `pcc.annulus_outer_px`
 
@@ -1661,7 +1985,7 @@ Photometric Color Calibration settings.
 | `pcc.annulus_inner_px` | number | `12.0` |
 | `pcc.annulus_outer_px` | number | `18.0` |
 
-**Purpose:** Aperture/annulus geometry for star photometry.
+**Purpose:** Aperture/annulus geometry for star photometry. `aperture_radius_px` is the photometric aperture radius, `annulus_inner_px` and `annulus_outer_px` define the sky annulus for local background estimation. Used when `radii_mode=fixed`.
 
 ### `pcc.min_stars`
 
@@ -1670,7 +1994,7 @@ Photometric Color Calibration settings.
 | **Type** | integer |
 | **Default** | `10` |
 
-**Purpose:** Minimum number of valid stars required for PCC.
+**Purpose:** Minimum number of matched catalog stars required for PCC to proceed. Below this, PCC is skipped. Range >= 3. Recommended: 10.
 
 ### `pcc.sigma_clip`
 
@@ -1679,7 +2003,7 @@ Photometric Color Calibration settings.
 | **Type** | number |
 | **Default** | `2.5` |
 
-**Purpose:** Outlier rejection threshold in PCC fitting.
+**Purpose:** Sigma clipping threshold for PCC outlier rejection. Stars with residuals > sigma_clip × std are rejected. Range > 0. Recommended: 2.5.
 
 ### `pcc.background_model`
 
@@ -1855,7 +2179,7 @@ Final stacking settings.
 | **Values** | `rej`, `average` |
 | **Default** | `"rej"` |
 
-**Purpose:** Final stacking method.
+**Purpose:** Final stacking method. `rej` = sigma-clipped rejection (recommended, removes outliers like cosmic rays). `average` = simple average (faster, no outlier rejection).
 
 ### `stacking.common_overlap_required_fraction`
 
@@ -2042,7 +2366,7 @@ Validation and quality control.
 | **Type** | number |
 | **Default** | `0.0` |
 
-**Purpose:** Required minimum FWHM improvement in %.
+**Purpose:** Required minimum FWHM improvement in %. If the output FWHM is not at least this much better than the input median FWHM, a warning is issued. 0 = no check. Recommended: 0–5.
 
 ### `validation.max_background_rms_increase_percent`
 
@@ -2051,7 +2375,7 @@ Validation and quality control.
 | **Type** | number |
 | **Default** | `0.0` |
 
-**Purpose:** Maximum allowed background RMS increase in %.
+**Purpose:** Maximum allowed background RMS increase in % from processing (e.g., cherry_pick or tile reconstruction). If exceeded, the feature is auto-disabled. 0 = no check. Range 0–100. Recommended: 2–5.
 
 ### `validation.min_tile_weight_variance`
 
@@ -2060,7 +2384,7 @@ Validation and quality control.
 | **Type** | number |
 | **Default** | `0.1` |
 
-**Purpose:** Minimum local tile-weight variance sanity threshold.
+**Purpose:** Minimum local tile-weight variance sanity threshold. If all tiles have nearly equal weights, quality-based weighting may not be effective. 0 = no check. Range >= 0. Recommended: 0.05.
 
 ### `validation.require_no_tile_pattern`
 
@@ -2069,7 +2393,7 @@ Validation and quality control.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enforce tile-pattern detector check.
+**Purpose:** Enforce tile-pattern detector check. When true, validates that the output has no visible tile pattern artifacts. If detected, a warning is issued. Recommended: true.
 
 ---
 

@@ -141,6 +141,48 @@ float patch_median(const Matrix2Df& img, int cx, int cy, int patch_size) {
   return patch_estimate(img, cx, cy, patch_size, "median");
 }
 
+float patch_sigma(const Matrix2Df& img, int cx, int cy, int patch_size) {
+  std::vector<float> vals = collect_patch_values(img, cx, cy, patch_size);
+  if (vals.size() < 2) return 0.0f;
+  const float med = median_from_values(vals);
+  double sum_sq = 0.0;
+  for (float v : vals) {
+    const double d = static_cast<double>(v) - med;
+    sum_sq += d * d;
+  }
+  return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(vals.size())));
+}
+
+// Reject sample points whose local patch variance is high relative to the
+// global distribution of patch sigmas.  Points on signal (nebula, stars)
+// have significantly higher local variance than pure background points.
+std::vector<SamplePoint> filter_sample_points_by_variance(
+    const Matrix2Df& image_downsampled,
+    const std::vector<SamplePoint>& points,
+    int patch_size,
+    float sigma_clip_factor) {
+  if (points.size() < 8) return points;
+  std::vector<float> sigmas;
+  sigmas.reserve(points.size());
+  for (const auto& p : points)
+    sigmas.push_back(patch_sigma(image_downsampled, p.x, p.y, patch_size));
+  const float med_sigma = median_from_values(sigmas);
+  std::vector<float> dev;
+  dev.reserve(sigmas.size());
+  for (float s : sigmas) dev.push_back(std::fabs(s - med_sigma));
+  const float mad = median_from_values(std::move(dev));
+  const float sigma_mad = 1.4826f * mad;
+  if (!(sigma_mad > kTiny)) return points;
+  const float threshold = med_sigma + sigma_clip_factor * sigma_mad;
+  std::vector<SamplePoint> filtered;
+  filtered.reserve(points.size());
+  for (size_t i = 0; i < points.size(); ++i) {
+    if (sigmas[i] <= threshold)
+      filtered.push_back(points[i]);
+  }
+  return filtered;
+}
+
 std::vector<uint8_t> downsample_mask_majority(const std::vector<uint8_t>& mask,
                                              int rows, int cols, int scale,
                                              int out_rows, int out_cols) {
@@ -194,6 +236,7 @@ Matrix2Df transform_to_autobge_working_space(
         params->linear_offsets.resize(channel_index + 1, 0.0f);
         params->linear_scales.resize(channel_index + 1, 1.0f);
         params->mtf_targets.resize(channel_index + 1, 0.25f);
+        params->mtf_scales.resize(channel_index + 1, 1.0f);
       }
       params->mode = "none";
     }
@@ -221,6 +264,7 @@ Matrix2Df transform_to_autobge_working_space(
         params->linear_offsets.resize(channel_index + 1, 0.0f);
         params->linear_scales.resize(channel_index + 1, 1.0f);
         params->mtf_targets.resize(channel_index + 1, 0.25f);
+        params->mtf_scales.resize(channel_index + 1, 1.0f);
       }
       params->mode = "none";
     }
@@ -246,6 +290,7 @@ Matrix2Df transform_to_autobge_working_space(
       params->linear_offsets.resize(channel_index + 1, 0.0f);
       params->linear_scales.resize(channel_index + 1, 1.0f);
       params->mtf_targets.resize(channel_index + 1, 0.25f);
+      params->mtf_scales.resize(channel_index + 1, 1.0f);
     }
     params->original_mins[channel_index] = vmin;
     params->original_medians[channel_index] = median;
@@ -263,14 +308,18 @@ Matrix2Df transform_to_autobge_working_space(
   }
 
   // mtf: AutoBGE-style unlinked non-linear stretch on channel-min-shifted data.
+  // The formula is designed for normalized inputs (values in [0,1]).
+  // Normalize by the 99th percentile range to keep the pole outside the data.
   const float target = config.stretch_target_median;
-  const float mtf_median = median_shifted > 0.0f ? median_shifted : 1.0f;
+  const float scale = std::max(p99 - vmin, kTiny);
+  const float mtf_median = median_shifted > 0.0f ? median_shifted / scale : 1.0f;
   if (params) {
     params->original_mins[channel_index] = vmin;
-    params->original_medians[channel_index] = mtf_median;
+    params->original_medians[channel_index] = mtf_median;  // normalized median
     params->linear_offsets[channel_index] = 0.0f;
     params->linear_scales[channel_index] = 1.0f;
     params->mtf_targets[channel_index] = target;
+    params->mtf_scales[channel_index] = scale;
     params->mode = "mtf";
   }
 
@@ -283,7 +332,7 @@ Matrix2Df transform_to_autobge_working_space(
         out(r, c) = 0.0f;
         continue;
       }
-      const float shifted = std::max(0.0f, v - vmin);
+      const float shifted = std::max(0.0f, v - vmin) / scale;
       const float numerator = (mtf_median - 1.0f) * target * shifted;
       const float denominator =
           mtf_median * (target + shifted - 1.0f) - target * shifted;
@@ -305,15 +354,21 @@ Matrix2Df transform_from_autobge_working_space(
   }
 
   // mtf inverse for:
-  // y = ((m - 1) * t * shifted) / (m * (t + shifted - 1) - t * shifted)
+  // y = ((m - 1) * t * x) / (m * (t + x - 1) - t * x)
+  // where x = shifted / scale (normalized) and m is the normalized median.
+  // Solve for x, then scale back: shifted = x * scale, original = shifted + min.
   const int rows = static_cast<int>(channel.rows());
   const int cols = static_cast<int>(channel.cols());
-  const float median_shifted = params.original_medians[channel_index];
+  const float mtf_median = params.original_medians[channel_index];
   const float orig_min = params.original_mins[channel_index];
   const float target =
       channel_index < static_cast<int>(params.mtf_targets.size())
           ? params.mtf_targets[channel_index]
           : 0.25f;
+  const float scale =
+      channel_index < static_cast<int>(params.mtf_scales.size())
+          ? params.mtf_scales[channel_index]
+          : 1.0f;
 
   Matrix2Df out(rows, cols);
   const float eps = 1.0e-10f;
@@ -324,11 +379,12 @@ Matrix2Df transform_from_autobge_working_space(
         out(r, c) = corrected;
         continue;
       }
-      const float numerator = corrected * median_shifted * (target - 1.0f);
+      const float numerator = corrected * mtf_median * (target - 1.0f);
       const float denominator =
-          (median_shifted - 1.0f) * target -
-          corrected * (median_shifted - target);
-      out(r, c) = numerator / (denominator + eps) + orig_min;
+          (mtf_median - 1.0f) * target -
+          corrected * (mtf_median - target);
+      const float x = numerator / (denominator + eps);
+      out(r, c) = x * scale + orig_min;
     }
   return out;
 }
@@ -875,6 +931,22 @@ AutoBGEResult build_autobge_models(
     const int min_stage1_points = autobge_min_stage1_points(config.autobge);
     std::vector<SamplePoint> points = generate_points_with_retry(
         downsampled, min_stage1_points, "stage1");
+
+    // Post-filter: reject sample points whose local patch variance is high
+    // relative to the global distribution.  In the MTF working space, nebula
+    // signal can appear compressed and slip through bright-exclusion.  The
+    // variance filter catches it because signal regions always have higher
+    // local scatter than pure background.
+    if (points.size() > 8) {
+      const size_t before = points.size();
+      points = filter_sample_points_by_variance(
+          downsampled, points, config.autobge.patch_size, 2.5f);
+      if (points.size() < before) {
+        std::cerr << "[AutoBGE] Channel " << names[ch]
+                  << ": variance filter removed " << (before - points.size())
+                  << " of " << before << " stage1 points" << std::endl;
+      }
+    }
 
     if (static_cast<int>(points.size()) < min_stage1_points) {
       std::cerr << "[AutoBGE] Channel " << names[ch]

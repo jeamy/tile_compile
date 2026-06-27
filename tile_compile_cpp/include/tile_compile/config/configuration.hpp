@@ -320,14 +320,14 @@ struct BGEConfig {
   struct AutoBGEConfig {
     int num_sample_points = 0;
     int poly_degree = 2;
-    float rbf_smooth = 0.1f;
+    float rbf_smooth = 2.0f;
     int downsample_scale = 4;
-    int patch_size = 15;
-    std::string patch_estimator = "median";
+    int patch_size = 35;
+    std::string patch_estimator = "sigma_clipped_median";
     std::string stretch_mode = "linear";
     float stretch_target_median = 0.25f;
     int border_margin = 10;
-    float bright_exclusion_fraction = 0.5f;
+    float bright_exclusion_fraction = 0.2f;
     int gradient_descent_max_iters = 100;
     int random_seed = 42;
     bool normalize_between_stages = true;
@@ -339,7 +339,7 @@ struct BGEConfig {
   float sample_quantile = 0.20f;
   std::string sample_estimator = "quantile";
   float min_sample_bg_value = 1.0f;
-  float structure_thresh_percentile = 0.90f;
+  float structure_thresh_percentile = 0.65f;
   int min_tiles_per_cell = 3;
   // Minimum robust tile sample coverage required before attempting per-channel
   // BGE fitting/application. Keeps BGE deterministic but tunable for dense

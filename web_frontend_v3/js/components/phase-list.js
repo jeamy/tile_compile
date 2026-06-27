@@ -148,7 +148,9 @@ export function resetPhasesForResume(fromPhase) {
     if (pctEl) pctEl.textContent = pct > 0 ? `${pct}%` : "";
     const barFill = item.querySelector(".tc-phase-bar-fill");
     if (barFill) barFill.style.width = `${pct}%`;
-    newPhases.push({ phase: name, status: state, pct });
+    const labelEl = item.querySelector(".tc-phase-label");
+    const label = labelEl ? labelEl.textContent : name;
+    newPhases.push({ phase: name, status: state, pct, label });
   }
   return newPhases;
 }

@@ -29,6 +29,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
 9. [Tile Denoise](#9-tile-denoise)
+9b. [Chroma Denoise](#9b-chroma-denoise) **NEU**
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
@@ -848,7 +849,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Minimum** | 3 |
 | **Default** | `31` |
 
-**Zweck:** Kernelgröße für die lokale Hintergrundschätzung (Box-Blur).
+**Zweck:** Gaussian-Blur-Kernelgröße für lokale Hintergrund-/Rauschschätzung. Muss ungerade sein. Größere Kernel erzeugen glattere Rauschschätzungen, können aber echte Struktur mitteln. Bereich: >= 3. Empfohlen: 21–31.
 
 ---
 
@@ -860,7 +861,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Minimum** | >0 |
 | **Default** | `1.5` |
 
-**Zweck:** Schwellenfaktor für das Soft-Thresholding (`tau = alpha * sigma_tile`).
+**Zweck:** Soft-Thresholding-Stärke (`tau = alpha * sigma_tile`). Höhere Werte entfernen mehr Rauschen, können aber feines Detail verwischen. Bereich: > 0. Empfohlen: 1.5–2.0.
 
 ---
 
@@ -871,7 +872,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Stern-dominierte Tiles vom Soft-Thresholding ausnehmen.
+**Zweck:** Überspringt Denoise auf STAR-klassifizierten Tiles, um Sterndetail und PSF-Form zu erhalten.
 
 ---
 
@@ -882,7 +883,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert den Wiener-Filter in der Tile-Denoise-Stufe.
+**Zweck:** Aktiviert Wiener-Filter-Denoise auf Tiles. Schätzt SNR pro Tile und wendet adaptive frequenzdomänige Filterung an. Default deaktiviert; aktivieren für verrauschte Daten, bei denen Soft-Thresholding allein nicht ausreicht.
 
 ---
 
@@ -894,7 +895,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Minimum** | 0 |
 | **Default** | `5.0` |
 
-**Zweck:** SNR-Schwelle; oberhalb dieses Werts wird typischerweise nicht gefiltert.
+**Zweck:** SNR-Schwelle; Tiles oberhalb dieses SNR werden typischerweise nicht gefiltert (Signal stark genug). Bereich: >= 0. Empfohlen: 4–6.
 
 ---
 
@@ -906,6 +907,8 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Bereich** | -1 bis q_max |
 | **Default** | `-0.5` |
 
+**Zweck:** Unterer Grenzwert für den Wiener-Qualitätsparameter-Suchbereich. Bereich: >= -1.
+
 ---
 
 ### `tile_denoise.wiener.q_max`
@@ -915,6 +918,8 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
 | **Default** | `1.0` |
+
+**Zweck:** Oberer Grenzwert für den Wiener-Qualitätsparameter-Suchbereich. Bereich: <= 1.
 
 ---
 
@@ -926,6 +931,8 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Minimum** | >0 |
 | **Default** | `0.1` |
 
+**Zweck:** Schrittweite für q-Parametersuche. Kleinere Schritte = feinere Anpassung aber langsamer. Bereich: > 0. Empfohlen: 0.1.
+
 ---
 
 ### `tile_denoise.wiener.min_snr`
@@ -935,6 +942,8 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Typ** | number |
 | **Minimum** | 0 |
 | **Default** | `2.0` |
+
+**Zweck:** Minimales SNR für Wiener-Filter-Anwendung. Tiles unter diesem SNR werden nicht gefiltert (zu verrauscht für stabile Schätzung). Bereich: >= 0. Empfohlen: 2.
 
 ---
 
@@ -946,9 +955,11 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Minimum** | 1 |
 | **Default** | `10` |
 
+**Zweck:** Maximale Iterationen für Wiener-Filter-Konvergenz. Mehr Iterationen = bessere Konvergenz aber langsamer. Bereich: >= 1. Empfohlen: 10.
+
 ---
 
-### `chroma_denoise` (struktur-schützende Farbrausch-Reduktion)
+## 9b. Chroma Denoise (struktur-schützende Farbrausch-Reduktion)
 
 Optionale, **chroma-selektive** Denoise-Erweiterung für OSC-Daten. Idee: Luminanz/Struktur möglichst erhalten, Farbrauschen primär in Cb/Cr (oder äquivalenten Opponent-Kanälen) reduzieren.
 
@@ -1790,27 +1801,152 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 
 **Empfehlung:** Für neue Konfigurationen `bge.method: none|classic|autobge` verwenden.
 
-### `bge.autobge.*`
+### `bge.autobge.num_sample_points`
 
-| Eigenschaft | Default |
-|-------------|---------|
-| `num_sample_points` | `0` |
-| `poly_degree` | `2` |
-| `rbf_smooth` | `0.1` |
-| `downsample_scale` | `4` |
-| `patch_size` | `15` |
-| `patch_estimator` | `median` |
-| `stretch_mode` | `linear` |
-| `stretch_target_median` | `0.25` |
-| `border_margin` | `10` |
-| `bright_exclusion_fraction` | `0.5` |
-| `gradient_descent_max_iters` | `100` |
-| `random_seed` | `42` |
-| `normalize_between_stages` | `true` |
-| `apply_guards` | `true` |
-| `mono_mode` | `rgb_duplicate` |
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `0` |
+| **Default** | `0` |
 
-**Zweck:** Parameter für `bge.method: autobge`. `stretch_mode: linear` ist der konservative Default, weil die spätere HyperMetric-Stretch-Phase unabhängig am Ende arbeitet und BGE additiv im linearen Bild bleiben soll. `mtf` ist nur für AutoBGE-Parität/Experimente gedacht.
+**Zweck:** Anzahl der AutoBGE-Sample-Punkte. `0` = automatische Berechnung anhand der Bildgröße (ca. 1 Punkt pro 800 downsampled Pixel, begrenzt auf 200–3000). Höhere Werte = dichtere Abtastung, langsamere Verarbeitung. Empfohlen: `0` (auto) für die meisten Fälle, `800–1500` für große Bilder mit komplexen Gradienten.
+
+### `bge.autobge.poly_degree`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | `1 – 6` |
+| **Default** | `2` |
+
+**Zweck:** Grad des ersten Polynom-Fits. `2` = quadratisch (erfasst breite Gradienten), `3` = kubisch (erfasst komplexe Gradienten). Höhere Grade riskieren Overfitting an Bildstruktur. Empfohlen: `2` für die meisten Datensätze, `3` nur für sehr starke asymmetrische Gradienten.
+
+### `bge.autobge.rbf_smooth`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Minimum** | `0` |
+| **Default** | `0.1` |
+
+**Zweck:** RBF-Glättungsfaktor für den zweiten Fit-Schritt (Residual). Höhere Werte = glatteres Hintergrundmodell, können lokale Gradienten unterfitting. Bereich `0.01–1.0`. Empfohlen: `0.1` für typische Bilder, `0.5` für glatte Gradienten.
+
+### `bge.autobge.downsample_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `1` |
+| **Default** | `4` |
+
+**Zweck:** Downscaling-Faktor für das Arbeitsbild. `4` = 4x Downsample (16x weniger Pixel). Höhere Werte = schnellere Verarbeitung, geringere räumliche Auflösung des Hintergrundmodells. Bereich `1–8`. Empfohlen: `4` für Vollauflösung, `2` für kleine Bilder.
+
+### `bge.autobge.patch_size`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `3` |
+| **Default** | `15` |
+
+**Zweck:** Ungerade Patch-Größe für lokale Hintergrund-Schätzung. Jeder Sample-Punkt misst den Hintergrund in einem Patch dieser Größe. Größere Patches sind robuster, mitteln aber mehr Struktur. Bereich `3–31`. Empfohlen: `15`.
+
+### `bge.autobge.patch_estimator`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `median`, `sigma_clipped_median` |
+| **Default** | `"median"` |
+
+**Zweck:** Lokaler Hintergrund-Estimator für jeden Sample-Patch. `median` = schnell und robust für die meisten Bilder. `sigma_clipped_median` = iterativ, verwirft Ausreißer, besser bei vielen Sternen/Cosmic Rays.
+
+### `bge.autobge.stretch_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `none`, `linear`, `mtf` |
+| **Default** | `"linear"` |
+
+**Zweck:** Working-Space-Transform für AutoBGE-Sampling/Fitting. `linear` ist der konservative Default, weil die spätere HyperMetric-Stretch-Phase unabhängig am Ende arbeitet und BGE additiv im linearen Bild bleiben soll. `mtf` ist nur für AutoBGE-Parität/Experimente gedacht.
+
+### `bge.autobge.stretch_target_median`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `(0, 1]` |
+| **Default** | `0.25` |
+
+**Zweck:** Zielmedian für den Working-Space-Stretch (nur bei `stretch_mode=mtf`). Kontrolliert die Helligkeit des gestreckten Bildes für Sampling. Niedrigere Werte sampling dunklere Regionen. Bereich `0.1–0.5`.
+
+### `bge.autobge.border_margin`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `0` |
+| **Default** | `10` |
+
+**Zweck:** Pixel-Rand, der vom Sampling ausgeschlossen wird. Randpixel enthalten oft Stacking-Artefakte oder Vignettierung. Erhöhen für Weitwinkel-Bilder mit starken Randeffekten. Bereich `0–100`. Empfohlen: `10–30`.
+
+### `bge.autobge.bright_exclusion_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `(0, 1)` |
+| **Default** | `0.5` |
+
+**Zweck:** Anteil der hellsten Pixel, die vom Sampling ausgeschlossen werden. `0.5` = top 50% ausgeschlossen (konservativ bei nebelreichen Feldern). Niedrigere Werte (`0.2–0.3`) riskieren Strukturkontamination. Bereich `0.1–0.8`.
+
+### `bge.autobge.gradient_descent_max_iters`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `1` |
+| **Default** | `100` |
+
+**Zweck:** Max. Iterationen für Sample-Point-Platzierung per Gradient Descent. Jede Iteration verschiebt Sample-Punkte zu dunkleren lokalen Regionen. Höhere Werte finden dunklere Hintergrund-Spots, erhöhen Laufzeit. Bereich `20–500`. Empfohlen: `100`.
+
+### `bge.autobge.random_seed`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `42` |
+
+**Zweck:** Zufallsseed für deterministische Sample-Point-Generierung. Gleicher Seed + gleiches Bild = identische Ergebnisse. Ändern für alternative Sample-Platzierungen zum Vergleich.
+
+### `bge.autobge.normalize_between_stages`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Wenn `true`, wird das Residual-Bild zwischen Polynom- und RBF-Stufe normalisiert. Verhindert, dass RBF bereits erfasste Gradienten neu fittet. Empfohlen: `true`.
+
+### `bge.autobge.apply_guards`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Wenn `true`, nutzt AutoBGE die gemeinsamen BGE-Apply-Guards (Flatness/Slope-Prüfung), bevor RGB verändert wird. Verhindert Verschlechterung durch schlechte Fits. Empfohlen: `true`.
+
+### `bge.autobge.mono_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `rgb_duplicate`, `disabled` |
+| **Default** | `"rgb_duplicate"` |
+
+**Zweck:** Behandlung von Mono-Bildern. `rgb_duplicate` kopiert den Kanal nach R/G/B vor BGE, erlaubt per-Channel-Korrektur. `disabled` verarbeitet nur den einzelnen Kanal. `rgb_duplicate` für OSC-Bilder, die als Mono debayered wurden.
 
 ### `bge.tile_weight_lambda_structure`
 
@@ -1820,7 +1956,7 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Bereich** | `> 0` |
 | **Default** | `1.0` |
 
-**Zweck:** Lambda in Tile-Reliabilitätsgewicht `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Hoehere Werte gewichten strukturreiche Tiles aggressiver ab; `1.0` ist der aktuelle moderate Basiswert.
+**Zweck:** Lambda in Tile-Reliabilitätsgewicht `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Höhere Werte gewichten strukturreiche Tiles aggressiver ab. Bereich `0.5–3.0`. Empfohlen: `1.0` für moderate Felder, `2.0+` für dichte Nebulosität.
 
 ### `bge.sample_quantile`
 
@@ -1830,10 +1966,7 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Bereich** | `(0.0, 0.5]` |
 | **Default** | `0.20` |
 
-**Zweck:** Quantil für Tile-Hintergrund-Schätzung (v3.3 §6.3.2b).
-
-- **0.20** (default): Konservativ, resistent gegen schwache Objektkontamination
-- **0.50**: Median, geeignet für Felder mit starker Maskierung
+**Zweck:** Quantil für Tile-Hintergrund-Schätzung (v3.3 §6.3.2b). Niedrigere Werte (`0.10–0.15`) sind konservativer, resistent gegen Nebelkontamination. `0.50` = Median, geeignet für stark maskierte Felder. Bereich `(0, 0.5]`.
 
 ### `bge.structure_thresh_percentile`
 
@@ -1843,9 +1976,7 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Bereich** | `[0.0, 1.0]` |
 | **Default** | `0.90` |
 
-**Zweck:** Perzentil-Schwelle für High-Structure-Tiles (v3.3 §6.3.2a).
-
-Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlossen.
+**Zweck:** Perzentil-Schwelle für High-Structure-Tiles (v3.3 §6.3.2a). `0.80` = moderat (schließt top 20% aus), `0.90` = streng (schließt top 10% aus). Niedrigere Werte erhalten mehr Samples, riskieren aber Strukturkontamination. Bereich `0.5–0.95`.
 
 ### `bge.min_tiles_per_cell`
 
@@ -1854,7 +1985,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `3` |
 
-**Zweck:** Mindestanzahl Tile-Samples pro Grid-Cell für valide Hintergrund-Schätzung (v3.3 §6.3.3d).
+**Zweck:** Mindestanzahl Tile-Samples pro Grid-Cell für valide Hintergrund-Schätzung (v3.3 §6.3.3d). Zellen mit weniger Tiles triggern `insufficient_cell_strategy`. Bereich `1–10`. Empfohlen: `3`.
 
 ### `bge.min_valid_sample_fraction_for_apply`
 
@@ -1883,9 +2014,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `4` |
 
-**Zweck:** Dilatation der Stern-Maske in Pixeln (v3.3 §6.3.2a).
-
-**Empfehlung:** 2-6 px je nach Sternauflösung.
+**Zweck:** Dilatation der Stern-Maske in Pixeln (v3.3 §6.3.2a). Erweitert die Ausschlusszone um Sterne, um Halo-Kontamination der Hintergrund-Samples zu verhindern. Bereich `0–20`. Empfohlen: `4–6` (normal), `8–12` (Weitwinkel/helle Sterne).
 
 ### `bge.mask.sat_dilate_px`
 
@@ -1894,7 +2023,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `4` |
 
-**Zweck:** Dilatation der Sättigungs-Maske in Pixeln (v3.3 §6.3.2a).
+**Zweck:** Dilatation der Sättigungs-Maske in Pixeln (v3.3 §6.3.2a). Erweitert die Ausschlusszone um gesättigte Pixel/cores. Bereich `0–20`. Empfohlen: `4–6`, erhöhen bei Sensoren mit starkem Blooming.
 
 ### `bge.grid.N_g`
 
@@ -1903,9 +2032,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `32` |
 
-**Zweck:** Ziel-Grid-Auflösung: `G = min(W,H) / N_g` (v3.3 §6.3.8).
-
-**Empfehlung:** 24-48 für typische DSO-Aufnahmen.
+**Zweck:** Ziel-Grid-Auflösung: `G = min(W,H) / N_g` (v3.3 §6.3.8). Höhere Werte erzeugen feinere Grids für bessere Gradientenerfassung, benötigen aber mehr Samples pro Zelle. Bereich `16–64`. Empfohlen: `32–36` für typische DSO-Aufnahmen, `48+` für Weitwinkel.
 
 ### `bge.grid.G_min_px`
 
@@ -1914,7 +2041,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `64` |
 
-**Zweck:** Minimaler Grid-Abstand in Pixeln (v3.3 §6.3.8).
+**Zweck:** Minimaler Grid-Abstand in Pixeln (v3.3 §6.3.8). Verhindert zu kleine Zellen auf großen Bildern. Bereich `32–128`. Empfohlen: `56–64`.
 
 ### `bge.grid.G_max_fraction`
 
@@ -1923,7 +2050,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `0.25` |
 
-**Zweck:** Maximaler Grid-Abstand als Bruchteil von `min(W,H)` (v3.3 §6.3.8).
+**Zweck:** Maximaler Grid-Abstand als Bruchteil von `min(W,H)` (v3.3 §6.3.8). Verhindert zu große Zellen auf kleinen Bildern. Bereich `0.1–0.5`. Empfohlen: `0.25`.
 
 ### `bge.grid.insufficient_cell_strategy`
 
@@ -1937,7 +2064,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 
 - **`discard`**: Cell wird vom Fit ausgeschlossen (konservativ)
 - **`nearest`**: Nearest-Neighbor-Fill (experimentell)
-- **`radius_expand`**: Radius-Expansion (experimentell)
+- **`radius_expand`**: Radius-Expansion, vergrößert Suchradius (empfohlen für Rand-Cells)
 
 ### `bge.fit.method`
 
@@ -1950,7 +2077,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 **Zweck:** Surface-Fitting-Methode (v3.3 §6.3.7).
 
 - **`rbf`**: Radial Basis Functions (empfohlen, flexibel)
-- **`poly`**: Robustes Polynom (Order 2-3)
+- **`poly`**: Robustes Polynom (Order 2-3, breite Gradienten, schneller)
 - **`spline`**: Thin-plate Spline
 - **`bicubic`**: Bicubic Spline
 - **`modeled_mask_mesh`**: Segmentierungs- und maskengestützter Mesh-Sky-Fit mit heller Quellenmodellierung (empfohlen bei großflächigem Nebel/Vordergrund wie M31/M42)
@@ -1963,7 +2090,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Werte** | `huber`, `tukey` |
 | **Default** | `"huber"` |
 
-**Zweck:** Robust-Loss-Funktion für IRLS (v3.3 §6.3.7).
+**Zweck:** Robust-Loss-Funktion für IRLS (v3.3 §6.3.7). `huber` = quadratisch für kleine Residuen, linear für große (moderate Outlier-Rejektion). `tukey` = verwirft große Residuen komplett (aggressiv). Empfohlen: `huber`.
 
 ### `bge.fit.huber_delta`
 
@@ -1972,7 +2099,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `1.5` |
 
-**Zweck:** Huber-Loss-Parameter δ.
+**Zweck:** Huber-Loss-Parameter δ. Residuen < δ quadratisch, > δ linear. Kleinere δ = mehr Outlier-Rejektion. Bereich `0.5–3.0`. Empfohlen: `1.5`.
 
 ### `bge.fit.irls_max_iterations`
 
@@ -1981,7 +2108,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | integer |
 | **Default** | `10` |
 
-**Zweck:** Maximale IRLS-Iterationen.
+**Zweck:** Maximale IRLS-Iterationen. Höhere Werte = bessere Konvergenz, langsamere Laufzeit. Bereich `5–20`. Empfohlen: `10`.
 
 ### `bge.fit.irls_tolerance`
 
@@ -1990,7 +2117,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `1e-4` |
 
-**Zweck:** IRLS-Konvergenz-Toleranz.
+**Zweck:** IRLS-Konvergenz-Toleranz. Stop bei Parameteränderung < Toleranz. Bereich `1e-6–1e-3`. Empfohlen: `1e-4`.
 
 ### `bge.fit.polynomial_order`
 
@@ -2000,7 +2127,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Werte** | `2`, `3` |
 | **Default** | `2` |
 
-**Zweck:** Polynom-Ordnung (nur wenn `method=poly`).
+**Zweck:** Polynom-Ordnung (nur wenn `method=poly`). `2` = quadratisch (breite Gradienten, sicher). `3` = kubisch (komplexe asymmetrische Gradienten, höheres Overfitting-Risiko). Empfohlen: `2`.
 
 ### `bge.fit.rbf_phi`
 
@@ -2023,9 +2150,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `1.0` |
 
-**Zweck:** RBF-Shape-Parameter: `μ = rbf_mu_factor * G` (v3.3 §6.3.7).
-
-**Empfehlung:** 0.5-2.0 je nach gewünschter Glättung.
+**Zweck:** RBF-Shape-Parameter: `μ = rbf_mu_factor * G` (v3.3 §6.3.7). Kontrolliert die Breite der Basisfunktionen. Höhere Werte = glattere Oberflächen. Bereich `0.5–3.0`. Empfohlen: `1.0–1.5`.
 
 ### `bge.fit.rbf_lambda`
 
@@ -2034,7 +2159,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `1e-6` |
 
-**Zweck:** RBF-Regularisierung λ (verhindert Overfitting, v3.3 §6.3.7).
+**Zweck:** RBF-Regularisierung λ (verhindert Overfitting, v3.3 §6.3.7). Höhere Werte = glatter, können unterfitting. Bereich `1e-6–0.1`. Empfohlen: `0.01–0.1`.
 
 ### `bge.fit.rbf_epsilon`
 
@@ -2043,7 +2168,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | float |
 | **Default** | `1e-10` |
 
-**Zweck:** Numerische Stabilisierung für Thin-plate RBF bei d=0 (v3.3 §6.3.7).
+**Zweck:** Numerische Stabilisierung für Thin-plate RBF bei d=0 (v3.3 §6.3.7). Verhindert Division durch Null. Bereich `1e-10–1.0`. Empfohlen: `1e-10` (thinplate), `1.0` (multiquadric).
 
 ### `bge.autotune.enabled`
 
@@ -2052,7 +2177,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert deterministisches konservatives Auto-Tuning von BGE (v3.3.6 §6.3.7).
+**Zweck:** Aktiviert deterministisches konservatives Auto-Tuning von BGE (v3.3.6 §6.3.7). Wenn `true`, führt BGE eine Cross-Validation-Suche über Estimator, Quantile, Struktur-Schwellen und Fit-Methoden durch. Erhöht Laufzeit, verbessert Qualität bei schwierigen Feldern.
 
 ### `bge.autotune.strategy`
 
@@ -2062,7 +2187,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Werte** | `conservative`, `extended` |
 | **Default** | `"conservative"` |
 
-**Zweck:** Umfang des Kandidatenraums fuer Auto-Tuning.
+**Zweck:** Umfang des Kandidatenraums fuer Auto-Tuning. `conservative` = kleine Menge sicherer Parameterkombinationen (schneller). `extended` = weiter Suchraum (langsamer, besser bei Nebulosität/komplexen Gradienten).
 
 ### `bge.autotune.max_evals`
 
@@ -2072,7 +2197,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Minimum** | 1 |
 | **Default** | `24` |
 
-**Zweck:** Harte Obergrenze getesteter Parameter-Kandidaten.
+**Zweck:** Harte Obergrenze getesteter Parameter-Kandidaten pro Kanal. Jede Eval fittet ein volles Hintergrundmodell. Bereich `8–64`. Empfohlen: `24` (conservative), `32` (extended).
 
 ### `bge.autotune.holdout_fraction`
 
@@ -2082,7 +2207,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Bereich** | `[0.05, 0.50]` |
 | **Default** | `0.25` |
 
-**Zweck:** Deterministischer Validierungsanteil fuer `E_cv` im Ziel `J`.
+**Zweck:** Deterministischer Validierungsanteil fuer `E_cv` im Ziel `J`. Anteil der Sample-Punkte für Cross-Validation (nicht für Fit verwendet). Bereich `[0.05, 0.50]`. Empfohlen: `0.20–0.25`.
 
 ### `bge.autotune.alpha_flatness`
 
@@ -2092,7 +2217,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Minimum** | 0 |
 | **Default** | `0.25` |
 
-**Zweck:** Gewichtung des Flatness-Terms `E_flat` in `J`.
+**Zweck:** Gewichtung des Flatness-Terms `E_flat` in `J`. Höhere Werte priorisieren glattere Hintergründe. Bereich `0–1`. Empfohlen: `0.25–0.40` (schwache Gradienten), `0.40–0.80` (starke Gradienten).
 
 ### `bge.autotune.beta_roughness`
 
@@ -2102,7 +2227,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Minimum** | 0 |
 | **Default** | `0.10` |
 
-**Zweck:** Gewichtung des Roughness-Terms `E_rough` in `J`.
+**Zweck:** Gewichtung des Roughness-Terms `E_rough` in `J`. Höhere Werte bestrafen bucklige Modelle stärker. Bereich `0–0.5`. Empfohlen: `0.08–0.15`.
 
 ---
 
@@ -2120,6 +2245,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | boolean |
 | **Default** | `false` |
 
+**Zweck:** Aktiviert photometrische Farbkalibrierung (PCC). Katalogsternfarben werden abgeglichen, um die RGB-Farbbalance des gestackten Bildes zu kalibrieren.
+
 ---
 
 ### `pcc.source`
@@ -2129,6 +2256,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | string (enum) |
 | **Werte** | `auto`, `siril`, `vizier_gaia`, `vizier_apass` |
 | **Default** | `"auto"` |
+
+**Zweck:** Katalog-/Provider-Auswahl für PCC. `auto` wählt automatisch den besten verfügbaren Katalog.
 
 ---
 
@@ -2140,6 +2269,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Bereich** | 1 – 22 |
 | **Default** | `14.0` |
 
+**Zweck:** Grenzmagnitude für PCC-Katalogstern-Matching. Höhere Werte schließen schwächere Sterne ein. ACHTUNG: Bei kleinen Sensoren oder dichten Sternfeldern kann mag_limit > 15 Sterne unterhalb der Nachweisgrenze einschließen. Bereich 1–22. Empfohlen: 14.
+
 ---
 
 ### `pcc.mag_bright_limit`
@@ -2149,6 +2280,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | number |
 | **Bereich** | 0 – 15 |
 | **Default** | `6.0` |
+
+**Zweck:** Helligkeitsgrenze für PCC-Katalogsterne. Sterne heller als dieser Wert werden ausgeschlossen (gesättigte Sterne geben unzuverlässige Photometrie). Bereich 0–15. Empfohlen: 6.
 
 ---
 
@@ -2160,6 +2293,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | `pcc.annulus_inner_px` | number | `12.0` | >0 |
 | `pcc.annulus_outer_px` | number | `18.0` | >0 |
 
+**Zweck:** Apertur-/Annulus-Geometrie für Sternphotometrie. `aperture_radius_px` ist der photometrische Apertur-Radius, `annulus_inner_px` und `annulus_outer_px` definieren den Sky-Annulus für lokale Hintergrundschätzung. Verwendet bei `radii_mode=fixed`.
+
 ---
 
 ### `pcc.min_stars`
@@ -2170,6 +2305,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Minimum** | 3 |
 | **Default** | `10` |
 
+**Zweck:** Mindestanzahl gematchter Katalogsterne für PCC. Darunter wird PCC übersprungen. Bereich: >= 3. Empfohlen: 10.
+
 ---
 
 ### `pcc.sigma_clip`
@@ -2179,6 +2316,8 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | number |
 | **Minimum** | >0 |
 | **Default** | `2.5` |
+
+**Zweck:** Sigma-Clipping-Schwelle für PCC-Ausreißer-Ablehnung. Sterne mit Residuen > sigma_clip × std werden abgelehnt. Bereich: > 0. Empfohlen: 2.5.
 
 ---
 
@@ -2439,7 +2578,7 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 | **Werte** | `rej`, `average` |
 | **Default** | `"rej"` |
 
-**Zweck:** Stacking-Methode.
+**Zweck:** Finale Stacking-Methode. `rej` = Sigma-Clipping-Rejection (empfohlen, entfernt Ausreißer wie Kosmische Strahlen). `average` = einfacher Mittelwert (schneller, keine Ausreißer-Entfernung).
 
 | Methode | Beschreibung | Empfehlung |
 |---------|-------------|------------|

@@ -200,7 +200,7 @@ astrometry:
 
 bge:
   enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
-  method: none
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2
