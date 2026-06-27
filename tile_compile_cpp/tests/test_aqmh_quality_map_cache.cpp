@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
@@ -185,6 +186,44 @@ TEST_CASE("aqmh_quality_map_cache_lru_obeys_max_resident_maps") {
   const auto stats = cache.stats();
   REQUIRE(stats.max_resident_maps_observed <= 2);
   REQUIRE(stats.cache_hits >= 1);
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_quality_map_cache_supports_parallel_distinct_writes") {
+  const auto dir = unique_cache_dir("aqmh_cache_parallel_writes");
+  std::filesystem::remove_all(dir);
+  constexpr int frame_count = 8;
+  std::vector<uint8_t> mask(static_cast<size_t>(16 * 12), 1u);
+
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  storage.resolution_divisor = 2;
+  storage.dtype = "uint16";
+  tile_compile::metrics::QualityMapCache cache(
+      dir, "luma", 16, 12, pyramid, storage,
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(mask, 16, 12));
+
+  std::vector<std::thread> writers;
+  writers.reserve(frame_count);
+  for (int fi = 0; fi < frame_count; ++fi) {
+    writers.emplace_back([&, fi]() {
+      cache.write(static_cast<size_t>(fi),
+                  make_q_map(12, 16, 0.05f * static_cast<float>(fi)));
+    });
+  }
+  for (auto &writer : writers)
+    writer.join();
+
+  for (int fi = 0; fi < frame_count; ++fi) {
+    REQUIRE(cache.has(static_cast<size_t>(fi)));
+    REQUIRE(cache.read(static_cast<size_t>(fi)).size() == 16 * 12);
+  }
+  const auto stats = cache.stats();
+  REQUIRE(stats.write_count == frame_count);
+  REQUIRE(stats.read_count == frame_count);
+  REQUIRE(stats.bytes_written ==
+          static_cast<uint64_t>(frame_count * 8 * 6 * sizeof(uint16_t)));
 
   std::filesystem::remove_all(dir);
 }

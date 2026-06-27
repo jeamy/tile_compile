@@ -106,7 +106,6 @@ void QualityMapCache::write(size_t fi, const Matrix2Df &q_map) {
     throw std::invalid_argument("AQMH quality map shape does not match cache");
   }
   fs::create_directories(cache_dir_);
-  write_metadata();
 
   const Matrix2Df stored = downsample_for_storage(q_map);
   const fs::path path = map_path(fi);
@@ -117,28 +116,33 @@ void QualityMapCache::write(size_t fi, const Matrix2Df &q_map) {
   }
 
   if (storage_cfg_.dtype == "float32") {
-    for (int y = 0; y < stored.rows(); ++y) {
-      for (int x = 0; x < stored.cols(); ++x) {
-        const float v = clamp_q(stored(y, x));
-        out.write(reinterpret_cast<const char *>(&v), sizeof(float));
-      }
-    }
+    std::vector<float> encoded(static_cast<size_t>(stored.size()));
+    const auto n = static_cast<std::ptrdiff_t>(stored.size());
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i)
+      encoded[static_cast<size_t>(i)] = clamp_q(stored.data()[i]);
+    out.write(reinterpret_cast<const char *>(encoded.data()),
+              static_cast<std::streamsize>(encoded.size() * sizeof(float)));
   } else if (storage_cfg_.dtype == "uint16") {
-    for (int y = 0; y < stored.rows(); ++y) {
-      for (int x = 0; x < stored.cols(); ++x) {
-        const uint16_t v = static_cast<uint16_t>(
-            std::lround(clamp_q(stored(y, x)) * 65535.0f));
-        out.write(reinterpret_cast<const char *>(&v), sizeof(uint16_t));
-      }
+    std::vector<uint16_t> encoded(static_cast<size_t>(stored.size()));
+    const auto n = static_cast<std::ptrdiff_t>(stored.size());
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i) {
+      encoded[static_cast<size_t>(i)] = static_cast<uint16_t>(
+          std::lround(clamp_q(stored.data()[i]) * 65535.0f));
     }
+    out.write(reinterpret_cast<const char *>(encoded.data()),
+              static_cast<std::streamsize>(encoded.size() * sizeof(uint16_t)));
   } else {
-    for (int y = 0; y < stored.rows(); ++y) {
-      for (int x = 0; x < stored.cols(); ++x) {
-        const uint8_t v =
-            static_cast<uint8_t>(std::lround(clamp_q(stored(y, x)) * 255.0f));
-        out.write(reinterpret_cast<const char *>(&v), sizeof(uint8_t));
-      }
+    std::vector<uint8_t> encoded(static_cast<size_t>(stored.size()));
+    const auto n = static_cast<std::ptrdiff_t>(stored.size());
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i) {
+      encoded[static_cast<size_t>(i)] = static_cast<uint8_t>(
+          std::lround(clamp_q(stored.data()[i]) * 255.0f));
     }
+    out.write(reinterpret_cast<const char *>(encoded.data()),
+              static_cast<std::streamsize>(encoded.size() * sizeof(uint8_t)));
   }
   if (!out) {
     throw std::runtime_error("failed while writing AQMH quality-map cache file: " +

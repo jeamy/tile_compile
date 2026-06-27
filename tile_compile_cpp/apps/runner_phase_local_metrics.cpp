@@ -8,6 +8,7 @@
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -27,15 +28,48 @@ namespace metrics = tile_compile::metrics;
 
 namespace {
 
-float quantile_from_sorted(const std::vector<float> &sorted, float q) {
-  if (sorted.empty())
-    return std::numeric_limits<float>::quiet_NaN();
-  const float clamped_q = std::clamp(q, 0.0f, 1.0f);
-  const float pos = clamped_q * static_cast<float>(sorted.size() - 1);
-  const size_t lo = static_cast<size_t>(std::floor(pos));
-  const size_t hi = std::min(sorted.size() - 1, lo + 1);
-  const float t = pos - static_cast<float>(lo);
-  return sorted[lo] * (1.0f - t) + sorted[hi] * t;
+std::array<float, 3> aqmh_quantiles(std::vector<float> &values) {
+  std::array<float, 3> out{};
+  constexpr std::array<float, 3> quantiles{0.10f, 0.50f, 0.90f};
+  struct Request {
+    size_t rank;
+    size_t quantile;
+    bool upper;
+  };
+  std::array<Request, 6> requests{};
+  for (size_t qi = 0; qi < quantiles.size(); ++qi) {
+    const float pos = quantiles[qi] * static_cast<float>(values.size() - 1);
+    const size_t lo = static_cast<size_t>(std::floor(pos));
+    requests[2 * qi] = {lo, qi, false};
+    requests[2 * qi + 1] = {std::min(values.size() - 1, lo + 1), qi, true};
+  }
+  std::sort(requests.begin(), requests.end(), [](const Request &a,
+                                                  const Request &b) {
+    return a.rank < b.rank;
+  });
+
+  std::array<float, 3> lo_values{};
+  std::array<float, 3> hi_values{};
+  size_t selected_begin = 0;
+  size_t previous_rank = std::numeric_limits<size_t>::max();
+  float selected_value = 0.0f;
+  for (const Request &request : requests) {
+    if (request.rank != previous_rank) {
+      std::nth_element(values.begin() + static_cast<std::ptrdiff_t>(selected_begin),
+                       values.begin() + static_cast<std::ptrdiff_t>(request.rank),
+                       values.end());
+      selected_value = values[request.rank];
+      previous_rank = request.rank;
+      selected_begin = request.rank + 1;
+    }
+    (request.upper ? hi_values : lo_values)[request.quantile] = selected_value;
+  }
+  for (size_t qi = 0; qi < quantiles.size(); ++qi) {
+    const float pos = quantiles[qi] * static_cast<float>(values.size() - 1);
+    const float t = pos - std::floor(pos);
+    out[qi] = lo_values[qi] * (1.0f - t) + hi_values[qi] * t;
+  }
+  return out;
 }
 
 struct AqmhFrameDiag {
@@ -81,11 +115,11 @@ AqmhFrameDiag summarize_aqmh_map(size_t fi, const Matrix2Df &q_map,
   }
   if (values.empty())
     return diag;
-  std::sort(values.begin(), values.end());
+  const auto quantiles = aqmh_quantiles(values);
   diag.map_mean = static_cast<float>(sum / values.size());
-  diag.map_p10 = quantile_from_sorted(values, 0.10f);
-  diag.map_p50 = quantile_from_sorted(values, 0.50f);
-  diag.map_p90 = quantile_from_sorted(values, 0.90f);
+  diag.map_p10 = quantiles[0];
+  diag.map_p50 = quantiles[1];
+  diag.map_p90 = quantiles[2];
   diag.artifact_frac =
       static_cast<float>(artifact_count) / static_cast<float>(values.size());
   return diag;
@@ -328,7 +362,6 @@ bool run_phase_local_metrics(
       std::atomic<bool> aqmh_failed{false};
       std::mutex aqmh_error_mutex;
       std::mutex aqmh_progress_mutex;
-      std::mutex aqmh_write_mutex;
       std::string aqmh_error;
 
       auto aqmh_worker = [&]() {
@@ -352,10 +385,9 @@ bool run_phase_local_metrics(
                 const auto aqmh_result = metrics::compute_aqmh_quality_map(
                     frame, common_valid_mask, common_mask_width,
                     common_mask_height, cfg.aqmh.pyramid);
-                {
-                  std::lock_guard<std::mutex> lock(aqmh_write_mutex);
-                  out_aqmh_cache->write(fi, aqmh_result.q_map);
-                }
+                // Each frame has a distinct cache path. QualityMapCache keeps
+                // only its shared statistics/LRU state under a short lock.
+                out_aqmh_cache->write(fi, aqmh_result.q_map);
                 diag = summarize_aqmh_map(
                     fi, aqmh_result.q_map, common_valid_mask,
                     common_mask_width, common_mask_height,

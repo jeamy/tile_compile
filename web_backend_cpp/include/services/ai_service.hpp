@@ -13,7 +13,7 @@ struct AiConfig {
     std::string model;
     double temperature{0.0};
     int max_tokens{8000};
-    int timeout_ms{120000};
+    int timeout_ms{600000};
     bool send_paths{false};
     bool persist_recommendations{false};
     std::string sidecar_url{"http://127.0.0.1:3001"};

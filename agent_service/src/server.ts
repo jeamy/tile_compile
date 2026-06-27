@@ -164,6 +164,9 @@ const server = http.createServer((req, res) => {
   void handle(req, res);
 });
 
+server.requestTimeout = 0;
+server.headersTimeout = 0;
+
 server.listen(config.port, config.host, () => {
   console.log(`[tile_compile_pi_agent] listening on http://${config.host}:${config.port}`);
 });

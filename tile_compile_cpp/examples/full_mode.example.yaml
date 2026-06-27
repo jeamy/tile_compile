@@ -309,8 +309,8 @@ aqmh:
     k_artifact: 3.0      # MAD-Multiplikator Artefakt-Erkennung (hoeher = toleranter)
     frac_artifact_max: 0.25 # max. Artefaktanteil pro Fenster (0.30-0.40 bei Satellitenspuren)
   storage:
-    resolution_divisor: 1   # 1|2|4 – halbe Aufloesung empfohlen (RAM-Einsparung x4)
-    dtype: float32          # float32|uint8
+    resolution_divisor: 2   # 1|2|4 – halbe Aufloesung empfohlen (RAM-Einsparung x4)
+    dtype: uint16           # float32|uint16|uint8
     max_resident_maps: 2    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
   cherry_pick:
     enabled: false  # true: nur beste k_frac*N Frames stacken
