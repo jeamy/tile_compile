@@ -146,8 +146,8 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
 | Komponente | Verzeichnis | Status | Stack |
 |-----------|-------------|--------|-------|
-| Kernpipeline | `tile_compile_cpp/` | Aktiv | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
-| GUI3 Backend | `web_backend_cpp/` | Aktiv | Crow + C++17 |
+| Kernpipeline | `tile_compile_cpp/` | Aktiv | C++20 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| GUI3 Backend | `web_backend_cpp/` | Aktiv | Crow + C++20 |
 | GUI3 Frontend | `web_frontend_v3/` | Aktiv | HTML + CSS + JavaScript (ESM) |
 
 ## Pipeline-Phasen
@@ -283,7 +283,7 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 ### Build-Voraussetzungen
 
 - CMake >= 3.21
-- C++17 Compiler (GCC 11+ oder Clang 14+)
+- C++20-Compiler (GCC 13+, Clang 16+ oder MSVC 2022 17.8+)
 - OpenCV >= 4.5
 - Eigen3
 - cfitsio
@@ -300,6 +300,7 @@ Die Pipeline unterstützt zwei GPU-Backends:
   - `opencv2/core/cuda.hpp`
   - `opencv2/cudawarping.hpp`
   - `opencv2/cudaarithm.hpp`
+  - `opencv2/cudafilters.hpp`
 - Zur Laufzeit: CUDA-fähige NVIDIA-GPU und funktionierende CUDA-/OpenCV-Runtime erforderlich.
 - `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate.
 
@@ -314,6 +315,30 @@ Die Pipeline unterstützt zwei GPU-Backends:
 - `acceleration_backend: auto` (Standard) erkennt verfügbare GPU-Backends automatisch zur Laufzeit.
 - Prioritätsreihenfolge: CUDA → OpenCL → CPU
 - Fällt sauber auf CPU zurück, wenn kein GPU-Backend verfügbar ist.
+
+**Beschleunigte Phasen:**
+
+| Phase | CUDA | OpenCL | GPU-Arbeit |
+|---|---:|---:|---|
+| `PREWARP` | Ja | Ja | Vollbild-Affine-Warps; bei OSC vier CFA-Subebenen |
+| `AQMH_MAPS` | Ja | Ja | Pyramidale Boxfilter und lokale Varianz-/Schärfekarten |
+| `AQMH_RECONSTRUCTION` | Ja | Nein | Streaming-Welford-Statistik, Masken, Sigma-Clipping und Endakkumulation |
+| Klassische `TILE_RECONSTRUCTION` | Ja | Ja | Gewichtetes Sigma-Clipping, Overlap-Add und Akkumulator-Normalisierung |
+| `SYNTHETIC_FRAMES` | Ja | Ja | Gewichtete Tile-Rekonstruktion pro Cluster |
+| `STACKING` / Resume | Ja | Ja | Sigma-Clip-/gewichtete Reduktion; RGB-Kanäle laufen parallel |
+
+`REGISTRATION` ist CPU-only (Sternerkennung, Matching,
+Transformationsschätzung und ECC); die GPU-Verarbeitung beginnt erst in der
+nachfolgenden Phase `PREWARP`.
+
+CUDA verwendet einen eigenen Non-Default-Stream pro parallelem Worker.
+`AQMH_RECONSTRUCTION` hält nur seine Akkumulatoren sowie jeweils einen Frame und
+eine Quality-Map auf der GPU; der VRAM-Bedarf wächst daher nicht mit der
+Frameanzahl. AQMH Cherry-Pick läuft derzeit auf der CPU, weil für die
+pixelweise Top-K-Auswahl noch kein CUDA-/OpenCL-Sortierkernel existiert. Bei
+CUDA-Fehlern, nicht unterstützten Operationen oder fehlender Runtime erfolgt ein
+CPU-Fallback. Live-Fortschrittslogs melden `cpu_workers`, `gpu` und das gewählte
+`backend`.
 
 Hinweise:
 
@@ -540,7 +565,7 @@ Für den reinen C++-Runner im Container (ohne Backend/UI) steht weiterhin das Le
 Häufige Optionen:
 
 - `--max-frames <n>` Frames begrenzen (`0` = keine Begrenzung)
-- `--max-tiles <n>` Tile-Anzahl für Phase 5/6 begrenzen (`0` = keine Begrenzung)
+- `--max-tiles <n>` klassische Tile-Verarbeitung begrenzen (`0` = keine Begrenzung)
 - `--dry-run` Validierungsablauf ohne vollständige Verarbeitung ausführen
 - `--run-id <id>` benutzerdefinierte Run-ID für Gruppierung
 - `--stdin` mit `--config -` um YAML von stdin zu lesen

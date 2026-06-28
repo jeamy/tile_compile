@@ -1,11 +1,25 @@
-# TILE_RECONSTRUCTION — Parallele gewichtete Tile-Rekonstruktion
+# TILE_RECONSTRUCTION — AQMH oder klassische parallele Tile-Rekonstruktion
 
 > **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::TILE_RECONSTRUCTION`
 
 ## Übersicht
 
-Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_{f,t} = G_f × L_{f,t}` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. In `v3.3.9` werden die Tiles anschließend **ohne tileweise nichtlineare Vor-OLA-Normalisierung** über eine support-aware Overlap-Add-Semantik zusammengefügt.
+Phase 9 ist das **Herzstück der Pipeline**. Standardmäßig rekonstruiert AQMH
+pixelweise aus globalen Gewichten und Quality-Maps. Nur bei
+`method: classic_tile_compile` wird jedes Tile separat mit
+`W_{f,t} = G_f × L_{f,t}` rekonstruiert und anschließend support-aware per
+Overlap-Add zusammengefügt.
+
+## AQMH-GPU-Pfad (Standard)
+
+Ohne Cherry-Pick hält CUDA die Welford-Akkumulatoren (`W`, Mittelwert, `M2`),
+Masken und Sigma-Clip-Akkumulatoren auf der GPU. Frames und Quality-Maps werden
+in zwei Durchläufen einzeln gestreamt; der VRAM-Bedarf wächst deshalb nicht mit
+der Frameanzahl. Die finale Matrix wird einmal heruntergeladen. Cherry-Pick,
+OpenCL für AQMH-Rekonstruktion und CUDA-Fehler verwenden die CPU-Referenz.
+
+Der klassische Pfad darunter unterstützt sowohl CUDA als auch OpenCL.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -36,11 +50,11 @@ if (parallel_tiles > cpu_cores) parallel_tiles = cpu_cores;
 std::vector<std::thread> workers;
 std::atomic<size_t> next_tile{0};
 for (int w = 0; w < parallel_tiles; ++w) {
-    workers.emplace_back([&]() {
+    workers.emplace_back([&, w]() {
         while (true) {
             size_t ti = next_tile.fetch_add(1);
             if (ti >= tiles_phase56.size()) break;
-            process_tile(ti);
+            process_tile(ti, tile_rec_streams.get(w));
         }
     });
 }

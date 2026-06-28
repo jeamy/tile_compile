@@ -21,13 +21,25 @@ tile_compile_runner resume \
 
 Options:
 - `--max-frames <n>` — limit frames (0 = no limit)
-- `--max-tiles <n>` — limit tile count for Phase 5/6 (0 = no limit)
+- `--max-tiles <n>` — limit classic tile processing (0 = no limit)
 - `--dry-run` — validate without full processing
 - `--run-id <id>` — custom run ID
 - `--stdin` — read config from stdin
 
-Resume phases: `SCAN_INPUT` through `PCC` (0..16).
-Common points: `ASTROMETRY`, `BGE`, `PCC`, `STACKING`.
+Pipeline phases run from `SCAN_INPUT` (0) through `DONE` (18), including
+`HYPERMETRIC_STRETCH` (17). Supported resume entry points depend on available
+artifacts; common points are `STACKING`, `ASTROMETRY`, `BGE`, `PCC`, and
+`HYPERMETRIC_STRETCH`.
+
+GPU selection is configured in YAML, not with a runner flag:
+
+```yaml
+runtime_limits:
+  acceleration_backend: auto
+```
+
+Inspect `artifacts/acceleration_context.json` or the live log fields
+`cpu_workers`, `gpu`, and `backend` to confirm the effective backend.
 
 ## tile_compile_cli
 

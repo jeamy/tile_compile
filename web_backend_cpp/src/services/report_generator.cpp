@@ -615,6 +615,17 @@ std::string phase_name_from_event(const json& ev) {
     return "";
 }
 
+/// @brief Returns a stable match key for phase start/end pairing.
+/// @details Uses the integer phase number when available so that display-name
+/// mismatches (e.g. AQMH_QUALITY_MAPS vs LOCAL_METRICS for Phase 8) do not
+/// prevent correct duration computation. Falls back to phase_name string.
+std::string phase_match_key(const json& ev) {
+    if (ev.contains("phase") && ev["phase"].is_number_integer()) {
+        return "#" + std::to_string(ev["phase"].get<int>());
+    }
+    return phase_name_from_event(ev);
+}
+
 /// @brief Formats event line.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -2159,26 +2170,28 @@ std::optional<ReportSection> gen_overview(const fs::path& run_dir,
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
-    std::map<std::string, double> phase_starts;
+    struct PhaseStart { std::string display_name; double secs; };
+    std::map<std::string, PhaseStart> phase_starts;
     std::vector<std::string> labels;
     std::vector<double> durations;
     std::vector<std::string> evals;
     for (const auto& ev : events) {
         const auto type = json_string_or(ev, "type", "");
-        const auto phase = phase_name_from_event(ev);
+        const auto display = phase_name_from_event(ev);
+        const auto key = phase_match_key(ev);
         const auto ts = json_string_or(ev, "ts", json_string_or(ev, "timestamp", ""));
-        if (phase.empty() || ts.empty()) continue;
+        if (key.empty() || ts.empty()) continue;
         const auto secs = parse_iso_utc_seconds(ts);
         if (!secs) continue;
         if (type == "phase_start") {
-            phase_starts[phase] = *secs;
+            phase_starts[key] = {display, *secs};
         } else if (type == "phase_end") {
-            auto it = phase_starts.find(phase);
+            auto it = phase_starts.find(key);
             if (it == phase_starts.end()) continue;
-            const double dt = std::max(0.0, *secs - it->second);
-            labels.push_back(phase);
+            const double dt = std::max(0.0, *secs - it->second.secs);
+            labels.push_back(it->second.display_name);
             durations.push_back(dt);
-            evals.push_back(phase + ": " + format_number(dt, 1) + " s");
+            evals.push_back(it->second.display_name + ": " + format_number(dt, 1) + " s");
         }
     }
     if (labels.empty()) return std::nullopt;

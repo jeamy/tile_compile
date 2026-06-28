@@ -176,17 +176,25 @@ for (int c = 0; c < n_clusters; ++c) {
 
 ## Phase 12: STACKING
 
+`AccelerationOps` führt Sigma-Clip- und gewichtete Reduktionen mit CUDA oder
+OpenCL aus. Im OSC-Pfad laufen R, G und B gleichzeitig; CUDA verwendet drei
+getrennte Streams. Der artifact-basierte Resume-Pfad ab `STACKING` nutzt
+dieselbe Backend-Auswahl. Im AQMH-Pfad ist Phase 12 normalerweise ein
+Pass-through, weil Phase 9 bereits das finale lineare Rekonstruktionsergebnis
+erzeugt hat.
+
 ### Sigma-Clipping Rejection Stacking
 
 ```cpp
 if (use_synthetic_frames) {
     if (cfg.stacking.method == "rej") {
-        recon = reconstruction::sigma_clip_stack(
+        recon = stacking_ops.sigma_clip_stack(
             synthetic_frames,
             cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high,
             cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
+            cfg.stacking.sigma_clip.min_fraction,
+            stacking_streams.get(0));
     } else {
         // Mean stacking
         for (const auto &sf : synthetic_frames) recon += sf;

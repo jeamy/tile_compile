@@ -2054,24 +2054,30 @@ def _gen_timeline(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], l
     explanations: dict[str, str] = {}
 
     phase_times: list[tuple[str, float]] = []
-    phase_starts: dict[str, str] = {}
+    # Match by phase number when available (handles display-name mismatches
+    # like AQMH_QUALITY_MAPS vs LOCAL_METRICS for the same Phase enum value).
+    # Fall back to phase_name string for events without a phase number.
+    phase_starts: dict[object, tuple[str, str]] = {}  # key -> (display_name, ts)
 
     for ev in events:
         t = ev.get("type", "")
         ts = ev.get("ts", ev.get("timestamp", ""))
         pn = ev.get("phase_name", "")
-        if t == "phase_start" and pn:
-            phase_starts[pn] = ts
-        elif t == "phase_end" and pn:
-            start_ts = phase_starts.get(pn, "")
-            if start_ts and ts:
+        ph = ev.get("phase", None)
+        key = ph if ph is not None else pn
+        if t == "phase_start" and key:
+            phase_starts[key] = (pn, ts)
+        elif t == "phase_end" and key:
+            entry = phase_starts.get(key)
+            if entry and ts:
+                display_name, start_ts = entry
                 try:
                     from datetime import datetime
                     t0 = datetime.fromisoformat(start_ts.replace("Z", "+00:00"))
                     t1 = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     dt = (t1 - t0).total_seconds()
-                    phase_times.append((pn, dt))
-                    evals.append(f"{pn}: {dt:.1f}s")
+                    phase_times.append((display_name, dt))
+                    evals.append(f"{display_name}: {dt:.1f}s")
                 except Exception:
                     pass
 

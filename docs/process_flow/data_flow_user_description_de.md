@@ -11,9 +11,9 @@ Technisch besteht die Pipeline aus drei Hauptblöcken:
   - Geometrie vereinheitlichen
   - Intensitäten normalisieren
 - **Qualitätsmodellierung und Rekonstruktion**
-  - globale und lokale Metriken berechnen
-  - tile-basierte Selektion und Rekonstruktion ausführen
-  - optional Zustände clustern und synthetische Frames erzeugen
+  - globale Metriken und dichte AQMH-Quality-Maps berechnen
+  - pixelweise gewichtete AQMH-Rekonstruktion ausführen
+  - optional Classic Tile-Compile mit lokalen Tile-Metriken, Clustering und synthetischen Frames verwenden
 - **Post-Processing und Kalibrierung**
   - Debayer
   - Astrometrie / WCS
@@ -27,7 +27,7 @@ Das primäre Ergebnis ist ein lineares Summenbild. Je nach Konfiguration entsteh
 - **Run**
   - Ein vollständiger Pipeline-Durchlauf mit eigenem Run-Verzeichnis unter `runs/<run_id>/`.
 - **Phase**
-  - Ein klar abgegrenzter Verarbeitungsschritt wie `REGISTRATION`, `LOCAL_METRICS` oder `PCC`.
+  - Ein klar abgegrenzter Verarbeitungsschritt wie `REGISTRATION`, `AQMH_QUALITY_MAPS` oder `PCC`.
 - **Artifact**
   - Persistierte Diagnose- oder Zwischeninformation, typischerweise als JSON oder Report-Datei unter `artifacts/`.
 - **Event-Timeline**
@@ -35,7 +35,7 @@ Das primäre Ergebnis ist ein lineares Summenbild. Je nach Konfiguration entsteh
 - **Assumptions-Schwellen**
   - `assumptions.frames_min` und `assumptions.frames_reduced_threshold` bestimmen, ob der Runner abbricht, in Reduced Mode wechselt oder die volle Pipeline ausführt.
 - **Resume**
-  - Bestehende Run-Verzeichnisse können für Post-Run-Phasen erneut verwendet werden, aktuell insbesondere ab `ASTROMETRY`, `BGE` oder `PCC`.
+  - Bestehende Run-Verzeichnisse können für unterstützte Folgephasen erneut verwendet werden, insbesondere `STACKING`, `ASTROMETRY`, `BGE`, `PCC` und `HYPERMETRIC_STRETCH`.
 
 ---
 
@@ -49,12 +49,13 @@ Input frames (FITS)
    -> CHANNEL_SPLIT
    -> NORMALIZATION
    -> GLOBAL_METRICS
-   -> TILE_GRID
+   -> TILE_GRID (Hilfsgeometrie; Rekonstruktionsraster für Classic)
    -> COMMON_OVERLAP
-   -> LOCAL_METRICS
-   -> TILE_RECONSTRUCTION
-   -> [optional] STATE_CLUSTERING
-   -> [optional] SYNTHETIC_FRAMES
+   -> AQMH_QUALITY_MAPS (Phasen-Enum: LOCAL_METRICS)
+      oder [Classic] LOCAL_METRICS
+   -> TILE_RECONSTRUCTION (AQMH-Standard oder Classic)
+   -> [nur Classic, optional] STATE_CLUSTERING
+   -> [nur Classic, optional] SYNTHETIC_FRAMES
    -> STACKING
    -> [optional / datenabhängig] DEBAYER
    -> ASTROMETRY
@@ -66,16 +67,23 @@ Input frames (FITS)
 
 ---
 
-## Warum tile-basiert gearbeitet wird
+## Warum AQMH der Standard ist
 
-Eine globale Bewertung pro Frame ist für astrophotografische Serien oft nicht ausreichend. Die lokale Bildqualität variiert innerhalb desselben Frames unter anderem durch:
+Eine globale Bewertung pro Frame ist für astrophotografische Serien oft nicht
+ausreichend, weil die Qualität räumlich variiert. AQMH berechnet deshalb für
+jeden Frame eine dichte Quality-Map und gewichtet jeden Ausgabepixel
+unabhängig. Damit werden ein festes Tile-Raster und Overlap-Add-Nähte vermieden,
+während weiterhin folgende Effekte berücksichtigt werden:
 
 - ortsabhängige Seeing-Unterschiede
 - lokale Guiding- oder Verformungseffekte
 - Randartefakte nach Warp/Rotation
 - ungleichmäßige Hintergrund- oder Rauschverteilungen
 
-Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusätzlich auf Tile-Ebene. Dadurch kann pro Raumregion entschieden werden, welche Frames oder Frame-Anteile dort die höchste nutzbare Qualität liefern.
+Die ursprüngliche tile-basierte Methode bleibt über
+`method: classic_tile_compile` als **Classic Tile-Compile** verfügbar. Sie
+approximiert lokale Qualität mit überlappenden Tiles und ist nicht mehr der
+Standard.
 
 ---
 
@@ -116,6 +124,7 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 - Schätzung geometrischer Transformationen relativ zum Referenzframe
 - Nutzung von Fallback-Strategien, falls das primäre Registrierungsverfahren unzureichend ist
 - Persistenz von Registrierungsmetrik und Transformationsparametern
+- Ausführung auf CPU-Workern; diese Phase verwendet keine GPU
 
 **Ausgabe**
 
@@ -136,11 +145,12 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 - bei OSC/CFA: CFA-sicheres Warping über Subplane-Logik, damit das Bayer-Muster semantisch stabil bleibt
 - Erweiterung des Canvas bei Feldrotation oder Translation außerhalb der ursprünglichen Begrenzung
 - Verwaltung von Offsets wie `tile_offset_x` und `tile_offset_y`
+- Nutzung von CUDA oder OpenCL für Vollbild-Warps, andernfalls CPU-Fallback
 
 **Ausgabe**
 
 - prewarped Frames mit einheitlicher Geometrie
-- konsistenter Koordinatenraum für alle tile-basierten Folgeschritte
+- konsistenter Koordinatenraum für AQMH- und Classic-Folgeschritte
 
 ---
 
@@ -203,7 +213,7 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 
 **Ziel**
 
-- das Bildfeld in lokal auswertbare Regionen zerlegen
+- Hilfsgeometrie und das Rekonstruktionsraster für den Classic-Pfad bereitstellen
 
 **Verarbeitung**
 
@@ -212,7 +222,7 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 
 **Ausgabe**
 
-- Tile-Geometrie als Grundlage für lokale Metriken und Rekonstruktion
+- Hilfsgeometrie; bei Classic Tile-Compile zusätzlich Raster für lokale Metriken und Rekonstruktion
 
 ---
 
@@ -236,44 +246,50 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 
 ---
 
-## 8) Lokale Metriken je Tile (`LOCAL_METRICS`)
+## 8) AQMH-Quality-Maps (`AQMH_QUALITY_MAPS`, Standard)
 
 **Ziel**
 
-- pro Tile und pro Frame die lokal beste Datenqualität modellieren
+- ein dichtes pixelweises Qualitätsmodell für jeden Frame erzeugen
 
 **Verarbeitung**
 
-- lokale Schärfe-, Kontrast-, Rausch- oder Sternmetriken je Tile berechnen
-- Kombination mit globalen Gewichten und Valid-Masken
-- im `strict`-Profil auf prewarped Rohdaten zur geometrisch konsistenten Vergleichbarkeit
+- Multi-Scale-Schärfe und SNR mit einer Laplacian-Pyramide berechnen
+- artefaktdominierten Support erkennen und die gemeinsame Canvas-Maske anwenden
+- eine `Q_map` pro Frame für die unabhängige Rekonstruktion cachen
+- verfügbare CUDA-/OpenCL-Filter verwenden
 
 **Ausgabe**
 
-- lokale Gewichte und lokale Qualitätsprofile für jede Tile/Frame-Kombination
+- gecachte AQMH-Quality-Maps und AQMH-Diagnostik
+
+Mit `method: classic_tile_compile` wird dasselbe Phasen-Enum als
+`LOCAL_METRICS` angezeigt und berechnet stattdessen lokale Tile-Metriken und
+Gewichte `L_f,t`.
 
 ---
 
-## 9) Tile-Rekonstruktion (`TILE_RECONSTRUCTION`)
+## 9) Rekonstruktion (`TILE_RECONSTRUCTION`)
 
 **Ziel**
 
-- aus den lokal besten Beiträgen ein räumlich konsistentes Zwischenbild rekonstruieren
+- das finale lineare Signal standardmäßig aus pixelweisen AQMH-Quality-Maps oder optional aus klassischen lokalen Tile-Beiträgen rekonstruieren
 
 **Verarbeitung**
 
-- Selektion oder gewichtete Fusion der besten Tile-Beiträge
-- weiche Übergänge zwischen benachbarten Tiles, um Nahtartefakte zu vermeiden
-- Rekonstruktion auf Basis lokaler Qualitätskarten und Nutzungsgewichte
+- AQMH: jeden Pixel aus globalen Frame-Gewichten und Quality-Maps kombinieren und gewichtet sigma-clippen
+- Classic: gewichtete Tile-Beiträge fusionieren und benachbarte Überlappungsbereiche weich zusammenführen
+- Streaming-CUDA für AQMH-Rekonstruktion verwenden, wenn Cherry-Pick deaktiviert ist
+- CUDA/OpenCL für klassisches Sigma-Clipping und Overlap-Add verwenden; sonst CPU-Fallback
 
 **Ausgabe**
 
-- rekonstruiertes Bild mit lokal optimierter Informationsnutzung
-- Rekonstruktionsmetriken pro Tile
+- rekonstruiertes Bild mit qualitätsoptimierter Informationsnutzung
+- AQMH- oder Tile-Rekonstruktionsdiagnostik
 
 ---
 
-## 10) Zustands-Clustering (`STATE_CLUSTERING`, optional)
+## 10) Zustands-Clustering (`STATE_CLUSTERING`, nur Classic Tile-Compile)
 
 **Ziel**
 
@@ -291,7 +307,7 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 
 ---
 
-## 11) Synthetische Frames (`SYNTHETIC_FRAMES`, optional)
+## 11) Synthetische Frames (`SYNTHETIC_FRAMES`, nur Classic Tile-Compile)
 
 **Ziel**
 
@@ -316,9 +332,11 @@ Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusä
 
 **Verarbeitung**
 
-- robuste Aggregation über rekonstruierte oder synthetische Zwischenstufen
-- Ausreißerunterdrückung für Hotpixel, Satellitenspuren oder sporadische Artefakte
-- gewichtete Fusion unter Berücksichtigung der zuvor berechneten Qualitätsmodelle
+- AQMH: finales Rekonstruktionsergebnis aus Phase 9 unverändert übernehmen
+- Classic: rekonstruierte oder synthetische Zwischenstufen robust aggregieren
+- Classic: Hotpixel, Satellitenspuren oder sporadische Artefakte unterdrücken
+- Classic: Daten anhand der zuvor berechneten Qualitätsmodelle gewichtet fusionieren
+- Classic: CUDA/OpenCL für gewichtete oder Sigma-Clip-Reduktion verwenden und OSC-RGB-Kanäle parallel verarbeiten
 
 **Ausgabe**
 
@@ -493,11 +511,13 @@ Typische Auswertungsblöcke sind:
 - **Registrierung**
   - Drift, Rotation, Matching- bzw. Korrelationsqualität
 - **Tile-Analyse**
-  - Tile-Grid, lokale Qualitätskarten, Heatmaps
+  - nur Classic: Tile-Raster, lokale Metriken und räumliche Heatmaps
+- **AQMH-Analyse**
+  - Quality-Map-Statistiken, Artefakt-Support und Rekonstruktionsdiagnostik
 - **Rekonstruktion**
-  - tile-lokale Rekonstruktionskennzahlen und Nutzungsbilder
+  - pixelweise AQMH-Rekonstruktion oder lokale Classic-Tile-Nutzungsmetriken
 - **Clustering und Synthetic Frames**
-  - Clustergrößen, Reduktionsverhalten, Nutzung synthetischer Repräsentanten
+  - nur Classic: Clustergrößen, Reduktionsverhalten und Nutzung synthetischer Repräsentanten
 - **BGE / PCC**
   - Hintergrundmodell, Residuen, Kalibrierungsdiagnostik
 - **Validation**
@@ -515,11 +535,11 @@ Der Report bindet zusätzlich die verwendete `config.yaml` ein. Damit bleibt jed
    - Das ist erwartbar. Eine lineare Summenaufnahme ist nicht für sofortige visuelle Präsentation gestretcht.
 2. **`validation_failed` bedeutet nicht automatisch „nutzlos“**
    - Es bedeutet zunächst, dass definierte Qualitäts- oder Guardrail-Kriterien verletzt wurden.
-3. **Tile-basierte Optimierung ist das Kernprinzip**
-   - Der wesentliche Mehrwert entsteht dadurch, dass lokale Qualität genutzt wird, statt globale Durchschnittsqualität blind auf alle Regionen zu übertragen.
+3. **Pixelweise AQMH-Qualität ist das Standardprinzip**
+   - Der Hauptvorteil entsteht durch dichte lokale Qualitätsgewichtung statt einer rein globalen Durchschnittsbewertung. Classic Tile-Compile bleibt verfügbar, wenn ausdrücklich tile-basierte Diagnostik oder Clustering benötigt wird.
 
 ---
 
 ## Kurzfazit
 
-> Die Pipeline transformiert eine heterogene Serie von FITS-Frames in einen gemeinsamen geometrischen und photometrischen Referenzraum, bewertet die Daten global und lokal, rekonstruiert das Signal tile-basiert und erzeugt daraus ein reproduzierbares Endbild samt Diagnostik, WCS- und optionaler Farbkalibrierung.
+> Die Pipeline transformiert eine heterogene Serie von FITS-Frames in einen gemeinsamen geometrischen und photometrischen Referenzraum, erzeugt dichte AQMH-Quality-Maps, rekonstruiert das Signal pixelweise und liefert ein reproduzierbares Endbild samt Diagnostik, WCS-Metadaten und optionaler Farbkalibrierung. Der frühere tile-basierte Workflow bleibt als Classic Tile-Compile erhalten.

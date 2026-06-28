@@ -2,7 +2,7 @@
 
 ## Scope
 
-Raw Stack ergaenzt Tile-Compile um einen separaten Preprocessing-Menuepunkt fuer den klassischen Pfad von Lights bis linearem Stack:
+Raw Stack ergaenzt Tile-Compile GUI3 unter `Tools -> Raw Stack` um einen separaten Preprocessing-Workflow fuer den klassischen Pfad von Lights bis linearem Stack:
 
 ```
 Input Scan -> Calibration -> CFA/Mono Prep -> Reference Selection
@@ -35,11 +35,11 @@ Zusaetzlich werden die bestehenden generischen Run-Artefakt-Endpunkte genutzt:
 
 ### Frontend
 
-- Neuer Menuepunkt `Raw Stack` in Header und Sidebar, auf gleicher Ebene wie `Astrometry`, `BGE` und `PCC`.
-- `raw-stack.html` mit Bereichen: Input, Run-Queue, Calibration, Quality, Stack, Postprocess, Parameters, Monitor.
-- i18n-Anbindung ueber `src/i18n.js` fuer alle Sektionentitel, Intro, Footer und Navigation.
-- Inline-Monitor in `raw-stack.html` zeigt Phasenstatus, Log und Artefaktlinks nach dem Start.
-- Run-Monitor-Integration: `run-monitor.html?preprocessing_job_id=<id>` wechselt in Preprocessing-Modus.
+- GUI3-Navigation: Im Hauptmenue `Tools` den Untermenuepunkt `Raw Stack` waehlen. `Astrometry` und `PCC` sind weitere Untermenuepunkte derselben Tool-Gruppe.
+- Die Seite wird innerhalb der GUI3-Single-Page-Anwendung durch `web_frontend_v3/js/pages/raw-stack.js` gerendert; es gibt keine separate `raw-stack.html` und keinen Sidebar-Eintrag.
+- Die Raw-Stack-Ansicht enthaelt Eingabe- und Ausgabeordner, Dateimuster, Kalibrierung, Stack-Methode, Sigma-Grenzen sowie Start- und Abbruchaktionen.
+- Der Status eines gestarteten Jobs wird direkt in der Raw-Stack-Ansicht angezeigt und alle zwei Sekunden aktualisiert. Beim erneuten Oeffnen wird ein laufender Job automatisch wieder verbunden.
+- Die GUI3-i18n-Anbindung erfolgt ueber `web_frontend_v3/js/i18n/i18n.js`.
 
 ### Runner
 

@@ -18,11 +18,11 @@ Download ready-to-use binaries from [GitHub Releases](https://github.com/jeamy/t
 ```bash
 # Download latest release
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.0.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.9.zip
 
 # Extract
 unzip tile_compile.zip
-cd tile_compile_gui3-linux-v0.3.0
+cd tile_compile_gui3-linux-v0.3.9
 
 # Start GUI3 (browser opens automatically)
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/
@@ -33,11 +33,11 @@ cd tile_compile_gui3-linux-v0.3.0
 ```bash
 # Apple Silicon
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-apple-v0.3.0.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-apple-v0.3.9.zip
 
 # Or Intel
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-intel-v0.3.0.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-intel-v0.3.9.zip
 
 unzip tile_compile.zip
 cd tile_compile_gui3-macos-*/
@@ -48,7 +48,7 @@ cd tile_compile_gui3-macos-*/
 
 ### Windows
 
-1. Download `tile_compile_gui3-windows-v0.3.0.zip`
+1. Download `tile_compile_gui3-windows-v0.3.9.zip`
 2. Extract to desired location
 3. Run:
    ```cmd
@@ -67,7 +67,7 @@ cd tile_compile_gui3-macos-*/
 ### Prerequisites
 
 - C++20 compiler (GCC 13+, Clang 16+, MSVC 2022+ 17.8+)
-- CMake 3.20+
+- CMake 3.21+
 - OpenCV 4.x
 - CFITSIO
 - yaml-cpp
@@ -122,6 +122,33 @@ cmake --build . -j$(nproc)
 ctest --output-on-failure
 ```
 
+### GPU acceleration requirements
+
+GPU acceleration is optional. CPU-only builds remain fully supported. Select
+the runtime backend with `runtime_limits.acceleration_backend` (`auto`,
+`opencv_cuda`, `opencv_opencl`, or `cpu`). `auto` tries CUDA, then OpenCL, and
+finally CPU.
+
+For NVIDIA CUDA, OpenCV must be built with `core/cuda`, `cudawarping`,
+`cudaarithm`, and `cudafilters`; installing a CUDA toolkit next to a CPU-only
+OpenCV package is not sufficient. For OpenCL, OpenCV must expose `core/ocl` and
+the host must provide a working OpenCL ICD/runtime.
+
+| Phase | CUDA | OpenCL | Accelerated operation |
+|---|---:|---:|---|
+| `PREWARP` | Yes | Yes | Full-frame/CFA affine warping |
+| `AQMH_MAPS` | Yes | Yes | Local-variance and pyramid filters |
+| `AQMH_RECONSTRUCTION` | Yes | No | Streaming Welford statistics and sigma clipping |
+| Classic `TILE_RECONSTRUCTION` | Yes | Yes | Sigma clipping and overlap-add |
+| `SYNTHETIC_FRAMES` | Yes | Yes | Cluster tile reconstruction |
+| `STACKING` and resume | Yes | Yes | Weighted/sigma-clipped reduction and parallel RGB |
+
+`REGISTRATION` remains CPU-only; GPU processing begins in `PREWARP`.
+
+AQMH Cherry-Pick currently falls back to CPU. CUDA reconstruction streams one
+frame and one quality map at a time, so its VRAM usage does not scale with the
+number of input frames. Runtime logs expose `cpu_workers`, `gpu`, and `backend`.
+
 ### CUDA 13 with OpenCV CUDA 13
 
 When using an OpenCV build that was compiled against CUDA 13, configure
@@ -152,6 +179,10 @@ TILE_COMPILE_WITH_CUDA: ON
 CUDA nvcc: /usr/local/cuda-13.0/bin/nvcc
 OpenCV: 4.11.0
 ```
+
+At runtime, `artifacts/acceleration_context.json` records the detected device
+and the selected backend for every supported phase. This is the authoritative
+way to distinguish a real GPU path from a controlled CPU fallback.
 
 If CMake reports an unsuitable CUDA version, remove the build directory before
 reconfiguring so stale `CUDA_*` cache entries cannot point to an older toolkit.

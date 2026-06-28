@@ -330,8 +330,10 @@ The following high-impact quality actions are implemented in the current code pa
    - Follow the recommendations in Appendix C.3 of the specification
 
 2. **Pipeline Throughput**:
-   - Profile phase runtime split (CPU vs I/O bound)
-   - Consider optional GPU/offload only for clearly dominant hotspots
+   - [current] CUDA/OpenCL acceleration covers PREWARP, AQMH maps, classic tile reconstruction, synthetic reconstruction, and STACKING.
+   - [current] CUDA additionally accelerates streaming AQMH_RECONSTRUCTION; Cherry-Pick remains CPU-only.
+   - [current] Per-worker CUDA streams, cached AQMH filters, and concurrent RGB stacking reduce synchronization and allocation overhead.
+   - [open] Continue profiling CPU/GPU/I/O phase splits; storage throughput can remain the limiting factor.
 
 ### 10.4 Validation and Testing
 

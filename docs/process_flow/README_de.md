@@ -2,13 +2,15 @@
 
 ## Übersicht
 
-Diese Dokumentation beschreibt den **tatsächlichen Ablauf der C++ Implementierung** (`tile_compile_cpp/apps/runner_pipeline.cpp`) der Tile-basierten Qualitätsrekonstruktion für Deep-Sky-Objekte gemäß Methodik v3.
+Diese Dokumentation beschreibt den **tatsächlichen Ablauf der C++-Implementierung** (`tile_compile_cpp/apps/runner_pipeline.cpp`) für AQMH (Standard) und die klassische Tile-Compile-Rekonstruktion.
 
-Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gewichtetes, Tile-basiertes Rekonstruktionsergebnis mit optionaler Clusterung, synthetischen Frames und Sigma-Clipping-Stacking.
+Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt entweder eine pixelweise AQMH-Rekonstruktion oder optional die klassische Tile-/Cluster-Rekonstruktion.
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-**GUI2-Integration:** Der produktive GUI-Pfad nutzt das Web-Frontend plus Crow/C++ Backend. Crow orchestriert die C++ Pipeline über `tile_compile_cli` und `tile_compile_runner`; die Verarbeitungslogik bleibt vollständig im C++ Kern.
+**GUI3-Integration:** Der produktive GUI-Pfad nutzt das Web-Frontend plus Crow/C++ Backend. Crow orchestriert die C++ Pipeline über `tile_compile_cli` und `tile_compile_runner`; die Verarbeitungslogik bleibt vollständig im C++ Kern.
+
+> **Standardmethode AQMH:** AQMH ersetzt die klassischen lokalen Tile-Metriken und die Tile-Rekonstruktion durch Quality-Maps und eine unabhängige pixelweise Rekonstruktion. Clustering und synthetische Frames werden im AQMH-Pfad übersprungen.
 
 ## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.3)
 
@@ -25,7 +27,7 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 6 | `TILE_GRID` | Adaptive Tile-Geometrie (Seeing/FWHM-basiert) |
 | 7 | `COMMON_OVERLAP` | Gemeinsamer datentragender Bereich (global/tile-lokal) |
 | 8 | `LOCAL_METRICS` | Lokale Tile-Metriken, weiches STAR/STRUCTURE-Blending und lokale Gewichte `L_f,t` |
-| 9 | `TILE_RECONSTRUCTION` | Gewichtete tile-basierte Rekonstruktion mit support-aware Overlap-Add |
+| 9 | `TILE_RECONSTRUCTION` | Pixelweise AQMH-Rekonstruktion (Standard) oder klassische gewichtete Tile-Rekonstruktion |
 | 10 | `STATE_CLUSTERING` | Zustandsvektor-Clustering (optional, mode-abhängig, per Frame-Anzahl gegatet) |
 | 11 | `SYNTHETIC_FRAMES` | Erzeugung synthetischer Frames (optional, mode-abhängig) |
 | 12 | `STACKING` | Finales lineares Stacking (inkl. robuster Pixel-Ausreißerbehandlung) |
@@ -397,11 +399,32 @@ runs/<run_id>/
 - **2× Downsample**: Registrierung auf halber Auflösung (Speedup ~4×)
 - **Memory-effizient**: Frames werden per-Phase von Disk geladen
 - **cv::setNumThreads(1)**: Verhindert OpenCV-Thread-Contention in parallelen Tiles
+- **CUDA-Worker-Streams**: Ein Non-Default-Stream pro parallelem PREWARP-/AQMH-/Tile-Worker
+- **Streaming-AQMH-CUDA-Rekonstruktion**: GPU-Akkumulatoren bleiben resident; Frames/Maps werden einzeln übertragen, daher ist der VRAM-Bedarf unabhängig von der Frameanzahl
+- **Paralleles RGB-Stacking**: R/G/B-Reduktionen laufen gleichzeitig auf getrennten CUDA-Streams
+
+## GPU-Ausführung nach Phase
+
+| Phase | CUDA | OpenCL | GPU-Arbeit |
+|---|---:|---:|---|
+| `PREWARP` | Ja | Ja | Vollbild-Affine-/CFA-Warps |
+| `AQMH_MAPS` | Ja | Ja | Pyramidale Filter und lokale Varianz |
+| `AQMH_RECONSTRUCTION` | Ja | Nein | Gewichtete Welford-Statistik, Masken, Sigma-Clipping, Akkumulation |
+| Klassische `TILE_RECONSTRUCTION` | Ja | Ja | Sigma-Clipping und Overlap-Add |
+| `SYNTHETIC_FRAMES` | Ja | Ja | Cluster-Tile-Rekonstruktion |
+| `STACKING` / Resume | Ja | Ja | Gewichtete/Sigma-Clip-Reduktion, paralleles RGB |
+
+`REGISTRATION` bleibt CPU-only; die GPU-Ausführung beginnt in `PREWARP`.
+
+`runtime_limits.acceleration_backend: auto` wählt pro unterstützter Phase CUDA,
+danach OpenCL und zuletzt CPU. AQMH Cherry-Pick nutzt CPU. CUDA-/OpenCL-Fehler
+fallen auf CPU zurück. `artifacts/acceleration_context.json` sowie die
+Live-Felder `cpu_workers`, `gpu` und `backend` dokumentieren den effektiven Pfad.
 
 ## Referenzen
 
 ### Normative Spezifikation
-- `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`
+- `/docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`
 
 ### C++ Implementierung
 - `/tile_compile_cpp/apps/runner_pipeline.cpp`

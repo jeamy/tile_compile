@@ -2,9 +2,9 @@
 
 ## Overview
 
-This document describes the **actual execution flow of the C++ implementation** (`tile_compile_cpp/apps/runner_pipeline.cpp`) of tile-based quality reconstruction for deep-sky objects according to methodology v3.
+This document describes the **actual execution flow of the C++ implementation** (`tile_compile_cpp/apps/runner_pipeline.cpp`) for AQMH (default) and Classic Tile-Compile reconstruction.
 
-The pipeline processes **FITS frames** (mono or OSC/CFA) and produces a weighted, tile-based reconstruction result with optional clustering, synthetic frames and sigma-clipping stacking.
+The pipeline processes **FITS frames** (mono or OSC/CFA) and produces either a pixel-wise AQMH reconstruction or the optional classic tile/cluster reconstruction.
 
 **Implementation:** C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
@@ -27,7 +27,7 @@ Source of the phase order: `tile_compile::Phase` in `include/tile_compile/core/t
 | 6 | `TILE_GRID` | Adaptive tile geometry (seeing/FWHM-based) |
 | 7 | `COMMON_OVERLAP` | Common valid-data area (global/tile-local) |
 | 8 | `LOCAL_METRICS` | Local tile metrics, soft STAR/STRUCTURE blending, and local weights `L_f,t` |
-| 9 | `TILE_RECONSTRUCTION` | Weighted tile-based reconstruction with support-aware overlap-add |
+| 9 | `TILE_RECONSTRUCTION` | Pixel-wise AQMH reconstruction (default) or classic weighted tile reconstruction |
 | 10 | `STATE_CLUSTERING` | State-vector clustering (optional, mode-dependent, gated by frame count) |
 | 11 | `SYNTHETIC_FRAMES` | Generation of synthetic frames (optional, mode-dependent) |
 | 12 | `STACKING` | Final linear stacking (including robust pixel outlier handling) |
@@ -405,11 +405,32 @@ runs/<run_id>/
 - **2× downsample:** registration at half resolution (speedup ~4×)
 - **Memory-efficient:** frames are loaded from disk per phase
 - **cv::setNumThreads(1):** avoids OpenCV thread contention in parallel tiles
+- **CUDA worker streams:** one non-default stream per parallel PREWARP/AQMH/tile worker
+- **Streaming AQMH CUDA reconstruction:** GPU accumulators remain resident while frames/maps are transferred one at a time; VRAM use is independent of frame count
+- **Concurrent RGB stacking:** R/G/B reductions run concurrently with separate CUDA streams
+
+## GPU execution by phase
+
+| Phase | CUDA | OpenCL | Work performed on GPU |
+|---|---:|---:|---|
+| `PREWARP` | Yes | Yes | Full-frame affine/CFA warps |
+| `AQMH_MAPS` | Yes | Yes | Pyramid filters and local variance |
+| `AQMH_RECONSTRUCTION` | Yes | No | Weighted Welford statistics, masks, sigma clipping, accumulation |
+| Classic `TILE_RECONSTRUCTION` | Yes | Yes | Sigma clipping and overlap-add |
+| `SYNTHETIC_FRAMES` | Yes | Yes | Cluster tile reconstruction |
+| `STACKING` / resume | Yes | Yes | Weighted/sigma-clipped reduction, concurrent RGB |
+
+`REGISTRATION` remains CPU-only; GPU execution starts in `PREWARP`.
+
+`runtime_limits.acceleration_backend: auto` selects CUDA, then OpenCL, then
+CPU per supported phase. AQMH Cherry-Pick uses CPU. CUDA/OpenCL failures fall
+back to CPU, and `artifacts/acceleration_context.json` plus live fields
+`cpu_workers`, `gpu`, and `backend` record the effective path.
 
 ## References
 
 ### Normative specification
-  - `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`
+  - `/docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`
 
 ### C++ implementation
   - `/tile_compile_cpp/apps/runner_pipeline.cpp`

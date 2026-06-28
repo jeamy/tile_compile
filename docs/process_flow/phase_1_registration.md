@@ -197,6 +197,11 @@ Die Warp-Matrix wird auf halber Auflösung berechnet. Die Translationskomponente
 
 > Laufzeit-Sichtbarkeit: `phase_start(PREWARP)` / `phase_progress(PREWARP)` / `phase_end(PREWARP)`
 
+`REGISTRATION` selbst ist CPU-only (Sternerkennung, Matching,
+Transformationsschätzung und ECC). Die anschließende eigene Phase `PREWARP`
+verwendet je nach `runtime_limits.acceleration_backend` CUDA oder OpenCL und
+einen CUDA-Stream pro Worker. `gpu=no` während REGISTRATION ist daher erwartet.
+
 **Kritischer Schritt** nach der Registrierung, vor der Tile-Extraktion:
 
 Optional darf davor eine deterministische per-frame CFA cosmetic correction laufen, sofern:
@@ -206,20 +211,20 @@ Optional darf davor eine deterministische per-frame CFA cosmetic correction lauf
 - reale kompakte Bildstruktur durch einen Struktur-Guard geschützt bleibt.
 
 ```cpp
-for (size_t fi = 0; fi < frames.size(); ++fi) {
+auto prewarp_worker = [&](int worker_index) {
+  while (true) {
+    const size_t fi = prewarp_next.fetch_add(1);
+    if (fi >= frames.size()) break;
     auto pair = load_frame_normalized(fi);
     Matrix2Df img = std::move(pair.first);
-    const auto &w = global_frame_warps[fi];
-
-    if (is_identity) {
-        prewarped_frames[fi] = std::move(img);
-    } else if (detected_mode == ColorMode::OSC) {
-        prewarped_frames[fi] = image::warp_cfa_mosaic_via_subplanes(
-            img, w, img.rows(), img.cols());
-    } else {
-        prewarped_frames[fi] = registration::apply_warp(img, w);
-    }
-}
+    Matrix2Df warped;
+    prewarp_ops.warp_affine_frame(
+        std::move(img), global_frame_warps[fi], detected_mode,
+        canvas_height, canvas_width, offset_x, offset_y, warped,
+        &valid_mask, &has_data, prewarp_streams.get(worker_index));
+    prewarped_frames.store(fi, warped);
+  }
+};
 ```
 
 ### Warum Pre-Warping?
@@ -230,8 +235,11 @@ for (size_t fi = 0; fi < frames.size(); ++fi) {
 
 | Modus | Warp-Methode | CFA-Sicherheit |
 |-------|-------------|----------------|
-| **MONO** | `apply_warp()` (OpenCV warpAffine) | N/A |
-| **OSC** | `warp_cfa_mosaic_via_subplanes()` | ✓ Keine Bayer-Phasen-Mischung |
+| **MONO** | `AccelerationOps::warp_affine_frame()` | N/A |
+| **OSC** | Vier getrennte CFA-Subebenen über `AccelerationOps` | ✓ Keine Bayer-Phasen-Mischung |
+
+CUDA bündelt die vier OSC-Subebenen in einem Worker-Stream und synchronisiert
+einmal pro Frame. OpenCL verwendet OpenCV `UMat`; CPU bleibt der Fallback.
 
 `warp_cfa_mosaic_via_subplanes` zerlegt das CFA-Mosaik in 4 Subplanes (R, G1, G2, B), warpt jede separat und interleaved sie zurück.
 

@@ -9,9 +9,9 @@ Download from [GitHub Releases](https://github.com/jeamy/tile_compile/releases):
 ```bash
 # Linux (GUI3 with web interface)
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.0.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.9.zip
 unzip tile_compile.zip
-cd tile_compile_gui3-linux-v0.3.0
+cd tile_compile_gui3-linux-v0.3.9
 
 # Start GUI3 (browser opens automatically)
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/
@@ -30,8 +30,8 @@ mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 
-# Optional: Web backend
-cd ../web_backend_cpp
+# Optional: Web backend (from tile_compile_cpp/build)
+cd ../../web_backend_cpp
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
@@ -45,6 +45,17 @@ cmake --build . -j$(nproc)
 4. **View Results** — Results in `runs/<run_id>/outputs/`, generate diagnostic report via *Generate Stats*
 
 Full guide: [GUI3 User Guide](../gui3_user_guide_en.md)
+
+When `runtime_limits.acceleration_backend: auto` is used, live progress entries
+show the effective execution resources, for example:
+
+```text
+PREWARP | progress (50%) | cpu_workers=8 gpu=yes backend=opencv_cuda
+REGISTRATION | progress (50%) | cpu_workers=8 gpu=no backend=cpu
+```
+
+The GPU is optional; `gpu=no` for REGISTRATION is expected. Verify all selected
+phase backends in `runs/<run_id>/artifacts/acceleration_context.json`.
 
 ## CLI First Run
 

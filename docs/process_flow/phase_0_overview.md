@@ -33,7 +33,7 @@ else if (config.method == "classic_tile_compile") config.aqmh.enabled = false;
 | 6 | `TILE_GRID` | Identisch | Identisch |
 | 7 | `COMMON_OVERLAP` | Identisch | Identisch |
 | 8 | `LOCAL_METRICS` | **AQMH_QUALITY_MAPS** — Pyramid-Qualitätskarten pro Frame werden berechnet und gecacht | **Classic LOCAL_METRICS** — Tile-Metriken (FWHM, Roundness, Contrast, Star Count) pro (frame, tile) |
-| 9 | `TILE_RECONSTRUCTION` | **Pixelweise AQMH-Rekonstruktion** mit `reconstruct_aqmh_weighted()` — Cherry-Pick-Selektion, Sigma-Clip | **Tile-basierte Rekonstruktion** mit `W_f,t = G_f × L_f,t`, OLA |
+| 9 | `TILE_RECONSTRUCTION` | **Pixelweise AQMH-Rekonstruktion** über `AccelerationOps::reconstruct_aqmh()` — CUDA-Streaming oder CPU-Fallback, Cherry-Pick-Selektion, Sigma-Clip | **Tile-basierte Rekonstruktion** mit `W_f,t = G_f × L_f,t`, OLA |
 | 10 | `STATE_CLUSTERING` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv (wenn N ≥ Schwellwert) — 6D State-Vector Clustering |
 | 11 | `SYNTHETIC_FRAMES` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv — gewichtete Cluster-Mittelwerte |
 | 12 | `STACKING` | Durchlauf der AQMH-Rekonstruktion | Sigma-Clip-Stacking der synthetischen Frames |
@@ -59,6 +59,9 @@ Wenn `aqmh.enabled = true`:
   - Qualitätskarte `Q_map` pro Frame wird in `QualityMapCache` gespeichert (`runs/<id>/cache/aqmh/`)
 - Phase-Anzeige: `AQMH_QUALITY_MAPS` statt `LOCAL_METRICS`
 - Artifact: `aqmh_metrics.json` (statt `local_metrics.json`)
+- CUDA verwendet pro Worker einen eigenen Stream und gecachte
+  `cudafilters`-Boxfilter; OpenCL nutzt `UMat`. Bei fehlendem Backend erfolgt
+  derselbe CPU-Pfad.
 
 ```cpp
 // runner_phase_local_metrics.cpp
@@ -94,14 +97,19 @@ Wenn `aqmh.enabled = true`:
   - Optional Cherry-Pick: nur die `k` besten Frames pro Pixel werden verwendet
 - Kein Clustering, keine synthetischen Frames
 - Artifact: `tile_reconstruction.json` mit `"method": "aqmh"` und Cherry-Pick-Diagnostik
+- Ohne Cherry-Pick läuft die zweipassige Welford-/Sigma-Clip-Rekonstruktion bei
+  `opencv_cuda` streaming auf der GPU. Akkumulatoren bleiben resident; jeweils
+  nur ein Frame und eine Quality-Map werden übertragen. Cherry-Pick und
+  CUDA-Fehler fallen kontrolliert auf CPU zurück.
 
 ```cpp
 // runner_pipeline.cpp
 if (cfg.aqmh.enabled) {
-    auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+    auto aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
         frames.size(), aqmh_frame_loader, aqmh_cache.get(),
         global_weights, common_valid_mask,
-        canvas_width, canvas_height, aqmh_recon_cfg);
+        canvas_width, canvas_height, aqmh_recon_cfg,
+        aqmh_reconstruction_stream.get(0));
     recon = aqmh_recon.output;
 }
 ```

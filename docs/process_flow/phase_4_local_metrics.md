@@ -1,11 +1,17 @@
-# LOCAL_METRICS — Lokale Tile-Metriken und Qualitäts-Scoring
+# LOCAL_METRICS / AQMH_QUALITY_MAPS — Lokale Qualitätsanalyse
 
 > **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::LOCAL_METRICS`
 
 ## Übersicht
 
-Phase 8 berechnet für jede Kombination aus Frame × Tile eine Reihe von Qualitätsmetriken. In `v3.3.9` werden Tiles **nicht mehr hart** in STAR oder STRUCTURE umgeschaltet, sondern über einen weichen STAR-Support-Faktor `eta_t` kontinuierlich zwischen beiden lokalen Modellen geblendet. Daraus wird das lokale Gewicht `L_{f,t}` berechnet.
+Bei der Standardmethode AQMH berechnet Phase 8 dichte pyramidale Quality-Maps;
+CUDA (`cudafilters`) oder OpenCL (`UMat`) beschleunigen lokale Varianz und
+Boxfilter. CUDA verwendet einen Stream und einen Filter-Cache pro Worker. Bei
+`method: classic_tile_compile` berechnet Phase 8 stattdessen für jede
+Kombination aus Frame × Tile lokale Qualitätsmetriken. Tiles werden dabei
+**nicht hart** in STAR oder STRUCTURE umgeschaltet, sondern über einen weichen
+STAR-Support-Faktor `eta_t` zwischen beiden Modellen geblendet.
 
 ```
 ┌──────────────────────────────────────────────────────┐
