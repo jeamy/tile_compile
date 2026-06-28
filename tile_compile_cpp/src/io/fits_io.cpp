@@ -655,15 +655,21 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
         if (status) status = 0; // non-fatal: proceed even if key cannot be written
     }
     
-    long fpixel[2] = {1, 1};
-    long nelem = static_cast<long>(data.size());
-    fits_write_pix(fptr, TFLOAT, fpixel, nelem,
-                   const_cast<float*>(data.data()), &status);
-    if (status) {
-        const int write_status = status;
-        int close_status = 0;
-        fits_close_file(fptr, &close_status);
-        throw FitsError(fits_write_error_message("write FITS pixel data", path, write_status));
+    // Write pixel data row by row to avoid cfitsio internal buffer issues
+    // with very large single-write calls (e.g. 50M+ elements for expanded canvas).
+    const long nrows = static_cast<long>(data.rows());
+    const long ncols = static_cast<long>(data.cols());
+    for (long row = 0; row < nrows; ++row) {
+        long fpixel[2] = {1, row + 1};
+        const float* row_ptr = data.data() + row * ncols;
+        fits_write_pix(fptr, TFLOAT, fpixel, ncols,
+                       const_cast<float*>(row_ptr), &status);
+        if (status) {
+            const int write_status = status;
+            int close_status = 0;
+            fits_close_file(fptr, &close_status);
+            throw FitsError(fits_write_error_message("write FITS pixel data", path, write_status));
+        }
     }
     
     fits_close_file(fptr, &status);
@@ -714,20 +720,21 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
         if (status) status = 0; // non-fatal: proceed even if key cannot be written
     }
     
-    // Write R plane (z=1)
-    long fpixel_r[3] = {1, 1, 1};
-    fits_write_pix(fptr, TFLOAT, fpixel_r, static_cast<long>(R.size()),
-                   const_cast<float*>(R.data()), &status);
-    
-    // Write G plane (z=2)
-    long fpixel_g[3] = {1, 1, 2};
-    fits_write_pix(fptr, TFLOAT, fpixel_g, static_cast<long>(G.size()),
-                   const_cast<float*>(G.data()), &status);
-    
-    // Write B plane (z=3)
-    long fpixel_b[3] = {1, 1, 3};
-    fits_write_pix(fptr, TFLOAT, fpixel_b, static_cast<long>(B.size()),
-                   const_cast<float*>(B.data()), &status);
+    // Write each RGB plane row by row to avoid cfitsio internal buffer issues
+    // with very large single-write calls.
+    const long nrows_rgb = static_cast<long>(R.rows());
+    const long ncols_rgb = static_cast<long>(R.cols());
+    const Matrix2Df* planes[3] = {&R, &G, &B};
+    for (int p = 0; p < 3; ++p) {
+        for (long row = 0; row < nrows_rgb; ++row) {
+            long fpixel[3] = {1, row + 1, p + 1};
+            const float* row_ptr = planes[p]->data() + row * ncols_rgb;
+            fits_write_pix(fptr, TFLOAT, fpixel, ncols_rgb,
+                           const_cast<float*>(row_ptr), &status);
+            if (status) break;
+        }
+        if (status) break;
+    }
     
     if (status) {
         const int write_status = status;
