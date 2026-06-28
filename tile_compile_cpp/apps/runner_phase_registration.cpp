@@ -952,6 +952,7 @@ bool run_phase_registration_prewarp(
         }
 
         int current_reg_pass_workers = reg_workers;
+        std::string current_reg_pass_label = "direct";
         auto reg_worker = [&]() {
           while (true) {
             const size_t job = reg_next.fetch_add(1);
@@ -1078,7 +1079,8 @@ bool run_phase_registration_prewarp(
               std::lock_guard<std::mutex> lock(reg_progress_mutex);
               emitter.phase_progress(
                   run_id, Phase::REGISTRATION, p,
-                  "global_reg " + std::to_string(done) + "/" +
+                  "global_reg [" + current_reg_pass_label + "] " +
+                      std::to_string(done) + "/" +
                       std::to_string(job_count) + " workers=" +
                       std::to_string(current_reg_pass_workers) +
                       " cpu_workers=" +
@@ -1090,8 +1092,10 @@ bool run_phase_registration_prewarp(
         };
 
         auto run_registration_pass =
-            [&](int pass_workers, const std::vector<size_t> *targets = nullptr) {
+            [&](int pass_workers, const std::vector<size_t> *targets = nullptr,
+                const std::string &pass_label = "direct") {
           current_reg_pass_workers = std::max(1, pass_workers);
+          current_reg_pass_label = pass_label;
           current_reg_targets = targets;
           reg_next.store(0, std::memory_order_relaxed);
           reg_done.store(0, std::memory_order_relaxed);
@@ -1124,7 +1128,7 @@ bool run_phase_registration_prewarp(
           current_reg_targets = nullptr;
         };
 
-        run_registration_pass(reg_workers);
+        run_registration_pass(reg_workers, nullptr, "direct");
 
         // Adaptive Anker-Anzahl: mehr Anker bei vielen Frames oder schlechtem Seeing
         // Alt: min(21, max(3, (N+59)/60)) -> bei 325 Frames nur 6 Anker
@@ -1216,7 +1220,8 @@ bool run_phase_registration_prewarp(
             }
           }
           reg_promotion_retry_frames += static_cast<int>(retry_targets.size());
-          run_registration_pass(reg_workers, &retry_targets);
+          run_registration_pass(reg_workers, &retry_targets,
+                                "anchor_retry_r" + std::to_string(round + 1));
         }
 
         std::vector<int> active_anchor_indices_sorted = active_anchor_indices;
