@@ -126,9 +126,16 @@ int main(int argc, char** argv) {
         expect_equal(preprocessing_status["job"]["scan"]["input_mode"].get<std::string>(), "mono", "preprocessing scan mono mode");
 
         const auto preprocessing_run = harness.post_json("/api/tools/preprocessing/run", {
-            {"lights_dir", (harness.fixture_root() / "lights_mono").string()}
+            {"lights_dir", (harness.fixture_root() / "lights_mono").string()},
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"run_name", "IC4605 Raw"}
         });
         expect_equal(preprocessing_run["_http_status"].get<long>(), 200L, "preprocessing run start status");
+        expect_true(preprocessing_run["run_id"].get<std::string>().rfind("IC4605_Raw_", 0) == 0,
+                    "preprocessing run naming matches processing mode");
+        expect_true(preprocessing_run["run_dir"].get<std::string>().rfind(
+                        (harness.fixture_root() / "runs").string(), 0) == 0,
+                    "preprocessing runs_dir matches processing mode");
         const auto preprocessing_run_job = harness.wait_for_job(preprocessing_run["job_id"].get<std::string>());
         expect_equal(preprocessing_run_job["state"].get<std::string>(), "ok", "preprocessing run job ok");
         expect_true(preprocessing_run_job["data"].contains("frame_quality_csv"),

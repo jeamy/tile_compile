@@ -251,6 +251,9 @@ void register_preprocessing_routes(CrowApp& app,
         std::ostringstream ts_ss;
         ts_ss << std::put_time(&tm_buf, "%Y%m%d_%H%M%S");
         const std::string timestamp = ts_ss.str();
+        // Match /api/runs/start: runs_dir selects the output root, run_name
+        // becomes the sanitized timestamped directory name, and an explicit
+        // run_id is preserved.
         std::string raw_run_name = body.value("run_name", effective_config.value("run_name", std::string()));
         std::string base_name;
         if (!raw_run_name.empty()) {
@@ -261,12 +264,29 @@ void register_preprocessing_routes(CrowApp& app,
             }
             while (!raw_run_name.empty() && raw_run_name.front() == '_') raw_run_name.erase(raw_run_name.begin());
             while (!raw_run_name.empty() && raw_run_name.back() == '_') raw_run_name.pop_back();
-            base_name = raw_run_name.empty() ? "rs_run" : raw_run_name;
+            base_name = raw_run_name.empty() ? "run" : raw_run_name;
         } else {
-            base_name = "rs_run";
+            base_name = "run";
         }
-        const std::string run_id = base_name + "_" + timestamp;
-        const fs::path run_dir = state->runtime.runs_dir / run_id;
+        std::string run_id = body.value("run_id", std::string());
+        if (!run_id.empty()) {
+            for (char& ch : run_id) {
+                const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                                (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-';
+                if (!ok) ch = '_';
+            }
+            while (!run_id.empty() && run_id.front() == '_') run_id.erase(run_id.begin());
+            while (!run_id.empty() && run_id.back() == '_') run_id.pop_back();
+            if (run_id.empty()) run_id = "run";
+        } else {
+            run_id = base_name + "_" + timestamp;
+        }
+        const fs::path runs_dir = body.value(
+            "runs_dir", effective_config.value("runs_dir", state->runtime.runs_dir.string()));
+        if (!state->runtime.is_path_allowed(runs_dir)) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + runs_dir.string(), 403);
+        }
+        const fs::path run_dir = runs_dir / run_id;
         std::vector<std::string> args = {
             state->runtime.runner_exe,
             "preprocess",
@@ -274,7 +294,7 @@ void register_preprocessing_routes(CrowApp& app,
             "-",
             "--stdin",
             "--runs-dir",
-            state->runtime.runs_dir.string(),
+            runs_dir.string(),
             "--project-root",
             state->runtime.project_root.string(),
             "--run-id",

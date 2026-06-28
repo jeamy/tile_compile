@@ -10,7 +10,7 @@ import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
 
 const store = getStore("raw-stack", {
-  stackData: { input_dir: "", pattern: "*.fits", output_dir: "", method: "sigma_clip", sigma_low: 3.0, sigma_high: 3.0 },
+  stackData: { input_dir: "", pattern: "*.fits", runs_dir: "", run_name: "", method: "sigma_clip", sigma_low: 3.0, sigma_high: 3.0 },
   calValues: {},
   currentJobId: null,
 });
@@ -33,7 +33,11 @@ export function createRawStackPage() {
       el("input", { type: "text", class: "tc-input", value: getStackData().pattern, oninput: (e) => setStackData({ pattern: e.target.value }) }),
     ),
     el("div", { class: "tc-mt-2" },
-      createPathInput({ label: t("ui.field.output_dir", "Ausgabeordner"), placeholder: "/data/runs", value: getStackData().output_dir, onInput: (v) => setStackData({ output_dir: v }) }),
+      createPathInput({ label: t("ui.field.runs_dir", "Ausgabeordner"), placeholder: "/data/runs", value: getStackData().runs_dir, onInput: (v) => setStackData({ runs_dir: v }) }),
+    ),
+    el("div", { class: "tc-mt-2" },
+      el("label", { class: "tc-label" }, t("ui.field.run_name", "Run-Name")),
+      el("input", { type: "text", class: "tc-input", value: getStackData().run_name, placeholder: "ic4605-raw", oninput: (e) => setStackData({ run_name: e.target.value }) }),
     ),
   );
 
@@ -94,7 +98,8 @@ async function runStack() {
     const result = await api.post(API_ENDPOINTS.preprocessing.run, {
       lights_dir: sd.input_dir,
       pattern: sd.pattern,
-      output_dir: sd.output_dir,
+      runs_dir: sd.runs_dir,
+      run_name: sd.run_name,
       method: sd.method,
       sigma_low: sd.sigma_low,
       sigma_high: sd.sigma_high,
