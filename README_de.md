@@ -780,6 +780,10 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 
 ## Versionen
 
+## v0.3.A (2026-06-28)
+
+- Bug fixes
+
 ## v0.3.9 (2026-06-27)
 
 - Die GPU-Verarbeitung wurde in PREWARP, AQMH, Tile- und synthetischer Rekonstruktion sowie im Stacking durch dedizierte Worker-Streams und parallele RGB-Ausführung optimiert.
