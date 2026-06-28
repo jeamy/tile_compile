@@ -29,5 +29,30 @@ TEST_CASE("registration shift diagnostics preserve normal translation behaviour"
   REQUIRE(std::fabs(diag.shift_magnitude - 30.0f) < 1.0e-4f);
 }
 
+TEST_CASE("isolated half-turn matches are not treated as meridian flips") {
+  std::vector<uint8_t> candidates(40, 0);
+  candidates[5] = 1;
+  candidates[17] = 1;
+  candidates[18] = 1;
+  candidates[33] = 1;
+
+  const auto supported = persistent_half_turn_support(candidates);
+  REQUIRE(std::count(supported.begin(), supported.end(), uint8_t{1}) == 0);
+}
+
+TEST_CASE("temporally coherent half-turn matches support a meridian flip") {
+  std::vector<uint8_t> candidates(40, 0);
+  candidates[15] = 1;
+  candidates[16] = 1;
+  candidates[18] = 1; // tolerate one failed frame inside the segment
+  candidates[19] = 1;
+
+  const auto supported = persistent_half_turn_support(candidates);
+  REQUIRE(supported[15] == 1);
+  REQUIRE(supported[16] == 1);
+  REQUIRE(supported[18] == 1);
+  REQUIRE(supported[19] == 1);
+}
+
 } // namespace tile_compile::runner
 #endif

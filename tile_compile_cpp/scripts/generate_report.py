@@ -2551,12 +2551,12 @@ def generate_report(run_dir: Path) -> Path:
     # 2. Global Metrics
     if gm:
         g_pngs, g_evals, g_expl = _gen_global_metrics(artifacts_dir, gm)
-        sections.append(("Global Metrics", _make_card_html("Frame quality & weights", g_pngs, g_evals, _infer_status(g_evals), explanations=g_expl)))
+        sections.append(("Pipeline-wide Frame Metrics", _make_card_html("Shared input-frame quality (all reconstruction methods)", g_pngs, g_evals, _infer_status(g_evals), explanations=g_expl)))
 
     # 3. Tile Grid
     if tg:
         t_pngs, t_evals, t_expl = _gen_tile_grid(artifacts_dir, tg)
-        sections.append(("Tile Grid", _make_card_html("Grid layout", t_pngs, t_evals, explanations=t_expl)))
+        sections.append(("Pipeline-wide Tile Grid", _make_card_html("Shared geometry (not Classic reconstruction statistics)", t_pngs, t_evals, explanations=t_expl)))
 
     # 4. Registration
     if reg:
@@ -2571,7 +2571,8 @@ def generate_report(run_dir: Path) -> Path:
     # 6. Tile Reconstruction
     if recon:
         rc_pngs, rc_evals, rc_expl = _gen_reconstruction(artifacts_dir, recon, tg)
-        sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
+        recon_method = str(recon.get("method", "unknown")).upper()
+        sections.append((f"{recon_method} Reconstruction", _make_card_html(f"{recon_method}-specific reconstruction statistics", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
 
     # 6a. AQMH Metrics (standalone section, only when aqmh data exists)
     if aqmh_metrics or aqmh_regions:

@@ -2083,6 +2083,7 @@ bool run_phase_registration_prewarp(
   int reg_reject_low_cc_protected = 0;
   int reg_reject_deep_chain_outliers = 0;
   int reg_meridian_flip_detected = 0;
+  int reg_reject_isolated_half_turn = 0;
   core::json reg_rejected_frames = core::json::array();
   std::vector<uint8_t> reg_rejected_mask(frames.size(), 0);
   if (cfg.registration.reject_outliers) {
@@ -2218,6 +2219,29 @@ bool run_phase_registration_prewarp(
       return trend_coeffs(0) + trend_coeffs(1) * t + trend_coeffs(2) * t * t;
     };
 
+    // A near-180-degree residual is only a plausible meridian flip when it
+    // persists over time.  Treat isolated half-turn solutions as star-match
+    // ambiguities; otherwise they contaminate the temporal model and can
+    // expand the downstream canvas by thousands of pixels.
+    std::vector<uint8_t> half_turn_candidates(frames.size(), 0);
+    if (have_orientation_trend) {
+      constexpr float kMeridianFlipToleranceDeg = 15.0f;
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (global_frame_cc[fi] <= 0.0f) {
+          continue;
+        }
+        const auto &w = global_frame_warps[fi];
+        const float ang_rad = std::atan2(w(0, 1), w(0, 0));
+        const float diff = std::remainder(
+            ang_rad - predicted_trend_angle_rad(fi), 6.2831853071795864f);
+        const float diff_deg = std::fabs(diff) * 57.29577951f;
+        half_turn_candidates[fi] =
+            std::fabs(diff_deg - 180.0f) < kMeridianFlipToleranceDeg ? 1 : 0;
+      }
+    }
+    const auto supported_half_turns =
+        persistent_half_turn_support(half_turn_candidates);
+
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f)
         continue;
@@ -2293,11 +2317,18 @@ bool run_phase_registration_prewarp(
         }
         const float diff_deg = std::fabs(diff) * 57.29577951f;
         if (diff_deg > kOrientationTrendDeviationDeg) {
-          // Check if this is a legitimate meridian flip (~180° offset).
+          // Accept only a temporally coherent ~180° family.  An isolated
+          // solution is the star-pattern half-turn ambiguity, not a physical
+          // flip.
           constexpr float kMeridianFlipToleranceDeg = 15.0f;
           const float flip_residual = std::fabs(diff_deg - 180.0f);
-          if (flip_residual < kMeridianFlipToleranceDeg) {
+          if (flip_residual < kMeridianFlipToleranceDeg &&
+              supported_half_turns[fi] != 0) {
             ++reg_meridian_flip_detected;
+          } else if (flip_residual < kMeridianFlipToleranceDeg) {
+            reject = true;
+            ++reg_reject_isolated_half_turn;
+            reject_reasons.push_back("isolated_half_turn");
           } else {
             reject = true;
             ++reg_reject_orientation_outliers;
@@ -2963,6 +2994,8 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["reg_reject_low_cc_protected"] = reg_reject_low_cc_protected;
   global_reg_extra["diag"]["reg_reject_deep_chain_outliers"] = reg_reject_deep_chain_outliers;
   global_reg_extra["diag"]["reg_meridian_flip_detected"] = reg_meridian_flip_detected;
+  global_reg_extra["diag"]["reg_reject_isolated_half_turn"] =
+      reg_reject_isolated_half_turn;
   global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
   global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
 

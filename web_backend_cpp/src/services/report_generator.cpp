@@ -2582,7 +2582,7 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     const auto s_s = basic_stats(star_count);
     if (s_s.n > 0) evals.push_back("star count: median=" + format_number(s_s.median, 0));
 
-    return ReportSection{"Global Metrics", make_card_html("Frame quality and weights", charts, evals, infer_status(evals))};
+    return ReportSection{"Pipeline-wide Frame Metrics", make_card_html("Shared input-frame quality (all reconstruction methods)", charts, evals, infer_status(evals))};
 }
 
 /// @brief Generates tile grid.
@@ -2615,7 +2615,7 @@ std::optional<ReportSection> gen_tile_grid(const json& tg) {
             }
         )
     }};
-    return ReportSection{"Tile Grid", make_card_html("Grid layout", charts, evals, "ok")};
+    return ReportSection{"Pipeline-wide Tile Grid", make_card_html("Shared geometry (not Classic reconstruction statistics)", charts, evals, "ok")};
 }
 
 /// @brief Generates registration.
@@ -2952,7 +2952,13 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
                         ", min=" + format_number(s.min, 3));
     }
 
-    return ReportSection{"Tile Reconstruction", make_card_html("Reconstruction statistics", charts, evals, infer_status(evals))};
+    const std::string reconstruction_method = json_string_or(recon, "method", "unknown");
+    std::string method_label = reconstruction_method;
+    std::transform(method_label.begin(), method_label.end(), method_label.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return ReportSection{method_label + " Reconstruction",
+                         make_card_html(method_label + "-specific reconstruction statistics",
+                                        charts, evals, infer_status(evals))};
 }
 
 /// @brief Generates clustering.
