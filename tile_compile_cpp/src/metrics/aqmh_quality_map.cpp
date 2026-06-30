@@ -176,6 +176,7 @@ Matrix2Df downsample_valid_mean(const Matrix2Df &src, int factor) {
   const int out_w = std::max(1, (cols + factor - 1) / factor);
   Matrix2Df out(out_h, out_w);
   out.setConstant(nan_value());
+#pragma omp parallel for collapse(2) schedule(static)
   for (int oy = 0; oy < out_h; ++oy) {
     for (int ox = 0; ox < out_w; ++ox) {
       double sum = 0.0;
@@ -201,6 +202,7 @@ Matrix2Df downsample_valid_mean(const Matrix2Df &src, int factor) {
 Matrix2Df masked_laplacian(const Matrix2Df &img) {
   Matrix2Df out(img.rows(), img.cols());
   out.setConstant(nan_value());
+#pragma omp parallel for collapse(2) schedule(static)
   for (int y = 0; y < img.rows(); ++y) {
     for (int x = 0; x < img.cols(); ++x) {
       const float c = img(y, x);
@@ -231,8 +233,9 @@ Matrix2Df masked_laplacian(const Matrix2Df &img) {
 Matrix2Df local_variance(const Matrix2Df &m, int r) {
   Matrix2Df out(m.rows(), m.cols());
   out.setConstant(nan_value());
-  WindowBuf buf;
+#pragma omp parallel for schedule(static)
   for (int y = 0; y < m.rows(); ++y) {
+    WindowBuf buf;
     for (int x = 0; x < m.cols(); ++x) {
       fill_window(m, x, y, r, buf);
       if (buf.empty())
@@ -386,6 +389,7 @@ LocalMeanResult local_mean_and_count(const Matrix2Df &m, int r) {
   Matrix2Df hcnt(rows, cols);
   hsum.setConstant(0.0f);
   hcnt.setConstant(0.0f);
+#pragma omp parallel for schedule(static)
   for (int y = 0; y < rows; ++y) {
     double s = 0.0;
     int c = 0;
@@ -406,6 +410,7 @@ LocalMeanResult local_mean_and_count(const Matrix2Df &m, int r) {
   LocalMeanResult result{Matrix2Df(rows, cols), Matrix2Df(rows, cols)};
   result.mean.setConstant(nan_value());
   result.count.setZero();
+#pragma omp parallel for schedule(static)
   for (int x = 0; x < cols; ++x) {
     double s = 0.0, c = 0.0;
     for (int y = 0; y <= std::min(r, rows - 1); ++y) { s += hsum(y, x); c += hcnt(y, x); }
@@ -477,8 +482,9 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
   // Assemble phi_snr, with O(R²) fallback for pixels with < 3 valid neighbours.
   Matrix2Df out(rows, cols);
   out.setConstant(nan_value());
-  WindowBuf buf, tmp;
+#pragma omp parallel for schedule(static)
   for (int y = 0; y < rows; ++y) {
+    WindowBuf buf, tmp;
     for (int x = 0; x < cols; ++x) {
       const float n_valid = valid_cnt(y, x);
       if (n_valid <= 0.0f)
@@ -486,6 +492,7 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
 
       if (n_valid < 3.0f) {
         // Fallback: original O(R²) window path.
+#pragma omp atomic write
         scene_dependent = true;
         fill_window(img, x, y, r, buf);
         if (buf.empty()) continue;
@@ -613,6 +620,7 @@ Matrix2Df mask_aware_bilinear_upsample(const Matrix2Df &src, int out_w,
   const int cols = static_cast<int>(src.cols());
   if (factor <= 1 && src.rows() == out_h && src.cols() == out_w)
     return src;
+#pragma omp parallel for collapse(2) schedule(static)
   for (int y = 0; y < out_h; ++y) {
     for (int x = 0; x < out_w; ++x) {
       const float sx = (static_cast<float>(x) + 0.5f) / factor - 0.5f;
@@ -649,6 +657,7 @@ Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
   const Matrix2Df z_snr = robust_zscore(snr);
   Matrix2Df out(sharp.rows(), sharp.cols());
   out.setConstant(nan_value());
+#pragma omp parallel for collapse(2) schedule(static)
   for (int y = 0; y < out.rows(); ++y) {
     for (int x = 0; x < out.cols(); ++x) {
       if (!finite(z_sharp(y, x)) || !finite(z_snr(y, x)) ||
@@ -699,11 +708,10 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     } else if (accelerated_local_variance(laplacian, radius, backend, sharp, stream)) {
       result.diagnostics.acceleration_used = true;
     } else {
-      auto fallback = compute_aqmh_quality_map(
-          frame, canvas_mask, canvas_mask_width, canvas_mask_height, cfg,
-          core::AccelerationBackend::cpu, nullptr);
-      fallback.diagnostics.acceleration_fallback = true;
-      return fallback;
+      // Per-scale CPU fallback: avoids discarding already-computed scales
+      // by recursing into a full pyramid restart.
+      sharp = local_variance(laplacian, radius);
+      result.diagnostics.acceleration_fallback = true;
     }
     const LocalMeanResult local_img = local_mean_and_count(img_s, radius);
     bool scene_dependent = false;

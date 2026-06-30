@@ -325,36 +325,34 @@ Matrix2Df QualityMapCache::decode_file(size_t fi) const {
   if (!in)
     return empty_matrix();
   Matrix2Df stored(stored_height_, stored_width_);
+  const auto n = static_cast<std::ptrdiff_t>(stored.size());
   if (storage_cfg_.dtype == "float32") {
-    for (int y = 0; y < stored_height_; ++y) {
-      for (int x = 0; x < stored_width_; ++x) {
-        float v = 0.0f;
-        in.read(reinterpret_cast<char *>(&v), sizeof(float));
-        if (!in)
-          return empty_matrix();
-        stored(y, x) = clamp_q(v);
-      }
-    }
+    std::vector<float> raw(static_cast<size_t>(n));
+    in.read(reinterpret_cast<char *>(raw.data()),
+            static_cast<std::streamsize>(raw.size() * sizeof(float)));
+    if (!in)
+      return empty_matrix();
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i)
+      stored.data()[i] = clamp_q(raw[static_cast<size_t>(i)]);
   } else if (storage_cfg_.dtype == "uint16") {
-    for (int y = 0; y < stored_height_; ++y) {
-      for (int x = 0; x < stored_width_; ++x) {
-        uint16_t v = 0;
-        in.read(reinterpret_cast<char *>(&v), sizeof(uint16_t));
-        if (!in)
-          return empty_matrix();
-        stored(y, x) = static_cast<float>(v) / 65535.0f;
-      }
-    }
+    std::vector<uint16_t> raw(static_cast<size_t>(n));
+    in.read(reinterpret_cast<char *>(raw.data()),
+            static_cast<std::streamsize>(raw.size() * sizeof(uint16_t)));
+    if (!in)
+      return empty_matrix();
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i)
+      stored.data()[i] = static_cast<float>(raw[static_cast<size_t>(i)]) / 65535.0f;
   } else {
-    for (int y = 0; y < stored_height_; ++y) {
-      for (int x = 0; x < stored_width_; ++x) {
-        uint8_t v = 0;
-        in.read(reinterpret_cast<char *>(&v), sizeof(uint8_t));
-        if (!in)
-          return empty_matrix();
-        stored(y, x) = static_cast<float>(v) / 255.0f;
-      }
-    }
+    std::vector<uint8_t> raw(static_cast<size_t>(n));
+    in.read(reinterpret_cast<char *>(raw.data()),
+            static_cast<std::streamsize>(raw.size() * sizeof(uint8_t)));
+    if (!in)
+      return empty_matrix();
+#pragma omp simd
+    for (std::ptrdiff_t i = 0; i < n; ++i)
+      stored.data()[i] = static_cast<float>(raw[static_cast<size_t>(i)]) / 255.0f;
   }
   return stored;
 }

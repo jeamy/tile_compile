@@ -393,6 +393,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                 Matrix2Df q_map = q_map_cache->read_cached(fi);
                 if (!same_shape(q_map, height, width)) continue;
                 const float gw = aqmh_global_weight(global_weights, fi);
+#pragma omp parallel for schedule(static)
                 for (int y = 0; y < height; ++y) {
                     const float* q_ptr = q_map.data() + y * width;
                     float* s_ptr = scores[fi].data() + y * width;
@@ -403,16 +404,21 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                 }
             }
             // Per-pixel: compute K(p) and find the K-th largest score.
-            std::vector<float> pixel_scores(frame_count);
+            // Scratch buffers are reused across pixels to avoid per-pixel
+            // heap allocations in this hot loop (one alloc per row instead
+            // of one per pixel).
+#pragma omp parallel for schedule(static)
             for (int y = 0; y < height; ++y) {
+                std::vector<float> valid_scores;
+                valid_scores.reserve(frame_count);
                 for (int x = 0; x < width; ++x) {
                     if (!canvas_valid_at(canvas_mask, width, height, x, y)) continue;
-                    int n_valid = 0;
+                    valid_scores.clear();
                     for (size_t fi = 0; fi < frame_count; ++fi) {
                         const float s = scores[fi][static_cast<size_t>(y * width + x)];
-                        pixel_scores[fi] = s;
-                        if (s > 0.0f) ++n_valid;
+                        if (s > 0.0f) valid_scores.push_back(s);
                     }
+                    const int n_valid = static_cast<int>(valid_scores.size());
                     const int K = std::min(n_valid,
                         std::max(cfg.cherry_pick_k_min,
                                  static_cast<int>(std::floor(
@@ -423,12 +429,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                     }
                     // nth_element: pivot at position (n_valid - K) in ascending order.
                     // The threshold is the value at that position.
-                    std::vector<float> valid_scores;
-                    valid_scores.reserve(static_cast<size_t>(n_valid));
-                    for (size_t fi = 0; fi < frame_count; ++fi)
-                        if (pixel_scores[fi] > 0.0f) valid_scores.push_back(pixel_scores[fi]);
-                    const size_t kth_idx = static_cast<size_t>(
-                        std::max(0, static_cast<int>(valid_scores.size()) - K));
+                    const size_t kth_idx = static_cast<size_t>(n_valid - K);
                     std::nth_element(valid_scores.begin(),
                                      valid_scores.begin() + static_cast<long>(kth_idx),
                                      valid_scores.end());
@@ -486,6 +487,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
             continue;
         }
         const float gw = aqmh_global_weight(global_weights, fi);
+        uint64_t missing_increment = 0;
+        uint64_t finite_increment = 0;
+#pragma omp parallel for schedule(static) reduction(+:missing_increment, finite_increment)
         for (int y = 0; y < height; ++y) {
             const float* frame_ptr  = frame.data()      + y * width;
             const float* q_map_ptr  = q_map.data()      + y * width;
@@ -500,11 +504,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                     continue;
                 const float q = q_map_ptr[x];
                 if (!std::isfinite(q)) {
-                    ++result.missing_map_samples;
+                    ++missing_increment;
                     continue;
                 }
                 fin_ptr[x] += 1.0f;
-                ++result.finite_map_samples;
+                ++finite_increment;
                 const float w = gw * std::max(q, 0.0f);
                 if (!(w > cfg.eps_weight) || !is_valid_sample(frame_ptr[x]))
                     continue;
@@ -527,6 +531,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
                 mean_ptr[x]  = mean_new;
             }
         }
+        result.missing_map_samples += missing_increment;
+        result.finite_map_samples += finite_increment;
     }
     // Expose weight_sum from pass 1.
     result.weight_sum = welford_W;
@@ -601,6 +607,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         if (!same_shape(q_map, height, width))
             continue;
         const float gw = aqmh_global_weight(global_weights, fi);
+#pragma omp parallel for schedule(static)
         for (int y = 0; y < height; ++y) {
             const float* frame_ptr  = frame.data()      + y * width;
             const float* q_map_ptr  = q_map.data()      + y * width;
