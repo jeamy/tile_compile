@@ -130,13 +130,100 @@ The Run Monitor displays:
 
 ### Resume
 
-After completion (or abort), a run can be resumed from a specific phase:
+After completion or an abort, a run can be resumed from a selected phase. The
+existing run directory and its intermediate artifacts are reused.
 
-1. Click **Resume** in the Run Monitor.
-2. Select a phase (e.g., `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`).
-3. The runner uses the existing run directory and jumps directly to the selected phase.
+1. In the phase list, click the phase from which processing should continue,
+   for example `ASTROMETRY`, `BGE`, `PCC`, or `HYPERMETRIC_STRETCH`.
+2. The **Resume** section opens and shows the selected phase in a badge on the
+   right.
+3. Review the YAML in **Config YAML**. Use **Load current config** to restore
+   the run configuration or select and load a stored **Config Revision**.
+4. Click **Resume** in the Resume section.
+5. GUI3 stores the selected configuration as a revision, starts the runner at
+   the selected phase, and returns to live monitoring.
 
-> Common resume points: `ASTROMETRY` (re-solve), `BGE` (re-extract background), `PCC` (re-calibrate color).
+Phases before the selected resume point are not recomputed. Their existing
+artifacts must therefore still be present and compatible with the selected
+configuration.
+
+> Common resume points: `ASTROMETRY` re-runs plate solving, `BGE` re-runs
+> background extraction, `PCC` re-runs photometric color calibration, and
+> `HYPERMETRIC_STRETCH` creates a new stretched output from the existing linear
+> PCC result.
+
+### Configuring HyperMetric Stretch During Resume
+
+GUI3 provides an interactive HMS preview when `HYPERMETRIC_STRETCH` is selected
+as the resume phase.
+
+1. Click `HYPERMETRIC_STRETCH` in the phase list.
+2. In the Resume section, click **Configure HMS**. The button is displayed
+   immediately to the left of the **HyperMetric Stretch** phase badge.
+3. Wait for the first preview. GUI3 normally uses
+   `outputs/stacked_rgb_pcc.fits`. If that file is unavailable, it uses the
+   complete `pcc_R.fit`, `pcc_G.fit`, and `pcc_B.fit` channel set.
+4. Adjust the HMS parameters. A new proxy preview is calculated automatically
+   after each valid change.
+5. Inspect the preview, histogram, resolved source, calculated log D, anchor,
+   and black/white clipping percentages.
+6. Click **Apply & start resume** to write the displayed HMS values into the
+   Resume YAML and immediately resume from `HYPERMETRIC_STRETCH`.
+
+Use **Reset** to restore the values that were loaded when the dialog opened.
+Use **Cancel** or the close button to discard changes without starting a
+resume.
+
+#### Preview Navigation
+
+- Drag the image to pan.
+- Use the mouse wheel to zoom.
+- Double-click the image to fit it into the preview area.
+- The RGB histogram is displayed below the image on a logarithmic scale.
+
+The preview operates on a downsampled proxy with a maximum long edge of 1600
+pixels. The final resume runs HMS on the full-resolution PCC data.
+
+#### HMS Parameters
+
+Hover over a parameter label or its information icon to see a description and
+the permitted range.
+
+| Parameter | Effect |
+|-----------|--------|
+| **Mode** | `Ready to use` applies display-oriented output scaling and highlight soft clipping. `Scientific` avoids those display-oriented finishing operations. |
+| **Sensor profile** | Selects RGB luminance weights used for anchor calculation, automatic log D, star-pressure estimation, and output scaling. `Automatic` uses the fallback profile. |
+| **Fallback profile** | Profile used when the primary profile is `Automatic`. An unknown explicit profile falls back to Rec.709 in the core. |
+| **Adaptive anchor** | Derives the stretch anchor from image content instead of using the statistical anchor path. |
+| **Target background** | Desired background brightness after stretching. Higher values produce a brighter background. |
+| **Protect B** | Shapes the hyperbolic curve. Higher values compress and protect bright regions more strongly. |
+| **Convergence power** | Controls how quickly RGB channels converge in brighter regions. |
+| **log-D mode** | `Automatic` calculates the stretch strength from the proxy. `Fixed` enables the fixed log-D value. |
+| **Fixed log D** | Manual logarithmic stretch strength. Higher values reveal faint structures more strongly. |
+| **Color strategy** | Selects automatic or fixed color handling. |
+| **Fixed color strategy** | In ready-to-use mode, negative values increase shadow convergence; positive values reduce color grip. |
+| **Color grip** | Controls preservation of the original color ratios in scientific mode. |
+| **Shadow convergence** | Blends dark regions more strongly toward per-channel stretching in scientific mode. |
+| **Linear expansion** | Adds low-end linear expansion in scientific mode. |
+
+Numeric fields reject values outside their displayed ranges. An invalid value
+does not start a preview and cannot be applied. If focus leaves such a field,
+GUI3 limits it to the nearest allowed boundary.
+
+#### Applying HMS Values
+
+**Apply & start resume** changes only the known fields under
+`hypermetric_stretch` in the currently loaded Resume YAML. Other configuration
+sections remain unchanged. GUI3 then uses the normal Resume mechanism, which:
+
+- snapshots the previous run configuration,
+- creates a configuration revision,
+- starts the runner with `--from-phase HYPERMETRIC_STRETCH`, and
+- displays the new job in the Run Monitor.
+
+The preview itself never modifies `config.yaml` or any FITS artifact. If no
+complete PCC RGB artifact is available, the preview reports an error and no
+resume is started.
 
 ---
 

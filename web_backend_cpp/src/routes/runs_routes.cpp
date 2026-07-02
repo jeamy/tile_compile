@@ -5,6 +5,7 @@
 #include "subprocess_manager.hpp"
 #include "services/config_revisions.hpp"
 #include "services/scan_summary.hpp"
+#include "services/hme_preview_service.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -1078,6 +1079,28 @@ void register_runs_routes(CrowApp& app,
             state->ui_event_store.push("run.stop", "runs.run_stop", {{"run_dir", has_resolved_run_dir ? resolved_run_dir.string() : std::string()}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}}, run_id);
         }
         return json_resp({{"ok", cancelled}, {"run_id", run_id}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}});
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/hme-preview").methods("POST"_method)
+    ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
+        auto body_opt = tile_compile::routes::parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        const auto& body = *body_opt;
+        const std::string run_dir_str = body.value("run_dir", std::string());
+        fs::path run_dir;
+        if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
+        const auto preview = tile_compile::web::create_hme_preview(
+            run_dir, body.value("params", nlohmann::json::object()));
+        if (!preview.ok) return err_resp("HMS_PREVIEW_FAILED", preview.error,
+                                         preview.status, nlohmann::json::object());
+        crow::response response(200);
+        response.set_header("Content-Type", "image/png");
+        response.set_header("Cache-Control", "no-store");
+        response.set_header("Access-Control-Expose-Headers", "X-HMS-Diagnostics");
+        response.set_header("X-HMS-Diagnostics", preview.diagnostics.dump());
+        response.body.assign(reinterpret_cast<const char*>(preview.png.data()), preview.png.size());
+        return response;
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/resume").methods("POST"_method)
