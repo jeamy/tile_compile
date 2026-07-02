@@ -852,6 +852,14 @@ AutoBGEResult build_autobge_models(
   }
 
   std::vector<uint8_t> sampling_mask = *valid_mask;
+  const bool have_sampling_mask =
+      config.sampling_valid_mask.size() == static_cast<size_t>(rows * cols) &&
+      config.sampling_mask_rows == rows && config.sampling_mask_cols == cols;
+  if (have_sampling_mask) {
+    for (size_t i = 0; i < sampling_mask.size(); ++i)
+      sampling_mask[i] = (sampling_mask[i] != 0 &&
+                          config.sampling_valid_mask[i] != 0) ? 1u : 0u;
+  }
   Matrix2Df luma(rows, cols);
   std::vector<float> valid_luma;
   valid_luma.reserve(static_cast<size_t>(rows * cols));

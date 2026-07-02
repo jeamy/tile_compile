@@ -16,14 +16,14 @@ struct BGEConfig {
     struct AutoBGEConfig {
         int num_sample_points = 0;
         int poly_degree = 2;
-        float rbf_smooth = 0.1f;
+        float rbf_smooth = 2.0f;
         int downsample_scale = 4;
-        int patch_size = 15;
-        std::string patch_estimator = "median";
+        int patch_size = 35;
+        std::string patch_estimator = "sigma_clipped_median";
         std::string stretch_mode = "linear";
         float stretch_target_median = 0.25f;
         int border_margin = 10;
-        float bright_exclusion_fraction = 0.5f;
+        float bright_exclusion_fraction = 0.2f;
         int gradient_descent_max_iters = 100;
         int random_seed = 42;
         bool normalize_between_stages = true;
@@ -38,6 +38,9 @@ struct BGEConfig {
     std::vector<uint8_t> common_valid_mask;
     int common_mask_rows = 0;
     int common_mask_cols = 0;
+    std::vector<uint8_t> sampling_valid_mask;
+    int sampling_mask_rows = 0;
+    int sampling_mask_cols = 0;
     
     // Tile sampling (§6.3.2)
     float sample_quantile = 0.20f;

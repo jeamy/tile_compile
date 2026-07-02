@@ -1566,7 +1566,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
   }
 
-  auto run_astrometry_if_needed = [&](bool force_rerun = false) {
+  auto run_astrometry_if_needed = [&](bool force_rerun = false) -> bool {
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
 
@@ -1577,7 +1577,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           (run_dir / "artifacts" / "stacked_rgb.wcs")
                               .string()}},
                         log_file);
-      return;
+      return true;
     }
 
     if (force_rerun) {
@@ -1587,7 +1587,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (!cfg.astrometry.enabled) {
       emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
                         {{"reason", "disabled"}}, log_file);
-      return;
+      return true;
     }
 
     std::string astap_data = cfg.astrometry.astap_data_dir;
@@ -1619,7 +1619,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         {{"reason", "astap_not_found"},
                          {"astap_bin", reported_bin}},
                         log_file);
-      return;
+      return true;
     }
 
     std::string cmd = runner::shell_quote(astap_bin_path.string()) + " -f " +
@@ -1660,6 +1660,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           (run_dir / "artifacts" / "stacked_rgb.wcs")
                               .string()}},
                         log_file);
+      return true;
     } else {
       // Re-solve failed — try to fall back to existing WCS file
       if (fs::exists(wcs_path)) {
@@ -1674,10 +1675,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
                           {{"reason", "solve_failed_existing_wcs"}, {"exit_code", ret}},
                           log_file);
+        return true;
       } else {
-        emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+        emitter.phase_end(run_id, Phase::ASTROMETRY, "error",
                           {{"reason", "solve_failed"}, {"exit_code", ret}},
                           log_file);
+        return false;
       }
     }
   };
@@ -1854,6 +1857,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
               << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
               << ")" << std::endl;
+    tile_compile::runner::apply_autobge_exclusion_polygons(
+        cfg.bge, rows, cols, bge_cfg);
 
     if (cfg.aqmh.enabled && !bge_have_local_metrics && bge_have_bge_grid) {
       bge_tile_metrics = build_aqmh_bge_tile_metrics_from_rgb(
@@ -1868,7 +1873,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         bge_have_tile_data &&
         (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
 
-    if (bge_have_tile_data && bge_metrics_tiles_match) {
+    if (cfg.bge.method == "autobge" ||
+        (bge_have_tile_data && bge_metrics_tiles_match)) {
       Matrix2Df R_bge = rgb.R;
       Matrix2Df G_bge = rgb.G;
       Matrix2Df B_bge = rgb.B;
@@ -1987,9 +1993,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         {"metrics_tiles_match", bge_metrics_tiles_match},
         {"artifact", bge_artifact_path.string()},
     };
-    if (!bge_have_tile_data) {
+    if (cfg.bge.method != "autobge" && !bge_have_tile_data) {
       phase_extra["reason"] = "no_tile_data";
-    } else if (!bge_metrics_tiles_match) {
+    } else if (cfg.bge.method != "autobge" && !bge_metrics_tiles_match) {
       phase_extra["reason"] = "tile_metric_grid_mismatch";
     } else if (bge_diag.attempted && !bge_diag.success) {
       phase_extra["reason"] =
@@ -1999,24 +2005,29 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_end(run_id, Phase::BGE, bge_diag.success ? "ok" : "skipped",
                       phase_extra, log_file);
-    return true;
+    return bge_diag.success || !bge_diag.attempted;
   };
 
   if (phase_l == "astrometry") {
-    run_astrometry_if_needed(true);
+    if (!run_astrometry_if_needed(true)) {
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "astrometry_failed"}},
+                       log_file);
+      return 1;
+    }
     if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
       return 1;
     }
     phase_l = "bge";
   }
   if (phase_l == "bge") {
-    run_astrometry_if_needed();
+    (void)run_astrometry_if_needed();
     if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
       return 1;
     }
     if (!run_bge_phase()) {
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "canvas_mask_invalid"}},
+                       {{"success", false}, {"status", "bge_failed"}},
                        log_file);
       return 1;
     }
@@ -2036,7 +2047,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   }
 
   if (phase_l == "pcc") {
-    run_astrometry_if_needed();
+    if (!run_astrometry_if_needed()) {
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "astrometry_failed"}},
+                       log_file);
+      return 1;
+    }
     if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
       return 1;
     }

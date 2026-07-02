@@ -5873,6 +5873,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
       bge_cfg.common_mask_rows = rows;
       bge_cfg.common_mask_cols = cols;
+      tile_compile::runner::apply_autobge_exclusion_polygons(
+          cfg.bge, rows, cols, bge_cfg);
       std::cout << "[BGE] Using reconstruction output canvas mask (" << cols
                 << "x" << rows << ")" << std::endl;
 
@@ -5902,12 +5904,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       emitter.phase_progress_counts(run_id, Phase::BGE, 1, bge_progress_total,
                                     "collect_tiles", "BGE", log_file);
 
-      if (!bge_tile_metrics_cache.empty() && !bge_tile_grid.tiles.empty()) {
+      if (cfg.bge.method == "autobge" ||
+          (!bge_tile_metrics_cache.empty() && !bge_tile_grid.tiles.empty())) {
         const auto& tile_metrics_for_bge = bge_tile_metrics_cache;
-        bge_metrics_tiles_match =
+        bge_metrics_tiles_match = cfg.bge.method == "autobge" ||
             (tile_metrics_for_bge.size() == bge_tile_grid.tiles.size());
 
-        if (bge_compact_tile_mode) {
+        if (cfg.bge.method != "autobge" && bge_compact_tile_mode) {
           const std::string compact_reason = "compact_tile_mode_auto_disabled";
           std::ostringstream msg;
           msg << "BGE auto-disabled: compact-tile mode detected (single tile "

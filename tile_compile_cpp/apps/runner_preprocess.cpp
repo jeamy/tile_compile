@@ -1390,6 +1390,8 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
     bge_cfg.common_mask_rows = rgb.R.rows();
     bge_cfg.common_mask_cols = rgb.R.cols();
+    runner::apply_autobge_exclusion_polygons(
+        bge_source, rgb.R.rows(), rgb.R.cols(), bge_cfg);
     image::BGEDiagnostics diag;
     const bool ok = image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                        tile_metrics, grid, bge_cfg, &diag);

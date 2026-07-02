@@ -663,6 +663,38 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   return dst;
 }
 
+void apply_autobge_exclusion_polygons(
+    const config::BGEConfig &src, int rows, int cols,
+    image::BGEConfig &dst) {
+  dst.sampling_valid_mask.clear();
+  dst.sampling_mask_rows = 0;
+  dst.sampling_mask_cols = 0;
+  if (rows <= 0 || cols <= 0 || src.autobge.exclusion_polygons.empty())
+    return;
+  dst.sampling_valid_mask.assign(static_cast<size_t>(rows * cols), 1u);
+  dst.sampling_mask_rows = rows;
+  dst.sampling_mask_cols = cols;
+  for (const auto &polygon : src.autobge.exclusion_polygons) {
+    if (polygon.size() < 3) continue;
+    for (int y = 0; y < rows; ++y) {
+      const float py = (static_cast<float>(y) + 0.5f) / static_cast<float>(rows);
+      for (int x = 0; x < cols; ++x) {
+        const float px = (static_cast<float>(x) + 0.5f) / static_cast<float>(cols);
+        bool inside = false;
+        for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+          const float xi = polygon[i][0], yi = polygon[i][1];
+          const float xj = polygon[j][0], yj = polygon[j][1];
+          if (((yi > py) != (yj > py)) &&
+              px < (xj - xi) * (py - yi) / ((yj - yi) + 1e-20f) + xi)
+            inside = !inside;
+        }
+        if (inside)
+          dst.sampling_valid_mask[static_cast<size_t>(y * cols + x)] = 0u;
+      }
+    }
+  }
+}
+
 /// @brief Aggregate tile metrics across frames.
 std::vector<TileMetrics> aggregate_tile_metrics_across_frames(
     const std::vector<std::vector<TileMetrics>> &local_metrics) {

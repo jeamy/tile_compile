@@ -225,6 +225,39 @@ The preview itself never modifies `config.yaml` or any FITS artifact. If no
 complete PCC RGB artifact is available, the preview reports an error and no
 resume is started.
 
+### Configuring AutoBGE During Resume
+
+Select `BGE` in the phase list and click **Configure BGE** to the left of the
+BGE badge. The dialog uses `stacked_rgb_solve.fits`, with `stacked_rgb.fits` as
+fallback, together with `canvas_mask.fits`. It never uses an already
+BGE-corrected image as input.
+
+The dialog provides **Original**, **Corrected**, and **Background** views. Drag
+to pan, use the mouse wheel to zoom, and double-click to fit the image. Colored
+overlay points show the samples used by AutoBGE.
+
+All AutoBGE controls include tooltips and enforce their valid ranges. Important
+controls include sample count, polynomial degree, RBF smoothing, downsample
+scale, patch size and estimator, working-space transform, bright exclusion,
+random seed, and safety guards.
+
+To exclude real dark structures such as dark nebulae from background sampling:
+
+1. Click **Draw exclusion**.
+2. Click at least three vertices on the image.
+3. Double-click to close the polygon and recalculate the preview.
+4. Use **Clear exclusions** to remove all polygons.
+
+Exclusions affect sample selection only; they never blank pixels in the output.
+They are stored as normalized coordinates in
+`bge.autobge.exclusion_polygons`, so the full-resolution resume uses the same
+regions.
+
+Click **Apply & start resume** to set `bge.method: autobge`, update the AutoBGE
+configuration in the Resume YAML, and resume from `BGE`. **Reset** restores the
+parameters and polygons loaded when the dialog opened. Preview calculations do
+not modify FITS files or `config.yaml`.
+
 ---
 
 ## 5. Viewing Results

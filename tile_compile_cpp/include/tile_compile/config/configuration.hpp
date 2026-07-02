@@ -333,6 +333,7 @@ struct BGEConfig {
     bool normalize_between_stages = true;
     bool apply_guards = true;
     std::string mono_mode = "rgb_duplicate";
+    std::vector<std::vector<std::array<float, 2>>> exclusion_polygons;
   } autobge;
   
   // Tile sampling (v3.3 §6.3.2)

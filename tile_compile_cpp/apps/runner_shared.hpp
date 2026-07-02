@@ -503,6 +503,9 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
 
 /// Convert runner configuration into the image-module BGE runtime config.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
+void apply_autobge_exclusion_polygons(
+    const config::BGEConfig &src, int rows, int cols,
+    image::BGEConfig &dst);
 /// Convert runner configuration into the astrometry-module PCC runtime config.
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 

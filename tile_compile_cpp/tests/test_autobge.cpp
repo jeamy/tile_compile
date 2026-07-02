@@ -232,6 +232,25 @@ TEST_CASE("autobge_build_models_succeeds_on_gradient") {
   REQUIRE(result.channel_models[2].success);
 }
 
+TEST_CASE("autobge_sampling_mask_excludes_points_without_cropping_output") {
+  constexpr int W = 64, H = 64;
+  auto cfg = make_autobge_config(W, H);
+  cfg.sampling_mask_rows = H;
+  cfg.sampling_mask_cols = W;
+  cfg.sampling_valid_mask.assign(static_cast<size_t>(W * H), 1u);
+  for (int y = 16; y < 48; ++y)
+    for (int x = 16; x < 48; ++x)
+      cfg.sampling_valid_mask[static_cast<size_t>(y * W + x)] = 0u;
+  auto base = make_gradient_image(W, H, 100.0f, 0.4f, 0.2f);
+  auto result = ti::build_autobge_models(base, base * 1.01f, base * 0.99f, cfg);
+  REQUIRE(result.success);
+  for (const auto &channel : result.channel_diagnostics)
+    for (const auto &point : channel.grid_cells)
+      REQUIRE_FALSE((point.center_x >= 16.0f && point.center_x < 48.0f &&
+                     point.center_y >= 16.0f && point.center_y < 48.0f));
+  REQUIRE(cfg.common_valid_mask[static_cast<size_t>(32 * W + 32)] == 1u);
+}
+
 // Test 9: apply_background_extraction with autobge method subtracts gradient
 TEST_CASE("autobge_apply_background_extraction_subtracts_gradient") {
   constexpr int W = 64, H = 64;
