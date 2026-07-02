@@ -58,6 +58,10 @@ endif()
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OPENCV4 REQUIRED opencv4)
+pkg_check_modules(CFITSIO REQUIRED cfitsio)
 
 # -----------------------------------------------------------------------
 # Crow + Asio (header-only, fetched at configure time)
@@ -140,6 +144,8 @@ set(BACKEND_SOURCES
     src/services/config_revisions.cpp
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
+    src/services/hme_preview_service.cpp
+    ../tile_compile_cpp/src/image/hypermetric_stretch.cpp
 )
 
 add_executable(tile_compile_web_backend ${BACKEND_SOURCES})
@@ -148,6 +154,9 @@ target_include_directories(tile_compile_web_backend PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${crow_SOURCE_DIR}/include
     ${YAML_CPP_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tile_compile_cpp/include
+    ${CFITSIO_INCLUDE_DIRS}
+    ${OPENCV4_INCLUDE_DIRS}
 )
 
 if(TARGET nlohmann_json::nlohmann_json)
@@ -163,6 +172,9 @@ target_link_libraries(tile_compile_web_backend PRIVATE
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads
+    Eigen3::Eigen
+    ${CFITSIO_LIBRARIES}
+    ${OPENCV4_LIBRARIES}
 )
 
 target_compile_definitions(tile_compile_web_backend PRIVATE

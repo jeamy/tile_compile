@@ -14,6 +14,7 @@ import { getConfigState, validateConfig } from "../state/config-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { promptGrantRoot } from "../components/path-picker-modal.js";
+import { openHmsPreview } from "../components/hms-preview.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -50,7 +51,10 @@ export function createRunMonitorPage() {
   const resumePanel = el("div", { class: "tc-card", id: "resume-panel", style: "display:none" },
     el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between" },
       el("span", {}, t("ui.title.resume", "Resume")),
-      el("span", { class: "tc-badge tc-badge-info", id: "resume-phase-badge" }, ""),
+      el("div", { class: "tc-flex tc-gap-2 tc-items-center" },
+        el("button", { class: "tc-btn tc-btn-sm", id: "resume-hms-config-btn", style: "display:none", onclick: () => openSelectedHmsPreview() }, t("ui.button.hms_configure", "HMS konfigurieren")),
+        el("span", { class: "tc-badge tc-badge-info", id: "resume-phase-badge" }, ""),
+      ),
     ),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.label.config_yaml", "Config YAML")),
@@ -490,17 +494,17 @@ async function resumeRun() {
   const { currentRunId } = getRunState();
   if (!currentRunId) {
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_run", "Kein Run ausgewählt"));
-    return;
+    return false;
   }
   const phase = getSelectedPhase();
   if (!phase) {
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_phase", "Bitte eine Phase anklicken um Resume zu starten"));
-    return;
+    return false;
   }
   const configYaml = document.getElementById("resume-config-yaml")?.value || "";
   if (!configYaml.trim()) {
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
-    return;
+    return false;
   }
   try {
     const payload = {
@@ -526,8 +530,10 @@ async function resumeRun() {
     connectWebSocket(currentRunId, true);
     startPolling(currentRunId);
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
+    return true;
   } catch (e) {
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), e.message);
+    return false;
   }
 }
 
@@ -535,15 +541,31 @@ function onPhaseSelected(phase, logViewer) {
   const panel = document.getElementById("resume-panel");
   const badge = document.getElementById("resume-phase-badge");
   const hint = document.getElementById("resume-hint");
+  const hmsButton = document.getElementById("resume-hms-config-btn");
   if (!phase) {
     if (panel) panel.style.display = "none";
+    if (hmsButton) hmsButton.style.display = "none";
     return;
   }
   if (panel) panel.style.display = "";
   if (badge) badge.textContent = phase;
+  if (hmsButton) hmsButton.style.display = phase === "HYPERMETRIC_STRETCH" ? "" : "none";
   if (hint) hint.textContent = t("ui.message.resume_hint", "Config wird geladen...");
   loadRunConfig(phase);
   loadConfigRevisions();
+}
+
+function openSelectedHmsPreview() {
+  const { currentRunId, currentRunDir } = getRunState();
+  const editor = document.getElementById("resume-config-yaml");
+  if (!currentRunId || !editor?.value.trim()) {
+    toastError(t("ui.toast.hms_preview_failed", "HMS-Vorschau fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
+    return;
+  }
+  openHmsPreview({
+    runId: currentRunId, runDir: currentRunDir, yaml: editor.value,
+    onApply: async (updatedYaml) => { editor.value = updatedYaml; if (!await resumeRun()) throw new Error("Resume failed"); },
+  });
 }
 
 async function loadRunConfig(phase) {

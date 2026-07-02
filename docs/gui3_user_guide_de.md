@@ -130,13 +130,107 @@ Der Run Monitor zeigt:
 
 ### Resume (Fortsetzen)
 
-Nach Abschluss (oder Abbruch) kann ein Run ab einer bestimmten Phase fortgesetzt werden:
+Nach Abschluss oder Abbruch kann ein Run ab einer gewählten Phase fortgesetzt
+werden. Das bestehende Run-Verzeichnis und seine Zwischenartefakte werden
+wiederverwendet.
 
-1. Im Run Monitor **Resume** klicken.
-2. Phase wählen (z.B. `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`).
-3. Der Runner verwendet das bestehende Run-Verzeichnis und springt direkt zur gewählten Phase.
+1. In der Phasenliste die Phase anklicken, ab der die Verarbeitung fortgesetzt
+   werden soll, beispielsweise `ASTROMETRY`, `BGE`, `PCC` oder
+   `HYPERMETRIC_STRETCH`.
+2. Der Abschnitt **Resume** öffnet sich und zeigt die gewählte Phase rechts als
+   Badge an.
+3. Die YAML unter **Config YAML** prüfen. Mit **Aktuelle Config laden** kann die
+   Run-Konfiguration wiederhergestellt werden. Alternativ kann eine gespeicherte
+   **Config-Revision** gewählt und geladen werden.
+4. Im Resume-Abschnitt auf **Resume** klicken.
+5. GUI3 speichert die gewählte Konfiguration als Revision, startet den Runner
+   ab der gewählten Phase und kehrt zur Live-Überwachung zurück.
 
-> Häufige Resume-Punkte: `ASTROMETRY` (neu lösen), `BGE` (Hintergrund neu extrahieren), `PCC` (Farbe neu kalibrieren).
+Phasen vor dem gewählten Resume-Punkt werden nicht neu berechnet. Ihre
+vorhandenen Artefakte müssen deshalb weiterhin vorhanden und mit der gewählten
+Konfiguration kompatibel sein.
+
+> Häufige Resume-Punkte: `ASTROMETRY` führt das Plate Solving erneut aus, `BGE`
+> berechnet die Hintergrundextraktion neu, `PCC` wiederholt die photometrische
+> Farbkalibrierung und `HYPERMETRIC_STRETCH` erzeugt aus dem vorhandenen
+> linearen PCC-Ergebnis eine neue gestreckte Ausgabe.
+
+### HyperMetric Stretch beim Resume konfigurieren
+
+Wenn `HYPERMETRIC_STRETCH` als Resume-Phase gewählt ist, stellt GUI3 eine
+interaktive HMS-Vorschau bereit.
+
+1. In der Phasenliste `HYPERMETRIC_STRETCH` anklicken.
+2. Im Resume-Abschnitt auf **HMS konfigurieren** klicken. Der Button befindet
+   sich unmittelbar links neben dem Badge **HyperMetric Stretch**.
+3. Auf die erste Vorschau warten. GUI3 verwendet normalerweise
+   `outputs/stacked_rgb_pcc.fits`. Ist diese Datei nicht vorhanden, wird der
+   vollständige Kanalsatz `pcc_R.fit`, `pcc_G.fit` und `pcc_B.fit` verwendet.
+4. Die HMS-Parameter anpassen. Nach jeder gültigen Änderung wird automatisch
+   eine neue Proxy-Vorschau berechnet.
+5. Vorschau, Histogramm, verwendete Quelle, berechnetes log D, Anker sowie
+   Schwarz- und Weiß-Clipping prüfen.
+6. **Übernehmen & Resume starten** klicken. Dadurch werden die angezeigten
+   HMS-Werte in die Resume-YAML geschrieben und der Run unmittelbar ab
+   `HYPERMETRIC_STRETCH` fortgesetzt.
+
+**Zurücksetzen** stellt die Werte wieder her, die beim Öffnen des Dialogs
+geladen wurden. **Abbrechen** oder der Schließen-Button verwirft die Änderungen,
+ohne einen Resume zu starten.
+
+#### Navigation in der Vorschau
+
+- Bild ziehen, um den Ausschnitt zu verschieben.
+- Mit dem Mausrad zoomen.
+- Das Bild doppelt anklicken, um es in den Vorschaubereich einzupassen.
+- Unter dem Bild wird das RGB-Histogramm logarithmisch dargestellt.
+
+Die Vorschau verwendet einen verkleinerten Proxy mit maximal 1600 Pixeln an der
+langen Kante. Der abschließende Resume führt HMS auf den PCC-Daten in voller
+Auflösung aus.
+
+#### HMS-Parameter
+
+Wenn der Mauszeiger über einem Parameternamen oder seinem Info-Symbol steht,
+zeigt ein Tooltip die Wirkung und den zulässigen Bereich an.
+
+| Parameter | Wirkung |
+|-----------|---------|
+| **Modus** | `Anzeigefertig` führt eine darstellungsorientierte Ausgabeskalierung und weiches Highlight-Clipping aus. `Wissenschaftlich` lässt diese abschließenden Darstellungsschritte aus. |
+| **Sensorprofil** | Wählt die RGB-Luminanzgewichte für Ankerberechnung, automatische log-D-Bestimmung, Star-Pressure-Schätzung und Ausgabeskalierung. `Automatisch` verwendet das Fallback-Profil. |
+| **Fallback-Profil** | Wird verwendet, wenn das primäre Profil auf `Automatisch` steht. Ein unbekanntes explizites Profil fällt im Core auf Rec.709 zurück. |
+| **Adaptiver Anker** | Bestimmt den Stretch-Anker aus dem Bildinhalt statt über den statistischen Ankerpfad. |
+| **Zielhintergrund** | Gewünschte Hintergrundhelligkeit nach dem Stretch. Höhere Werte erzeugen einen helleren Hintergrund. |
+| **Schutz B** | Formt die hyperbolische Kurve. Höhere Werte komprimieren und schützen helle Bereiche stärker. |
+| **Konvergenz-Power** | Steuert, wie schnell die RGB-Kanäle in helleren Bereichen konvergieren. |
+| **log-D-Modus** | `Automatisch` berechnet die Stretch-Stärke aus dem Proxy. `Fest` aktiviert den festen log-D-Wert. |
+| **Fester log D** | Manuelle logarithmische Stretch-Stärke. Höhere Werte machen schwache Strukturen stärker sichtbar. |
+| **Farbstrategie** | Wählt automatische oder feste Farbbehandlung. |
+| **Feste Farbstrategie** | Im Modus `Anzeigefertig` erhöhen negative Werte die Schattenkonvergenz; positive Werte verringern den Farbgriff. |
+| **Farbgriff** | Steuert im wissenschaftlichen Modus, wie stark die ursprünglichen Farbverhältnisse erhalten bleiben. |
+| **Schattenkonvergenz** | Blendet dunkle Bereiche im wissenschaftlichen Modus stärker zum kanalweisen Stretch über. |
+| **Lineare Expansion** | Fügt im wissenschaftlichen Modus eine lineare Expansion am unteren Ende hinzu. |
+
+Numerische Felder akzeptieren keine Werte außerhalb ihrer angezeigten Bereiche.
+Ein ungültiger Wert startet keine Vorschau und kann nicht übernommen werden.
+Verlässt der Fokus ein solches Feld, begrenzt GUI3 den Wert auf die
+nächstgelegene zulässige Grenze.
+
+#### HMS-Werte übernehmen
+
+**Übernehmen & Resume starten** ändert ausschließlich die bekannten Felder
+unter `hypermetric_stretch` in der aktuell geladenen Resume-YAML. Andere
+Konfigurationsabschnitte bleiben unverändert. Anschließend verwendet GUI3 den
+normalen Resume-Mechanismus. Dieser:
+
+- sichert die vorherige Run-Konfiguration,
+- erstellt eine Config-Revision,
+- startet den Runner mit `--from-phase HYPERMETRIC_STRETCH` und
+- zeigt den neuen Job im Run Monitor an.
+
+Die Vorschau selbst verändert weder `config.yaml` noch FITS-Artefakte. Ist kein
+vollständiges PCC-RGB-Artefakt vorhanden, meldet die Vorschau einen Fehler und
+es wird kein Resume gestartet.
 
 ---
 
