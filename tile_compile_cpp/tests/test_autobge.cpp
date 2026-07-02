@@ -26,7 +26,7 @@ ti::BGEConfig make_autobge_config(int w, int h) {
   cfg.autobge.stretch_mode = "none";
   cfg.autobge.stretch_target_median = 0.25f;
   cfg.autobge.border_margin = 2;
-  cfg.autobge.bright_exclusion_fraction = 0.5f;
+  cfg.autobge.bright_exclusion_fraction = 0.2f;
   cfg.autobge.gradient_descent_max_iters = 5;
   cfg.autobge.mono_mode = "rgb_duplicate";
   cfg.common_mask_rows = h;
@@ -175,6 +175,60 @@ TEST_CASE("autobge_random_seed_affects_sample_selection") {
   REQUIRE(different);
 }
 
+TEST_CASE("autobge_bright_exclusion_rejects_the_bright_fraction") {
+  constexpr int W = 100, H = 80;
+  tile_compile::Matrix2Df img(H, W);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x)
+      img(y, x) = static_cast<float>(x + 1);
+
+  ti::BGEConfig::AutoBGEConfig ac{};
+  ac.num_sample_points = 64;
+  ac.patch_size = 3;
+  ac.border_margin = 1;
+  ac.bright_exclusion_fraction = 0.25f;
+  ac.gradient_descent_max_iters = 0;
+
+  std::mt19937 rng(42);
+  const auto points = ti::generate_autobge_sample_points(img, ac, nullptr, &rng);
+  REQUIRE(points.size() >= 16);
+
+  // Rejecting the brightest 25% leaves samples across the first 75 columns.
+  // The previous, inverted quantile calculation only admitted the first 25.
+  REQUIRE(std::any_of(points.begin(), points.end(),
+                      [](const ti::SamplePoint& p) { return p.x >= 50; }));
+  REQUIRE(std::all_of(points.begin(), points.end(),
+                      [](const ti::SamplePoint& p) { return p.x < 75; }));
+}
+
+TEST_CASE("autobge_automatic_sample_points_keep_minimum_spacing") {
+  constexpr int W = 120, H = 90;
+  auto img = make_gradient_image(W, H, 100.0f, 0.03f, 0.02f);
+
+  ti::BGEConfig::AutoBGEConfig ac{};
+  ac.num_sample_points = 80;
+  ac.patch_size = 5;
+  ac.border_margin = 2;
+  ac.bright_exclusion_fraction = 0.1f;
+  ac.gradient_descent_max_iters = 20;
+
+  std::mt19937 rng(42);
+  const auto points = ti::generate_autobge_sample_points(img, ac, nullptr, &rng);
+  REQUIRE(points.size() >= 16);
+
+  const float nominal_spacing =
+      std::sqrt(static_cast<float>(W * H) / ac.num_sample_points);
+  const float minimum_distance = std::max(1.0f, nominal_spacing * 0.35f);
+  const float minimum_distance_sq = minimum_distance * minimum_distance;
+  for (size_t i = 0; i < points.size(); ++i) {
+    for (size_t j = i + 1; j < points.size(); ++j) {
+      const float dx = static_cast<float>(points[i].x - points[j].x);
+      const float dy = static_cast<float>(points[i].y - points[j].y);
+      REQUIRE(dx * dx + dy * dy >= minimum_distance_sq);
+    }
+  }
+}
+
 TEST_CASE("autobge_fit_minimum_point_floors_are_enforced") {
   constexpr int W = 32, H = 32;
   tile_compile::Matrix2Df img = make_gradient_image(W, H, 100.0f, 0.2f, 0.1f);
@@ -260,8 +314,14 @@ TEST_CASE("autobge_apply_background_extraction_subtracts_gradient") {
   auto R = add_stars(base, 5, W, H, 10);
   auto G = add_stars(base, 5, W, H, 20);
   auto B = add_stars(base, 5, W, H, 30);
-  // Store original mean
-  float orig_mean = static_cast<float>((R.array() + G.array() + B.array()).mean() / 3.0f);
+  auto horizontal_gradient = [](const tile_compile::Matrix2Df& image) {
+    const int quarter = static_cast<int>(image.cols()) / 4;
+    const float left = image.leftCols(quarter).mean();
+    const float right = image.rightCols(quarter).mean();
+    return std::abs(right - left);
+  };
+  const float original_gradient =
+      (horizontal_gradient(R) + horizontal_gradient(G) + horizontal_gradient(B)) / 3.0f;
   // Apply BGE
   std::vector<tile_compile::TileMetrics> empty_metrics;
   tile_compile::TileGrid grid;
@@ -269,9 +329,11 @@ TEST_CASE("autobge_apply_background_extraction_subtracts_gradient") {
   bool ok = ti::apply_background_extraction(R, G, B, empty_metrics, grid, cfg, &diag);
   REQUIRE(ok);
   REQUIRE(diag.success);
-  // After subtraction, the mean should be lower (gradient removed)
-  float new_mean = static_cast<float>((R.array() + G.array() + B.array()).mean() / 3.0f);
-  REQUIRE(new_mean < orig_mean);
+  // Normalization between stages may preserve or slightly raise the global
+  // mean. The relevant result is that the spatial gradient becomes flatter.
+  const float corrected_gradient =
+      (horizontal_gradient(R) + horizontal_gradient(G) + horizontal_gradient(B)) / 3.0f;
+  REQUIRE(corrected_gradient < original_gradient);
 }
 
 TEST_CASE("autobge_method_is_authoritative_for_programmatic_config") {

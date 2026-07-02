@@ -260,6 +260,7 @@ prep::Config parse_preprocessing_config(const json& j) {
       cfg.bge.autobge.user_sample_points.clear();
       for (const auto& pt : autobge["user_sample_points"]) {
         if (!pt.is_array() || pt.size() != 2) continue;
+        if (!pt[0].is_number() || !pt[1].is_number()) continue;
         const float x = pt[0].get<float>();
         const float y = pt[1].get<float>();
         if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) continue;
