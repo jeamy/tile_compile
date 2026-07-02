@@ -1116,7 +1116,8 @@ void register_runs_routes(CrowApp& app,
         const std::string view = body.value("view", std::string("corrected"));
         const auto preview = tile_compile::web::create_bge_preview(
             run_dir, body.value("params", nlohmann::json::object()),
-            body.value("exclusion_polygons", nlohmann::json::array()), view);
+            body.value("exclusion_polygons", nlohmann::json::array()),
+            body.value("manual_sample_points", nlohmann::json::array()), view);
         if (!preview.ok) return err_resp("BGE_PREVIEW_FAILED", preview.error,
                                          preview.status, nlohmann::json::object());
         if (view == "diagnostics") return json_resp(preview.diagnostics);

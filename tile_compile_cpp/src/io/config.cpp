@@ -751,6 +751,18 @@ Config Config::from_yaml(const YAML::Node &node) {
           cfg.bge.autobge.exclusion_polygons.push_back(std::move(polygon));
         }
       }
+      if (a["user_sample_points"]) {
+        cfg.bge.autobge.user_sample_points.clear();
+        for (const auto &point_node : a["user_sample_points"]) {
+          if (!point_node.IsSequence() || point_node.size() != 2)
+            throw ValidationError("bge.autobge.user_sample_points points must be [x,y]");
+          const float x = point_node[0].as<float>();
+          const float y = point_node[1].as<float>();
+          if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f)
+            throw ValidationError("bge.autobge.user_sample_points coordinates must be in [0,1]");
+          cfg.bge.autobge.user_sample_points.push_back({x, y});
+        }
+      }
     }
     if (b["sample_quantile"])
       cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
@@ -1307,6 +1319,12 @@ YAML::Node Config::to_yaml() const {
       polygon_node.push_back(point_node);
     }
     node["bge"]["autobge"]["exclusion_polygons"].push_back(polygon_node);
+  }
+  for (const auto &point : bge.autobge.user_sample_points) {
+    YAML::Node point_node(YAML::NodeType::Sequence);
+    point_node.push_back(point[0]);
+    point_node.push_back(point[1]);
+    node["bge"]["autobge"]["user_sample_points"].push_back(point_node);
   }
   node["bge"]["sample_quantile"] = bge.sample_quantile;
   node["bge"]["sample_estimator"] = bge.sample_estimator;

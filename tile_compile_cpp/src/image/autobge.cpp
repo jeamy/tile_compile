@@ -628,6 +628,21 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     }
   }
 
+  // Convert normalized user-provided sample points to the downsampled working
+  // space used by this function. They are always kept and bypass the random
+  // downselection so users can force the model to honour specific background
+  // locations.
+  std::vector<SamplePoint> user_points;
+  user_points.reserve(config.user_sample_points.size());
+  for (const auto& up : config.user_sample_points) {
+    if (up[0] < 0.0f || up[0] > 1.0f || up[1] < 0.0f || up[1] > 1.0f) continue;
+    const int px = static_cast<int>(std::floor(up[0] * (cols - 1) + 0.5f));
+    const int py = static_cast<int>(std::floor(up[1] * (rows - 1) + 0.5f));
+    if (px < 0 || px >= cols || py < 0 || py >= rows) continue;
+    if (valid_mask_downsampled && (*valid_mask_downsampled)[py * cols + px] == 0) continue;
+    user_points.push_back({px, py});
+  }
+
   // Remove duplicate points (gradient descent may converge multiple to same spot)
   std::sort(candidates.begin(), candidates.end(), [](const SamplePoint& a, const SamplePoint& b) {
     return a.y * 100000 + a.x < b.y * 100000 + b.x;
@@ -636,36 +651,46 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     return a.x == b.x && a.y == b.y;
   }), candidates.end());
 
+  // Helper to test whether a point is already in the selected set.
+  auto already_selected = [&](const SamplePoint& p, const std::vector<SamplePoint>& selected) -> bool {
+    return std::any_of(selected.begin(), selected.end(),
+                       [&](const SamplePoint& e) { return e.x == p.x && e.y == p.y; });
+  };
+
   if (!random_downselection) {
+    for (const auto& up : user_points) {
+      if (!already_selected(up, candidates)) candidates.push_back(up);
+    }
     return candidates;
   }
 
+  const int user_count = static_cast<int>(user_points.size());
+  const int auto_target = std::max(0, target_points - user_count);
+
   std::array<std::vector<SamplePoint>, 4> quartiles;
   for (const auto& p : candidates) {
+    if (already_selected(p, user_points)) continue;
     const int qx = p.x < cols / 2 ? 0 : 1;
     const int qy = p.y < rows / 2 ? 0 : 1;
     quartiles[static_cast<size_t>(qy * 2 + qx)].push_back(p);
   }
 
   std::vector<SamplePoint> points;
-  points.reserve(static_cast<size_t>(target_points));
+  points.reserve(static_cast<size_t>(user_count + auto_target));
+  for (const auto& up : user_points) points.push_back(up);
+
   for (auto& q : quartiles) {
     std::shuffle(q.begin(), q.end(), local_rng);
-    const int quota = std::max(1, target_points / 4);
-    for (int i = 0; i < std::min<int>(quota, q.size()); ++i)
+    const int quota = std::max(1, auto_target / 4);
+    for (int i = 0; i < std::min<int>(quota, q.size()); ++i) {
       points.push_back(q[static_cast<size_t>(i)]);
+    }
   }
   if (static_cast<int>(points.size()) < target_points) {
     std::shuffle(candidates.begin(), candidates.end(), local_rng);
     for (const auto& p : candidates) {
-      const bool exists = std::any_of(points.begin(), points.end(),
-                                      [&](const SamplePoint& e) {
-                                        return e.x == p.x && e.y == p.y;
-                                      });
-      if (!exists)
-        points.push_back(p);
-      if (static_cast<int>(points.size()) >= target_points)
-        break;
+      if (!already_selected(p, points)) points.push_back(p);
+      if (static_cast<int>(points.size()) >= target_points) break;
     }
   }
 

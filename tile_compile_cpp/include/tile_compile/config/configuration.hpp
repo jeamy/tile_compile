@@ -334,6 +334,9 @@ struct BGEConfig {
     bool apply_guards = true;
     std::string mono_mode = "rgb_duplicate";
     std::vector<std::vector<std::array<float, 2>>> exclusion_polygons;
+    // Optional manually placed AutoBGE sample points. Normalized [0..1] in
+    // the original image space.
+    std::vector<std::array<float, 2>> user_sample_points;
   } autobge;
   
   // Tile sampling (v3.3 §6.3.2)

@@ -18,6 +18,7 @@ struct BgePreviewResult {
 BgePreviewResult create_bge_preview(const std::filesystem::path& run_dir,
                                     const nlohmann::json& params,
                                     const nlohmann::json& polygons,
+                                    const nlohmann::json& manual_sample_points,
                                     const std::string& view);
 
 } // namespace tile_compile::web

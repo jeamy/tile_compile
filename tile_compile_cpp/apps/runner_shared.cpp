@@ -629,6 +629,7 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
       src.autobge.normalize_between_stages;
   dst.autobge.apply_guards = src.autobge.apply_guards;
   dst.autobge.mono_mode = src.autobge.mono_mode;
+  dst.autobge.user_sample_points = src.autobge.user_sample_points;
   dst.sample_quantile = src.sample_quantile;
   dst.sample_estimator = src.sample_estimator;
   dst.min_sample_bg_value = src.min_sample_bg_value;

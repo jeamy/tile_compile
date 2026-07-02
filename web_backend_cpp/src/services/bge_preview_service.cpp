@@ -147,12 +147,12 @@ std::vector<unsigned char> encode(const Matrix2Df&r,const Matrix2Df&g,const Matr
 
 } // namespace
 
-BgePreviewResult create_bge_preview(const fs::path& run_dir,const nlohmann::json& params,const nlohmann::json& polygons,const std::string& view){
+BgePreviewResult create_bge_preview(const fs::path& run_dir,const nlohmann::json& params,const nlohmann::json& polygons,const nlohmann::json& manual_sample_points,const std::string& view){
     BgePreviewResult out;
     try{
-        InputProxy input=load_input(run_dir); const std::string cache_key=input.signature+params.dump()+polygons.dump();
+        InputProxy input=load_input(run_dir); const std::string cache_key=input.signature+params.dump()+polygons.dump()+manual_sample_points.dump();
         {std::lock_guard<std::mutex>lock(cache_mutex);auto it=result_cache.find(cache_key);if(it!=result_cache.end()){out.ok=true;out.status=200;out.diagnostics=it->second.diagnostics;if(view!="diagnostics"){auto im=it->second.images.find(view);if(im==it->second.images.end())throw std::invalid_argument("Unknown BGE preview view");out.png=im->second;}return out;}}
-        auto cfg=make_config(params,input,polygons); auto models=image::build_autobge_models(input.r,input.g,input.b,cfg); if(!models.success)throw std::runtime_error("AutoBGE could not build channel models");
+        auto cfg=make_config(params,input,polygons);if(manual_sample_points.is_array()){for(const auto& pt:manual_sample_points){if(!pt.is_array()||pt.size()<2)continue;const double nx=pt[0].get<double>(), ny=pt[1].get<double>();if(nx<0.0||nx>1.0||ny<0.0||ny>1.0)continue;cfg.autobge.user_sample_points.push_back({static_cast<float>(nx),static_cast<float>(ny)});}} auto models=image::build_autobge_models(input.r,input.g,input.b,cfg); if(!models.success)throw std::runtime_error("AutoBGE could not build channel models");
         Matrix2Df cr=input.r,cg=input.g,cb=input.b; image::BGEDiagnostics diag; diag.attempted=true;diag.bge_method="autobge";diag.method="autobge";diag.channels=models.channel_diagnostics;
         const bool applied=image::finalize_bge_from_channel_models(cr,cg,cb,models.channel_models,models.channel_diagnostics,cfg,&diag);
         Matrix2Df br=models.channel_models[0].model,bg=models.channel_models[1].model,bb=models.channel_models[2].model;

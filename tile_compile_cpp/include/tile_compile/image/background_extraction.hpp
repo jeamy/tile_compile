@@ -9,6 +9,11 @@
 
 namespace tile_compile::image {
 
+struct SamplePoint {
+    int x = 0;
+    int y = 0;
+};
+
 // BGE Configuration (matches YAML structure from v3.3 §6.3)
 struct BGEConfig {
     bool enabled = false;
@@ -29,6 +34,10 @@ struct BGEConfig {
         bool normalize_between_stages = true;
         bool apply_guards = true;
         std::string mono_mode = "rgb_duplicate";
+        // Optional manually placed sample points. Coordinates are normalized
+        // [0..1] in the original image space so they remain valid after resize
+        // or downsample changes.
+        std::vector<std::array<float, 2>> user_sample_points;
     } autobge;
     // Internal safety knob (not YAML-exposed): relax channel acceptance
     // guards for controlled fallback retries on difficult fields.
@@ -331,11 +340,6 @@ struct StretchParams {
     std::vector<float> mtf_scales;  // p99-vmin scale used to normalize MTF input
     std::string mode;
     bool was_single_channel = false;
-};
-
-struct SamplePoint {
-    int x = 0;
-    int y = 0;
 };
 
 struct AutoBGEResult {
