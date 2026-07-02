@@ -739,6 +739,30 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.bge.autobge.apply_guards = a["apply_guards"].as<bool>();
       if (a["mono_mode"])
         cfg.bge.autobge.mono_mode = a["mono_mode"].as<std::string>();
+      if (a["exclusion_polygons"]) {
+        cfg.bge.autobge.exclusion_polygons.clear();
+        for (const auto &polygon_node : a["exclusion_polygons"]) {
+          std::vector<std::array<float, 2>> polygon;
+          for (const auto &point_node : polygon_node) {
+            if (!point_node.IsSequence() || point_node.size() != 2)
+              throw ValidationError("bge.autobge.exclusion_polygons points must be [x,y]");
+            polygon.push_back({point_node[0].as<float>(), point_node[1].as<float>()});
+          }
+          cfg.bge.autobge.exclusion_polygons.push_back(std::move(polygon));
+        }
+      }
+      if (a["user_sample_points"]) {
+        cfg.bge.autobge.user_sample_points.clear();
+        for (const auto &point_node : a["user_sample_points"]) {
+          if (!point_node.IsSequence() || point_node.size() != 2)
+            throw ValidationError("bge.autobge.user_sample_points points must be [x,y]");
+          const float x = point_node[0].as<float>();
+          const float y = point_node[1].as<float>();
+          if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f)
+            throw ValidationError("bge.autobge.user_sample_points coordinates must be in [0,1]");
+          cfg.bge.autobge.user_sample_points.push_back({x, y});
+        }
+      }
     }
     if (b["sample_quantile"])
       cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
@@ -1286,6 +1310,22 @@ YAML::Node Config::to_yaml() const {
       bge.autobge.normalize_between_stages;
   node["bge"]["autobge"]["apply_guards"] = bge.autobge.apply_guards;
   node["bge"]["autobge"]["mono_mode"] = bge.autobge.mono_mode;
+  for (const auto &polygon : bge.autobge.exclusion_polygons) {
+    YAML::Node polygon_node(YAML::NodeType::Sequence);
+    for (const auto &point : polygon) {
+      YAML::Node point_node(YAML::NodeType::Sequence);
+      point_node.push_back(point[0]);
+      point_node.push_back(point[1]);
+      polygon_node.push_back(point_node);
+    }
+    node["bge"]["autobge"]["exclusion_polygons"].push_back(polygon_node);
+  }
+  for (const auto &point : bge.autobge.user_sample_points) {
+    YAML::Node point_node(YAML::NodeType::Sequence);
+    point_node.push_back(point[0]);
+    point_node.push_back(point[1]);
+    node["bge"]["autobge"]["user_sample_points"].push_back(point_node);
+  }
   node["bge"]["sample_quantile"] = bge.sample_quantile;
   node["bge"]["sample_estimator"] = bge.sample_estimator;
   node["bge"]["min_sample_bg_value"] = bge.min_sample_bg_value;
@@ -1806,21 +1846,21 @@ void Config::validate() const {
     throw ValidationError("bge.method must be one of: none|classic|autobge");
   }
   if (bge.method == "autobge") {
-    if (bge.autobge.num_sample_points < 0) {
-      throw ValidationError("bge.autobge.num_sample_points must be >= 0");
+    if (bge.autobge.num_sample_points < 0 || bge.autobge.num_sample_points > 3000) {
+      throw ValidationError("bge.autobge.num_sample_points must be in [0,3000]");
     }
     if (bge.autobge.poly_degree < 1 || bge.autobge.poly_degree > 6) {
       throw ValidationError("bge.autobge.poly_degree must be in [1,6]");
     }
-    if (bge.autobge.rbf_smooth < 0.0f) {
-      throw ValidationError("bge.autobge.rbf_smooth must be >= 0");
+    if (bge.autobge.rbf_smooth < 0.0f || bge.autobge.rbf_smooth > 10.0f) {
+      throw ValidationError("bge.autobge.rbf_smooth must be in [0,10]");
     }
-    if (bge.autobge.downsample_scale < 1) {
-      throw ValidationError("bge.autobge.downsample_scale must be >= 1");
+    if (bge.autobge.downsample_scale < 1 || bge.autobge.downsample_scale > 8) {
+      throw ValidationError("bge.autobge.downsample_scale must be in [1,8]");
     }
-    if (bge.autobge.patch_size < 3 ||
+    if (bge.autobge.patch_size < 3 || bge.autobge.patch_size > 101 ||
         (bge.autobge.patch_size % 2) == 0) {
-      throw ValidationError("bge.autobge.patch_size must be odd and >= 3");
+      throw ValidationError("bge.autobge.patch_size must be odd and in [3,101]");
     }
     if (bge.autobge.patch_estimator != "median" &&
         bge.autobge.patch_estimator != "sigma_clipped_median") {
@@ -1833,27 +1873,38 @@ void Config::validate() const {
       throw ValidationError(
           "bge.autobge.stretch_mode must be one of: none|linear|mtf");
     }
-    if (bge.autobge.stretch_target_median <= 0.0f ||
-        bge.autobge.stretch_target_median > 1.0f) {
+    if (bge.autobge.stretch_target_median < 0.01f ||
+        bge.autobge.stretch_target_median > 0.99f) {
       throw ValidationError(
-          "bge.autobge.stretch_target_median must be in (0,1]");
+          "bge.autobge.stretch_target_median must be in [0.01,0.99]");
     }
-    if (bge.autobge.border_margin < 0) {
-      throw ValidationError("bge.autobge.border_margin must be >= 0");
+    if (bge.autobge.border_margin < 0 || bge.autobge.border_margin > 250) {
+      throw ValidationError("bge.autobge.border_margin must be in [0,250]");
     }
-    if (bge.autobge.bright_exclusion_fraction <= 0.0f ||
-        bge.autobge.bright_exclusion_fraction >= 1.0f) {
+    if (bge.autobge.bright_exclusion_fraction < 0.01f ||
+        bge.autobge.bright_exclusion_fraction > 0.99f) {
       throw ValidationError(
-          "bge.autobge.bright_exclusion_fraction must be in (0,1)");
+          "bge.autobge.bright_exclusion_fraction must be in [0.01,0.99]");
     }
-    if (bge.autobge.gradient_descent_max_iters < 1) {
+    if (bge.autobge.gradient_descent_max_iters < 1 ||
+        bge.autobge.gradient_descent_max_iters > 500) {
       throw ValidationError(
-          "bge.autobge.gradient_descent_max_iters must be >= 1");
+          "bge.autobge.gradient_descent_max_iters must be in [1,500]");
     }
     if (bge.autobge.mono_mode != "rgb_duplicate" &&
         bge.autobge.mono_mode != "disabled") {
       throw ValidationError(
           "bge.autobge.mono_mode must be one of: rgb_duplicate|disabled");
+    }
+    for (const auto &polygon : bge.autobge.exclusion_polygons) {
+      if (polygon.size() < 3)
+        throw ValidationError("bge.autobge.exclusion_polygons require at least 3 points");
+      for (const auto &point : polygon) {
+        if (!std::isfinite(point[0]) || !std::isfinite(point[1]) ||
+            point[0] < 0.0f || point[0] > 1.0f ||
+            point[1] < 0.0f || point[1] > 1.0f)
+          throw ValidationError("bge.autobge.exclusion_polygons coordinates must be in [0,1]");
+      }
     }
   }
 

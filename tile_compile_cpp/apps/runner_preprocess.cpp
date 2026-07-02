@@ -256,6 +256,17 @@ prep::Config parse_preprocessing_config(const json& j) {
         json_bool(autobge, "apply_guards", cfg.bge.autobge.apply_guards);
     cfg.bge.autobge.mono_mode =
         json_string(autobge, "mono_mode", cfg.bge.autobge.mono_mode);
+    if (autobge.contains("user_sample_points") && autobge["user_sample_points"].is_array()) {
+      cfg.bge.autobge.user_sample_points.clear();
+      for (const auto& pt : autobge["user_sample_points"]) {
+        if (!pt.is_array() || pt.size() != 2) continue;
+        if (!pt[0].is_number() || !pt[1].is_number()) continue;
+        const float x = pt[0].get<float>();
+        const float y = pt[1].get<float>();
+        if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) continue;
+        cfg.bge.autobge.user_sample_points.push_back({x, y});
+      }
+    }
     cfg.bge.sample_quantile = json_float(b, "sample_quantile", cfg.bge.sample_quantile);
     cfg.bge.sample_estimator = json_string(b, "sample_estimator", cfg.bge.sample_estimator);
     cfg.bge.min_sample_bg_value = json_float(b, "min_sample_bg_value", cfg.bge.min_sample_bg_value);
@@ -1390,6 +1401,8 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
     bge_cfg.common_mask_rows = rgb.R.rows();
     bge_cfg.common_mask_cols = rgb.R.cols();
+    runner::apply_autobge_exclusion_polygons(
+        bge_source, rgb.R.rows(), rgb.R.cols(), bge_cfg);
     image::BGEDiagnostics diag;
     const bool ok = image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                        tile_metrics, grid, bge_cfg, &diag);

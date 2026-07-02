@@ -15,6 +15,7 @@ import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { promptGrantRoot } from "../components/path-picker-modal.js";
 import { openHmsPreview } from "../components/hms-preview.js";
+import { openBgePreview } from "../components/bge-preview.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -53,6 +54,7 @@ export function createRunMonitorPage() {
       el("span", {}, t("ui.title.resume", "Resume")),
       el("div", { class: "tc-flex tc-gap-2 tc-items-center" },
         el("button", { class: "tc-btn tc-btn-sm", id: "resume-hms-config-btn", style: "display:none", onclick: () => openSelectedHmsPreview() }, t("ui.button.hms_configure", "HMS konfigurieren")),
+        el("button", { class: "tc-btn tc-btn-sm", id: "resume-bge-config-btn", style: "display:none", onclick: () => openSelectedBgePreview() }, t("ui.button.bge_configure", "BGE konfigurieren")),
         el("span", { class: "tc-badge tc-badge-info", id: "resume-phase-badge" }, ""),
       ),
     ),
@@ -542,14 +544,17 @@ function onPhaseSelected(phase, logViewer) {
   const badge = document.getElementById("resume-phase-badge");
   const hint = document.getElementById("resume-hint");
   const hmsButton = document.getElementById("resume-hms-config-btn");
+  const bgeButton = document.getElementById("resume-bge-config-btn");
   if (!phase) {
     if (panel) panel.style.display = "none";
     if (hmsButton) hmsButton.style.display = "none";
+    if (bgeButton) bgeButton.style.display = "none";
     return;
   }
   if (panel) panel.style.display = "";
   if (badge) badge.textContent = phase;
   if (hmsButton) hmsButton.style.display = phase === "HYPERMETRIC_STRETCH" ? "" : "none";
+  if (bgeButton) bgeButton.style.display = phase === "BGE" ? "" : "none";
   if (hint) hint.textContent = t("ui.message.resume_hint", "Config wird geladen...");
   loadRunConfig(phase);
   loadConfigRevisions();
@@ -565,6 +570,19 @@ function openSelectedHmsPreview() {
   openHmsPreview({
     runId: currentRunId, runDir: currentRunDir, yaml: editor.value,
     onApply: async (updatedYaml) => { editor.value = updatedYaml; if (!await resumeRun()) throw new Error("Resume failed"); },
+  });
+}
+
+function openSelectedBgePreview() {
+  const { currentRunId, currentRunDir } = getRunState();
+  const editor = document.getElementById("resume-config-yaml");
+  if (!currentRunId || !editor?.value.trim()) {
+    toastError(t("ui.toast.bge_preview_failed", "BGE-Vorschau fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
+    return;
+  }
+  openBgePreview({
+    runId: currentRunId, runDir: currentRunDir, yaml: editor.value,
+    onApply: async (updatedYaml) => { editor.value = updatedYaml; if (!await resumeRun()) throw new Error(t("ui.toast.resume_failed", "Resume failed")); },
   });
 }
 

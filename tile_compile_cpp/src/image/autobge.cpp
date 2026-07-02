@@ -501,8 +501,11 @@ std::vector<SamplePoint> generate_autobge_sample_points(
   if (valid_vals.empty()) return {};
 
   std::sort(valid_vals.begin(), valid_vals.end());
+  // bright_exclusion_fraction is the fraction at the bright end to reject.
+  // Example: 0.30 keeps the darkest 70%, matching AutoBGE.py semantics.
+  const float keep_fraction = 1.0f - config.bright_exclusion_fraction;
   const int bright_idx = static_cast<int>(
-      static_cast<float>(valid_vals.size()) * config.bright_exclusion_fraction);
+      static_cast<float>(valid_vals.size()) * keep_fraction);
   const float bright_threshold = valid_vals[std::min(bright_idx,
       static_cast<int>(valid_vals.size()) - 1)];
 
@@ -517,23 +520,40 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     return true;
   };
 
-  // Gradient descent to dim spot: move point toward dimmer neighbors
+  // Determine number of points before refinement so the descent radius can be
+  // tied to the nominal sample spacing.
+  int target_points = config.num_sample_points;
+  if (target_points <= 0) {
+    target_points = std::clamp((rows * cols) / 800, 200, 3000);
+  }
+  const float nominal_spacing = std::sqrt(
+      static_cast<float>(rows * cols) / std::max(1, target_points));
+  const int max_descent_distance =
+      std::max(2, static_cast<int>(std::floor(0.45f * nominal_spacing)));
+
+  // Gradient descent to a nearby dim spot. Restricting displacement to less
+  // than half the nominal spacing prevents neighboring grid seeds from all
+  // collapsing into the same dark local minimum.
   auto gradient_descent_to_dim = [&](int& x, int& y) -> void {
     const int max_iters = config.gradient_descent_max_iters;
-    const int half_patch = config.patch_size / 2;
+    const int origin_x = x;
+    const int origin_y = y;
+    constexpr int step = 1;
     for (int iter = 0; iter < max_iters; ++iter) {
       float current_val = patch_estimate(image_downsampled, x, y,
                                          config.patch_size,
                                          config.patch_estimator);
       bool moved = false;
-      // Check 8 neighbors at step size of half_patch
-      const int step = std::max(1, half_patch);
+      // Check the immediate 8-neighborhood, as in the Python reference.
       float best_val = current_val;
       int best_x = x, best_y = y;
       for (int dy = -step; dy <= step; dy += step) {
         for (int dx = -step; dx <= step; dx += step) {
           if (dx == 0 && dy == 0) continue;
           int nx = x + dx, ny = y + dy;
+          if (std::abs(nx - origin_x) > max_descent_distance ||
+              std::abs(ny - origin_y) > max_descent_distance)
+            continue;
           if (!is_valid_point(nx, ny)) continue;
           float nv = patch_estimate(image_downsampled, nx, ny,
                                     config.patch_size,
@@ -555,14 +575,6 @@ std::vector<SamplePoint> generate_autobge_sample_points(
   };
 
   std::vector<SamplePoint> candidates;
-
-  // Determine number of points
-  int target_points = config.num_sample_points;
-  if (target_points <= 0) {
-    // Density-based: ~1 sample per 800 downsampled pixels, clamped to [200, 3000].
-    // This ensures sufficient coverage for RBF fitting across typical image sizes.
-    target_points = std::clamp((rows * cols) / 800, 200, 3000);
-  }
 
   const int margin = config.border_margin;
   const int usable_w = cols - 2 * margin;
@@ -628,6 +640,21 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     }
   }
 
+  // Convert normalized user-provided sample points to the downsampled working
+  // space used by this function. They are always kept and bypass the random
+  // downselection so users can force the model to honour specific background
+  // locations.
+  std::vector<SamplePoint> user_points;
+  user_points.reserve(config.user_sample_points.size());
+  for (const auto& up : config.user_sample_points) {
+    if (up[0] < 0.0f || up[0] > 1.0f || up[1] < 0.0f || up[1] > 1.0f) continue;
+    const int px = static_cast<int>(std::floor(up[0] * (cols - 1) + 0.5f));
+    const int py = static_cast<int>(std::floor(up[1] * (rows - 1) + 0.5f));
+    if (px < 0 || px >= cols || py < 0 || py >= rows) continue;
+    if (valid_mask_downsampled && (*valid_mask_downsampled)[py * cols + px] == 0) continue;
+    user_points.push_back({px, py});
+  }
+
   // Remove duplicate points (gradient descent may converge multiple to same spot)
   std::sort(candidates.begin(), candidates.end(), [](const SamplePoint& a, const SamplePoint& b) {
     return a.y * 100000 + a.x < b.y * 100000 + b.x;
@@ -636,36 +663,62 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     return a.x == b.x && a.y == b.y;
   }), candidates.end());
 
+  // Helper to test whether a point is already in the selected set.
+  auto already_selected = [&](const SamplePoint& p, const std::vector<SamplePoint>& selected) -> bool {
+    return std::any_of(selected.begin(), selected.end(),
+                       [&](const SamplePoint& e) { return e.x == p.x && e.y == p.y; });
+  };
+
   if (!random_downselection) {
+    for (const auto& up : user_points) {
+      if (!already_selected(up, candidates)) candidates.push_back(up);
+    }
     return candidates;
   }
 
+  const int user_count = static_cast<int>(user_points.size());
+  const int auto_target = std::max(0, target_points - user_count);
+
   std::array<std::vector<SamplePoint>, 4> quartiles;
   for (const auto& p : candidates) {
+    if (already_selected(p, user_points)) continue;
     const int qx = p.x < cols / 2 ? 0 : 1;
     const int qy = p.y < rows / 2 ? 0 : 1;
     quartiles[static_cast<size_t>(qy * 2 + qx)].push_back(p);
   }
 
   std::vector<SamplePoint> points;
-  points.reserve(static_cast<size_t>(target_points));
+  points.reserve(static_cast<size_t>(user_count + auto_target));
+  for (const auto& up : user_points) points.push_back(up);
+
+  // Reject near-duplicates, not only exact duplicates. A modest fraction of
+  // nominal spacing preserves coverage while still allowing dense sampling.
+  const float min_distance = std::max(1.0f, nominal_spacing * 0.35f);
+  const float min_distance_sq = min_distance * min_distance;
+  auto far_enough = [&](const SamplePoint& p) {
+    for (size_t i = static_cast<size_t>(user_count); i < points.size(); ++i) {
+      const float dx = static_cast<float>(p.x - points[i].x);
+      const float dy = static_cast<float>(p.y - points[i].y);
+      if (dx * dx + dy * dy < min_distance_sq) return false;
+    }
+    return true;
+  };
+
   for (auto& q : quartiles) {
     std::shuffle(q.begin(), q.end(), local_rng);
-    const int quota = std::max(1, target_points / 4);
-    for (int i = 0; i < std::min<int>(quota, q.size()); ++i)
-      points.push_back(q[static_cast<size_t>(i)]);
+    const int quota = std::max(1, auto_target / 4);
+    int accepted = 0;
+    for (const auto& p : q) {
+      if (!far_enough(p)) continue;
+      points.push_back(p);
+      if (++accepted >= quota) break;
+    }
   }
   if (static_cast<int>(points.size()) < target_points) {
     std::shuffle(candidates.begin(), candidates.end(), local_rng);
     for (const auto& p : candidates) {
-      const bool exists = std::any_of(points.begin(), points.end(),
-                                      [&](const SamplePoint& e) {
-                                        return e.x == p.x && e.y == p.y;
-                                      });
-      if (!exists)
-        points.push_back(p);
-      if (static_cast<int>(points.size()) >= target_points)
-        break;
+      if (!already_selected(p, points) && far_enough(p)) points.push_back(p);
+      if (static_cast<int>(points.size()) >= target_points) break;
     }
   }
 
@@ -852,6 +905,14 @@ AutoBGEResult build_autobge_models(
   }
 
   std::vector<uint8_t> sampling_mask = *valid_mask;
+  const bool have_sampling_mask =
+      config.sampling_valid_mask.size() == static_cast<size_t>(rows * cols) &&
+      config.sampling_mask_rows == rows && config.sampling_mask_cols == cols;
+  if (have_sampling_mask) {
+    for (size_t i = 0; i < sampling_mask.size(); ++i)
+      sampling_mask[i] = (sampling_mask[i] != 0 &&
+                          config.sampling_valid_mask[i] != 0) ? 1u : 0u;
+  }
   Matrix2Df luma(rows, cols);
   std::vector<float> valid_luma;
   valid_luma.reserve(static_cast<size_t>(rows * cols));

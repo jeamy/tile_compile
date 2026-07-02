@@ -79,6 +79,7 @@ export const API_ENDPOINTS = {
     stop: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stop`,
     resume: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/resume`,
     hmePreview: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/hme-preview`,
+    bgePreview: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/bge-preview`,
     stats: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stats`,
     statsStatus: (runId, runDir = "") => {
       const query = String(runDir || "").trim()

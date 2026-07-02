@@ -232,6 +232,41 @@ Die Vorschau selbst verändert weder `config.yaml` noch FITS-Artefakte. Ist kein
 vollständiges PCC-RGB-Artefakt vorhanden, meldet die Vorschau einen Fehler und
 es wird kein Resume gestartet.
 
+### AutoBGE beim Resume konfigurieren
+
+In der Phasenliste `BGE` wählen und links neben dem BGE-Badge auf
+**BGE konfigurieren** klicken. Der Dialog verwendet `stacked_rgb_solve.fits`
+und ersatzweise `stacked_rgb.fits` zusammen mit `canvas_mask.fits`. Ein bereits
+BGE-korrigiertes Bild wird niemals erneut als Eingang verwendet.
+
+Der Dialog bietet die Ansichten **Original**, **Korrigiert** und
+**Hintergrund**. Ziehen verschiebt das Bild, das Mausrad zoomt und ein
+Doppelklick passt das Bild an den Vorschaubereich an. Farbige Punkte markieren
+die von AutoBGE verwendeten Samples.
+
+Alle AutoBGE-Parameter besitzen Tooltips und erzwingen ihre zulässigen
+Wertebereiche. Dazu gehören Sample-Anzahl, Polynomgrad, RBF-Glättung,
+Downsample-Faktor, Patch-Größe und -Schätzer, Arbeitsraumtransformation,
+Helligkeitsausschluss, Zufalls-Seed und Schutzprüfungen.
+
+So werden echte dunkle Strukturen wie Dunkelnebel von der Hintergrundabtastung
+ausgeschlossen:
+
+1. **Ausschluss zeichnen** anklicken.
+2. Mindestens drei Eckpunkte im Bild setzen.
+3. Das Polygon mit einem Doppelklick schließen und die Vorschau neu berechnen.
+4. **Ausschlüsse löschen** entfernt alle Polygone.
+
+Ausschlüsse beeinflussen nur die Sample-Auswahl und löschen niemals Pixel der
+Ausgabe. Sie werden als normalisierte Koordinaten unter
+`bge.autobge.exclusion_polygons` gespeichert, sodass der Resume in voller
+Auflösung dieselben Bereiche verwendet.
+
+**Übernehmen & Resume starten** setzt `bge.method: autobge`, aktualisiert die
+AutoBGE-Werte in der Resume-YAML und setzt den Run ab `BGE` fort.
+**Zurücksetzen** stellt Parameter und Polygone vom Öffnungszeitpunkt wieder her.
+Preview-Berechnungen verändern weder FITS-Dateien noch `config.yaml`.
+
 ---
 
 ## 5. Ergebnisse ansehen

@@ -145,7 +145,10 @@ set(BACKEND_SOURCES
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
     src/services/hme_preview_service.cpp
+    src/services/bge_preview_service.cpp
     ../tile_compile_cpp/src/image/hypermetric_stretch.cpp
+    ../tile_compile_cpp/src/image/autobge.cpp
+    ../tile_compile_cpp/src/image/background_extraction.cpp
 )
 
 add_executable(tile_compile_web_backend ${BACKEND_SOURCES})

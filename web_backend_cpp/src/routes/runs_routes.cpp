@@ -6,6 +6,7 @@
 #include "services/config_revisions.hpp"
 #include "services/scan_summary.hpp"
 #include "services/hme_preview_service.hpp"
+#include "services/bge_preview_service.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -1099,6 +1100,30 @@ void register_runs_routes(CrowApp& app,
         response.set_header("Cache-Control", "no-store");
         response.set_header("Access-Control-Expose-Headers", "X-HMS-Diagnostics");
         response.set_header("X-HMS-Diagnostics", preview.diagnostics.dump());
+        response.body.assign(reinterpret_cast<const char*>(preview.png.data()), preview.png.size());
+        return response;
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/bge-preview").methods("POST"_method)
+    ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
+        auto body_opt = tile_compile::routes::parse_body(req);
+        if (!body_opt) return err_resp("Invalid JSON");
+        const auto& body = *body_opt;
+        fs::path run_dir;
+        if (auto err = resolve_request_run_dir(state, run_id,
+                body.value("run_dir", std::string()), run_dir)) return std::move(*err);
+        const std::string view = body.value("view", std::string("corrected"));
+        const auto preview = tile_compile::web::create_bge_preview(
+            run_dir, body.value("params", nlohmann::json::object()),
+            body.value("exclusion_polygons", nlohmann::json::array()),
+            body.value("manual_sample_points", nlohmann::json::array()), view);
+        if (!preview.ok) return err_resp("BGE_PREVIEW_FAILED", preview.error,
+                                         preview.status, nlohmann::json::object());
+        if (view == "diagnostics") return json_resp(preview.diagnostics);
+        crow::response response(200);
+        response.set_header("Content-Type", "image/png");
+        response.set_header("Cache-Control", "no-store");
         response.body.assign(reinterpret_cast<const char*>(preview.png.data()), preview.png.size());
         return response;
     });
