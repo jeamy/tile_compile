@@ -780,6 +780,10 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 
 ## Versionen
 
+## v0.3.B (03.07.2026)
+
+- AutoBGE-Vorschau: Manuelle Sample-Points mit Persistenz, Guard-Ablehnungsgründe in der UI, HMS-Vorschau-Resume-Unterstützung
+- HyperMetric-Stretch-Vorschau-Modal neben der BGE-Vorschau hinzugefügt, mit Live-Parameter-Bearbeitung und Vorschaubild-Rendering.
 ## v0.3.A (2026-06-28)
 
 - Bug fixes
@@ -1057,6 +1061,15 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 - Erste öffentliche Version
 
 ## Changelog
+
+### (03.07.2026)
+
+**AutoBGE-Vorschau-Verbesserungen, HMS-Vorschau, Resume-Unterstützung (`v0.3.B`):**
+
+- **Manuelle Sample-Points in AutoBGE-Vorschau:** Benutzer können jetzt manuelle Sample-Points direkt im BGE-Vorschau-Modal hinzufügen, löschen und persistent speichern. Punkte werden als normalisierte Float-Koordinaten `[0..1]` in der YAML-Konfiguration (`bge.autobge.user_sample_points`) gespeichert und sind damit auflösungsunabhängig. Punkte überleben Modal-Wiederöffnungen und Resume-Operationen. Manuelle Punkte werden immer in den Sample-Satz aufgenommen und umgehen die zufällige Downselection.
+- **Guard-Ablehnungsgründe in der UI:** Die BGE-Vorschau zeigt jetzt detaillierte Guard-Ablehnungsgründe (Ebenheit verschlechtert, Hintergrund-Chroma verschlechtert, Steigung verschlechtert etc.) mit Kanal-Aufschlüsselung und handlungsorientierten Hinweisen. Lokalisierungsschlüssel für alle Guard-Gründe und Hinweise in EN und DE hinzugefügt.
+- **HMS-Vorschau:** HyperMetric-Stretch-Vorschau-Modal neben der BGE-Vorschau hinzugefügt, mit Live-Parameter-Bearbeitung und Vorschaubild-Rendering.
+- **Resume-Unterstützung:** BGE- und HMS-Vorschau-Modals integrieren in den Resume-Workflow — beim Übernehmen werden Änderungen in die YAML-Konfiguration geschrieben und ein Resume von der entsprechenden Phase ausgelöst.
 
 ### (27.06.2026)
 

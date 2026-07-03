@@ -253,10 +253,42 @@ They are stored as normalized coordinates in
 `bge.autobge.exclusion_polygons`, so the full-resolution resume uses the same
 regions.
 
+#### Adding Manual Sample Points
+
+In addition to the automatic sample points, manual points can be placed to
+force specific dark background regions into the model:
+
+1. Click **Add points**. The cursor changes to a crosshair.
+2. Click on the desired locations in the image. Each click adds a point.
+   Points are displayed as white circles with a red outline.
+3. Click **Add points** again or double-click to exit point mode.
+4. Use **Clear points** to remove all manual points.
+
+Manual points are always included in the sample set and bypass random
+downselection. They are stored as normalized float coordinates `[0..1]` under
+`bge.autobge.user_sample_points` in the YAML, making them
+resolution-independent. Saved points are automatically loaded when reopening
+the dialog or resuming.
+
+#### Guard Rejection Reasons
+
+When the safety guards reject the preview, the status line shows the specific
+rejection reason along with an actionable hint. Typical reasons are:
+
+| Reason | Meaning | Recommended Action |
+|--------|---------|-------------------|
+| **Flatness worsened** | The background model is less flat after correction | Lower `poly_degree`, raise `rbf_smooth`, or draw exclusion polygons around structures |
+| **Background chroma worsened** | The color distribution in the background has degraded | Raise `rbf_smooth`, lower `poly_degree`, or add more manual points on dark background |
+| **Slope worsened** | The gradient in the background model has degraded | Place manual points on the faint gradient, raise `num_sample_points`, or lower `rbf_smooth` |
+
+Additionally, the info line below the image shows which channels (R, G, B)
+were rejected. If `apply_guards` is disabled, the preview can be applied
+despite rejection — this is not recommended.
+
 Click **Apply & start resume** to set `bge.method: autobge`, update the AutoBGE
 configuration in the Resume YAML, and resume from `BGE`. **Reset** restores the
-parameters and polygons loaded when the dialog opened. Preview calculations do
-not modify FITS files or `config.yaml`.
+parameters, polygons, and manual points loaded when the dialog opened. Preview
+calculations do not modify FITS files or `config.yaml`.
 
 ---
 

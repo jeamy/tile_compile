@@ -262,10 +262,46 @@ Ausgabe. Sie werden als normalisierte Koordinaten unter
 `bge.autobge.exclusion_polygons` gespeichert, sodass der Resume in voller
 Auflösung dieselben Bereiche verwendet.
 
+#### Manuelle Sample-Points setzen
+
+Zusätzlich zu den automatischen Sample-Points können manuelle Punkte gesetzt
+werden, um gezielt dunkle Hintergrundbereiche für die Modellierung zu
+erzwingen:
+
+1. **Punkte hinzufügen** anklicken. Der Cursor wechselt auf ein Fadenkreuz.
+2. Auf die gewünschten Stellen im Bild klicken. Jeder Klick fügt einen Punkt
+   hinzu. Punkte werden als weiße Kreise mit rotem Rand dargestellt.
+3. Ein erneuter Klick auf **Punkte hinzufügen** oder ein Doppelklick beendet
+   den Punktmodus.
+4. **Punkte löschen** entfernt alle manuellen Punkte.
+
+Manuelle Punkte werden immer in den Sample-Satz aufgenommen und umgehen die
+zufällige Downselection. Sie werden als normalisierte Float-Koordinaten
+`[0..1]` unter `bge.autobge.user_sample_points` in der YAML gespeichert und
+sind damit auflösungsunabhängig. Beim Wiederöffnen des Dialogs oder bei einem
+Resume werden gespeicherte Punkte automatisch geladen.
+
+#### Guard-Ablehnungsgründe
+
+Wenn die Schutzprüfungen (Guards) die Vorschau ablehnen, zeigt die
+Statuszeile den konkreten Ablehnungsgrund zusammen mit einem
+Lösungshinweis an. Typische Gründe sind:
+
+| Grund | Bedeutung | Empfohlene Maßnahme |
+|-------|-----------|---------------------|
+| **Ebenheit verschlechtert** | Das Hintergrundmodell ist nach der Korrektur unebener als vorher | `poly_degree` verringern, `rbf_smooth` erhöhen, Ausschlusspolygone um Strukturen ziehen |
+| **Hintergrund-Chroma verschlechtert** | Die Farbverteilung im Hintergrund hat sich verschlechtert | `rbf_smooth` erhöhen, `poly_degree` verringern, mehr manuelle Punkte auf dunklem Hintergrund setzen |
+| **Steigung verschlechtert** | Der Gradient im Hintergrundmodell hat sich verschlechtert | Manuelle Punkte auf den dunklen Gradienten setzen, `num_sample_points` erhöhen, `rbf_smooth` verringern |
+
+Zusätzlich wird unter dem Bild angezeigt, welche Kanäle (R, G, B) jeweils
+abgelehnt wurden. Wenn `apply_guards` deaktiviert ist, kann die Vorschau
+trotz Ablehnung übernommen werden — dies wird jedoch nicht empfohlen.
+
 **Übernehmen & Resume starten** setzt `bge.method: autobge`, aktualisiert die
 AutoBGE-Werte in der Resume-YAML und setzt den Run ab `BGE` fort.
-**Zurücksetzen** stellt Parameter und Polygone vom Öffnungszeitpunkt wieder her.
-Preview-Berechnungen verändern weder FITS-Dateien noch `config.yaml`.
+**Zurücksetzen** stellt Parameter, Polygone und manuelle Punkte vom
+Öffnungszeitpunkt wieder her. Preview-Berechnungen verändern weder FITS-Dateien
+noch `config.yaml`.
 
 ---
 

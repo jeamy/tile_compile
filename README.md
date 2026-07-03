@@ -761,6 +761,11 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 
 ## Versions
 
+## v0.3.B (2026-07-03)
+
+- AutoBGE preview: manual sample points with persistence, guard rejection reasons in UI, HMS preview resume support
+- HyperMetric Stretch preview modal added alongside BGE preview, with live parameter editing and preview image rendering.
+
 ## v0.3.A (2026-06-28)
 
 - Bug fixes
@@ -1038,6 +1043,16 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 - First public release
 
 ## Changelog
+
+### (2026-07-03)
+
+**AutoBGE preview improvements, HMS preview, resume support (`v0.3.B`):**
+
+- **Manual sample points in AutoBGE preview:** Users can now add, clear, and persist manual sample points directly in the BGE preview modal. Points are stored as normalized float coordinates `[0..1]` in the YAML config (`bge.autobge.user_sample_points`), making them resolution-independent. Points survive modal reopenings and resume operations. Manual points are always included in the sample set, bypassing random downselection.
+- **Guard rejection reasons in UI:** The BGE preview now displays detailed guard rejection reasons (flatness worsened, background chroma worsened, slope worsened, etc.) with per-channel breakdown and actionable hints. Localization keys added for all guard reasons and hints in both EN and DE.
+- **HMS preview:** HyperMetric Stretch preview modal added alongside BGE preview, with live parameter editing and preview image rendering.
+- **Resume support:** BGE and HMS preview modals integrate with the resume workflow — applying changes patches the YAML config and triggers a resume from the relevant phase.
+- **Frontend formatting:** `bge-preview.js` reformatted for human readability with proper indentation and line breaks.
 
 ### (2026-06-27)
 
