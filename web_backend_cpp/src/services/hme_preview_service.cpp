@@ -81,7 +81,8 @@ std::string file_signature(const std::vector<fs::path>& paths) {
     std::string out;
     for (const auto& path : paths) {
         out += path.string() + ":" + std::to_string(fs::file_size(path)) + ":" +
-               std::to_string(fs::last_write_time(path).time_since_epoch().count()) + ";";
+               std::to_string(static_cast<long long>(
+                   fs::last_write_time(path).time_since_epoch().count())) + ";";
     }
     return out;
 }

@@ -784,6 +784,7 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 
 - AutoBGE-Vorschau: Manuelle Sample-Points mit Persistenz, Guard-Ablehnungsgründe in der UI, HMS-Vorschau-Resume-Unterstützung
 - HyperMetric-Stretch-Vorschau-Modal neben der BGE-Vorschau hinzugefügt, mit Live-Parameter-Bearbeitung und Vorschaubild-Rendering.
+
 ## v0.3.A (2026-06-28)
 
 - Bug fixes

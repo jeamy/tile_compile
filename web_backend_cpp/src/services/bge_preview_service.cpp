@@ -74,9 +74,11 @@ Matrix2Df resize_matrix(const Matrix2Df& in, int rows, int cols, int interpolati
 
 std::string signature(const fs::path& image, const fs::path& mask) {
     return image.string()+":"+std::to_string(fs::file_size(image))+":"+
-        std::to_string(fs::last_write_time(image).time_since_epoch().count())+":"+
+        std::to_string(static_cast<long long>(
+            fs::last_write_time(image).time_since_epoch().count()))+":"+
         mask.string()+":"+std::to_string(fs::file_size(mask))+":"+
-        std::to_string(fs::last_write_time(mask).time_since_epoch().count());
+        std::to_string(static_cast<long long>(
+            fs::last_write_time(mask).time_since_epoch().count()));
 }
 
 InputProxy load_input(const fs::path& run_dir) {
