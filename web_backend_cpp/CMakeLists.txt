@@ -60,8 +60,23 @@ find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(OPENCV4 REQUIRED IMPORTED_TARGET opencv4)
-pkg_check_modules(CFITSIO REQUIRED IMPORTED_TARGET cfitsio)
+if(WIN32)
+    # MSYS2 pkg-config reports POSIX paths such as /mingw64/include. CMake
+    # validates paths carried by imported targets as native Windows paths and
+    # rejects them, while the regular variables are translated correctly by
+    # the MSYS2 toolchain and its linker already searches /mingw64/lib.
+    pkg_check_modules(OPENCV4 REQUIRED opencv4)
+    pkg_check_modules(CFITSIO REQUIRED cfitsio)
+    set(OPENCV4_LINK_LIBRARIES ${OPENCV4_LIBRARIES})
+    set(CFITSIO_LINK_LIBRARIES ${CFITSIO_LIBRARIES})
+else()
+    # Imported targets preserve Homebrew's non-default library directories on
+    # macOS instead of reducing the link command to unresolved -l arguments.
+    pkg_check_modules(OPENCV4 REQUIRED IMPORTED_TARGET opencv4)
+    pkg_check_modules(CFITSIO REQUIRED IMPORTED_TARGET cfitsio)
+    set(OPENCV4_LINK_LIBRARIES PkgConfig::OPENCV4)
+    set(CFITSIO_LINK_LIBRARIES PkgConfig::CFITSIO)
+endif()
 
 # -----------------------------------------------------------------------
 # Crow + Asio (header-only, fetched at configure time)
@@ -176,8 +191,8 @@ target_link_libraries(tile_compile_web_backend PRIVATE
     OpenSSL::Crypto
     Threads::Threads
     Eigen3::Eigen
-    PkgConfig::CFITSIO
-    PkgConfig::OPENCV4
+    ${CFITSIO_LINK_LIBRARIES}
+    ${OPENCV4_LINK_LIBRARIES}
 )
 
 target_compile_definitions(tile_compile_web_backend PRIVATE
