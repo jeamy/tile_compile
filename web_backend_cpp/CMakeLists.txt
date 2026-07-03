@@ -60,8 +60,8 @@ find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(OPENCV4 REQUIRED opencv4)
-pkg_check_modules(CFITSIO REQUIRED cfitsio)
+pkg_check_modules(OPENCV4 REQUIRED IMPORTED_TARGET opencv4)
+pkg_check_modules(CFITSIO REQUIRED IMPORTED_TARGET cfitsio)
 
 # -----------------------------------------------------------------------
 # Crow + Asio (header-only, fetched at configure time)
@@ -176,8 +176,8 @@ target_link_libraries(tile_compile_web_backend PRIVATE
     OpenSSL::Crypto
     Threads::Threads
     Eigen3::Eigen
-    ${CFITSIO_LIBRARIES}
-    ${OPENCV4_LIBRARIES}
+    PkgConfig::CFITSIO
+    PkgConfig::OPENCV4
 )
 
 target_compile_definitions(tile_compile_web_backend PRIVATE
