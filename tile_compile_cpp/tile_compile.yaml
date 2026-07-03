@@ -39,9 +39,9 @@ linearity:
   min_overall_linearity: 0.9
   strictness: moderate
 calibration:
+  flats_dir: ""
+  bias_master: ""
   dark_master: ""
-  darks_dir: ""
-  use_bias: false
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -53,9 +53,7 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 3
   bias_dir: ""
-  flats_dir: ""
   flat_master: ""
-assumptions:
   frames_min: 30
   frames_reduced_threshold: 120
   reduced_mode_skip_clustering: true
@@ -250,7 +248,7 @@ pcc:
   annulus_outer_px: 16
   min_stars: 10
   sigma_clip: 2.5
-  siril_catalog_dir: ~
+  siril_catalog_dir: /media/data/Astro/siril_catalog
   background_model: plane
   max_condition_number: 3
   max_residual_rms: 0.9

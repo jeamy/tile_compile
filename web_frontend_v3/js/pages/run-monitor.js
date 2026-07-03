@@ -73,11 +73,10 @@ export function createRunMonitorPage() {
       el("select", { class: "tc-select", id: "resume-config-revision", style: "flex:1 1 auto;min-width:200px" },
         el("option", { value: "" }, t("ui.option.current", "Aktuell")),
       ),
-      el("button", { class: "tc-btn tc-btn-sm", id: "resume-load-revision-btn", onclick: () => loadRevisionIntoEditor() }, t("ui.button.load_revision", "Laden")),
     ),
-    el("div", { class: "tc-mt-3 tc-flex tc-gap-3 tc-items-center" },
+    el("div", { class: "tc-mt-4 tc-flex tc-gap-3 tc-items-center" },
       el("button", { class: "tc-btn tc-btn-primary", id: "resume-execute-btn", onclick: () => resumeRun() }, t("ui.button.resume_from", "Resume")),
-      el("button", { class: "tc-btn tc-btn-sm", id: "resume-load-current-btn", onclick: () => loadCurrentConfig() }, t("ui.button.load_current_config", "Config laden")),
+      el("button", { class: "tc-btn", id: "resume-load-revision-btn", onclick: () => loadRevisionIntoEditor() }, t("ui.button.load_revision", "Revision laden")),
       el("span", { class: "tc-text-muted tc-text-sm", id: "resume-hint" }, ""),
     ),
   );
@@ -596,23 +595,11 @@ async function loadRunConfig(phase) {
     if (editor) editor.value = yaml;
     const hint = document.getElementById("resume-hint");
     if (hint) hint.textContent = yaml ? t("ui.message.resume_ready", "Bereit zum Resume") : t("ui.message.resume_no_config", "Keine Config gefunden");
+    return true;
   } catch (e) {
     const hint = document.getElementById("resume-hint");
     if (hint) hint.textContent = `Error: ${e.message}`;
-  }
-}
-
-async function loadCurrentConfig() {
-  const { currentRunId } = getRunState();
-  if (!currentRunId) return;
-  try {
-    const resp = await api.get(API_ENDPOINTS.runs.config(getRunApiKey()));
-    const yaml = resp?.config_yaml || resp?.config || "";
-    const editor = document.getElementById("resume-config-yaml");
-    if (editor) editor.value = yaml;
-    toastSuccess(t("ui.toast.config_loaded", "Config geladen"));
-  } catch (e) {
-    toastError(t("ui.toast.config_load_failed", "Config laden fehlgeschlagen"), e.message);
+    return false;
   }
 }
 
@@ -641,7 +628,8 @@ async function loadRevisionIntoEditor() {
   const select = document.getElementById("resume-config-revision");
   const revId = select?.value;
   if (!revId) {
-    toast(t("ui.toast.select_revision", "Bitte Revision auswählen"), "", "info");
+    if (await loadRunConfig(getSelectedPhase()))
+      toastSuccess(t("ui.toast.config_loaded", "Config geladen"));
     return;
   }
   try {
