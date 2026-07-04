@@ -8,6 +8,12 @@
 #include <sstream>
 #include <stdexcept>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 namespace tile_compile::metrics {
 
 std::vector<uint8_t> compute_aqmh_frame_valid_mask(
@@ -34,6 +40,8 @@ FrameValidMaskStore::FrameValidMaskStore(std::filesystem::path directory,
   if (width_ <= 0 || height_ <= 0) throw std::invalid_argument("invalid mask-store size");
   std::filesystem::create_directories(directory_);
 }
+
+FrameValidMaskStore::~FrameValidMaskStore() { clear_mappings(); }
 
 std::filesystem::path FrameValidMaskStore::path(size_t frame_index) const {
   std::ostringstream name;
@@ -74,12 +82,17 @@ std::vector<uint8_t> FrameValidMaskStore::read_region(
   const size_t first_byte = first_bit / 8u;
   const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
   std::vector<uint8_t> packed(last_byte - first_byte, 0u);
-  std::ifstream in(path(frame_index), std::ios::binary);
-  if (!in) return {};
-  in.seekg(static_cast<std::streamoff>(first_byte));
-  in.read(reinterpret_cast<char *>(packed.data()),
-          static_cast<std::streamsize>(packed.size()));
-  if (!in) return {};
+  const uint8_t *mapped = mapped_bytes(frame_index);
+  if (mapped) {
+    std::copy(mapped + first_byte, mapped + last_byte, packed.begin());
+  } else {
+    std::ifstream in(path(frame_index), std::ios::binary);
+    if (!in) return {};
+    in.seekg(static_cast<std::streamoff>(first_byte));
+    in.read(reinterpret_cast<char *>(packed.data()),
+            static_cast<std::streamsize>(packed.size()));
+    if (!in) return {};
+  }
   std::vector<uint8_t> mask(bit_count, 0u);
   for (size_t i = 0; i < bit_count; ++i) {
     const size_t global_bit = first_bit + i;
@@ -88,6 +101,38 @@ std::vector<uint8_t> FrameValidMaskStore::read_region(
         (packed[local_byte] >> (global_bit % 8u)) & 1u);
   }
   return mask;
+}
+
+const uint8_t *FrameValidMaskStore::mapped_bytes(size_t frame_index) const {
+#ifdef _WIN32
+  (void)frame_index;
+  return nullptr;
+#else
+  std::lock_guard<std::mutex> lock(mapping_mutex_);
+  auto it = mappings_.find(frame_index);
+  if (it != mappings_.end()) return static_cast<const uint8_t *>(it->second);
+  const auto p = path(frame_index);
+  const int fd = ::open(p.c_str(), O_RDONLY);
+  if (fd < 0) return nullptr;
+  const size_t bytes =
+      (static_cast<size_t>(width_) * height_ + 7u) / 8u;
+  void *view = ::mmap(nullptr, bytes, PROT_READ, MAP_SHARED, fd, 0);
+  ::close(fd);
+  if (view == MAP_FAILED) return nullptr;
+  mappings_.emplace(frame_index, view);
+  return static_cast<const uint8_t *>(view);
+#endif
+}
+
+void FrameValidMaskStore::clear_mappings() const {
+#ifndef _WIN32
+  std::lock_guard<std::mutex> lock(mapping_mutex_);
+  const size_t bytes =
+      (static_cast<size_t>(width_) * height_ + 7u) / 8u;
+  for (const auto &[_, view] : mappings_)
+    if (view) ::munmap(view, bytes);
+  mappings_.clear();
+#endif
 }
 
 std::string FrameValidMaskStore::hash(size_t frame_index) const {

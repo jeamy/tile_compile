@@ -15,8 +15,10 @@
 #include <opencv2/imgproc.hpp>
 
 #if __has_include(<opencv2/core/cuda.hpp>) && \
-    __has_include(<opencv2/cudafilters.hpp>)
+    __has_include(<opencv2/cudafilters.hpp>) && \
+    __has_include(<opencv2/cudaarithm.hpp>)
 #include <opencv2/core/cuda.hpp>
+#include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudafilters.hpp>
 #define TILE_COMPILE_AQMH_CUDA_FILTERS 1
 #else
@@ -92,8 +94,7 @@ float median_of(std::vector<float> values) {
   std::nth_element(values.begin(), values.begin() + mid, values.end());
   float med = values[mid];
   if (values.size() % 2 == 0) {
-    std::nth_element(values.begin(), values.begin() + mid - 1, values.end());
-    med = 0.5f * (med + values[mid - 1]);
+    med = 0.5f * (med + *std::max_element(values.begin(), values.begin() + mid));
   }
   return med;
 }
@@ -106,8 +107,7 @@ float median_buf(WindowBuf &buf) {
   std::nth_element(buf.begin(), buf.begin() + mid, buf.end());
   float med = buf.data[static_cast<size_t>(mid)];
   if (n % 2 == 0) {
-    std::nth_element(buf.begin(), buf.begin() + mid - 1, buf.end());
-    med = 0.5f * (med + buf.data[static_cast<size_t>(mid - 1)]);
+    med = 0.5f * (med + *std::max_element(buf.begin(), buf.begin() + mid));
   }
   return med;
 }
@@ -277,7 +277,6 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
     return false;
 
   Matrix2Df values(rows, cols);
-  Matrix2Df squares(rows, cols);
   Matrix2Df support(rows, cols);
   const auto n = static_cast<std::ptrdiff_t>(m.size());
 #pragma omp simd
@@ -286,7 +285,6 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
     const bool valid = finite(v);
     const float clean = valid ? v : 0.0f;
     values.data()[i] = clean;
-    squares.data()[i] = clean * clean;
     support.data()[i] = valid ? 1.0f : 0.0f;
   }
 
@@ -296,10 +294,21 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
     if (backend == core::AccelerationBackend::opencv_cuda) {
 #if TILE_COMPILE_AQMH_CUDA_FILTERS
       cv::Mat h_values(rows, cols, CV_32F, values.data());
-      cv::Mat h_squares(rows, cols, CV_32F, squares.data());
       cv::Mat h_support(rows, cols, CV_32F, support.data());
-      cv::cuda::GpuMat d_values, d_squares, d_support;
-      cv::cuda::GpuMat d_sums, d_square_sums, d_counts;
+      struct CudaMomentsWorkspace {
+        cv::cuda::GpuMat values, squares, support;
+        cv::cuda::GpuMat sums, square_sums, counts;
+      };
+      thread_local CudaMomentsWorkspace workspace;
+      auto &d_values = workspace.values;
+      auto &d_squares = workspace.squares;
+      auto &d_support = workspace.support;
+      auto &d_sums = workspace.sums;
+      auto &d_square_sums = workspace.square_sums;
+      auto &d_counts = workspace.counts;
+      for (auto *buffer : {&d_values, &d_squares, &d_support, &d_sums,
+                           &d_square_sums, &d_counts})
+        buffer->create(rows, cols, CV_32F);
       // CUDA filters keep internal work buffers and are not safe to share
       // across workers. Cache by kernel size per worker thread instead.
       thread_local std::unordered_map<int, cv::Ptr<cv::cuda::Filter>>
@@ -314,8 +323,9 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
       cv::cuda::Stream &cuda_stream =
           stream ? *stream : cv::cuda::Stream::Null();
       d_values.upload(h_values, cuda_stream);
-      d_squares.upload(h_squares, cuda_stream);
       d_support.upload(h_support, cuda_stream);
+      cv::cuda::multiply(d_values, d_values, d_squares, 1.0, -1,
+                         cuda_stream);
       filter->apply(d_values, d_sums, cuda_stream);
       filter->apply(d_squares, d_square_sums, cuda_stream);
       filter->apply(d_support, d_counts, cuda_stream);
@@ -332,12 +342,11 @@ bool accelerated_local_variance(const Matrix2Df &m, int r,
     } else {
 #if TILE_COMPILE_AQMH_OPENCL
       cv::Mat h_values(rows, cols, CV_32F, values.data());
-      cv::Mat h_squares(rows, cols, CV_32F, squares.data());
       cv::Mat h_support(rows, cols, CV_32F, support.data());
       cv::UMat u_values, u_squares, u_support;
       h_values.copyTo(u_values);
-      h_squares.copyTo(u_squares);
       h_support.copyTo(u_support);
+      cv::multiply(u_values, u_values, u_squares);
       cv::UMat u_sums, u_square_sums, u_counts;
       cv::boxFilter(u_values, u_sums, CV_32F, kernel_size, cv::Point(-1, -1),
                     true, cv::BORDER_CONSTANT);

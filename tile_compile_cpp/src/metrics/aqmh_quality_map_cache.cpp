@@ -4,12 +4,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 namespace tile_compile::metrics {
 namespace fs = std::filesystem;
@@ -104,6 +111,8 @@ QualityMapCache::QualityMapCache(
   }
   write_metadata();
 }
+
+QualityMapCache::~QualityMapCache() { clear_file_mappings(); }
 
 void QualityMapCache::write(size_t fi, const Matrix2Df &q_map,
                             const std::vector<uint8_t> &source_valid_mask) {
@@ -249,12 +258,17 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
     const size_t first_byte = first_bit / 8u;
     const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
     std::vector<uint8_t> packed(last_byte - first_byte, 0u);
-    std::ifstream in(veto_path(fi), std::ios::binary);
-    if (!in) return empty_matrix();
-    in.seekg(static_cast<std::streamoff>(first_byte));
-    in.read(reinterpret_cast<char *>(packed.data()),
-            static_cast<std::streamsize>(packed.size()));
-    if (!in) return empty_matrix();
+    const uint8_t *veto = mapped_veto_bytes(fi);
+    if (veto != nullptr) {
+      std::copy(veto + first_byte, veto + last_byte, packed.begin());
+    } else {
+      std::ifstream in(veto_path(fi), std::ios::binary);
+      if (!in) return empty_matrix();
+      in.seekg(static_cast<std::streamoff>(first_byte));
+      in.read(reinterpret_cast<char *>(packed.data()),
+              static_cast<std::streamsize>(packed.size()));
+      if (!in) return empty_matrix();
+    }
     for (size_t i = 0; i < bit_count; ++i) {
       const size_t global_bit = first_bit + i;
       if (((packed[global_bit / 8u - first_byte] >> (global_bit % 8u)) & 1u) != 0u)
@@ -324,6 +338,7 @@ void QualityMapCache::clear_memory_cache() const {
 
 void QualityMapCache::cleanup() {
   clear_memory_cache();
+  clear_file_mappings();
   std::error_code ec;
   fs::remove_all(cache_dir_, ec);
 }
@@ -471,34 +486,103 @@ Matrix2Df QualityMapCache::decode_file(size_t fi) const {
 Matrix2Df QualityMapCache::decode_stored_rows(
     size_t fi, int y0, int rows) const {
   if (y0 < 0 || rows <= 0 || y0 + rows > stored_height_) return empty_matrix();
-  std::ifstream in(map_path(fi), std::ios::binary);
-  if (!in) return empty_matrix();
   const size_t count = static_cast<size_t>(rows) * stored_width_;
   const size_t offset = static_cast<size_t>(y0) * stored_width_ *
                         dtype_bytes(storage_cfg_.dtype);
-  in.seekg(static_cast<std::streamoff>(offset));
   Matrix2Df out(rows, stored_width_);
-  if (storage_cfg_.dtype == "float32") {
-    in.read(reinterpret_cast<char *>(out.data()),
-            static_cast<std::streamsize>(count * sizeof(float)));
+  const uint8_t *mapped = mapped_map_bytes(fi);
+  std::ifstream in;
+  if (mapped == nullptr) {
+    in.open(map_path(fi), std::ios::binary);
     if (!in) return empty_matrix();
+    in.seekg(static_cast<std::streamoff>(offset));
+  }
+  if (storage_cfg_.dtype == "float32") {
+    if (mapped) std::memcpy(out.data(), mapped + offset, count * sizeof(float));
+    else {
+      in.read(reinterpret_cast<char *>(out.data()),
+              static_cast<std::streamsize>(count * sizeof(float)));
+      if (!in) return empty_matrix();
+    }
     for (size_t i = 0; i < count; ++i) out.data()[i] = clamp_q(out.data()[i]);
   } else if (storage_cfg_.dtype == "uint16") {
     std::vector<uint16_t> raw(count);
-    in.read(reinterpret_cast<char *>(raw.data()),
-            static_cast<std::streamsize>(count * sizeof(uint16_t)));
-    if (!in) return empty_matrix();
+    if (mapped) std::memcpy(raw.data(), mapped + offset, count * sizeof(uint16_t));
+    else {
+      in.read(reinterpret_cast<char *>(raw.data()),
+              static_cast<std::streamsize>(count * sizeof(uint16_t)));
+      if (!in) return empty_matrix();
+    }
     for (size_t i = 0; i < count; ++i)
       out.data()[i] = static_cast<float>(raw[i]) / 65535.0f;
   } else {
     std::vector<uint8_t> raw(count);
-    in.read(reinterpret_cast<char *>(raw.data()),
-            static_cast<std::streamsize>(count));
-    if (!in) return empty_matrix();
+    if (mapped) std::memcpy(raw.data(), mapped + offset, count);
+    else {
+      in.read(reinterpret_cast<char *>(raw.data()),
+              static_cast<std::streamsize>(count));
+      if (!in) return empty_matrix();
+    }
     for (size_t i = 0; i < count; ++i)
       out.data()[i] = static_cast<float>(raw[i]) / 255.0f;
   }
   return out;
+}
+
+const uint8_t *QualityMapCache::mapped_map_bytes(size_t fi) const {
+#ifdef _WIN32
+  (void)fi;
+  return nullptr;
+#else
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto &entry = file_mappings_[fi];
+  if (entry.map_data) return static_cast<const uint8_t *>(entry.map_data);
+  const auto path = map_path(fi);
+  const int fd = ::open(path.c_str(), O_RDONLY);
+  if (fd < 0) return nullptr;
+  entry.map_size = static_cast<size_t>(stored_width_) * stored_height_ *
+                   dtype_bytes(storage_cfg_.dtype);
+  entry.map_data = ::mmap(nullptr, entry.map_size, PROT_READ, MAP_SHARED, fd, 0);
+  ::close(fd);
+  if (entry.map_data == MAP_FAILED) {
+    entry.map_data = nullptr;
+    entry.map_size = 0;
+  }
+  return static_cast<const uint8_t *>(entry.map_data);
+#endif
+}
+
+const uint8_t *QualityMapCache::mapped_veto_bytes(size_t fi) const {
+#ifdef _WIN32
+  (void)fi;
+  return nullptr;
+#else
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto &entry = file_mappings_[fi];
+  if (entry.veto_data) return static_cast<const uint8_t *>(entry.veto_data);
+  const auto path = veto_path(fi);
+  const int fd = ::open(path.c_str(), O_RDONLY);
+  if (fd < 0) return nullptr;
+  entry.veto_size = (static_cast<size_t>(full_width_) * full_height_ + 7u) / 8u;
+  entry.veto_data = ::mmap(nullptr, entry.veto_size, PROT_READ, MAP_SHARED, fd, 0);
+  ::close(fd);
+  if (entry.veto_data == MAP_FAILED) {
+    entry.veto_data = nullptr;
+    entry.veto_size = 0;
+  }
+  return static_cast<const uint8_t *>(entry.veto_data);
+#endif
+}
+
+void QualityMapCache::clear_file_mappings() const {
+#ifndef _WIN32
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto &[_, entry] : file_mappings_) {
+    if (entry.map_data) ::munmap(entry.map_data, entry.map_size);
+    if (entry.veto_data) ::munmap(entry.veto_data, entry.veto_size);
+  }
+  file_mappings_.clear();
+#endif
 }
 
 Matrix2Df QualityMapCache::downsample_for_storage(

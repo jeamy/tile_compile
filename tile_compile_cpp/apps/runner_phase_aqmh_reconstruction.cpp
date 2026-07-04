@@ -161,6 +161,10 @@ bool run_phase_aqmh_reconstruction(
   artifact["execution_backend"] = "cpu_exact_v0_2";
   artifact["region_streaming"] = true;
   artifact["uniform_control_same_pass"] = true;
+  artifact["sample_layout"] = "pixel_major_soa";
+  artifact["sample_bytes_per_frame_pixel"] = 8;
+  artifact["persistent_mmap_cache_views"] = true;
+  artifact["weighted_selection"] = "deterministic_linear_quickselect";
   artifact["chunk_rows"] = aqmh_recon.chunk_rows;
   artifact["chunk_count"] = aqmh_recon.chunk_count;
   artifact["num_frames"] = static_cast<int>(frames.size());

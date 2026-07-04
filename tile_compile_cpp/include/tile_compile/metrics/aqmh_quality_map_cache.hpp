@@ -34,6 +34,7 @@ public:
 
   QualityMapCache(const QualityMapCache &) = delete;
   QualityMapCache &operator=(const QualityMapCache &) = delete;
+  ~QualityMapCache();
 
   void write(size_t fi, const Matrix2Df &q_map,
              const std::vector<uint8_t> &source_valid_mask = {});
@@ -70,6 +71,9 @@ private:
       const std::vector<uint8_t> &source_valid_mask) const;
   void apply_zero_veto_mask(size_t fi, Matrix2Df &map) const;
   Matrix2Df upsample_to_full_resolution(const Matrix2Df &stored) const;
+  const uint8_t *mapped_map_bytes(size_t fi) const;
+  const uint8_t *mapped_veto_bytes(size_t fi) const;
+  void clear_file_mappings() const;
 
   std::filesystem::path cache_dir_;
   std::string map_stream_id_;
@@ -88,6 +92,13 @@ private:
   mutable std::list<size_t> lru_;
   mutable std::unordered_map<size_t, std::pair<Matrix2Df, std::list<size_t>::iterator>>
       resident_;
+  struct FileMapping {
+    void *map_data = nullptr;
+    size_t map_size = 0;
+    void *veto_data = nullptr;
+    size_t veto_size = 0;
+  };
+  mutable std::unordered_map<size_t, FileMapping> file_mappings_;
 };
 
 std::string compute_aqmh_canvas_mask_hash(const std::vector<uint8_t> &mask,

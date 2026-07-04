@@ -559,7 +559,7 @@ class DiskCacheFrameStore {
 public:
   DiskCacheFrameStore();
   DiskCacheFrameStore(const std::filesystem::path &cache_dir, size_t n_frames,
-                      int rows, int cols);
+                      int rows, int cols, bool attach_existing = false);
   ~DiskCacheFrameStore();
 
   DiskCacheFrameStore(const DiskCacheFrameStore &) = delete;
@@ -607,6 +607,7 @@ private:
   std::vector<uint8_t> has_data_;
   mutable std::mutex mapped_mutex_;
   mutable std::vector<void *> mapped_views_;
+  bool preserve_files_ = false;
 };
 
 /// Shared per-run cache for normalized frames and registration proxies.

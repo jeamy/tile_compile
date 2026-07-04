@@ -65,8 +65,9 @@ float median_select(std::vector<float> &values) {
   return 0.5f * (lo + hi);
 }
 
-float noise_floor(const std::vector<AqmhWeightedSample> &samples) {
-  std::vector<float> values;
+float noise_floor(const std::vector<AqmhWeightedSample> &samples,
+                  std::vector<float> &values) {
+  values.clear();
   values.reserve(samples.size());
   for (const auto &sample : samples) values.push_back(sample.value);
   const float center = median_select(values);
@@ -92,38 +93,36 @@ AqmhSigmaClipResult aqmh_sigma_clip(
       n0, std::max<size_t>(1, static_cast<size_t>(std::ceil(min_fraction * n0))));
   for (int iter = 0; iter < iterations; ++iter) {
     const float center = weighted_median_select(samples, false);
-    auto deviations = samples;
+    thread_local std::vector<AqmhWeightedSample> deviations;
+    thread_local std::vector<float> noise_values;
+    deviations.assign(samples.begin(), samples.end());
     const float mad = weighted_median_select(deviations, true, center);
-    const float floor = noise_floor(samples);
-    std::vector<AqmhWeightedSample> next;
+    const float floor = noise_floor(samples, noise_values);
+    size_t keep_count = 0;
     if (mad <= floor) {
-      for (const auto &s : samples) if (s.value == center) next.push_back(s);
+      for (const auto &s : samples) keep_count += s.value == center;
     } else {
       const float sigma = 1.4826f * mad;
       for (const auto &s : samples)
-        if (std::abs(s.value - center) <= clip_sigma * sigma) next.push_back(s);
+        keep_count += std::abs(s.value - center) <= clip_sigma * sigma;
     }
-    if (next.size() < keep_floor) {
+    if (keep_count < keep_floor) {
       std::sort(samples.begin(), samples.end(), [&](const auto &a, const auto &b) {
         const float ar = std::abs(a.value - center) / std::max(1.4826f * mad, floor);
         const float br = std::abs(b.value - center) / std::max(1.4826f * mad, floor);
         return ar != br ? ar < br : a.frame_index < b.frame_index;
       });
-      next.assign(samples.begin(), samples.begin() + static_cast<long>(keep_floor));
-    }
-    std::sort(next.begin(), next.end(), [](const auto &a, const auto &b) {
-      return a.frame_index < b.frame_index;
-    });
-    std::sort(samples.begin(), samples.end(), [](const auto &a, const auto &b) {
-      return a.frame_index < b.frame_index;
-    });
-    if (next.size() == samples.size() &&
-        std::equal(next.begin(), next.end(), samples.begin(),
-                   [](const auto &a, const auto &b) { return a.frame_index == b.frame_index; })) {
-      samples = std::move(next);
+      samples.resize(keep_floor);
+    } else if (keep_count < samples.size()) {
+      const float sigma = 1.4826f * mad;
+      samples.erase(std::remove_if(samples.begin(), samples.end(),
+          [&](const auto &s) {
+            return mad <= floor ? s.value != center
+                                : std::abs(s.value - center) > clip_sigma * sigma;
+          }), samples.end());
+    } else {
       break;
     }
-    samples = std::move(next);
   }
   double d = 0.0, d2 = 0.0;
   float wmax = 0.0f;

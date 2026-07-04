@@ -75,47 +75,67 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   }
 
   bool cherry_enabled = cfg.cherry_pick;
-  Matrix2Df nominal_map = Matrix2Df::Zero(height, width);
   if (cherry_enabled) {
-    Matrix2Df rankable = Matrix2Df::Zero(height, width);
-    for (size_t fi = 0; fi < frame_count; ++fi) {
-      if (frame_mask_compatible[fi] == 0u) {
-        continue;
-      }
-      Matrix2Df frame;
-      if (!load_frame(fi, frame) || frame.rows() != height || frame.cols() != width) continue;
-      Matrix2Df q = q_map_cache->read_cached(fi);
-      if (q.rows() != height || q.cols() != width) continue;
-      std::vector<uint8_t> fm;
-      if (load_frame_valid_mask &&
-          (!load_frame_valid_mask(fi, fm) ||
-           fm.size() != static_cast<size_t>(width * height))) continue;
-      if (load_frame_valid_mask &&
-          q_map_cache->source_mask_hash(fi) !=
-              tile_compile::core::sha256_bytes(fm)) continue;
-      const float gw = global_weight(global_weights, fi);
-      for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x) {
-          const size_t i = static_cast<size_t>(y * width + x);
-          if (!canvas_valid(canvas_mask, width, height, x, y) ||
-              (!fm.empty() && (i >= fm.size() || fm[i] == 0u)) ||
-              !std::isfinite(frame(y, x)) || !std::isfinite(q(y, x)) ||
-              !(gw * q(y, x) > 0.0f)) continue;
-          rankable(y, x) += 1.0f;
-        }
-    }
     std::vector<float> nominal_values;
     nominal_values.reserve(static_cast<size_t>(width * height));
-    for (int y = 0; y < height; ++y)
-      for (int x = 0; x < width; ++x) {
-        if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
-        const int n = static_cast<int>(rankable(y, x));
-        const float frac = aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
-                                                 cfg.tiered_k_frac);
-        nominal_map(y, x) = static_cast<float>(aqmh_k_nominal(n, frac));
-        nominal_values.push_back(nominal_map(y, x));
+    if (load_frame_region && load_frame_valid_mask_region) {
+      constexpr int gate_rows = 128;
+      for (int y0 = 0; y0 < height; y0 += gate_rows) {
+        const int rows = std::min(gate_rows, height - y0);
+        const size_t count = static_cast<size_t>(rows) * width;
+        std::vector<uint16_t> rankable(count, 0u);
+        for (size_t fi = 0; fi < frame_count; ++fi) {
+          if (frame_mask_compatible[fi] == 0u ||
+              !(global_weight(global_weights, fi) > 0.0f)) continue;
+          Matrix2Df q = q_map_cache->read_region(fi, y0, rows);
+          std::vector<uint8_t> fm;
+          if (q.rows() != rows || q.cols() != width ||
+              !load_frame_valid_mask_region(fi, y0, rows, fm) ||
+              fm.size() != count) continue;
+          for (size_t i = 0; i < count; ++i)
+            if (fm[i] != 0u && q.data()[i] > 0.0f &&
+                rankable[i] != std::numeric_limits<uint16_t>::max())
+              ++rankable[i];
+        }
+        for (size_t i = 0; i < count; ++i) {
+          const size_t full_i = static_cast<size_t>(y0) * width + i;
+          if (!canvas_mask.empty() && canvas_mask[full_i] == 0u) continue;
+          const int n = rankable[i];
+          nominal_values.push_back(static_cast<float>(aqmh_k_nominal(
+              n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                       cfg.tiered_k_frac))));
+        }
       }
-    result.k_nominal_median = quantile(nominal_values, 0.5f);
+    } else {
+      Matrix2Df rankable = Matrix2Df::Zero(height, width);
+      for (size_t fi = 0; fi < frame_count; ++fi) {
+        if (frame_mask_compatible[fi] == 0u) continue;
+        Matrix2Df frame;
+        if (!load_frame(fi, frame) || frame.rows() != height ||
+            frame.cols() != width) continue;
+        Matrix2Df q = q_map_cache->read_cached(fi);
+        if (q.rows() != height || q.cols() != width) continue;
+        std::vector<uint8_t> fm;
+        if (load_frame_valid_mask && !load_frame_valid_mask(fi, fm)) continue;
+        const float gw = global_weight(global_weights, fi);
+        for (int y = 0; y < height; ++y)
+          for (int x = 0; x < width; ++x) {
+            const size_t i = static_cast<size_t>(y * width + x);
+            if (canvas_valid(canvas_mask, width, height, x, y) &&
+                (fm.empty() || fm[i] != 0u) && std::isfinite(frame(y, x)) &&
+                q(y, x) > 0.0f && gw > 0.0f) rankable(y, x) += 1.0f;
+          }
+      }
+      for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+          if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
+          const int n = static_cast<int>(rankable(y, x));
+          nominal_values.push_back(static_cast<float>(aqmh_k_nominal(
+              n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                       cfg.tiered_k_frac))));
+        }
+      }
+    result.k_nominal_median = quantile(std::move(nominal_values), 0.5f);
     if (result.k_nominal_median < cfg.cherry_pick_k_min_required) {
       cherry_enabled = false;
       result.cherry_pick_forced_disabled = true;
@@ -131,7 +151,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
 
   // A larger row slab amortizes file-open and seek overhead. Region loaders
   // keep physical I/O proportional to N*pixels instead of N*full_frame*slabs.
-  const size_t bytes_per_sample = sizeof(AqmhWeightedSample);
+  // Compact pixel-major SoA: one value and one weight per frame slot. Frame
+  // index is the slot itself; score equals the non-uniform weight in the main
+  // v0.2 path. This avoids one heap allocation and a 24-byte AoS element for
+  // every valid pixel/frame pair.
+  constexpr size_t bytes_per_sample = sizeof(float) * 2u;
   const size_t target_mb = static_cast<size_t>(std::clamp(
       cfg.memory_budget_mb / 2, 128, 1536));
   const size_t target_bytes = target_mb * 1024u * 1024u;
@@ -144,10 +168,14 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
 
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
-    std::vector<std::vector<AqmhWeightedSample>> pixels(
-        static_cast<size_t>(rows * width));
-    std::vector<uint32_t> finite_maps(static_cast<size_t>(rows * width), 0u);
-    for (auto &v : pixels) v.reserve(frame_count);
+    const size_t pixel_count = static_cast<size_t>(rows) * width;
+    std::vector<float> sample_values(pixel_count * frame_count,
+                                     std::numeric_limits<float>::quiet_NaN());
+    std::vector<float> sample_weights(pixel_count * frame_count, 0.0f);
+    std::vector<float> sample_scores;
+    if (cfg.uniform_weights && cherry_enabled)
+      sample_scores.assign(pixel_count * frame_count, 0.0f);
+    std::vector<uint32_t> finite_maps(pixel_count, 0u);
 
     for (size_t fi = 0; fi < frame_count; ++fi) {
       if (frame_mask_compatible[fi] == 0u) {
@@ -196,26 +224,51 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           const float score = gw * std::max(0.0f, q(source_y, x));
           const float weight = cfg.uniform_weights && score > 0.0f
                                    ? 1.0f : score;
-          if (weight > 0.0f)
-            pixels[local_i].push_back({frame(source_y, x), weight, score, fi});
+          if (weight > 0.0f) {
+            const size_t sample_i = local_i * frame_count + fi;
+            sample_values[sample_i] = frame(source_y, x);
+            sample_weights[sample_i] = weight;
+            if (!sample_scores.empty()) sample_scores[sample_i] = score;
+          }
         }
       }
     }
 
     const int num_threads = std::max(1, cfg.parallel_workers);
 #if defined(_OPENMP)
-#pragma omp parallel for num_threads(num_threads) if(num_threads > 1) schedule(dynamic, 1)
+#pragma omp parallel num_threads(num_threads) if(num_threads > 1)
 #endif
-    for (int yy = 0; yy < rows; ++yy) {
-      const int y = y0 + yy;
-      for (int x = 0; x < width; ++x) {
+    {
+      std::vector<AqmhWeightedSample> samples;
+      std::vector<AqmhWeightedSample> control_samples;
+      samples.reserve(frame_count);
+      if (cfg.compute_uniform_control) control_samples.reserve(frame_count);
+#if defined(_OPENMP)
+#pragma omp for schedule(dynamic, 64)
+#endif
+      for (std::ptrdiff_t local_pixel = 0;
+           local_pixel < static_cast<std::ptrdiff_t>(pixel_count);
+           ++local_pixel) {
+        const int yy = static_cast<int>(local_pixel / width);
+        const int x = static_cast<int>(local_pixel % width);
+        const int y = y0 + yy;
         if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
 #if defined(_OPENMP)
 #pragma omp atomic
 #endif
         ++canvas_pixels;
-        const size_t li = static_cast<size_t>(yy * width + x);
-        auto samples = std::move(pixels[li]);
+        const size_t li = static_cast<size_t>(local_pixel);
+        samples.clear();
+        const size_t sample_base = li * frame_count;
+        for (size_t fi = 0; fi < frame_count; ++fi) {
+          const float weight = sample_weights[sample_base + fi];
+          if (weight > 0.0f) {
+            samples.push_back({sample_values[sample_base + fi], weight,
+                               sample_scores.empty()
+                                   ? weight : sample_scores[sample_base + fi],
+                               fi});
+          }
+        }
         if (samples.empty()) {
 #if defined(_OPENMP)
 #pragma omp atomic
@@ -253,8 +306,19 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           }
           result.cherry_pick_k_map(y, x) = static_cast<float>(samples.size());
         }
+        bool reuse_control_result = false;
         if (cfg.compute_uniform_control) {
-          auto control_samples = samples;
+          reuse_control_result = !samples.empty();
+          const float first_weight = samples.front().weight;
+          for (const auto &sample : samples) {
+            if (sample.weight != first_weight) {
+              reuse_control_result = false;
+              break;
+            }
+          }
+        }
+        if (cfg.compute_uniform_control && !reuse_control_result) {
+          control_samples.assign(samples.begin(), samples.end());
           for (auto &sample : control_samples) sample.weight = 1.0f;
           auto control = aqmh_sigma_clip(
               std::move(control_samples), cfg.clip_sigma,
@@ -266,11 +330,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
             result.uniform_control_output(y, x) =
                 static_cast<float>(control_accum / control.weight_sum);
           }
+          control_samples = std::move(control.retained);
         }
         auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma,
                                        cfg.clip_iterations, cfg.min_fraction,
                                        cfg.min_n_eff);
         if (!clipped.denominator_ok) {
+          samples = std::move(clipped.retained);
 #if defined(_OPENMP)
 #pragma omp atomic
 #endif
@@ -285,6 +351,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         for (const auto &s : clipped.retained) accum += s.weight * s.value;
         result.output(y, x) = static_cast<float>(accum / clipped.weight_sum);
         result.weight_sum(y, x) = clipped.weight_sum;
+        if (cfg.compute_uniform_control && reuse_control_result)
+          result.uniform_control_output(y, x) = result.output(y, x);
+        samples = std::move(clipped.retained);
       }
     }
     if (progress) progress(y0 + rows, height);
