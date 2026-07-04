@@ -16,12 +16,16 @@ LinearityThresholds
 /// artifact, and error-handling semantics expected by callers.
 linearity_thresholds_for(const std::string &strictness) {
   if (strictness == "moderate") {
-    return {1.2f, 1.2f, 0.7f, 0.9f, 0.7f};
+    return {1.5f, 1.5f, 0.8f, 0.20f, 0.5f};
   }
   if (strictness == "permissive") {
-    return {1.5f, 1.5f, 1.0f, 0.8f, 1.0f};
+    return {2.0f, 2.0f, 1.2f, 0.10f, 0.8f};
   }
-  return {1.2f, 1.2f, 0.5f, 0.95f, 0.5f};
+  // strict: energy_ratio uses only DC corner (top-left of DFT), so realistic
+  // floor for astrophotos (stars = HF energy) is ~0.25-0.40.
+  // gradient_consistency is now normalized by pixel range (not mean), so
+  // typical values are 0.05-0.30 for well-exposed linear frames.
+  return {1.2f, 1.2f, 0.6f, 0.25f, 0.4f};
 }
 
 LinearityFrameResult
@@ -94,25 +98,25 @@ validate_linearity_frame(const Matrix2Df &img,
   cv::Sobel(small, gy, CV_32F, 0, 1, 3);
   cv::magnitude(gx, gy, mag);
   double mean_grad = cv::mean(mag)[0];
-  double mean_frame = cv::mean(small)[0];
+  // Normalize gradient by pixel range (p99-p1) instead of mean, because
+  // background-subtracted frames have mean≈0 which would make this diverge.
+  float pixel_range = (p99 - p1) + 1.0e-6f;
   out.gradient_consistency =
-      static_cast<float>(2.0 * (mean_grad / (std::fabs(mean_frame) + 1.0e-12)));
+      static_cast<float>(mean_grad / static_cast<double>(pixel_range));
 
   out.energy_ratio = 0.0f;
   if (small.rows >= 8 && small.cols >= 8) {
-    cv::Mat dft;
-    cv::dft(small, dft, cv::DFT_COMPLEX_OUTPUT);
+    cv::Mat dft_img;
+    cv::dft(small, dft_img, cv::DFT_COMPLEX_OUTPUT);
     std::vector<cv::Mat> planes;
-    cv::split(dft, planes);
+    cv::split(dft_img, planes);
     cv::Mat mag2 = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
     double total_energy = cv::sum(mag2)[0];
+    // Only the top-left corner is the true low-frequency (DC) region in
+    // standard (non-shifted) DFT layout. The other 3 corners are Nyquist/
+    // high-frequency aliases and must NOT be counted as low-frequency.
     int r = std::max(1, std::min(mag2.rows, mag2.cols) / 8);
-    double low_energy = 0.0;
-    low_energy += cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
-    low_energy += cv::sum(mag2(cv::Rect(0, mag2.rows - r, r, r)))[0];
-    low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, 0, r, r)))[0];
-    low_energy +=
-        cv::sum(mag2(cv::Rect(mag2.cols - r, mag2.rows - r, r, r)))[0];
+    double low_energy = cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
     if (total_energy > 0.0) {
       out.energy_ratio = static_cast<float>(low_energy / total_energy);
     }
