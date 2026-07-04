@@ -22,7 +22,7 @@ export function createRunMonitorPage() {
 
   // Run control
   const startBtn = el("button", { class: "tc-btn tc-btn-primary", id: "run-start-btn", onclick: () => startRun() }, t("ui.button.run_start", "Start"));
-  const stopBtn = el("button", { class: "tc-btn", id: "run-stop-btn", onclick: () => stopRun() }, t("ui.button.stop", "Stop"));
+  const stopBtn = el("button", { class: "tc-btn", id: "run-stop-btn", disabled: true, onclick: () => stopRun() }, t("ui.button.stop", "Stop"));
   const resumeBtn = el("button", { class: "tc-btn", id: "run-resume-btn", onclick: () => resumeRun() }, t("ui.button.resume", "Resume"));
   const control = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.run_control", "Run Control")),
@@ -135,7 +135,12 @@ export function createRunMonitorPage() {
     // If no saved phases, the config-based phases from createPhaseList are already shown
   });
 
-  restoreCurrentRun();
+  // Defer until the page element is mounted in the DOM. createRunMonitorPage
+  // returns the page node which the caller appends — any getElementById calls
+  // before that (e.g. setRunButtonsActive) silently find nothing. Yielding via
+  // setTimeout(0) guarantees the caller has appended the page before we try
+  // to manipulate button elements.
+  setTimeout(() => restoreCurrentRun(), 0);
   return page;
 }
 
@@ -243,6 +248,7 @@ async function restoreCurrentRun() {
       const runName = current.run_id.replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
       updateStat("info-run-name", runName);
       await refreshRunStatus(current.run_id);
+      setRunButtonsActive(isRunning);
       // Load existing logs from REST endpoint
       await loadInitialLogs(current.run_id, logViewer, warningBanner);
       if (isRunning) {
@@ -720,6 +726,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
       updateStat("stat-status", runStatus);
       updateStat("info-status", runStatus);
       setRunState({ status: runStatus });
+      setRunButtonsActive(runStatus === "running");
     }
     const currentPhase = payload.current_phase || data.phase || "";
     if (currentPhase && currentPhase !== "null" && runStatus === "running") {
