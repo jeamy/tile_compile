@@ -220,6 +220,54 @@ TEST_CASE("aqmh_validation_regression_is_zero_for_identical_control") {
   REQUIRE(comparison.background_rms_regression == Catch::Approx(0.0f));
 }
 
+TEST_CASE("aqmh_region_streaming_avoids_full_frame_loads") {
+  const auto dir = unique_recon_cache_dir("aqmh_region_streaming");
+  std::filesystem::remove_all(dir);
+  constexpr int W = 8, H = 6, N = 4;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  for (int fi = 0; fi < N; ++fi) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(H, W, 10.0f + fi));
+    cache.write(static_cast<size_t>(fi),
+                tile_compile::Matrix2Df::Constant(H, W, 0.5f), mask);
+  }
+  tile_compile::VectorXf global = tile_compile::VectorXf::Ones(N);
+  int full_frame_loads = 0;
+  auto full_loader = [&](size_t fi, tile_compile::Matrix2Df &out) {
+    ++full_frame_loads;
+    out = frames[fi];
+    return true;
+  };
+  auto full_mask_loader = [&](size_t, std::vector<uint8_t> &out) {
+    out = mask;
+    return true;
+  };
+  auto region_loader = [&](size_t fi, int y0, int rows,
+                           tile_compile::Matrix2Df &out) {
+    out = frames[fi].block(y0, 0, rows, W);
+    return true;
+  };
+  auto mask_region_loader = [&](size_t, int y0, int rows,
+                                std::vector<uint8_t> &out) {
+    out.assign(mask.begin() + static_cast<long>(y0 * W),
+               mask.begin() + static_cast<long>((y0 + rows) * W));
+    return true;
+  };
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.clip_iterations = 0;
+  cfg.min_n_eff = 1.0f;
+  cfg.compute_uniform_control = true;
+  const auto result = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      N, full_loader, &cache, global, mask, W, H, cfg, full_mask_loader,
+      region_loader, mask_region_loader);
+  REQUIRE(full_frame_loads == 0);
+  REQUIRE(result.region_streaming_used);
+  REQUIRE(result.output(2, 3) == Catch::Approx(11.5f));
+  REQUIRE(result.uniform_control_output(2, 3) == Catch::Approx(11.5f));
+  std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
   constexpr int H = 16;
   constexpr int W = 18;

@@ -48,18 +48,40 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
     metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
     const std::vector<uint8_t> &canvas_mask, int width, int height,
     const AqmhReconstructionConfig &cfg,
-    const AqmhMaskLoader &load_frame_valid_mask) {
+    const AqmhMaskLoader &load_frame_valid_mask,
+    const AqmhFrameRegionLoader &load_frame_region,
+    const AqmhMaskRegionLoader &load_frame_valid_mask_region,
+    const AqmhProgressCallback &progress) {
   AqmhReconstructionResult result;
   result.output = Matrix2Df::Zero(height, width);
   result.weight_sum = Matrix2Df::Zero(height, width);
+  if (cfg.compute_uniform_control)
+    result.uniform_control_output = Matrix2Df::Zero(height, width);
   if (!load_frame || !q_map_cache || frame_count == 0 || width <= 0 || height <= 0)
     return result;
+
+  // Validate each full M_f digest once. The previous slab loop re-read and
+  // re-hashed a full mask for every frame and every slab.
+  std::vector<uint8_t> frame_mask_compatible(frame_count, 1u);
+  if (load_frame_valid_mask) {
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      std::vector<uint8_t> full_mask;
+      frame_mask_compatible[fi] =
+          load_frame_valid_mask(fi, full_mask) &&
+          full_mask.size() == static_cast<size_t>(width * height) &&
+          q_map_cache->source_mask_hash(fi) ==
+              tile_compile::core::sha256_bytes(full_mask);
+    }
+  }
 
   bool cherry_enabled = cfg.cherry_pick;
   Matrix2Df nominal_map = Matrix2Df::Zero(height, width);
   if (cherry_enabled) {
     Matrix2Df rankable = Matrix2Df::Zero(height, width);
     for (size_t fi = 0; fi < frame_count; ++fi) {
+      if (frame_mask_compatible[fi] == 0u) {
+        continue;
+      }
       Matrix2Df frame;
       if (!load_frame(fi, frame) || frame.rows() != height || frame.cols() != width) continue;
       Matrix2Df q = q_map_cache->read_cached(fi);
@@ -107,11 +129,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   uint64_t cherry_active_pixels = 0;
   uint64_t canvas_pixels = 0;
 
+  // A larger row slab amortizes file-open and seek overhead. Region loaders
+  // keep physical I/O proportional to N*pixels instead of N*full_frame*slabs.
   const size_t bytes_per_sample = sizeof(AqmhWeightedSample);
-  const size_t target_bytes = 128u * 1024u * 1024u;
+  const size_t target_mb = static_cast<size_t>(std::clamp(
+      cfg.memory_budget_mb / 2, 128, 1536));
+  const size_t target_bytes = target_mb * 1024u * 1024u;
   const size_t denom = std::max<size_t>(1, static_cast<size_t>(width) *
                                              frame_count * bytes_per_sample);
   const int chunk_rows = std::max(1, std::min(height, static_cast<int>(target_bytes / denom)));
+  result.chunk_rows = chunk_rows;
+  result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
+  result.region_streaming_used = static_cast<bool>(load_frame_region);
 
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
@@ -121,23 +150,32 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
     for (auto &v : pixels) v.reserve(frame_count);
 
     for (size_t fi = 0; fi < frame_count; ++fi) {
+      if (frame_mask_compatible[fi] == 0u) {
+        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+        continue;
+      }
       Matrix2Df frame;
-      if (!load_frame(fi, frame) || frame.rows() != height || frame.cols() != width) continue;
-      Matrix2Df q = q_map_cache->read_cached(fi);
-      if (q.rows() != height || q.cols() != width) {
+      const bool frame_ok = load_frame_region
+          ? load_frame_region(fi, y0, rows, frame)
+          : load_frame(fi, frame);
+      if (!frame_ok || frame.cols() != width ||
+          frame.rows() != (load_frame_region ? rows : height)) continue;
+      Matrix2Df q = load_frame_region
+          ? q_map_cache->read_region(fi, y0, rows)
+          : q_map_cache->read_cached(fi);
+      if (q.cols() != width || q.rows() != (load_frame_region ? rows : height)) {
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
       std::vector<uint8_t> fm;
-      if (load_frame_valid_mask &&
-          (!load_frame_valid_mask(fi, fm) ||
-           fm.size() != static_cast<size_t>(width * height))) {
-        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-        continue;
-      }
-      if (load_frame_valid_mask &&
-          q_map_cache->source_mask_hash(fi) !=
-              tile_compile::core::sha256_bytes(fm)) {
+      const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
+      const bool mask_ok = use_region_mask
+          ? load_frame_valid_mask_region(fi, y0, rows, fm)
+          : (!load_frame_valid_mask || load_frame_valid_mask(fi, fm));
+      const size_t expected_mask = static_cast<size_t>(width) *
+                                   (use_region_mask ? rows : height);
+      if ((load_frame_valid_mask || use_region_mask) &&
+          (!mask_ok || fm.size() != expected_mask)) {
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
@@ -147,17 +185,19 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         for (int x = 0; x < width; ++x) {
           const size_t full_i = static_cast<size_t>(y * width + x);
           const size_t local_i = static_cast<size_t>(yy * width + x);
+          const int source_y = load_frame_region ? yy : y;
+          const size_t mask_i = use_region_mask ? local_i : full_i;
           if (!canvas_valid(canvas_mask, width, height, x, y) ||
-              (!fm.empty() && (full_i >= fm.size() || fm[full_i] == 0u)) ||
-              !std::isfinite(frame(y, x))) continue;
-          if (!std::isfinite(q(y, x))) { ++result.missing_map_samples; continue; }
+              (!fm.empty() && (mask_i >= fm.size() || fm[mask_i] == 0u)) ||
+              !std::isfinite(frame(source_y, x))) continue;
+          if (!std::isfinite(q(source_y, x))) { ++result.missing_map_samples; continue; }
           ++finite_maps[local_i];
           ++result.finite_map_samples;
-          const float score = gw * std::max(0.0f, q(y, x));
+          const float score = gw * std::max(0.0f, q(source_y, x));
           const float weight = cfg.uniform_weights && score > 0.0f
                                    ? 1.0f : score;
           if (weight > 0.0f)
-            pixels[local_i].push_back({frame(y, x), weight, score, fi});
+            pixels[local_i].push_back({frame(source_y, x), weight, score, fi});
         }
       }
     }
@@ -213,6 +253,20 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           }
           result.cherry_pick_k_map(y, x) = static_cast<float>(samples.size());
         }
+        if (cfg.compute_uniform_control) {
+          auto control_samples = samples;
+          for (auto &sample : control_samples) sample.weight = 1.0f;
+          auto control = aqmh_sigma_clip(
+              std::move(control_samples), cfg.clip_sigma,
+              cfg.clip_iterations, cfg.min_fraction, cfg.min_n_eff);
+          if (control.denominator_ok) {
+            double control_accum = 0.0;
+            for (const auto &s : control.retained)
+              control_accum += s.weight * s.value;
+            result.uniform_control_output(y, x) =
+                static_cast<float>(control_accum / control.weight_sum);
+          }
+        }
         auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma,
                                        cfg.clip_iterations, cfg.min_fraction,
                                        cfg.min_n_eff);
@@ -233,6 +287,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         result.weight_sum(y, x) = clipped.weight_sum;
       }
     }
+    if (progress) progress(y0 + rows, height);
   }
 
   result.cherry_pick_active = cherry_enabled && cherry_active_pixels > 0;

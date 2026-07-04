@@ -206,6 +206,70 @@ Matrix2Df QualityMapCache::read(size_t fi) const {
   return full;
 }
 
+Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
+  if (!metadata_matches() || y0 < 0 || rows <= 0 || y0 + rows > full_height_)
+    return empty_matrix();
+  const int d = storage_cfg_.resolution_divisor;
+  const auto stored_coord = [d](int y) {
+    return (static_cast<float>(y) + 0.5f) / static_cast<float>(d) - 0.5f;
+  };
+  const int sy0 = std::clamp(
+      static_cast<int>(std::floor(stored_coord(y0))), 0, stored_height_ - 1);
+  const int sy1 = std::clamp(
+      static_cast<int>(std::floor(stored_coord(y0 + rows - 1))) + 1,
+      0, stored_height_ - 1);
+  Matrix2Df stored = decode_stored_rows(fi, sy0, sy1 - sy0 + 1);
+  if (stored.size() == 0) return stored;
+  Matrix2Df out(rows, full_width_);
+#pragma omp parallel for schedule(static)
+  for (int ry = 0; ry < rows; ++ry) {
+    const int y = y0 + ry;
+    const float sy = stored_coord(y);
+    const int base_y = static_cast<int>(std::floor(sy));
+    const float ty = sy - base_y;
+    const int ay0 = std::clamp(base_y, 0, stored_height_ - 1) - sy0;
+    const int ay1 = std::clamp(base_y + 1, 0, stored_height_ - 1) - sy0;
+    for (int x = 0; x < full_width_; ++x) {
+      const float sx = (static_cast<float>(x) + 0.5f) /
+                           static_cast<float>(d) - 0.5f;
+      const int base_x = static_cast<int>(std::floor(sx));
+      const float tx = sx - base_x;
+      const int ax0 = std::clamp(base_x, 0, stored_width_ - 1);
+      const int ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
+      const float v0 = (1.0f - tx) * stored(ay0, ax0) +
+                       tx * stored(ay0, ax1);
+      const float v1 = (1.0f - tx) * stored(ay1, ax0) +
+                       tx * stored(ay1, ax1);
+      out(ry, x) = clamp_q((1.0f - ty) * v0 + ty * v1);
+    }
+  }
+  if (d > 1) {
+    const size_t first_bit = static_cast<size_t>(y0) * full_width_;
+    const size_t bit_count = static_cast<size_t>(rows) * full_width_;
+    const size_t first_byte = first_bit / 8u;
+    const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
+    std::vector<uint8_t> packed(last_byte - first_byte, 0u);
+    std::ifstream in(veto_path(fi), std::ios::binary);
+    if (!in) return empty_matrix();
+    in.seekg(static_cast<std::streamoff>(first_byte));
+    in.read(reinterpret_cast<char *>(packed.data()),
+            static_cast<std::streamsize>(packed.size()));
+    if (!in) return empty_matrix();
+    for (size_t i = 0; i < bit_count; ++i) {
+      const size_t global_bit = first_bit + i;
+      if (((packed[global_bit / 8u - first_byte] >> (global_bit % 8u)) & 1u) != 0u)
+        out.data()[i] = 0.0f;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++stats_.read_count;
+    stats_.bytes_read += static_cast<uint64_t>(stored.size()) *
+                         dtype_bytes(storage_cfg_.dtype);
+  }
+  return out;
+}
+
 Matrix2Df QualityMapCache::read_cached(size_t fi) const {
   if (storage_cfg_.max_resident_maps <= 0)
     return read(fi);
@@ -402,6 +466,39 @@ Matrix2Df QualityMapCache::decode_file(size_t fi) const {
       stored.data()[i] = static_cast<float>(raw[static_cast<size_t>(i)]) / 255.0f;
   }
   return stored;
+}
+
+Matrix2Df QualityMapCache::decode_stored_rows(
+    size_t fi, int y0, int rows) const {
+  if (y0 < 0 || rows <= 0 || y0 + rows > stored_height_) return empty_matrix();
+  std::ifstream in(map_path(fi), std::ios::binary);
+  if (!in) return empty_matrix();
+  const size_t count = static_cast<size_t>(rows) * stored_width_;
+  const size_t offset = static_cast<size_t>(y0) * stored_width_ *
+                        dtype_bytes(storage_cfg_.dtype);
+  in.seekg(static_cast<std::streamoff>(offset));
+  Matrix2Df out(rows, stored_width_);
+  if (storage_cfg_.dtype == "float32") {
+    in.read(reinterpret_cast<char *>(out.data()),
+            static_cast<std::streamsize>(count * sizeof(float)));
+    if (!in) return empty_matrix();
+    for (size_t i = 0; i < count; ++i) out.data()[i] = clamp_q(out.data()[i]);
+  } else if (storage_cfg_.dtype == "uint16") {
+    std::vector<uint16_t> raw(count);
+    in.read(reinterpret_cast<char *>(raw.data()),
+            static_cast<std::streamsize>(count * sizeof(uint16_t)));
+    if (!in) return empty_matrix();
+    for (size_t i = 0; i < count; ++i)
+      out.data()[i] = static_cast<float>(raw[i]) / 65535.0f;
+  } else {
+    std::vector<uint8_t> raw(count);
+    in.read(reinterpret_cast<char *>(raw.data()),
+            static_cast<std::streamsize>(count));
+    if (!in) return empty_matrix();
+    for (size_t i = 0; i < count; ++i)
+      out.data()[i] = static_cast<float>(raw[i]) / 255.0f;
+  }
+  return out;
 }
 
 Matrix2Df QualityMapCache::downsample_for_storage(

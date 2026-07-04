@@ -31,16 +31,16 @@ bool run_phase_aqmh_reconstruction(
 
   const auto aqmh_reconstruction_acceleration = acceleration.selection_for(
       core::AccelerationPhase::aqmh_reconstruction);
-  const core::AccelerationOps aqmh_reconstruction_ops(
-      acceleration, core::AccelerationPhase::aqmh_reconstruction);
-  core::WorkerCudaStreams aqmh_reconstruction_stream(
-      aqmh_reconstruction_acceleration.selected ==
-          core::AccelerationBackend::opencv_cuda,
-      1);
   log_file << "[AQMH_RECONSTRUCTION] "
            << core::acceleration_selection_summary(
                   aqmh_reconstruction_acceleration)
            << std::endl;
+  if (aqmh_reconstruction_acceleration.using_gpu) {
+    log_file << "[AQMH_RECONSTRUCTION] v0.2 weighted-MAD uses the exact "
+                "CPU region-streaming backend; the legacy v0.1 CUDA kernel "
+                "is intentionally not used."
+             << std::endl;
+  }
   if (!aqmh_cache) {
     const std::string err =
         "AQMH enabled but AQMH quality-map cache is unavailable";
@@ -64,6 +64,8 @@ bool run_phase_aqmh_reconstruction(
   aqmh_recon_cfg.cherry_pick_margin_min = cfg.aqmh.cherry_pick.margin_min;
   aqmh_recon_cfg.tiered_k_frac = cfg.aqmh.cherry_pick.tiered_k_frac;
   aqmh_recon_cfg.parallel_workers = std::max(1, cfg.runtime_limits.parallel_workers);
+  aqmh_recon_cfg.memory_budget_mb = cfg.runtime_limits.memory_budget;
+  aqmh_recon_cfg.compute_uniform_control = true;
 
   auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
     if (fi >= frames.size() || fi >= frame_has_data.size() ||
@@ -80,36 +82,39 @@ bool run_phase_aqmh_reconstruction(
     output = aqmh_mask_store.read(fi);
     return output.size() == static_cast<size_t>(canvas_width * canvas_height);
   };
+  auto aqmh_frame_region_loader =
+      [&](size_t fi, int y0, int rows, Matrix2Df &output) -> bool {
+    if (fi >= frames.size() || fi >= frame_has_data.size() ||
+        frame_has_data[fi] == 0u) return false;
+    return prewarped_frames.extract_tile_into(
+        fi, Tile{0, y0, canvas_width, rows}, output);
+  };
+  auto aqmh_mask_region_loader =
+      [&](size_t fi, int y0, int rows,
+          std::vector<uint8_t> &output) -> bool {
+    output = aqmh_mask_store.read_region(fi, y0, rows);
+    return output.size() == static_cast<size_t>(canvas_width * rows);
+  };
 
   std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
             << frames.size() << " frame slots cpu_workers="
-            << (aqmh_recon_cfg.cherry_pick ? 1 : aqmh_recon_cfg.parallel_workers)
-            << " gpu="
-            << (aqmh_reconstruction_acceleration.using_gpu &&
-                        !aqmh_recon_cfg.cherry_pick
-                    ? "yes"
-                    : "no")
-            << " backend="
-            << (aqmh_recon_cfg.cherry_pick
-                    ? "cpu(cherry_pick_fallback)"
-                    : core::acceleration_backend_name(
-                          aqmh_reconstruction_acceleration.selected))
+            << aqmh_recon_cfg.parallel_workers
+            << " gpu=no backend=cpu_exact_v0_2 region_streaming=yes"
             << std::endl;
-  const auto aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
+  const auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
       frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
       common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
-      aqmh_reconstruction_stream.get(0), aqmh_mask_loader);
-
-  auto control_cfg = aqmh_recon_cfg;
-  control_cfg.cherry_pick = false;
-  control_cfg.uniform_weights = true;
-  const auto uniform_control = reconstruction::reconstruct_aqmh_weighted(
-      frames.size(), aqmh_frame_loader, aqmh_cache.get(),
-      aqmh_global_weights, common_valid_mask, canvas_width, canvas_height,
-      control_cfg, aqmh_mask_loader);
+      aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+      [&](int rows_done, int rows_total) {
+        emitter.phase_progress_counts(
+            run_id, Phase::AQMH_RECONSTRUCTION, rows_done, rows_total,
+            "AQMH reconstruction rows " + std::to_string(rows_done) + "/" +
+                std::to_string(rows_total),
+            "rows", log_file);
+      });
   out.control_validation =
       reconstruction::compare_aqmh_to_uniform_control(
-          aqmh_recon.output, uniform_control.output);
+          aqmh_recon.output, aqmh_recon.uniform_control_output);
 
   if (aqmh_recon.cherry_pick_forced_disabled) {
     emitter.warning(
@@ -153,6 +158,11 @@ bool run_phase_aqmh_reconstruction(
   artifact["method"] = "aqmh";
   artifact["acceleration"] = core::acceleration_selection_to_json(
       aqmh_reconstruction_acceleration);
+  artifact["execution_backend"] = "cpu_exact_v0_2";
+  artifact["region_streaming"] = true;
+  artifact["uniform_control_same_pass"] = true;
+  artifact["chunk_rows"] = aqmh_recon.chunk_rows;
+  artifact["chunk_count"] = aqmh_recon.chunk_count;
   artifact["num_frames"] = static_cast<int>(frames.size());
   artifact["canvas_width"] = canvas_width;
   artifact["canvas_height"] = canvas_height;
@@ -162,8 +172,9 @@ bool run_phase_aqmh_reconstruction(
   artifact["zero_veto_pixels"] = aqmh_recon.zero_veto_pixels;
   artifact["finite_map_samples"] = aqmh_recon.finite_map_samples;
   artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
-  artifact["acceleration_used"] = aqmh_recon.acceleration_used;
-  artifact["acceleration_fallback"] = aqmh_recon.acceleration_fallback;
+  artifact["acceleration_used"] = false;
+  artifact["acceleration_fallback"] =
+      aqmh_reconstruction_acceleration.using_gpu;
   artifact["clip_sigma"] = aqmh_recon_cfg.clip_sigma;
   artifact["clip_iterations"] = aqmh_recon_cfg.clip_iterations;
   artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;

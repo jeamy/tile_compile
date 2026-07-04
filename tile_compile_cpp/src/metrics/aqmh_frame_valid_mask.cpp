@@ -66,6 +66,30 @@ std::vector<uint8_t> FrameValidMaskStore::read(size_t frame_index) const {
   return mask;
 }
 
+std::vector<uint8_t> FrameValidMaskStore::read_region(
+    size_t frame_index, int y0, int rows) const {
+  if (y0 < 0 || rows <= 0 || y0 + rows > height_) return {};
+  const size_t first_bit = static_cast<size_t>(y0) * width_;
+  const size_t bit_count = static_cast<size_t>(rows) * width_;
+  const size_t first_byte = first_bit / 8u;
+  const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
+  std::vector<uint8_t> packed(last_byte - first_byte, 0u);
+  std::ifstream in(path(frame_index), std::ios::binary);
+  if (!in) return {};
+  in.seekg(static_cast<std::streamoff>(first_byte));
+  in.read(reinterpret_cast<char *>(packed.data()),
+          static_cast<std::streamsize>(packed.size()));
+  if (!in) return {};
+  std::vector<uint8_t> mask(bit_count, 0u);
+  for (size_t i = 0; i < bit_count; ++i) {
+    const size_t global_bit = first_bit + i;
+    const size_t local_byte = global_bit / 8u - first_byte;
+    mask[i] = static_cast<uint8_t>(
+        (packed[local_byte] >> (global_bit % 8u)) & 1u);
+  }
+  return mask;
+}
+
 std::string FrameValidMaskStore::hash(size_t frame_index) const {
   const auto mask = read(frame_index);
   return mask.empty() ? std::string() : core::sha256_bytes(mask);

@@ -9,22 +9,71 @@
 namespace tile_compile::reconstruction {
 namespace {
 
-float weighted_median(std::vector<AqmhWeightedSample> samples, bool deviations,
-                      float center = 0.0f) {
-  std::sort(samples.begin(), samples.end(), [&](const auto &a, const auto &b) {
-    const float av = deviations ? std::abs(a.value - center) : a.value;
-    const float bv = deviations ? std::abs(b.value - center) : b.value;
-    return av != bv ? av < bv : a.frame_index < b.frame_index;
-  });
-  double total = 0.0;
-  for (const auto &s : samples) total += s.weight;
-  double cumulative = 0.0;
-  for (const auto &s : samples) {
-    cumulative += s.weight;
-    if (cumulative >= 0.5 * total)
-      return deviations ? std::abs(s.value - center) : s.value;
+float sample_key(const AqmhWeightedSample &sample, bool deviations,
+                 float center) {
+  return deviations ? std::abs(sample.value - center) : sample.value;
+}
+
+// Deterministic three-way weighted quickselect. This replaces a complete
+// O(N log N) sort for every median and MAD evaluation with expected O(N).
+float weighted_median_select(std::vector<AqmhWeightedSample> &samples,
+                             bool deviations, float center = 0.0f) {
+  if (samples.empty()) return 0.0f;
+  double target = 0.0;
+  for (const auto &sample : samples) target += sample.weight;
+  target *= 0.5;
+  size_t first = 0, last = samples.size();
+  while (last - first > 1) {
+    const float a = sample_key(samples[first], deviations, center);
+    const float b = sample_key(samples[first + (last - first) / 2],
+                               deviations, center);
+    const float c = sample_key(samples[last - 1], deviations, center);
+    const float pivot = std::max(std::min(a, b), std::min(std::max(a, b), c));
+    size_t lower = first, scan = first, upper = last;
+    while (scan < upper) {
+      const float key = sample_key(samples[scan], deviations, center);
+      if (key < pivot) {
+        std::swap(samples[lower++], samples[scan++]);
+      } else if (key > pivot) {
+        std::swap(samples[scan], samples[--upper]);
+      } else {
+        ++scan;
+      }
+    }
+    double lower_weight = 0.0, equal_weight = 0.0;
+    for (size_t i = first; i < lower; ++i) lower_weight += samples[i].weight;
+    for (size_t i = lower; i < upper; ++i) equal_weight += samples[i].weight;
+    if (target <= lower_weight && lower > first) {
+      last = lower;
+    } else if (target <= lower_weight + equal_weight || upper == last) {
+      return pivot;
+    } else {
+      target -= lower_weight + equal_weight;
+      first = upper;
+    }
   }
-  return samples.empty() ? 0.0f : samples.back().value;
+  return sample_key(samples[first], deviations, center);
+}
+
+float median_select(std::vector<float> &values) {
+  if (values.empty()) return 0.0f;
+  const size_t mid = values.size() / 2;
+  std::nth_element(values.begin(), values.begin() + mid, values.end());
+  const float hi = values[mid];
+  if (values.size() % 2 != 0) return hi;
+  const float lo = *std::max_element(values.begin(), values.begin() + mid);
+  return 0.5f * (lo + hi);
+}
+
+float noise_floor(const std::vector<AqmhWeightedSample> &samples) {
+  std::vector<float> values;
+  values.reserve(samples.size());
+  for (const auto &sample : samples) values.push_back(sample.value);
+  const float center = median_select(values);
+  for (float &value : values) value = std::abs(value - center);
+  const float mad = median_select(values);
+  return std::max(std::nextafter(0.0f, 1.0f),
+                  metrics::aqmh_eps_rel * mad);
 }
 
 } // namespace
@@ -42,12 +91,10 @@ AqmhSigmaClipResult aqmh_sigma_clip(
   const size_t keep_floor = std::min(
       n0, std::max<size_t>(1, static_cast<size_t>(std::ceil(min_fraction * n0))));
   for (int iter = 0; iter < iterations; ++iter) {
-    const float center = weighted_median(samples, false);
-    const float mad = weighted_median(samples, true, center);
-    std::vector<float> values;
-    values.reserve(samples.size());
-    for (const auto &s : samples) values.push_back(s.value);
-    const float floor = metrics::eps_noise(values);
+    const float center = weighted_median_select(samples, false);
+    auto deviations = samples;
+    const float mad = weighted_median_select(deviations, true, center);
+    const float floor = noise_floor(samples);
     std::vector<AqmhWeightedSample> next;
     if (mad <= floor) {
       for (const auto &s : samples) if (s.value == center) next.push_back(s);

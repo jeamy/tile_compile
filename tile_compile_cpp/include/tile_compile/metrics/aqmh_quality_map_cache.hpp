@@ -38,6 +38,8 @@ public:
   void write(size_t fi, const Matrix2Df &q_map,
              const std::vector<uint8_t> &source_valid_mask = {});
   Matrix2Df read(size_t fi) const;
+  /// Decode only a contiguous full-resolution row range.
+  Matrix2Df read_region(size_t fi, int y0, int rows) const;
   Matrix2Df read_cached(size_t fi) const;
   bool has(size_t fi) const;
   void clear_memory_cache() const;
@@ -62,6 +64,7 @@ private:
   bool metadata_matches() const;
   void evict_to_limit_locked() const;
   Matrix2Df decode_file(size_t fi) const;
+  Matrix2Df decode_stored_rows(size_t fi, int y0, int rows) const;
   Matrix2Df downsample_for_storage(
       const Matrix2Df &q_map,
       const std::vector<uint8_t> &source_valid_mask) const;

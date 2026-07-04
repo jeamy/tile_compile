@@ -56,6 +56,22 @@ std::vector<uint8_t> empty_frame_mask(int w, int h) {
 
 } // namespace
 
+TEST_CASE("aqmh_weighted_mad_quickselect_is_deterministic") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  for (size_t i = 0; i < 101; ++i) {
+    const float value = i == 100 ? 1000.0f : static_cast<float>(i % 11);
+    samples.push_back({value, 1.0f + static_cast<float>(i % 5), 1.0f, i});
+  }
+  const auto a = recon::aqmh_sigma_clip(samples, 3.0f, 3, 0.5f, 1.0f);
+  const auto b = recon::aqmh_sigma_clip(samples, 3.0f, 3, 0.5f, 1.0f);
+  REQUIRE(a.denominator_ok);
+  REQUIRE(a.weight_sum == b.weight_sum);
+  REQUIRE(a.effective_n == b.effective_n);
+  REQUIRE(a.retained.size() == b.retained.size());
+  for (size_t i = 0; i < a.retained.size(); ++i)
+    REQUIRE(a.retained[i].frame_index == b.retained[i].frame_index);
+}
+
 // §9.1 — Map range: Q_map ∈ [0,1] for all finite source-valid pixels
 TEST_CASE("aqmh_validation_01_map_range") {
   const int W = 32, H = 32;

@@ -16,6 +16,7 @@ public:
   FrameValidMaskStore(std::filesystem::path directory, int width, int height);
   void write(size_t frame_index, const std::vector<uint8_t> &mask);
   std::vector<uint8_t> read(size_t frame_index) const;
+  std::vector<uint8_t> read_region(size_t frame_index, int y0, int rows) const;
   std::string hash(size_t frame_index) const;
 
 private:
