@@ -35,7 +35,8 @@ public:
   QualityMapCache(const QualityMapCache &) = delete;
   QualityMapCache &operator=(const QualityMapCache &) = delete;
 
-  void write(size_t fi, const Matrix2Df &q_map);
+  void write(size_t fi, const Matrix2Df &q_map,
+             const std::vector<uint8_t> &source_valid_mask = {});
   Matrix2Df read(size_t fi) const;
   Matrix2Df read_cached(size_t fi) const;
   bool has(size_t fi) const;
@@ -44,6 +45,7 @@ public:
 
   const std::filesystem::path &cache_dir() const;
   std::filesystem::path map_path(size_t fi) const;
+  std::string source_mask_hash(size_t fi) const;
   AqmhQualityMapCacheStats stats() const;
 
   int full_width() const;
@@ -54,11 +56,16 @@ public:
 
 private:
   std::filesystem::path metadata_path() const;
+  std::filesystem::path veto_path(size_t fi) const;
+  std::filesystem::path source_mask_hash_path(size_t fi) const;
   void write_metadata() const;
   bool metadata_matches() const;
   void evict_to_limit_locked() const;
   Matrix2Df decode_file(size_t fi) const;
-  Matrix2Df downsample_for_storage(const Matrix2Df &q_map) const;
+  Matrix2Df downsample_for_storage(
+      const Matrix2Df &q_map,
+      const std::vector<uint8_t> &source_valid_mask) const;
+  void apply_zero_veto_mask(size_t fi, Matrix2Df &map) const;
   Matrix2Df upsample_to_full_resolution(const Matrix2Df &stored) const;
 
   std::filesystem::path cache_dir_;

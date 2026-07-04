@@ -47,6 +47,7 @@ bool run_phase_local_metrics(
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
     std::vector<float> &tile_fwhm_median,
     std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
+    VectorXf &out_aqmh_global_weights,
     int tile_offset_x = 0, int tile_offset_y = 0);
 
 } // namespace tile_compile::runner

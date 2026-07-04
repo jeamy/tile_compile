@@ -3505,7 +3505,8 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
         const json tg = read_json_if_exists(artifacts_dir / "tile_grid.json");
         const json reg = read_json_if_exists(artifacts_dir / "global_registration.json");
         const json lm = read_json_if_exists(artifacts_dir / "local_metrics.json");
-        const json recon = read_json_if_exists(artifacts_dir / "tile_reconstruction.json");
+        json recon = read_json_if_exists(artifacts_dir / "aqmh_reconstruction.json");
+        if (recon.empty()) recon = read_json_if_exists(artifacts_dir / "tile_reconstruction.json");
         const json cl = read_json_if_exists(artifacts_dir / "state_clustering.json");
         const json syn = read_json_if_exists(artifacts_dir / "synthetic_frames.json");
         const json bge = read_json_if_exists(artifacts_dir / "bge.json");

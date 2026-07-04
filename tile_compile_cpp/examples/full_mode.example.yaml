@@ -314,7 +314,7 @@ aqmh:
     max_resident_maps: 2    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
   cherry_pick:
     enabled: false  # true: nur beste k_frac*N Frames stacken
-    k_min: 3        # Mindestanzahl Frames im Cherry-Pick-Modus
+    k_min_required: 20 # Lauf-Gate und Untergrenze erhaltener Samples pro Pixel
     k_frac: 0.30    # Anteil bester Frames (0.30 = beste 30%)
   diagnostics:
     tau_artifact: 0.20      # Schwelle fuer Artefakt-Diagnose in artifacts/aqmh.json

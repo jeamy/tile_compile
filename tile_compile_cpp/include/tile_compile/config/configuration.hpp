@@ -246,9 +246,28 @@ struct AqmhPyramidConfig {
 };
 
 struct AqmhStorageConfig {
-  int resolution_divisor = 2;
+  int resolution_divisor = 1;
   std::string dtype = "float32";
   int max_resident_maps = 2;
+};
+
+struct AqmhGlobalQualityConfig {
+  float g_floor = 0.05f;
+  float g_w_sharp = 0.6f;
+  float g_w_snr = 0.4f;
+};
+
+struct AqmhReconstructionConfig {
+  float clip_sigma = 3.0f;
+  int clip_iterations = 3;
+  float min_fraction = 0.5f;
+  float min_n_eff = 2.0f;
+};
+
+struct AqmhValidationConfig {
+  float max_seam_score_regression = 0.02f;
+  float max_fwhm_regression = 0.02f;
+  float max_background_rms_regression = 0.02f;
 };
 
 struct AqmhDiagnosticsConfig {
@@ -258,17 +277,26 @@ struct AqmhDiagnosticsConfig {
 };
 
 struct AqmhCherryPickConfig {
+  struct Tier {
+    int min_n_rankable = 0;
+    float k_frac = 0.30f;
+  };
   bool enabled = false;
-  int k_min = 3;
   float k_frac = 0.30f;
+  int k_min_required = 20;
+  float margin_min = 0.02f;
+  std::vector<Tier> tiered_k_frac;
 };
 
 struct AqmhConfig {
   bool enabled = true; // Runtime-Flag, wird aus Config::method abgeleitet via normalizeMethod()
   AqmhPyramidConfig pyramid;
   AqmhStorageConfig storage;
+  AqmhGlobalQualityConfig global_quality;
   AqmhCherryPickConfig cherry_pick;
   AqmhDiagnosticsConfig diagnostics;
+  AqmhReconstructionConfig reconstruction;
+  AqmhValidationConfig validation;
 };
 
 struct SyntheticConfig {

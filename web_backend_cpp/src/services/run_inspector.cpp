@@ -69,6 +69,10 @@ std::string phase_name_from_id(int phase_id) {
         case 16: return "PCC";
         case 17: return "HYPERMETRIC_STRETCH";
         case 18: return "DONE";
+        case 19: return "AQMH_MAPS";
+        case 20: return "AQMH_GLOBAL_QUALITY";
+        case 21: return "AQMH_RECONSTRUCTION";
+        case 22: return "AQMH_DIAGNOSTICS";
         default: return "";
     }
 }
@@ -110,14 +114,13 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
             "SCAN_INPUT",
             "CHANNEL_SPLIT",
             "NORMALIZATION",
-            "GLOBAL_METRICS",
-            "TILE_GRID",
             "REGISTRATION",
             "PREWARP",
             "COMMON_OVERLAP",
             "AQMH_MAPS",
+            "AQMH_GLOBAL_QUALITY",
             "AQMH_RECONSTRUCTION",
-            "STACKING",
+            "AQMH_DIAGNOSTICS",
             "DEBAYER",
             "ASTROMETRY",
             "BGE",

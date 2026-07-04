@@ -1,4 +1,5 @@
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/metrics/aqmh_eps.hpp"
 
 #include <algorithm>
 #include <array>
@@ -146,22 +147,27 @@ void fill_window(const Matrix2Df &m, int cx, int cy, int r, WindowBuf &buf) {
   }
 }
 
-Matrix2Df canvas_masked_frame(const Matrix2Df &frame,
-                              const std::vector<uint8_t> &mask, int mask_w,
-                              int mask_h) {
+Matrix2Df source_masked_frame(const Matrix2Df &frame,
+                              const std::vector<uint8_t> &canvas_mask,
+                              const std::vector<uint8_t> &frame_mask,
+                              int mask_w, int mask_h) {
   Matrix2Df out(frame.rows(), frame.cols());
-  const bool use_mask = !mask.empty();
+  const bool use_mask = !canvas_mask.empty();
+  const bool use_frame_mask = !frame_mask.empty();
   const bool mask_shape_valid =
       !use_mask || (mask_w == frame.cols() && mask_h == frame.rows() &&
-                    mask.size() == static_cast<size_t>(frame.size()));
+                    canvas_mask.size() == static_cast<size_t>(frame.size()));
+  const bool frame_mask_shape_valid =
+      !use_frame_mask || frame_mask.size() == static_cast<size_t>(frame.size());
   const auto n = static_cast<std::ptrdiff_t>(frame.size());
   const float *src = frame.data();
   float *dst = out.data();
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < n; ++i) {
     const float v = src[i];
-    const bool valid = mask_shape_valid &&
-                       (!use_mask || mask[static_cast<size_t>(i)] != 0u);
+    const bool valid = mask_shape_valid && frame_mask_shape_valid &&
+                       (!use_mask || canvas_mask[static_cast<size_t>(i)] != 0u) &&
+                       (!use_frame_mask || frame_mask[static_cast<size_t>(i)] != 0u);
     dst[i] = (valid && finite(v)) ? v : nan_value();
   }
   return out;
@@ -224,7 +230,7 @@ Matrix2Df masked_laplacian(const Matrix2Df &img) {
         }
       }
       if (count >= 2)
-        out(y, x) = std::abs(static_cast<float>(sum - count * c));
+        out(y, x) = c - static_cast<float>(sum / static_cast<double>(count));
     }
   }
   return out;
@@ -433,47 +439,38 @@ Matrix2Df local_mean(const Matrix2Df &m, int r) {
 Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
                   const Matrix2Df &valid_cnt, int r,
                   bool &scene_dependent) {
-  // Performance optimisation: replace the O(W*H*R²) per-pixel median window
-  // with a two-step approach:
-  //   1. Local background b_s via separable O(W*H) box mean (local_mean).
-  //      The mean is a fast approximation; for smooth background regions the
-  //      difference from the true median is negligible at the signal/noise
-  //      scale.  For pixels with fewer than 3 valid neighbours the fallback
-  //      path is taken and scene_dependent is set.
-  //   2. Local noise sigma via separable O(W*H) MAD approximation:
-  //      sigma ≈ 1.4826 * local_mean(|img - b_s|, r).
-  //      Because |img - bg| is always non-negative, the mean of absolute
-  //      deviations is proportional to the true MAD; the 1.4826 factor
-  //      converts it to a consistent sigma estimate under Gaussian noise.
-  //
-  // For tiny windows (< 3 valid neighbours) the original O(R²) window
-  // fallback is used and scene_dependent is set.  At scale 0 with R=4 on
-  // a 24 Mpx sensor this reduces the hot-path from O(W*H*81*log81) to
-  // O(W*H).
+  // Separable O(W*H) fast path (restored from pre-v0.2):
+  //   signal = local_mean(max(img - bg, 0), r)
+  //   noise  = 1.4826 * local_mean(|img - bg|, r)  (MAD approximation)
+  // eps_noise is computed once globally over source-valid pixels as a floor
+  // (spec §2.2: eps_noise(I_s over W_s_valid)) — not per-window.
   const int rows = static_cast<int>(img.rows());
   const int cols = static_cast<int>(img.cols());
+
+  // Global eps_noise floor: computed once over all finite pixels.
+  const float global_eps_noise = eps_noise(finite_values(img));
 
   // Signal = local_mean(max(img - bg, 0), r).
   Matrix2Df sig_img(rows, cols);
   sig_img.setConstant(nan_value());
-  const auto n = static_cast<std::ptrdiff_t>(img.size());
+  const auto np = static_cast<std::ptrdiff_t>(img.size());
   const float *img_data = img.data();
   const float *bg_data = bg.data();
   float *sig_data = sig_img.data();
 #pragma omp simd
-  for (std::ptrdiff_t i = 0; i < n; ++i) {
+  for (std::ptrdiff_t i = 0; i < np; ++i) {
     const bool valid = finite(img_data[i]) && finite(bg_data[i]);
     sig_data[i] = valid ? std::max(img_data[i] - bg_data[i], 0.0f)
                         : nan_value();
   }
   const Matrix2Df mu = local_mean(sig_img, r);
 
-  // Step 4: noise = 1.4826 * local_mean(|img - bg|, r)  (MAD approximation).
+  // Noise = 1.4826 * local_mean(|img - bg|, r)  (MAD approximation).
   Matrix2Df abs_dev(rows, cols);
   abs_dev.setConstant(nan_value());
   float *abs_dev_data = abs_dev.data();
 #pragma omp simd
-  for (std::ptrdiff_t i = 0; i < n; ++i) {
+  for (std::ptrdiff_t i = 0; i < np; ++i) {
     const bool valid = finite(img_data[i]) && finite(bg_data[i]);
     abs_dev_data[i] = valid ? std::abs(img_data[i] - bg_data[i]) : nan_value();
   }
@@ -491,7 +488,6 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
         continue;
 
       if (n_valid < 3.0f) {
-        // Fallback: original O(R²) window path.
 #pragma omp atomic write
         scene_dependent = true;
         fill_window(img, x, y, r, buf);
@@ -499,13 +495,13 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
         double sum = 0.0;
         for (int i = 0; i < buf.size(); ++i)
           sum += std::max(buf.data[static_cast<size_t>(i)], 0.0f);
-        out(y, x) = static_cast<float>(sum / buf.size()) / eps_aqmh;
+        out(y, x) = static_cast<float>(sum / buf.size()) / global_eps_noise;
         continue;
       }
 
       if (!finite(mu(y, x)) || !finite(noise_map(y, x)))
         continue;
-      const float sigma = std::max(1.4826f * noise_map(y, x), eps_aqmh);
+      const float sigma = std::max(1.4826f * noise_map(y, x), global_eps_noise);
       out(y, x) = mu(y, x) / sigma;
     }
   }
@@ -514,37 +510,27 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
 
 Matrix2Df phi_artifact(const Matrix2Df &img, const Matrix2Df &blur, int r,
                        float k_artifact, float frac_artifact_max) {
-  // Performance optimisation: replace the O(W*H*R²) per-pixel MAD+outlier-
-  // fraction loop with a separable approach.
-  //
-  // Algorithm:
-  //   1. hp = img - local_mean(img, r)              — separable O(W*H)
-  //   2. tau_map = 1.4826 * local_mean(|hp|, r)     — separable O(W*H),
-  //      MAD approximation (same as phi_snr noise estimate)
-  //   3. outlier_ind = (|hp| > k * tau_map) ? 1 : 0 — pixel-wise O(W*H)
-  //   4. frac_out = local_mean(outlier_ind, r)       — separable O(W*H)
-  //   5. phi_artifact = min_quality + (1-min_quality) * (1 - clip(frac_out/frac_max, 0,1))
-  //
-  // Step 2 uses local_mean(|hp|) as a fast proxy for the true local MAD.
-  // Under symmetric noise this is proportional: E[|x - mu|] ≈ sigma*sqrt(2/pi)
-  // and MAD ≈ 0.6745*sigma, so the ratio is ~1.22 × mean_abs_dev.  The 1.4826
-  // constant scales to a Gaussian-consistent sigma regardless of the proxy
-  // used, so relative outlier detection is stable.
-  //
-  // The overall complexity is O(W*H) per scale instead of O(W*H*R²).
-
-  // Step 1: high-pass residual.
-  Matrix2Df hp(img.rows(), img.cols());
-  hp.setConstant(nan_value());
+  // Separable O(W*H) fast path (restored from pre-v0.2):
+  //   hp = img - local_mean(img, r)
+  //   tau_map = 1.4826 * local_mean(|hp|, r)  (MAD approximation)
+  //   frac_out = local_mean((|hp| > k*tau_map) ? 1 : 0, r)
+  // eps_scale is computed once globally over hp (spec §2.3: eps_scale(hp_s over H_s_valid)).
   const auto n = static_cast<std::ptrdiff_t>(img.size());
   const float *img_data = img.data();
   const float *blur_data = blur.data();
+
+  // Step 1: high-pass residual hp = img - blur (where blur = local_mean).
+  Matrix2Df hp(img.rows(), img.cols());
+  hp.setConstant(nan_value());
   float *hp_data = hp.data();
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < n; ++i) {
     const bool valid = finite(img_data[i]) && finite(blur_data[i]);
     hp_data[i] = valid ? img_data[i] - blur_data[i] : nan_value();
   }
+
+  // Global eps_scale floor: computed once over all finite hp pixels.
+  const float global_eps_scale = eps_scale(finite_values(hp));
 
   // Step 2: local robust scale = 1.4826 * local_mean(|hp|, r).
   Matrix2Df abs_hp(img.rows(), img.cols());
@@ -556,7 +542,10 @@ Matrix2Df phi_artifact(const Matrix2Df &img, const Matrix2Df &blur, int r,
   }
   const Matrix2Df mean_abs = local_mean(abs_hp, r);
 
-  // Step 3: binary outlier indicator.
+  // Step 3: binary outlier indicator (NaN where hp is invalid).
+  // Spec §2.3.2c: frac_out denom = |H_s_valid| (finite hp pixels in window),
+  // not the total window size. We track this via local_mean_and_count on both
+  // the outlier indicator and the finite-hp indicator separately.
   Matrix2Df outlier_ind(img.rows(), img.cols());
   outlier_ind.setConstant(nan_value());
   const float *mean_abs_data = mean_abs.data();
@@ -564,31 +553,37 @@ Matrix2Df phi_artifact(const Matrix2Df &img, const Matrix2Df &blur, int r,
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < n; ++i) {
     const bool valid = finite(hp_data[i]) && finite(mean_abs_data[i]);
-    const float tau = std::max(1.4826f * mean_abs_data[i], eps_aqmh);
+    const float tau = std::max(1.4826f * mean_abs_data[i], global_eps_scale);
     outlier_data[i] = valid ? ((std::abs(hp_data[i]) > k_artifact * tau)
                                    ? 1.0f
                                    : 0.0f)
                               : nan_value();
   }
 
-  // Step 4: local outlier fraction = local_mean(outlier_ind, r).
-  const Matrix2Df frac_out = local_mean(outlier_ind, r);
+  // Step 4: outlier_count = local_sum(outlier_ind, r);
+  //         h_valid_count = |H_s_valid| per pixel = local count of finite hp.
+  // local_mean_and_count returns mean and count over finite values, so:
+  //   outlier_count(p) = outlier_mean(p) * outlier_count_map(p)  [count of finite outlier_ind]
+  //   h_valid_count(p) = count of finite hp = same finite support as outlier_ind
+  // Since outlier_ind is NaN iff hp is NaN, both share the same finite support.
+  const LocalMeanResult outlier_lm = local_mean_and_count(outlier_ind, r);
+  const Matrix2Df &h_valid_count = outlier_lm.count; // = |H_s_valid| per pixel
 
-  // Step 5: assemble phi_artifact with min_quality floor.
+  // Step 5: assemble phi_artifact with spec-correct frac_out = outlier_count / |H_s_valid|.
+  // |H_s_valid| = 0 → invalid; < 3 → 1.0f (insufficient support, no false veto, §2.3.2c).
   Matrix2Df out(img.rows(), img.cols());
   out.setConstant(nan_value());
-  constexpr float min_quality = 0.01f; // prevents black blocks in smooth regions
-  const float *frac_data = frac_out.data();
+  const float *mean_out_data = outlier_lm.mean.data();
+  const float *hvc_data = h_valid_count.data();
   float *out_data = out.data();
+  const float safe_frac_max = std::max(frac_artifact_max, global_eps_scale);
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < n; ++i) {
-      const float value = std::clamp(
-          min_quality + (1.0f - min_quality) *
-              (1.0f - std::clamp(frac_data[i] /
-                                     std::max(frac_artifact_max, eps_aqmh),
-                                 0.0f, 1.0f)),
-          min_quality, 1.0f);
-      out_data[i] = finite(frac_data[i]) ? value : nan_value();
+    const float hvc = hvc_data[i];
+    if (hvc <= 0.0f) continue;                    // |H_s_valid| = 0 → invalid
+    if (hvc < 3.0f) { out_data[i] = 1.0f; continue; } // < 3 → no false veto
+    const float frac = finite(mean_out_data[i]) ? mean_out_data[i] : 0.0f;
+    out_data[i] = 1.0f - std::clamp(frac / safe_frac_max, 0.0f, 1.0f);
   }
   return out;
 }
@@ -597,18 +592,15 @@ Matrix2Df robust_zscore(const Matrix2Df &m) {
   Matrix2Df out(m.rows(), m.cols());
   out.setConstant(nan_value());
   const auto values = finite_values(m);
-  const float med = median_of(values);
-  const float scale = std::max(1.4826f * mad_of(values, med), eps_aqmh);
-  if (!finite(med))
+  const auto z = robust_zscore_eps_scale(values);
+  if (values.empty())
     return out;
   const auto n = static_cast<std::ptrdiff_t>(m.size());
   const float *m_data = m.data();
   float *out_data = out.data();
-#pragma omp simd
-  for (std::ptrdiff_t i = 0; i < n; ++i) {
-    const float v = m_data[i];
-    out_data[i] = finite(v) ? (v - med) / scale : nan_value();
-  }
+  size_t zi = 0;
+  for (std::ptrdiff_t i = 0; i < n; ++i)
+    if (finite(m_data[i])) out_data[i] = z[zi++];
   return out;
 }
 
@@ -675,6 +667,7 @@ Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
 
 AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
+    const std::vector<uint8_t> &frame_valid_mask,
     int canvas_mask_width, int canvas_mask_height,
     const config::AqmhPyramidConfig &cfg,
     core::AccelerationBackend backend,
@@ -685,8 +678,8 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     return result;
 
   const Matrix2Df masked =
-      canvas_masked_frame(frame, canvas_mask, canvas_mask_width,
-                          canvas_mask_height);
+      source_masked_frame(frame, canvas_mask, frame_valid_mask,
+                          canvas_mask_width, canvas_mask_height);
   const int min_dim = std::min(frame.rows(), frame.cols());
   Matrix2Dd log_sum = Matrix2Dd::Zero(frame.rows(), frame.cols());
   std::vector<uint8_t> veto(static_cast<size_t>(frame.size()), 0u);
@@ -723,10 +716,15 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     result.diagnostics.scene_dependent_snr =
         result.diagnostics.scene_dependent_snr || scene_dependent;
 
-    if (s == 0)
+    if (s == 0) {
       result.diagnostics.sharpness_p50 = finite_median(sharp);
-    if (s == 1)
+      result.diagnostics.g_sharp_summary = result.diagnostics.sharpness_p50;
+      result.diagnostics.g_snr_summary = finite_median(snr);
+    }
+    if (s == 1) {
       result.diagnostics.snr_p50 = finite_median(snr);
+      result.diagnostics.g_snr_summary = result.diagnostics.snr_p50;
+    }
 
     const Matrix2Df psi = mask_aware_bilinear_upsample(
         compute_psi(sharp, snr, artifact, cfg), frame.cols(), frame.rows(),
@@ -742,8 +740,7 @@ AqmhQualityMapResult compute_aqmh_quality_map(
         if (!finite(v) || v <= 0.0f) {
           veto[idx] = 1u;
         } else {
-          log_sum(y, x) +=
-              std::log(static_cast<double>(std::clamp(v, eps_aqmh, 1.0f)));
+          log_sum(y, x) += std::log(static_cast<double>(v));
         }
       }
     }
@@ -755,14 +752,16 @@ AqmhQualityMapResult compute_aqmh_quality_map(
 
   for (int y = 0; y < frame.rows(); ++y) {
     for (int x = 0; x < frame.cols(); ++x) {
-      if (!mask_valid(canvas_mask, canvas_mask_width, canvas_mask_height, x,
-                      y)) {
-        result.q_map(y, x) = 0.0f;
-        continue;
-      }
       const size_t idx = static_cast<size_t>(y) *
                              static_cast<size_t>(frame.cols()) +
                          static_cast<size_t>(x);
+      const bool frame_ok = frame_valid_mask.empty() ||
+                            (idx < frame_valid_mask.size() && frame_valid_mask[idx] != 0u);
+      if (!mask_valid(canvas_mask, canvas_mask_width, canvas_mask_height, x, y) ||
+          !frame_ok) {
+        result.q_map(y, x) = 0.0f;
+        continue;
+      }
       result.q_map(y, x) =
           veto[idx] != 0u
               ? 0.0f
@@ -770,6 +769,10 @@ AqmhQualityMapResult compute_aqmh_quality_map(
                     std::exp(log_sum(y, x) / computed_scales));
     }
   }
+
+  result.diagnostics.g_summary_invalid =
+      !finite(result.diagnostics.g_sharp_summary) ||
+      !finite(result.diagnostics.g_snr_summary);
 
   return result;
 }

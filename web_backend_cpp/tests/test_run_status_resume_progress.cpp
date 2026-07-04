@@ -318,13 +318,11 @@ int main(int argc, char** argv) {
             }
             if (item.value("phase", "") == "STACKING") {
                 found_overlay_stack = true;
-                expect_equal(item["status"].get<std::string>(), "pending", "aqmh resume overlay resets later phases");
-                expect_equal(item["pct"].get<double>(), 0.0, "aqmh resume overlay resets later pct", 1e-9);
             }
         }
         expect_true(found_overlay_aqmh_maps, "aqmh maps phase present after resume overlay");
         expect_true(found_overlay_aqmh_reconstruction, "aqmh reconstruction phase present after resume overlay");
-        expect_true(found_overlay_stack, "stacking phase present after aqmh resume overlay");
+        expect_true(!found_overlay_stack, "aqmh resume overlay hides classic stacking phase");
 
         const auto aqmh_resumed_job = harness.wait_for_job(aqmh_resumed["job_id"].get<std::string>(), 5.0);
         expect_equal(aqmh_resumed_job["state"].get<std::string>(), "ok", "aqmh resume overlay job completes");

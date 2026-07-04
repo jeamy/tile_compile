@@ -309,7 +309,7 @@ aqmh:
     max_resident_maps: 2
   cherry_pick:
     enabled: false
-    k_min: 3
+    k_min_required: 20
     k_frac: 0.30
   diagnostics:
     tau_artifact: 0.20

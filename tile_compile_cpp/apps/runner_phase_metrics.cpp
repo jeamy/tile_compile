@@ -529,8 +529,15 @@ bool run_phase_channel_split_normalization_global_metrics(
                     log_file);
 
   // Phase 3: GLOBAL_METRICS
-  emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS",
-                      log_file);
+  // For AQMH this phase is not exposed as a pipeline stage (AQMH computes its
+  // own frame-quality factor G in AQMH_GLOBAL_QUALITY), but the metrics are
+  // still needed for downstream BGE validation and the registration weight
+  // penalty. Therefore we keep the computation but skip the phase events.
+  const bool expose_global_metrics = !cfg.aqmh.enabled;
+  if (expose_global_metrics) {
+    emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS",
+                        log_file);
+  }
 
   out.frame_metrics.assign(frames.size(), {});
   auto &frame_metrics = out.frame_metrics;
@@ -613,13 +620,15 @@ bool run_phase_channel_split_normalization_global_metrics(
             frames.empty()
                 ? 1.0f
                 : static_cast<float>(done) / static_cast<float>(frames.size());
-        std::lock_guard<std::mutex> lock(gm_progress_mutex);
-        emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
-                               "metrics " + std::to_string(done) + "/" +
-                                   std::to_string(frames.size()) +
-                                   " workers=" +
-                                   std::to_string(global_metrics_workers),
-                               log_file);
+        if (expose_global_metrics) {
+          std::lock_guard<std::mutex> lock(gm_progress_mutex);
+          emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
+                                 "metrics " + std::to_string(done) + "/" +
+                                     std::to_string(frames.size()) +
+                                     " workers=" +
+                                     std::to_string(global_metrics_workers),
+                                 log_file);
+        }
       }
     }
   };
@@ -640,10 +649,12 @@ bool run_phase_channel_split_normalization_global_metrics(
   }
 
   if (gm_failed.load(std::memory_order_relaxed)) {
-    emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
-                      {{"error", gm_error.empty() ? "unknown_error"
-                                                   : gm_error}},
-                      log_file);
+    if (expose_global_metrics) {
+      emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
+                        {{"error", gm_error.empty() ? "unknown_error"
+                                                     : gm_error}},
+                        log_file);
+    }
     emitter.run_end(run_id, false, "error", log_file);
     std::cerr << "Error during GLOBAL_METRICS: "
               << (gm_error.empty() ? "unknown_error" : gm_error) << std::endl;
@@ -718,11 +729,13 @@ bool run_phase_channel_split_normalization_global_metrics(
                      artifact.dump(2));
   }
 
-  emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
-                    {
-                        {"num_frames", static_cast<int>(frame_metrics.size())},
-                    },
-                    log_file);
+  if (expose_global_metrics) {
+    emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
+                      {
+                          {"num_frames", static_cast<int>(frame_metrics.size())},
+                      },
+                      log_file);
+  }
 
   return true;
 }

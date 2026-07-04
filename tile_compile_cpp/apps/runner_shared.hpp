@@ -581,6 +581,8 @@ public:
                          int offset_x = 0, int offset_y = 0) const;
   /// Release all currently mapped frame views without deleting cached files.
   void clear_mappings() const;
+  /// Release the mmap mapping for one frame; the cached file remains.
+  void invalidate_mapping(size_t fi) const;
 
   /// Whether a frame has been stored for `fi`.
   bool has_data(size_t fi) const;
@@ -596,7 +598,6 @@ public:
 
 private:
   const float *mapped_frame_ptr(size_t fi) const;
-  void invalidate_mapping(size_t fi);
   std::filesystem::path frame_path(size_t fi) const;
 
   std::filesystem::path cache_dir_;

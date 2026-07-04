@@ -84,7 +84,8 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
       "GLOBAL_METRICS",    "TILE_GRID",       "REGISTRATION",
       "PREWARP",           "COMMON_OVERLAP",  "LOCAL_METRICS",
       "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES",
-      "DEBAYER"};
+      "DEBAYER", "AQMH_MAPS", "AQMH_GLOBAL_QUALITY",
+      "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
 }
@@ -1831,6 +1832,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     image::BGEDiagnostics bge_diag;
     image::BGEConfig bge_cfg =
         tile_compile::runner::to_image_bge_config(cfg.bge);
+    bge_cfg.max_workers = cfg.runtime_limits.parallel_workers;
     std::string mask_error;
     const int rows = static_cast<int>(rgb.R.rows());
     const int cols = static_cast<int>(rgb.R.cols());

@@ -1,0 +1,256 @@
+#include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
+
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/core/utils.hpp"
+#include "tile_compile/reconstruction/aqmh_cherry_pick.hpp"
+#include "tile_compile/reconstruction/aqmh_sigma_clip.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
+namespace tile_compile::reconstruction {
+namespace {
+
+bool canvas_valid(const std::vector<uint8_t> &mask, int width, int height,
+                  int x, int y) {
+  if (x < 0 || y < 0 || x >= width || y >= height) return false;
+  return mask.empty() ||
+         (mask.size() == static_cast<size_t>(width * height) &&
+          mask[static_cast<size_t>(y * width + x)] != 0u);
+}
+
+float global_weight(const VectorXf &weights, size_t fi) {
+  if (fi >= static_cast<size_t>(weights.size())) return 0.0f;
+  const float value = weights[static_cast<Eigen::Index>(fi)];
+  return std::isfinite(value) && value > 0.0f ? value : 0.0f;
+}
+
+float quantile(std::vector<float> values, float q) {
+  if (values.empty()) return 0.0f;
+  std::sort(values.begin(), values.end());
+  const double pos = std::clamp<double>(q, 0.0, 1.0) * (values.size() - 1);
+  const size_t lo = static_cast<size_t>(std::floor(pos));
+  const size_t hi = static_cast<size_t>(std::ceil(pos));
+  const float t = static_cast<float>(pos - lo);
+  return values[lo] * (1.0f - t) + values[hi] * t;
+}
+
+} // namespace
+
+AqmhReconstructionResult reconstruct_aqmh_weighted(
+    size_t frame_count, const AqmhFrameLoader &load_frame,
+    metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
+    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const AqmhReconstructionConfig &cfg,
+    const AqmhMaskLoader &load_frame_valid_mask) {
+  AqmhReconstructionResult result;
+  result.output = Matrix2Df::Zero(height, width);
+  result.weight_sum = Matrix2Df::Zero(height, width);
+  if (!load_frame || !q_map_cache || frame_count == 0 || width <= 0 || height <= 0)
+    return result;
+
+  bool cherry_enabled = cfg.cherry_pick;
+  Matrix2Df nominal_map = Matrix2Df::Zero(height, width);
+  if (cherry_enabled) {
+    Matrix2Df rankable = Matrix2Df::Zero(height, width);
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      Matrix2Df frame;
+      if (!load_frame(fi, frame) || frame.rows() != height || frame.cols() != width) continue;
+      Matrix2Df q = q_map_cache->read_cached(fi);
+      if (q.rows() != height || q.cols() != width) continue;
+      std::vector<uint8_t> fm;
+      if (load_frame_valid_mask &&
+          (!load_frame_valid_mask(fi, fm) ||
+           fm.size() != static_cast<size_t>(width * height))) continue;
+      if (load_frame_valid_mask &&
+          q_map_cache->source_mask_hash(fi) !=
+              tile_compile::core::sha256_bytes(fm)) continue;
+      const float gw = global_weight(global_weights, fi);
+      for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+          const size_t i = static_cast<size_t>(y * width + x);
+          if (!canvas_valid(canvas_mask, width, height, x, y) ||
+              (!fm.empty() && (i >= fm.size() || fm[i] == 0u)) ||
+              !std::isfinite(frame(y, x)) || !std::isfinite(q(y, x)) ||
+              !(gw * q(y, x) > 0.0f)) continue;
+          rankable(y, x) += 1.0f;
+        }
+    }
+    std::vector<float> nominal_values;
+    nominal_values.reserve(static_cast<size_t>(width * height));
+    for (int y = 0; y < height; ++y)
+      for (int x = 0; x < width; ++x) {
+        if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
+        const int n = static_cast<int>(rankable(y, x));
+        const float frac = aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                                 cfg.tiered_k_frac);
+        nominal_map(y, x) = static_cast<float>(aqmh_k_nominal(n, frac));
+        nominal_values.push_back(nominal_map(y, x));
+      }
+    result.k_nominal_median = quantile(nominal_values, 0.5f);
+    if (result.k_nominal_median < cfg.cherry_pick_k_min_required) {
+      cherry_enabled = false;
+      result.cherry_pick_forced_disabled = true;
+    }
+  }
+
+  result.cherry_pick_k_map = cherry_enabled ? Matrix2Df::Zero(height, width)
+                                             : Matrix2Df();
+  std::vector<float> effective_k;
+  std::vector<float> margins;
+  uint64_t cherry_active_pixels = 0;
+  uint64_t canvas_pixels = 0;
+
+  const size_t bytes_per_sample = sizeof(AqmhWeightedSample);
+  const size_t target_bytes = 128u * 1024u * 1024u;
+  const size_t denom = std::max<size_t>(1, static_cast<size_t>(width) *
+                                             frame_count * bytes_per_sample);
+  const int chunk_rows = std::max(1, std::min(height, static_cast<int>(target_bytes / denom)));
+
+  for (int y0 = 0; y0 < height; y0 += chunk_rows) {
+    const int rows = std::min(chunk_rows, height - y0);
+    std::vector<std::vector<AqmhWeightedSample>> pixels(
+        static_cast<size_t>(rows * width));
+    std::vector<uint32_t> finite_maps(static_cast<size_t>(rows * width), 0u);
+    for (auto &v : pixels) v.reserve(frame_count);
+
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      Matrix2Df frame;
+      if (!load_frame(fi, frame) || frame.rows() != height || frame.cols() != width) continue;
+      Matrix2Df q = q_map_cache->read_cached(fi);
+      if (q.rows() != height || q.cols() != width) {
+        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+        continue;
+      }
+      std::vector<uint8_t> fm;
+      if (load_frame_valid_mask &&
+          (!load_frame_valid_mask(fi, fm) ||
+           fm.size() != static_cast<size_t>(width * height))) {
+        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+        continue;
+      }
+      if (load_frame_valid_mask &&
+          q_map_cache->source_mask_hash(fi) !=
+              tile_compile::core::sha256_bytes(fm)) {
+        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+        continue;
+      }
+      const float gw = global_weight(global_weights, fi);
+      for (int yy = 0; yy < rows; ++yy) {
+        const int y = y0 + yy;
+        for (int x = 0; x < width; ++x) {
+          const size_t full_i = static_cast<size_t>(y * width + x);
+          const size_t local_i = static_cast<size_t>(yy * width + x);
+          if (!canvas_valid(canvas_mask, width, height, x, y) ||
+              (!fm.empty() && (full_i >= fm.size() || fm[full_i] == 0u)) ||
+              !std::isfinite(frame(y, x))) continue;
+          if (!std::isfinite(q(y, x))) { ++result.missing_map_samples; continue; }
+          ++finite_maps[local_i];
+          ++result.finite_map_samples;
+          const float score = gw * std::max(0.0f, q(y, x));
+          const float weight = cfg.uniform_weights && score > 0.0f
+                                   ? 1.0f : score;
+          if (weight > 0.0f)
+            pixels[local_i].push_back({frame(y, x), weight, score, fi});
+        }
+      }
+    }
+
+    const int num_threads = std::max(1, cfg.parallel_workers);
+#if defined(_OPENMP)
+#pragma omp parallel for num_threads(num_threads) if(num_threads > 1) schedule(dynamic, 1)
+#endif
+    for (int yy = 0; yy < rows; ++yy) {
+      const int y = y0 + yy;
+      for (int x = 0; x < width; ++x) {
+        if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+        ++canvas_pixels;
+        const size_t li = static_cast<size_t>(yy * width + x);
+        auto samples = std::move(pixels[li]);
+        if (samples.empty()) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          ++result.unsupported_pixels;
+          if (finite_maps[li] > 0u) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+            ++result.zero_veto_pixels;
+          }
+          continue;
+        }
+        if (cherry_enabled) {
+          int nominal = 0;
+          float margin = -1.0f;
+          auto selected = aqmh_select_top_k(samples, cfg.cherry_pick_k_min_required,
+                                             cfg.cherry_pick_k_frac,
+                                             cfg.tiered_k_frac, &nominal, &margin);
+          if (!selected.empty()) {
+            if (selected.size() < samples.size()) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+              ++cherry_active_pixels;
+#if defined(_OPENMP)
+#pragma omp critical
+#endif
+              {
+                effective_k.push_back(static_cast<float>(selected.size()));
+                if (margin >= 0.0f) margins.push_back(margin);
+              }
+            }
+            samples = std::move(selected);
+          }
+          result.cherry_pick_k_map(y, x) = static_cast<float>(samples.size());
+        }
+        auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma,
+                                       cfg.clip_iterations, cfg.min_fraction,
+                                       cfg.min_n_eff);
+        if (!clipped.denominator_ok) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          ++result.unsupported_pixels;
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          ++result.numerical_guard_pixels;
+          continue;
+        }
+        double accum = 0.0;
+        for (const auto &s : clipped.retained) accum += s.weight * s.value;
+        result.output(y, x) = static_cast<float>(accum / clipped.weight_sum);
+        result.weight_sum(y, x) = clipped.weight_sum;
+      }
+    }
+  }
+
+  result.cherry_pick_active = cherry_enabled && cherry_active_pixels > 0;
+  result.cherry_pick_per_pixel_mode = cherry_enabled;
+  result.cherry_pick_active_frac = canvas_pixels > 0
+      ? static_cast<float>(cherry_active_pixels) / canvas_pixels : 0.0f;
+  if (!effective_k.empty()) {
+    result.k_effective_p10 = quantile(effective_k, 0.10f);
+    result.k_effective_p50 = quantile(effective_k, 0.50f);
+    result.k_effective_p90 = quantile(effective_k, 0.90f);
+    result.cherry_pick_mean_k = std::accumulate(effective_k.begin(), effective_k.end(), 0.0f) /
+                                effective_k.size();
+    result.cherry_pick_median_k = result.k_effective_p50;
+    result.cherry_pick_k_min_observed = static_cast<int>(*std::min_element(effective_k.begin(), effective_k.end()));
+    result.cherry_pick_k_max_observed = static_cast<int>(*std::max_element(effective_k.begin(), effective_k.end()));
+  }
+  if (!margins.empty()) result.low_rank_separation = quantile(margins, 0.5f) < cfg.cherry_pick_margin_min;
+  return result;
+}
+
+} // namespace tile_compile::reconstruction

@@ -106,6 +106,25 @@ TEST_CASE("aqmh_quality_map_cache_uint8_downsampled_readback_is_clamped") {
   std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("aqmh_format_v2_preserves_full_resolution_zero_veto") {
+  const auto dir = unique_cache_dir("aqmh_cache_veto_v2");
+  std::filesystem::remove_all(dir);
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  storage.resolution_divisor = 2;
+  tile_compile::metrics::QualityMapCache cache(
+      dir, "luma", 4, 4, pyramid, storage,
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(
+          std::vector<uint8_t>(16, 1u), 4, 4));
+  tile_compile::Matrix2Df map = tile_compile::Matrix2Df::Ones(4, 4);
+  map(1, 1) = 0.0f;
+  cache.write(0, map, std::vector<uint8_t>(16, 1u));
+  const auto decoded = cache.read(0);
+  REQUIRE(decoded(1, 1) == 0.0f);
+  REQUIRE(decoded(0, 0) > 0.0f);
+  std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("aqmh_quality_map_cache_uint16_roundtrip_is_low_loss") {
   const auto dir = unique_cache_dir("aqmh_cache_uint16");
   std::filesystem::remove_all(dir);

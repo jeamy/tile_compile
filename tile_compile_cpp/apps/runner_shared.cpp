@@ -1376,7 +1376,7 @@ const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
+void DiskCacheFrameStore::invalidate_mapping(size_t fi) const {
   void *view = nullptr;
   {
     std::lock_guard<std::mutex> lock(mapped_mutex_);

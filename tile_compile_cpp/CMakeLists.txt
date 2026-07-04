@@ -436,7 +436,15 @@ set(LIB_SOURCES
     src/metrics/linearity.cpp
     src/metrics/aqmh_quality_map.cpp
     src/metrics/aqmh_quality_map_cache.cpp
+    src/metrics/aqmh_eps.cpp
+    src/metrics/aqmh_global_quality.cpp
+    src/metrics/aqmh_frame_valid_mask.cpp
+    src/metrics/aqmh_regions.cpp
     src/reconstruction/reconstruction.cpp
+    src/reconstruction/aqmh_reconstruction.cpp
+    src/reconstruction/aqmh_sigma_clip.cpp
+    src/reconstruction/aqmh_validation.cpp
+    src/reconstruction/aqmh_cherry_pick.cpp
     src/reconstruction/memory_budget.cpp
     src/reconstruction/dead_tile_detector.cpp
     src/reconstruction/progress_reporter.cpp
@@ -489,6 +497,11 @@ add_executable(tile_compile_runner
     apps/runner_pipeline.cpp
     apps/runner_phase_metrics.cpp
     apps/runner_phase_local_metrics.cpp
+    apps/runner_phase_aqmh_maps.cpp
+    apps/runner_phase_aqmh_diagnostics.cpp
+    apps/runner_phase_aqmh_global_quality.cpp
+    apps/runner_phase_aqmh_reconstruction.cpp
+    apps/runner_aqmh_pipeline.cpp
     apps/runner_phase_registration.cpp
     apps/runner_phase_preprocess_pipeline.cpp
     apps/runner_phase_quality_analysis.cpp
@@ -569,6 +582,7 @@ if(BUILD_TESTS)
             tests/test_aqmh_quality_map.cpp
             tests/test_aqmh_quality_map_cache.cpp
             tests/test_aqmh_reconstruction.cpp
+            tests/test_aqmh_validation.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

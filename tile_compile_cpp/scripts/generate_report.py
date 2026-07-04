@@ -2497,7 +2497,9 @@ def generate_report(run_dir: Path) -> Path:
     tg = _read_json(artifacts_dir / "tile_grid.json")
     reg = _read_json(artifacts_dir / "global_registration.json")
     lm = _read_json(artifacts_dir / "local_metrics.json")
-    recon = _read_json(artifacts_dir / "tile_reconstruction.json")
+    recon = _read_json(artifacts_dir / "aqmh_reconstruction.json")
+    if not recon:
+        recon = _read_json(artifacts_dir / "tile_reconstruction.json")
     aqmh_metrics = _read_json(artifacts_dir / "aqmh_metrics.json")
     aqmh_regions = _read_json(artifacts_dir / "aqmh_regions.json")
     cl = _read_json(artifacts_dir / "state_clustering.json")

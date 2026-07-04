@@ -343,8 +343,27 @@ async function refreshRunStatus(runId) {
     }
 
     if (status.phases && Array.isArray(status.phases)) {
-      setPhaseList(status.phases);
-      setRunState({ phases: status.phases });
+      // Merge backend statuses into the correct phase order for the run method.
+      // This prevents backend-specific or out-of-order phases (e.g. GLOBAL_METRICS
+      // for AQMH) from appearing at the bottom of the list.
+      const method = status.method || (status.aqmh_enabled ? "aqmh" : "classic_tile_compile");
+      const basePhases = getPhasesForConfig({ method, aqmh: { enabled: method === "aqmh" } });
+      const statusMap = new Map();
+      for (const p of status.phases) {
+        const name = p.phase || p.phase_name || "";
+        if (name) statusMap.set(name, p);
+      }
+      const mergedPhases = basePhases.map(p => {
+        const s = statusMap.get(p.phase);
+        return {
+          phase: p.phase,
+          label: p.label,
+          status: s?.status || "pending",
+          pct: s?.pct ?? s?.progress ?? 0,
+        };
+      });
+      setPhaseList(mergedPhases);
+      setRunState({ phases: mergedPhases });
     }
 
     updateStat("info-run-id", status.run_id || runId);
