@@ -675,6 +675,7 @@ bool run_phase_channel_split_normalization_global_metrics(
     }
   }
 
+  out.frame_star_metrics = frame_star_metrics;
   out.global_weights = metrics::calculate_global_weights_with_stars(
       frame_metrics, frame_star_metrics, cfg.global_metrics.weights.background,
       cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,

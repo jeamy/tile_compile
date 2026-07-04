@@ -4,6 +4,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -26,6 +27,8 @@ struct PhaseMetricsContext {
   std::vector<image::NormalizationScales> norm_scales;
   /// Per-frame global quality metrics such as background, noise, FWHM, stars.
   std::vector<FrameMetrics> frame_metrics;
+  /// Per-frame star metrics (FWHM, roundness, star_count) from GLOBAL_METRICS.
+  std::vector<metrics::FrameStarMetrics> frame_star_metrics;
   /// Final global frame weights derived from `frame_metrics`.
   VectorXf global_weights;
   /// Disk cache containing normalized full-frame images for later phases.

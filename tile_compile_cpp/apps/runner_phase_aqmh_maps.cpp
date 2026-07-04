@@ -1,6 +1,7 @@
 #include "runner_phase_aqmh_maps.hpp"
 
 #include "runner_phase_local_metrics.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 
 namespace tile_compile::runner {
 
@@ -16,7 +17,8 @@ bool run_phase_aqmh_maps(
     bool apply_normalization, core::AccelerationContext &acceleration,
     core::EventEmitter &emitter, std::ostream &log_file,
     std::unique_ptr<metrics::QualityMapCache> &out_cache,
-    VectorXf &out_global_weights) {
+    VectorXf &out_global_weights,
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics) {
   std::vector<std::vector<TileMetrics>> unused_metrics;
   std::vector<std::vector<float>> unused_weights;
   std::vector<float> unused_quality, unused_fwhm;
@@ -28,7 +30,8 @@ bool run_phase_aqmh_maps(
       width, height, no_tile_mask, prewarped_frames, norm_scales,
       detected_mode, detected_bayer_str, apply_normalization, acceleration,
       emitter, log_file, unused_metrics, unused_weights, unused_quality,
-      unused_star, unused_fwhm, out_cache, out_global_weights, 0, 0);
+      unused_star, unused_fwhm, out_cache, out_global_weights, 0, 0,
+      frame_star_metrics);
 }
 
 } // namespace tile_compile::runner

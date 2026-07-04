@@ -5,6 +5,7 @@
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 
 #include <memory>
 
@@ -24,6 +25,7 @@ bool run_phase_aqmh_maps(
     bool apply_normalization, core::AccelerationContext &acceleration,
     core::EventEmitter &emitter, std::ostream &log_file,
     std::unique_ptr<metrics::QualityMapCache> &out_cache,
-    VectorXf &out_global_weights);
+    VectorXf &out_global_weights,
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {});
 
 } // namespace tile_compile::runner

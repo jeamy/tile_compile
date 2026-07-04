@@ -159,7 +159,8 @@ bool run_phase_local_metrics(
     std::vector<float> &tile_fwhm_median,
     std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
     VectorXf &out_aqmh_global_weights, int tile_offset_x,
-    int tile_offset_y) {
+    int tile_offset_y,
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics) {
   (void)tile_offset_x;
   (void)tile_offset_y;
   out_aqmh_cache.reset();
@@ -457,9 +458,26 @@ bool run_phase_local_metrics(
                 diag.snr_p50 = aqmh_result.diagnostics.snr_p50;
                 diag.scene_dependent_snr =
                     aqmh_result.diagnostics.scene_dependent_snr;
-                diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
+                // Use PSF-FWHM (inverted) as global sharpness summary when
+                // star metrics are available. local_variance(laplacian) is
+                // dominated by nebula/sky texture and correlates positively
+                // with seeing FWHM on bright extended-emission targets,
+                // causing an inversion (worse frames get higher weights).
+                // 1/wfwhm (smaller FWHM = higher value = better) fixes this.
+                if (fi < frame_star_metrics.size() &&
+                    frame_star_metrics[fi].wfwhm > 0.0f &&
+                    std::isfinite(frame_star_metrics[fi].wfwhm)) {
+                  diag.g_sharp_summary = 1.0f / frame_star_metrics[fi].wfwhm;
+                } else {
+                  diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
+                }
                 diag.g_snr_summary = aqmh_result.diagnostics.g_snr_summary;
-                diag.g_summary_invalid = aqmh_result.diagnostics.g_summary_invalid;
+                diag.g_summary_invalid =
+                    (fi >= frame_star_metrics.size() ||
+                     !(frame_star_metrics[fi].wfwhm > 0.0f &&
+                       std::isfinite(frame_star_metrics[fi].wfwhm)))
+                        ? aqmh_result.diagnostics.g_summary_invalid
+                        : (!std::isfinite(diag.g_snr_summary));
                 diag.regions = metrics::extract_aqmh_regions(
                     aqmh_result.q_map, frame_valid_mask,
                     cfg.aqmh.diagnostics.q_region,
@@ -572,6 +590,8 @@ bool run_phase_local_metrics(
           cfg.aqmh.storage.resolution_divisor > 1;
       aqmh_artifact["full_resolution_zero_veto_preserved"] = true;
       aqmh_artifact["isolated_defect_zero_veto_recall"] = 1.0;
+      aqmh_artifact["global_sharpness_method"] =
+          !frame_star_metrics.empty() ? "psf_wfwhm_inverted" : "laplacian_variance";
       aqmh_artifact["frames_total"] = static_cast<uint64_t>(frames.size());
       aqmh_artifact["frames_written"] =
           static_cast<uint64_t>(aqmh_written.load(std::memory_order_relaxed));
@@ -595,6 +615,12 @@ bool run_phase_local_metrics(
                 ? out_aqmh_global_weights[static_cast<Eigen::Index>(diag.frame_index)]
                 : 0.0f;
         jd["global_sharpness_input"] = diag.g_sharp_summary;
+        jd["global_sharpness_source"] =
+            (diag.frame_index < frame_star_metrics.size() &&
+             frame_star_metrics[diag.frame_index].wfwhm > 0.0f &&
+             std::isfinite(frame_star_metrics[diag.frame_index].wfwhm))
+                ? "psf_wfwhm_inverted"
+                : "laplacian_variance";
         jd["global_snr_input"] = diag.g_snr_summary;
         jd["global_quality_input_invalid"] =
             diag.frame_index < global_input_invalid.size()

@@ -2126,7 +2126,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               run_id, cfg, frames, run_dir, frame_has_data, common_valid_mask,
               canvas_width, canvas_height, prewarped_frames, norm_scales,
               detected_mode, detected_bayer_str, false, acceleration, emitter,
-              log_file, aqmh_cache, aqmh_global_weights)
+              log_file, aqmh_cache, aqmh_global_weights,
+              phase_metrics_ctx.frame_star_metrics)
         : runner::run_phase_local_metrics(
               run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
               common_valid_mask, canvas_width, canvas_height,
