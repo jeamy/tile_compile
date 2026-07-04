@@ -87,7 +87,16 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
       "GLOBAL_METRICS",    "TILE_GRID",       "REGISTRATION",
       "PREWARP",           "COMMON_OVERLAP",  "LOCAL_METRICS",
       "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES",
-      "DEBAYER", "AQMH_MAPS", "AQMH_GLOBAL_QUALITY",
+      "DEBAYER"};
+  return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
+         kPhases.end();
+}
+
+// AQMH phases that can reuse cached quality maps and skip directly to
+// reconstruction without a full pipeline rerun (§ Resume spec).
+bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
+  static const std::vector<std::string> kPhases = {
+      "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION",
       "AQMH_DIAGNOSTICS"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
@@ -696,6 +705,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
   if (is_inplace_rerun_phase(phase_upper)) {
     return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
+  }
+
+  // All AQMH phases that have cached quality maps can resume directly at
+  // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
+  // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
+  if (is_aqmh_cache_resume_phase(phase_upper)) {
+    phase_l = "aqmh_reconstruction";
+    phase_upper = "AQMH_RECONSTRUCTION";
   }
 
   fs::create_directories(run_dir / "logs");
