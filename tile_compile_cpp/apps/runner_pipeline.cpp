@@ -2270,6 +2270,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (abort_if_runtime_limit_exceeded("TILE_RECONSTRUCTION")) {
         return 1;
       }
+      // Phase: AQMH_DIAGNOSTICS — block-level Q-map statistics and heatmaps
+      if (!runner::run_phase_aqmh_diagnostics(
+              run_id, cfg, run_dir, aqmh_recon_result.recon,
+              aqmh_cache.get(), common_valid_mask, frame_has_data,
+              canvas_width, canvas_height, emitter, log_file)) {
+        return 1;
+      }
     } else {
 
     // Parallel processing configuration

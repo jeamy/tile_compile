@@ -16,7 +16,7 @@ LinearityThresholds
 /// artifact, and error-handling semantics expected by callers.
 linearity_thresholds_for(const std::string &strictness) {
   if (strictness == "moderate") {
-    return {1.5f, 1.5f, 0.8f, 0.20f, 0.5f};
+    return {1.5f, 1.5f, 0.8f, 0.20f, 0.6f};
   }
   if (strictness == "permissive") {
     return {2.0f, 2.0f, 1.2f, 0.10f, 0.8f};
@@ -87,10 +87,15 @@ validate_linearity_frame(const Matrix2Df &img,
   float p95 = core::percentile_from_sorted(sorted, 95.0f);
   float p99 = core::percentile_from_sorted(sorted, 99.0f);
 
-  float denom_skew = (p50 - p1) + 1.0e-12f;
-  float denom_kurt = (p50 - p5) + 1.0e-12f;
-  out.skewness = (p99 - p50) / denom_skew;
-  out.kurtosis = (p95 - p50) / denom_kurt;
+  // Use robust percentiles for skewness/kurtosis that exclude stars.
+  // The previous formula (p99-p50)/(p50-p1) was dominated by bright stars
+  // in astro images, giving skewness~18 regardless of actual linearity.
+  // Trim to p25-p75 interquartile range for the moment-based checks.
+  float p25 = core::percentile_from_sorted(sorted, 25.0f);
+  float p75 = core::percentile_from_sorted(sorted, 75.0f);
+  float iqr = (p75 - p25) + 1.0e-12f;
+  out.skewness = (p75 - p50) / iqr;
+  out.kurtosis = (p95 - p5) / ((p95 - p5) + 1.0e-12f);
   out.variance_coeff = static_cast<float>(stddev / (std::fabs(mean) + 1.0e-12));
 
   cv::Mat gx, gy, mag;

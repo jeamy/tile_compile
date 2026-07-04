@@ -65,15 +65,11 @@ bge:
     rbf_lambda: 0.01
     rbf_epsilon: 1
 calibration:
-  flats_dir: ""
-  bias_master: ""
-  bias_dir: ""
   flat_master: ""
+  flats_dir: ""
   dark_master: ""
-  dark_use_master: false
   dark_already_bias_corrected: false
   darks_dir: ""
-  use_dark: false
   use_flat: false
   use_bias: false
   bias_use_master: false
@@ -131,7 +127,7 @@ input:
   sort: numeric
 linearity:
   enabled: true
-  max_frames: 8
+  max_frames: 16
   min_overall_linearity: 0.9
   strictness: moderate
 local_metrics:
