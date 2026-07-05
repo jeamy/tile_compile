@@ -3,6 +3,14 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
+
+// Only include GPU headers if available
+#if TILE_COMPILE_WITH_CUDA
+#include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
+#endif
+
+#include "tile_compile/reconstruction/aqmh_reconstruction_opencl.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -25,7 +33,8 @@ bool run_phase_aqmh_reconstruction(
     core::EventEmitter &emitter, std::ostream &log_file,
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
-    AqmhReconstructionPhaseResult &out) {
+    AqmhReconstructionPhaseResult &out,
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
 
   const Phase reconstruction_phase = Phase::AQMH_RECONSTRUCTION;
 
@@ -35,12 +44,6 @@ bool run_phase_aqmh_reconstruction(
            << core::acceleration_selection_summary(
                   aqmh_reconstruction_acceleration)
            << std::endl;
-  if (aqmh_reconstruction_acceleration.using_gpu) {
-    log_file << "[AQMH_RECONSTRUCTION] v0.2 weighted-MAD uses the exact "
-                "CPU region-streaming backend; the legacy v0.1 CUDA kernel "
-                "is intentionally not used."
-             << std::endl;
-  }
   if (!aqmh_cache) {
     const std::string err =
         "AQMH enabled but AQMH quality-map cache is unavailable";
@@ -64,8 +67,22 @@ bool run_phase_aqmh_reconstruction(
   aqmh_recon_cfg.cherry_pick_margin_min = cfg.aqmh.cherry_pick.margin_min;
   aqmh_recon_cfg.tiered_k_frac = cfg.aqmh.cherry_pick.tiered_k_frac;
   aqmh_recon_cfg.parallel_workers = std::max(1, cfg.runtime_limits.parallel_workers);
-  aqmh_recon_cfg.memory_budget_mb = cfg.runtime_limits.memory_budget;
+  // Bridge from user-facing config to internal config with fallback logic
+  aqmh_recon_cfg.chunk_rows = cfg.aqmh.reconstruction.chunk_rows;
+  aqmh_recon_cfg.memory_budget_mb = cfg.aqmh.reconstruction.memory_budget_mb != 0
+      ? cfg.aqmh.reconstruction.memory_budget_mb
+      : static_cast<size_t>(cfg.runtime_limits.memory_budget);
   aqmh_recon_cfg.compute_uniform_control = true;
+
+  // Rollout safety gate for GPU reconstruction (Item 4.1.4)
+  const std::string gpu_recon_mode = cfg.aqmh.reconstruction.gpu_reconstruction;
+  bool use_gpu_reconstruction = false;
+  if (gpu_recon_mode == "force") {
+    use_gpu_reconstruction = true;
+  } else if (gpu_recon_mode == "auto") {
+    use_gpu_reconstruction = aqmh_reconstruction_acceleration.request_honored &&
+                           aqmh_reconstruction_acceleration.selected != core::AccelerationBackend::cpu;
+  }
 
   auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
     if (fi >= frames.size() || fi >= frame_has_data.size() ||
@@ -96,22 +113,133 @@ bool run_phase_aqmh_reconstruction(
     return output.size() == static_cast<size_t>(canvas_width * rows);
   };
 
-  std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
-            << frames.size() << " frame slots cpu_workers="
-            << aqmh_recon_cfg.parallel_workers
-            << " gpu=no backend=cpu_exact_v0_2 region_streaming=yes"
-            << std::endl;
-  const auto aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
-      frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
-      common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
-      aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
-      [&](int rows_done, int rows_total) {
-        emitter.phase_progress_counts(
-            run_id, Phase::AQMH_RECONSTRUCTION, rows_done, rows_total,
-            "AQMH reconstruction rows " + std::to_string(rows_done) + "/" +
-                std::to_string(rows_total),
-            "rows", log_file);
-      });
+  // Progress callback - defined once for all backends
+  auto progress_callback = [&](int rows_done, int rows_total) {
+    emitter.phase_progress_counts(
+        run_id, Phase::AQMH_RECONSTRUCTION, rows_done, rows_total,
+        "AQMH reconstruction rows " + std::to_string(rows_done) + "/" +
+            std::to_string(rows_total),
+        "rows", log_file);
+  };
+
+  bool prefetch_fallback = false;
+  if (prefetch_coordinator) {
+    prefetch_coordinator->wait_all_prefetched();
+    prefetch_fallback = !prefetch_coordinator->prefetch_active();
+    if (prefetch_fallback) {
+      log_file << "[AQMH_RECONSTRUCTION] Q-map prefetch failed; continuing with sequential cache reads" << std::endl;
+    }
+  }
+
+  // Backend dispatch for AQMH reconstruction (Item 4.1.4 / 4.2.1)
+  reconstruction::AqmhReconstructionResult aqmh_recon;
+  std::string execution_backend_str;
+  bool acceleration_used = false;
+  bool acceleration_fallback = aqmh_reconstruction_acceleration.using_gpu;
+
+  if (use_gpu_reconstruction) {
+#if TILE_COMPILE_WITH_CUDA
+    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda &&
+        aqmh_reconstruction_acceleration.request_honored) {
+      log_file << "[AQMH_RECONSTRUCTION] Using native CUDA backend" << std::endl;
+      try {
+        aqmh_recon = reconstruction::reconstruct_aqmh_weighted_cuda(
+            frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+            common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+            aqmh_mask_loader, progress_callback);
+        if (aqmh_recon.output.rows() == canvas_height && aqmh_recon.output.cols() == canvas_width) {
+          execution_backend_str = "cuda_native";
+          acceleration_used = true;
+          acceleration_fallback = false;
+        } else {
+          // CUDA failed, fall back to CPU
+          log_file << "[AQMH_RECONSTRUCTION] CUDA backend failed, falling back to CPU" << std::endl;
+          aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+              frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+              common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+              aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+              progress_callback);
+          execution_backend_str = "cuda_native_fallback";
+          acceleration_used = true;
+          acceleration_fallback = true;
+        }
+      } catch (...) {
+        log_file << "[AQMH_RECONSTRUCTION] CUDA backend exception, falling back to CPU" << std::endl;
+        aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+            frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+            common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+            aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+            progress_callback);
+        execution_backend_str = "cuda_native_fallback";
+        acceleration_used = true;
+        acceleration_fallback = true;
+      }
+    } else
+#endif // TILE_COMPILE_WITH_CUDA
+    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::opencv_opencl &&
+               aqmh_reconstruction_acceleration.request_honored) {
+      log_file << "[AQMH_RECONSTRUCTION] Using OpenCL backend" << std::endl;
+      try {
+        aqmh_recon = reconstruction::reconstruct_aqmh_weighted_opencl(
+            frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+            common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+            aqmh_mask_loader, progress_callback);
+        if (aqmh_recon.output.rows() == canvas_height && aqmh_recon.output.cols() == canvas_width) {
+          execution_backend_str = "opencl";
+          acceleration_used = true;
+          acceleration_fallback = false;
+        } else {
+          // OpenCL failed, fall back to CPU
+          log_file << "[AQMH_RECONSTRUCTION] OpenCL backend failed, falling back to CPU" << std::endl;
+          aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+              frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+              common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+              aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+              progress_callback);
+          execution_backend_str = "opencl_fallback";
+          acceleration_used = true;
+          acceleration_fallback = true;
+        }
+      } catch (...) {
+        log_file << "[AQMH_RECONSTRUCTION] OpenCL backend exception, falling back to CPU" << std::endl;
+        aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+            frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+            common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+            aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+            progress_callback);
+        execution_backend_str = "opencl_fallback";
+        acceleration_used = true;
+        acceleration_fallback = true;
+      }
+    } else {
+      log_file << "[AQMH_RECONSTRUCTION] GPU backend selected but not available, using CPU" << std::endl;
+      aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+          frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+          common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+          aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+          progress_callback);
+      execution_backend_str = "cpu_exact_v0_2";
+      acceleration_used = false;
+      acceleration_fallback = true;
+    }
+  } else {
+    // GPU reconstruction disabled or not requested - use CPU path
+    std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
+              << frames.size() << " frame slots cpu_workers="
+              << aqmh_recon_cfg.parallel_workers
+              << " backend=cpu_exact_v0_2 region_streaming=yes"
+              << std::endl;
+    aqmh_recon = reconstruction::reconstruct_aqmh_weighted(
+        frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
+        common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+        aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+        progress_callback);
+    execution_backend_str = "cpu_exact_v0_2";
+    acceleration_used = false;
+    acceleration_fallback = aqmh_reconstruction_acceleration.using_gpu;
+  }
+
+  // Continue with original code: out.control_validation = 
   out.control_validation =
       reconstruction::compare_aqmh_to_uniform_control(
           aqmh_recon.output, aqmh_recon.uniform_control_output);
@@ -158,7 +286,7 @@ bool run_phase_aqmh_reconstruction(
   artifact["method"] = "aqmh";
   artifact["acceleration"] = core::acceleration_selection_to_json(
       aqmh_reconstruction_acceleration);
-  artifact["execution_backend"] = "cpu_exact_v0_2";
+  artifact["execution_backend"] = execution_backend_str;
   artifact["region_streaming"] = true;
   artifact["uniform_control_same_pass"] = true;
   artifact["sample_layout"] = "pixel_major_soa";
@@ -176,9 +304,9 @@ bool run_phase_aqmh_reconstruction(
   artifact["zero_veto_pixels"] = aqmh_recon.zero_veto_pixels;
   artifact["finite_map_samples"] = aqmh_recon.finite_map_samples;
   artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
-  artifact["acceleration_used"] = false;
-  artifact["acceleration_fallback"] =
-      aqmh_reconstruction_acceleration.using_gpu;
+  artifact["acceleration_used"] = acceleration_used;
+  artifact["acceleration_fallback"] = acceleration_fallback;
+  artifact["prefetch_fallback"] = prefetch_fallback;
   artifact["clip_sigma"] = aqmh_recon_cfg.clip_sigma;
   artifact["clip_iterations"] = aqmh_recon_cfg.clip_iterations;
   artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;

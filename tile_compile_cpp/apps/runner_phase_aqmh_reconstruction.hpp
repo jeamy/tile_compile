@@ -16,6 +16,10 @@
 
 namespace tile_compile::metrics { class QualityMapCache; }
 
+namespace tile_compile::reconstruction {
+class AqmhPrefetchCoordinator;
+}
+
 namespace tile_compile::runner {
 
 struct AqmhReconstructionPhaseResult {
@@ -41,6 +45,7 @@ bool run_phase_aqmh_reconstruction(
     core::EventEmitter &emitter, std::ostream &log_file,
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
-    AqmhReconstructionPhaseResult &out);
+    AqmhReconstructionPhaseResult &out,
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
 
 } // namespace tile_compile::runner

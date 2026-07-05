@@ -85,16 +85,16 @@ bool phase_supports_backend(AccelerationPhase phase,
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
            phase == AccelerationPhase::aqmh_maps ||
-           phase == AccelerationPhase::aqmh_reconstruction ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
     return phase == AccelerationPhase::prewarp ||
            phase == AccelerationPhase::aqmh_maps ||
+           phase == AccelerationPhase::aqmh_reconstruction ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
-    return false;
+    return phase == AccelerationPhase::aqmh_reconstruction;
   }
   return false;
 }
@@ -2228,9 +2228,9 @@ std::string acceleration_selection_summary(
   }
   if (selection.using_gpu) {
     if (selection.selected == AccelerationBackend::opencv_cuda) {
-      oss << " [NVIDIA CUDA]";
+      oss << " [OpenCV CUDA]";
     } else if (selection.selected == AccelerationBackend::opencv_opencl) {
-      oss << " [OpenCL - AMD/Intel/NVIDIA]";
+      oss << " [OpenCL]";
     } else if (selection.selected == AccelerationBackend::cuda) {
       oss << " [native CUDA]";
     }

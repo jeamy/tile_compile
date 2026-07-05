@@ -1,6 +1,7 @@
 #include "runner_phase_aqmh_diagnostics.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/metrics/aqmh_binary_diagnostics.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
 #include <algorithm>
@@ -109,6 +110,15 @@ bool run_phase_aqmh_diagnostics(
     int canvas_width, int canvas_height,
     core::EventEmitter &emitter, std::ostream &log_file) {
 
+  // Early exit when disabled
+  if (!cfg.aqmh.diagnostics.enabled || cfg.aqmh.diagnostics.level == "none") {
+    emitter.phase_start(run_id, Phase::AQMH_DIAGNOSTICS,
+                        "AQMH_DIAGNOSTICS", log_file);
+    emitter.phase_end(run_id, Phase::AQMH_DIAGNOSTICS, "skipped",
+                      {{"reason", "disabled_by_config"}}, log_file);
+    return true;
+  }
+
   emitter.phase_start(run_id, Phase::AQMH_DIAGNOSTICS,
                       "AQMH_DIAGNOSTICS", log_file);
   const auto path = run_dir / "artifacts" / "aqmh_metrics.json";
@@ -136,14 +146,18 @@ bool run_phase_aqmh_diagnostics(
   artifact["missing_map_samples"]        = reconstruction.missing_map_samples;
   artifact["numerical_guard_pixels"]     = reconstruction.numerical_guard_pixels;
 
+  const bool full_mode = cfg.aqmh.diagnostics.level == "full";
+
   // Block-level diagnostics and heatmaps (§6.2, §6.3): iterate over all
   // frames that have a cached Q-map and augment per-frame entries.
-  if (q_map_cache && canvas_width > 0 && canvas_height > 0) {
+  // Only compute when in full mode AND per_frame_blocks is enabled.
+  if (full_mode && cfg.aqmh.diagnostics.per_frame_blocks &&
+      q_map_cache && canvas_width > 0 && canvas_height > 0) {
     const float tau_artifact = cfg.aqmh.diagnostics.tau_artifact;
-    // Use a ~64px block for the heatmap grid (configurable via block_size_px
-    // derived from canvas dimensions; no new config parameter needed).
-    const int block_size_px = std::max(
-        16, std::min(canvas_width, canvas_height) / 32);
+    // Use r_morph_canvas_px as block size, or fall back to derived value
+    const int block_size_px = cfg.aqmh.diagnostics.r_morph_canvas_px > 0
+        ? cfg.aqmh.diagnostics.r_morph_canvas_px
+        : std::max(16, std::min(canvas_width, canvas_height) / 32);
 
     auto &frames_arr = artifact["frames"];
     if (!frames_arr.is_array()) frames_arr = core::json::array();
@@ -155,16 +169,26 @@ bool run_phase_aqmh_diagnostics(
         if (q_map.rows() != canvas_height || q_map.cols() != canvas_width)
           continue;
 
+        // Only include heatmaps if enabled
+        const bool emit_heatmaps = cfg.aqmh.diagnostics.heatmaps;
         const core::json blk = compute_block_diagnostics(
             q_map, canvas_mask, canvas_width, canvas_height,
             tau_artifact, block_size_px);
+
+        // Remove heatmap arrays if heatmaps flag is false
+        core::json blk_to_store = emit_heatmaps ? blk : [&]() {
+          core::json filtered = blk;
+          filtered.erase("q_map_heatmap");
+          filtered.erase("artifact_heatmap");
+          return filtered;
+        }();
 
         // Find or create the per-frame entry and merge block diagnostics.
         bool found = false;
         for (auto &jf : frames_arr) {
           if (jf.contains("frame_index") &&
               jf["frame_index"].get<size_t>() == fi) {
-            jf["block_diagnostics"] = blk;
+            jf["block_diagnostics"] = blk_to_store;
             found = true;
             break;
           }
@@ -172,7 +196,7 @@ bool run_phase_aqmh_diagnostics(
         if (!found) {
           core::json jf;
           jf["frame_index"] = fi;
-          jf["block_diagnostics"] = blk;
+          jf["block_diagnostics"] = blk_to_store;
           frames_arr.push_back(std::move(jf));
         }
       } catch (const std::exception &) {
@@ -181,10 +205,78 @@ bool run_phase_aqmh_diagnostics(
     }
   }
 
-  core::write_text(path, artifact.dump(2));
+  // Write output based on format setting (Item 4.4.2)
+  if (cfg.aqmh.diagnostics.format == "binary") {
+    // Convert artifact to binary format and write
+    metrics::AqmhBinaryDiagnostics bin_diag;
+    bin_diag.header.canvas_width = canvas_width;
+    bin_diag.header.canvas_height = canvas_height;
+    bin_diag.header.frame_count = static_cast<uint32_t>(frame_has_data.size());
+    bin_diag.header.block_size_px = cfg.aqmh.diagnostics.binary_block_size_px > 0
+        ? cfg.aqmh.diagnostics.binary_block_size_px
+        : cfg.aqmh.diagnostics.r_morph_canvas_px;
+    bin_diag.header.has_heatmaps = (full_mode && cfg.aqmh.diagnostics.per_frame_blocks &&
+                                   cfg.aqmh.diagnostics.heatmaps) ? 1 : 0;
+
+    // Convert frame array from JSON artifact to binary records
+    if (artifact.contains("frames") && artifact["frames"].is_array()) {
+      const auto &frames_arr = artifact["frames"];
+      bin_diag.frame_records.reserve(frames_arr.size());
+      for (const auto &frame_json : frames_arr) {
+        metrics::AqmhBinaryFrameRecord record;
+        record.frame_index = frame_json.value("frame_index", 0u);
+        record.map_mean = frame_json.value("map_mean", 0.0f);
+        record.map_p10 = frame_json.value("map_p10", 0.0f);
+        record.map_p50 = frame_json.value("map_p50", 0.0f);
+        record.map_p90 = frame_json.value("map_p90", 0.0f);
+        record.artifact_frac = frame_json.value("artifact_frac", 0.0f);
+        record.sharpness_p50 = frame_json.value("sharpness_p50", 0.0f);
+        record.snr_p50 = frame_json.value("snr_p50", 0.0f);
+        record.scene_dependent_snr = frame_json.value("scene_dependent_snr", 0.0f);
+        record.n_regions = frame_json.value("n_regions", 0u);
+        record.global_quality = frame_json.value("global_quality", 0.0f);
+        record.global_sharpness_input = frame_json.value("global_sharpness_input", 0.0f);
+        record.global_snr_input = frame_json.value("global_snr_input", 0.0f);
+        record.global_summary_invalid = frame_json.value("global_summary_invalid", 0u);
+        bin_diag.frame_records.push_back(record);
+      }
+    }
+
+    // Convert heatmap arrays if present
+    if (bin_diag.header.has_heatmaps && artifact.contains("heatmaps")) {
+      const auto &heatmaps_json = artifact["heatmaps"];
+      const auto block_grid = metrics::compute_block_grid(
+          canvas_width, canvas_height, bin_diag.header.block_size_px);
+
+      // Expected heatmap array order
+      const std::vector<std::string> heatmap_names = {
+          "aqmh_q_median", "aqmh_q_p10", "aqmh_q_p90",
+          "aqmh_artifact_frac", "q_map_heatmap", "artifact_heatmap"
+      };
+
+      for (const auto &name : heatmap_names) {
+        if (heatmaps_json.contains(name) && heatmaps_json[name].is_array()) {
+          const auto &arr = heatmaps_json[name];
+          std::vector<float> float_arr;
+          float_arr.reserve(arr.size());
+          for (const auto &val : arr) {
+            float_arr.push_back(static_cast<float>(val));
+          }
+          bin_diag.heatmap_arrays.push_back(float_arr);
+        }
+      }
+    }
+
+    const auto binary_path = run_dir / "artifacts" / "aqmh_metrics.bin";
+    metrics::write_binary_diagnostics(binary_path, bin_diag);
+  } else {
+    // Default JSON format
+    core::write_text(path, artifact.dump(2));
+  }
   emitter.phase_end(run_id, Phase::AQMH_DIAGNOSTICS, "ok",
                     {{"cherry_pick_active", reconstruction.cherry_pick_active},
-                     {"unsupported_pixels", reconstruction.unsupported_pixels}},
+                     {"unsupported_pixels", reconstruction.unsupported_pixels},
+                     {"level", cfg.aqmh.diagnostics.level}},
                     log_file);
   return true;
 }

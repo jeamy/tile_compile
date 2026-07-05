@@ -92,10 +92,23 @@ set(TILE_COMPILE_ENABLE_CUDA_AUTO_LAST "${_tile_compile_cuda_auto_default}"
     CACHE INTERNAL "Last auto-detected CUDA default")
 set(TILE_COMPILE_WITH_CUDA OFF)
 if(TILE_COMPILE_ENABLE_CUDA)
-    # There are currently no .cu translation units in the project. The custom
-    # CUDA backend hook is therefore a feature gate, not a separate CUDA build
-    # pipeline, and should not depend on CMake successfully enabling the CUDA
-    # language/compiler-id checks on this host.
+    # Enable CUDA language and check for nvcc
+    find_package(CUDAToolkit REQUIRED)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 75 80 86)
+    endif()
+    # CUDA 13.x supports GCC up to 15. If the default host compiler is newer,
+    # prefer an available g++-15 so the CUDA frontend can parse system headers.
+    if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
+        if(EXISTS /usr/bin/g++-15)
+            set(CMAKE_CUDA_HOST_COMPILER /usr/bin/g++-15 CACHE FILEPATH "CUDA host compiler" FORCE)
+        else()
+            set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler")
+        endif()
+    endif()
+    enable_language(CUDA)
+    set(CUDA_SEPARABLE_COMPILATION ON)
+
     if(TILE_COMPILE_NVCC_EXECUTABLE)
         set(TILE_COMPILE_WITH_CUDA ON)
     else()
@@ -436,13 +449,16 @@ set(LIB_SOURCES
     src/metrics/linearity.cpp
     src/metrics/aqmh_quality_map.cpp
     src/metrics/aqmh_quality_map_cache.cpp
+    src/metrics/aqmh_binary_diagnostics.cpp
     src/metrics/aqmh_eps.cpp
     src/metrics/aqmh_global_quality.cpp
     src/metrics/aqmh_frame_valid_mask.cpp
     src/metrics/aqmh_regions.cpp
     src/reconstruction/reconstruction.cpp
     src/reconstruction/aqmh_reconstruction.cpp
+    src/reconstruction/aqmh_pipeline_overlap.cpp
     src/reconstruction/aqmh_sigma_clip.cpp
+    src/reconstruction/aqmh_reconstruction_opencl.cpp
     src/reconstruction/aqmh_validation.cpp
     src/reconstruction/aqmh_cherry_pick.cpp
     src/reconstruction/memory_budget.cpp
@@ -459,6 +475,10 @@ set(LIB_SOURCES
     src/astrometry/gaia_catalog.cpp
     src/astrometry/photometric_color_cal.cpp
 )
+
+if(TILE_COMPILE_WITH_CUDA)
+    list(APPEND LIB_SOURCES src/reconstruction/aqmh_reconstruction_cuda.cu)
+endif()
 
 # Main library
 add_library(tile_compile_lib STATIC ${LIB_SOURCES})
@@ -489,6 +509,10 @@ endif()
 if(spdlog_FOUND)
     target_link_libraries(tile_compile_lib PUBLIC spdlog::spdlog)
     target_compile_definitions(tile_compile_lib PUBLIC HAVE_SPDLOG)
+endif()
+
+if(TILE_COMPILE_WITH_CUDA)
+    target_link_libraries(tile_compile_lib PUBLIC CUDA::cudart)
 endif()
 
 # CLI Runner executable
@@ -583,6 +607,7 @@ if(BUILD_TESTS)
             tests/test_aqmh_quality_map_cache.cpp
             tests/test_aqmh_reconstruction.cpp
             tests/test_aqmh_validation.cpp
+            tests/test_aqmh_config.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

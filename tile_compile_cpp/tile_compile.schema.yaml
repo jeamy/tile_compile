@@ -655,6 +655,9 @@ properties:
           clip_iterations: {type: integer, minimum: 0, default: 3}
           min_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.5}
           min_n_eff: {type: number, minimum: 1, default: 2.0}
+          chunk_rows: {type: integer, minimum: 0, default: 0, description: "Row chunk size for AQMH reconstruction. 0 = automatic based on memory budget."}
+          memory_budget_mb: {type: integer, minimum: 0, default: 0, description: "VRAM/RAM budget for reconstruction in MB. 0 = automatic."}
+          gpu_reconstruction: {type: string, enum: [disabled, auto, force], default: auto, description: "GPU reconstruction backend selection: disabled (CPU only), auto (try GPU, fallback to CPU), or force (GPU required)."}
       validation:
         type: object
         properties:
@@ -664,6 +667,37 @@ properties:
       diagnostics:
         type: object
         properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Enable the AQMH diagnostics phase."
+          level:
+            type: string
+            enum: [none, summary, full]
+            default: summary
+            description: "AQMH diagnostics detail level: none = skip, summary = run-level metrics, full = per-frame block diagnostics and heatmaps."
+          format:
+            type: string
+            enum: [json, binary]
+            default: json
+            description: "AQMH diagnostics output format: json or binary (AQDB)."
+          regions:
+            type: boolean
+            default: true
+            description: "When true, write artifacts/aqmh_regions.json with per-frame detected quality regions."
+          per_frame_blocks:
+            type: boolean
+            default: false
+            description: "When true and level=full, compute block-level diagnostics per frame."
+          heatmaps:
+            type: boolean
+            default: false
+            description: "When true and level=full, include heatmap arrays in diagnostics."
+          binary_block_size_px:
+            type: integer
+            minimum: 0
+            default: 64
+            description: "Block size in pixels for binary AQDB diagnostics. 0 disables block grouping."
           tau_artifact:
             type: number
             minimum: 0

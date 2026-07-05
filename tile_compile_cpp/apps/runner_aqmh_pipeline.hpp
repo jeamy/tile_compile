@@ -19,6 +19,10 @@
 
 namespace tile_compile::metrics { class QualityMapCache; }
 
+namespace tile_compile::reconstruction {
+class AqmhPrefetchCoordinator;
+}
+
 namespace tile_compile::runner {
 
 struct AqmhPipelineContext {
@@ -28,6 +32,7 @@ struct AqmhPipelineContext {
   reconstruction::AqmhReconstructionResult recon_result;
   Matrix2Df recon_output;
   Matrix2Df weight_sum;
+  std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> prefetch_coordinator;
 };
 
 bool run_aqmh_phases(

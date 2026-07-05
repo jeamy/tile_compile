@@ -311,15 +311,30 @@ aqmh:
   storage:
     resolution_divisor: 2   # 1|2|4 – halbe Aufloesung empfohlen (RAM-Einsparung x4)
     dtype: uint16           # float32|uint16|uint8
-    max_resident_maps: 2    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
+    max_resident_maps: 4    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
   cherry_pick:
     enabled: false  # true: nur beste k_frac*N Frames stacken
     k_min_required: 20 # Lauf-Gate und Untergrenze erhaltener Samples pro Pixel
     k_frac: 0.30    # Anteil bester Frames (0.30 = beste 30%)
   diagnostics:
+    enabled: true
+    level: full
+    per_frame_blocks: true
+    heatmaps: true
+    regions: true
+    format: json
+    binary_block_size_px: 0
     tau_artifact: 0.20      # Schwelle fuer Artefakt-Diagnose in artifacts/aqmh.json
     q_region: 0.75          # Quantil fuer regionale Qualitaetsstatistiken
     r_morph_canvas_px: 6    # Morphologischer Radius fuer diagnostische Qualitaetskarte
+  reconstruction:
+    clip_sigma: 3.0
+    clip_iterations: 3
+    min_fraction: 0.5
+    min_n_eff: 2.0
+    chunk_rows: 0
+    memory_budget_mb: 0
+    gpu_reconstruction: disabled
 
 stacking:
   method: rej # rej|average

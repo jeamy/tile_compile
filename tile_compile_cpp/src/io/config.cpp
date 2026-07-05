@@ -679,6 +679,21 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (d["r_morph_canvas_px"])
         cfg.aqmh.diagnostics.r_morph_canvas_px =
             d["r_morph_canvas_px"].as<int>();
+      // NEW FIELDS:
+      if (d["enabled"])
+        cfg.aqmh.diagnostics.enabled = d["enabled"].as<bool>();
+      if (d["level"])
+        cfg.aqmh.diagnostics.level = d["level"].as<std::string>();
+      if (d["per_frame_blocks"])
+        cfg.aqmh.diagnostics.per_frame_blocks = d["per_frame_blocks"].as<bool>();
+      if (d["heatmaps"])
+        cfg.aqmh.diagnostics.heatmaps = d["heatmaps"].as<bool>();
+      if (d["regions"])
+        cfg.aqmh.diagnostics.regions = d["regions"].as<bool>();
+      if (d["format"])
+        cfg.aqmh.diagnostics.format = d["format"].as<std::string>();
+      if (d["binary_block_size_px"])
+        cfg.aqmh.diagnostics.binary_block_size_px = d["binary_block_size_px"].as<int>();
     }
     if (a["reconstruction"]) {
       auto r = a["reconstruction"];
@@ -686,6 +701,13 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (r["clip_iterations"]) cfg.aqmh.reconstruction.clip_iterations = r["clip_iterations"].as<int>();
       if (r["min_fraction"]) cfg.aqmh.reconstruction.min_fraction = r["min_fraction"].as<float>();
       if (r["min_n_eff"]) cfg.aqmh.reconstruction.min_n_eff = r["min_n_eff"].as<float>();
+      // NEW FIELDS:
+      if (r["chunk_rows"])
+        cfg.aqmh.reconstruction.chunk_rows = r["chunk_rows"].as<int>();
+      if (r["memory_budget_mb"])
+        cfg.aqmh.reconstruction.memory_budget_mb = r["memory_budget_mb"].as<size_t>();
+      if (r["gpu_reconstruction"])
+        cfg.aqmh.reconstruction.gpu_reconstruction = r["gpu_reconstruction"].as<std::string>();
     }
     if (a["validation"]) {
       auto v = a["validation"];
@@ -1314,10 +1336,22 @@ YAML::Node Config::to_yaml() const {
   node["aqmh"]["diagnostics"]["q_region"] = aqmh.diagnostics.q_region;
   node["aqmh"]["diagnostics"]["r_morph_canvas_px"] =
       aqmh.diagnostics.r_morph_canvas_px;
+  // NEW FIELDS:
+  node["aqmh"]["diagnostics"]["enabled"] = aqmh.diagnostics.enabled;
+  node["aqmh"]["diagnostics"]["level"] = aqmh.diagnostics.level;
+  node["aqmh"]["diagnostics"]["per_frame_blocks"] = aqmh.diagnostics.per_frame_blocks;
+  node["aqmh"]["diagnostics"]["heatmaps"] = aqmh.diagnostics.heatmaps;
+  node["aqmh"]["diagnostics"]["regions"] = aqmh.diagnostics.regions;
+  node["aqmh"]["diagnostics"]["format"] = aqmh.diagnostics.format;
+  node["aqmh"]["diagnostics"]["binary_block_size_px"] = aqmh.diagnostics.binary_block_size_px;
   node["aqmh"]["reconstruction"]["clip_sigma"] = aqmh.reconstruction.clip_sigma;
   node["aqmh"]["reconstruction"]["clip_iterations"] = aqmh.reconstruction.clip_iterations;
   node["aqmh"]["reconstruction"]["min_fraction"] = aqmh.reconstruction.min_fraction;
   node["aqmh"]["reconstruction"]["min_n_eff"] = aqmh.reconstruction.min_n_eff;
+  // NEW FIELDS:
+  node["aqmh"]["reconstruction"]["chunk_rows"] = aqmh.reconstruction.chunk_rows;
+  node["aqmh"]["reconstruction"]["memory_budget_mb"] = aqmh.reconstruction.memory_budget_mb;
+  node["aqmh"]["reconstruction"]["gpu_reconstruction"] = aqmh.reconstruction.gpu_reconstruction;
   node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
   node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
   node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
@@ -1881,6 +1915,26 @@ void Config::validate() const {
   if (aqmh.diagnostics.r_morph_canvas_px < 1) {
     throw ValidationError(
         "aqmh.diagnostics.r_morph_canvas_px must be >= 1");
+  }
+  // NEW VALIDATIONS:
+  if (aqmh.diagnostics.level != "none" &&
+      aqmh.diagnostics.level != "summary" &&
+      aqmh.diagnostics.level != "full") {
+    throw ValidationError("aqmh.diagnostics.level must be none, summary, or full");
+  }
+  if (aqmh.diagnostics.format != "json" && aqmh.diagnostics.format != "binary") {
+    throw ValidationError("aqmh.diagnostics.format must be json or binary");
+  }
+  if (aqmh.diagnostics.binary_block_size_px < 0) {
+    throw ValidationError("aqmh.diagnostics.binary_block_size_px must be >= 0");
+  }
+  if (aqmh.reconstruction.chunk_rows < 0) {
+    throw ValidationError("aqmh.reconstruction.chunk_rows must be >= 0");
+  }
+  if (aqmh.reconstruction.gpu_reconstruction != "disabled" &&
+      aqmh.reconstruction.gpu_reconstruction != "auto" &&
+      aqmh.reconstruction.gpu_reconstruction != "force") {
+    throw ValidationError("aqmh.reconstruction.gpu_reconstruction must be disabled, auto, or force");
   }
 
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {

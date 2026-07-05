@@ -18,6 +18,7 @@
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
 #include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
 #include "tile_compile/reconstruction/aqmh_validation.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
@@ -2120,6 +2121,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::optional<reconstruction::AqmhValidationComparison>
       aqmh_control_validation;
 
+  // Prefetch coordinator for AQMH Q-map I/O overlap
+  std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> aqmh_prefetch_coordinator;
+
   while (true) {
     const bool metrics_ok = cfg.aqmh.enabled
         ? runner::run_phase_aqmh_maps(
@@ -2127,6 +2131,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               canvas_width, canvas_height, prewarped_frames, norm_scales,
               detected_mode, detected_bayer_str, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
+              aqmh_prefetch_coordinator,
               phase_metrics_ctx.frame_star_metrics)
         : runner::run_phase_local_metrics(
               run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
@@ -2254,7 +2259,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
-              aqmh_recon_result)) {
+              aqmh_recon_result, aqmh_prefetch_coordinator.get())) {
         return 1;
       }
       recon = aqmh_recon_result.output;

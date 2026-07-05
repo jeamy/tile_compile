@@ -95,7 +95,7 @@ aqmh:
   storage:
     resolution_divisor: 2      # Downscale factor for stored maps (1=full, 2=half, 4=quarter)
     dtype: uint16             # Storage format: float32 (exact), uint16 (recommended), uint8 (compact)
-    max_resident_maps: 2      # Maximum maps kept in memory simultaneously
+    max_resident_maps: 4      # Maximum maps kept in memory simultaneously
   
   # Pyramid parameters for multi-scale quality analysis
   pyramid:
@@ -108,9 +108,26 @@ aqmh:
   
   # Diagnostics parameters
   diagnostics:
+    enabled: true
+    level: summary
+    per_frame_blocks: false
+    heatmaps: false
+    regions: false
+    format: json
+    binary_block_size_px: 0
     q_region: 0.75           # Quantile for region quality threshold
     r_morph_canvas_px: 6      # Morphological radius in canvas pixels
     tau_artifact: 0.2         # Artifact fraction threshold for quality degradation
+  
+  # Reconstruction parameters
+  reconstruction:
+    clip_sigma: 3.0
+    clip_iterations: 3
+    min_fraction: 0.5
+    min_n_eff: 2.0
+    chunk_rows: 0
+    memory_budget_mb: 0
+    gpu_reconstruction: disabled
   
   # Cherry-pick parameters (pixel-level frame selection)
   cherry_pick:

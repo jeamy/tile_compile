@@ -10,6 +10,7 @@
 #include "tile_compile/metrics/aqmh_regions.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
 
 #include <algorithm>
 #include <array>
@@ -160,7 +161,9 @@ bool run_phase_local_metrics(
     std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
     VectorXf &out_aqmh_global_weights, int tile_offset_x,
     int tile_offset_y,
-    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics) {
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics,
+    std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator,
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
   (void)tile_offset_x;
   (void)tile_offset_y;
   out_aqmh_cache.reset();
@@ -377,6 +380,21 @@ bool run_phase_local_metrics(
           run_dir / "cache" / "aqmh_masks", common_mask_width,
           common_mask_height);
 
+      // Create prefetch coordinator for Q-map I/O overlap (Item 3.1 - Option C)
+      // Only create when AQMH is enabled and we're not in classic local metrics mode
+      std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> local_prefetch_coordinator;
+      if (!compute_classic_local_metrics && cfg.aqmh.enabled) {
+        local_prefetch_coordinator = std::make_unique<reconstruction::AqmhPrefetchCoordinator>(
+            frames.size(), out_aqmh_cache.get());
+        // Transfer ownership to out parameter if provided
+        if (out_prefetch_coordinator != nullptr) {
+          *out_prefetch_coordinator = std::move(local_prefetch_coordinator);
+          prefetch_coordinator = (*out_prefetch_coordinator).get();
+        } else {
+          prefetch_coordinator = local_prefetch_coordinator.get();
+        }
+      }
+
       const int aqmh_workers = compute_adaptive_worker_count(
           cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
       const int aqmh_effective_workers = aqmh_workers;
@@ -449,6 +467,10 @@ bool run_phase_local_metrics(
                 // only its shared statistics/LRU state under a short lock.
                 frame_mask_store.write(fi, frame_valid_mask);
                 out_aqmh_cache->write(fi, aqmh_result.q_map, frame_valid_mask);
+                // Trigger prefetch for this frame's Q-map (Item 3.1 - Option C)
+                if (prefetch_coordinator) {
+                  prefetch_coordinator->publish_frame(fi);
+                }
                 diag = summarize_aqmh_map(
                     fi, aqmh_result.q_map, common_valid_mask,
                     common_mask_width, common_mask_height,
@@ -534,6 +556,11 @@ bool run_phase_local_metrics(
         }
       } else {
         aqmh_worker(0);
+      }
+
+      // Signal that all frames have been published (Item 3.1 - Option C)
+      if (prefetch_coordinator) {
+        prefetch_coordinator->finish();
       }
 
       if (aqmh_failed.load(std::memory_order_relaxed)) {
@@ -643,25 +670,27 @@ bool run_phase_local_metrics(
       std::filesystem::create_directories(run_dir / "artifacts");
       core::write_text(run_dir / "artifacts" / "aqmh_metrics.json",
                        aqmh_artifact.dump(2));
-      core::json regions_artifact;
-      regions_artifact["analysis_channel"] =
-          detected_mode == ColorMode::OSC ? "proxy" : "mono";
-      regions_artifact["frames"] = core::json::array();
-      for (const auto &diag : aqmh_frame_diag) {
-        core::json frame_regions;
-        frame_regions["frame_index"] = diag.frame_index;
-        frame_regions["channel"] = regions_artifact["analysis_channel"];
-        frame_regions["regions"] = core::json::array();
-        for (const auto &region : diag.regions) {
-          frame_regions["regions"].push_back({
-              {"label", region.label}, {"area", region.area},
-              {"mean_quality", region.mean_quality},
-              {"compactness", region.compactness}, {"score", region.score}});
+      if (cfg.aqmh.diagnostics.regions) {
+        core::json regions_artifact;
+        regions_artifact["analysis_channel"] =
+            detected_mode == ColorMode::OSC ? "proxy" : "mono";
+        regions_artifact["frames"] = core::json::array();
+        for (const auto &diag : aqmh_frame_diag) {
+          core::json frame_regions;
+          frame_regions["frame_index"] = diag.frame_index;
+          frame_regions["channel"] = regions_artifact["analysis_channel"];
+          frame_regions["regions"] = core::json::array();
+          for (const auto &region : diag.regions) {
+            frame_regions["regions"].push_back({
+                {"label", region.label}, {"area", region.area},
+                {"mean_quality", region.mean_quality},
+                {"compactness", region.compactness}, {"score", region.score}});
+          }
+          regions_artifact["frames"].push_back(std::move(frame_regions));
         }
-        regions_artifact["frames"].push_back(std::move(frame_regions));
+        core::write_text(run_dir / "artifacts" / "aqmh_regions.json",
+                         regions_artifact.dump(2));
       }
-      core::write_text(run_dir / "artifacts" / "aqmh_regions.json",
-                       regions_artifact.dump(2));
     }
 
     if (!compute_classic_local_metrics) {

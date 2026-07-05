@@ -50,9 +50,16 @@ Reconstruction (per canvas-valid pixel p):
 | `aqmh.cherry_pick.enabled` | `false` | Stack only top-quality frames |
 | `aqmh.cherry_pick.k_frac` | `0.30` | Fraction of best frames to use (0.30 = best 30%) |
 | `aqmh.cherry_pick.k_min` | `3` | Minimum frames always included |
+| `aqmh.diagnostics.enabled` | `true` | Enable AQMH diagnostics phase |
+| `aqmh.diagnostics.level` | `summary` | Detail level: `none`, `summary`, or `full` |
+| `aqmh.diagnostics.format` | `json` | Diagnostic output format: `json` or `binary` |
+| `aqmh.diagnostics.regions` | `true` | Write `aqmh_regions.json` per-frame region list |
+| `aqmh.diagnostics.binary_block_size_px` | `64` | Block size for binary diagnostics (AQDB) |
 | `aqmh.diagnostics.tau_artifact` | `0.20` | Artifact threshold for `artifacts/aqmh.json` |
 | `aqmh.diagnostics.q_region` | `0.75` | Quantile for regional quality statistics |
 | `aqmh.diagnostics.r_morph_canvas_px` | `6` | Morphological radius for diagnostic quality map |
+| `aqmh.reconstruction.chunk_rows` | `0` | Row chunk size (0 = auto from memory budget) |
+| `aqmh.reconstruction.gpu_reconstruction` | `auto` | GPU backend: `disabled`, `auto`, or `force` |
 
 Full parameter documentation: [Configuration Reference — §12b AQMH](docs/configuration_reference_en.md)  
 Practical examples: [Configuration Examples — AQMH section](docs/configuration_examples_practical_en.md)  

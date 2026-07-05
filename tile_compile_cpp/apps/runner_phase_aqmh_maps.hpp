@@ -11,6 +11,10 @@
 
 namespace tile_compile::metrics { class QualityMapCache; }
 
+namespace tile_compile::reconstruction {
+class AqmhPrefetchCoordinator;
+}
+
 namespace tile_compile::runner {
 
 bool run_phase_aqmh_maps(
@@ -26,6 +30,7 @@ bool run_phase_aqmh_maps(
     core::EventEmitter &emitter, std::ostream &log_file,
     std::unique_ptr<metrics::QualityMapCache> &out_cache,
     VectorXf &out_global_weights,
+    std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> &out_prefetch_coordinator,
     const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {});
 
 } // namespace tile_compile::runner

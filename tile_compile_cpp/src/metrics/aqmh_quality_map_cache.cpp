@@ -218,6 +218,83 @@ Matrix2Df QualityMapCache::read(size_t fi) const {
 Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
   if (!metadata_matches() || y0 < 0 || rows <= 0 || y0 + rows > full_height_)
     return empty_matrix();
+
+  // Route through resident cache/LRU (Fix for §3.2: read_region was bypassing the cache)
+  if (storage_cfg_.max_resident_maps > 0) {
+    // 1. Fast path: if map is resident, extract region from it.
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = resident_.find(fi);
+      if (it != resident_.end()) {
+        lru_.erase(it->second.second);
+        lru_.push_front(fi);
+        it->second.second = lru_.begin();
+        stats_.cache_hits += 1;
+        // Extract region from resident map
+        Matrix2Df region(rows, full_width_);
+        for (int ry = 0; ry < rows; ++ry) {
+          const int src_y = y0 + ry;
+          if (src_y >= 0 && src_y < full_height_) {
+            const float* src_row = it->second.first.row(src_y).data();
+            float* dst_row = region.row(ry).data();
+            std::copy(src_row, src_row + full_width_, dst_row);
+          }
+        }
+        return region;
+      }
+    }
+
+    // 2. Cache miss: load full map WITHOUT holding the cache mutex.
+    Matrix2Df full_map = read(fi);
+    if (full_map.size() == 0) {
+      return empty_matrix();
+    }
+
+    // 3. Double-check: another thread may have inserted while we were doing I/O.
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = resident_.find(fi);
+      if (it != resident_.end()) {
+        lru_.erase(it->second.second);
+        lru_.push_front(fi);
+        it->second.second = lru_.begin();
+        stats_.cache_hits += 1;
+        // Extract region from resident map
+        Matrix2Df region(rows, full_width_);
+        for (int ry = 0; ry < rows; ++ry) {
+          const int src_y = y0 + ry;
+          if (src_y >= 0 && src_y < full_height_) {
+            const float* src_row = it->second.first.row(src_y).data();
+            float* dst_row = region.row(ry).data();
+            std::copy(src_row, src_row + full_width_, dst_row);
+          }
+        }
+        return region;
+      }
+
+      // 4. Insert into cache, then evict until resident_.size() <= max_resident_maps.
+      lru_.push_front(fi);
+      auto inserted = resident_.emplace(
+          fi, std::make_pair(std::move(full_map), lru_.begin())).first;
+      evict_to_limit_locked();
+      stats_.max_resident_maps_observed =
+          std::max(stats_.max_resident_maps_observed, resident_.size());
+
+      // Extract region from newly cached map
+      Matrix2Df region(rows, full_width_);
+      for (int ry = 0; ry < rows; ++ry) {
+        const int src_y = y0 + ry;
+        if (src_y >= 0 && src_y < full_height_) {
+          const float* src_row = inserted->second.first.row(src_y).data();
+          float* dst_row = region.row(ry).data();
+          std::copy(src_row, src_row + full_width_, dst_row);
+        }
+      }
+      return region;
+    }
+  }
+
+  // Fallback: original direct read path when cache is disabled
   const int d = storage_cfg_.resolution_divisor;
   const auto stored_coord = [d](int y) {
     return (static_cast<float>(y) + 0.5f) / static_cast<float>(d) - 0.5f;

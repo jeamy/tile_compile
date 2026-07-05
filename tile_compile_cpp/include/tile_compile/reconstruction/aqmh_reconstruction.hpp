@@ -24,7 +24,8 @@ struct AqmhReconstructionConfig {
   float cherry_pick_margin_min = 0.02f;
   std::vector<config::AqmhCherryPickConfig::Tier> tiered_k_frac;
   int parallel_workers = 1;
-  int memory_budget_mb = 2048;
+  size_t memory_budget_mb = 2048;
+  int chunk_rows = 0;           // 0 = auto
 };
 
 struct AqmhReconstructionResult {

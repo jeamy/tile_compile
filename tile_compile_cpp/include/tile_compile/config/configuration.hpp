@@ -248,7 +248,7 @@ struct AqmhPyramidConfig {
 struct AqmhStorageConfig {
   int resolution_divisor = 1;
   std::string dtype = "float32";
-  int max_resident_maps = 2;
+  int max_resident_maps = 4;  // was 2
 };
 
 struct AqmhGlobalQualityConfig {
@@ -262,6 +262,9 @@ struct AqmhReconstructionConfig {
   int clip_iterations = 3;
   float min_fraction = 0.5f;
   float min_n_eff = 2.0f;
+  int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
+  size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
+  std::string gpu_reconstruction = "disabled";  // "disabled" | "auto" | "force"
 };
 
 struct AqmhValidationConfig {
@@ -271,6 +274,13 @@ struct AqmhValidationConfig {
 };
 
 struct AqmhDiagnosticsConfig {
+  bool enabled = true;                    // master switch
+  std::string level = "full";             // "none" | "summary" | "full"
+  bool per_frame_blocks = true;           // per-frame block-level diagnostics + heatmaps
+  bool heatmaps = true;                   // spatial heatmap arrays
+  bool regions = true;                    // region extraction (aqmh_regions.json)
+  std::string format = "json";            // "json" | "binary"
+  int binary_block_size_px = 0;            // 0 = use r_morph_canvas_px
   float tau_artifact = 0.20f;
   float q_region = 0.75f;
   int r_morph_canvas_px = 6;

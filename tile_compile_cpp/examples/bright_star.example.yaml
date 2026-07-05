@@ -267,10 +267,24 @@ aqmh:
     k_min_required: 20
     k_frac: 0.30
   diagnostics:
+    enabled: true
+    level: full
+    per_frame_blocks: true
+    heatmaps: true
+    regions: true
+    format: json
+    binary_block_size_px: 0
     tau_artifact: 0.20
     q_region: 0.75
     r_morph_canvas_px: 6
-
+  reconstruction:
+    clip_sigma: 3.0
+    clip_iterations: 3
+    min_fraction: 0.5
+    min_n_eff: 2.0
+    chunk_rows: 0
+    memory_budget_mb: 0
+    gpu_reconstruction: disabled
 stacking:
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0

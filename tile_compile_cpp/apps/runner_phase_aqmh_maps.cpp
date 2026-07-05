@@ -2,6 +2,7 @@
 
 #include "runner_phase_local_metrics.hpp"
 #include "tile_compile/metrics/metrics.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
 
 namespace tile_compile::runner {
 
@@ -18,6 +19,7 @@ bool run_phase_aqmh_maps(
     core::EventEmitter &emitter, std::ostream &log_file,
     std::unique_ptr<metrics::QualityMapCache> &out_cache,
     VectorXf &out_global_weights,
+    std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> &out_prefetch_coordinator,
     const std::vector<metrics::FrameStarMetrics> &frame_star_metrics) {
   std::vector<std::vector<TileMetrics>> unused_metrics;
   std::vector<std::vector<float>> unused_weights;
@@ -31,7 +33,7 @@ bool run_phase_aqmh_maps(
       detected_mode, detected_bayer_str, apply_normalization, acceleration,
       emitter, log_file, unused_metrics, unused_weights, unused_quality,
       unused_star, unused_fwhm, out_cache, out_global_weights, 0, 0,
-      frame_star_metrics);
+      frame_star_metrics, &out_prefetch_coordinator);
 }
 
 } // namespace tile_compile::runner

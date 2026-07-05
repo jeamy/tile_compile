@@ -156,12 +156,17 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   // v0.2 path. This avoids one heap allocation and a 24-byte AoS element for
   // every valid pixel/frame pair.
   constexpr size_t bytes_per_sample = sizeof(float) * 2u;
-  const size_t target_mb = static_cast<size_t>(std::clamp(
-      cfg.memory_budget_mb / 2, 128, 1536));
-  const size_t target_bytes = target_mb * 1024u * 1024u;
-  const size_t denom = std::max<size_t>(1, static_cast<size_t>(width) *
-                                             frame_count * bytes_per_sample);
-  const int chunk_rows = std::max(1, std::min(height, static_cast<int>(target_bytes / denom)));
+  int chunk_rows;
+  if (cfg.chunk_rows > 0) {
+    chunk_rows = std::min(height, cfg.chunk_rows);
+  } else {
+    const size_t target_mb = static_cast<size_t>(std::clamp(
+        static_cast<int>(cfg.memory_budget_mb / 2), 128, 1536));
+    const size_t target_bytes = target_mb * 1024u * 1024u;
+    const size_t denom = std::max<size_t>(1, static_cast<size_t>(width) *
+                                               frame_count * bytes_per_sample);
+    chunk_rows = std::max(1, std::min(height, static_cast<int>(target_bytes / denom)));
+  }
   result.chunk_rows = chunk_rows;
   result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
   result.region_streaming_used = static_cast<bool>(load_frame_region);

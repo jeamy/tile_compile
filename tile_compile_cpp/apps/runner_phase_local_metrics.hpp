@@ -16,6 +16,10 @@ namespace tile_compile::metrics {
 class QualityMapCache;
 }
 
+namespace tile_compile::reconstruction {
+class AqmhPrefetchCoordinator;
+}
+
 namespace tile_compile::runner {
 
 /// Compute per-frame/per-tile local quality metrics and local reconstruction weights.
@@ -50,6 +54,8 @@ bool run_phase_local_metrics(
     std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
     VectorXf &out_aqmh_global_weights,
     int tile_offset_x = 0, int tile_offset_y = 0,
-    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {});
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {},
+    std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator = nullptr,
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
 
 } // namespace tile_compile::runner

@@ -4,8 +4,10 @@
 #include "runner_phase_aqmh_maps.hpp"
 #include "runner_phase_aqmh_reconstruction.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
 
 #include <iostream>
+#include <memory>
 
 namespace tile_compile::runner {
 
@@ -29,7 +31,8 @@ bool run_aqmh_phases(
           run_id, cfg, frames, run_dir, frame_has_data, common_valid_mask,
           canvas_width, canvas_height, prewarped_frames, norm_scales,
           detected_mode, detected_bayer_str, false, acceleration, emitter,
-          log_file, out.aqmh_cache, out.aqmh_global_weights)) {
+          log_file, out.aqmh_cache, out.aqmh_global_weights,
+          out.prefetch_coordinator)) {
     return false;
   }
 
@@ -44,7 +47,8 @@ bool run_aqmh_phases(
           common_valid_mask, canvas_width, canvas_height, osc_mode,
           prewarped_frames, out.aqmh_cache, out.aqmh_global_weights,
           acceleration, emitter, log_file,
-          recon_started_at, prev_cv_threads, recon_phase_result)) {
+          recon_started_at, prev_cv_threads, recon_phase_result,
+          out.prefetch_coordinator.get())) {
     return false;
   }
 
