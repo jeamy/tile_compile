@@ -106,6 +106,9 @@ if(TILE_COMPILE_ENABLE_CUDA)
             set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler")
         endif()
     endif()
+    # Eigen's GPU Complex headers call constexpr __host__ std::complex operators
+    # from __host__ __device__ code. Allow this explicitly to avoid warning #20015-D.
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
     enable_language(CUDA)
     set(CUDA_SEPARABLE_COMPILATION ON)
 

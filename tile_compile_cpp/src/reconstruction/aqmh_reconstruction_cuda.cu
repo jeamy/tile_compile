@@ -34,33 +34,88 @@ __device__ inline bool isfinite_f(float v) {
   return !isnan(v) && !isinf(v);
 }
 
-// Weighted median of (values, weights) using insertion sort by value.
-// Tie-breaker: frame_index ascending (already encoded in caller order).
+// Comparator for bitonic sort: ascending by value, tie-break by index.
+struct ValueAsc {
+  const float* values;
+  __device__ bool operator()(int a, int b) const {
+    const float va = values[a];
+    const float vb = values[b];
+    return va < vb || (va == vb && a < b);
+  }
+};
+
+// Comparator for bitonic sort: descending by score, tie-break by index.
+struct ScoreDesc {
+  const float* scores;
+  __device__ bool operator()(int a, int b) const {
+    const float sa = scores[a];
+    const float sb = scores[b];
+    return sa > sb || (sa == sb && a < b);
+  }
+};
+
+// Comparator for bitonic sort: ascending by absolute deviation from center.
+struct DeviationAsc {
+  const float* values;
+  float center;
+  __device__ bool operator()(int a, int b) const {
+    const float da = fabsf(values[a] - center);
+    const float db = fabsf(values[b] - center);
+    return da < db || (da == db && a < b);
+  }
+};
+
+// Comparator for bitonic sort: ascending by normalized distance to center.
+struct NormDistanceAsc {
+  const float* values;
+  float center;
+  float sigma;
+  __device__ bool operator()(int a, int b) const {
+    const float da = fabsf(values[a] - center) / sigma;
+    const float db = fabsf(values[b] - center) / sigma;
+    return da < db || (da == db && a < b);
+  }
+};
+
+// Bitonic sort for indices [0, kMaxFramesCompile), using comp for ordering.
+// comp(a,b) must be true if a should be placed before b in the final order.
+// This is O(N log^2 N) and far faster than the previous insertion sort for
+// large N (~645 samples), while remaining deterministic and local to the thread.
+template <typename Comp>
+__device__ void bitonic_sort_indices(int* indices, int n, Comp comp) {
+  // Pad unused slots so they never move into the valid prefix.  Indices are
+  // their own identity for unused slots; sentinels in the caller arrays ensure
+  // these entries lose every comparison.
+  for (int i = n; i < kMaxFramesCompile; ++i) indices[i] = i;
+  for (int k = 2; k <= kMaxFramesCompile; k *= 2) {
+    for (int j = k / 2; j > 0; j /= 2) {
+      for (int i = 0; i < kMaxFramesCompile; ++i) {
+        const int l = i ^ j;
+        if (l > i) {
+          const bool up = (i & k) == 0;
+          if (up && comp(indices[l], indices[i])) {
+            const int tmp = indices[i];
+            indices[i] = indices[l];
+            indices[l] = tmp;
+          } else if (!up && comp(indices[i], indices[l])) {
+            const int tmp = indices[i];
+            indices[i] = indices[l];
+            indices[l] = tmp;
+          }
+        }
+      }
+    }
+  }
+}
+
+// Weighted median of (values, weights).  Sorts by value ascending using bitonic
+// sort, then walks cumulative weight to the 50% target.
 __device__ float weighted_median_value(
     const float* values, const float* weights, int n,
     int* sort_indices) {
   if (n <= 0) return 0.0f;
-
-  // Initialize sort indices
-  for (int i = 0; i < n; ++i) sort_indices[i] = i;
-
-  // Insertion sort by (value, original_index) ascending.
-  for (int i = 1; i < n; ++i) {
-    int j = i;
-    while (j > 0) {
-      const int a = sort_indices[j];
-      const int b = sort_indices[j - 1];
-      if (values[a] < values[b] ||
-          (values[a] == values[b] && a < b)) {
-        const int tmp = sort_indices[j];
-        sort_indices[j] = sort_indices[j - 1];
-        sort_indices[j - 1] = tmp;
-        --j;
-      } else {
-        break;
-      }
-    }
-  }
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+  bitonic_sort_indices(sort_indices, n, ValueAsc{values});
 
   double total = 0.0;
   for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_indices[i]]);
@@ -78,47 +133,43 @@ __device__ float weighted_median_value(
 // Weighted median of absolute deviations from center.
 __device__ float weighted_mad_value(
     const float* values, const float* weights, int n,
-    float center, int* sort_indices, float* deviations) {
+    float center, int* sort_indices) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < n; ++i) deviations[i] = fabsf(values[i] - center);
-  return weighted_median_value(deviations, weights, n, sort_indices);
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+  bitonic_sort_indices(sort_indices, n, DeviationAsc{values, center});
+
+  double total = 0.0;
+  for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_indices[i]]);
+  const double target = total * 0.5;
+  double accum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    accum += static_cast<double>(weights[sort_indices[i]]);
+    if (accum >= target) {
+      return fabsf(values[sort_indices[i]] - center);
+    }
+  }
+  return fabsf(values[sort_indices[n - 1]] - center);
 }
 
-// Noise floor for small-N path: eps_rel * MAD(values).
+// Noise floor for the non-small-N path: eps_rel * MAD(values).
+// Sorts by value, computes median of values, then sorts by deviation and
+// computes median of deviations.
 __device__ float noise_floor_value(
-    const float* values, int n, float* sorted_values) {
+    const float* values, int n, int* sort_indices) {
   if (n <= 0) return device_eps();
 
-  for (int i = 0; i < n; ++i) sorted_values[i] = values[i];
-  // Insertion sort ascending
-  for (int i = 1; i < n; ++i) {
-    float key = sorted_values[i];
-    int j = i - 1;
-    while (j >= 0 && sorted_values[j] > key) {
-      sorted_values[j + 1] = sorted_values[j];
-      --j;
-    }
-    sorted_values[j + 1] = key;
-  }
-
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+  bitonic_sort_indices(sort_indices, n, ValueAsc{values});
   const float med = (n % 2 == 1)
-      ? sorted_values[n / 2]
-      : 0.5f * (sorted_values[n / 2 - 1] + sorted_values[n / 2]);
+      ? values[sort_indices[n / 2]]
+      : 0.5f * (values[sort_indices[n / 2 - 1]] + values[sort_indices[n / 2]]);
 
-  for (int i = 0; i < n; ++i) sorted_values[i] = fabsf(sorted_values[i] - med);
-  for (int i = 1; i < n; ++i) {
-    float key = sorted_values[i];
-    int j = i - 1;
-    while (j >= 0 && sorted_values[j] > key) {
-      sorted_values[j + 1] = sorted_values[j];
-      --j;
-    }
-    sorted_values[j + 1] = key;
-  }
-
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+  bitonic_sort_indices(sort_indices, n, DeviationAsc{values, med});
   const float mad = (n % 2 == 1)
-      ? sorted_values[n / 2]
-      : 0.5f * (sorted_values[n / 2 - 1] + sorted_values[n / 2]);
+      ? fabsf(values[sort_indices[n / 2]] - med)
+      : 0.5f * (fabsf(values[sort_indices[n / 2 - 1]] - med) +
+                fabsf(values[sort_indices[n / 2]] - med));
 
   const float eps_rel = metrics::aqmh_eps_rel;
   return fmaxf(device_eps(), eps_rel * mad);
@@ -136,25 +187,9 @@ __device__ int cherry_pick_top_k(
   const int k = min(n, max(k_min_required, nominal));
   if (k >= n) return n;
 
-  // Initialize indices
-  for (int i = 0; i < n; ++i) sort_indices[i] = i;
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+  bitonic_sort_indices(sort_indices, n, ScoreDesc{scores});
 
-  // Partial selection sort: move top k by score desc to front.
-  for (int i = 0; i < k; ++i) {
-    int best_idx = i;
-    for (int j = i + 1; j < n; ++j) {
-      const int a = sort_indices[j];
-      const int b = sort_indices[best_idx];
-      if (scores[a] > scores[b] || (scores[a] == scores[b] && a < b)) {
-        best_idx = j;
-      }
-    }
-    const int tmp = sort_indices[i];
-    sort_indices[i] = sort_indices[best_idx];
-    sort_indices[best_idx] = tmp;
-  }
-
-  // Compact selected samples to front of arrays.
   for (int i = 0; i < k; ++i) {
     const int src = sort_indices[i];
     if (src != i) {
@@ -198,7 +233,14 @@ __device__ int sigma_clip(
 
   const int keep_floor = max(1, static_cast<int>(ceilf(min_fraction * static_cast<float>(n))));
 
-  // Local scratch arrays reused for median/MAD computations.
+  // Sentinel-pad the unused tail so bitonic sorts over the fixed compile-time
+  // size do not touch uninitialized memory.
+  for (int i = n; i < kMaxFramesCompile; ++i) {
+    values[i] = INFINITY;
+    weights[i] = 0.0f;
+  }
+
+  // Local scratch array reused for median/MAD computations.
   int sort_indices[kMaxFramesCompile];
   float deviations[kMaxFramesCompile];
   float sorted_values[kMaxFramesCompile];
@@ -254,8 +296,8 @@ __device__ int sigma_clip(
       const float eps_rel = metrics::aqmh_eps_rel;
       floor_val = fmaxf(device_eps(), eps_rel * noise_mad);
     } else {
-      mad = weighted_mad_value(values, weights, n, center, sort_indices, deviations);
-      floor_val = noise_floor_value(values, n, sorted_values);
+      mad = weighted_mad_value(values, weights, n, center, sort_indices);
+      floor_val = noise_floor_value(values, n, sort_indices);
     }
 
     if (mad <= floor_val) {
@@ -267,24 +309,10 @@ __device__ int sigma_clip(
       if (keep_count == n) break;
       if (keep_count < keep_floor) {
         // Sort by normalized distance and keep floor closest to center.
-        for (int i = 0; i < n; ++i) sort_indices[i] = i;
-        for (int i = 1; i < n; ++i) {
-          int j = i;
-          while (j > 0) {
-            const int a = sort_indices[j];
-            const int b = sort_indices[j - 1];
-            const float ar = fabsf(values[a] - center) / fmaxf(1.4826f * mad, floor_val);
-            const float br = fabsf(values[b] - center) / fmaxf(1.4826f * mad, floor_val);
-            if (ar < br || (ar == br && a < b)) {
-              const int tmp = sort_indices[j];
-              sort_indices[j] = sort_indices[j - 1];
-              sort_indices[j - 1] = tmp;
-              --j;
-            } else {
-              break;
-            }
-          }
-        }
+        for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+        bitonic_sort_indices(
+            sort_indices, n,
+            NormDistanceAsc{values, center, fmaxf(1.4826f * mad, floor_val)});
         for (int i = 0; i < keep_floor; ++i) {
           const int src = sort_indices[i];
           if (src != i) {
@@ -319,24 +347,8 @@ __device__ int sigma_clip(
     }
     if (keep_count < keep_floor) {
       // Sort by normalized distance and keep floor.
-      for (int i = 0; i < n; ++i) sort_indices[i] = i;
-      for (int i = 1; i < n; ++i) {
-        int j = i;
-        while (j > 0) {
-          const int a = sort_indices[j];
-          const int b = sort_indices[j - 1];
-          const float ar = fabsf(values[a] - center) / sigma;
-          const float br = fabsf(values[b] - center) / sigma;
-          if (ar < br || (ar == br && a < b)) {
-            const int tmp = sort_indices[j];
-            sort_indices[j] = sort_indices[j - 1];
-            sort_indices[j - 1] = tmp;
-            --j;
-          } else {
-            break;
-          }
-        }
-      }
+      for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
+      bitonic_sort_indices(sort_indices, n, NormDistanceAsc{values, center, sigma});
       for (int i = 0; i < keep_floor; ++i) {
         const int src = sort_indices[i];
         if (src != i) {
@@ -349,7 +361,7 @@ __device__ int sigma_clip(
     }
 
     // Keep samples within clip band.
-    int m = 0;
+    m = 0;
     for (int i = 0; i < n; ++i) {
       if (fabsf(values[i] - center) <= clip_sigma * sigma) {
         values[m] = values[i];
@@ -358,6 +370,11 @@ __device__ int sigma_clip(
       }
     }
     n = m;
+    // Pad the new tail before the next iteration's sorts.
+    for (int i = n; i < kMaxFramesCompile; ++i) {
+      values[i] = INFINITY;
+      weights[i] = 0.0f;
+    }
   }
 
   double d = 0.0;
@@ -439,6 +456,14 @@ __global__ void aqmh_reconstruction_kernel(
     }
   }
 
+  // Sentinel-pad the unused tail so all bitonic sorts over the fixed 1024-wide
+  // arrays see deterministic, harmless values.
+  for (int i = n_samples; i < kMaxFramesCompile; ++i) {
+    values[i] = INFINITY;
+    weights[i] = 0.0f;
+    scores[i] = -INFINITY;
+  }
+
   if (n_samples == 0) {
     d_output[canvas_idx] = 0.0f;
     d_weight_sum[canvas_idx] = 0.0f;
@@ -477,6 +502,10 @@ __global__ void aqmh_reconstruction_kernel(
     for (int i = 0; i < k_effective; ++i) {
       control_values[i] = values[i];
       control_weights[i] = 1.0f;
+    }
+    for (int i = k_effective; i < kMaxFramesCompile; ++i) {
+      control_values[i] = INFINITY;
+      control_weights[i] = 0.0f;
     }
     float ctrl_weight_sum = 0.0f;
     float ctrl_effective_n = 0.0f;

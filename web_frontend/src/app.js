@@ -8556,7 +8556,7 @@ function rawStackNormalizeDefaultsConfig(config) {
     ...(normalized.tile || {}),
   };
   normalized.runtime_limits = {
-    parallel_workers: 4,
+    parallel_workers: 8,
     memory_budget: 512,
     ...(normalized.runtime_limits || {}),
   };

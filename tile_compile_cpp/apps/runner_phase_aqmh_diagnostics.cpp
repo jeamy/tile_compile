@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <numeric>
 
 namespace tile_compile::runner {
@@ -98,6 +99,50 @@ core::json compute_block_diagnostics(
   return result;
 }
 
+// Stream the final aqmh_metrics.json: write the base artifact (without frames)
+// and append the per-frame block diagnostics from a JSONL temp file.
+// This avoids holding the entire per-frame block-diagnostic tree in memory.
+void stream_aqmh_metrics_json(
+    const std::filesystem::path &out_path,
+    const core::json &artifact,
+    const std::filesystem::path &frames_jsonl_path,
+    bool has_frames) {
+  std::ofstream out(out_path, std::ios::out | std::ios::trunc);
+  if (!out) {
+    throw std::runtime_error("cannot open aqmh_metrics.json for streaming write");
+  }
+
+  core::json base = artifact;
+  base.erase("frames");
+  std::string base_str = base.dump(2);
+  if (base_str.empty() || base_str.back() != '}') {
+    throw std::runtime_error("malformed base artifact JSON");
+  }
+  base_str.pop_back();  // remove trailing '}'
+  while (!base_str.empty() &&
+         (base_str.back() == '\n' || base_str.back() == '\r')) {
+    base_str.pop_back();
+  }
+
+  out << base_str;
+  if (has_frames) {
+    out << (base.empty() ? "\n  \"frames\": [\n" : ",\n  \"frames\": [\n");
+
+    std::ifstream in(frames_jsonl_path, std::ios::in);
+    std::string line;
+    bool first = true;
+    while (std::getline(in, line)) {
+      if (line.empty()) continue;
+      if (!first) out << ",\n";
+      first = false;
+      out << "    " << line;
+    }
+    out << "\n  ]\n}";
+  } else {
+    out << "}\n";
+  }
+}
+
 } // namespace
 
 bool run_phase_aqmh_diagnostics(
@@ -151,6 +196,9 @@ bool run_phase_aqmh_diagnostics(
   // Block-level diagnostics and heatmaps (§6.2, §6.3): iterate over all
   // frames that have a cached Q-map and augment per-frame entries.
   // Only compute when in full mode AND per_frame_blocks is enabled.
+  const auto frames_jsonl_path = run_dir / "cache" / "aqmh_block_diagnostics.jsonl";
+  bool has_streamed_frames = false;
+
   if (full_mode && cfg.aqmh.diagnostics.per_frame_blocks &&
       q_map_cache && canvas_width > 0 && canvas_height > 0) {
     const float tau_artifact = cfg.aqmh.diagnostics.tau_artifact;
@@ -159,8 +207,14 @@ bool run_phase_aqmh_diagnostics(
         ? cfg.aqmh.diagnostics.r_morph_canvas_px
         : std::max(16, std::min(canvas_width, canvas_height) / 32);
 
-    auto &frames_arr = artifact["frames"];
-    if (!frames_arr.is_array()) frames_arr = core::json::array();
+    std::ofstream frames_jsonl(frames_jsonl_path,
+                             std::ios::out | std::ios::trunc);
+    if (!frames_jsonl) {
+      emitter.phase_end(run_id, Phase::AQMH_DIAGNOSTICS, "error",
+                        {{"error", "cannot open block diagnostics temp file"}},
+                        log_file);
+      return false;
+    }
 
     for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
       if (!frame_has_data[fi] || !q_map_cache->has(fi)) continue;
@@ -183,26 +237,16 @@ bool run_phase_aqmh_diagnostics(
           return filtered;
         }();
 
-        // Find or create the per-frame entry and merge block diagnostics.
-        bool found = false;
-        for (auto &jf : frames_arr) {
-          if (jf.contains("frame_index") &&
-              jf["frame_index"].get<size_t>() == fi) {
-            jf["block_diagnostics"] = blk_to_store;
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          core::json jf;
-          jf["frame_index"] = fi;
-          jf["block_diagnostics"] = blk_to_store;
-          frames_arr.push_back(std::move(jf));
-        }
+        core::json jf;
+        jf["frame_index"] = fi;
+        jf["block_diagnostics"] = std::move(blk_to_store);
+        frames_jsonl << jf.dump() << '\n';
+        has_streamed_frames = true;
       } catch (const std::exception &) {
         // Skip frames with unreadable or missing maps silently.
       }
     }
+    frames_jsonl.close();
   }
 
   // Write output based on format setting (Item 4.4.2)
@@ -218,11 +262,12 @@ bool run_phase_aqmh_diagnostics(
     bin_diag.header.has_heatmaps = (full_mode && cfg.aqmh.diagnostics.per_frame_blocks &&
                                    cfg.aqmh.diagnostics.heatmaps) ? 1 : 0;
 
-    // Convert frame array from JSON artifact to binary records
-    if (artifact.contains("frames") && artifact["frames"].is_array()) {
-      const auto &frames_arr = artifact["frames"];
-      bin_diag.frame_records.reserve(frames_arr.size());
-      for (const auto &frame_json : frames_arr) {
+    // Convert per-frame summary records from the maps-phase diagnostics array
+    // (block-level diagnostics are kept in JSON only and not materialized for binary).
+    if (artifact.contains("diagnostics") && artifact["diagnostics"].is_array()) {
+      const auto &diag_arr = artifact["diagnostics"];
+      bin_diag.frame_records.reserve(diag_arr.size());
+      for (const auto &frame_json : diag_arr) {
         metrics::AqmhBinaryFrameRecord record;
         record.frame_index = frame_json.value("frame_index", 0u);
         record.map_mean = frame_json.value("map_mean", 0.0f);
@@ -242,36 +287,16 @@ bool run_phase_aqmh_diagnostics(
       }
     }
 
-    // Convert heatmap arrays if present
-    if (bin_diag.header.has_heatmaps && artifact.contains("heatmaps")) {
-      const auto &heatmaps_json = artifact["heatmaps"];
-      const auto block_grid = metrics::compute_block_grid(
-          canvas_width, canvas_height, bin_diag.header.block_size_px);
-
-      // Expected heatmap array order
-      const std::vector<std::string> heatmap_names = {
-          "aqmh_q_median", "aqmh_q_p10", "aqmh_q_p90",
-          "aqmh_artifact_frac", "q_map_heatmap", "artifact_heatmap"
-      };
-
-      for (const auto &name : heatmap_names) {
-        if (heatmaps_json.contains(name) && heatmaps_json[name].is_array()) {
-          const auto &arr = heatmaps_json[name];
-          std::vector<float> float_arr;
-          float_arr.reserve(arr.size());
-          for (const auto &val : arr) {
-            float_arr.push_back(static_cast<float>(val));
-          }
-          bin_diag.heatmap_arrays.push_back(float_arr);
-        }
-      }
-    }
+    // Heatmap arrays are produced by the JSON streaming path; the binary format
+    // intentionally stores only the much smaller summary records for now.
 
     const auto binary_path = run_dir / "artifacts" / "aqmh_metrics.bin";
     metrics::write_binary_diagnostics(binary_path, bin_diag);
   } else {
-    // Default JSON format
-    core::write_text(path, artifact.dump(2));
+    // Default JSON format: stream the base artifact and append per-frame block
+    // diagnostics from the temporary JSONL file, keeping the intermediate tree
+    // out of RAM.
+    stream_aqmh_metrics_json(path, artifact, frames_jsonl_path, has_streamed_frames);
   }
   emitter.phase_end(run_id, Phase::AQMH_DIAGNOSTICS, "ok",
                     {{"cherry_pick_active", reconstruction.cherry_pick_active},

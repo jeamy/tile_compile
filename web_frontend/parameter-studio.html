@@ -263,9 +263,17 @@
                 <label for="parameter-aqmh-cherry-frac">aqmh.cherry_pick.k_frac</label>
                 <input id="parameter-aqmh-cherry-frac" data-control="parameter.aqmh.cherry_pick.k_frac" class="ps-input ps-short" type="number" step="0.05" value="0.30" title="Anteil der besten Frames fuer Cherry-Pick.">
               </div>
-              <div class="ps-row" data-path="aqmh.cherry_pick.k_min">
-                <label for="parameter-aqmh-cherry-min">aqmh.cherry_pick.k_min</label>
-                <input id="parameter-aqmh-cherry-min" data-control="parameter.aqmh.cherry_pick.k_min" class="ps-input ps-short" type="number" value="3" title="Mindestanzahl Frames im Cherry-Pick-Modus.">
+              <div class="ps-row" data-path="aqmh.cherry_pick.k_min_required">
+                <label for="parameter-aqmh-cherry-min">aqmh.cherry_pick.k_min_required</label>
+                <input id="parameter-aqmh-cherry-min" data-control="parameter.aqmh.cherry_pick.k_min_required" class="ps-input ps-short" type="number" value="20" title="Mindestanzahl Frames im Cherry-Pick-Modus.">
+              </div>
+              <div class="ps-row" data-path="aqmh.cherry_pick.margin_min">
+                <label for="parameter-aqmh-cherry-margin">aqmh.cherry_pick.margin_min</label>
+                <input id="parameter-aqmh-cherry-margin" data-control="parameter.aqmh.cherry_pick.margin_min" class="ps-input ps-short" type="number" step="0.01" value="0.02" title="Mindest-Rangabstand fuer Cherry-Pick-Auswahl.">
+              </div>
+              <div class="ps-row" data-path="aqmh.cherry_pick.tiered_k_frac">
+                <label for="parameter-aqmh-cherry-tiered">aqmh.cherry_pick.tiered_k_frac</label>
+                <input id="parameter-aqmh-cherry-tiered" data-control="parameter.aqmh.cherry_pick.tiered_k_frac" class="ps-input ps-wide" type="text" value="[]" title="Gestaffelte k_frac-Werte als JSON-Array.">
               </div>
             </div>
 

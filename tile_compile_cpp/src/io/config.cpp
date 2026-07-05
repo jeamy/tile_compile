@@ -1304,6 +1304,7 @@ YAML::Node Config::to_yaml() const {
       local_metrics.structure_mode.background_weight;
   node["local_metrics"]["structure_mode"]["metric_weight"] =
       local_metrics.structure_mode.metric_weight;
+  node["local_metrics"]["k_local"] = local_metrics.k_local;
 
   node["aqmh"]["enabled"] = aqmh.enabled;
   node["aqmh"]["pyramid"]["scales"] = aqmh.pyramid.scales;
@@ -1325,11 +1326,15 @@ YAML::Node Config::to_yaml() const {
   node["aqmh"]["cherry_pick"]["k_frac"] = aqmh.cherry_pick.k_frac;
   node["aqmh"]["cherry_pick"]["k_min_required"] = aqmh.cherry_pick.k_min_required;
   node["aqmh"]["cherry_pick"]["margin_min"] = aqmh.cherry_pick.margin_min;
-  for (const auto &tier : aqmh.cherry_pick.tiered_k_frac) {
-    YAML::Node item;
-    item["min_n_rankable"] = tier.min_n_rankable;
-    item["k_frac"] = tier.k_frac;
-    node["aqmh"]["cherry_pick"]["tiered_k_frac"].push_back(item);
+  if (aqmh.cherry_pick.tiered_k_frac.empty()) {
+    node["aqmh"]["cherry_pick"]["tiered_k_frac"] = YAML::Node(YAML::NodeType::Sequence);
+  } else {
+    for (const auto &tier : aqmh.cherry_pick.tiered_k_frac) {
+      YAML::Node item;
+      item["min_n_rankable"] = tier.min_n_rankable;
+      item["k_frac"] = tier.k_frac;
+      node["aqmh"]["cherry_pick"]["tiered_k_frac"].push_back(item);
+    }
   }
   node["aqmh"]["diagnostics"]["tau_artifact"] =
       aqmh.diagnostics.tau_artifact;
@@ -1393,21 +1398,29 @@ YAML::Node Config::to_yaml() const {
       bge.autobge.normalize_between_stages;
   node["bge"]["autobge"]["apply_guards"] = bge.autobge.apply_guards;
   node["bge"]["autobge"]["mono_mode"] = bge.autobge.mono_mode;
-  for (const auto &polygon : bge.autobge.exclusion_polygons) {
-    YAML::Node polygon_node(YAML::NodeType::Sequence);
-    for (const auto &point : polygon) {
+  if (bge.autobge.exclusion_polygons.empty()) {
+    node["bge"]["autobge"]["exclusion_polygons"] = YAML::Node(YAML::NodeType::Sequence);
+  } else {
+    for (const auto &polygon : bge.autobge.exclusion_polygons) {
+      YAML::Node polygon_node(YAML::NodeType::Sequence);
+      for (const auto &point : polygon) {
+        YAML::Node point_node(YAML::NodeType::Sequence);
+        point_node.push_back(point[0]);
+        point_node.push_back(point[1]);
+        polygon_node.push_back(point_node);
+      }
+      node["bge"]["autobge"]["exclusion_polygons"].push_back(polygon_node);
+    }
+  }
+  if (bge.autobge.user_sample_points.empty()) {
+    node["bge"]["autobge"]["user_sample_points"] = YAML::Node(YAML::NodeType::Sequence);
+  } else {
+    for (const auto &point : bge.autobge.user_sample_points) {
       YAML::Node point_node(YAML::NodeType::Sequence);
       point_node.push_back(point[0]);
       point_node.push_back(point[1]);
-      polygon_node.push_back(point_node);
+      node["bge"]["autobge"]["user_sample_points"].push_back(point_node);
     }
-    node["bge"]["autobge"]["exclusion_polygons"].push_back(polygon_node);
-  }
-  for (const auto &point : bge.autobge.user_sample_points) {
-    YAML::Node point_node(YAML::NodeType::Sequence);
-    point_node.push_back(point[0]);
-    point_node.push_back(point[1]);
-    node["bge"]["autobge"]["user_sample_points"].push_back(point_node);
   }
   node["bge"]["sample_quantile"] = bge.sample_quantile;
   node["bge"]["sample_estimator"] = bge.sample_estimator;
@@ -1440,6 +1453,8 @@ YAML::Node Config::to_yaml() const {
   node["bge"]["autotune"]["alpha_flatness"] = bge.autotune.alpha_flatness;
   node["bge"]["autotune"]["beta_roughness"] = bge.autotune.beta_roughness;
   node["bge"]["autotune"]["strategy"] = bge.autotune.strategy;
+  node["bge"]["tile_weight_lambda_structure"] =
+      bge.tile_weight_lambda_structure;
 
   node["pcc"]["enabled"] = pcc.enabled;
   node["pcc"]["source"] = pcc.source;
@@ -1517,6 +1532,10 @@ YAML::Node Config::to_yaml() const {
       stacking.cosmetic_correction;
   node["stacking"]["cosmetic_correction_sigma"] =
       stacking.cosmetic_correction_sigma;
+  node["stacking"]["per_frame_cosmetic_correction"] =
+      stacking.per_frame_cosmetic_correction;
+  node["stacking"]["per_frame_cosmetic_correction_sigma"] =
+      stacking.per_frame_cosmetic_correction_sigma;
 
   node["validation"]["min_fwhm_improvement_percent"] =
       validation.min_fwhm_improvement_percent;
@@ -2269,6 +2288,8 @@ std::string get_schema_json() {
   for (const fs::path &candidate : {
            fs::path("tile_compile.schema.json"),
            fs::path("tile_compile_cpp") / "tile_compile.schema.json",
+           fs::path("..") / "tile_compile.schema.json",
+           fs::path("..") / "tile_compile_cpp" / "tile_compile.schema.json",
        }) {
     std::error_code ec;
     if (!fs::exists(candidate, ec) || ec) {
@@ -2417,9 +2438,9 @@ std::string get_schema_json() {
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
                       "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"g_w_sharp":{"type":"number","minimum":0},"g_w_snr":{"type":"number","minimum":0}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","description":"Enables per-pixel top-K AQMH selection subject to the run and pixel sample floors."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1},"k_min_required":{"type":"integer","minimum":1},"margin_min":{"type":"number","minimum":0,"maximum":1},"tiered_k_frac":{"type":"array","items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0},"clip_iterations":{"type":"integer","minimum":0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"min_n_eff":{"type":"number","minimum":1}}},
+                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0},"clip_iterations":{"type":"integer","minimum":0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"min_n_eff":{"type":"number","minimum":1},"chunk_rows":{"type":"integer","minimum":0},"memory_budget_mb":{"type":"integer","minimum":0},"gpu_reconstruction":{"type":"string","enum":["disabled","auto","force"]}}},
                       "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0},"max_fwhm_regression":{"type":"number","minimum":0},"max_background_rms_regression":{"type":"number","minimum":0}}},
-                      "diagnostics":{"type":"object","properties":{"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
+                      "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean"},"level":{"type":"string","enum":["none","summary","full"]},"per_frame_blocks":{"type":"boolean"},"heatmaps":{"type":"boolean"},"regions":{"type":"boolean"},"format":{"type":"string","enum":["json","binary"]},"binary_block_size_px":{"type":"integer","minimum":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
     "synthetic": { "type":"object",
       "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
                       "frames_min":{"type":"integer","minimum":1},

@@ -37,11 +37,8 @@ linearity:
   min_overall_linearity: 0.9
   strictness: strict
 calibration:
-  flat_master: ""
-  flats_dir: ""
-  dark_master: ""
-  bias_master: ""
   darks_dir: ""
+  flat_master: ""
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -53,7 +50,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 2
   bias_dir: ""
-  use_bias: false
 assumptions:
   frames_min: 50
   frames_reduced_threshold: 150
@@ -310,13 +306,13 @@ aqmh:
     q_region: 0.75
     r_morph_canvas_px: 6
   reconstruction:
-    clip_sigma: 3.0
+    clip_sigma: 3
     clip_iterations: 3
     min_fraction: 0.5
-    min_n_eff: 2.0
+    min_n_eff: 2
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: disabled
+    gpu_reconstruction: auto
 stacking:
   method: rej
   common_overlap_required_fraction: 1

@@ -216,6 +216,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
+    user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
   tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true # optionales deterministisches BGE-Autotuning (v3.3.6 §6.3.7)
@@ -305,6 +307,14 @@ aqmh:
     w_snr: 0.4
     k_artifact: 3.0
     frac_artifact_max: 0.25
+
+
+  # Globale Qualitaetsgewichtung (v0.2.0)
+  global_quality:
+    g_floor: 0.05          # Untergrenze fuer globale Frame-Qualitaet G_f
+    g_w_sharp: 0.6        # Gewicht Schaerfe in globaler Qualitaet
+    g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
+
   storage:
     resolution_divisor: 2
     dtype: uint16
@@ -313,6 +323,14 @@ aqmh:
     enabled: false
     k_min_required: 20
     k_frac: 0.30
+    margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
+    tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+
+  # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
+  validation:
+    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
+    max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
+    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
   diagnostics:
     enabled: true
     level: full
@@ -331,7 +349,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: disabled
+    gpu_reconstruction: auto
 stacking:
   method: rej # rej|average
   common_overlap_required_fraction: 1.0
@@ -359,7 +377,7 @@ validation:
   require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
 
 runtime_limits:
-  parallel_workers: 4 # konservativer Default fuer stabile Last
+  parallel_workers: 8 # konservativer Default fuer stabile Last
   memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse

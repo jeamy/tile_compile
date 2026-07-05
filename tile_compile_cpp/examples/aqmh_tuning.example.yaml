@@ -105,7 +105,13 @@ aqmh:
     w_snr: 0.4               # SNR weight in quality metric
     k_artifact: 3.0           # Artifact detection sensitivity (MAD multiplier)
     frac_artifact_max: 0.25  # Maximum tolerated outlier fraction per window
-  
+
+  # Global quality weighting (v0.2.0)
+  global_quality:
+    g_floor: 0.05          # Floor for global frame quality G_f
+    g_w_sharp: 0.6        # Weight for sharpness in global quality
+    g_w_snr: 0.4          # Weight for SNR in global quality
+
   # Diagnostics parameters
   diagnostics:
     enabled: true
@@ -127,13 +133,21 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: disabled
+    gpu_reconstruction: auto
   
   # Cherry-pick parameters (pixel-level frame selection)
   cherry_pick:
     enabled: false
     k_frac: 0.3              # Fraction of best frames to use
     k_min_required: 20       # Run-level gate and per-pixel retained-sample floor
+    margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
+    tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+
+  # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
+  validation:
+    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
+    max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
+    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
 
 global_metrics:
   adaptive_weights: true
@@ -142,7 +156,7 @@ global_metrics:
     - -3
     - 3
   weights:
-    background: 0.35
+    background: 0.45
     fwhm: 0.0
     gradient: 0.25
     noise: 0.3
@@ -279,6 +293,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
+    user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
   tile_weight_lambda_structure: 1.0
   fit:
     method: rbf
@@ -370,7 +386,7 @@ validation:
 # Runtime limits
 runtime_limits:
   memory_budget: 32          # GB - ensure sufficient for AQMH cache
-  parallel_workers: 0        # 0 = auto
+  parallel_workers: 8        # Number of worker threads (>=1, 1 = sequential)
   acceleration_backend: auto
   allow_emergency_mode: true
   hard_abort_hours: 6
