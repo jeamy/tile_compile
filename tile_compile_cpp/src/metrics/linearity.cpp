@@ -16,16 +16,17 @@ LinearityThresholds
 /// artifact, and error-handling semantics expected by callers.
 linearity_thresholds_for(const std::string &strictness) {
   if (strictness == "moderate") {
-    return {1.5f, 1.5f, 0.8f, 0.20f, 0.6f};
+    return {1.5f, 0.8f, 0.8f, 0.005f, 0.6f};
   }
   if (strictness == "permissive") {
-    return {2.0f, 2.0f, 1.2f, 0.10f, 0.8f};
+    return {2.0f, 0.9f, 1.2f, 0.001f, 0.8f};
   }
-  // strict: energy_ratio uses only DC corner (top-left of DFT), so realistic
-  // floor for astrophotos (stars = HF energy) is ~0.25-0.40.
-  // gradient_consistency is now normalized by pixel range (not mean), so
-  // typical values are 0.05-0.30 for well-exposed linear frames.
-  return {1.2f, 1.2f, 0.6f, 0.25f, 0.4f};
+  // strict: thresholds adjusted for corrected formulas:
+  // - variance_coeff now uses pixel_range (not |mean|), typical 0.01-0.30
+  // - kurtosis is inverted tail-to-body ratio (p75-p25)/(p95-p5),
+  //   low = heavy-tailed (linear), high = light-tailed (non-linear)
+  // - energy_ratio excludes DC bin, so values are much lower (~0.01-0.10)
+  return {1.2f, 0.7f, 0.6f, 0.01f, 0.4f};
 }
 
 LinearityFrameResult
@@ -95,8 +96,14 @@ validate_linearity_frame(const Matrix2Df &img,
   float p75 = core::percentile_from_sorted(sorted, 75.0f);
   float iqr = (p75 - p25) + 1.0e-12f;
   out.skewness = (p75 - p50) / iqr;
-  out.kurtosis = (p95 - p5) / ((p95 - p5) + 1.0e-12f);
-  out.variance_coeff = static_cast<float>(stddev / (std::fabs(mean) + 1.0e-12));
+  // Kurtosis: inverted tail-to-body ratio.  Low values = heavy-tailed
+  // (linear astro with sharp star peaks), high values = light-tailed
+  // (non-linear stretched, compressed dynamic range).
+  out.kurtosis = (p75 - p25) / ((p95 - p5) + 1.0e-12f);
+  // Variance coefficient: normalize by pixel range (not |mean|), because
+  // calibrated frames have mean≈0 which would make this diverge.
+  float pixel_range = (p99 - p1) + 1.0e-6f;
+  out.variance_coeff = static_cast<float>(stddev / static_cast<double>(pixel_range));
 
   cv::Mat gx, gy, mag;
   cv::Sobel(small, gx, CV_32F, 1, 0, 3);
@@ -105,7 +112,6 @@ validate_linearity_frame(const Matrix2Df &img,
   double mean_grad = cv::mean(mag)[0];
   // Normalize gradient by pixel range (p99-p1) instead of mean, because
   // background-subtracted frames have mean≈0 which would make this diverge.
-  float pixel_range = (p99 - p1) + 1.0e-6f;
   out.gradient_consistency =
       static_cast<float>(mean_grad / static_cast<double>(pixel_range));
 
@@ -116,12 +122,18 @@ validate_linearity_frame(const Matrix2Df &img,
     std::vector<cv::Mat> planes;
     cv::split(dft_img, planes);
     cv::Mat mag2 = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
-    double total_energy = cv::sum(mag2)[0];
-    // Only the top-left corner is the true low-frequency (DC) region in
+    // Exclude DC bin (0,0) from both numerator and denominator: the DC
+    // is just |sum(pixels)|^2 and carries no linearity information.
+    // For uncalibrated frames it dominates and inflates energy_ratio;
+    // for calibrated frames (mean≈0) it's near-zero.  Excluding it
+    // makes the ratio measure actual AC spectral shape.
+    double dc_energy = static_cast<double>(mag2.at<float>(0, 0));
+    double total_energy = cv::sum(mag2)[0] - dc_energy;
+    // Only the top-left corner is the true low-frequency region in
     // standard (non-shifted) DFT layout. The other 3 corners are Nyquist/
     // high-frequency aliases and must NOT be counted as low-frequency.
     int r = std::max(1, std::min(mag2.rows, mag2.cols) / 8);
-    double low_energy = cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
+    double low_energy = cv::sum(mag2(cv::Rect(0, 0, r, r)))[0] - dc_energy;
     if (total_energy > 0.0) {
       out.energy_ratio = static_cast<float>(low_energy / total_energy);
     }
