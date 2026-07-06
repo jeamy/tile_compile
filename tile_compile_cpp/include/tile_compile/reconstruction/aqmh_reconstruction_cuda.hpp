@@ -20,6 +20,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     int width, int height,
     const AqmhReconstructionConfig &cfg,
     const AqmhMaskLoader &load_frame_valid_mask = {},
+    const AqmhFrameRegionLoader &load_frame_region = {},
+    const AqmhMaskRegionLoader &load_frame_valid_mask_region = {},
     const AqmhProgressCallback &progress = {});
 
 } // namespace tile_compile::reconstruction

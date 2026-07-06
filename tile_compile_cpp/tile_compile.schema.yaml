@@ -636,6 +636,7 @@ properties:
             default: 0.02
           tiered_k_frac:
             type: array
+            default: []
             items:
               type: object
               required: [min_n_rankable, k_frac]

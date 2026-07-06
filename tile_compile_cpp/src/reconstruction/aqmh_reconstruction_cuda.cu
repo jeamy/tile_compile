@@ -616,6 +616,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     int width, int height,
     const AqmhReconstructionConfig &cfg,
     const AqmhMaskLoader &load_frame_valid_mask,
+    const AqmhFrameRegionLoader &load_frame_region,
+    const AqmhMaskRegionLoader &load_frame_valid_mask_region,
     const AqmhProgressCallback &progress) {
   AqmhReconstructionResult result;
   result.output = Matrix2Df::Zero(height, width);
@@ -635,7 +637,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
               << "; falling back to CPU" << std::endl;
     result = reconstruct_aqmh_weighted(
         frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
-        width, height, cfg, load_frame_valid_mask, {}, {}, progress);
+        width, height, cfg, load_frame_valid_mask, load_frame_region,
+        load_frame_valid_mask_region, progress);
     result.acceleration_fallback = true;
     return result;
   }
@@ -763,18 +766,26 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         static_cast<size_t>(rows) * width * sizeof(uint8_t),
         cudaMemcpyHostToDevice, stream));
 
-    // Load all frames / q-maps / masks for this chunk.
+    // Load all frames / q-maps / masks for this chunk using region loaders
+    // when available (avoids loading full W×H frames per chunk — only rows
+    // rows are needed, cutting I/O by ~height/chunk_rows×).
+    const bool use_region = static_cast<bool>(load_frame_region);
     for (size_t fi = 0; fi < frame_count; ++fi) {
-      Matrix2Df full_frame;
-      const bool frame_ok = load_frame(fi, full_frame);
-      if (!frame_ok || full_frame.rows() != height || full_frame.cols() != width) {
+      Matrix2Df frame_region;
+      const bool frame_ok = use_region
+          ? load_frame_region(fi, y0, rows, frame_region)
+          : load_frame(fi, frame_region);
+      if (!frame_ok || frame_region.rows() != rows ||
+          frame_region.cols() != width) {
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
       frame_compatible[fi] = 1u;
 
-      Matrix2Df q = q_map_cache->read_cached(fi);
-      if (q.rows() != height || q.cols() != width) {
+      Matrix2Df q = use_region
+          ? q_map_cache->read_region(fi, y0, rows)
+          : q_map_cache->read_cached(fi);
+      if (q.rows() != rows || q.cols() != width) {
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         frame_compatible[fi] = 0u;
         continue;
@@ -782,7 +793,14 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
 
       std::vector<uint8_t> fm;
       bool mask_ok = true;
-      if (load_frame_valid_mask) {
+      if (load_frame_valid_mask_region && use_region) {
+        mask_ok = load_frame_valid_mask_region(fi, y0, rows, fm);
+        if (!mask_ok || fm.size() != static_cast<size_t>(width * rows)) {
+          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+          frame_compatible[fi] = 0u;
+          continue;
+        }
+      } else if (load_frame_valid_mask) {
         mask_ok = load_frame_valid_mask(fi, fm);
         if (!mask_ok || fm.size() != static_cast<size_t>(width * height)) {
           result.missing_map_samples += static_cast<uint64_t>(rows) * width;
@@ -797,16 +815,17 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           const size_t full_i = static_cast<size_t>(y) * width + x;
           const size_t local_i = static_cast<size_t>(yy) * width + x;
           const size_t idx = fi * chunk_rows * width + local_i;
-          h_frames[idx] = full_frame(y, x);
-          h_q_maps[idx] = q(y, x);
+          h_frames[idx] = frame_region(yy, x);
+          h_q_maps[idx] = q(yy, x);
           if (fm.empty()) {
             h_masks[idx] = 1u;
           } else {
-            h_masks[idx] = fm[full_i];
-            if (fm[full_i] == 0u) continue;
+            const size_t mask_i = use_region ? local_i : full_i;
+            h_masks[idx] = fm[mask_i];
+            if (fm[mask_i] == 0u) continue;
           }
           if (h_canvas_mask[local_i] == 0u) continue;
-          if (!std::isfinite(q(y, x))) {
+          if (!std::isfinite(q(yy, x))) {
             ++result.missing_map_samples;
           } else {
             ++result.finite_map_samples;

@@ -37,8 +37,11 @@ linearity:
   min_overall_linearity: 0.9
   strictness: strict
 calibration:
-  darks_dir: ""
   flat_master: ""
+  flats_dir: ""
+  dark_master: ""
+  bias_master: ""
+  darks_dir: ""
   use_dark: false
   use_flat: false
   bias_use_master: false

@@ -90,7 +90,6 @@ bool run_phase_aqmh_reconstruction(
       return false;
     }
     output = prewarped_frames.load(fi);
-    prewarped_frames.invalidate_mapping(fi);
     return output.rows() == canvas_height && output.cols() == canvas_width;
   };
   metrics::FrameValidMaskStore aqmh_mask_store(
@@ -146,7 +145,8 @@ bool run_phase_aqmh_reconstruction(
         aqmh_recon = reconstruction::reconstruct_aqmh_weighted_cuda(
             frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
             common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
-            aqmh_mask_loader, progress_callback);
+            aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+            progress_callback);
         if (aqmh_recon.output.rows() == canvas_height && aqmh_recon.output.cols() == canvas_width) {
           execution_backend_str = "cuda_native";
           acceleration_used = true;
@@ -183,7 +183,8 @@ bool run_phase_aqmh_reconstruction(
         aqmh_recon = reconstruction::reconstruct_aqmh_weighted_opencl(
             frames.size(), aqmh_frame_loader, aqmh_cache.get(), aqmh_global_weights,
             common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
-            aqmh_mask_loader, progress_callback);
+            aqmh_mask_loader, aqmh_frame_region_loader, aqmh_mask_region_loader,
+            progress_callback);
         if (aqmh_recon.output.rows() == canvas_height && aqmh_recon.output.cols() == canvas_width) {
           execution_backend_str = "opencl";
           acceleration_used = true;
