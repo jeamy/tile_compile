@@ -34,12 +34,22 @@ std::vector<AqmhWeightedSample> aqmh_select_top_k(
   if (rank_margin) *rank_margin = -1.0f;
   if (n < k_min_required) return {};
   const int k = std::min(n, std::max(k_min_required, nominal));
-  std::sort(samples.begin(), samples.end(), [](const auto &a, const auto &b) {
+  auto score_cmp = [](const auto &a, const auto &b) {
     return a.score != b.score ? a.score > b.score : a.frame_index < b.frame_index;
-  });
-  if (rank_margin && k < n && samples.front().score > 0.0f)
-    *rank_margin = (samples[static_cast<size_t>(k - 1)].score -
-                    samples[static_cast<size_t>(k)].score) / samples.front().score;
+  };
+  // Partition around the k-th element: O(N) average instead of O(N log N) sort.
+  std::nth_element(samples.begin(), samples.begin() + k - 1,
+                   samples.end(), score_cmp);
+  // Sort just the top-k for deterministic ordering: O(k log k).
+  std::sort(samples.begin(), samples.begin() + k, score_cmp);
+  if (rank_margin && k < n && samples.front().score > 0.0f) {
+    // The element at position k is the best of the remaining partition.
+    const float kth_score = samples[static_cast<size_t>(k - 1)].score;
+    const float next_score = std::max_element(
+        samples.begin() + k, samples.end(),
+        [](const auto &a, const auto &b) { return a.score < b.score; })->score;
+    *rank_margin = (kth_score - next_score) / samples.front().score;
+  }
   samples.resize(static_cast<size_t>(k));
   return samples;
 }

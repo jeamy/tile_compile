@@ -16,13 +16,41 @@
 #include <iostream>
 #include <limits>
 #include <numeric>
+#include <thread>
 #include <vector>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 namespace tile_compile::reconstruction {
 
 namespace {
 
 constexpr int kMaxFramesCompile = 1024;  // upper bound for local arrays
+
+// Next power of two >= n, capped at kMaxFramesCompile.
+__device__ inline int next_pow2(int n) {
+  int p = 1;
+  while (p < n && p < kMaxFramesCompile) p *= 2;
+  return p;
+}
+
+// Insertion sort for small n (<= 64).  O(N²) but with low constant factor;
+// for N=64 that's ~2016 comparisons vs ~3000+ for bitonic sort over 64.
+// Sorts indices [0, n) using comp for ordering.
+template <typename Comp>
+__device__ void insertion_adaptive_sort(int* indices, int n, Comp comp) {
+  for (int i = 1; i < n; ++i) {
+    int key = indices[i];
+    int j = i - 1;
+    while (j >= 0 && comp(key, indices[j])) {
+      indices[j + 1] = indices[j];
+      --j;
+    }
+    indices[j + 1] = key;
+  }
+}
 
 // Small epsilon used for device-side comparisons (matches CPU epsilon guard).
 __device__ inline float device_eps() {
@@ -77,19 +105,22 @@ struct NormDistanceAsc {
   }
 };
 
-// Bitonic sort for indices [0, kMaxFramesCompile), using comp for ordering.
-// comp(a,b) must be true if a should be placed before b in the final order.
-// This is O(N log^2 N) and far faster than the previous insertion sort for
-// large N (~645 samples), while remaining deterministic and local to the thread.
+// Adaptive sort: insertion sort for small n, bitonic sort for larger n.
+// Bitonic sort operates on next_pow2(n) elements instead of always 1024,
+// dramatically reducing work when n << kMaxFramesCompile.
 template <typename Comp>
-__device__ void bitonic_sort_indices(int* indices, int n, Comp comp) {
-  // Pad unused slots so they never move into the valid prefix.  Indices are
-  // their own identity for unused slots; sentinels in the caller arrays ensure
-  // these entries lose every comparison.
-  for (int i = n; i < kMaxFramesCompile; ++i) indices[i] = i;
-  for (int k = 2; k <= kMaxFramesCompile; k *= 2) {
+__device__ void adaptive_sort(int* indices, int n, Comp comp) {
+  if (n <= 64) {
+    for (int i = 0; i < n; ++i) indices[i] = i;
+    insertion_adaptive_sort(indices, n, comp);
+    return;
+  }
+  // Bitonic sort over next_pow2(n) elements.
+  const int sort_size = next_pow2(n);
+  for (int i = n; i < sort_size; ++i) indices[i] = i;
+  for (int k = 2; k <= sort_size; k *= 2) {
     for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < kMaxFramesCompile; ++i) {
+      for (int i = 0; i < sort_size; ++i) {
         const int l = i ^ j;
         if (l > i) {
           const bool up = (i & k) == 0;
@@ -112,64 +143,64 @@ __device__ void bitonic_sort_indices(int* indices, int n, Comp comp) {
 // sort, then walks cumulative weight to the 50% target.
 __device__ float weighted_median_value(
     const float* values, const float* weights, int n,
-    int* sort_indices) {
+    int* sort_buf) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-  bitonic_sort_indices(sort_indices, n, ValueAsc{values});
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+  adaptive_sort(sort_buf, n, ValueAsc{values});
 
   double total = 0.0;
-  for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_indices[i]]);
+  for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_buf[i]]);
   const double target = total * 0.5;
   double accum = 0.0;
   for (int i = 0; i < n; ++i) {
-    accum += static_cast<double>(weights[sort_indices[i]]);
+    accum += static_cast<double>(weights[sort_buf[i]]);
     if (accum >= target) {
-      return values[sort_indices[i]];
+      return values[sort_buf[i]];
     }
   }
-  return values[sort_indices[n - 1]];
+  return values[sort_buf[n - 1]];
 }
 
 // Weighted median of absolute deviations from center.
 __device__ float weighted_mad_value(
     const float* values, const float* weights, int n,
-    float center, int* sort_indices) {
+    float center, int* sort_buf) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-  bitonic_sort_indices(sort_indices, n, DeviationAsc{values, center});
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+  adaptive_sort(sort_buf, n, DeviationAsc{values, center});
 
   double total = 0.0;
-  for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_indices[i]]);
+  for (int i = 0; i < n; ++i) total += static_cast<double>(weights[sort_buf[i]]);
   const double target = total * 0.5;
   double accum = 0.0;
   for (int i = 0; i < n; ++i) {
-    accum += static_cast<double>(weights[sort_indices[i]]);
+    accum += static_cast<double>(weights[sort_buf[i]]);
     if (accum >= target) {
-      return fabsf(values[sort_indices[i]] - center);
+      return fabsf(values[sort_buf[i]] - center);
     }
   }
-  return fabsf(values[sort_indices[n - 1]] - center);
+  return fabsf(values[sort_buf[n - 1]] - center);
 }
 
 // Noise floor for the non-small-N path: eps_rel * MAD(values).
 // Sorts by value, computes median of values, then sorts by deviation and
 // computes median of deviations.
 __device__ float noise_floor_value(
-    const float* values, int n, int* sort_indices) {
+    const float* values, int n, int* sort_buf) {
   if (n <= 0) return device_eps();
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-  bitonic_sort_indices(sort_indices, n, ValueAsc{values});
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+  adaptive_sort(sort_buf, n, ValueAsc{values});
   const float med = (n % 2 == 1)
-      ? values[sort_indices[n / 2]]
-      : 0.5f * (values[sort_indices[n / 2 - 1]] + values[sort_indices[n / 2]]);
+      ? values[sort_buf[n / 2]]
+      : 0.5f * (values[sort_buf[n / 2 - 1]] + values[sort_buf[n / 2]]);
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-  bitonic_sort_indices(sort_indices, n, DeviationAsc{values, med});
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+  adaptive_sort(sort_buf, n, DeviationAsc{values, med});
   const float mad = (n % 2 == 1)
-      ? fabsf(values[sort_indices[n / 2]] - med)
-      : 0.5f * (fabsf(values[sort_indices[n / 2 - 1]] - med) +
-                fabsf(values[sort_indices[n / 2]] - med));
+      ? fabsf(values[sort_buf[n / 2]] - med)
+      : 0.5f * (fabsf(values[sort_buf[n / 2 - 1]] - med) +
+                fabsf(values[sort_buf[n / 2]] - med));
 
   const float eps_rel = metrics::aqmh_eps_rel;
   return fmaxf(device_eps(), eps_rel * mad);
@@ -180,18 +211,18 @@ __device__ float noise_floor_value(
 // values/weights/scores arrays.
 __device__ int cherry_pick_top_k(
     float* values, float* weights, float* scores, int n,
-    int k_min_required, float k_frac, int* sort_indices) {
+    int k_min_required, float k_frac, int* sort_buf) {
   if (n < k_min_required) return n;
 
   const int nominal = max(0, static_cast<int>(floorf(k_frac * static_cast<float>(n))));
   const int k = min(n, max(k_min_required, nominal));
   if (k >= n) return n;
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-  bitonic_sort_indices(sort_indices, n, ScoreDesc{scores});
+  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+  adaptive_sort(sort_buf, n, ScoreDesc{scores});
 
   for (int i = 0; i < k; ++i) {
-    const int src = sort_indices[i];
+    const int src = sort_buf[i];
     if (src != i) {
       values[i] = values[src];
       weights[i] = weights[src];
@@ -241,12 +272,12 @@ __device__ int sigma_clip(
   }
 
   // Local scratch array reused for median/MAD computations.
-  int sort_indices[kMaxFramesCompile];
+  int sort_buf[kMaxFramesCompile];
   float deviations[kMaxFramesCompile];
   float sorted_values[kMaxFramesCompile];
 
   for (int iter = 0; iter < iterations; ++iter) {
-    const float center = weighted_median_value(values, weights, n, sort_indices);
+    const float center = weighted_median_value(values, weights, n, sort_buf);
 
     float mad;
     float floor_val;
@@ -296,8 +327,8 @@ __device__ int sigma_clip(
       const float eps_rel = metrics::aqmh_eps_rel;
       floor_val = fmaxf(device_eps(), eps_rel * noise_mad);
     } else {
-      mad = weighted_mad_value(values, weights, n, center, sort_indices);
-      floor_val = noise_floor_value(values, n, sort_indices);
+      mad = weighted_mad_value(values, weights, n, center, sort_buf);
+      floor_val = noise_floor_value(values, n, sort_buf);
     }
 
     if (mad <= floor_val) {
@@ -309,12 +340,12 @@ __device__ int sigma_clip(
       if (keep_count == n) break;
       if (keep_count < keep_floor) {
         // Sort by normalized distance and keep floor closest to center.
-        for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-        bitonic_sort_indices(
-            sort_indices, n,
+        for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+        adaptive_sort(
+            sort_buf, n,
             NormDistanceAsc{values, center, fmaxf(1.4826f * mad, floor_val)});
         for (int i = 0; i < keep_floor; ++i) {
-          const int src = sort_indices[i];
+          const int src = sort_buf[i];
           if (src != i) {
             values[i] = values[src];
             weights[i] = weights[src];
@@ -347,10 +378,10 @@ __device__ int sigma_clip(
     }
     if (keep_count < keep_floor) {
       // Sort by normalized distance and keep floor.
-      for (int i = 0; i < kMaxFramesCompile; ++i) sort_indices[i] = i;
-      bitonic_sort_indices(sort_indices, n, NormDistanceAsc{values, center, sigma});
+      for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
+      adaptive_sort(sort_buf, n, NormDistanceAsc{values, center, sigma});
       for (int i = 0; i < keep_floor; ++i) {
-        const int src = sort_indices[i];
+        const int src = sort_buf[i];
         if (src != i) {
           values[i] = values[src];
           weights[i] = weights[src];
@@ -397,6 +428,77 @@ __device__ int sigma_clip(
   return n;
 }
 
+// Uniform-control kernel: separate from the weighted kernel so the weighted
+// kernel does not need to duplicate 2*kMaxFrames floats of local memory.
+// Each thread processes one pixel with uniform weights = 1.0f.
+__global__ void aqmh_uniform_control_kernel(
+    const float* __restrict__ d_frames,
+    const uint8_t* __restrict__ d_canvas_mask,
+    const uint8_t* __restrict__ d_frame_masks,
+    float* __restrict__ d_uniform_control,
+    unsigned long long* __restrict__ d_numerical_guard_pixels,
+    int width, int chunk_rows, int y0, int height, int frame_count,
+    float clip_sigma, int clip_iterations,
+    float min_fraction, float min_n_eff) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int yy = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || yy >= chunk_rows) return;
+
+  const int y = y0 + yy;
+  if (y >= height) return;
+
+  const int canvas_idx = yy * width + x;
+  if (d_canvas_mask[canvas_idx] == 0u) {
+    d_uniform_control[canvas_idx] = 0.0f;
+    return;
+  }
+
+  float values[kMaxFramesCompile];
+  float weights[kMaxFramesCompile];
+  int n_samples = 0;
+
+  const int pixel_base = canvas_idx * frame_count;
+  for (int fi = 0; fi < frame_count; ++fi) {
+    const int idx = pixel_base + fi;
+    if (d_frame_masks[idx] == 0u) continue;
+    const float v = d_frames[idx];
+    if (!isfinite_f(v)) continue;
+    values[n_samples] = v;
+    weights[n_samples] = 1.0f;
+    ++n_samples;
+  }
+
+  for (int i = n_samples; i < kMaxFramesCompile; ++i) {
+    values[i] = INFINITY;
+    weights[i] = 0.0f;
+  }
+
+  if (n_samples <= 0) {
+    d_uniform_control[canvas_idx] = 0.0f;
+    atomicAdd(d_numerical_guard_pixels, 1ULL);
+    return;
+  }
+
+  float weight_sum = 0.0f;
+  float effective_n = 0.0f;
+  const int retained = sigma_clip(
+      values, weights, n_samples,
+      clip_sigma, clip_iterations, min_fraction, min_n_eff,
+      &weight_sum, &effective_n);
+
+  if (retained <= 0 || weight_sum <= 0.0f) {
+    d_uniform_control[canvas_idx] = 0.0f;
+    atomicAdd(d_numerical_guard_pixels, 1ULL);
+    return;
+  }
+
+  double accum = 0.0;
+  for (int i = 0; i < retained; ++i) {
+    accum += static_cast<double>(weights[i]) * values[i];
+  }
+  d_uniform_control[canvas_idx] = static_cast<float>(accum / weight_sum);
+}
+
 __global__ void aqmh_reconstruction_kernel(
     const float* __restrict__ d_frames,
     const float* __restrict__ d_q_maps,
@@ -405,7 +507,6 @@ __global__ void aqmh_reconstruction_kernel(
     const float* __restrict__ d_global_weights,
     float* __restrict__ d_output,
     float* __restrict__ d_weight_sum,
-    float* __restrict__ d_uniform_control,
     float* __restrict__ d_cherry_k_map,
     unsigned long long* __restrict__ d_unsupported_pixels,
     unsigned long long* __restrict__ d_zero_veto_pixels,
@@ -414,8 +515,7 @@ __global__ void aqmh_reconstruction_kernel(
     float clip_sigma, int clip_iterations,
     float min_fraction, float min_n_eff,
     bool cherry_pick_enabled, float cherry_pick_k_frac,
-    int cherry_pick_k_min_required,
-    bool compute_uniform_control, bool uniform_weights) {
+    int cherry_pick_k_min_required) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int yy = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || yy >= chunk_rows) return;
@@ -434,8 +534,11 @@ __global__ void aqmh_reconstruction_kernel(
   int n_samples = 0;
   bool has_finite_q = false;
 
+  // Pixel-major layout: all frames for one pixel are contiguous, so the
+  // inner loop reads with stride 1 and neighboring threads read coalesced.
+  const int pixel_base = canvas_idx * frame_count;
   for (int fi = 0; fi < frame_count; ++fi) {
-    const int idx = fi * chunk_rows * width + canvas_idx;
+    const int idx = pixel_base + fi;
     const uint8_t mask_val = d_frame_masks[idx];
     if (mask_val == 0u) continue;
 
@@ -446,11 +549,10 @@ __global__ void aqmh_reconstruction_kernel(
 
     const float gw = d_global_weights[fi];
     const float score = gw * fmaxf(0.0f, q);
-    const float weight = uniform_weights ? 1.0f : score;
 
-    if (score > 0.0f && weight > 0.0f && n_samples < kMaxFramesCompile) {
+    if (score > 0.0f && n_samples < kMaxFramesCompile) {
       values[n_samples] = v;
-      weights[n_samples] = weight;
+      weights[n_samples] = score;
       scores[n_samples] = score;
       ++n_samples;
     }
@@ -467,7 +569,6 @@ __global__ void aqmh_reconstruction_kernel(
   if (n_samples == 0) {
     d_output[canvas_idx] = 0.0f;
     d_weight_sum[canvas_idx] = 0.0f;
-    if (compute_uniform_control) d_uniform_control[canvas_idx] = 0.0f;
     if (cherry_pick_enabled) d_cherry_k_map[canvas_idx] = 0.0f;
     atomicAdd(d_unsupported_pixels, 1ULL);
     if (has_finite_q) atomicAdd(d_zero_veto_pixels, 1ULL);
@@ -476,50 +577,11 @@ __global__ void aqmh_reconstruction_kernel(
 
   int k_effective = n_samples;
   if (cherry_pick_enabled) {
-    int sort_indices[kMaxFramesCompile];
+    int sort_buf[kMaxFramesCompile];
     k_effective = cherry_pick_top_k(
         values, weights, scores, n_samples,
-        cherry_pick_k_min_required, cherry_pick_k_frac, sort_indices);
+        cherry_pick_k_min_required, cherry_pick_k_frac, sort_buf);
     d_cherry_k_map[canvas_idx] = static_cast<float>(k_effective);
-  }
-
-  // Uniform control path: if all weights are equal, reuse main result.
-  bool reuse_control = false;
-  if (compute_uniform_control) {
-    reuse_control = true;
-    const float first_weight = weights[0];
-    for (int i = 1; i < k_effective; ++i) {
-      if (weights[i] != first_weight) {
-        reuse_control = false;
-        break;
-      }
-    }
-  }
-
-  if (compute_uniform_control && !reuse_control) {
-    float control_values[kMaxFramesCompile];
-    float control_weights[kMaxFramesCompile];
-    for (int i = 0; i < k_effective; ++i) {
-      control_values[i] = values[i];
-      control_weights[i] = 1.0f;
-    }
-    for (int i = k_effective; i < kMaxFramesCompile; ++i) {
-      control_values[i] = INFINITY;
-      control_weights[i] = 0.0f;
-    }
-    float ctrl_weight_sum = 0.0f;
-    float ctrl_effective_n = 0.0f;
-    int ctrl_n = sigma_clip(
-        control_values, control_weights, k_effective,
-        clip_sigma, clip_iterations, min_fraction, min_n_eff,
-        &ctrl_weight_sum, &ctrl_effective_n);
-    if (ctrl_n > 0 && ctrl_weight_sum > 0.0f) {
-      double accum = 0.0;
-      for (int i = 0; i < ctrl_n; ++i) accum += control_weights[i] * control_values[i];
-      d_uniform_control[canvas_idx] = static_cast<float>(accum / ctrl_weight_sum);
-    } else {
-      d_uniform_control[canvas_idx] = 0.0f;
-    }
   }
 
   float weight_sum = 0.0f;
@@ -532,8 +594,6 @@ __global__ void aqmh_reconstruction_kernel(
   if (retained <= 0 || weight_sum <= 0.0f) {
     d_output[canvas_idx] = 0.0f;
     d_weight_sum[canvas_idx] = 0.0f;
-    if (compute_uniform_control && reuse_control)
-      d_uniform_control[canvas_idx] = 0.0f;
     atomicAdd(d_unsupported_pixels, 1ULL);
     atomicAdd(d_numerical_guard_pixels, 1ULL);
     return;
@@ -545,8 +605,6 @@ __global__ void aqmh_reconstruction_kernel(
   }
   d_output[canvas_idx] = static_cast<float>(accum / weight_sum);
   d_weight_sum[canvas_idx] = weight_sum;
-  if (compute_uniform_control && reuse_control)
-    d_uniform_control[canvas_idx] = d_output[canvas_idx];
 }
 
 // CUDA error check helper.
@@ -740,7 +798,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   CUDA_CHECK(cudaMemsetAsync(d_zero_veto_pixels, 0, sizeof(unsigned long long), 0));
   CUDA_CHECK(cudaMemsetAsync(d_numerical_guard_pixels, 0, sizeof(unsigned long long), 0));
 
-  const dim3 block(16, 16);
+  const dim3 block(8, 8);
   cudaStream_t stream = nullptr;
   CUDA_CHECK(cudaStreamCreate(&stream));
 
@@ -769,14 +827,25 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     // Load all frames / q-maps / masks for this chunk using region loaders
     // when available (avoids loading full W×H frames per chunk — only rows
     // rows are needed, cutting I/O by ~height/chunk_rows×).
+    // Parallelized across frames with OpenMP for I/O overlap.
     const bool use_region = static_cast<bool>(load_frame_region);
-    for (size_t fi = 0; fi < frame_count; ++fi) {
+    const int num_host_threads = std::min(
+        static_cast<int>(frame_count),
+        std::max(1, static_cast<int>(std::thread::hardware_concurrency())));
+    #if defined(_OPENMP)
+    #pragma omp parallel for num_threads(num_host_threads) schedule(dynamic, 4)
+    #endif
+    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
+      const size_t fi = static_cast<size_t>(fi_ptr);
       Matrix2Df frame_region;
       const bool frame_ok = use_region
           ? load_frame_region(fi, y0, rows, frame_region)
           : load_frame(fi, frame_region);
       if (!frame_ok || frame_region.rows() != rows ||
           frame_region.cols() != width) {
+        #if defined(_OPENMP)
+        #pragma omp atomic
+        #endif
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
@@ -786,6 +855,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           ? q_map_cache->read_region(fi, y0, rows)
           : q_map_cache->read_cached(fi);
       if (q.rows() != rows || q.cols() != width) {
+        #if defined(_OPENMP)
+        #pragma omp atomic
+        #endif
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         frame_compatible[fi] = 0u;
         continue;
@@ -796,6 +868,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       if (load_frame_valid_mask_region && use_region) {
         mask_ok = load_frame_valid_mask_region(fi, y0, rows, fm);
         if (!mask_ok || fm.size() != static_cast<size_t>(width * rows)) {
+          #if defined(_OPENMP)
+          #pragma omp atomic
+          #endif
           result.missing_map_samples += static_cast<uint64_t>(rows) * width;
           frame_compatible[fi] = 0u;
           continue;
@@ -803,18 +878,27 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       } else if (load_frame_valid_mask) {
         mask_ok = load_frame_valid_mask(fi, fm);
         if (!mask_ok || fm.size() != static_cast<size_t>(width * height)) {
+          #if defined(_OPENMP)
+          #pragma omp atomic
+          #endif
           result.missing_map_samples += static_cast<uint64_t>(rows) * width;
           frame_compatible[fi] = 0u;
           continue;
         }
       }
 
+      uint64_t local_missing = 0;
+      uint64_t local_finite = 0;
       for (int yy = 0; yy < rows; ++yy) {
         const int y = y0 + yy;
         for (int x = 0; x < width; ++x) {
           const size_t full_i = static_cast<size_t>(y) * width + x;
           const size_t local_i = static_cast<size_t>(yy) * width + x;
-          const size_t idx = fi * chunk_rows * width + local_i;
+          // Pixel-major layout: index = local_i * frame_count + fi. This makes the
+          // GPU kernel's inner frame loop coalesced (neighboring threads read the
+          // same frame index for their respective pixel), replacing the previous
+          // frame-major stride of chunk_rows * width.
+          const size_t idx = static_cast<size_t>(local_i) * frame_count + fi;
           h_frames[idx] = frame_region(yy, x);
           h_q_maps[idx] = q(yy, x);
           if (fm.empty()) {
@@ -826,11 +910,23 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           }
           if (h_canvas_mask[local_i] == 0u) continue;
           if (!std::isfinite(q(yy, x))) {
-            ++result.missing_map_samples;
+            ++local_missing;
           } else {
-            ++result.finite_map_samples;
+            ++local_finite;
           }
         }
+      }
+      if (local_missing > 0) {
+        #if defined(_OPENMP)
+        #pragma omp atomic
+        #endif
+        result.missing_map_samples += local_missing;
+      }
+      if (local_finite > 0) {
+        #if defined(_OPENMP)
+        #pragma omp atomic
+        #endif
+        result.finite_map_samples += local_finite;
       }
     }
 
@@ -853,15 +949,24 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     aqmh_reconstruction_kernel<<<grid, block, 0, stream>>>(
         bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
         d_global_weights, bufs.output, bufs.weight_sum,
-        bufs.uniform_control, bufs.cherry_k_map,
+        bufs.cherry_k_map,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, static_cast<int>(frame_count),
         cfg.clip_sigma, cfg.clip_iterations,
         cfg.min_fraction, cfg.min_n_eff,
         cherry_enabled, cfg.cherry_pick_k_frac,
-        cfg.cherry_pick_k_min_required,
-        cfg.compute_uniform_control, cfg.uniform_weights);
+        cfg.cherry_pick_k_min_required);
     CUDA_CHECK(cudaGetLastError());
+
+    if (cfg.compute_uniform_control) {
+      aqmh_uniform_control_kernel<<<grid, block, 0, stream>>>(
+          bufs.frames, bufs.canvas_mask, bufs.frame_masks,
+          bufs.uniform_control, d_numerical_guard_pixels,
+          width, chunk_rows, y0, height, static_cast<int>(frame_count),
+          cfg.clip_sigma, cfg.clip_iterations,
+          cfg.min_fraction, cfg.min_n_eff);
+      CUDA_CHECK(cudaGetLastError());
+    }
 
     // Download outputs.
     const size_t used_chunk_pixels = static_cast<size_t>(rows) * width;

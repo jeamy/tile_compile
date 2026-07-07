@@ -244,13 +244,86 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
       }
     }
 
-    // 2. Cache miss: load full map WITHOUT holding the cache mutex.
-    Matrix2Df full_map = read(fi);
-    if (full_map.size() == 0) {
+    // 2. Cache miss: decode only the stored rows that cover the requested region,
+    //    then upsample just those rows. Loading the full map and upsampling it to
+    //    full resolution for every frame is a host-side bottleneck; with
+    //    max_resident_maps=4 and hundreds of frames, almost every access is a miss,
+    //    so full-map upsampling dominates reconstruction time.
+    const int d = storage_cfg_.resolution_divisor;
+    const int sy0 = std::clamp(
+        static_cast<int>(std::floor((static_cast<float>(y0) + 0.5f) /
+                                    static_cast<float>(d) - 0.5f)),
+        0, stored_height_ - 1);
+    const int sy1 = std::clamp(
+        static_cast<int>(std::floor((static_cast<float>(y0 + rows - 1) + 0.5f) /
+                                    static_cast<float>(d) - 0.5f)) + 1,
+        0, stored_height_ - 1);
+    Matrix2Df stored = decode_stored_rows(fi, sy0, sy1 - sy0 + 1);
+    if (stored.size() == 0) {
       return empty_matrix();
     }
 
+    Matrix2Df region(rows, full_width_);
+    // Upsample only the requested rows using the same pixel-centre convention as
+    // upsample_to_full_resolution().
+    for (int ry = 0; ry < rows; ++ry) {
+      const int y = y0 + ry;
+      const float sy = (static_cast<float>(y) + 0.5f) / static_cast<float>(d) - 0.5f;
+      const int base_y = static_cast<int>(std::floor(sy));
+      const float ty = sy - static_cast<float>(base_y);
+      const int ay0 = std::clamp(base_y, 0, stored_height_ - 1) - sy0;
+      const int ay1 = std::clamp(base_y + 1, 0, stored_height_ - 1) - sy0;
+      for (int x = 0; x < full_width_; ++x) {
+        const float sx = (static_cast<float>(x) + 0.5f) /
+                         static_cast<float>(d) - 0.5f;
+        const int base_x = static_cast<int>(std::floor(sx));
+        const float tx = sx - static_cast<float>(base_x);
+        const int ax0 = std::clamp(base_x, 0, stored_width_ - 1);
+        const int ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
+        const float v00 = stored(ay0, ax0);
+        const float v10 = stored(ay0, ax1);
+        const float v01 = stored(ay1, ax0);
+        const float v11 = stored(ay1, ax1);
+        const float v0 = (1.0f - tx) * v00 + tx * v10;
+        const float v1 = (1.0f - tx) * v01 + tx * v11;
+        region(ry, x) = clamp_q((1.0f - ty) * v0 + ty * v1);
+      }
+    }
+
+    // Apply zero-veto mask at the requested resolution.
+    if (d > 1) {
+      const size_t first_bit = static_cast<size_t>(y0) * full_width_;
+      const size_t bit_count = static_cast<size_t>(rows) * full_width_;
+      const size_t first_byte = first_bit / 8u;
+      const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
+      std::vector<uint8_t> packed(last_byte - first_byte, 0u);
+      const uint8_t *veto = mapped_veto_bytes(fi);
+      if (veto != nullptr) {
+        std::copy(veto + first_byte, veto + last_byte, packed.begin());
+      } else {
+        std::ifstream in(veto_path(fi), std::ios::binary);
+        if (!in) return empty_matrix();
+        in.seekg(static_cast<std::streamoff>(first_byte));
+        in.read(reinterpret_cast<char *>(packed.data()),
+                static_cast<std::streamsize>(packed.size()));
+        if (!in) return empty_matrix();
+      }
+      for (size_t i = 0; i < bit_count; ++i) {
+        const size_t global_bit = first_bit + i;
+        if (((packed[global_bit / 8u - first_byte] >> (global_bit % 8u)) & 1u) != 0u)
+          region.data()[i] = 0.0f;
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stats_.read_count += 1;
+      stats_.bytes_read += static_cast<size_t>(stored.size()) *
+                           dtype_bytes(storage_cfg_.dtype);
+    }
+
     // 3. Double-check: another thread may have inserted while we were doing I/O.
+    //    If the full map is now resident, prefer it for the exact region.
     {
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = resident_.find(fi);
@@ -259,39 +332,23 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
         lru_.push_front(fi);
         it->second.second = lru_.begin();
         stats_.cache_hits += 1;
-        // Extract region from resident map
-        Matrix2Df region(rows, full_width_);
+        Matrix2Df region_from_resident(rows, full_width_);
         for (int ry = 0; ry < rows; ++ry) {
           const int src_y = y0 + ry;
           if (src_y >= 0 && src_y < full_height_) {
             const float* src_row = it->second.first.row(src_y).data();
-            float* dst_row = region.row(ry).data();
+            float* dst_row = region_from_resident.row(ry).data();
             std::copy(src_row, src_row + full_width_, dst_row);
           }
         }
-        return region;
+        return region_from_resident;
       }
-
-      // 4. Insert into cache, then evict until resident_.size() <= max_resident_maps.
-      lru_.push_front(fi);
-      auto inserted = resident_.emplace(
-          fi, std::make_pair(std::move(full_map), lru_.begin())).first;
-      evict_to_limit_locked();
-      stats_.max_resident_maps_observed =
-          std::max(stats_.max_resident_maps_observed, resident_.size());
-
-      // Extract region from newly cached map
-      Matrix2Df region(rows, full_width_);
-      for (int ry = 0; ry < rows; ++ry) {
-        const int src_y = y0 + ry;
-        if (src_y >= 0 && src_y < full_height_) {
-          const float* src_row = inserted->second.first.row(src_y).data();
-          float* dst_row = region.row(ry).data();
-          std::copy(src_row, src_row + full_width_, dst_row);
-        }
-      }
-      return region;
     }
+
+    // Do not insert a partial region into the resident cache: read_cached()
+    // callers expect a full-resolution map. Returning the region directly is
+    // correct and avoids the memory cost of a full-map upsample.
+    return region;
   }
 
   // Fallback: original direct read path when cache is disabled

@@ -84,7 +84,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         const int rows = std::min(gate_rows, height - y0);
         const size_t count = static_cast<size_t>(rows) * width;
         std::vector<uint16_t> rankable(count, 0u);
-        for (size_t fi = 0; fi < frame_count; ++fi) {
+        #if defined(_OPENMP)
+        #pragma omp parallel for schedule(dynamic, 4)
+        #endif
+        for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
+          const size_t fi = static_cast<size_t>(fi_ptr);
           if (frame_mask_compatible[fi] == 0u ||
               !(global_weight(global_weights, fi) > 0.0f)) continue;
           Matrix2Df q = q_map_cache->read_region(fi, y0, rows);
@@ -93,9 +97,12 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
               !load_frame_valid_mask_region(fi, y0, rows, fm) ||
               fm.size() != count) continue;
           for (size_t i = 0; i < count; ++i)
-            if (fm[i] != 0u && q.data()[i] > 0.0f &&
-                rankable[i] != std::numeric_limits<uint16_t>::max())
-              ++rankable[i];
+            if (fm[i] != 0u && q.data()[i] > 0.0f) {
+              #if defined(_OPENMP)
+              #pragma omp atomic
+              #endif
+              rankable[i] += 1u;
+            }
         }
         for (size_t i = 0; i < count; ++i) {
           const size_t full_i = static_cast<size_t>(y0) * width + i;
