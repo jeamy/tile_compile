@@ -3743,10 +3743,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // Phase 7: STATE_CLUSTERING (// Methodik v3 §10)
-    emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
-                        log_file);
-
-    // Reduced Mode: optionally skip clustering/synthetic frames when N is small
+    // AQMH uses independent per-pixel reconstruction; clustering and
+    // synthetic frames are classic-only and produce no meaningful output.
     bool use_synthetic_frames = true;
     std::string synthetic_skip_reason;
     float synthetic_skip_weight_spread = 0.0f;
@@ -3755,13 +3753,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::vector<int> cluster_labels(static_cast<size_t>(frames.size()), 0);
     int n_clusters = 1;
     const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
+    const bool skip_synthetic_for_aqmh = cfg.aqmh.enabled;
+    if (!skip_clustering_for_aqmh) {
+      emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
+                          log_file);
+    }
     if (skip_clustering_for_aqmh) {
       use_synthetic_frames = false;
       synthetic_skip_reason = "aqmh_independent_reconstruction";
-      emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
-                        {{"reason", synthetic_skip_reason},
-                         {"method", "aqmh"}},
-                        log_file);
     } else if (skip_clustering_in_reduced) {
       use_synthetic_frames = false;
       synthetic_skip_reason = emergency_mode ? "emergency_mode"
@@ -4114,8 +4113,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
 
     // Phase 8: SYNTHETIC_FRAMES (// Methodik v3 §11)
-    emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
-                        log_file);
+    // AQMH uses independent per-pixel reconstruction; synthetic frames are
+    // classic-only and produce no output here.
+    if (!skip_synthetic_for_aqmh) {
+      emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
+                          log_file);
+    }
 
     struct RGBFrame {
       Matrix2Df R;
@@ -4336,7 +4339,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     int synth_min = cfg.synthetic.frames_min;
     int synth_max = cfg.synthetic.frames_max;
 
-    if (!use_synthetic_frames) {
+    if (!use_synthetic_frames && !skip_synthetic_for_aqmh) {
       core::json extra;
       if (!synthetic_skip_reason.empty()) {
         extra["reason"] = synthetic_skip_reason;
@@ -4355,7 +4358,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       extra["emergency_mode"] = emergency_mode;
       emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped", extra,
                         log_file);
-    } else {
+    } else if (use_synthetic_frames) {
       std::vector<int> cluster_sizes(n_clusters, 0);
       for (size_t fi = 0; fi < frames.size(); ++fi) {
         int c = cluster_labels[fi];
@@ -4538,7 +4541,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                       tile_analysis_started_at)
             .count();
-    if (abort_if_runtime_limit_exceeded("SYNTHETIC_FRAMES")) {
+    if (!skip_synthetic_for_aqmh &&
+        abort_if_runtime_limit_exceeded("SYNTHETIC_FRAMES")) {
       return 1;
     }
 

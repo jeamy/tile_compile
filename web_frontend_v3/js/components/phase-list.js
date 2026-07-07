@@ -27,7 +27,8 @@ const CLASSIC_PHASES = [
 ];
 
 // AQMH main path: GLOBAL_METRICS/TILE_GRID/LOCAL_METRICS/TILE_RECONSTRUCTION/
-// STATE_CLUSTERING/SYNTHETIC_FRAMES/STACKING are Classic-only and omitted.
+// STATE_CLUSTERING/SYNTHETIC_FRAMES are Classic-only and omitted.
+// STACKING is still executed for AQMH (output scaling/writing).
 const AQMH_PHASES = [
   "SCAN_INPUT",
   "REGISTRATION",
@@ -39,6 +40,7 @@ const AQMH_PHASES = [
   "AQMH_GLOBAL_QUALITY",
   "AQMH_RECONSTRUCTION",
   "AQMH_DIAGNOSTICS",
+  "STACKING",
   "DEBAYER",
   "ASTROMETRY",
   "BGE",

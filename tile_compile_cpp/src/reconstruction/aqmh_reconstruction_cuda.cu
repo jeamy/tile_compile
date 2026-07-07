@@ -29,28 +29,8 @@ namespace {
 
 constexpr int kMaxFramesCompile = 1024;  // upper bound for local arrays
 
-// Next power of two >= n, capped at kMaxFramesCompile.
-__device__ inline int next_pow2(int n) {
-  int p = 1;
-  while (p < n && p < kMaxFramesCompile) p *= 2;
-  return p;
-}
-
-// Insertion sort for small n (<= 64).  O(N²) but with low constant factor;
-// for N=64 that's ~2016 comparisons vs ~3000+ for bitonic sort over 64.
-// Sorts indices [0, n) using comp for ordering.
-template <typename Comp>
-__device__ void insertion_adaptive_sort(int* indices, int n, Comp comp) {
-  for (int i = 1; i < n; ++i) {
-    int key = indices[i];
-    int j = i - 1;
-    while (j >= 0 && comp(key, indices[j])) {
-      indices[j + 1] = indices[j];
-      --j;
-    }
-    indices[j + 1] = key;
-  }
-}
+// Removed next_pow2 and insertion_adaptive_sort.
+// A single unified Shellsort-based adaptive_sort handles all array sizes.
 
 // Small epsilon used for device-side comparisons (matches CPU epsilon guard).
 __device__ inline float device_eps() {
@@ -105,36 +85,28 @@ struct NormDistanceAsc {
   }
 };
 
-// Adaptive sort: insertion sort for small n, bitonic sort for larger n.
-// Bitonic sort operates on next_pow2(n) elements instead of always 1024,
-// dramatically reducing work when n << kMaxFramesCompile.
+// Highly optimized adaptive sort using Shellsort with Marcin Ciura's gap sequence.
+// Shellsort works on any N seamlessly, avoids padding to next power of 2, 
+// has O(N^1.25) worst-case, and scales to O(N) for nearly sorted inputs.
+// This dramatically reduces comparisons, instructions, register pressure, and execution time
+// for thread-sequential sorting on the GPU compared to Bitonic Sort.
 template <typename Comp>
 __device__ void adaptive_sort(int* indices, int n, Comp comp) {
-  if (n <= 64) {
-    for (int i = 0; i < n; ++i) indices[i] = i;
-    insertion_adaptive_sort(indices, n, comp);
-    return;
-  }
-  // Bitonic sort over next_pow2(n) elements.
-  const int sort_size = next_pow2(n);
-  for (int i = n; i < sort_size; ++i) indices[i] = i;
-  for (int k = 2; k <= sort_size; k *= 2) {
-    for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < sort_size; ++i) {
-        const int l = i ^ j;
-        if (l > i) {
-          const bool up = (i & k) == 0;
-          if (up && comp(indices[l], indices[i])) {
-            const int tmp = indices[i];
-            indices[i] = indices[l];
-            indices[l] = tmp;
-          } else if (!up && comp(indices[i], indices[l])) {
-            const int tmp = indices[i];
-            indices[i] = indices[l];
-            indices[l] = tmp;
-          }
-        }
+  for (int i = 0; i < n; ++i) indices[i] = i;
+
+  // Empirical gap sequence optimized for N <= 1024
+  const int gaps[] = {701, 301, 132, 57, 23, 10, 4, 1};
+  for (int g = 0; g < 8; ++g) {
+    const int gap = gaps[g];
+    if (gap >= n) continue;
+    for (int i = gap; i < n; ++i) {
+      const int temp = indices[i];
+      int j = i;
+      while (j >= gap && comp(temp, indices[j - gap])) {
+        indices[j] = indices[j - gap];
+        j -= gap;
       }
+      indices[j] = temp;
     }
   }
 }
@@ -145,7 +117,6 @@ __device__ float weighted_median_value(
     const float* values, const float* weights, int n,
     int* sort_buf) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
   adaptive_sort(sort_buf, n, ValueAsc{values});
 
   double total = 0.0;
@@ -166,7 +137,6 @@ __device__ float weighted_mad_value(
     const float* values, const float* weights, int n,
     float center, int* sort_buf) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
   adaptive_sort(sort_buf, n, DeviationAsc{values, center});
 
   double total = 0.0;
@@ -189,13 +159,11 @@ __device__ float noise_floor_value(
     const float* values, int n, int* sort_buf) {
   if (n <= 0) return device_eps();
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
   adaptive_sort(sort_buf, n, ValueAsc{values});
   const float med = (n % 2 == 1)
       ? values[sort_buf[n / 2]]
       : 0.5f * (values[sort_buf[n / 2 - 1]] + values[sort_buf[n / 2]]);
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
   adaptive_sort(sort_buf, n, DeviationAsc{values, med});
   const float mad = (n % 2 == 1)
       ? fabsf(values[sort_buf[n / 2]] - med)
@@ -218,7 +186,6 @@ __device__ int cherry_pick_top_k(
   const int k = min(n, max(k_min_required, nominal));
   if (k >= n) return n;
 
-  for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
   adaptive_sort(sort_buf, n, ScoreDesc{scores});
 
   for (int i = 0; i < k; ++i) {
@@ -235,11 +202,14 @@ __device__ int cherry_pick_top_k(
 // Device sigma-clip matching the CPU aqmh_sigma_clip logic.
 // Operates on the first 'n' entries of values/weights. Returns retained count
 // and writes weighted sum / effective N into out_*.
+// sort_buf/deviations/sorted_values are caller-provided scratch arrays of size
+// kMaxFramesCompile shared with cherry_pick_top_k to reduce kernel Local Memory.
 __device__ int sigma_clip(
     float* values, float* weights, int n,
     float clip_sigma, int iterations,
     float min_fraction, float min_n_eff,
-    float* out_weight_sum, float* out_effective_n) {
+    float* out_weight_sum, float* out_effective_n,
+    int* sort_buf, float* deviations, float* sorted_values) {
   if (n <= 0) {
     *out_weight_sum = 0.0f;
     *out_effective_n = 0.0f;
@@ -270,11 +240,6 @@ __device__ int sigma_clip(
     values[i] = INFINITY;
     weights[i] = 0.0f;
   }
-
-  // Local scratch array reused for median/MAD computations.
-  int sort_buf[kMaxFramesCompile];
-  float deviations[kMaxFramesCompile];
-  float sorted_values[kMaxFramesCompile];
 
   for (int iter = 0; iter < iterations; ++iter) {
     const float center = weighted_median_value(values, weights, n, sort_buf);
@@ -340,7 +305,6 @@ __device__ int sigma_clip(
       if (keep_count == n) break;
       if (keep_count < keep_floor) {
         // Sort by normalized distance and keep floor closest to center.
-        for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
         adaptive_sort(
             sort_buf, n,
             NormDistanceAsc{values, center, fmaxf(1.4826f * mad, floor_val)});
@@ -378,7 +342,6 @@ __device__ int sigma_clip(
     }
     if (keep_count < keep_floor) {
       // Sort by normalized distance and keep floor.
-      for (int i = 0; i < kMaxFramesCompile; ++i) sort_buf[i] = i;
       adaptive_sort(sort_buf, n, NormDistanceAsc{values, center, sigma});
       for (int i = 0; i < keep_floor; ++i) {
         const int src = sort_buf[i];
@@ -479,12 +442,17 @@ __global__ void aqmh_uniform_control_kernel(
     return;
   }
 
+  int scratch_buf[kMaxFramesCompile];
+  float scratch_dev[kMaxFramesCompile];
+  float scratch_val[kMaxFramesCompile];
+
   float weight_sum = 0.0f;
   float effective_n = 0.0f;
   const int retained = sigma_clip(
       values, weights, n_samples,
       clip_sigma, clip_iterations, min_fraction, min_n_eff,
-      &weight_sum, &effective_n);
+      &weight_sum, &effective_n,
+      scratch_buf, scratch_dev, scratch_val);
 
   if (retained <= 0 || weight_sum <= 0.0f) {
     d_uniform_control[canvas_idx] = 0.0f;
@@ -499,6 +467,7 @@ __global__ void aqmh_uniform_control_kernel(
   d_uniform_control[canvas_idx] = static_cast<float>(accum / weight_sum);
 }
 
+template <bool CherryPickEnabled>
 __global__ void aqmh_reconstruction_kernel(
     const float* __restrict__ d_frames,
     const float* __restrict__ d_q_maps,
@@ -514,7 +483,7 @@ __global__ void aqmh_reconstruction_kernel(
     int width, int chunk_rows, int y0, int height, int frame_count,
     float clip_sigma, int clip_iterations,
     float min_fraction, float min_n_eff,
-    bool cherry_pick_enabled, float cherry_pick_k_frac,
+    float cherry_pick_k_frac,
     int cherry_pick_k_min_required) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int yy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -526,11 +495,15 @@ __global__ void aqmh_reconstruction_kernel(
   const int canvas_idx = yy * width + x;
   if (d_canvas_mask[canvas_idx] == 0u) return;
 
-  // Per-thread local arrays (spill to L2-cached local memory for large
-  // frame_count). Index 0..n_samples-1 holds gathered samples.
+  // Per-thread local arrays. scratch_buf/scratch_dev/scratch_val are shared
+  // between cherry_pick_top_k and sigma_clip (never active simultaneously)
+  // to reduce total Local Memory from 7 to 6 arrays.
   float values[kMaxFramesCompile];
   float weights[kMaxFramesCompile];
-  float scores[kMaxFramesCompile];
+  float scores[CherryPickEnabled ? kMaxFramesCompile : 1];
+  int scratch_buf[kMaxFramesCompile];
+  float scratch_dev[kMaxFramesCompile];
+  float scratch_val[kMaxFramesCompile];
   int n_samples = 0;
   bool has_finite_q = false;
 
@@ -553,7 +526,9 @@ __global__ void aqmh_reconstruction_kernel(
     if (score > 0.0f && n_samples < kMaxFramesCompile) {
       values[n_samples] = v;
       weights[n_samples] = score;
-      scores[n_samples] = score;
+      if constexpr (CherryPickEnabled) {
+        scores[n_samples] = score;
+      }
       ++n_samples;
     }
   }
@@ -563,24 +538,25 @@ __global__ void aqmh_reconstruction_kernel(
   for (int i = n_samples; i < kMaxFramesCompile; ++i) {
     values[i] = INFINITY;
     weights[i] = 0.0f;
-    scores[i] = -INFINITY;
+    if constexpr (CherryPickEnabled) {
+      scores[i] = -INFINITY;
+    }
   }
 
   if (n_samples == 0) {
     d_output[canvas_idx] = 0.0f;
     d_weight_sum[canvas_idx] = 0.0f;
-    if (cherry_pick_enabled) d_cherry_k_map[canvas_idx] = 0.0f;
+    if constexpr (CherryPickEnabled) d_cherry_k_map[canvas_idx] = 0.0f;
     atomicAdd(d_unsupported_pixels, 1ULL);
     if (has_finite_q) atomicAdd(d_zero_veto_pixels, 1ULL);
     return;
   }
 
   int k_effective = n_samples;
-  if (cherry_pick_enabled) {
-    int sort_buf[kMaxFramesCompile];
+  if constexpr (CherryPickEnabled) {
     k_effective = cherry_pick_top_k(
         values, weights, scores, n_samples,
-        cherry_pick_k_min_required, cherry_pick_k_frac, sort_buf);
+        cherry_pick_k_min_required, cherry_pick_k_frac, scratch_buf);
     d_cherry_k_map[canvas_idx] = static_cast<float>(k_effective);
   }
 
@@ -589,7 +565,8 @@ __global__ void aqmh_reconstruction_kernel(
   const int retained = sigma_clip(
       values, weights, k_effective,
       clip_sigma, clip_iterations, min_fraction, min_n_eff,
-      &weight_sum, &effective_n);
+      &weight_sum, &effective_n,
+      scratch_buf, scratch_dev, scratch_val);
 
   if (retained <= 0 || weight_sum <= 0.0f) {
     d_output[canvas_idx] = 0.0f;
@@ -798,7 +775,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   CUDA_CHECK(cudaMemsetAsync(d_zero_veto_pixels, 0, sizeof(unsigned long long), 0));
   CUDA_CHECK(cudaMemsetAsync(d_numerical_guard_pixels, 0, sizeof(unsigned long long), 0));
 
-  const dim3 block(8, 8);
+  const dim3 block(32, 8);
   cudaStream_t stream = nullptr;
   CUDA_CHECK(cudaStreamCreate(&stream));
 
@@ -841,7 +818,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       const bool frame_ok = use_region
           ? load_frame_region(fi, y0, rows, frame_region)
           : load_frame(fi, frame_region);
-      if (!frame_ok || frame_region.rows() != rows ||
+      // For full-frame loads (no region loader) the frame has height rows;
+      // for region loads it has exactly 'rows' rows.
+      const int expected_rows = use_region ? rows : height;
+      if (!frame_ok || frame_region.rows() != expected_rows ||
           frame_region.cols() != width) {
         #if defined(_OPENMP)
         #pragma omp atomic
@@ -854,7 +834,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       Matrix2Df q = use_region
           ? q_map_cache->read_region(fi, y0, rows)
           : q_map_cache->read_cached(fi);
-      if (q.rows() != rows || q.cols() != width) {
+      const int expected_q_rows = use_region ? rows : height;
+      if (q.rows() != expected_q_rows || q.cols() != width) {
         #if defined(_OPENMP)
         #pragma omp atomic
         #endif
@@ -899,8 +880,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           // same frame index for their respective pixel), replacing the previous
           // frame-major stride of chunk_rows * width.
           const size_t idx = static_cast<size_t>(local_i) * frame_count + fi;
-          h_frames[idx] = frame_region(yy, x);
-          h_q_maps[idx] = q(yy, x);
+          // For full-frame (non-region) loads, offset by y0 within the matrix.
+          const int fr_row = use_region ? yy : (y0 + yy);
+          h_frames[idx] = frame_region(fr_row, x);
+          h_q_maps[idx] = q(fr_row, x);
           if (fm.empty()) {
             h_masks[idx] = 1u;
           } else {
@@ -909,7 +892,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
             if (fm[mask_i] == 0u) continue;
           }
           if (h_canvas_mask[local_i] == 0u) continue;
-          if (!std::isfinite(q(yy, x))) {
+          if (!std::isfinite(q(fr_row, x))) {
             ++local_missing;
           } else {
             ++local_finite;
@@ -946,16 +929,29 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         cudaMemcpyHostToDevice, stream));
 
     const dim3 grid((width + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
-    aqmh_reconstruction_kernel<<<grid, block, 0, stream>>>(
-        bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
-        d_global_weights, bufs.output, bufs.weight_sum,
-        bufs.cherry_k_map,
-        d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
-        width, chunk_rows, y0, height, static_cast<int>(frame_count),
-        cfg.clip_sigma, cfg.clip_iterations,
-        cfg.min_fraction, cfg.min_n_eff,
-        cherry_enabled, cfg.cherry_pick_k_frac,
-        cfg.cherry_pick_k_min_required);
+    if (cherry_enabled) {
+      aqmh_reconstruction_kernel<true><<<grid, block, 0, stream>>>(
+          bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
+          d_global_weights, bufs.output, bufs.weight_sum,
+          bufs.cherry_k_map,
+          d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+          width, chunk_rows, y0, height, static_cast<int>(frame_count),
+          cfg.clip_sigma, cfg.clip_iterations,
+          cfg.min_fraction, cfg.min_n_eff,
+          cfg.cherry_pick_k_frac,
+          cfg.cherry_pick_k_min_required);
+    } else {
+      aqmh_reconstruction_kernel<false><<<grid, block, 0, stream>>>(
+          bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
+          d_global_weights, bufs.output, bufs.weight_sum,
+          bufs.cherry_k_map,
+          d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+          width, chunk_rows, y0, height, static_cast<int>(frame_count),
+          cfg.clip_sigma, cfg.clip_iterations,
+          cfg.min_fraction, cfg.min_n_eff,
+          cfg.cherry_pick_k_frac,
+          cfg.cherry_pick_k_min_required);
+    }
     CUDA_CHECK(cudaGetLastError());
 
     if (cfg.compute_uniform_control) {

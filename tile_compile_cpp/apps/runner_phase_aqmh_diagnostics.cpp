@@ -13,9 +13,14 @@ namespace tile_compile::runner {
 
 namespace {
 
+// Round to a fixed number of decimal places to keep JSON compact.
+inline float round4(float v) {
+  return std::round(v * 10000.0f) / 10000.0f;
+}
+
 // Compute percentile from a sorted vector (linear interpolation, §1.4).
 float sorted_percentile(const std::vector<float> &sorted, double q) {
-  if (sorted.empty()) return std::numeric_limits<float>::quiet_NaN();
+  if (sorted.empty()) return 0.0f;
   const double pos = std::clamp(q, 0.0, 1.0) * static_cast<double>(sorted.size() - 1);
   const size_t lo = static_cast<size_t>(std::floor(pos));
   const size_t hi = static_cast<size_t>(std::ceil(pos));
@@ -23,10 +28,10 @@ float sorted_percentile(const std::vector<float> &sorted, double q) {
   return sorted[lo] * (1.0f - t) + sorted[hi] * t;
 }
 
-// Build per-tile block-level diagnostics and heatmap arrays for a single
-// Q-map frame. Block grid size is given by block_size_px (canvas pixels).
-// Returns JSON object with aqmh_q_median, aqmh_q_p10, aqmh_q_p90,
-// aqmh_artifact_frac, and q_map_heatmap/artifact_heatmap arrays.
+// Build per-tile block-level diagnostics for a single Q-map frame. Invalid
+// blocks are stored as 0 instead of NaN/null, and floats are rounded to 4
+// decimals to keep the JSON output compact. Heatmaps are excluded here; they
+// are written to a separate binary file when enabled.
 core::json compute_block_diagnostics(
     const Matrix2Df &q_map,
     const std::vector<uint8_t> &canvas_mask,
@@ -40,8 +45,6 @@ core::json compute_block_diagnostics(
   core::json q_p10_arr  = core::json::array();
   core::json q_p90_arr  = core::json::array();
   core::json art_arr    = core::json::array();
-  core::json heatmap_arr = core::json::array();  // mean Q per block
-  core::json art_heat_arr = core::json::array(); // artifact_frac per block
 
   for (int by = 0; by < bh; ++by) {
     for (int bx = 0; bx < bw; ++bx) {
@@ -62,27 +65,22 @@ core::json compute_block_diagnostics(
       }
 
       if (vals.empty()) {
-        const float nan = std::numeric_limits<float>::quiet_NaN();
-        q_med_arr.push_back(nan); q_p10_arr.push_back(nan);
-        q_p90_arr.push_back(nan); art_arr.push_back(nan);
-        heatmap_arr.push_back(nan); art_heat_arr.push_back(nan);
+        q_med_arr.push_back(0.0f); q_p10_arr.push_back(0.0f);
+        q_p90_arr.push_back(0.0f); art_arr.push_back(0.0f);
         continue;
       }
 
       std::sort(vals.begin(), vals.end());
-      const float med  = sorted_percentile(vals, 0.50);
-      const float p10  = sorted_percentile(vals, 0.10);
-      const float p90  = sorted_percentile(vals, 0.90);
-      const float mean = static_cast<float>(
-          std::accumulate(vals.begin(), vals.end(), 0.0) / vals.size());
-      const float afrac = static_cast<float>(
+      const float med  = round4(sorted_percentile(vals, 0.50));
+      const float p10  = round4(sorted_percentile(vals, 0.10));
+      const float p90  = round4(sorted_percentile(vals, 0.90));
+      const float afrac = round4(static_cast<float>(
           std::count_if(vals.begin(), vals.end(),
                         [tau_artifact](float v) { return v < tau_artifact; })) /
-          static_cast<float>(vals.size());
+          static_cast<float>(vals.size()));
 
       q_med_arr.push_back(med);  q_p10_arr.push_back(p10);
       q_p90_arr.push_back(p90); art_arr.push_back(afrac);
-      heatmap_arr.push_back(mean); art_heat_arr.push_back(afrac);
     }
   }
 
@@ -94,9 +92,97 @@ core::json compute_block_diagnostics(
   result["aqmh_q_p10"]        = std::move(q_p10_arr);
   result["aqmh_q_p90"]        = std::move(q_p90_arr);
   result["aqmh_artifact_frac"]= std::move(art_arr);
-  result["q_map_heatmap"]     = std::move(heatmap_arr);
-  result["artifact_heatmap"]  = std::move(art_heat_arr);
   return result;
+}
+
+// Compute per-block mean quality and artifact fraction for binary heatmaps.
+// Returns empty vectors if no valid pixels exist for any block.
+std::pair<std::vector<float>, std::vector<float>> compute_block_heatmaps(
+    const Matrix2Df &q_map,
+    const std::vector<uint8_t> &canvas_mask,
+    int canvas_width, int canvas_height,
+    float tau_artifact, int block_size_px) {
+
+  const int bw = std::max(1, (canvas_width  + block_size_px - 1) / block_size_px);
+  const int bh = std::max(1, (canvas_height + block_size_px - 1) / block_size_px);
+  const int block_count = bw * bh;
+
+  std::vector<float> q_mean(block_count, 0.0f);
+  std::vector<float> art_frac(block_count, 0.0f);
+
+  for (int by = 0; by < bh; ++by) {
+    for (int bx = 0; bx < bw; ++bx) {
+      const int y0 = by * block_size_px;
+      const int x0 = bx * block_size_px;
+      const int y1 = std::min(canvas_height, y0 + block_size_px);
+      const int x1 = std::min(canvas_width,  x0 + block_size_px);
+
+      double sum = 0.0;
+      int n = 0;
+      int artifacts = 0;
+      for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+          const size_t idx = static_cast<size_t>(y * canvas_width + x);
+          if (!canvas_mask.empty() && !canvas_mask[idx]) continue;
+          const float v = q_map(y, x);
+          if (!std::isfinite(v)) continue;
+          sum += v;
+          ++n;
+          if (v < tau_artifact) ++artifacts;
+        }
+      }
+      const int bidx = by * bw + bx;
+      if (n > 0) {
+        q_mean[bidx]  = static_cast<float>(sum / n);
+        art_frac[bidx] = static_cast<float>(artifacts) / static_cast<float>(n);
+      }
+    }
+  }
+  return {std::move(q_mean), std::move(art_frac)};
+}
+
+// Write all per-frame heatmaps to a single compact binary file.
+// Format: header, then per-frame (frame_index, q_mean[], artifact_frac[]).
+bool write_heatmaps_binary(
+    const std::filesystem::path &out_path,
+    int block_grid_width, int block_grid_height, int block_size_px,
+    const std::vector<std::pair<uint32_t, std::pair<std::vector<float>, std::vector<float>>>> &frames) {
+
+  std::ofstream out(out_path, std::ios::out | std::ios::binary | std::ios::trunc);
+  if (!out) return false;
+
+  const uint32_t magic = 0x514D484DU; // 'QMHM'
+  const uint32_t version = 1;
+  const uint32_t frame_count = static_cast<uint32_t>(frames.size());
+  const uint32_t bw = static_cast<uint32_t>(block_grid_width);
+  const uint32_t bh = static_cast<uint32_t>(block_grid_height);
+  const uint32_t bsp = static_cast<uint32_t>(block_size_px);
+  const uint32_t flags = 0;
+
+  out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+  out.write(reinterpret_cast<const char*>(&version), sizeof(version));
+  out.write(reinterpret_cast<const char*>(&frame_count), sizeof(frame_count));
+  out.write(reinterpret_cast<const char*>(&bw), sizeof(bw));
+  out.write(reinterpret_cast<const char*>(&bh), sizeof(bh));
+  out.write(reinterpret_cast<const char*>(&bsp), sizeof(bsp));
+  out.write(reinterpret_cast<const char*>(&flags), sizeof(flags));
+
+  for (const auto &entry : frames) {
+    const uint32_t frame_index = entry.first;
+    const auto &heatmaps = entry.second;
+    const size_t expected = static_cast<size_t>(bw) * bh;
+    if (heatmaps.first.size() != expected || heatmaps.second.size() != expected)
+      return false;
+
+    out.write(reinterpret_cast<const char*>(&frame_index), sizeof(frame_index));
+    const uint32_t fflags = 0;
+    out.write(reinterpret_cast<const char*>(&fflags), sizeof(fflags));
+    out.write(reinterpret_cast<const char*>(heatmaps.first.data()),
+              expected * sizeof(float));
+    out.write(reinterpret_cast<const char*>(heatmaps.second.data()),
+              expected * sizeof(float));
+  }
+  return out.good();
 }
 
 // Stream the final aqmh_metrics.json: write the base artifact (without frames)
@@ -206,6 +292,8 @@ bool run_phase_aqmh_diagnostics(
     const int block_size_px = cfg.aqmh.diagnostics.r_morph_canvas_px > 0
         ? cfg.aqmh.diagnostics.r_morph_canvas_px
         : std::max(16, std::min(canvas_width, canvas_height) / 32);
+    const bool emit_heatmaps = cfg.aqmh.diagnostics.heatmaps;
+    const auto heatmaps_bin_path = run_dir / "cache" / "aqmh_heatmaps.bin";
 
     std::ofstream frames_jsonl(frames_jsonl_path,
                              std::ios::out | std::ios::trunc);
@@ -216,6 +304,10 @@ bool run_phase_aqmh_diagnostics(
       return false;
     }
 
+    int block_grid_width = 0;
+    int block_grid_height = 0;
+    std::vector<std::pair<uint32_t, std::pair<std::vector<float>, std::vector<float>>>> heatmap_frames;
+
     for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
       if (!frame_has_data[fi] || !q_map_cache->has(fi)) continue;
       try {
@@ -223,23 +315,25 @@ bool run_phase_aqmh_diagnostics(
         if (q_map.rows() != canvas_height || q_map.cols() != canvas_width)
           continue;
 
-        // Only include heatmaps if enabled
-        const bool emit_heatmaps = cfg.aqmh.diagnostics.heatmaps;
         const core::json blk = compute_block_diagnostics(
             q_map, canvas_mask, canvas_width, canvas_height,
             tau_artifact, block_size_px);
+        block_grid_width = blk.value("block_grid_width", 0);
+        block_grid_height = blk.value("block_grid_height", 0);
 
-        // Remove heatmap arrays if heatmaps flag is false
-        core::json blk_to_store = emit_heatmaps ? blk : [&]() {
-          core::json filtered = blk;
-          filtered.erase("q_map_heatmap");
-          filtered.erase("artifact_heatmap");
-          return filtered;
-        }();
+        if (emit_heatmaps) {
+          auto [q_hm, art_hm] = compute_block_heatmaps(
+              q_map, canvas_mask, canvas_width, canvas_height,
+              tau_artifact, block_size_px);
+          heatmap_frames.emplace_back(
+              static_cast<uint32_t>(fi),
+              std::make_pair(std::move(q_hm), std::move(art_hm)));
+        }
 
         core::json jf;
         jf["frame_index"] = fi;
-        jf["block_diagnostics"] = std::move(blk_to_store);
+        jf["block_diagnostics"] = blk;
+        jf["has_heatmaps"] = emit_heatmaps;
         frames_jsonl << jf.dump() << '\n';
         has_streamed_frames = true;
       } catch (const std::exception &) {
@@ -247,6 +341,17 @@ bool run_phase_aqmh_diagnostics(
       }
     }
     frames_jsonl.close();
+
+    if (emit_heatmaps && !heatmap_frames.empty()) {
+      if (!write_heatmaps_binary(
+              heatmaps_bin_path, block_grid_width, block_grid_height,
+              block_size_px, heatmap_frames)) {
+        emitter.phase_end(run_id, Phase::AQMH_DIAGNOSTICS, "error",
+                          {{"error", "cannot write heatmaps binary file"}},
+                          log_file);
+        return false;
+      }
+    }
   }
 
   // Write output based on format setting (Item 4.4.2)

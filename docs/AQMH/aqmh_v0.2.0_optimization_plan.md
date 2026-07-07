@@ -275,9 +275,9 @@ Also add `chunk_rows` and `memory_budget_mb` to `reconstruction::AqmhReconstruct
 ```yaml
   diagnostics:
     enabled: true
-    level: full
+    level: summary
     per_frame_blocks: true
-    heatmaps: true
+    heatmaps: false
     regions: true
     format: json
     binary_block_size_px: 0   # 0 = use r_morph_canvas_px
@@ -316,9 +316,9 @@ Add `reconstruction` section with `chunk_rows: 0`, `memory_budget_mb: 0`, and `g
 ```yaml
   diagnostics:
     enabled: true
-    level: full
+    level: summary
     per_frame_blocks: true
-    heatmaps: true
+    heatmaps: false
     regions: true
     format: json
     binary_block_size_px: 0   # 0 = use r_morph_canvas_px
@@ -328,7 +328,7 @@ Add `reconstruction` section with `chunk_rows: 0`, `memory_budget_mb: 0`, and `g
 ```
 Add `reconstruction` section with `chunk_rows: 0`, `memory_budget_mb: 0`, and `gpu_reconstruction: disabled`.
 
-**All other example YAMLs** — add `diagnostics.enabled: true`, `diagnostics.level: full`, `diagnostics.format: json`, `diagnostics.binary_block_size_px: 0`, `reconstruction.chunk_rows: 0`, `reconstruction.memory_budget_mb: 0`, and `reconstruction.gpu_reconstruction: disabled` where `aqmh:` section exists. Files to update:
+**All other example YAMLs** — add `diagnostics.enabled: true`, `diagnostics.level: summary`, `diagnostics.format: json`, `diagnostics.binary_block_size_px: 0`, `reconstruction.chunk_rows: 0`, `reconstruction.memory_budget_mb: 0`, and `reconstruction.gpu_reconstruction: disabled` where `aqmh:` section exists. Files to update:
 - `examples/M45_high_altitude_strong_rotation.example.yaml`
 - `examples/bright_star.example.yaml`
 - `examples/canon_equatorial_balanced.example.yaml`

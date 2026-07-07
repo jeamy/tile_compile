@@ -334,9 +334,9 @@ aqmh:
     max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
   diagnostics:
     enabled: true
-    level: full
+    level: summary
     per_frame_blocks: true
-    heatmaps: true
+    heatmaps: false
     regions: true
     format: json
     binary_block_size_px: 0

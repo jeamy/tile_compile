@@ -32,9 +32,9 @@ aqmh:
 
   diagnostics:
     enabled: true
-    level: full
+    level: summary
     per_frame_blocks: true
-    heatmaps: true
+    heatmaps: false
     regions: true
     format: json
     binary_block_size_px: 0

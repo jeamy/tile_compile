@@ -121,6 +121,7 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
             "AQMH_GLOBAL_QUALITY",
             "AQMH_RECONSTRUCTION",
             "AQMH_DIAGNOSTICS",
+            "STACKING",
             "DEBAYER",
             "ASTROMETRY",
             "BGE",

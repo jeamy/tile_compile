@@ -285,7 +285,8 @@ const RUN_MONITOR_PHASE_ORDER = [
 ];
 
 // AQMH main path: Classic-only phases (GLOBAL_METRICS, TILE_GRID, LOCAL_METRICS,
-// TILE_RECONSTRUCTION, STATE_CLUSTERING, SYNTHETIC_FRAMES, STACKING) are omitted.
+// TILE_RECONSTRUCTION, STATE_CLUSTERING, SYNTHETIC_FRAMES) are omitted.
+// STACKING is still executed for AQMH (output scaling/writing).
 const AQMH_RUN_MONITOR_PHASE_ORDER = [
   "SCAN_INPUT",
   "REGISTRATION",
@@ -297,6 +298,7 @@ const AQMH_RUN_MONITOR_PHASE_ORDER = [
   "AQMH_GLOBAL_QUALITY",
   "AQMH_RECONSTRUCTION",
   "AQMH_DIAGNOSTICS",
+  "STACKING",
   "DEBAYER",
   "ASTROMETRY",
   "BGE",
@@ -5170,7 +5172,7 @@ function getEffectiveDashboardPipelineGroups() {
     { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION"] },
     { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
     { key: "AQMH", phases: ["AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"] },
-    { key: "DEBAYER", phases: ["DEBAYER"] },
+    { key: "STACK", phases: ["STACKING", "DEBAYER"] },
     { key: "ASTROM", phases: ["ASTROMETRY"] },
     { key: "BGE", phases: ["BGE"] },
     { key: "PCC", phases: ["PCC"] },
