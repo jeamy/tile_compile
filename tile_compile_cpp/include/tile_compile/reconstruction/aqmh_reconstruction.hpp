@@ -56,6 +56,12 @@ struct AqmhReconstructionResult {
   int chunk_rows = 0;
   int chunk_count = 0;
   bool region_streaming_used = false;
+  uint64_t cuda_free_bytes = 0;
+  uint64_t cuda_total_bytes = 0;
+  uint64_t cuda_device_budget_bytes = 0;
+  uint64_t cuda_bytes_per_row = 0;
+  int cuda_auto_chunk_rows_initial = 0;
+  int cuda_allocation_retries = 0;
 };
 
 using AqmhFrameLoader = std::function<bool(size_t, Matrix2Df&)>;

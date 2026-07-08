@@ -71,6 +71,7 @@ calibration:
   bias_master: ""
   bias_use_master: false
   dark_auto_select: true
+  dark_already_bias_corrected: false
   dark_master: ""
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
@@ -114,7 +115,6 @@ data:
   bayer_pattern: RGGB
   image_width: 0
   image_height: 0
-  linear_required: true
 dithering:
   enabled: true
   min_shift_px: 0.7
@@ -199,6 +199,8 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   reject_cc_min_abs: 0.25

@@ -12,7 +12,6 @@ astrometry:
   enabled: true
   search_radius: 183
 bge:
-  enabled: true # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
   method: autobge
   autobge:
     num_sample_points: 800
@@ -116,7 +115,6 @@ data:
   bayer_pattern: RGGB
   image_width: 0
   image_height: 0
-  linear_required: true
 dithering:
   enabled: true
   min_shift_px: 0.7

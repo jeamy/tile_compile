@@ -26,7 +26,6 @@ data:
   bayer_pattern: RGGB
   image_width: 0
   image_height: 0
-  linear_required: true
 
 input:
   pattern: ./data/*.fits
@@ -210,7 +209,6 @@ astrometry:
 # ============================================================================
 
 bge:
-  enabled: true
   method: classic
   autobge:
     num_sample_points: 800

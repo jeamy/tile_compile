@@ -220,8 +220,8 @@ function renderEditorForCategory(category) {
 
   for (const path of paths) {
     if (!isBgeParamVisible(path, bgeMethod)) continue;
-    const value = draft ? getConfigValue(draft, path) : "";
     const fieldSchema = getSchemaForPath(schema, path);
+    const value = draft ? (getConfigValue(draft, path) ?? fieldSchema?.default) : "";
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));
   }
 
@@ -427,13 +427,16 @@ function formatValue(v) {
   if (v === null || v === undefined) return "";
   if (typeof v === "boolean") return String(v);
   if (typeof v === "number") return String(v);
-  if (Array.isArray(v)) return v.join(", ");
+  if (Array.isArray(v)) return JSON.stringify(v);
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
 
 function parseValue(s) {
   const str = s.trim();
+  if (str.startsWith("[") || str.startsWith("{")) {
+    return parseYaml(`value: ${str}`).value;
+  }
   if (str === "true") return true;
   if (str === "false") return false;
   if (str === "null" || str === "") return null;

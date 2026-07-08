@@ -22,7 +22,6 @@ output:
   crop_to_nonzero_bbox: true
 
 data:
-  linear_required: true
   color_mode: OSC
   bayer_pattern: RGGB
   image_width: 0
@@ -211,7 +210,6 @@ astrometry:
 # ============================================================================
 
 bge:
-  enabled: true
   method: classic
   autobge:
     num_sample_points: 800

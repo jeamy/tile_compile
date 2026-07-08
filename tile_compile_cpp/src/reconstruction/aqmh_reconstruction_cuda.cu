@@ -28,6 +28,7 @@ namespace tile_compile::reconstruction {
 namespace {
 
 constexpr int kMaxFramesCompile = 1024;  // upper bound for local arrays
+constexpr int kMinAutoChunkRows = 16;
 
 // Removed next_pow2 and insertion_adaptive_sort.
 // A single unified Shellsort-based adaptive_sort handles all array sizes.
@@ -700,6 +701,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   const size_t device_budget = std::min<size_t>(
       static_cast<size_t>(0.60 * static_cast<double>(free_bytes)),
       4u * 1024u * 1024u * 1024u);
+  result.cuda_free_bytes = static_cast<uint64_t>(free_bytes);
+  result.cuda_total_bytes = static_cast<uint64_t>(total_bytes);
+  result.cuda_device_budget_bytes = static_cast<uint64_t>(device_budget);
 
   // Per-row estimate: frames + q_maps + masks + output scratch (3 floats + 1 mask)
   const size_t bytes_per_row =
@@ -707,13 +711,16 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       static_cast<size_t>(frame_count) * width * sizeof(uint8_t) +
       static_cast<size_t>(width) * sizeof(float) * 4 +
       static_cast<size_t>(width) * sizeof(uint8_t);
+  result.cuda_bytes_per_row = static_cast<uint64_t>(bytes_per_row);
   int chunk_rows;
   if (cfg.chunk_rows > 0) {
     chunk_rows = std::min(height, cfg.chunk_rows);
   } else {
-    chunk_rows = std::max(1, std::min(height,
-        static_cast<int>(device_budget / std::max<size_t>(1, bytes_per_row))));
+    const int budget_rows = static_cast<int>(
+        device_budget / std::max<size_t>(1, bytes_per_row));
+    chunk_rows = std::min(height, std::max(kMinAutoChunkRows, budget_rows));
   }
+  result.cuda_auto_chunk_rows_initial = chunk_rows;
   result.chunk_rows = chunk_rows;
   result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
   result.region_streaming_used = true;
@@ -740,12 +747,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
                         frame_count * sizeof(float), cudaMemcpyHostToDevice));
 
   GpuBuffers bufs;
-  if (!allocate_chunk_buffers(bufs, width, chunk_rows, static_cast<int>(frame_count),
-                              cfg.compute_uniform_control, cherry_enabled)) {
+  while (!allocate_chunk_buffers(bufs, width, chunk_rows, static_cast<int>(frame_count),
+                                 cfg.compute_uniform_control, cherry_enabled)) {
     free_chunk_buffers(bufs);
-    cudaFree(d_global_weights);
-    result.acceleration_fallback = true;
-    return result;
+    if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
+      cudaFree(d_global_weights);
+      result.acceleration_fallback = true;
+      return result;
+    }
+    chunk_rows = std::max(1, chunk_rows / 2);
+    ++result.cuda_allocation_retries;
+    result.chunk_rows = chunk_rows;
+    result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
   }
 
   // Host staging buffers.

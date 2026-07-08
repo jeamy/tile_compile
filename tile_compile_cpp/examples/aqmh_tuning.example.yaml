@@ -18,7 +18,6 @@ data:
   image_height: 0
   color_mode: OSC
   bayer_pattern: GBRG
-  linear_required: true
 
 calibration:
   use_bias: false
@@ -275,7 +274,6 @@ stacking:
 
 # Background gradient estimation
 bge:
-  enabled: true
   method: classic
   autobge:
     num_sample_points: 800

@@ -115,7 +115,6 @@ data:
   bayer_pattern: RGGB
   image_width: 0
   image_height: 0
-  linear_required: true
 dithering:
   enabled: true
   min_shift_px: 0.7

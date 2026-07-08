@@ -5,14 +5,8 @@ scenario_profile:
   id: mono_full_mode
   title: MONO Full Mode
   intent: Robuster MONO-Betrieb mit Full-Mode Datensatzgroesse.
-  gui2_scenarios:
-    - mono
-    - full_mode
-    - alt_az
-    - rotation_robust
-  recommended_for:
-    - N_usable >= assumptions.frames_reduced_threshold
-    - Alt/Az Sessions mit Feldrotation und Wolkenluecken
+  gui2_scenarios: [mono, full_mode, alt_az, rotation_robust]
+  recommended_for: [N_usable >= assumptions.frames_reduced_threshold, Alt/Az Sessions mit Feldrotation und Wolkenluecken]
   priority: balanced_quality
 pipeline:
   mode: production
@@ -26,7 +20,6 @@ data:
   image_height: 2160
   color_mode: OSC
   bayer_pattern: GBRG
-  linear_required: true
 input:
   pattern: ./data/*.fits
   sort: numeric
@@ -39,7 +32,6 @@ linearity:
 calibration:
   flat_master: ""
   flats_dir: ""
-  dark_master: ""
   bias_master: ""
   darks_dir: ""
   use_dark: false
@@ -53,13 +45,14 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 2
   bias_dir: ""
+  dark_master: ""
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
+  use_bias: false
 assumptions:
   frames_min: 50
   frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range:
-    - 5
-    - 10
+  reduced_mode_cluster_range: [5, 10]
 normalization:
   enabled: true
   mode: background
@@ -139,9 +132,7 @@ global_metrics:
     gradient: 0.3
     roundness: 0
     star_count: 0
-  clamp:
-    - -3
-    - 3
+  clamp: [-3, 3]
 tile:
   size_factor: 32
   min_size: 64
@@ -150,9 +141,7 @@ tile:
   star_min_count: 8
   star_soft_count: 4
 local_metrics:
-  clamp:
-    - -3
-    - 3
+  clamp: [-3, 3]
   k_local: 1
   neighborhood_normalization:
     enabled: false
@@ -177,16 +166,13 @@ synthetic:
   frames_max: 30
   clustering:
     mode: kmeans
-    cluster_count_range:
-      - 5
-      - 30
+    cluster_count_range: [5, 30]
 astrometry:
   enabled: true
   astap_bin: ~
   astap_data_dir: /home/lux/.local/share/tile_compile/astap
   search_radius: 183
 bge:
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800
@@ -204,6 +190,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []
+    user_sample_points: []
   tile_weight_lambda_structure: 1
   autotune:
     enabled: true
@@ -293,13 +281,19 @@ aqmh:
     resolution_divisor: 2
     dtype: uint16
     max_resident_maps: 4
+  global_quality:
+    g_floor: 0.05
+    g_w_sharp: 0.6
+    g_w_snr: 0.4
   cherry_pick:
     enabled: false
     k_min_required: 20
     k_frac: 0.3
+    margin_min: 0.02
+    tiered_k_frac: []
   diagnostics:
     enabled: true
-    level: full
+    level: summary
     per_frame_blocks: true
     heatmaps: true
     regions: true
@@ -316,6 +310,10 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     gpu_reconstruction: auto
+  validation:
+    max_seam_score_regression: 0.02
+    max_fwhm_regression: 0.02
+    max_background_rms_regression: 0.02
 stacking:
   method: rej
   common_overlap_required_fraction: 1

@@ -26,7 +26,6 @@ data:
   image_height: 2160
   color_mode: OSC
   bayer_pattern: GBRG
-  linear_required: true
 input:
   pattern: ./data/*.fits
   sort: numeric
@@ -39,6 +38,7 @@ linearity:
 calibration:
   darks_dir: 
   flat_master: null
+  flats_dir: null
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -50,6 +50,9 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 2
   bias_dir: null
+  bias_master: null
+  dark_master: null
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
   use_bias: false
 assumptions:
   frames_min: 50
@@ -184,7 +187,6 @@ astrometry:
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 bge:
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800

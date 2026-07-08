@@ -28,7 +28,6 @@ data:
   image_height: 0
   color_mode: OSC
   bayer_pattern: GBRG
-  linear_required: true # nur lineare Daten verarbeiten
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes
@@ -208,7 +207,6 @@ astrometry:
   search_radius: 183 # Suchradius in Grad
 
 bge:
-  enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
   method: autobge
   autobge:
     num_sample_points: 800

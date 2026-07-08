@@ -296,6 +296,13 @@ bool run_phase_aqmh_reconstruction(
   artifact["weighted_selection"] = "deterministic_linear_quickselect";
   artifact["chunk_rows"] = aqmh_recon.chunk_rows;
   artifact["chunk_count"] = aqmh_recon.chunk_count;
+  artifact["cuda_free_bytes"] = aqmh_recon.cuda_free_bytes;
+  artifact["cuda_total_bytes"] = aqmh_recon.cuda_total_bytes;
+  artifact["cuda_device_budget_bytes"] = aqmh_recon.cuda_device_budget_bytes;
+  artifact["cuda_bytes_per_row"] = aqmh_recon.cuda_bytes_per_row;
+  artifact["cuda_auto_chunk_rows_initial"] =
+      aqmh_recon.cuda_auto_chunk_rows_initial;
+  artifact["cuda_allocation_retries"] = aqmh_recon.cuda_allocation_retries;
   artifact["num_frames"] = static_cast<int>(frames.size());
   artifact["canvas_width"] = canvas_width;
   artifact["canvas_height"] = canvas_height;

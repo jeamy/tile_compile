@@ -212,18 +212,12 @@ void stream_aqmh_metrics_json(
 
   out << base_str;
   if (has_frames) {
-    out << (base.empty() ? "\n  \"frames\": [\n" : ",\n  \"frames\": [\n");
-
-    std::ifstream in(frames_jsonl_path, std::ios::in);
-    std::string line;
-    bool first = true;
-    while (std::getline(in, line)) {
-      if (line.empty()) continue;
-      if (!first) out << ",\n";
-      first = false;
-      out << "    " << line;
-    }
-    out << "\n  ]\n}";
+    out << (base.empty() ? "\n" : ",\n");
+    out << "  \"block_diagnostics_stream\": {\n";
+    out << "    \"path\": \"cache/" << frames_jsonl_path.filename().string() << "\",\n";
+    out << "    \"format\": \"jsonl\",\n";
+    out << "    \"contains\": \"per-frame AQMH block diagnostics\"\n";
+    out << "  }\n}";
   } else {
     out << "}\n";
   }
@@ -288,10 +282,14 @@ bool run_phase_aqmh_diagnostics(
   if (full_mode && cfg.aqmh.diagnostics.per_frame_blocks &&
       q_map_cache && canvas_width > 0 && canvas_height > 0) {
     const float tau_artifact = cfg.aqmh.diagnostics.tau_artifact;
-    // Use r_morph_canvas_px as block size, or fall back to derived value
-    const int block_size_px = cfg.aqmh.diagnostics.r_morph_canvas_px > 0
-        ? cfg.aqmh.diagnostics.r_morph_canvas_px
-        : std::max(16, std::min(canvas_width, canvas_height) / 32);
+    // Keep diagnostics blocks coarse enough that full mode cannot create
+    // multi-gigabyte JSON for normal production runs.
+    const int configured_block_size =
+        cfg.aqmh.diagnostics.binary_block_size_px > 0
+            ? cfg.aqmh.diagnostics.binary_block_size_px
+            : cfg.aqmh.diagnostics.r_morph_canvas_px;
+    const int block_size_px = std::clamp(
+        configured_block_size > 0 ? configured_block_size : 64, 32, 256);
     const bool emit_heatmaps = cfg.aqmh.diagnostics.heatmaps;
     const auto heatmaps_bin_path = run_dir / "cache" / "aqmh_heatmaps.bin";
 

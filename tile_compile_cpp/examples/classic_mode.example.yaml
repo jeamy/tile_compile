@@ -69,7 +69,6 @@ data:
   image_height: 0
   color_mode: OSC
   bayer_pattern: GBRG
-  linear_required: true
 
 linearity:
   enabled: true
@@ -190,7 +189,6 @@ astrometry:
   search_radius: 183
 
 bge:
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800
