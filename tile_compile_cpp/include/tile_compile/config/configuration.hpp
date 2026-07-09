@@ -264,7 +264,6 @@ struct AqmhReconstructionConfig {
   float min_n_eff = 2.0f;
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
-  std::string gpu_reconstruction = "auto";  // "disabled" | "auto" | "force"
 };
 
 struct AqmhValidationConfig {

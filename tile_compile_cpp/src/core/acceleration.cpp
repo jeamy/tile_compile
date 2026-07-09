@@ -60,9 +60,9 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   case AccelerationPhase::prewarp:
     return TILE_COMPILE_HAS_OPENCV_CUDA_WARPING != 0;
   case AccelerationPhase::aqmh_maps:
-    return TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS != 0;
+    return false;
   case AccelerationPhase::aqmh_reconstruction:
-    return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
+    return false;
   case AccelerationPhase::tile_reconstruction:
     return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
   case AccelerationPhase::stacking:
@@ -84,17 +84,14 @@ bool phase_supports_backend(AccelerationPhase phase,
     return true;
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
-           phase == AccelerationPhase::aqmh_maps ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
     return phase == AccelerationPhase::prewarp ||
-           phase == AccelerationPhase::aqmh_maps ||
-           phase == AccelerationPhase::aqmh_reconstruction ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
-    return phase == AccelerationPhase::aqmh_reconstruction;
+    return false;
   }
   return false;
 }

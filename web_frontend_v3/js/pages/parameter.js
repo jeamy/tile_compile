@@ -247,6 +247,12 @@ function shortHelpForPath(path, fieldSchema) {
   return "";
 }
 
+function explainHelpForPath(path, fieldSchema) {
+  const localized = t(`param.${path}.explain`, "");
+  if (localized) return localized;
+  return shortHelpForPath(path, fieldSchema);
+}
+
 function editableParamRow(path, value, fieldSchema) {
   const onChange = (rawVal) => {
     setConfigValue(getConfigState().draft, path, rawVal);
@@ -348,7 +354,7 @@ function showExplainForPath(path, fieldSchema) {
     minimum: fieldSchema?.minimum,
     maximum: fieldSchema?.maximum,
     enum: fieldSchema?.enum || [],
-    description: shortHelpForPath(path, fieldSchema),
+    description: explainHelpForPath(path, fieldSchema),
     deprecated: Boolean(fieldSchema?.deprecated),
   };
   updateExplainPanel(entry);

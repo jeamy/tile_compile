@@ -369,7 +369,6 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: auto
 stacking:
   method: rej
   common_overlap_required_fraction: 1.0

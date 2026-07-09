@@ -48,7 +48,6 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: auto
 
   validation:
     max_seam_score_regression: 0.02

@@ -706,8 +706,6 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.aqmh.reconstruction.chunk_rows = r["chunk_rows"].as<int>();
       if (r["memory_budget_mb"])
         cfg.aqmh.reconstruction.memory_budget_mb = r["memory_budget_mb"].as<size_t>();
-      if (r["gpu_reconstruction"])
-        cfg.aqmh.reconstruction.gpu_reconstruction = r["gpu_reconstruction"].as<std::string>();
     }
     if (a["validation"]) {
       auto v = a["validation"];
@@ -1356,7 +1354,6 @@ YAML::Node Config::to_yaml() const {
   // NEW FIELDS:
   node["aqmh"]["reconstruction"]["chunk_rows"] = aqmh.reconstruction.chunk_rows;
   node["aqmh"]["reconstruction"]["memory_budget_mb"] = aqmh.reconstruction.memory_budget_mb;
-  node["aqmh"]["reconstruction"]["gpu_reconstruction"] = aqmh.reconstruction.gpu_reconstruction;
   node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
   node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
   node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
@@ -1950,11 +1947,6 @@ void Config::validate() const {
   if (aqmh.reconstruction.chunk_rows < 0) {
     throw ValidationError("aqmh.reconstruction.chunk_rows must be >= 0");
   }
-  if (aqmh.reconstruction.gpu_reconstruction != "disabled" &&
-      aqmh.reconstruction.gpu_reconstruction != "auto" &&
-      aqmh.reconstruction.gpu_reconstruction != "force") {
-    throw ValidationError("aqmh.reconstruction.gpu_reconstruction must be disabled, auto, or force");
-  }
 
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
     throw ValidationError(
@@ -2438,7 +2430,7 @@ std::string get_schema_json() {
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"default":1,"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"default":"float32","description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"default":4,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
                       "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.05},"g_w_sharp":{"type":"number","minimum":0,"default":0.6},"g_w_snr":{"type":"number","minimum":0,"default":0.4}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","default":false,"description":"Enables per-pixel top-K AQMH selection subject to the run and pixel sample floors."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.30},"k_min_required":{"type":"integer","minimum":1,"default":20},"margin_min":{"type":"number","minimum":0,"maximum":1,"default":0.02},"tiered_k_frac":{"type":"array","default":[],"items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"gpu_reconstruction":{"type":"string","enum":["disabled","auto","force"],"default":"auto"}}},
+                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0}}},
                       "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.02},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.02}}},
                       "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
     "synthetic": { "type":"object",
@@ -2529,7 +2521,7 @@ std::string get_schema_json() {
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP, AQMH_MAPS, AQMH_RECONSTRUCTION, TILE_RECONSTRUCTION und STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."},
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP, TILE_RECONSTRUCTION und STACKING. AQMH_MAPS und AQMH_RECONSTRUCTION sind CPU-only, weil die M42-Messungen auf GPU instabile oder langsamere Laufzeiten gezeigt haben."},
                       "tile_reconstruction_diagnostics":{"type":"string","enum":["full","minimal","off"]} } }
   }
 })";

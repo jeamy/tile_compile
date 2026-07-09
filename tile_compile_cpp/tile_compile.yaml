@@ -64,19 +64,16 @@ bge:
     rbf_lambda: 0.01
     rbf_epsilon: 1
 calibration:
-  flats_dir: ""
-  bias_master: ""
-  bias_dir: ""
   flat_master: ""
+  flats_dir: ""
   dark_master: ""
-  dark_use_master: false
-  dark_already_bias_corrected: false
-  darks_dir: ""
-  use_dark: false
   use_flat: false
-  use_bias: false
+  bias_master: ""
+  darks_dir: ""
   bias_use_master: false
   flat_use_master: false
+  use_dark: false
+  dark_use_master: false
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
@@ -213,7 +210,7 @@ runtime_limits:
   allow_emergency_mode: true
   hard_abort_hours: 6
   memory_budget: 2048
-  acceleration_backend: cpu
+  acceleration_backend: auto
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
   tile_reconstruction_diagnostics: full
@@ -288,7 +285,6 @@ aqmh:
     min_n_eff: 2
     chunk_rows: 0
     memory_budget_mb: 0
-    gpu_reconstruction: disabled
 stacking:
   common_overlap_required_fraction: 1
   tile_common_valid_min_fraction: 1

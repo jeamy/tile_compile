@@ -117,22 +117,7 @@ aqmh:
   REQUIRE_THROWS(cfg.validate());
 }
 
-TEST_CASE("aqmh_reconstruction_gpu_backend_parses_and_validates") {
-  const auto valid_backends = {"disabled", "auto", "force"};
-  for (const auto* backend : valid_backends) {
-    YAML::Node node = YAML::Load(std::string("\n") +
-                                 "method: aqmh\n"
-                                 "aqmh:\n"
-                                 "  enabled: true\n"
-                                 "  reconstruction:\n"
-                                 "    gpu_reconstruction: " + backend + "\n");
-    auto cfg = tile_compile::config::Config::from_yaml(node);
-    REQUIRE(cfg.aqmh.reconstruction.gpu_reconstruction == backend);
-    REQUIRE_NOTHROW(cfg.validate());
-  }
-}
-
-TEST_CASE("aqmh_reconstruction_gpu_backend_rejects_invalid_value") {
+TEST_CASE("aqmh_reconstruction_ignores_legacy_gpu_backend_value") {
   YAML::Node node = YAML::Load(R"(
 method: aqmh
 aqmh:
@@ -141,7 +126,7 @@ aqmh:
     gpu_reconstruction: opencv_cuda
 )");
   auto cfg = tile_compile::config::Config::from_yaml(node);
-  REQUIRE_THROWS(cfg.validate());
+  REQUIRE_NOTHROW(cfg.validate());
 }
 
 TEST_CASE("aqmh_diagnostics_disabled_level_none_still_validates") {

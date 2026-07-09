@@ -29,6 +29,8 @@ namespace {
 
 constexpr int kMaxFramesCompile = 1024;  // absolute upper bound for CUDA kernels
 constexpr int kMinAutoChunkRows = 16;
+constexpr size_t kBytesPerMiB = 1024ULL * 1024ULL;
+constexpr size_t kBytesPerGiB = 1024ULL * kBytesPerMiB;
 
 // Removed next_pow2 and insertion_adaptive_sort.
 // A single unified Shellsort-based adaptive_sort handles all array sizes.
@@ -817,7 +819,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   }
   const size_t device_budget = std::min<size_t>(
       static_cast<size_t>(0.60 * static_cast<double>(free_bytes)),
-      4u * 1024u * 1024u * 1024u);
+      4ULL * kBytesPerGiB);
   result.cuda_free_bytes = static_cast<uint64_t>(free_bytes);
   result.cuda_total_bytes = static_cast<uint64_t>(total_bytes);
   result.cuda_device_budget_bytes = static_cast<uint64_t>(device_budget);
