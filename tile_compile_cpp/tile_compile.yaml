@@ -39,9 +39,10 @@ linearity:
   min_overall_linearity: 0.9
   strictness: moderate
 calibration:
-  flats_dir: ""
-  bias_master: ""
+  flat_master: ""
   dark_master: ""
+  darks_dir: ""
+  flats_dir: ""
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -53,13 +54,13 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 3
   bias_dir: ""
-  flat_master: ""
   frames_min: 30
   frames_reduced_threshold: 120
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range:
     - 3
     - 10
+  use_bias: false
 normalization:
   enabled: true
   mode: background
