@@ -23,4 +23,9 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     std::vector<AqmhWeightedSample> samples, float clip_sigma,
     int iterations, float min_fraction, float min_effective_n);
 
+AqmhSigmaClipResult aqmh_sigma_clip(
+    std::vector<AqmhWeightedSample> samples, float clip_sigma_low,
+    float clip_sigma_high, int iterations, float min_fraction,
+    float min_effective_n);
+
 } // namespace tile_compile::reconstruction

@@ -214,7 +214,7 @@ __device__ int cherry_pick_top_k(
 template <int MaxFrames>
 __device__ int sigma_clip(
     float* values, float* weights, int n,
-    float clip_sigma, int iterations,
+    float clip_sigma_low, float clip_sigma_high, int iterations,
     float min_fraction, float min_n_eff,
     float* out_weight_sum, float* out_effective_n,
     int* sort_buf, float* deviations, float* sorted_values) {
@@ -342,7 +342,10 @@ __device__ int sigma_clip(
     const float sigma = 1.4826f * mad;
     int keep_count = 0;
     for (int i = 0; i < n; ++i) {
-      if (fabsf(values[i] - center) <= clip_sigma * sigma) ++keep_count;
+      if ((values[i] >= center &&
+           values[i] - center <= clip_sigma_high * sigma) ||
+          (values[i] < center &&
+           center - values[i] <= clip_sigma_low * sigma)) ++keep_count;
     }
 
     if (keep_count == n) {
@@ -365,7 +368,10 @@ __device__ int sigma_clip(
     // Keep samples within clip band.
     m = 0;
     for (int i = 0; i < n; ++i) {
-      if (fabsf(values[i] - center) <= clip_sigma * sigma) {
+      if ((values[i] >= center &&
+           values[i] - center <= clip_sigma_high * sigma) ||
+          (values[i] < center &&
+           center - values[i] <= clip_sigma_low * sigma)) {
         values[m] = values[i];
         weights[m] = weights[i];
         ++m;
@@ -410,7 +416,7 @@ __global__ void aqmh_uniform_control_kernel(
     float* __restrict__ d_uniform_control,
     unsigned long long* __restrict__ d_numerical_guard_pixels,
     int width, int chunk_rows, int y0, int height, int frame_count,
-    float clip_sigma, int clip_iterations,
+    float clip_sigma_low, float clip_sigma_high, int clip_iterations,
     float min_fraction, float min_n_eff) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int yy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -459,7 +465,7 @@ __global__ void aqmh_uniform_control_kernel(
   float effective_n = 0.0f;
   const int retained = sigma_clip<MaxFrames>(
       values, weights, n_samples,
-      clip_sigma, clip_iterations, min_fraction, min_n_eff,
+      clip_sigma_low, clip_sigma_high, clip_iterations, min_fraction, min_n_eff,
       &weight_sum, &effective_n,
       scratch_buf, scratch_dev, scratch_val);
 
@@ -490,7 +496,7 @@ __global__ void aqmh_reconstruction_kernel(
     unsigned long long* __restrict__ d_zero_veto_pixels,
     unsigned long long* __restrict__ d_numerical_guard_pixels,
     int width, int chunk_rows, int y0, int height, int frame_count,
-    float clip_sigma, int clip_iterations,
+    float clip_sigma_low, float clip_sigma_high, int clip_iterations,
     float min_fraction, float min_n_eff,
     float cherry_pick_k_frac,
     int cherry_pick_k_min_required) {
@@ -573,7 +579,7 @@ __global__ void aqmh_reconstruction_kernel(
   float effective_n = 0.0f;
   const int retained = sigma_clip<MaxFrames>(
       values, weights, k_effective,
-      clip_sigma, clip_iterations, min_fraction, min_n_eff,
+      clip_sigma_low, clip_sigma_high, clip_iterations, min_fraction, min_n_eff,
       &weight_sum, &effective_n,
       scratch_buf, scratch_dev, scratch_val);
 
@@ -665,7 +671,7 @@ void launch_reconstruction_kernel(
         bufs.cherry_k_map,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, frame_count,
-        cfg.clip_sigma, cfg.clip_iterations,
+        cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
         cfg.min_fraction, cfg.min_n_eff,
         cfg.cherry_pick_k_frac,
         cfg.cherry_pick_k_min_required);
@@ -676,7 +682,7 @@ void launch_reconstruction_kernel(
         bufs.cherry_k_map,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, frame_count,
-        cfg.clip_sigma, cfg.clip_iterations,
+        cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
         cfg.min_fraction, cfg.min_n_eff,
         cfg.cherry_pick_k_frac,
         cfg.cherry_pick_k_min_required);
@@ -728,7 +734,7 @@ void launch_uniform_control_kernel(
       bufs.frames, bufs.canvas_mask, bufs.frame_masks,
       bufs.uniform_control, d_numerical_guard_pixels,
       width, chunk_rows, y0, height, frame_count,
-      cfg.clip_sigma, cfg.clip_iterations,
+      cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
       cfg.min_fraction, cfg.min_n_eff);
 }
 

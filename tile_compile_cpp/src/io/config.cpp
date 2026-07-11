@@ -698,6 +698,12 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (a["reconstruction"]) {
       auto r = a["reconstruction"];
       if (r["clip_sigma"]) cfg.aqmh.reconstruction.clip_sigma = r["clip_sigma"].as<float>();
+      if (r["clip_sigma_low"])
+        cfg.aqmh.reconstruction.clip_sigma_low =
+            r["clip_sigma_low"].as<float>();
+      if (r["clip_sigma_high"])
+        cfg.aqmh.reconstruction.clip_sigma_high =
+            r["clip_sigma_high"].as<float>();
       if (r["clip_iterations"]) cfg.aqmh.reconstruction.clip_iterations = r["clip_iterations"].as<int>();
       if (r["min_fraction"]) cfg.aqmh.reconstruction.min_fraction = r["min_fraction"].as<float>();
       if (r["min_n_eff"]) cfg.aqmh.reconstruction.min_n_eff = r["min_n_eff"].as<float>();
@@ -736,6 +742,8 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (v["max_seam_score_regression"]) cfg.aqmh.validation.max_seam_score_regression = v["max_seam_score_regression"].as<float>();
       if (v["max_fwhm_regression"]) cfg.aqmh.validation.max_fwhm_regression = v["max_fwhm_regression"].as<float>();
       if (v["max_background_rms_regression"]) cfg.aqmh.validation.max_background_rms_regression = v["max_background_rms_regression"].as<float>();
+      if (v["max_tail11_abs_regression"]) cfg.aqmh.validation.max_tail11_abs_regression = v["max_tail11_abs_regression"].as<float>();
+      if (v["max_elongation_regression"]) cfg.aqmh.validation.max_elongation_regression = v["max_elongation_regression"].as<float>();
     }
   }
 
@@ -1387,6 +1395,10 @@ YAML::Node Config::to_yaml() const {
   node["aqmh"]["diagnostics"]["format"] = aqmh.diagnostics.format;
   node["aqmh"]["diagnostics"]["binary_block_size_px"] = aqmh.diagnostics.binary_block_size_px;
   node["aqmh"]["reconstruction"]["clip_sigma"] = aqmh.reconstruction.clip_sigma;
+  node["aqmh"]["reconstruction"]["clip_sigma_low"] =
+      aqmh.reconstruction.clip_sigma_low;
+  node["aqmh"]["reconstruction"]["clip_sigma_high"] =
+      aqmh.reconstruction.clip_sigma_high;
   node["aqmh"]["reconstruction"]["clip_iterations"] = aqmh.reconstruction.clip_iterations;
   node["aqmh"]["reconstruction"]["min_fraction"] = aqmh.reconstruction.min_fraction;
   node["aqmh"]["reconstruction"]["min_n_eff"] = aqmh.reconstruction.min_n_eff;
@@ -1412,6 +1424,10 @@ YAML::Node Config::to_yaml() const {
   node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
   node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
   node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
+  node["aqmh"]["validation"]["max_tail11_abs_regression"] =
+      aqmh.validation.max_tail11_abs_regression;
+  node["aqmh"]["validation"]["max_elongation_regression"] =
+      aqmh.validation.max_elongation_regression;
 
   node["synthetic"]["weighting"] = synthetic.weighting;
   node["synthetic"]["frames_min"] = synthetic.frames_min;
@@ -1972,7 +1988,10 @@ void Config::validate() const {
       aqmh.global_quality.g_w_sharp + aqmh.global_quality.g_w_snr <= 0.0f) {
     throw ValidationError("aqmh.global_quality values are invalid");
   }
-  if (aqmh.reconstruction.clip_sigma <= 0.0f || aqmh.reconstruction.clip_iterations < 0 ||
+  if (aqmh.reconstruction.clip_sigma <= 0.0f ||
+      aqmh.reconstruction.clip_sigma_low <= 0.0f ||
+      aqmh.reconstruction.clip_sigma_high <= 0.0f ||
+      aqmh.reconstruction.clip_iterations < 0 ||
       aqmh.reconstruction.min_fraction <= 0.0f || aqmh.reconstruction.min_fraction > 1.0f ||
       aqmh.reconstruction.min_n_eff < 1.0f) {
     throw ValidationError("aqmh.reconstruction values are invalid");
@@ -2498,8 +2517,8 @@ std::string get_schema_json() {
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"default":1,"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"default":"float32","description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"default":4,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
                       "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.05},"g_w_sharp":{"type":"number","minimum":0,"default":0.6},"g_w_snr":{"type":"number","minimum":0,"default":0.4}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","default":false,"description":"Enables per-pixel top-K AQMH selection subject to the run and pixel sample floors."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.30},"k_min_required":{"type":"integer","minimum":1,"default":20},"margin_min":{"type":"number","minimum":0,"maximum":1,"default":0.02},"tiered_k_frac":{"type":"array","default":[],"items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.85},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15}}},
-                      "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.02},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.02}}},
+                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":1.5},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.85},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15}}},
+                      "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.02},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.02},"max_tail11_abs_regression":{"type":"number","minimum":0,"default":0.05},"max_elongation_regression":{"type":"number","minimum":0,"default":0.05}}},
                       "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
     "synthetic": { "type":"object",
       "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},

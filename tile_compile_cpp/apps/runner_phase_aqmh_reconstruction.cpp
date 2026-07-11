@@ -122,6 +122,37 @@ struct RegistrationWeightGuardResult {
   std::map<std::string, int> source_counts;
 };
 
+bool aqmh_tail_ok(const reconstruction::AqmhValidationComparison &v,
+                  const config::AqmhValidationConfig &cfg) {
+  const bool enough_stars =
+      v.aqmh.star_count >= 12 && v.control.star_count >= 12;
+  if (!enough_stars) return false;
+  return v.tail11_abs_regression <= cfg.max_tail11_abs_regression &&
+         v.elongation_regression <= cfg.max_elongation_regression;
+}
+
+nlohmann::json validation_metrics_json(
+    const reconstruction::AqmhValidationMetrics &m) {
+  return {{"seam_score", m.seam_score},
+          {"fwhm", m.fwhm},
+          {"background_rms", m.background_rms},
+          {"star_count", m.star_count},
+          {"tail11_abs_median", m.tail11_abs_median},
+          {"tail11_p90", m.tail11_p90},
+          {"elongation_median", m.elongation_median}};
+}
+
+nlohmann::json validation_comparison_json(
+    const reconstruction::AqmhValidationComparison &v) {
+  return {{"aqmh", validation_metrics_json(v.aqmh)},
+          {"control", validation_metrics_json(v.control)},
+          {"seam_score_regression", v.seam_score_regression},
+          {"fwhm_regression", v.fwhm_regression},
+          {"background_rms_regression", v.background_rms_regression},
+          {"tail11_abs_regression", v.tail11_abs_regression},
+          {"elongation_regression", v.elongation_regression}};
+}
+
 RegistrationWeightGuardResult apply_registration_weight_guard(
     const std::filesystem::path &run_dir, const VectorXf &base_weights,
     const config::AqmhReconstructionConfig &cfg, std::ostream &log_file) {
@@ -263,6 +294,8 @@ bool run_phase_aqmh_reconstruction(
 
   reconstruction::AqmhReconstructionConfig aqmh_recon_cfg;
   aqmh_recon_cfg.clip_sigma = cfg.aqmh.reconstruction.clip_sigma;
+  aqmh_recon_cfg.clip_sigma_low = cfg.aqmh.reconstruction.clip_sigma_low;
+  aqmh_recon_cfg.clip_sigma_high = cfg.aqmh.reconstruction.clip_sigma_high;
   aqmh_recon_cfg.clip_iterations = cfg.aqmh.reconstruction.clip_iterations;
   aqmh_recon_cfg.min_fraction = cfg.aqmh.reconstruction.min_fraction;
   aqmh_recon_cfg.min_n_eff = cfg.aqmh.reconstruction.min_n_eff;
@@ -385,7 +418,11 @@ bool run_phase_aqmh_reconstruction(
     const bool seam_not_regressed =
         low_frequency_neutralization_validation.seam_score_regression <=
         cfg.aqmh.validation.max_seam_score_regression;
-    if (background_better && fwhm_not_regressed && seam_not_regressed) {
+    const bool tail_not_regressed =
+        aqmh_tail_ok(low_frequency_neutralization_validation,
+                     cfg.aqmh.validation);
+    if (background_better && fwhm_not_regressed && seam_not_regressed &&
+        tail_not_regressed) {
       aqmh_recon.output = std::move(neutralized);
       low_frequency_neutralization_applied = true;
       emitter.warning(
@@ -420,6 +457,9 @@ bool run_phase_aqmh_reconstruction(
       const bool candidate_seam_ok =
           structure_masked_detail_validation.seam_score_regression <=
           cfg.aqmh.validation.max_seam_score_regression;
+      const bool candidate_tail_ok =
+          aqmh_tail_ok(structure_masked_detail_validation,
+                       cfg.aqmh.validation);
       const bool improves_fwhm =
           structure_masked_detail_validation.aqmh.fwhm > 0.0f &&
           raw_validation.control.fwhm > 0.0f &&
@@ -429,6 +469,7 @@ bool run_phase_aqmh_reconstruction(
           structure_masked_detail_validation.aqmh.seam_score <
           raw_validation.control.seam_score;
       if (candidate_background_ok && candidate_fwhm_ok && candidate_seam_ok &&
+          candidate_tail_ok &&
           (improves_fwhm || improves_seam)) {
         aqmh_recon.output = std::move(structure_masked);
         structure_masked_detail_applied = true;
@@ -467,7 +508,8 @@ bool run_phase_aqmh_reconstruction(
               validation.fwhm_regression <=
                   cfg.aqmh.validation.max_fwhm_regression &&
               validation.seam_score_regression <=
-                  cfg.aqmh.validation.max_seam_score_regression;
+                  cfg.aqmh.validation.max_seam_score_regression &&
+              aqmh_tail_ok(validation, cfg.aqmh.validation);
           if (ok) {
             lo = alpha;
             attenuated_validation = validation;
@@ -495,6 +537,7 @@ bool run_phase_aqmh_reconstruction(
                   cfg.aqmh.validation.max_fwhm_regression &&
               attenuated_validation.seam_score_regression <=
                   cfg.aqmh.validation.max_seam_score_regression &&
+              aqmh_tail_ok(attenuated_validation, cfg.aqmh.validation) &&
               (attenuated_improves_fwhm || attenuated_improves_seam)) {
             aqmh_recon.output = std::move(attenuated);
             structure_masked_detail_validation = attenuated_validation;
@@ -536,10 +579,13 @@ bool run_phase_aqmh_reconstruction(
   const bool aqmh_seam_ok =
       pre_fallback_control_validation.seam_score_regression <=
       cfg.aqmh.validation.max_seam_score_regression;
+  const bool aqmh_tail_gate_ok =
+      aqmh_tail_ok(pre_fallback_control_validation, cfg.aqmh.validation);
   const bool aqmh_control_fallback =
       aqmh_recon.uniform_control_output.rows() == aqmh_recon.output.rows() &&
       aqmh_recon.uniform_control_output.cols() == aqmh_recon.output.cols() &&
-      (!aqmh_background_ok || !aqmh_fwhm_ok || !aqmh_seam_ok);
+      (!aqmh_background_ok || !aqmh_fwhm_ok || !aqmh_seam_ok ||
+       !aqmh_tail_gate_ok);
   bool aqmh_blend_accepted = false;
   float aqmh_control_blend_alpha = 0.0f;
   reconstruction::AqmhValidationComparison blend_validation;
@@ -561,7 +607,8 @@ bool run_phase_aqmh_reconstruction(
           candidate_validation.fwhm_regression <=
               cfg.aqmh.validation.max_fwhm_regression &&
           candidate_validation.seam_score_regression <=
-              cfg.aqmh.validation.max_seam_score_regression;
+              cfg.aqmh.validation.max_seam_score_regression &&
+          aqmh_tail_ok(candidate_validation, cfg.aqmh.validation);
       if (candidate_ok) {
         lo = alpha;
         blend_validation = candidate_validation;
@@ -590,6 +637,7 @@ bool run_phase_aqmh_reconstruction(
               cfg.aqmh.validation.max_fwhm_regression &&
           blend_validation.seam_score_regression <=
               cfg.aqmh.validation.max_seam_score_regression &&
+          aqmh_tail_ok(blend_validation, cfg.aqmh.validation) &&
           (improves_fwhm || improves_seam);
       if (blend_ok) {
         aqmh_recon.output = std::move(blended);
@@ -711,6 +759,8 @@ bool run_phase_aqmh_reconstruction(
       core::acceleration_backend_name(aqmh_reconstruction_acceleration.selected);
   artifact["prefetch_fallback"] = prefetch_fallback;
   artifact["clip_sigma"] = aqmh_recon_cfg.clip_sigma;
+  artifact["clip_sigma_low"] = aqmh_recon_cfg.clip_sigma_low;
+  artifact["clip_sigma_high"] = aqmh_recon_cfg.clip_sigma_high;
   artifact["clip_iterations"] = aqmh_recon_cfg.clip_iterations;
   artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;
   artifact["min_n_eff"] = aqmh_recon_cfg.min_n_eff;
@@ -743,26 +793,13 @@ bool run_phase_aqmh_reconstruction(
       structure_masked_detail_applied;
   artifact["structure_masked_detail_alpha"] = structure_masked_detail_alpha;
   if (low_frequency_neutralization_applied) {
-    artifact["low_frequency_neutralization"] = {
-        {"sigma_px", 96.0f},
-        {"aqmh_background_rms",
-         low_frequency_neutralization_validation.aqmh.background_rms},
-        {"control_background_rms",
-         low_frequency_neutralization_validation.control.background_rms},
-        {"background_rms_regression",
-         low_frequency_neutralization_validation.background_rms_regression},
-        {"aqmh_fwhm", low_frequency_neutralization_validation.aqmh.fwhm},
-        {"control_fwhm", low_frequency_neutralization_validation.control.fwhm},
-        {"fwhm_regression",
-         low_frequency_neutralization_validation.fwhm_regression},
-        {"aqmh_seam_score",
-         low_frequency_neutralization_validation.aqmh.seam_score},
-        {"control_seam_score",
-         low_frequency_neutralization_validation.control.seam_score},
-        {"seam_score_regression",
-         low_frequency_neutralization_validation.seam_score_regression}};
+    artifact["low_frequency_neutralization"] =
+        validation_comparison_json(low_frequency_neutralization_validation);
+    artifact["low_frequency_neutralization"]["sigma_px"] = 96.0f;
   }
-  artifact["structure_masked_detail"] = {
+  artifact["structure_masked_detail"] =
+      validation_comparison_json(structure_masked_detail_validation);
+  artifact["structure_masked_detail"].update({
       {"low_q", 0.70f},
       {"high_q", 0.97f},
       {"mask_blur_sigma_px", 2.0f},
@@ -772,16 +809,11 @@ bool run_phase_aqmh_reconstruction(
        structure_masked_detail_validation.aqmh.background_rms},
       {"control_background_rms",
        structure_masked_detail_validation.control.background_rms},
-      {"background_rms_regression",
-       structure_masked_detail_validation.background_rms_regression},
       {"aqmh_fwhm", structure_masked_detail_validation.aqmh.fwhm},
       {"control_fwhm", structure_masked_detail_validation.control.fwhm},
-      {"fwhm_regression", structure_masked_detail_validation.fwhm_regression},
       {"aqmh_seam_score", structure_masked_detail_validation.aqmh.seam_score},
       {"control_seam_score",
-       structure_masked_detail_validation.control.seam_score},
-      {"seam_score_regression",
-       structure_masked_detail_validation.seam_score_regression}};
+       structure_masked_detail_validation.control.seam_score}});
   artifact["fallback_to_uniform_control"] = aqmh_control_fallback;
   artifact["uniform_control_blend_accepted"] = aqmh_blend_accepted;
   artifact["uniform_control_blend_alpha"] = aqmh_control_blend_alpha;
@@ -789,6 +821,7 @@ bool run_phase_aqmh_reconstruction(
       {"background_rms_ok", aqmh_background_ok},
       {"fwhm_ok", aqmh_fwhm_ok},
       {"seam_score_ok", aqmh_seam_ok},
+      {"tail_ok", aqmh_tail_gate_ok},
       {"aqmh_background_rms", pre_fallback_control_validation.aqmh.background_rms},
       {"control_background_rms",
        pre_fallback_control_validation.control.background_rms},
@@ -801,22 +834,30 @@ bool run_phase_aqmh_reconstruction(
       {"control_seam_score", pre_fallback_control_validation.control.seam_score},
       {"seam_score_regression",
        pre_fallback_control_validation.seam_score_regression},
+      {"aqmh_tail11_abs_median",
+       pre_fallback_control_validation.aqmh.tail11_abs_median},
+      {"control_tail11_abs_median",
+       pre_fallback_control_validation.control.tail11_abs_median},
+      {"tail11_abs_regression",
+       pre_fallback_control_validation.tail11_abs_regression},
+      {"aqmh_elongation_median",
+       pre_fallback_control_validation.aqmh.elongation_median},
+      {"control_elongation_median",
+       pre_fallback_control_validation.control.elongation_median},
+      {"elongation_regression",
+       pre_fallback_control_validation.elongation_regression},
       {"max_background_rms_regression",
        cfg.aqmh.validation.max_background_rms_regression},
       {"max_fwhm_regression", cfg.aqmh.validation.max_fwhm_regression},
       {"max_seam_score_regression",
-       cfg.aqmh.validation.max_seam_score_regression}};
+       cfg.aqmh.validation.max_seam_score_regression},
+      {"max_tail11_abs_regression",
+       cfg.aqmh.validation.max_tail11_abs_regression},
+      {"max_elongation_regression",
+       cfg.aqmh.validation.max_elongation_regression}};
   if (aqmh_blend_accepted) {
-    artifact["uniform_control_blend_validation"] = {
-        {"aqmh_background_rms", blend_validation.aqmh.background_rms},
-        {"control_background_rms", blend_validation.control.background_rms},
-        {"background_rms_regression", blend_validation.background_rms_regression},
-        {"aqmh_fwhm", blend_validation.aqmh.fwhm},
-        {"control_fwhm", blend_validation.control.fwhm},
-        {"fwhm_regression", blend_validation.fwhm_regression},
-        {"aqmh_seam_score", blend_validation.aqmh.seam_score},
-        {"control_seam_score", blend_validation.control.seam_score},
-        {"seam_score_regression", blend_validation.seam_score_regression}};
+    artifact["uniform_control_blend_validation"] =
+        validation_comparison_json(blend_validation);
   }
   // Cherry-pick diagnostics
   artifact["cherry_pick_enabled"] = cfg.aqmh.cherry_pick.enabled;

@@ -333,8 +333,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           control_samples.assign(samples.begin(), samples.end());
           for (auto &sample : control_samples) sample.weight = 1.0f;
           auto control = aqmh_sigma_clip(
-              std::move(control_samples), cfg.clip_sigma,
-              cfg.clip_iterations, cfg.min_fraction, cfg.min_n_eff);
+              std::move(control_samples), cfg.clip_sigma_low,
+              cfg.clip_sigma_high, cfg.clip_iterations, cfg.min_fraction,
+              cfg.min_n_eff);
           if (control.denominator_ok) {
             double control_accum = 0.0;
             for (const auto &s : control.retained)
@@ -344,7 +345,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           }
           control_samples = std::move(control.retained);
         }
-        auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma,
+        auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma_low,
+                                       cfg.clip_sigma_high,
                                        cfg.clip_iterations, cfg.min_fraction,
                                        cfg.min_n_eff);
         if (!clipped.denominator_ok) {

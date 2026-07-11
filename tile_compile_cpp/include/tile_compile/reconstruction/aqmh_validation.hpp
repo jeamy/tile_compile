@@ -8,6 +8,10 @@ struct AqmhValidationMetrics {
   float seam_score = 0.0f;
   float fwhm = 0.0f;
   float background_rms = 0.0f;
+  int star_count = 0;
+  float tail11_abs_median = 0.0f;
+  float tail11_p90 = 0.0f;
+  float elongation_median = 0.0f;
 };
 
 struct AqmhValidationComparison {
@@ -16,6 +20,8 @@ struct AqmhValidationComparison {
   float seam_score_regression = 0.0f;
   float fwhm_regression = 0.0f;
   float background_rms_regression = 0.0f;
+  float tail11_abs_regression = 0.0f;
+  float elongation_regression = 0.0f;
 };
 
 AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image);

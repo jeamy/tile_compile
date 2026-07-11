@@ -82,6 +82,14 @@ float noise_floor(const std::vector<AqmhWeightedSample> &samples,
 AqmhSigmaClipResult aqmh_sigma_clip(
     std::vector<AqmhWeightedSample> samples, float clip_sigma,
     int iterations, float min_fraction, float min_effective_n) {
+  return aqmh_sigma_clip(std::move(samples), clip_sigma, clip_sigma, iterations,
+                         min_fraction, min_effective_n);
+}
+
+AqmhSigmaClipResult aqmh_sigma_clip(
+    std::vector<AqmhWeightedSample> samples, float clip_sigma_low,
+    float clip_sigma_high, int iterations, float min_fraction,
+    float min_effective_n) {
   samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
                   return !std::isfinite(s.value) || !std::isfinite(s.weight) ||
                          !(s.weight > 0.0f);
@@ -137,7 +145,9 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     } else {
       const float sigma = 1.4826f * mad;
       for (const auto &s : samples)
-        keep_count += std::abs(s.value - center) <= clip_sigma * sigma;
+        keep_count += (s.value >= center)
+                          ? (s.value - center <= clip_sigma_high * sigma)
+                          : (center - s.value <= clip_sigma_low * sigma);
     }
     if (keep_count == samples.size()) {
       // All samples within band: distribution is stable, no further clipping
@@ -156,7 +166,11 @@ AqmhSigmaClipResult aqmh_sigma_clip(
       samples.erase(std::remove_if(samples.begin(), samples.end(),
           [&](const auto &s) {
             return mad <= floor_val ? s.value != center
-                                   : std::abs(s.value - center) > clip_sigma * sigma;
+                                   : ((s.value >= center)
+                                          ? (s.value - center >
+                                             clip_sigma_high * sigma)
+                                          : (center - s.value >
+                                             clip_sigma_low * sigma));
           }), samples.end());
     } else {
       break;

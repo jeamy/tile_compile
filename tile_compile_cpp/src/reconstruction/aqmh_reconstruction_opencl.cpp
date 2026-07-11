@@ -214,7 +214,7 @@ int cherry_pick_top_k(
 
 int sigma_clip(
      float* values,  float* weights, int n,
-    float clip_sigma, int iterations,
+    float clip_sigma_low, float clip_sigma_high, int iterations,
     float min_fraction, float min_n_eff,
     float* out_weight_sum, float* out_effective_n) {
   if (n <= 0) {
@@ -333,7 +333,9 @@ int sigma_clip(
 
     float sigma = 1.4826f * mad;
     int keep_count = 0;
-    for (int i = 0; i < n; ++i) if (fabs(values[i] - center) <= clip_sigma * sigma) ++keep_count;
+    for (int i = 0; i < n; ++i)
+      if ((values[i] >= center && values[i] - center <= clip_sigma_high * sigma) ||
+          (values[i] < center && center - values[i] <= clip_sigma_low * sigma)) ++keep_count;
     if (keep_count == n) break;
     if (keep_count < keep_floor) {
       for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
@@ -351,7 +353,8 @@ int sigma_clip(
 
     int m2 = 0;
     for (int i = 0; i < n; ++i) {
-      if (fabs(values[i] - center) <= clip_sigma * sigma) {
+      if ((values[i] >= center && values[i] - center <= clip_sigma_high * sigma) ||
+          (values[i] < center && center - values[i] <= clip_sigma_low * sigma)) {
         values[m2] = values[i];
         weights[m2] = weights[i];
         ++m2;
@@ -395,7 +398,7 @@ __kernel void aqmh_reconstruction_kernel(
     __global float* uniform_control,
     __global float* cherry_k_map,
     int width, int chunk_rows, int y0, int height, int frame_count,
-    float clip_sigma, int clip_iterations,
+    float clip_sigma_low, float clip_sigma_high, int clip_iterations,
     float min_fraction, float min_n_eff,
     int cherry_pick_enabled, float cherry_pick_k_frac,
     int cherry_pick_k_min_required,
@@ -486,7 +489,7 @@ __kernel void aqmh_reconstruction_kernel(
     float ctrl_effective_n = 0.0f;
     int ctrl_n = sigma_clip(
         control_values, control_weights, k_effective,
-        clip_sigma, clip_iterations, min_fraction, min_n_eff,
+        clip_sigma_low, clip_sigma_high, clip_iterations, min_fraction, min_n_eff,
         &ctrl_weight_sum, &ctrl_effective_n);
     if (ctrl_n > 0 && ctrl_weight_sum > 0.0f) {
       float accum = 0.0f;
@@ -501,7 +504,7 @@ __kernel void aqmh_reconstruction_kernel(
   float eff_n = 0.0f;
   int retained = sigma_clip(
       values, weights, k_effective,
-      clip_sigma, clip_iterations, min_fraction, min_n_eff,
+      clip_sigma_low, clip_sigma_high, clip_iterations, min_fraction, min_n_eff,
       &wsum, &eff_n);
 
   if (retained <= 0 || wsum <= 0.0f) {
@@ -759,7 +762,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
     kernel.set(arg_idx++, y0);
     kernel.set(arg_idx++, height);
     kernel.set(arg_idx++, static_cast<int>(frame_count));
-    kernel.set(arg_idx++, cfg.clip_sigma);
+    kernel.set(arg_idx++, cfg.clip_sigma_low);
+    kernel.set(arg_idx++, cfg.clip_sigma_high);
     kernel.set(arg_idx++, cfg.clip_iterations);
     kernel.set(arg_idx++, cfg.min_fraction);
     kernel.set(arg_idx++, cfg.min_n_eff);

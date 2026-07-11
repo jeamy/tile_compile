@@ -259,6 +259,8 @@ struct AqmhGlobalQualityConfig {
 
 struct AqmhReconstructionConfig {
   float clip_sigma = 3.0f;
+  float clip_sigma_low = 2.0f;
+  float clip_sigma_high = 1.5f;
   int clip_iterations = 3;
   float min_fraction = 0.5f;
   float min_n_eff = 2.0f;
@@ -278,6 +280,8 @@ struct AqmhValidationConfig {
   float max_seam_score_regression = 0.02f;
   float max_fwhm_regression = 0.02f;
   float max_background_rms_regression = 0.02f;
+  float max_tail11_abs_regression = 0.05f;
+  float max_elongation_regression = 0.05f;
 };
 
 struct AqmhDiagnosticsConfig {
