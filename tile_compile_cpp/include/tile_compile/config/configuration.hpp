@@ -264,6 +264,14 @@ struct AqmhReconstructionConfig {
   float min_n_eff = 2.0f;
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
+  bool registration_weight_guard = true;
+  float registration_weight_floor = 0.35f;
+  float registration_cc_floor = 0.35f;
+  float registration_cc_full = 0.80f;
+  float registration_sequential_factor = 0.85f;
+  float registration_predicted_factor = 0.35f;
+  float registration_chain_depth_penalty = 0.03f;
+  float registration_chain_depth_max_penalty = 0.15f;
 };
 
 struct AqmhValidationConfig {

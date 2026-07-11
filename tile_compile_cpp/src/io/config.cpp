@@ -706,6 +706,30 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.aqmh.reconstruction.chunk_rows = r["chunk_rows"].as<int>();
       if (r["memory_budget_mb"])
         cfg.aqmh.reconstruction.memory_budget_mb = r["memory_budget_mb"].as<size_t>();
+      if (r["registration_weight_guard"])
+        cfg.aqmh.reconstruction.registration_weight_guard =
+            r["registration_weight_guard"].as<bool>();
+      if (r["registration_weight_floor"])
+        cfg.aqmh.reconstruction.registration_weight_floor =
+            r["registration_weight_floor"].as<float>();
+      if (r["registration_cc_floor"])
+        cfg.aqmh.reconstruction.registration_cc_floor =
+            r["registration_cc_floor"].as<float>();
+      if (r["registration_cc_full"])
+        cfg.aqmh.reconstruction.registration_cc_full =
+            r["registration_cc_full"].as<float>();
+      if (r["registration_sequential_factor"])
+        cfg.aqmh.reconstruction.registration_sequential_factor =
+            r["registration_sequential_factor"].as<float>();
+      if (r["registration_predicted_factor"])
+        cfg.aqmh.reconstruction.registration_predicted_factor =
+            r["registration_predicted_factor"].as<float>();
+      if (r["registration_chain_depth_penalty"])
+        cfg.aqmh.reconstruction.registration_chain_depth_penalty =
+            r["registration_chain_depth_penalty"].as<float>();
+      if (r["registration_chain_depth_max_penalty"])
+        cfg.aqmh.reconstruction.registration_chain_depth_max_penalty =
+            r["registration_chain_depth_max_penalty"].as<float>();
     }
     if (a["validation"]) {
       auto v = a["validation"];
@@ -791,14 +815,34 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.bge.autobge.apply_guards = a["apply_guards"].as<bool>();
       if (a["mono_mode"])
         cfg.bge.autobge.mono_mode = a["mono_mode"].as<std::string>();
+      auto read_autobge_point = [](const YAML::Node &point_node,
+                                   const char *field_name)
+          -> std::array<float, 2> {
+        float x = 0.0f;
+        float y = 0.0f;
+        if (point_node.IsSequence() && point_node.size() == 2) {
+          x = point_node[0].as<float>();
+          y = point_node[1].as<float>();
+        } else if (point_node.IsMap() && point_node["x"] && point_node["y"]) {
+          x = point_node["x"].as<float>();
+          y = point_node["y"].as<float>();
+        } else {
+          throw ValidationError(std::string(field_name) +
+                                " points must be [x,y] or {x,y}");
+        }
+        if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) {
+          throw ValidationError(std::string(field_name) +
+                                " coordinates must be in [0,1]");
+        }
+        return {x, y};
+      };
       if (a["exclusion_polygons"]) {
         cfg.bge.autobge.exclusion_polygons.clear();
         for (const auto &polygon_node : a["exclusion_polygons"]) {
           std::vector<std::array<float, 2>> polygon;
           for (const auto &point_node : polygon_node) {
-            if (!point_node.IsSequence() || point_node.size() != 2)
-              throw ValidationError("bge.autobge.exclusion_polygons points must be [x,y]");
-            polygon.push_back({point_node[0].as<float>(), point_node[1].as<float>()});
+            polygon.push_back(read_autobge_point(
+                point_node, "bge.autobge.exclusion_polygons"));
           }
           cfg.bge.autobge.exclusion_polygons.push_back(std::move(polygon));
         }
@@ -806,13 +850,8 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (a["user_sample_points"]) {
         cfg.bge.autobge.user_sample_points.clear();
         for (const auto &point_node : a["user_sample_points"]) {
-          if (!point_node.IsSequence() || point_node.size() != 2)
-            throw ValidationError("bge.autobge.user_sample_points points must be [x,y]");
-          const float x = point_node[0].as<float>();
-          const float y = point_node[1].as<float>();
-          if (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f)
-            throw ValidationError("bge.autobge.user_sample_points coordinates must be in [0,1]");
-          cfg.bge.autobge.user_sample_points.push_back({x, y});
+          cfg.bge.autobge.user_sample_points.push_back(read_autobge_point(
+              point_node, "bge.autobge.user_sample_points"));
         }
       }
     }
@@ -1354,6 +1393,22 @@ YAML::Node Config::to_yaml() const {
   // NEW FIELDS:
   node["aqmh"]["reconstruction"]["chunk_rows"] = aqmh.reconstruction.chunk_rows;
   node["aqmh"]["reconstruction"]["memory_budget_mb"] = aqmh.reconstruction.memory_budget_mb;
+  node["aqmh"]["reconstruction"]["registration_weight_guard"] =
+      aqmh.reconstruction.registration_weight_guard;
+  node["aqmh"]["reconstruction"]["registration_weight_floor"] =
+      aqmh.reconstruction.registration_weight_floor;
+  node["aqmh"]["reconstruction"]["registration_cc_floor"] =
+      aqmh.reconstruction.registration_cc_floor;
+  node["aqmh"]["reconstruction"]["registration_cc_full"] =
+      aqmh.reconstruction.registration_cc_full;
+  node["aqmh"]["reconstruction"]["registration_sequential_factor"] =
+      aqmh.reconstruction.registration_sequential_factor;
+  node["aqmh"]["reconstruction"]["registration_predicted_factor"] =
+      aqmh.reconstruction.registration_predicted_factor;
+  node["aqmh"]["reconstruction"]["registration_chain_depth_penalty"] =
+      aqmh.reconstruction.registration_chain_depth_penalty;
+  node["aqmh"]["reconstruction"]["registration_chain_depth_max_penalty"] =
+      aqmh.reconstruction.registration_chain_depth_max_penalty;
   node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
   node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
   node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
@@ -1947,6 +2002,19 @@ void Config::validate() const {
   if (aqmh.reconstruction.chunk_rows < 0) {
     throw ValidationError("aqmh.reconstruction.chunk_rows must be >= 0");
   }
+  if (!is_between_0_1(aqmh.reconstruction.registration_weight_floor) ||
+      !is_between_0_1(aqmh.reconstruction.registration_cc_floor) ||
+      !is_between_0_1(aqmh.reconstruction.registration_cc_full) ||
+      aqmh.reconstruction.registration_cc_full <=
+          aqmh.reconstruction.registration_cc_floor ||
+      !is_between_0_1(aqmh.reconstruction.registration_sequential_factor) ||
+      !is_between_0_1(aqmh.reconstruction.registration_predicted_factor) ||
+      aqmh.reconstruction.registration_chain_depth_penalty < 0.0f ||
+      aqmh.reconstruction.registration_chain_depth_penalty > 0.5f ||
+      !is_between_0_1(aqmh.reconstruction.registration_chain_depth_max_penalty)) {
+    throw ValidationError(
+        "aqmh.reconstruction registration weight guard values are invalid");
+  }
 
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
     throw ValidationError(
@@ -2430,7 +2498,7 @@ std::string get_schema_json() {
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"default":1,"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"default":"float32","description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"default":4,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
                       "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.05},"g_w_sharp":{"type":"number","minimum":0,"default":0.6},"g_w_snr":{"type":"number","minimum":0,"default":0.4}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","default":false,"description":"Enables per-pixel top-K AQMH selection subject to the run and pixel sample floors."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.30},"k_min_required":{"type":"integer","minimum":1,"default":20},"margin_min":{"type":"number","minimum":0,"maximum":1,"default":0.02},"tiered_k_frac":{"type":"array","default":[],"items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0}}},
+                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_iterations":{"type":"integer","minimum":0,"default":3},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.85},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15}}},
                       "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.02},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.02}}},
                       "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
     "synthetic": { "type":"object",

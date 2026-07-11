@@ -3,6 +3,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
 
 #include <algorithm>
 #include <array>
@@ -91,7 +92,7 @@ bool phase_supports_backend(AccelerationPhase phase,
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
-    return false;
+    return phase == AccelerationPhase::aqmh_reconstruction;
   }
   return false;
 }
@@ -2553,14 +2554,27 @@ reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
     const std::vector<uint8_t> &canvas_mask, int width, int height,
     const reconstruction::AqmhReconstructionConfig &cfg,
     cv::cuda::Stream *stream,
-    const reconstruction::AqmhMaskLoader &load_frame_valid_mask) const {
+    const reconstruction::AqmhMaskLoader &load_frame_valid_mask,
+    const reconstruction::AqmhFrameRegionLoader &load_frame_region,
+    const reconstruction::AqmhMaskRegionLoader &load_frame_valid_mask_region,
+    const reconstruction::AqmhProgressCallback &progress) const {
   (void)stream;
+#if TILE_COMPILE_WITH_CUDA
+  if (selection_.selected == AccelerationBackend::cuda &&
+      selection_.phase == AccelerationPhase::aqmh_reconstruction) {
+    auto result = reconstruction::reconstruct_aqmh_weighted_cuda(
+        frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
+        width, height, cfg, load_frame_valid_mask, load_frame_region,
+        load_frame_valid_mask_region, progress);
+    if (result.acceleration_used && !result.acceleration_fallback) {
+      return result;
+    }
+  }
+#endif
   auto result = reconstruction::reconstruct_aqmh_weighted(
       frame_count, load_frame, q_map_cache, global_weights, canvas_mask, width,
-      height, cfg, load_frame_valid_mask);
-  // The v0.1 CUDA kernel does not implement M_f validation, weighted-MAD
-  // clipping, or the v0.2 cherry-pick gate. Never report that kernel as a
-  // successful v0.2 execution.
+      height, cfg, load_frame_valid_mask, load_frame_region,
+      load_frame_valid_mask_region, progress);
   if (selection_.using_gpu &&
       selection_.phase == AccelerationPhase::aqmh_reconstruction) {
     result.acceleration_fallback = true;

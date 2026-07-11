@@ -13,6 +13,7 @@
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
@@ -963,16 +964,42 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                 << std::endl;
       return 1;
     }
-    if (canvas_mask_image.rows() != canvas_height ||
-        canvas_mask_image.cols() != canvas_width) {
-      std::cerr << "Error: AQMH canvas-mask dimensions differ from cache"
-                << std::endl;
-      return 1;
-    }
     std::vector<uint8_t> common_valid_mask(
         static_cast<size_t>(canvas_width) * canvas_height, 0u);
-    for (size_t i = 0; i < common_valid_mask.size(); ++i)
-      common_valid_mask[i] = canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
+    if (canvas_mask_image.rows() == canvas_height &&
+        canvas_mask_image.cols() == canvas_width) {
+      for (size_t i = 0; i < common_valid_mask.size(); ++i)
+        common_valid_mask[i] = canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
+    } else {
+      // Completed runs may contain the cropped output mask at outputs/canvas_mask.fits.
+      // Rebuild the full AQMH common mask from the persisted per-frame masks.
+      tile_compile::metrics::FrameValidMaskStore mask_store(
+          run_dir / "cache" / "aqmh_masks", canvas_width, canvas_height);
+      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 1u);
+      bool rebuilt_mask = false;
+      for (size_t fi = 0; fi < frame_count; ++fi) {
+        std::vector<uint8_t> frame_mask = mask_store.read(fi);
+        if (frame_mask.size() != common_valid_mask.size()) {
+          continue;
+        }
+        rebuilt_mask = true;
+        for (size_t i = 0; i < common_valid_mask.size(); ++i) {
+          common_valid_mask[i] =
+              (common_valid_mask[i] != 0u && frame_mask[i] != 0u) ? 1u : 0u;
+        }
+      }
+      if (!rebuilt_mask) {
+        std::cerr << "Error: AQMH canvas-mask dimensions differ from cache and "
+                     "per-frame AQMH masks are unavailable"
+                  << std::endl;
+        return 1;
+      }
+      std::cout << "[AQMH][resume] Rebuilt full canvas mask from cache/aqmh_masks "
+                << "because outputs/canvas_mask.fits is cropped ("
+                << canvas_mask_image.cols() << "x" << canvas_mask_image.rows()
+                << " vs " << canvas_width << "x" << canvas_height << ")"
+                << std::endl;
+    }
 
     runner::DiskCacheFrameStore prewarped_frames(
         run_dir / ".prewarped_cache", frame_count, canvas_height,

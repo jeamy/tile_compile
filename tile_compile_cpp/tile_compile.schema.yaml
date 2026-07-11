@@ -668,6 +668,14 @@ properties:
           min_n_eff: {type: number, minimum: 1, default: 2.0}
           chunk_rows: {type: integer, minimum: 0, default: 0, description: "Row chunk size for AQMH reconstruction. 0 = automatic based on memory budget."}
           memory_budget_mb: {type: integer, minimum: 0, default: 0, description: "VRAM/RAM budget for reconstruction in MB. 0 = automatic."}
+          registration_weight_guard: {type: boolean, default: true, description: "Downweights frames with weak registration evidence before AQMH reconstruction."}
+          registration_weight_floor: {type: number, minimum: 0, maximum: 1, default: 0.35}
+          registration_cc_floor: {type: number, minimum: 0, maximum: 1, default: 0.35}
+          registration_cc_full: {type: number, minimum: 0, maximum: 1, default: 0.8}
+          registration_sequential_factor: {type: number, minimum: 0, maximum: 1, default: 0.85}
+          registration_predicted_factor: {type: number, minimum: 0, maximum: 1, default: 0.35}
+          registration_chain_depth_penalty: {type: number, minimum: 0, maximum: 0.5, default: 0.03}
+          registration_chain_depth_max_penalty: {type: number, minimum: 0, maximum: 1, default: 0.15}
       validation:
         type: object
         properties:
@@ -1018,6 +1026,56 @@ properties:
             enum: [rgb_duplicate, disabled]
             default: rgb_duplicate
             description: "Handling of mono (single-channel) images. rgb_duplicate copies the mono channel to R/G/B before BGE, allowing per-channel correction. disabled processes only the single channel. Use rgb_duplicate for OSC images debayered to mono."
+          exclusion_polygons:
+            type: array
+            default: []
+            description: "Manual AutoBGE exclusion polygons in normalized image coordinates. Each point may be [x, y] or {x, y}, with x/y in [0,1]."
+            items:
+              type: array
+              items:
+                oneOf:
+                  - type: array
+                    minItems: 2
+                    maxItems: 2
+                    items:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                  - type: object
+                    required: [x, y]
+                    properties:
+                      x:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                      y:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+          user_sample_points:
+            type: array
+            default: []
+            description: "Manual AutoBGE sample points in normalized image coordinates. Each point may be [x, y] or {x, y}, with x/y in [0,1]. Empty array means automatic sampling only."
+            items:
+              oneOf:
+                - type: array
+                  minItems: 2
+                  maxItems: 2
+                  items:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                - type: object
+                  required: [x, y]
+                  properties:
+                    x:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    y:
+                      type: number
+                      minimum: 0
+                      maximum: 1
       autotune:
         type: object
         properties:
