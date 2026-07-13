@@ -6,8 +6,9 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
-**Documentation status (2026-06-09):**
-- `aqmh.*` fully documented (all 4 sub-blocks: `pyramid`, `storage`, `cherry_pick`, `diagnostics`).
+**Documentation status (2026-07-13):**
+- `aqmh.*` updated for v0.2.1: `pyramid`, `storage`, `cherry_pick`, `diagnostics`, `global_quality`, `reconstruction`, `validation`.
+- `data.bayer_pattern` default is `auto`; FITS header (`BAYERPAT`/`COLORTYP`) takes precedence over the config value.
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -153,10 +154,12 @@ Input data configuration.
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `RGGB`, `BGGR`, `GRBG`, `GBRG`, `NONE` |
-| **Default** | `"GBRG"` |
+| **Values** | `auto`, `RGGB`, `BGGR`, `GRBG`, `GBRG`, `NONE` |
+| **Default** | `"auto"` |
 
-**Purpose:** Bayer matrix pattern for color filter arrays. `NONE` for monochrome data.
+**Purpose:** Bayer matrix pattern for color filter arrays. `NONE` for monochrome data, `auto` to derive the pattern from the FITS header.
+
+**Runtime behaviour:** For OSC data, the runner first reads `BAYERPAT` and `COLORTYP` from the FITS header. If present, that value is used and the config value is ignored. If the header contains no Bayer metadata, the configured `bayer_pattern` is used as a fallback. With `bayer_pattern: auto` and no header metadata, the run aborts with an error instead of guessing a camera-specific pattern.
 
 ### `data.linear_required`
 
@@ -1298,9 +1301,9 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 |----------|-------|
 | **Type** | integer |
 | **Values** | `1`, `2`, `4` |
-| **Default** | `2` |
+| **Default** | `1` |
 
-**Purpose:** Resolution reduction factor for stored quality maps. `2` = half resolution (recommended, reduces storage by factor 4). `1` = full resolution.
+**Purpose:** Resolution reduction factor for stored quality maps. `1` = full resolution (default, preserves exact-zero veto). `2` or `4` reduce storage at the cost of spatial approximation.
 
 ---
 
@@ -1367,6 +1370,85 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ### `aqmh.diagnostics.*` — Diagnostic outputs
 
+#### `aqmh.diagnostics.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Master switch for AQMH diagnostic output.
+
+----
+
+#### `aqmh.diagnostics.level`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `none`, `summary`, `full` |
+| **Default** | `"full"` |
+
+**Purpose:** Verbosity level of the diagnostics. `none` disables diagnostic writing, `summary` writes only aggregate statistics, `full` writes per-frame and regional data.
+
+----
+
+#### `aqmh.diagnostics.per_frame_blocks`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Write per-frame block-level diagnostics and heatmaps.
+
+----
+
+#### `aqmh.diagnostics.heatmaps`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Emit spatial heatmap arrays.
+
+----
+
+#### `aqmh.diagnostics.regions`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Extract and write high/low quality regions to `artifacts/aqmh_regions.json`.
+
+----
+
+#### `aqmh.diagnostics.format`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `json`, `binary` |
+| **Default** | `"json"` |
+
+**Purpose:** Output format for diagnostic arrays.
+
+----
+
+#### `aqmh.diagnostics.binary_block_size_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `0` |
+
+**Purpose:** Block size in pixels for binary diagnostic output. `0` means `r_morph_canvas_px` is used.
+
+----
+
 #### `aqmh.diagnostics.tau_artifact`
 
 | Property | Value |
@@ -1402,6 +1484,283 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 **Purpose:** Morphological radius in canvas pixels for the regional diagnostic map. Controls spatial smoothing when generating the diagnostic quality-map overview.
 
 ---
+
+### `aqmh.global_quality.*` — Frame-level global quality
+
+Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with an optional background-gradient penalty via a robust z-score sigmoid.
+
+#### `aqmh.global_quality.g_floor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.05` |
+
+**Purpose:** Minimum global weight any frame receives. Prevents a frame from being completely ignored by the AQMH reconstruction.
+
+----
+
+#### `aqmh.global_quality.g_w_sharp`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >= 0 |
+| **Default** | `0.6` |
+
+**Purpose:** Weight of the sharpness summary in the global quality score. Higher values make seeing/FWHM differences more influential across frames.
+
+----
+
+#### `aqmh.global_quality.g_w_snr`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >= 0 |
+| **Default** | `0.4` |
+
+**Purpose:** Weight of the SNR summary in the global quality score.
+
+----
+
+#### `aqmh.global_quality.g_w_background_penalty`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >= 0 |
+| **Default** | `0.3` |
+
+**Purpose:** Weight of the background-gradient penalty. Penalises frames with strong large-scale background gradients (e.g. moon glow, light pollution). Set to `0.0` to disable the penalty and obtain the exact v0.2.0 global-quality behaviour.
+
+----
+
+### `aqmh.reconstruction.*` — Weighted reconstruction
+
+Per-pixel weighted reconstruction parameters.
+
+#### `aqmh.reconstruction.clip_sigma` / `clip_sigma_low` / `clip_sigma_high`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `3.0` |
+
+**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. Samples with residuals below `clip_sigma_low` or above `clip_sigma_high` are clipped. When only `clip_sigma` is set, it is copied to both low and high thresholds.
+
+----
+
+#### `aqmh.reconstruction.clip_iterations`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `3` |
+
+**Purpose:** Number of sigma-clipping iterations.
+
+----
+
+#### `aqmh.reconstruction.min_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.5` |
+
+**Purpose:** Minimum fraction of valid pixels in the output canvas that must have enough samples to produce a non-zero result.
+
+----
+
+#### `aqmh.reconstruction.min_n_eff`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `2.0` |
+
+**Purpose:** Minimum effective sample count per output pixel. Pixels with fewer effective samples are rejected.
+
+----
+
+#### `aqmh.reconstruction.chunk_rows`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `0` |
+
+**Purpose:** Vertical chunk size for the reconstruction pass. `0` lets the backend choose an automatic size; values > 0 force a fixed row count.
+
+----
+
+#### `aqmh.reconstruction.memory_budget_mb`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `0` |
+
+**Purpose:** Per-phase memory budget in MiB for the AQMH reconstruction pass. `0` means the global `runtime_limits.memory_budget` is used.
+
+----
+
+#### `aqmh.reconstruction.registration_weight_guard`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable the registration-confidence guard. When enabled, each frame's global AQMH weight is multiplied by a factor derived from `artifacts/global_registration.json` (`cc`, `source`, `chain_depth`) before reconstruction.
+
+----
+
+#### `aqmh.reconstruction.registration_weight_floor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.35` |
+
+**Purpose:** Lower bound for the per-frame registration-confidence factor.
+
+----
+
+#### `aqmh.reconstruction.registration_cc_floor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.35` |
+
+**Purpose:** Cross-correlation value mapped to `registration_weight_floor`.
+
+----
+
+#### `aqmh.reconstruction.registration_cc_full`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.80` |
+
+**Purpose:** Cross-correlation value mapped to a factor of `1.0`. Must be greater than `registration_cc_floor`.
+
+----
+
+#### `aqmh.reconstruction.registration_sequential_factor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.85` |
+
+**Purpose:** Additional damping applied to frames whose registration source is `sequential_refined`.
+
+----
+
+#### `aqmh.reconstruction.registration_predicted_factor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.35` |
+
+**Purpose:** Additional damping applied to predicted, interpolated, or unknown registration sources.
+
+----
+
+#### `aqmh.reconstruction.registration_chain_depth_penalty`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 0.5 |
+| **Default** | `0.03` |
+
+**Purpose:** Per-step penalty for chain depth beyond the immediate neighbour. `max(0, depth - 1) * penalty` is subtracted from the factor.
+
+----
+
+#### `aqmh.reconstruction.registration_chain_depth_max_penalty`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1 |
+| **Default** | `0.15` |
+
+**Purpose:** Maximum chain-depth penalty applied to the factor.
+
+----
+
+### `aqmh.validation.*` — Output validation
+
+Regression thresholds comparing the AQMH output against the uniform-control (unweighted) mean.
+
+#### `aqmh.validation.max_seam_score_regression`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.02` |
+
+**Purpose:** Maximum allowed seam-score regression relative to the uniform-control mean.
+
+----
+
+#### `aqmh.validation.max_fwhm_regression`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.02` |
+
+**Purpose:** Maximum allowed FWHM regression.
+
+----
+
+#### `aqmh.validation.max_background_rms_regression`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.02` |
+
+**Purpose:** Maximum allowed background-RMS regression.
+
+----
+
+#### `aqmh.validation.max_tail11_abs_regression`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.05` |
+
+**Purpose:** Maximum allowed tail-11 absolute regression.
+
+----
+
+#### `aqmh.validation.max_elongation_regression`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.05` |
+
+**Purpose:** Maximum allowed elongation regression.
+
+----
 
 ## 13. Synthetic
 

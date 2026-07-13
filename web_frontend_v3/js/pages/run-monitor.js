@@ -528,10 +528,6 @@ async function resumeRun() {
     return false;
   }
   const configYaml = document.getElementById("resume-config-yaml")?.value || "";
-  if (!configYaml.trim()) {
-    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
-    return false;
-  }
   try {
     const payload = {
       from_phase: phase,

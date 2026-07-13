@@ -23,7 +23,7 @@ output:
 
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
   image_width: 0
   image_height: 0
 
@@ -209,7 +209,7 @@ astrometry:
 # ============================================================================
 
 bge:
-  method: classic
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -335,8 +335,8 @@ aqmh:
     g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
 
   storage:
-    resolution_divisor: 2
-    dtype: uint16
+    resolution_divisor: 1
+    dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
@@ -396,7 +396,7 @@ validation:
 
 runtime_limits:
   parallel_workers: 8
-  memory_budget: 2048
+  memory_budget: 4096
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0

@@ -26,7 +26,7 @@ data:
   image_width: 3840 # erwartete Bildbreite (px)
   image_height: 2160 # erwartete Bildhoehe (px)
   color_mode: OSC # OSC|MONO|RGB
-  bayer_pattern: GBRG # RGGB|BGGR|GRBG|GBRG
+  bayer_pattern: auto # RGGB|BGGR|GRBG|GBRG
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes
@@ -383,7 +383,7 @@ validation:
 
 runtime_limits:
   parallel_workers: 8 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
-  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
+  memory_budget: 4096
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze

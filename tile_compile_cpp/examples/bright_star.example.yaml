@@ -112,7 +112,7 @@ chroma_denoise:
     gradient_percentile: 90
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
   image_width: 0
   image_height: 0
 dithering:
@@ -226,7 +226,7 @@ runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
   hard_abort_hours: 6
-  memory_budget: 2048
+  memory_budget: 4096
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
   tile_reconstruction_diagnostics: full

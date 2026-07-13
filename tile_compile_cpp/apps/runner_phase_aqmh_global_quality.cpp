@@ -7,14 +7,16 @@ namespace tile_compile::runner {
 bool run_phase_aqmh_global_quality(
     const std::string &run_id, const config::AqmhGlobalQualityConfig &cfg,
     const std::vector<float> &sharpness_summaries,
-    const std::vector<float> &snr_summaries, VectorXf &out_weights,
+    const std::vector<float> &snr_summaries,
+    const std::vector<float> &background_penalty_summaries,
+    VectorXf &out_weights,
     std::vector<uint8_t> &out_input_invalid, core::EventEmitter &emitter,
     std::ostream &log_file) {
   emitter.phase_start(run_id, Phase::AQMH_GLOBAL_QUALITY,
                       "AQMH_GLOBAL_QUALITY", log_file);
   try {
     const auto result = metrics::compute_aqmh_global_quality(
-        sharpness_summaries, snr_summaries, cfg);
+        sharpness_summaries, snr_summaries, background_penalty_summaries, cfg);
     out_weights.resize(static_cast<Eigen::Index>(result.weights.size()));
     for (size_t i = 0; i < result.weights.size(); ++i)
       out_weights[static_cast<Eigen::Index>(i)] = result.weights[i];

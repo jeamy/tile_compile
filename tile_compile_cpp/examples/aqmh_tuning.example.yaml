@@ -17,7 +17,8 @@ data:
   image_width: 0
   image_height: 0
   color_mode: OSC
-  bayer_pattern: GBRG
+  bayer_pattern: auto
+  linear_required: true
 
 calibration:
   use_bias: false
@@ -41,7 +42,7 @@ calibration:
 
 assumptions:
   frames_min: 50
-  frames_reduced_threshold: 200
+  frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range:
     - 5
@@ -53,21 +54,21 @@ normalization:
   per_channel: true
 
 dithering:
-  enabled: false
-  min_shift_px: 0.0
+  enabled: true
+  min_shift_px: 0.7
 
 linearity:
   enabled: true
   max_frames: 8
   min_overall_linearity: 0.9
-  strictness: moderate
+  strictness: strict
 
 registration:
   engine: triangle_star_matching
   enable_star_pair_fallback: true
   allow_rotation: true
-  transform_model: similarity
-  star_topk: 150
+  transform_model: affine
+  star_topk: 80
   star_min_inliers: 4
   star_inlier_tol_px: 4
   star_dist_bin_px: 5
@@ -80,7 +81,7 @@ registration:
   auto_engine: true
   auto_engine_rotation_threshold_deg: 0.05
   max_blind_chain_depth: 0
-  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_strong_anchor_cc: 0.05
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
@@ -92,9 +93,9 @@ aqmh:
   
   # Storage configuration for quality maps
   storage:
-    resolution_divisor: 2      # Downscale factor for stored maps (1=full, 2=half, 4=quarter)
-    dtype: uint16             # Storage format: float32 (exact), uint16 (recommended), uint8 (compact)
-    max_resident_maps: 4      # Maximum maps kept in memory simultaneously
+    resolution_divisor: 1      # Full-resolution maps are the v0.2.0 normative default
+    dtype: float32             # Storage format: float32 (exact), uint16 (compact), uint8 (compact)
+    max_resident_maps: 2       # Maximum maps kept in memory simultaneously
   
   # Pyramid parameters for multi-scale quality analysis
   pyramid:
@@ -110,6 +111,7 @@ aqmh:
     g_floor: 0.05          # Floor for global frame quality G_f
     g_w_sharp: 0.6        # Weight for sharpness in global quality
     g_w_snr: 0.4          # Weight for SNR in global quality
+    g_w_background_penalty: 0.3  # Penalty for large-scale sky gradients
 
   # Diagnostics parameters
   diagnostics:
@@ -149,14 +151,14 @@ aqmh:
 
 global_metrics:
   adaptive_weights: true
-  weight_exponent_scale: 1.0
+  weight_exponent_scale: 1.8
   clamp:
     - -3
     - 3
   weights:
-    background: 0.45
+    background: 0.4
     fwhm: 0.0
-    gradient: 0.25
+    gradient: 0.3
     noise: 0.3
     roundness: 0.0
     star_count: 0.0
@@ -186,17 +188,17 @@ local_metrics:
 
 tile_denoise:
   soft_threshold:
-    enabled: false
-    blur_kernel: 21
-    alpha: 1.5
+    enabled: true
+    blur_kernel: 31
+    alpha: 1.8
     skip_star_tiles: true
   wiener:
-    enabled: false
-    snr_threshold: 3.5
+    enabled: true
+    snr_threshold: 5
     q_min: -0.5
     q_max: 1
     q_step: 0.1
-    min_snr: 2.5
+    min_snr: 2
     max_iterations: 10
 
 chroma_denoise:
@@ -243,12 +245,12 @@ astrometry:
 
 # Tile grid configuration
 tile:
-  size_factor: 24
+  size_factor: 32
   min_size: 64
   max_divisor: 6
-  overlap_fraction: 0.3
-  star_min_count: 5
-  star_soft_count: 3
+  overlap_fraction: 0.25
+  star_min_count: 8
+  star_soft_count: 4
 
 # Stacking configuration
 stacking:
@@ -256,24 +258,25 @@ stacking:
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
   output_stretch: false
-  cosmetic_correction: false
+  cosmetic_correction: true
   cosmetic_correction_sigma: 4
-  per_frame_cosmetic_correction: false
+  per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.0
   sigma_clip:
     sigma_low: 2.0
     sigma_high: 1.5
-    max_iters: 4
+    max_iters: 3
     min_fraction: 0.4
   cluster_quality_weighting:
-    enabled: false
+    enabled: true
     kappa_cluster: 1
-    cap_enabled: true
+    cap_enabled: false
     cap_ratio: 20
 
 # Background gradient estimation
 bge:
-  method: classic
+  enabled: true
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -292,69 +295,69 @@ bge:
     mono_mode: rgb_duplicate
     exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
     user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
-  tile_weight_lambda_structure: 1.0
+  tile_weight_lambda_structure: 1
+  autotune:
+    enabled: true
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.1
+  sample_estimator: quantile
+  min_sample_bg_value: 1
+  sample_quantile: 0.2
+  structure_thresh_percentile: 0.8
+  min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_samples_for_apply: 96
+  mask:
+    star_dilate_px: 4
+    sat_dilate_px: 4
+  grid:
+    N_g: 32
+    G_min_px: 64
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: discard
   fit:
     method: rbf
-    rbf_lambda: 0.1
-    rbf_phi: thinplate
-    rbf_mu_factor: 1.0
-    rbf_epsilon: 1.0
     robust_loss: huber
     huber_delta: 1.5
     irls_max_iterations: 10
-    irls_tolerance: 1.00e-04
+    irls_tolerance: 0.0001
     polynomial_order: 2
-  sample_quantile: 0.18
-  sample_estimator: quantile
-  min_sample_bg_value: 100
-  min_tiles_per_cell: 4
-  min_valid_sample_fraction_for_apply: 0.3
-  min_valid_samples_for_apply: 96
-  structure_thresh_percentile: 0.8
-  mask:
-    star_dilate_px: 5
-    sat_dilate_px: 5
-  grid:
-    N_g: 36
-    G_min_px: 64
-    G_max_fraction: 0.25
-    insufficient_cell_strategy: radius_expand
-  autotune:
-    enabled: true
-    max_evals: 24
-    holdout_fraction: 0.2
-    alpha_flatness: 0.3
-    beta_roughness: 0.1
-    strategy: conservative
+    rbf_phi: multiquadric
+    rbf_mu_factor: 1.5
+    rbf_lambda: 0.01
+    rbf_epsilon: 1
 
 # Photometric color calibration
 pcc:
-  enabled: false
-  source: auto
+  enabled: true
+  source: siril
   mag_limit: 14
   mag_bright_limit: 6
   aperture_radius_px: 8
   annulus_inner_px: 10
   annulus_outer_px: 16
-  min_stars: 10
+  min_stars: 3
   sigma_clip: 2.5
   background_model: plane
-  max_condition_number: 3
-  max_residual_rms: 0.5
+  background_neutralization_mode: auto
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3
   annulus_outer_fwhm_mult: 5
   min_aperture_px: 4
-  siril_catalog_dir: ""
+  siril_catalog_dir: /media/data/Astro/siril_catalog
   apply_attenuation: true
   chroma_strength: 0.7
-  background_neutralization_mode: auto
   k_max: 2.4
+  max_condition_number: 3
+  max_residual_rms: 0.9
 
 # Final stretching
 hypermetric_stretch:
-  enabled: false
+  enabled: true
   require_successful_pcc: true
   mode: ready_to_use
   sensor_profile: rec709
@@ -365,7 +368,7 @@ hypermetric_stretch:
   convergence_power: 3.5
   log_d_mode: auto
   fixed_log_d: 2
-  color_strategy: auto
+  color_strategy: fixed
   fixed_color_strategy: 0
   color_grip: 1
   shadow_convergence: 0
@@ -375,17 +378,17 @@ hypermetric_stretch:
 
 # Validation
 validation:
-  min_fwhm_improvement_percent: 0
-  max_background_rms_increase_percent: 5
-  min_tile_weight_variance: 0.01
-  require_no_tile_pattern: false
+  min_fwhm_improvement_percent: 5
+  max_background_rms_increase_percent: 0
+  min_tile_weight_variance: 0.1
+  require_no_tile_pattern: true
 
 # Runtime limits
 runtime_limits:
-  memory_budget: 32          # GB - ensure sufficient for AQMH cache
+  memory_budget: 4096         # MB - ensure sufficient for AQMH cache
   parallel_workers: 8        # Number of worker threads (>=1, 1 = sequential)
   acceleration_backend: auto
-  allow_emergency_mode: true
+  allow_emergency_mode: false
   hard_abort_hours: 6
   tile_analysis_max_factor_vs_stack: 3
   tile_reconstruction_diagnostics: full

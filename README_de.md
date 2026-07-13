@@ -95,7 +95,7 @@ aqmh:
 
 ## Dokumentation
 
-- **AQMH Methodik (normativ):** [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
+- **AQMH Methodik (normativ):** [AQMH Methodology v0.2.1](docs/AQMH/aqmh_methodik_de_v0.2.1.md)
 - **AQMH Parameterdokumentation:** [Konfigurationsreferenz — §12b AQMH](docs/configuration_reference.md)
 - **AQMH Praxisbeispiele:** [Konfigurationsbeispiele & Best Practices](docs/configuration_examples_practical_de.md)
 - Konfigurationsreferenz (vollständig): [Konfigurationsreferenz](docs/configuration_reference.md)

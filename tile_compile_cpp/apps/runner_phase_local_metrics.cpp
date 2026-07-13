@@ -90,6 +90,7 @@ struct AqmhFrameDiag {
   bool scene_dependent_snr = false;
   float g_sharp_summary = std::numeric_limits<float>::quiet_NaN();
   float g_snr_summary = std::numeric_limits<float>::quiet_NaN();
+  float g_background_penalty_summary = std::numeric_limits<float>::quiet_NaN();
   bool g_summary_invalid = false;
   std::vector<metrics::AqmhRegion> regions;
   std::vector<int> omitted_scales;
@@ -494,6 +495,9 @@ bool run_phase_local_metrics(
                   diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
                 }
                 diag.g_snr_summary = aqmh_result.diagnostics.g_snr_summary;
+                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame);
+                diag.g_background_penalty_summary =
+                    frame_global_metrics.sky_gradient;
                 diag.g_summary_invalid =
                     (fi >= frame_star_metrics.size() ||
                      !(frame_star_metrics[fi].wfwhm > 0.0f &&
@@ -579,17 +583,22 @@ bool run_phase_local_metrics(
                         {{"frames_written", static_cast<uint64_t>(
                               aqmh_written.load(std::memory_order_relaxed))}},
                         log_file);
-      std::vector<float> sharp_summaries, snr_summaries;
+      std::vector<float> sharp_summaries, snr_summaries,
+          background_penalty_summaries;
       sharp_summaries.reserve(aqmh_frame_diag.size());
       snr_summaries.reserve(aqmh_frame_diag.size());
+      background_penalty_summaries.reserve(aqmh_frame_diag.size());
       for (const auto &diag : aqmh_frame_diag) {
         sharp_summaries.push_back(diag.g_sharp_summary);
         snr_summaries.push_back(diag.g_snr_summary);
+        background_penalty_summaries.push_back(
+            diag.g_background_penalty_summary);
       }
       std::vector<uint8_t> global_input_invalid;
       if (!run_phase_aqmh_global_quality(
               run_id, cfg.aqmh.global_quality, sharp_summaries, snr_summaries,
-              out_aqmh_global_weights, global_input_invalid, emitter,
+              background_penalty_summaries, out_aqmh_global_weights,
+              global_input_invalid, emitter,
               log_file)) {
         return false;
       }
@@ -649,6 +658,9 @@ bool run_phase_local_metrics(
                 ? "psf_wfwhm_inverted"
                 : "laplacian_variance";
         jd["global_snr_input"] = diag.g_snr_summary;
+        jd["global_background_penalty_input"] =
+            diag.g_background_penalty_summary;
+        jd["global_background_penalty_source"] = "sky_gradient";
         jd["global_quality_input_invalid"] =
             diag.frame_index < global_input_invalid.size()
                 ? global_input_invalid[diag.frame_index] != 0u

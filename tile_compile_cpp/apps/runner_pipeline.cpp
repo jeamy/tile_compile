@@ -1291,6 +1291,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     detected_bayer = BayerPattern::UNKNOWN;
     detected_bayer_str = bayer_pattern_to_string(detected_bayer);
   }
+  if (detected_mode == ColorMode::OSC &&
+      detected_bayer == BayerPattern::UNKNOWN) {
+    const std::string msg =
+        "OSC input has no Bayer metadata (BAYERPAT/COLORTYP) and "
+        "data.bayer_pattern is auto; refusing to guess a CFA pattern";
+    emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                      {{"error", msg},
+                       {"input_dir", input_dir},
+                       {"bayer_pattern", "UNKNOWN"}},
+                      log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+    return 1;
+  }
   if (width <= 0 && cfg.data.image_width > 0) {
     width = cfg.data.image_width;
     emitter.warning(run_id,
@@ -1944,6 +1958,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   } else {
     reconstruction_valid_mask = common_valid_mask;
   }
+  const bool aqmh_uses_reconstruction_canvas =
+      cfg.aqmh.enabled && reconstruction_valid_mask.size() == canvas_px;
+  const std::vector<uint8_t> &aqmh_canvas_valid_mask =
+      aqmh_uses_reconstruction_canvas ? reconstruction_valid_mask
+                                      : common_valid_mask;
 
   {
     size_t common_pixels = 0;
@@ -2018,6 +2037,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
     overlap_artifact["reconstruction_pixels"] =
         static_cast<uint64_t>(reconstruction_pixels);
+    overlap_artifact["aqmh_canvas_mask"] =
+        aqmh_uses_reconstruction_canvas ? "reconstruction" : "common";
+    overlap_artifact["aqmh_canvas_pixels"] =
+        static_cast<uint64_t>(aqmh_uses_reconstruction_canvas
+                                  ? reconstruction_pixels
+                                  : common_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
             ? (static_cast<double>(common_pixels) /
@@ -2062,6 +2087,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cout << "[COMMON_OVERLAP] Canvas mask saved: " << mask_path << " ("
                 << canvas_width << "x" << canvas_height << ", valid="
                 << common_pixels << "/" << canvas_px << ")" << std::endl;
+      if (aqmh_uses_reconstruction_canvas) {
+        std::cout << "[COMMON_OVERLAP] AQMH canvas uses reconstruction support "
+                  << "(" << reconstruction_pixels << "/" << canvas_px
+                  << " pixels); COMMON_OVERLAP remains analysis mask"
+                  << std::endl;
+      }
     }
 
     emitter.phase_end(
@@ -2075,6 +2106,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	            {"tile_common_valid_min_fraction",
 	             cfg.stacking.tile_common_valid_min_fraction},
 	            {"common_pixels", static_cast<uint64_t>(common_pixels)},
+            {"reconstruction_pixels",
+             static_cast<uint64_t>(reconstruction_pixels)},
+            {"aqmh_canvas_mask",
+             aqmh_uses_reconstruction_canvas ? "reconstruction" : "common"},
             {"common_fraction",
              (canvas_px > 0)
                  ? (static_cast<double>(common_pixels) /
@@ -2127,7 +2162,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   while (true) {
     const bool metrics_ok = cfg.aqmh.enabled
         ? runner::run_phase_aqmh_maps(
-              run_id, cfg, frames, run_dir, frame_has_data, common_valid_mask,
+              run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
               canvas_width, canvas_height, prewarped_frames, norm_scales,
               detected_mode, detected_bayer_str, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
@@ -2255,7 +2290,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       runner::AqmhReconstructionPhaseResult aqmh_recon_result;
       if (!runner::run_phase_aqmh_reconstruction(
               run_id, cfg, run_dir, frames, frame_has_data,
-              common_valid_mask, canvas_width, canvas_height, osc_mode,
+              aqmh_canvas_valid_mask, canvas_width, canvas_height, osc_mode,
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
@@ -2278,7 +2313,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Phase: AQMH_DIAGNOSTICS — block-level Q-map statistics and heatmaps
       if (!runner::run_phase_aqmh_diagnostics(
               run_id, cfg, run_dir, aqmh_recon_result.recon,
-              aqmh_cache.get(), common_valid_mask, frame_has_data,
+              aqmh_cache.get(), aqmh_canvas_valid_mask, frame_has_data,
               canvas_width, canvas_height, emitter, log_file)) {
         return 1;
       }

@@ -117,6 +117,38 @@ aqmh:
   REQUIRE_THROWS(cfg.validate());
 }
 
+TEST_CASE("aqmh_reconstruction_clip_sigma_drives_symmetric_thresholds") {
+  YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    clip_sigma: 2.75
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma == 2.75f);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma_low == 2.75f);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma_high == 2.75f);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("aqmh_reconstruction_explicit_asymmetric_clip_thresholds_win") {
+  YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    clip_sigma: 3.0
+    clip_sigma_low: 2.0
+    clip_sigma_high: 1.5
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma == 3.0f);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma_low == 2.0f);
+  REQUIRE(cfg.aqmh.reconstruction.clip_sigma_high == 1.5f);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
 TEST_CASE("aqmh_reconstruction_ignores_legacy_gpu_backend_value") {
   YAML::Node node = YAML::Load(R"(
 method: aqmh

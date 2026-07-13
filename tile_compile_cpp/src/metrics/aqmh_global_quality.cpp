@@ -10,14 +10,18 @@ namespace tile_compile::metrics {
 AqmhGlobalQualityResult compute_aqmh_global_quality(
     const std::vector<float> &sharpness_summaries,
     const std::vector<float> &snr_summaries,
+    const std::vector<float> &background_penalty_summaries,
     const config::AqmhGlobalQualityConfig &cfg) {
-  if (sharpness_summaries.size() != snr_summaries.size())
+  if (sharpness_summaries.size() != snr_summaries.size() ||
+      sharpness_summaries.size() != background_penalty_summaries.size())
     throw std::invalid_argument("AQMH global-quality summary size mismatch");
   AqmhGlobalQualityResult result;
   result.weights.resize(sharpness_summaries.size(), 1.0f);
   result.input_invalid.resize(sharpness_summaries.size(), 0u);
   auto sharp_z = robust_zscore_eps_scale(sharpness_summaries);
   auto snr_z = robust_zscore_eps_scale(snr_summaries);
+  auto background_z =
+      robust_zscore_eps_scale(background_penalty_summaries);
 
   // Detect inputs with insufficient variance. When the MAD is tiny relative
   // to the median (CV < 1%), the z-score amplifies noise to extreme values
@@ -63,23 +67,29 @@ AqmhGlobalQualityResult compute_aqmh_global_quality(
       effective_weight(sharpness_summaries, sharp_z, cfg.g_w_sharp);
   const float w_snr_eff =
       effective_weight(snr_summaries, snr_z, cfg.g_w_snr);
+  const float w_background_eff = effective_weight(
+      background_penalty_summaries, background_z,
+      cfg.g_w_background_penalty);
 
-  // Renormalize weights so the remaining component(s) sum to the original
-  // total. If both are zeroed out, fall back to uniform weights (1.0).
-  const float w_total = w_sharp_eff + w_snr_eff;
+  const float w_total = w_sharp_eff + w_snr_eff + w_background_eff;
   const float w_sharp_norm = (w_total > 0.0f) ? w_sharp_eff / w_total : 0.0f;
   const float w_snr_norm = (w_total > 0.0f) ? w_snr_eff / w_total : 0.0f;
+  const float w_background_norm =
+      (w_total > 0.0f) ? w_background_eff / w_total : 0.0f;
 
   for (size_t i = 0; i < result.weights.size(); ++i) {
     const bool invalid = !std::isfinite(sharpness_summaries[i]) ||
-                         !std::isfinite(snr_summaries[i]);
+                         !std::isfinite(snr_summaries[i]) ||
+                         !std::isfinite(background_penalty_summaries[i]);
     result.input_invalid[i] = invalid ? 1u : 0u;
     float zs = std::isfinite(sharp_z[i]) ? sharp_z[i] : 0.0f;
     float zn = std::isfinite(snr_z[i]) ? snr_z[i] : 0.0f;
-    // Clip z-scores to prevent extreme values from dominating
+    float zb = std::isfinite(background_z[i]) ? background_z[i] : 0.0f;
     zs = std::clamp(zs, -5.0f, 5.0f);
     zn = std::clamp(zn, -5.0f, 5.0f);
-    const float score = w_sharp_norm * zs + w_snr_norm * zn;
+    zb = std::clamp(zb, -5.0f, 5.0f);
+    const float score =
+        w_sharp_norm * zs + w_snr_norm * zn - w_background_norm * zb;
     const float sigmoid = 1.0f / (1.0f + std::exp(-score));
     result.weights[i] = cfg.g_floor + (1.0f - cfg.g_floor) * sigmoid;
   }

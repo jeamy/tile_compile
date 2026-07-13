@@ -64,12 +64,12 @@ std::string resolve_bayer_pattern(const preprocessing::Config& cfg,
                                    const io::FitsHeader& hdr,
                                    ColorMode mode) {
     if (mode != ColorMode::OSC) return "";
+    if (const auto bp = hdr.get_string("BAYERPAT")) return *bp;
+    if (const auto bp = hdr.get_string("COLORTYP")) return *bp;
     if (!cfg.bayer_pattern.empty() && cfg.bayer_pattern != "auto") {
         return cfg.bayer_pattern;
     }
-    if (const auto bp = hdr.get_string("BAYERPAT")) return *bp;
-    if (const auto bp = hdr.get_string("COLORTYP")) return *bp;
-    return "RGGB"; // safe default
+    return "";
 }
 
 /// Select reference frame index. Strategy: "best_quality" picks the frame with

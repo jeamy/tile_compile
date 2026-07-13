@@ -67,7 +67,7 @@ data:
   image_width: 0
   image_height: 0
   color_mode: OSC
-  bayer_pattern: GBRG
+  bayer_pattern: auto
 
 linearity:
   enabled: true
@@ -260,7 +260,7 @@ validation:
   require_no_tile_pattern: false
 
 runtime_limits:
-  memory_budget: 32
+  memory_budget: 4096
   parallel_workers: 8
   acceleration_backend: auto
   allow_emergency_mode: true

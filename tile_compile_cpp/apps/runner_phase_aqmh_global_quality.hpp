@@ -13,7 +13,9 @@ namespace tile_compile::runner {
 bool run_phase_aqmh_global_quality(
     const std::string &run_id, const config::AqmhGlobalQualityConfig &cfg,
     const std::vector<float> &sharpness_summaries,
-    const std::vector<float> &snr_summaries, VectorXf &out_weights,
+    const std::vector<float> &snr_summaries,
+    const std::vector<float> &background_penalty_summaries,
+    VectorXf &out_weights,
     std::vector<uint8_t> &out_input_invalid, core::EventEmitter &emitter,
     std::ostream &log_file);
 

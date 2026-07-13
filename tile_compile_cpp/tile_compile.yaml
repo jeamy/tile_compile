@@ -1,6 +1,13 @@
 method: aqmh
-run_dir: ./run_ic434_test
+run_dir: ./run_ic434_background_gradient
 log_level: info
+scenario_profile:
+  id: ic434_background_gradient
+  title: IC434 Background Gradient
+  intent: IC434/OSC mit maximalem Fokus auf Hintergrundberuhigung und starke Gradientglaettung.
+  gui2_scenarios: [osc, ic434, background_gradient, nebula]
+  recommended_for: [IC434 / Horsehead Nebula mit hartnaeckigem links/rechts-Gradienten im Hintergrund, wenn der Standard-IC434-Run noch sichtbare Hintergrundgradienten zuruecklaesst]
+  priority: maximum_background_suppression
 pipeline:
   mode: production
   abort_on_fail: false
@@ -23,10 +30,9 @@ linearity:
   min_overall_linearity: 0.9
   strictness: moderate
 calibration:
-  flat_master: ""
-  dark_master: ""
-  darks_dir: ""
   flats_dir: ""
+  bias_master: ""
+  flat_master: ""
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -38,9 +44,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 3
   bias_dir: ""
-  frames_min: 30
-  frames_reduced_threshold: 120
-  reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [3, 10]
   use_bias: false
 normalization:
@@ -68,7 +71,7 @@ registration:
   blind_chain_strong_anchor_cc: 0.05
   blind_chain_drift_threshold_px: 2
   use_astrometry: true
-  enable_local_background_subtraction: false
+  enable_local_background_subtraction: true
   star_shift_radius_px: 200
 dithering:
   enabled: true
@@ -90,36 +93,36 @@ tile_denoise:
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear
-  apply_stage: post_stack_linear
+  apply_stage: post_pcc
   protect_luma: true
-  luma_guard_strength: 0.75
+  luma_guard_strength: 0.9
   star_protection:
     enabled: true
-    threshold_sigma: 2.5
-    dilate_px: 2
+    threshold_sigma: 3.2
+    dilate_px: 3
   structure_protection:
     enabled: true
-    gradient_percentile: 87
+    gradient_percentile: 93
   chroma_wavelet:
     enabled: true
-    levels: 3
-    threshold_scale: 1.5
-    soft_k: 1
+    levels: 4
+    threshold_scale: 2.8
+    soft_k: 1.3
   chroma_bilateral:
     enabled: true
-    sigma_spatial: 1.5
-    sigma_range: 0.05
+    sigma_spatial: 2.2
+    sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 0.9
+    amount: 1
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.2
   weights:
-    background: 0.4
+    background: 0.55
     fwhm: 0
-    noise: 0.35
-    gradient: 0.25
+    noise: 0.3
+    gradient: 0.15
     roundness: 0
     star_count: 0
   clamp: [-3, 3]
@@ -163,7 +166,7 @@ astrometry:
   astap_data_dir: /home/lux/.local/share/tile_compile/astap
   search_radius: 183
 bge:
-  method: classic
+  method: autobge
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -185,7 +188,7 @@ bge:
   tile_weight_lambda_structure: 1
   autotune:
     enabled: true
-    strategy: conservative
+    strategy: extended
     max_evals: 32
     holdout_fraction: 0.2
     alpha_flatness: 0.4
@@ -216,7 +219,6 @@ bge:
     rbf_mu_factor: 1.5
     rbf_lambda: 0.01
     rbf_epsilon: 1
-  enabled: true
 pcc:
   enabled: true
   source: siril
@@ -225,11 +227,11 @@ pcc:
   aperture_radius_px: 8
   annulus_inner_px: 10
   annulus_outer_px: 16
-  min_stars: 10
-  sigma_clip: 2.5
+  min_stars: 16
+  sigma_clip: 2
   siril_catalog_dir: /media/data/Astro/siril_catalog
-  background_model: plane
-  max_condition_number: 3
+  background_model: median
+  max_condition_number: 2.2
   max_residual_rms: 0.9
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
@@ -239,7 +241,7 @@ pcc:
   apply_attenuation: true
   background_neutralization_mode: always
   chroma_strength: 1
-  k_max: 2.4
+  k_max: 1.8
 hypermetric_stretch:
   enabled: true
   require_successful_pcc: true
@@ -273,8 +275,8 @@ aqmh:
     g_w_sharp: 0.6
     g_w_snr: 0.4
   storage:
-    resolution_divisor: 2
-    dtype: uint16
+    resolution_divisor: 1
+    dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
@@ -286,8 +288,6 @@ aqmh:
     max_seam_score_regression: 0.02
     max_fwhm_regression: 0.02
     max_background_rms_regression: 0.02
-    max_tail11_abs_regression: 0.05
-    max_elongation_regression: 0.05
   diagnostics:
     enabled: true
     level: summary
@@ -301,21 +301,11 @@ aqmh:
     r_morph_canvas_px: 6
   reconstruction:
     clip_sigma: 3
-    clip_sigma_low: 2
-    clip_sigma_high: 1.5
     clip_iterations: 3
     min_fraction: 0.5
     min_n_eff: 2
     chunk_rows: 0
     memory_budget_mb: 0
-    registration_weight_guard: true
-    registration_weight_floor: 0.35
-    registration_cc_floor: 0.35
-    registration_cc_full: 0.8
-    registration_sequential_factor: 0.85
-    registration_predicted_factor: 0.35
-    registration_chain_depth_penalty: 0.03
-    registration_chain_depth_max_penalty: 0.15
 stacking:
   method: rej
   common_overlap_required_fraction: 1
@@ -330,7 +320,7 @@ stacking:
     kappa_cluster: 1
     cap_enabled: true
     cap_ratio: 20
-  output_stretch: true
+  output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true

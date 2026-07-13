@@ -406,44 +406,34 @@ bool run_phase_aqmh_reconstruction(
     low_frequency_neutralization_validation =
         reconstruction::compare_aqmh_to_uniform_control(
             neutralized, aqmh_recon.uniform_control_output);
+    low_frequency_neutralization_applied = true;
     const auto raw_validation =
         reconstruction::compare_aqmh_to_uniform_control(
             aqmh_recon.output, aqmh_recon.uniform_control_output);
-    const bool background_better =
+    const bool neutralized_background_improved =
         low_frequency_neutralization_validation.background_rms_regression <
         raw_validation.background_rms_regression;
-    const bool fwhm_not_regressed =
-        low_frequency_neutralization_validation.fwhm_regression <=
-        cfg.aqmh.validation.max_fwhm_regression;
-    const bool seam_not_regressed =
-        low_frequency_neutralization_validation.seam_score_regression <=
-        cfg.aqmh.validation.max_seam_score_regression;
-    const bool tail_not_regressed =
-        aqmh_tail_ok(low_frequency_neutralization_validation,
-                     cfg.aqmh.validation);
-    if (background_better && fwhm_not_regressed && seam_not_regressed &&
-        tail_not_regressed) {
-      aqmh_recon.output = std::move(neutralized);
-      low_frequency_neutralization_applied = true;
-      emitter.warning(
-          run_id,
-          "AQMH low-frequency neutralization applied: background_rms=" +
-              std::to_string(low_frequency_neutralization_validation.aqmh.background_rms) +
-              " raw_background_rms=" +
-              std::to_string(raw_validation.aqmh.background_rms) +
-              " control_background_rms=" +
-              std::to_string(low_frequency_neutralization_validation.control.background_rms) +
-              " fwhm=" +
-              std::to_string(low_frequency_neutralization_validation.aqmh.fwhm) +
-              " seam_score=" +
-              std::to_string(low_frequency_neutralization_validation.aqmh.seam_score),
-          log_file);
-    } else {
+    const bool neutralized_background_ok =
+        low_frequency_neutralization_validation.background_rms_regression <=
+        cfg.aqmh.validation.max_background_rms_regression;
+    const Matrix2Df &neutralization_base =
+        neutralized_background_improved ? neutralized : aqmh_recon.output;
+    log_file << "[AQMH_RECONSTRUCTION] adaptive low-frequency neutralization: "
+             << "raw_background_regression="
+             << raw_validation.background_rms_regression
+             << " neutralized_background_regression="
+             << low_frequency_neutralization_validation.background_rms_regression
+             << " selected="
+             << (neutralized_background_improved ? "neutralized" : "raw")
+             << " neutralized_background_ok="
+             << (neutralized_background_ok ? "true" : "false") << std::endl;
+
+    {
       constexpr float structure_low_q = 0.70f;
       constexpr float structure_high_q = 0.97f;
       constexpr float structure_mask_blur_sigma_px = 2.0f;
       Matrix2Df structure_masked = structure_masked_aqmh_detail(
-          aqmh_recon.output, aqmh_recon.uniform_control_output,
+          neutralization_base, aqmh_recon.uniform_control_output,
           structure_low_q, structure_high_q, structure_mask_blur_sigma_px);
       structure_masked_detail_validation =
           reconstruction::compare_aqmh_to_uniform_control(

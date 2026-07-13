@@ -25,7 +25,7 @@ data:
   image_width: 3840
   image_height: 2160
   color_mode: OSC
-  bayer_pattern: GBRG
+  bayer_pattern: auto
 input:
   pattern: ./data/*.fits
   sort: numeric
@@ -359,7 +359,7 @@ validation:
   require_no_tile_pattern: true
 runtime_limits:
   parallel_workers: 8
-  memory_budget: 2048
+  memory_budget: 4096
   acceleration_backend: auto
   tile_analysis_max_factor_vs_stack: 3
   hard_abort_hours: 6

@@ -25,7 +25,7 @@ struct DataConfig {
   int image_width = 0;
   int image_height = 0;
   std::string color_mode = "OSC";
-  std::string bayer_pattern = "GBRG";
+  std::string bayer_pattern = "auto";
   bool linear_required = true;
 };
 
@@ -248,19 +248,20 @@ struct AqmhPyramidConfig {
 struct AqmhStorageConfig {
   int resolution_divisor = 1;
   std::string dtype = "float32";
-  int max_resident_maps = 4;  // was 2
+  int max_resident_maps = 2;
 };
 
 struct AqmhGlobalQualityConfig {
   float g_floor = 0.05f;
   float g_w_sharp = 0.6f;
   float g_w_snr = 0.4f;
+  float g_w_background_penalty = 0.3f;
 };
 
 struct AqmhReconstructionConfig {
   float clip_sigma = 3.0f;
-  float clip_sigma_low = 2.0f;
-  float clip_sigma_high = 1.5f;
+  float clip_sigma_low = 3.0f;
+  float clip_sigma_high = 3.0f;
   int clip_iterations = 3;
   float min_fraction = 0.5f;
   float min_n_eff = 2.0f;

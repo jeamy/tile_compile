@@ -275,8 +275,9 @@ TEST_CASE("aqmh_validation_11_cherry_pick_forced_disabled") {
 TEST_CASE("aqmh_validation_14_global_quality_bounded") {
   std::vector<float> sharp = {0.5f, 0.6f, 0.4f, 0.7f, 0.55f};
   std::vector<float> snr = {10.0f, 12.0f, 8.0f, 15.0f, 11.0f};
+  std::vector<float> background = {0.10f, 0.20f, 0.05f, 0.40f, 0.15f};
   tc::config::AqmhGlobalQualityConfig cfg;
-  auto result = metrics::compute_aqmh_global_quality(sharp, snr, cfg);
+  auto result = metrics::compute_aqmh_global_quality(sharp, snr, background, cfg);
   for (size_t i = 0; i < result.weights.size(); ++i) {
     REQUIRE(std::isfinite(result.weights[i]));
     REQUIRE(result.weights[i] > cfg.g_floor);
@@ -288,9 +289,10 @@ TEST_CASE("aqmh_validation_14_global_quality_bounded") {
 TEST_CASE("aqmh_validation_14_global_quality_determinism") {
   std::vector<float> sharp = {0.5f, 0.6f, 0.4f};
   std::vector<float> snr = {10.0f, 12.0f, 8.0f};
+  std::vector<float> background = {0.10f, 0.20f, 0.05f};
   tc::config::AqmhGlobalQualityConfig cfg;
-  auto r1 = metrics::compute_aqmh_global_quality(sharp, snr, cfg);
-  auto r2 = metrics::compute_aqmh_global_quality(sharp, snr, cfg);
+  auto r1 = metrics::compute_aqmh_global_quality(sharp, snr, background, cfg);
+  auto r2 = metrics::compute_aqmh_global_quality(sharp, snr, background, cfg);
   for (size_t i = 0; i < r1.weights.size(); ++i)
     REQUIRE(r1.weights[i] == r2.weights[i]);
 }

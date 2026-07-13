@@ -46,7 +46,8 @@ TEST_CASE("aqmh_eps_noise_is_background_offset_invariant") {
 TEST_CASE("aqmh_global_quality_is_native_positive_and_bounded") {
   tile_compile::config::AqmhGlobalQualityConfig cfg;
   const auto result = tile_compile::metrics::compute_aqmh_global_quality(
-      {1.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 1.0f}, cfg);
+      {1.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 1.0f},
+      {0.1f, 0.2f, 0.05f}, cfg);
   REQUIRE(result.weights.size() == 3);
   for (float value : result.weights) {
     REQUIRE(value > cfg.g_floor);

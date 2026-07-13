@@ -5,7 +5,7 @@ Datum: 2026-07-10
 Verglichene Runs:
 
 - `runs/ic434-aqhm-v1_20260710_054122`
-- `runs/ic434-aqhm_20260709_213951`
+- `runs/ic434-aqhm-v2-gpu_20260711_183712`
 
 ## Kurzfazit
 
@@ -482,3 +482,52 @@ Der Fix loest die v2-Qualitaetsregression gegenueber dem eigenen Control-Pfad, a
 4. BGE-Qualitaetsmetriken nach dem AQMH-Kandidaten als weiteres Akzeptanzsignal einbeziehen.
 
 Status: Der unmittelbare Fehler "AQMH-v2 uebernimmt Hintergrundartefakte" ist behoben. Das Produktziel "v2 besser als v1 in allen Belangen" ist damit noch nicht bewiesen.
+
+## Neuer Befund: v2-gpu1 Output-Support/Crop-Regression
+
+Nach dem Lauf `ic434-aqhm-v2-gpu1_20260711_235442` ist die visuelle Regression weiterhin vorhanden. Die wichtigsten Messwerte gegen `ic434-aqhm-v1_20260710_054122`:
+
+| Metrik | v1 | v2-gpu1 | Bewertung |
+|---|---:|---:|---|
+| Final FWHM Median | 6.071785 | 6.095237 | v1 bleibt schaerfer |
+| Final Output-Bild | 4297x3149 | 3877x2189 | v2 verliert deutlich Feld |
+| Final Canvas-Mask-Pixel | 10247564 | 8483073 | v2 verliert gueltige Output-Flaeche |
+| BGE Grid Tiles | 300 | 180 | v2 BGE arbeitet auf kleinerer Basis |
+| BGE R Fit RMS | 0.233579 | 0.291381 | v1 besser |
+| BGE G Fit RMS | 0.226581 | 0.292872 | v1 besser |
+| BGE B Fit RMS | 0.274932 | 0.307799 | v1 besser |
+
+Die Common-Overlap-Artefakte beider Runs haben identische Canvas-Zahlen (`4308x3180`, `common_pixels=10247564`, `reconstruction_pixels=10421463`). Der kleinere v2-Output entsteht deshalb nicht durch eine schlechtere Registration-Abdeckung, sondern durch die AQMH-Verwendung der Masken vor der Rekonstruktion und den anschliessenden Nonzero-Crop.
+
+### Methodik-Abgleich
+
+`aqmh_methodik_en_v0.2.0.md` trennt die Masken explizit:
+
+- `C(p)` ist die globale Output-Canvas, also die Rekonstruktionsdomain.
+- `M_f(p)` ist die frame-spezifische Gueltigkeit innerhalb dieser Domain.
+- AQMH-Reconstruction iteriert ueber `C`; einzelne Frames werden nur ueber `M_f` ausgeschlossen.
+- BGE fuer AQMH soll aus AQMH-Output und `C` abgeleitet werden, nicht aus Classic Tile Metrics.
+
+Der v2-gpu1-Codepfad verwendete fuer `AQMH_MAPS`, `AQMH_RECONSTRUCTION` und `AQMH_DIAGNOSTICS` den strikten `common_valid_mask`-Schnitt als AQMH-Canvas. Das ist fuer stark geditherte oder rotierte Daten zu restriktiv: gueltige Output-Randbereiche werden bereits vor AQMH aus der Domain entfernt, obwohl dort einzelne Frames Daten liefern koennen.
+
+### Implementierter Fix
+
+`runner_pipeline.cpp` leitet nun fuer AQMH eine eigene Canvas-Maske ab:
+
+- Wenn `overlap_coverage_count` verfuegbar ist, wird `reconstruction_valid_mask = overlap_coverage_count > 0` als AQMH-Canvas `C` verwendet.
+- `common_valid_mask` bleibt als Common-Overlap-Analysemaske erhalten.
+- `AQMH_MAPS`, `AQMH_RECONSTRUCTION` und `AQMH_DIAGNOSTICS` erhalten die AQMH-Canvas statt des strikten Common-Overlap-Schnitts.
+- `common_overlap.json` dokumentiert jetzt `aqmh_canvas_mask` und `aqmh_canvas_pixels`.
+
+Damit entspricht der AQMH-Pfad wieder dem v0.2.0-Vertrag `C + M_f`: Die globale Output-Domain wird nicht kuenstlich auf den Schnitt aller Frames verengt, waehrend frame-spezifische Ausfaelle weiterhin ueber die gespeicherten AQMH-Masken behandelt werden.
+
+### Erwartung fuer den naechsten IC434-Run
+
+Der naechste Run muss zeigen:
+
+1. Finaler Output-Crop wieder nahe v1 (`4297x3149`) statt `3877x2189`.
+2. BGE Grid Tiles wieder nahe 300 statt 180.
+3. BGE Fit RMS und Guard-Flatness verbessern sich durch die groessere, methodikkonforme Output-Canvas.
+4. FWHM bleibt mindestens auf v2-gpu1-Niveau oder verbessert sich gegen v1.
+
+Wenn diese vier Punkte nicht eintreten, ist der naechste Ansatz nicht mehr Canvas-Support, sondern die im vorherigen Abschnitt genannten AQMH-Map-Gewichte in low-structure Bereichen und ein BGE-Akzeptanzsignal nach dem AQMH-Kandidaten.

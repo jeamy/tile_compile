@@ -18,7 +18,7 @@ data:
   image_width: 0
   image_height: 0
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes
@@ -375,7 +375,7 @@ validation:
 
 runtime_limits:
   parallel_workers: 8 # konservativer Default fuer stabile Last
-  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
+  memory_budget: 4096
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze

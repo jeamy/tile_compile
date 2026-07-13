@@ -112,7 +112,7 @@ chroma_denoise:
     gradient_percentile: 94
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
   image_width: 0
   image_height: 0
 dithering:
@@ -225,7 +225,7 @@ run_dir: ./run_m42_emission_nebula_medium
 runtime_limits:
   allow_emergency_mode: true
   hard_abort_hours: 6
-  memory_budget: 2048
+  memory_budget: 4096
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
