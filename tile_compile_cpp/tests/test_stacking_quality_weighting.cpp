@@ -60,6 +60,27 @@ bge:
   REQUIRE_THROWS(method_cfg.validate());
 }
 
+TEST_CASE("bge_autobge_user_points_accept_sequence_and_xy_map") {
+  YAML::Node node = YAML::Load(R"(
+bge:
+  method: autobge
+  autobge:
+    user_sample_points:
+      - [0.25, 0.75]
+      - {x: 0.5, y: 0.125}
+    exclusion_polygons:
+      -
+        - [0.1, 0.2]
+        - {x: 0.3, y: 0.4}
+        - [0.5, 0.6]
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.bge.autobge.user_sample_points.size() == 2);
+  REQUIRE(cfg.bge.autobge.exclusion_polygons.size() == 1);
+  REQUIRE(cfg.bge.autobge.exclusion_polygons.front().size() == 3);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
 TEST_CASE("stacking_cluster_quality_weighting_parses_and_validates") {
   YAML::Node node = YAML::Load(R"(
 data:

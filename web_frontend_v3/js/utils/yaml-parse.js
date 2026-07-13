@@ -113,7 +113,9 @@ export function stringifyYaml(obj, indent = 0) {
     }
   } else if (obj !== null && typeof obj === "object") {
     for (const [key, val] of Object.entries(obj)) {
-      if (val !== null && typeof val === "object") {
+      if (Array.isArray(val)) {
+        lines.push(`${pad}${key}: ${formatScalar(val)}`);
+      } else if (val !== null && typeof val === "object") {
         lines.push(`${pad}${key}:`);
         lines.push(stringifyYaml(val, indent + 1));
       } else {
@@ -142,13 +144,11 @@ function parseScalar(s) {
   // Null
   if (str === "null" || str === "Null" || str === "~" || str === "") return null;
 
-  // Number
-  const num = Number(str);
-  if (str !== "" && !isNaN(num)) return num;
-
   // Flow sequence [a, b, c]
   if (str.startsWith("[") && str.endsWith("]")) {
-    return str.slice(1, -1).split(",").map(s => parseScalar(s.trim()));
+    const inner = str.slice(1, -1).trim();
+    if (!inner) return [];
+    return splitFlow(inner).map(s => parseScalar(s.trim()));
   }
 
   // Flow mapping {a: 1, b: 2}
@@ -163,6 +163,10 @@ function parseScalar(s) {
     }
     return obj;
   }
+
+  // Number. Keep this after flow collections because Number("[]") is 0.
+  const num = Number(str);
+  if (str !== "" && !isNaN(num)) return num;
 
   return str;
 }

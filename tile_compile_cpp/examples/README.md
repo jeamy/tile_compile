@@ -55,7 +55,7 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `k_artifact`: MAD-Multiplikator — höher = toleranter gegenüber Ausreißern (Default 5.0)
     - `frac_artifact_max`: max. Artefaktanteil pro Fenster (auf 0.30–0.40 erhöhen bei Satellitenspuren)
   - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint8), `max_resident_maps` — RAM-Budget für Quality-Map-Cache.
-  - `cherry_pick.*`: selektives Stacking — nur beste `k_frac` Frames (Default disabled; `k_min` schützt vor Unterbestimmung).
+  - `cherry_pick.*`: selektives Stacking — nur beste `k_frac` Frames (Default disabled; `k_min_required` schützt vor Unterbestimmung).
   - `diagnostics.*`: Schwellen für `artifacts/aqmh.json` Diagnose-Output.
   - Logs erscheinen unter `[AQMH]`; Ergebnis in `artifacts/aqmh.json`.
 - `bge.*` (Background Gradient Extraction, v3.3 §6.3)

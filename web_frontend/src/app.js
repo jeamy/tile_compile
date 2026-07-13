@@ -262,14 +262,15 @@ const DASHBOARD_PIPELINE_GROUPS = [
 
 const CLASSIC_ONLY_PHASES = ["STATE_CLUSTERING", "SYNTHETIC_FRAMES"];
 
+// Phase order must match tile_compile_cpp/include/tile_compile/core/types.hpp
 const RUN_MONITOR_PHASE_ORDER = [
   "SCAN_INPUT",
+  "REGISTRATION",
+  "PREWARP",
   "CHANNEL_SPLIT",
   "NORMALIZATION",
   "GLOBAL_METRICS",
   "TILE_GRID",
-  "REGISTRATION",
-  "PREWARP",
   "COMMON_OVERLAP",
   "LOCAL_METRICS",
   "TILE_RECONSTRUCTION",
@@ -283,17 +284,20 @@ const RUN_MONITOR_PHASE_ORDER = [
   "HYPERMETRIC_STRETCH",
 ];
 
+// AQMH main path: Classic-only phases (GLOBAL_METRICS, TILE_GRID, LOCAL_METRICS,
+// TILE_RECONSTRUCTION, STATE_CLUSTERING, SYNTHETIC_FRAMES) are omitted.
+// STACKING is still executed for AQMH (output scaling/writing).
 const AQMH_RUN_MONITOR_PHASE_ORDER = [
   "SCAN_INPUT",
-  "CHANNEL_SPLIT",
-  "NORMALIZATION",
-  "GLOBAL_METRICS",
-  "TILE_GRID",
   "REGISTRATION",
   "PREWARP",
+  "CHANNEL_SPLIT",
+  "NORMALIZATION",
   "COMMON_OVERLAP",
   "AQMH_MAPS",
+  "AQMH_GLOBAL_QUALITY",
   "AQMH_RECONSTRUCTION",
+  "AQMH_DIAGNOSTICS",
   "STACKING",
   "DEBAYER",
   "ASTROMETRY",
@@ -5165,9 +5169,9 @@ function getEffectivePhaseOrder() {
 function getEffectiveDashboardPipelineGroups() {
   if (!isAqmhMethod()) return DASHBOARD_PIPELINE_GROUPS;
   return [
-    { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
+    { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION"] },
     { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
-    { key: "AQMH", phases: ["TILE_GRID", "AQMH_MAPS", "AQMH_RECONSTRUCTION"] },
+    { key: "AQMH", phases: ["AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"] },
     { key: "STACK", phases: ["STACKING", "DEBAYER"] },
     { key: "ASTROM", phases: ["ASTROMETRY"] },
     { key: "BGE", phases: ["BGE"] },
@@ -8554,7 +8558,7 @@ function rawStackNormalizeDefaultsConfig(config) {
     ...(normalized.tile || {}),
   };
   normalized.runtime_limits = {
-    parallel_workers: 4,
+    parallel_workers: 8,
     memory_budget: 512,
     ...(normalized.runtime_limits || {}),
   };

@@ -1126,13 +1126,23 @@ DiskCacheFrameStore::DiskCacheFrameStore() = default;
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 DiskCacheFrameStore::DiskCacheFrameStore(const fs::path &cache_dir,
-                                         size_t n_frames, int rows, int cols)
+                                         size_t n_frames, int rows, int cols,
+                                         bool attach_existing)
     : cache_dir_(cache_dir), rows_(rows), cols_(cols),
       frame_bytes_(static_cast<size_t>(rows) * static_cast<size_t>(cols) *
                    sizeof(float)),
       has_data_(n_frames, static_cast<uint8_t>(0)),
-      mapped_views_(n_frames, nullptr) {
+      mapped_views_(n_frames, nullptr), preserve_files_(attach_existing) {
   fs::create_directories(cache_dir_);
+  if (attach_existing) {
+    for (size_t fi = 0; fi < n_frames; ++fi) {
+      std::error_code ec;
+      const auto p = frame_path(fi);
+      if (fs::is_regular_file(p, ec) && !ec &&
+          fs::file_size(p, ec) == frame_bytes_ && !ec)
+        has_data_[fi] = 1u;
+    }
+  }
 }
 
 /// @brief Implements ~DiskCacheFrameStore.
@@ -1149,12 +1159,14 @@ DiskCacheFrameStore::DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept
     : cache_dir_(std::move(o.cache_dir_)), rows_(o.rows_), cols_(o.cols_),
       frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)),
       mapped_views_(std::move(o.mapped_views_)) {
+  preserve_files_ = o.preserve_files_;
   o.rows_ = 0;
   o.cols_ = 0;
   o.frame_bytes_ = 0;
   o.cache_dir_.clear();
   o.has_data_.clear();
   o.mapped_views_.clear();
+  o.preserve_files_ = false;
 }
 
 DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noexcept {
@@ -1166,12 +1178,14 @@ DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noe
     frame_bytes_ = o.frame_bytes_;
     has_data_ = std::move(o.has_data_);
     mapped_views_ = std::move(o.mapped_views_);
+    preserve_files_ = o.preserve_files_;
     o.rows_ = 0;
     o.cols_ = 0;
     o.frame_bytes_ = 0;
     o.cache_dir_.clear();
     o.has_data_.clear();
     o.mapped_views_.clear();
+    o.preserve_files_ = false;
   }
   return *this;
 }
@@ -1376,7 +1390,7 @@ const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
+void DiskCacheFrameStore::invalidate_mapping(size_t fi) const {
   void *view = nullptr;
   {
     std::lock_guard<std::mutex> lock(mapped_mutex_);
@@ -1437,7 +1451,7 @@ int DiskCacheFrameStore::cols() const { return cols_; }
 /// artifact, and error-handling semantics expected by callers.
 void DiskCacheFrameStore::cleanup() {
   clear_mappings();
-  if (!cache_dir_.empty() && fs::exists(cache_dir_)) {
+  if (!preserve_files_ && !cache_dir_.empty() && fs::exists(cache_dir_)) {
     std::error_code ec;
     fs::remove_all(cache_dir_, ec);
   }

@@ -4,7 +4,7 @@
 
 This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
 
-## Update Status (2026-06-09)
+## Update Status (2026-07-13)
 
 - AQMH (`aqmh.*`) fully documented with practical examples.
 - HyperMetric Stretch (`hypermetric_stretch.*`) is documented as an optional post-PCC phase with `ready_to_use` and `scientific` modes.
@@ -16,6 +16,7 @@ This guide complements the configuration reference with practical examples, edge
 - `bge.tile_weight_lambda_structure` was aligned to the current default `1.0`.
 - `stacking.common_overlap_required_fraction` and `stacking.tile_common_valid_min_fraction` are now documented with the current strict defaults `1.0 / 1.0`.
 - The baseline snippet was updated to the strict `v3.3.9` profile.
+- AQMH examples updated for v0.2.1 defaults: `resolution_divisor: 1`, `dtype: float32`, `diagnostics.level: full`, `binary_block_size_px: 64`, `cherry_pick.k_min_required: 20`.
 
 **Strict v3.3.9 baseline snippet:**
 
@@ -55,15 +56,17 @@ aqmh:
     k_artifact: 3.0     # MAD multiplier for artifact detection
     frac_artifact_max: 0.25  # max artifact fraction per window
   storage:
-    resolution_divisor: 2   # half-resolution for quality map cache
+    resolution_divisor: 1   # full-resolution quality maps (v0.2.1 default)
     dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
   diagnostics:
+    level: full
     tau_artifact: 0.20
     q_region: 0.75
     r_morph_canvas_px: 6
+    binary_block_size_px: 64
 ```
 
 **More tolerant of artifacts (satellites, clouds):**
@@ -83,7 +86,7 @@ aqmh:
   enabled: true
   cherry_pick:
     enabled: true
-    k_min: 5      # include at least 5 frames
+    k_min_required: 20  # run-level gate and per-pixel sample floor
     k_frac: 0.30  # best 30%
 ```
 
@@ -649,7 +652,7 @@ The active color-mode key is `data.color_mode`, not `data.mode`.
 ```yaml
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
 
 pcc:
   enabled: true
@@ -692,7 +695,7 @@ pipeline:
 
 runtime_limits:
   parallel_workers: 8
-  memory_budget: 2048
+  memory_budget: 4096
   acceleration_backend: auto
   hard_abort_hours: 6.0
 
@@ -720,7 +723,7 @@ output:
 ```yaml
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
 
 tile:
   size_factor: 24
@@ -751,7 +754,7 @@ pcc:
 ```yaml
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
 
 tile:
   size_factor: 36

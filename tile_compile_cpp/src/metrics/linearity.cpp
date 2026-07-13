@@ -16,12 +16,17 @@ LinearityThresholds
 /// artifact, and error-handling semantics expected by callers.
 linearity_thresholds_for(const std::string &strictness) {
   if (strictness == "moderate") {
-    return {1.2f, 1.2f, 0.7f, 0.9f, 0.7f};
+    return {1.5f, 0.8f, 0.8f, 0.005f, 0.6f};
   }
   if (strictness == "permissive") {
-    return {1.5f, 1.5f, 1.0f, 0.8f, 1.0f};
+    return {2.0f, 0.9f, 1.2f, 0.001f, 0.8f};
   }
-  return {1.2f, 1.2f, 0.5f, 0.95f, 0.5f};
+  // strict: thresholds adjusted for corrected formulas:
+  // - variance_coeff now uses pixel_range (not |mean|), typical 0.01-0.30
+  // - kurtosis is inverted tail-to-body ratio (p75-p25)/(p95-p5),
+  //   low = heavy-tailed (linear), high = light-tailed (non-linear)
+  // - energy_ratio excludes DC bin, so values are much lower (~0.01-0.10)
+  return {1.2f, 0.7f, 0.6f, 0.01f, 0.4f};
 }
 
 LinearityFrameResult
@@ -83,36 +88,52 @@ validate_linearity_frame(const Matrix2Df &img,
   float p95 = core::percentile_from_sorted(sorted, 95.0f);
   float p99 = core::percentile_from_sorted(sorted, 99.0f);
 
-  float denom_skew = (p50 - p1) + 1.0e-12f;
-  float denom_kurt = (p50 - p5) + 1.0e-12f;
-  out.skewness = (p99 - p50) / denom_skew;
-  out.kurtosis = (p95 - p50) / denom_kurt;
-  out.variance_coeff = static_cast<float>(stddev / (std::fabs(mean) + 1.0e-12));
+  // Use robust percentiles for skewness/kurtosis that exclude stars.
+  // The previous formula (p99-p50)/(p50-p1) was dominated by bright stars
+  // in astro images, giving skewness~18 regardless of actual linearity.
+  // Trim to p25-p75 interquartile range for the moment-based checks.
+  float p25 = core::percentile_from_sorted(sorted, 25.0f);
+  float p75 = core::percentile_from_sorted(sorted, 75.0f);
+  float iqr = (p75 - p25) + 1.0e-12f;
+  out.skewness = (p75 - p50) / iqr;
+  // Kurtosis: inverted tail-to-body ratio.  Low values = heavy-tailed
+  // (linear astro with sharp star peaks), high values = light-tailed
+  // (non-linear stretched, compressed dynamic range).
+  out.kurtosis = (p75 - p25) / ((p95 - p5) + 1.0e-12f);
+  // Variance coefficient: normalize by pixel range (not |mean|), because
+  // calibrated frames have mean≈0 which would make this diverge.
+  float pixel_range = (p99 - p1) + 1.0e-6f;
+  out.variance_coeff = static_cast<float>(stddev / static_cast<double>(pixel_range));
 
   cv::Mat gx, gy, mag;
   cv::Sobel(small, gx, CV_32F, 1, 0, 3);
   cv::Sobel(small, gy, CV_32F, 0, 1, 3);
   cv::magnitude(gx, gy, mag);
   double mean_grad = cv::mean(mag)[0];
-  double mean_frame = cv::mean(small)[0];
+  // Normalize gradient by pixel range (p99-p1) instead of mean, because
+  // background-subtracted frames have mean≈0 which would make this diverge.
   out.gradient_consistency =
-      static_cast<float>(2.0 * (mean_grad / (std::fabs(mean_frame) + 1.0e-12)));
+      static_cast<float>(mean_grad / static_cast<double>(pixel_range));
 
   out.energy_ratio = 0.0f;
   if (small.rows >= 8 && small.cols >= 8) {
-    cv::Mat dft;
-    cv::dft(small, dft, cv::DFT_COMPLEX_OUTPUT);
+    cv::Mat dft_img;
+    cv::dft(small, dft_img, cv::DFT_COMPLEX_OUTPUT);
     std::vector<cv::Mat> planes;
-    cv::split(dft, planes);
+    cv::split(dft_img, planes);
     cv::Mat mag2 = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
-    double total_energy = cv::sum(mag2)[0];
+    // Exclude DC bin (0,0) from both numerator and denominator: the DC
+    // is just |sum(pixels)|^2 and carries no linearity information.
+    // For uncalibrated frames it dominates and inflates energy_ratio;
+    // for calibrated frames (mean≈0) it's near-zero.  Excluding it
+    // makes the ratio measure actual AC spectral shape.
+    double dc_energy = static_cast<double>(mag2.at<float>(0, 0));
+    double total_energy = cv::sum(mag2)[0] - dc_energy;
+    // Only the top-left corner is the true low-frequency region in
+    // standard (non-shifted) DFT layout. The other 3 corners are Nyquist/
+    // high-frequency aliases and must NOT be counted as low-frequency.
     int r = std::max(1, std::min(mag2.rows, mag2.cols) / 8);
-    double low_energy = 0.0;
-    low_energy += cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
-    low_energy += cv::sum(mag2(cv::Rect(0, mag2.rows - r, r, r)))[0];
-    low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, 0, r, r)))[0];
-    low_energy +=
-        cv::sum(mag2(cv::Rect(mag2.cols - r, mag2.rows - r, r, r)))[0];
+    double low_energy = cv::sum(mag2(cv::Rect(0, 0, r, r)))[0] - dc_energy;
     if (total_energy > 0.0) {
       out.energy_ratio = static_cast<float>(low_energy / total_energy);
     }

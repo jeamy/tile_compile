@@ -13,9 +13,13 @@
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
 #include "runner_shared.hpp"
+#include "runner_phase_aqmh_reconstruction.hpp"
+#include "runner_phase_aqmh_diagnostics.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -85,6 +89,18 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
       "PREWARP",           "COMMON_OVERLAP",  "LOCAL_METRICS",
       "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES",
       "DEBAYER"};
+  return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
+         kPhases.end();
+}
+
+// AQMH phases that can reuse cached quality maps and skip directly to
+// reconstruction without a full pipeline rerun (§ Resume spec).
+// STACKING is included because AQMH does not persist synthetic_*.fit files;
+// resuming STACKING therefore needs synthetic_0.fit to be produced first.
+bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
+  static const std::vector<std::string> kPhases = {
+      "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION",
+      "AQMH_DIAGNOSTICS", "STACKING"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
 }
@@ -694,6 +710,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
   }
 
+  // All AQMH phases that have cached quality maps can resume directly at
+  // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
+  // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
+  // For STACKING it also provides the synthetic_0.fit file that the shared
+  // STACKING resume path expects but AQMH never writes during a normal run.
+  if (cfg.aqmh.enabled && is_aqmh_cache_resume_phase(phase_upper)) {
+    phase_l = "aqmh_reconstruction";
+    phase_upper = "AQMH_RECONSTRUCTION";
+  }
+
   fs::create_directories(run_dir / "logs");
 
   std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
@@ -902,6 +928,149 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     return 0;
   }
 
+  if (phase_l == "aqmh_reconstruction") {
+    core::EventEmitter emitter;
+    const fs::path metrics_path = run_dir / "artifacts" / "aqmh_metrics.json";
+    const fs::path cache_meta_path = run_dir / "cache" / "aqmh" /
+                                     "aqmh_cache.json";
+    if (!fs::exists(metrics_path) || !fs::exists(cache_meta_path)) {
+      std::cerr << "Error: AQMH resume requires aqmh_metrics.json and cache metadata"
+                << std::endl;
+      return 1;
+    }
+    core::json metrics_json;
+    core::json cache_meta;
+    try {
+      metrics_json = core::json::parse(core::read_text(metrics_path));
+      cache_meta = core::json::parse(core::read_text(cache_meta_path));
+    } catch (const std::exception &e) {
+      std::cerr << "Error: invalid AQMH resume metadata: " << e.what()
+                << std::endl;
+      return 1;
+    }
+    const int canvas_width = cache_meta.value("full_width", 0);
+    const int canvas_height = cache_meta.value("full_height", 0);
+    const auto diagnostics = metrics_json.value("diagnostics", core::json::array());
+    const size_t frame_count = diagnostics.is_array() ? diagnostics.size() : 0u;
+    if (canvas_width <= 0 || canvas_height <= 0 || frame_count == 0) {
+      std::cerr << "Error: incomplete AQMH cache dimensions/frame count"
+                << std::endl;
+      return 1;
+    }
+
+    Matrix2Df canvas_mask_image;
+    io::FitsHeader resume_header;
+    try {
+      std::tie(canvas_mask_image, resume_header) =
+          io::read_fits_float(run_dir / "outputs" / "canvas_mask.fits");
+    } catch (const std::exception &e) {
+      std::cerr << "Error: cannot read AQMH canvas mask: " << e.what()
+                << std::endl;
+      return 1;
+    }
+    std::vector<uint8_t> common_valid_mask(
+        static_cast<size_t>(canvas_width) * canvas_height, 0u);
+    if (canvas_mask_image.rows() == canvas_height &&
+        canvas_mask_image.cols() == canvas_width) {
+      for (size_t i = 0; i < common_valid_mask.size(); ++i)
+        common_valid_mask[i] = canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
+    } else {
+      // Completed runs may contain the cropped output mask at outputs/canvas_mask.fits.
+      // Rebuild the full AQMH common mask from the persisted per-frame masks.
+      tile_compile::metrics::FrameValidMaskStore mask_store(
+          run_dir / "cache" / "aqmh_masks", canvas_width, canvas_height);
+      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 1u);
+      bool rebuilt_mask = false;
+      for (size_t fi = 0; fi < frame_count; ++fi) {
+        std::vector<uint8_t> frame_mask = mask_store.read(fi);
+        if (frame_mask.size() != common_valid_mask.size()) {
+          continue;
+        }
+        rebuilt_mask = true;
+        for (size_t i = 0; i < common_valid_mask.size(); ++i) {
+          common_valid_mask[i] =
+              (common_valid_mask[i] != 0u && frame_mask[i] != 0u) ? 1u : 0u;
+        }
+      }
+      if (!rebuilt_mask) {
+        std::cerr << "Error: AQMH canvas-mask dimensions differ from cache and "
+                     "per-frame AQMH masks are unavailable"
+                  << std::endl;
+        return 1;
+      }
+      std::cout << "[AQMH][resume] Rebuilt full canvas mask from cache/aqmh_masks "
+                << "because outputs/canvas_mask.fits is cropped ("
+                << canvas_mask_image.cols() << "x" << canvas_mask_image.rows()
+                << " vs " << canvas_width << "x" << canvas_height << ")"
+                << std::endl;
+    }
+
+    runner::DiskCacheFrameStore prewarped_frames(
+        run_dir / ".prewarped_cache", frame_count, canvas_height,
+        canvas_width, true);
+    std::vector<uint8_t> frame_has_data(frame_count, 0u);
+    size_t available_frames = 0;
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      frame_has_data[fi] = prewarped_frames.has_data(fi) ? 1u : 0u;
+      available_frames += frame_has_data[fi] != 0u;
+    }
+    if (available_frames == 0) {
+      std::cerr << "Error: no reusable .prewarped_cache frames found"
+                << std::endl;
+      return 1;
+    }
+
+    VectorXf global_weights(static_cast<Eigen::Index>(frame_count));
+    global_weights.setZero();
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      if (fi < diagnostics.size())
+        global_weights[static_cast<Eigen::Index>(fi)] =
+            diagnostics[fi].value("global_quality", 0.0f);
+    }
+    const std::string mask_hash =
+        tile_compile::metrics::compute_aqmh_canvas_mask_hash(
+            common_valid_mask, canvas_width, canvas_height);
+    auto aqmh_cache = std::make_unique<tile_compile::metrics::QualityMapCache>(
+        run_dir / "cache" / "aqmh",
+        cache_meta.value("map_stream_id", std::string("luma")),
+        canvas_width, canvas_height, cfg.aqmh.pyramid, cfg.aqmh.storage,
+        mask_hash, cache_meta.value("execution_backend", std::string("cpu")));
+    std::vector<fs::path> frame_slots(frame_count);
+    core::AccelerationContext acceleration(
+        cfg.runtime_limits.acceleration_backend);
+    runner::AqmhReconstructionPhaseResult phase_result;
+    emitter.phase_start(run_id, Phase::AQMH_RECONSTRUCTION,
+                        "AQMH_RECONSTRUCTION", log_file);
+    const auto phase_started = std::chrono::steady_clock::now();
+    if (!runner::run_phase_aqmh_reconstruction(
+            run_id, cfg, run_dir, frame_slots, frame_has_data,
+            common_valid_mask, canvas_width, canvas_height,
+            io::detect_color_mode(resume_header, 2) == ColorMode::OSC,
+            prewarped_frames, aqmh_cache,
+            global_weights, acceleration, emitter, log_file, phase_started,
+            cv::getNumThreads(), phase_result)) {
+      return 1;
+    }
+    try {
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
+                           phase_result.output, resume_header);
+      // Feed the existing shared STACKING/DEBAYER resume path without
+      // recomputing registration, maps, or global quality.
+      io::write_fits_float(run_dir / "outputs" / "synthetic_0.fit",
+                           phase_result.output, resume_header);
+    } catch (const std::exception &e) {
+      std::cerr << "Error: cannot persist AQMH resume output: " << e.what()
+                << std::endl;
+      return 1;
+    }
+    if (!runner::run_phase_aqmh_diagnostics(
+            run_id, cfg, run_dir, phase_result.recon, aqmh_cache.get(),
+            common_valid_mask, frame_has_data, canvas_width, canvas_height,
+            emitter, log_file))
+      return 1;
+    phase_l = "stacking";
+  }
+
   if (phase_l == "stacking") {
     namespace image = tile_compile::image;
     namespace reconstruction = tile_compile::reconstruction;
@@ -934,6 +1103,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     std::sort(synthetic_entries.begin(), synthetic_entries.end(),
               [](const auto &a, const auto &b) { return a.first < b.first; });
+    if (cfg.aqmh.enabled) {
+      synthetic_entries.erase(
+          std::remove_if(synthetic_entries.begin(), synthetic_entries.end(),
+                         [](const auto &entry) { return entry.first != 0; }),
+          synthetic_entries.end());
+    }
 
     if (synthetic_entries.empty()) {
       const std::string msg = "missing synthetic_*.fit outputs for STACKING resume";
@@ -1831,6 +2006,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     image::BGEDiagnostics bge_diag;
     image::BGEConfig bge_cfg =
         tile_compile::runner::to_image_bge_config(cfg.bge);
+    bge_cfg.max_workers = cfg.runtime_limits.parallel_workers;
     std::string mask_error;
     const int rows = static_cast<int>(rgb.R.rows());
     const int cols = static_cast<int>(rgb.R.cols());

@@ -3,6 +3,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,9 +61,9 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   case AccelerationPhase::prewarp:
     return TILE_COMPILE_HAS_OPENCV_CUDA_WARPING != 0;
   case AccelerationPhase::aqmh_maps:
-    return TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS != 0;
+    return false;
   case AccelerationPhase::aqmh_reconstruction:
-    return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
+    return false;
   case AccelerationPhase::tile_reconstruction:
     return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
   case AccelerationPhase::stacking:
@@ -84,17 +85,14 @@ bool phase_supports_backend(AccelerationPhase phase,
     return true;
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
-           phase == AccelerationPhase::aqmh_maps ||
-           phase == AccelerationPhase::aqmh_reconstruction ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
     return phase == AccelerationPhase::prewarp ||
-           phase == AccelerationPhase::aqmh_maps ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
-    return false;
+    return phase == AccelerationPhase::aqmh_reconstruction;
   }
   return false;
 }
@@ -1587,7 +1585,7 @@ bool cuda_reconstruct_aqmh_impl(
     cv::cuda::GpuMat zeros(size, CV_32F);
     cv::cuda::GpuMat eps(size, CV_32F);
     zeros.setTo(cv::Scalar(0.0f), s);
-    eps.setTo(cv::Scalar(cfg.eps_weight), s);
+    eps.setTo(cv::Scalar(std::numeric_limits<float>::epsilon()), s);
 
     std::vector<uint8_t> canvas_u8(static_cast<size_t>(width) * height,
                                    canvas_mask.empty() ? 255u : 0u);
@@ -1665,7 +1663,7 @@ bool cuda_reconstruct_aqmh_impl(
       cv::cuda::GpuMat weight;
       cv::cuda::multiply(q_clean, cv::Scalar(gw), weight, 1.0, -1, s);
       cv::cuda::GpuMat positive;
-      cv::cuda::compare(weight, cfg.eps_weight, positive, cv::CMP_GT, s);
+      cv::cuda::compare(weight, 0.0, positive, cv::CMP_GT, s);
       cv::cuda::bitwise_and(positive, finite_frame, positive, cv::noArray(), s);
       cv::cuda::bitwise_and(positive, canvas, positive, cv::noArray(), s);
 
@@ -1719,9 +1717,9 @@ bool cuda_reconstruct_aqmh_impl(
     cv::cuda::GpuMat sigma;
     cv::cuda::sqrt(variance, sigma, s);
     cv::cuda::GpuMat lo_delta, hi_delta, lo, hi;
-    cv::cuda::multiply(sigma, cv::Scalar(cfg.sigma_low), lo_delta, 1.0, -1,
+    cv::cuda::multiply(sigma, cv::Scalar(cfg.clip_sigma), lo_delta, 1.0, -1,
                        s);
-    cv::cuda::multiply(sigma, cv::Scalar(cfg.sigma_high), hi_delta, 1.0, -1,
+    cv::cuda::multiply(sigma, cv::Scalar(cfg.clip_sigma), hi_delta, 1.0, -1,
                        s);
     cv::cuda::subtract(mean, lo_delta, lo, cv::noArray(), -1, s);
     cv::cuda::add(mean, hi_delta, hi, cv::noArray(), -1, s);
@@ -1760,7 +1758,7 @@ bool cuda_reconstruct_aqmh_impl(
       cv::cuda::GpuMat weight;
       cv::cuda::multiply(q_clean, cv::Scalar(gw), weight, 1.0, -1, s);
       cv::cuda::GpuMat valid_weight;
-      cv::cuda::compare(weight, cfg.eps_weight, valid_weight, cv::CMP_GT, s);
+      cv::cuda::compare(weight, 0.0, valid_weight, cv::CMP_GT, s);
       cv::cuda::bitwise_and(valid_weight, finite_frame, valid_weight,
                             cv::noArray(), s);
       cv::cuda::bitwise_and(valid_weight, canvas, valid_weight, cv::noArray(),
@@ -1820,14 +1818,14 @@ bool cuda_reconstruct_aqmh_impl(
           ++result.zero_veto_pixels;
           continue;
         }
-        if (host_W(y, x) <= cfg.eps_weight) {
+        if (host_W(y, x) <= 0.0f) {
           result.weight_sum(y, x) = 0.0f;
           ++result.unsupported_pixels;
           continue;
         }
         const float min_kept =
             std::max(0.0f, cfg.min_fraction) * host_W(y, x);
-        if (host_clipped_weight(y, x) > cfg.eps_weight &&
+        if (host_clipped_weight(y, x) > 0.0f &&
             host_clipped_weight(y, x) >= min_kept) {
           result.output(y, x) =
               host_clipped_accum(y, x) / host_clipped_weight(y, x);
@@ -2228,9 +2226,9 @@ std::string acceleration_selection_summary(
   }
   if (selection.using_gpu) {
     if (selection.selected == AccelerationBackend::opencv_cuda) {
-      oss << " [NVIDIA CUDA]";
+      oss << " [OpenCV CUDA]";
     } else if (selection.selected == AccelerationBackend::opencv_opencl) {
-      oss << " [OpenCL - AMD/Intel/NVIDIA]";
+      oss << " [OpenCL]";
     } else if (selection.selected == AccelerationBackend::cuda) {
       oss << " [native CUDA]";
     }
@@ -2555,26 +2553,33 @@ reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
     metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
     const std::vector<uint8_t> &canvas_mask, int width, int height,
     const reconstruction::AqmhReconstructionConfig &cfg,
-    cv::cuda::Stream *stream) const {
-#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
-  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+    cv::cuda::Stream *stream,
+    const reconstruction::AqmhMaskLoader &load_frame_valid_mask,
+    const reconstruction::AqmhFrameRegionLoader &load_frame_region,
+    const reconstruction::AqmhMaskRegionLoader &load_frame_valid_mask_region,
+    const reconstruction::AqmhProgressCallback &progress) const {
+  (void)stream;
+#if TILE_COMPILE_WITH_CUDA
+  if (selection_.selected == AccelerationBackend::cuda &&
       selection_.phase == AccelerationPhase::aqmh_reconstruction) {
-    reconstruction::AqmhReconstructionResult gpu_result;
-    if (cuda_reconstruct_aqmh_impl(
-            frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
-            width, height, cfg, gpu_result, stream)) {
-      return gpu_result;
-    }
-    auto cpu_result = reconstruction::reconstruct_aqmh_weighted(
+    auto result = reconstruction::reconstruct_aqmh_weighted_cuda(
         frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
-        width, height, cfg);
-    cpu_result.acceleration_fallback = true;
-    return cpu_result;
+        width, height, cfg, load_frame_valid_mask, load_frame_region,
+        load_frame_valid_mask_region, progress);
+    if (result.acceleration_used && !result.acceleration_fallback) {
+      return result;
+    }
   }
 #endif
-  return reconstruction::reconstruct_aqmh_weighted(
+  auto result = reconstruction::reconstruct_aqmh_weighted(
       frame_count, load_frame, q_map_cache, global_weights, canvas_mask, width,
-      height, cfg);
+      height, cfg, load_frame_valid_mask, load_frame_region,
+      load_frame_valid_mask_region, progress);
+  if (selection_.using_gpu &&
+      selection_.phase == AccelerationPhase::aqmh_reconstruction) {
+    result.acceleration_fallback = true;
+  }
+  return result;
 }
 
 /// @brief Implements overlap add.

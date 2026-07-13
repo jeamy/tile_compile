@@ -1398,6 +1398,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
                                              cfg.tile, seeing_fwhm);
     std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
     image::BGEConfig bge_cfg = runner::to_image_bge_config(bge_source);
+    bge_cfg.max_workers = cfg.runtime_limits.parallel_workers;
     bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
     bge_cfg.common_mask_rows = rgb.R.rows();
     bge_cfg.common_mask_cols = rgb.R.cols();

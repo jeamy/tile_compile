@@ -2,6 +2,8 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/errors.hpp"
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/metrics/aqmh_eps.hpp"
+#include "tile_compile/metrics/aqmh_global_quality.hpp"
 
 #include <cmath>
 #include <vector>
@@ -32,6 +34,36 @@ TEST_CASE("aqmh_config_validates_q_region") {
 
   cfg.aqmh.diagnostics.q_region = 1.1f;
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+}
+
+TEST_CASE("aqmh_eps_noise_is_background_offset_invariant") {
+  const std::vector<float> a{1000.0f, 1000.001f, 999.999f, 1000.002f};
+  const std::vector<float> b{0.0f, 0.001f, -0.001f, 0.002f};
+  REQUIRE(tile_compile::metrics::eps_noise(a) ==
+          Catch::Approx(tile_compile::metrics::eps_noise(b)).margin(1.0e-10f));
+}
+
+TEST_CASE("aqmh_global_quality_is_native_positive_and_bounded") {
+  tile_compile::config::AqmhGlobalQualityConfig cfg;
+  const auto result = tile_compile::metrics::compute_aqmh_global_quality(
+      {1.0f, 2.0f, 3.0f}, {3.0f, 2.0f, 1.0f},
+      {0.1f, 0.2f, 0.05f}, cfg);
+  REQUIRE(result.weights.size() == 3);
+  for (float value : result.weights) {
+    REQUIRE(value > cfg.g_floor);
+    REQUIRE(value < 1.0f);
+  }
+}
+
+TEST_CASE("aqmh_quality_map_applies_frame_specific_valid_mask") {
+  tile_compile::config::AqmhPyramidConfig cfg;
+  tile_compile::Matrix2Df frame = make_gradient(32, 32);
+  std::vector<uint8_t> canvas(32u * 32u, 1u);
+  std::vector<uint8_t> frame_mask(32u * 32u, 1u);
+  frame_mask[10u * 32u + 11u] = 0u;
+  const auto result = tile_compile::metrics::compute_aqmh_quality_map(
+      frame, canvas, frame_mask, 32, 32, cfg);
+  REQUIRE(result.q_map(10, 11) == 0.0f);
 }
 
 TEST_CASE("aqmh_quality_map_all_canvas_invalid_outputs_zero") {

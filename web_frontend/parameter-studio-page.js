@@ -546,6 +546,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
         exclusiveMaximum: value?.exclusiveMaximum,
         description: value?.description,
         deprecated: Boolean(value?.deprecated),
+        default: value?.default,
       });
     });
     return out;
@@ -615,7 +616,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
       label: labelForPath(path),
       category,
       phase: PHASE_MAP[firstKey] || String(firstKey || "").toUpperCase(),
-      defaultValue: editorEntry?.yaml_default ?? katalogEntry?.katalogDefault ?? "",
+      defaultValue: editorEntry?.yaml_default ?? katalogEntry?.katalogDefault ?? schemaEntry?.default ?? "",
       range,
       description,
       shortExplanation: chooseLocalizedExplainText({
@@ -703,7 +704,7 @@ import { escapeHtml, getActiveLocale, getStorageJson, setStorageJson, STORAGE_KE
           exclusiveMaximum: schemaEntry?.exclusiveMaximum ?? legacyEntry?.exclusiveMaximum,
           description: schemaEntry?.description || legacyEntry?.description || "",
           deprecated: Boolean(schemaEntry?.deprecated || legacyEntry?.deprecated),
-          yaml_default: defaultsMap.has(path) ? defaultsMap.get(path) : legacyEntry?.yaml_default,
+          yaml_default: defaultsMap.has(path) ? defaultsMap.get(path) : (legacyEntry?.yaml_default ?? schemaEntry?.default),
         };
       })
       .sort((a, b) => String(a.path || "").localeCompare(String(b.path || "")));

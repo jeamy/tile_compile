@@ -3,228 +3,2251 @@
   "title": "tile_compile v4 config",
   "type": "object",
   "properties": {
-    "method": {"type":"string","enum":["aqmh","classic_tile_compile"],"default":"aqmh","description":"Reconstruction method: 'aqmh' (AQMH First default) or 'classic_tile_compile'. If missing, defaults to 'aqmh'."},
-    "pipeline": { "type":"object",
-      "properties": { "mode":{"type":"string","enum":["production","test"]},
-                      "abort_on_fail":{"type":"boolean"} } },
-    "output": { "type":"object",
-      "properties": { "registered_dir":{"type":"string"},
-                      "write_registered_frames":{"type":"boolean"},
-                      "crop_to_nonzero_bbox":{"type":"boolean"} } },
-    "data": { "type":"object",
-      "properties": { "image_width":{"type":"integer","minimum":0},
-                      "image_height":{"type":"integer","minimum":0},
-                      "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
-                      "bayer_pattern":{"type":"string"},
-                      "linear_required":{"type":"boolean","deprecated":true,
-                                         "description":"Deprecated: non-linear frames are warn-only in the runner and are no longer removed."} } },
-    "linearity": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "max_frames":{"type":"integer","minimum":1},
-                      "min_overall_linearity":{"type":"number","minimum":0,"maximum":1},
-                      "strictness":{"type":"string","enum":["strict","moderate","permissive"]} } },
-    "calibration": { "type":"object",
-      "properties": { "use_bias":{"type":"boolean"}, "use_dark":{"type":"boolean"}, "use_flat":{"type":"boolean"},
-                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "dark_already_bias_corrected":{"type":"boolean","description":"Set true only for master darks whose bias pedestal has already been removed."}, "flat_use_master":{"type":"boolean"},
-                      "dark_auto_select":{"type":"boolean"},
-                      "dark_match_exposure_tolerance_percent":{"type":"number","minimum":0},
-                      "dark_match_use_temp":{"type":"boolean"},
-                      "dark_match_temp_tolerance_c":{"type":"number","minimum":0},
-                      "bias_dir":{"type":"string"}, "darks_dir":{"type":"string"}, "flats_dir":{"type":"string"},
-                      "bias_master":{"type":"string"}, "dark_master":{"type":"string"}, "flat_master":{"type":"string"},
-                      "pattern":{"type":"string"} } },
-    "assumptions": { "type":"object",
-      "properties": { "frames_min":{"type":"integer","minimum":1},
-                      "frames_reduced_threshold":{"type":"integer","minimum":1},
-                      "reduced_mode_skip_clustering":{"type":"boolean"},
-                      "reduced_mode_cluster_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2} } },
-    "normalization": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "mode":{"type":"string","enum":["background","median"],"description":"Frame normalization mode. 'background' subtracts a per-frame background estimate — DANGER for extended emission nebulae (M42, Orion, large HII regions): it subtracts real nebula signal, destroying dynamic range. Use 'median' for any target filling >10% of the frame. 'background' is only safe for point sources, small galaxies, or targets much smaller than the frame."},
-                      "per_channel":{"type":"boolean"} } },
-    "registration": { "type":"object",
-      "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc","robust_phase_ecc"]},
-                      "enable_star_pair_fallback":{"type":"boolean"},
-                      "allow_rotation":{"type":"boolean"},
-                      "transform_model":{"type":"string","enum":["similarity","affine"]},
-                      "star_topk":{"type":"integer","minimum":3},
-                      "star_min_inliers":{"type":"integer","minimum":2},
-                      "star_inlier_tol_px":{"type":"number","exclusiveMinimum":0},
-                      "star_dist_bin_px":{"type":"number","exclusiveMinimum":0},
-                      "reject_outliers":{"type":"boolean"},
-                      "reject_cc_min_abs":{"type":"number","minimum":0,"maximum":1},
-                      "reject_shift_px_min":{"type":"number","minimum":0},
-                      "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
-                      "reject_scale_min":{"type":"number","exclusiveMinimum":0},
-                      "reject_scale_max":{"type":"number","exclusiveMinimum":0},
-                      "auto_engine":{"type":"boolean","description":"When true, probes a few frames before registration and overrides the engine to triangle_star_matching+affine when strong field rotation is detected (Alt/Az mount). Default: true."},
-                      "auto_engine_rotation_threshold_deg":{"type":"number","exclusiveMinimum":0,"description":"Rotation per frame in degrees above which auto_engine triggers the override. Default: 0.05 (triggers at ~0.6 deg/min for 5s exposures, well above EQ residual <0.01 deg/frame)."},
-                      "max_blind_chain_depth":{"type":"integer","minimum":0,"maximum":100,"description":"Maximum blind-chain rescue depth. 0 = auto (N/10, clamped 12-50). >0 = manual override. Default: 0."},
-                      "blind_chain_strong_anchor_cc":{"type":"number","minimum":0.01,"maximum":0.5,"description":"CC threshold for strong anchors in blind chains. Frames above this CC can start deeper chains. Default: 0.08."},
-                      "blind_chain_drift_threshold_px":{"type":"number","minimum":0.5,"maximum":10.0,"description":"Max allowed drift per frame in a blind chain (px). Default: 2.0."},
-                      "use_astrometry":{"type":"boolean","description":"Enable astrometric rescue via ASTAP for frames that fail all other methods. Requires astap_bin and astap_data_dir. Default: true."},
-                      "enable_local_background_subtraction":{"type":"boolean","description":"Run local background subtraction before star detection. Helps with moonlight or strong gradients. Default: false."},
-                      "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000,"description":"Search radius for the shift-consistency filter in triangle_star_matching (px on proxy image). Must cover the maximum expected inter-frame shift. Equatorial: 60, Alt/Az (e.g. DWARF II): 200-400. Default: 200. WARNING: if set too small, frames with shifts exceeding this radius will silently fail registration (cc≈0, chain_depth=0). Never reduce below the measured maximum per-frame shift."} } },
-    "dithering": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "min_shift_px":{"type":"number","minimum":0} } },
-    "tile_denoise": { "type":"object",
+    "method": {
+      "type": "string",
+      "enum": [
+        "aqmh",
+        "classic_tile_compile"
+      ],
+      "default": "aqmh",
+      "description": "Reconstruction method: 'aqmh' (AQMH First default) or 'classic_tile_compile'. If missing, defaults to 'aqmh'."
+    },
+    "pipeline": {
+      "type": "object",
       "properties": {
-        "soft_threshold": { "type":"object",
-          "properties": { "enabled":{"type":"boolean"},
-                          "blur_kernel":{"type":"integer","minimum":3},
-                          "alpha":{"type":"number","exclusiveMinimum":0},
-                          "skip_star_tiles":{"type":"boolean"} } },
-        "wiener": { "type":"object",
-          "properties": { "enabled":{"type":"boolean"},
-                          "snr_threshold":{"type":"number","minimum":0},
-                          "q_min":{"type":"number","minimum":-1},
-                          "q_max":{"type":"number","minimum":0,"maximum":1},
-                          "q_step":{"type":"number","exclusiveMinimum":0},
-                          "min_snr":{"type":"number","minimum":0},
-                          "max_iterations":{"type":"integer","minimum":1} } } } },
-    "chroma_denoise": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
-                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc"]},
-                      "protect_luma":{"type":"boolean"},
-                      "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
-                      "star_protection":{"type":"object","properties":{
-                        "enabled":{"type":"boolean"},
-                        "threshold_sigma":{"type":"number","exclusiveMinimum":0},
-                        "dilate_px":{"type":"integer","minimum":0}}},
-                      "structure_protection":{"type":"object","properties":{
-                        "enabled":{"type":"boolean"},
-                        "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
-                      "chroma_wavelet":{"type":"object","properties":{
-                        "enabled":{"type":"boolean"},
-                        "levels":{"type":"integer","minimum":1},
-                        "threshold_scale":{"type":"number","exclusiveMinimum":0},
-                        "soft_k":{"type":"number","exclusiveMinimum":0}}},
-                      "chroma_bilateral":{"type":"object","properties":{
-                        "enabled":{"type":"boolean"},
-                        "sigma_spatial":{"type":"number","exclusiveMinimum":0},
-                        "sigma_range":{"type":"number","exclusiveMinimum":0}}},
-                      "blend":{"type":"object","properties":{
-                        "mode":{"type":"string","enum":["chroma_only"]},
-                        "amount":{"type":"number","minimum":0,"maximum":1}}} } },
-    "global_metrics": { "type":"object",
-      "properties": { "adaptive_weights":{"type":"boolean"},
-                      "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1. CRITICAL SIDE EFFECT ON REGISTRATION: This value also controls the quality-based anchor frame selection for registration. Higher k concentrates weight on fewer high-quality frames, causing anchor frames to cluster in high-quality regions and leaving the rest of the sequence without nearby anchors \u2014 causing chain_depth=0 registration failures. HARD RULES: (1) frame_count > 300: maximum allowed is 1.2. Do NOT recommend values above 1.2 regardless of quality spread. (2) frame_count 100-300: maximum 1.5 only if FWHM p90/p10 ratio > 1.5 (>50% spread). (3) Only frame_count < 100 with extreme spread may use k=2.0. Example: 610 frames \u2192 max k=1.2 even with high quality spread. Recommending k=2.0 for >300 frames is WRONG and causes registration failures."},
-                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1},"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"star_count":{"type":"number","minimum":0,"maximum":1}}},
-                      "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
-    "tile": { "type":"object",
-      "properties": { "size_factor":{"type":"integer","minimum":1},
-                      "min_size":{"type":"integer","minimum":1},
-                      "max_divisor":{"type":"integer","minimum":1},
-                      "overlap_fraction":{"type":"number","minimum":0,"maximum":0.5},
-                      "star_min_count":{"type":"integer","minimum":0},
-                      "star_soft_count":{"type":"integer","minimum":0} } },
-    "local_metrics": { "type":"object",
-      "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
-                      "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
-                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0},"tau_local":{"type":"number","exclusiveMinimum":0}}},
-                      "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
-                      "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}},
-                      "k_local":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation between tiles, <1 softens it. NOTE: unlike weight_exponent_scale, k_local does NOT affect registration anchor selection. Safe to tune independently. High values (>2.0) can cause tile boundary artifacts if local quality varies sharply."} } },
-    "aqmh": { "type":"object","description":"AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually.",
-      "properties": { "enabled":{"type":"boolean","description":"Runtime flag derived from Config.method. true when method='aqmh', false when method='classic_tile_compile'."},
-                      "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8},"base_window_px":{"type":"integer","minimum":1},"w_sharp":{"type":"number","minimum":0},"w_snr":{"type":"number","minimum":0},"k_artifact":{"type":"number","exclusiveMinimum":0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1}}},
-                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. RULE: if recommending cherry_pick.enabled=true in the same analysis, you MUST recommend resolution_divisor=1. Recommending cherry_pick.enabled=true AND resolution_divisor=2 together is contradictory — downsampled quality maps negate per-pixel cherry_pick accuracy."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
-                      "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","description":"Enables per-pixel best-k frame selection during reconstruction. The pipeline also enforces an internal quality gate: if cherry_pick increases background_rms by more than max_background_rms_increase_percent, it is automatically disabled regardless of this flag. Only recommend enabling when the frame set has a significant quality spread (FWHM p90/p10 ratio > 1.3 or >20% spread) AND k_frac is set conservatively (<=0.6). Do NOT recommend enabling for large homogeneous frame sets where quality spread is low — it increases per-pixel tile inconsistency and raises background_rms."},"k_min":{"type":"integer","minimum":1},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"description":"Fraction of total frames retained per pixel tile. COMMON MISTAKE: reasoning 'if ~10% of frames are bad, use k_frac=0.90 to discard 10%' is WRONG for large frame counts — each tile independently selects its best k frames from a spatially varying quality map, so different tiles use different frame subsets, creating per-tile flux baseline shifts that raise background_rms and produce tile-pattern artifacts. The pipeline quality gate will auto-disable cherry_pick if background_rms rises. HARD RULES: (1) frame_count > 300: maximum k_frac = 0.5. The argument 'k_frac=0.3 wastes good frames' does NOT override this — k_frac=0.3-0.5 with 610 frames still retains 183-305 frames per tile, far above stacking minimum. (2) frame_count 100-300: max k_frac = 0.7. (3) frame_count < 100: up to 0.9. Correct example: 610 frames, 10% bad -> k_frac=0.45. Do NOT use k_frac >= 0.85 for any dataset with >300 frames."}}},
-                      "diagnostics":{"type":"object","properties":{"tau_artifact":{"type":"number","minimum":0,"maximum":1},"q_region":{"type":"number","minimum":0,"maximum":1},"r_morph_canvas_px":{"type":"integer","minimum":1}}} } },
-    "synthetic": { "type":"object",
-      "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
-                      "frames_min":{"type":"integer","minimum":1},
-                      "frames_max":{"type":"integer","minimum":1},
-                      "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
-    "astrometry": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "astap_bin":{"type":"string"},
-                      "astap_data_dir":{"type":"string"},
-                      "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
-    "bge": { "type":"object",
-      "properties": { "enabled":{"type":"boolean","description":"Legacy compatibility flag. Prefer bge.method. If bge.method is present it is authoritative; otherwise enabled=true maps to method=classic and enabled=false maps to method=none."},
-                      "method":{"type":"string","enum":["none","classic","autobge"],"default":"none","description":"BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine. This field is authoritative when present."},
-                      "autobge":{"type":"object","properties":{"num_sample_points":{"type":"integer","minimum":0,"maximum":3000,"default":0,"description":"Number of AutoBGE sample points. 0 lets the implementation derive a deterministic image-size-based count."},"poly_degree":{"type":"integer","minimum":1,"maximum":6,"default":2},"rbf_smooth":{"type":"number","minimum":0,"maximum":10,"default":2.0},"downsample_scale":{"type":"integer","minimum":1,"maximum":8,"default":4},"patch_size":{"type":"integer","minimum":3,"maximum":101,"default":35,"description":"Odd patch size used for local background sampling."},"patch_estimator":{"type":"string","enum":["median","sigma_clipped_median"],"default":"sigma_clipped_median"},"stretch_mode":{"type":"string","enum":["none","linear","mtf"],"default":"linear","description":"Working-space transform used only for AutoBGE sampling/fitting. Default linear preserves the additive background contract; mtf is an experimental AutoBGE-parity mode."},"stretch_target_median":{"type":"number","minimum":0.01,"maximum":0.99,"default":0.25},"border_margin":{"type":"integer","minimum":0,"maximum":250,"default":10},"bright_exclusion_fraction":{"type":"number","minimum":0.01,"maximum":0.99,"default":0.2},"gradient_descent_max_iters":{"type":"integer","minimum":1,"maximum":500,"default":100},"random_seed":{"type":"integer","default":42},"normalize_between_stages":{"type":"boolean","default":true},"apply_guards":{"type":"boolean","default":true,"description":"When true, AutoBGE uses the shared outer BGE apply guards before mutating RGB output."},"mono_mode":{"type":"string","enum":["rgb_duplicate","disabled"],"default":"rgb_duplicate"},"exclusion_polygons":{"type":"array","default":[],"items":{"type":"array","minItems":3,"items":{"type":"array","items":[{"type":"number","minimum":0,"maximum":1},{"type":"number","minimum":0,"maximum":1}],"additionalItems":false,"minItems":2,"maxItems":2}}},"user_sample_points":{"type":"array","default":[],"description":"Optional manually placed AutoBGE sample points. Normalized [0,1] coordinates in the original image space.","items":{"type":"array","items":[{"type":"number","minimum":0,"maximum":1},{"type":"number","minimum":0,"maximum":1}],"additionalItems":false,"minItems":2,"maxItems":2}}}},
-
-                      "tile_weight_lambda_structure":{"type":"number","exclusiveMinimum":0,"description":"Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 1.0."},
-                      "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
-                      "sample_estimator":{"type":"string","enum":["quantile","sigma_clipped_median","sextractor_mode","biweight"],"description":"Tile background sample estimator. quantile uses bge.sample_quantile; sigma_clipped_median, sextractor_mode and biweight use robust tile-pixel estimators."},
-                      "min_sample_bg_value":{"type":"number","minimum":0,"description":"Minimum tile background sample value accepted for BGE aggregation."},
-                      "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
-                      "min_tiles_per_cell":{"type":"integer","minimum":1},
-                      "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},
-                      "min_valid_samples_for_apply":{"type":"integer","minimum":1},
-                      "mask":{"type":"object","properties":{"star_dilate_px":{"type":"integer","minimum":0},"sat_dilate_px":{"type":"integer","minimum":0}}},
-                      "grid":{"type":"object","properties":{"N_g":{"type":"integer","minimum":1},"G_min_px":{"type":"integer","minimum":1},"G_max_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"insufficient_cell_strategy":{"type":"string","enum":["discard","nearest","radius_expand"]}}},
-                      "fit":{"type":"object","properties":{"method":{"type":"string","enum":["poly","spline","bicubic","rbf","modeled_mask_mesh"]},"robust_loss":{"type":"string","enum":["huber","tukey"]},"huber_delta":{"type":"number","exclusiveMinimum":0},"irls_max_iterations":{"type":"integer","minimum":1},"irls_tolerance":{"type":"number","exclusiveMinimum":0},"polynomial_order":{"type":"integer","enum":[2,3]},"rbf_phi":{"type":"string","enum":["thinplate","multiquadric","gaussian"]},"rbf_mu_factor":{"type":"number","exclusiveMinimum":0},"rbf_lambda":{"type":"number","exclusiveMinimum":0},"rbf_epsilon":{"type":"number","exclusiveMinimum":0}}},
-                      "autotune":{"type":"object","properties":{"enabled":{"type":"boolean"},"max_evals":{"type":"integer","minimum":1},"holdout_fraction":{"type":"number","minimum":0.05,"maximum":0.5},"alpha_flatness":{"type":"number","minimum":0},"beta_roughness":{"type":"number","minimum":0},"strategy":{"type":"string","enum":["conservative","extended"]}}} } },
-    "pcc": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "source":{"type":"string","enum":["auto","siril","vizier_gaia","vizier_apass"]},
-                      "mag_limit":{"type":"number","minimum":1,"maximum":22,"description":"Magnitude limit for PCC catalog star matching. CAUTION: for small sensors or short exposures (consumer OSC cameras, DWARF II, Seestar), mag_limit > 15 includes stars below the detection threshold, causing phantom matches against background noise. Keep <= 14-15 for consumer cameras. Only increase to 16-18 for large-aperture deep exposures."},
-                      "mag_bright_limit":{"type":"number","minimum":0,"maximum":15},
-                      "aperture_radius_px":{"type":"number","exclusiveMinimum":0},
-                      "annulus_inner_px":{"type":"number","exclusiveMinimum":0},
-                      "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
-                      "min_stars":{"type":"integer","minimum":3},
-                      "sigma_clip":{"type":"number","exclusiveMinimum":0},
-                      "background_model":{"type":"string","enum":["median","plane"]},
-                      "max_condition_number":{"type":"number","minimum":1},
-                      "max_residual_rms":{"type":"number","exclusiveMinimum":0},
-                      "radii_mode":{"type":"string","enum":["fixed","auto_fwhm"]},
-                      "aperture_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "min_aperture_px":{"type":"number","exclusiveMinimum":0},
-                      "siril_catalog_dir":{"type":"string"},
-                      "apply_attenuation":{"type":"boolean"},
-                      "chroma_strength":{"type":"number","minimum":0,"maximum":1},
-                      "background_neutralization_mode":{"type":"string","enum":["always","auto","off"]},
-                      "k_max":{"type":"number","exclusiveMinimum":0} } },
-    "hypermetric_stretch": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "require_successful_pcc":{"type":"boolean"},
-                      "mode":{"type":"string","enum":["ready_to_use","scientific"]},
-                      "sensor_profile":{"type":"string"},
-                      "fallback_profile":{"type":"string"},
-                      "adaptive_anchor":{"type":"boolean"},
-                      "target_bg":{"type":"number","minimum":0.05,"maximum":0.50},
-                      "protect_b":{"type":"number","minimum":0.1},
-                      "convergence_power":{"type":"number","minimum":1.0,"maximum":10.0},
-                      "log_d_mode":{"type":"string","enum":["auto","fixed"]},
-                      "fixed_log_d":{"type":"number","minimum":0,"maximum":7},
-                      "color_strategy":{"type":"string","enum":["auto","fixed"]},
-                      "fixed_color_strategy":{"type":"number","minimum":-1,"maximum":1},
-                      "color_grip":{"type":"number","minimum":0,"maximum":1},
-                      "shadow_convergence":{"type":"number","minimum":0},
-                      "linear_expansion":{"type":"number","minimum":0,"maximum":1},
-                      "write_channels":{"type":"boolean"},
-                      "output_rgb":{"type":"string"} } },
-    "stacking": { "type":"object",
-      "properties": { "method":{"type":"string","enum":["rej","average"]},
-                      "common_overlap_required_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"description":"Required pixel fraction across all usable frames for COMMON_OVERLAP. Default 1.0 = strict intersection."},
-                      "tile_common_valid_min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"description":"Minimum COMMON_OVERLAP coverage per tile. Default 1.0 = only tiles fully inside the support mask are considered valid."},
-                      "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
-                      "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
-                      "output_stretch":{"type":"boolean"},
-                      "cosmetic_correction":{"type":"boolean"},
-                      "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},
-                      "per_frame_cosmetic_correction":{"type":"boolean"},
-                      "per_frame_cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0} } },
-    "validation": { "type":"object",
-      "properties": { "min_fwhm_improvement_percent":{"type":"number"},
-                      "max_background_rms_increase_percent":{"type":"number"},
-                      "min_tile_weight_variance":{"type":"number","minimum":0},
-                      "require_no_tile_pattern":{"type":"boolean"} } },
-    "runtime_limits": { "type":"object",
-      "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
-                      "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
-                      "allow_emergency_mode":{"type":"boolean"},
-                      "parallel_workers":{"type":"integer","minimum":1},
-                      "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"default":"auto","description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' (Standard) erkennt automatisch verfuegbare GPU-Backends (CUDA/OpenCL) zur Laufzeit. Prioritaet: CUDA -> OpenCL -> CPU. 'opencv_cuda' erzwingt NVIDIA CUDA, 'opencv_opencl'/'opencl' erzwingt OpenCL (AMD/Intel/NVIDIA), 'cpu' deaktiviert GPU. Faellt sauber auf CPU zurueck wenn Hardware nicht verfuegbar."},
-                      "tile_reconstruction_diagnostics":{"type":"string","enum":["full","minimal","off"],"default":"full"} } }
+        "mode": {
+          "type": "string",
+          "enum": [
+            "production",
+            "test"
+          ],
+          "description": "Pipeline execution mode. production = full pipeline with all stages. test = reduced pipeline for quick validation runs.",
+          "default": "production"
+        },
+        "abort_on_fail": {
+          "type": "boolean",
+          "description": "When true, the pipeline aborts on the first stage failure. When false, non-critical failures are logged and the pipeline continues with best-effort recovery.",
+          "default": true
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "registered_dir": {
+          "type": "string",
+          "description": "Output directory for registered frames. If empty, defaults to <run_dir>/registered.",
+          "default": "registered"
+        },
+        "write_registered_frames": {
+          "type": "boolean",
+          "description": "When true, writes registered (pre-stack) frames to disk for inspection. Increases disk I/O. Default: false.",
+          "default": false
+        },
+        "crop_to_nonzero_bbox": {
+          "type": "boolean",
+          "description": "When true, crops the final output to the non-zero bounding box (common overlap region). Removes black borders from stacked result. Default: true.",
+          "default": true
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "image_width": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional expected image width in pixels. 0 = auto-detect from first frame. Used for pre-allocation and validation.",
+          "default": 0
+        },
+        "image_height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional expected image height in pixels. 0 = auto-detect from first frame. Used for pre-allocation and validation.",
+          "default": 0
+        },
+        "color_mode": {
+          "type": "string",
+          "enum": [
+            "OSC",
+            "MONO",
+            "RGB"
+          ],
+          "description": "Expected camera color mode. OSC = One-Shot Color (Bayer CFA). MONO = monochrome sensor. RGB = pre-debayered RGB frames.",
+          "default": "OSC"
+        },
+        "bayer_pattern": {
+          "type": "string",
+          "description": "Bayer matrix pattern for OSC CFA data (e.g. RGGB, BGGR, GBRG, GRBG). NONE for monochrome data. Auto-detected from FITS header if available.",
+          "default": "auto"
+        }
+      }
+    },
+    "linearity": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, checks input frames for non-linearity (e.g. clipped highlights from over-exposure). Non-linear frames are flagged and may be excluded.",
+          "default": true
+        },
+        "max_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of frames to sample for linearity checking. Linearity test runs on a random subset to save time. Default: 50.",
+          "default": 8
+        },
+        "min_overall_linearity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum overall linearity score required for the frame set. Below this threshold, a warning is issued. Range 0\u20131. Default: 0.95.",
+          "default": 0.9
+        },
+        "strictness": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "moderate",
+            "permissive"
+          ],
+          "description": "Linearity check strictness. strict = reject frames with any non-linear pixels. moderate = warn only. permissive = log only, no action. Default: moderate.",
+          "default": "strict"
+        }
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "properties": {
+        "use_bias": {
+          "type": "boolean",
+          "description": "Enable bias/dark-frame calibration. When true, a master bias is created from bias_dir or loaded from bias_master.",
+          "default": false
+        },
+        "use_dark": {
+          "type": "boolean",
+          "description": "Enable dark-frame calibration. When true, a master dark is created from darks_dir or loaded from dark_master.",
+          "default": false
+        },
+        "use_flat": {
+          "type": "boolean",
+          "description": "Enable flat-field calibration. When true, a master flat is created from flats_dir or loaded from flat_master.",
+          "default": false
+        },
+        "bias_use_master": {
+          "type": "boolean",
+          "description": "When true, load a pre-built master bias from bias_master path instead of stacking individual bias frames from bias_dir.",
+          "default": false
+        },
+        "dark_use_master": {
+          "type": "boolean",
+          "description": "When true, load a pre-built master dark from dark_master path instead of stacking individual dark frames from darks_dir.",
+          "default": false
+        },
+        "dark_already_bias_corrected": {
+          "type": "boolean",
+          "description": "True nur fuer Master-Darks, deren Bias-Pedestal bereits entfernt wurde. Verhindert doppelte Bias-Korrektur. Default: false.",
+          "default": false
+        },
+        "flat_use_master": {
+          "type": "boolean",
+          "description": "When true, load a pre-built master flat from flat_master path instead of stacking individual flat frames from flats_dir.",
+          "default": false
+        },
+        "dark_auto_select": {
+          "type": "boolean",
+          "description": "Automatically select matching darks by exposure time (and optionally temperature). When false, all darks are used regardless of exposure. Default: true.",
+          "default": true
+        },
+        "dark_match_exposure_tolerance_percent": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum exposure time deviation for dark matching, in percent. Darks outside \u00b1tolerance% of frame exposure are excluded. Default: 8.",
+          "default": 5.0
+        },
+        "dark_match_use_temp": {
+          "type": "boolean",
+          "description": "When true, also match darks by sensor temperature within dark_match_temp_tolerance_c. Default: false.",
+          "default": false
+        },
+        "dark_match_temp_tolerance_c": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Temperature tolerance for dark matching in \u00b0C. Only used when dark_match_use_temp=true. Default: 3.",
+          "default": 2.0
+        },
+        "bias_dir": {
+          "type": "string",
+          "description": "Directory path for individual bias frames (used when bias_use_master=false). Default: .",
+          "default": ""
+        },
+        "darks_dir": {
+          "type": "string",
+          "description": "Directory path for individual dark frames (used when dark_use_master=false). Default: .",
+          "default": ""
+        },
+        "flats_dir": {
+          "type": "string",
+          "description": "Directory path for individual flat frames (used when flat_use_master=false). Default: .",
+          "default": ""
+        },
+        "bias_master": {
+          "type": "string",
+          "description": "Path to pre-built master bias file (used when bias_use_master=true). Default: .",
+          "default": ""
+        },
+        "dark_master": {
+          "type": "string",
+          "description": "Path to pre-built master dark file (used when dark_use_master=true). Default: .",
+          "default": ""
+        },
+        "flat_master": {
+          "type": "string",
+          "description": "Path to pre-built master flat file (used when flat_use_master=true). Default: .",
+          "default": ""
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Glob pattern for calibration frame file matching. Default: *.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz",
+          "default": "\"*.fit"
+        }
+      }
+    },
+    "assumptions": {
+      "type": "object",
+      "properties": {
+        "frames_min": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum number of frames required for the pipeline to run. Below this, the run aborts. Default: 3.",
+          "default": 50
+        },
+        "frames_reduced_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Schwelle fuer Full Mode: frames_min..(threshold-1) = Reduced Mode, ab threshold = Full Mode. In Reduced Mode, clustering and synthetic frame generation may be skipped. Default: 50.",
+          "default": 200
+        },
+        "reduced_mode_skip_clustering": {
+          "type": "boolean",
+          "description": "Wenn true, werden STATE_CLUSTERING und SYNTHETIC_FRAMES im Reduced-/Emergency-Mode uebersprungen. Recommended: true (tile reconstruction result is used directly as final image).",
+          "default": true
+        },
+        "reduced_mode_cluster_range": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Cluster count range [k_min, k_max] for Reduced Mode clustering (only when reduced_mode_skip_clustering=false). Default: [5, 10].",
+          "default": [
+            5,
+            10
+          ]
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, normalizes frames before stacking to correct for varying sky background levels. Recommended: true.",
+          "default": true
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "background",
+            "median"
+          ],
+          "description": "Frame normalization mode before stacking. 'background' subtracts a per-frame background estimate and normalizes to a reference level \u2014 DANGER for extended emission nebulae (M42, Orion, large HII regions): it will subtract real nebula signal as if it were background, destroying dynamic range and flattening the object. Use 'median' for any target where the object fills a significant fraction of the frame (>10%). 'background' is only safe for point sources, galaxy fields, or targets much smaller than the frame.",
+          "default": "background"
+        },
+        "per_channel": {
+          "type": "boolean",
+          "description": "When true, normalization is applied per-channel (R, G, B independently). Recommended for OSC data. Default: true.",
+          "default": true
+        }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "description": "Registration with Temporal-Smoothing (v3.2.3+): Automatically uses neighbor frames (i-1, i+1) for failed registrations. Adaptive star detection: Falls back to 2.5\u03c3 threshold when <topk/2 stars detected.",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": [
+            "triangle_star_matching",
+            "star_similarity",
+            "hybrid_phase_ecc",
+            "robust_phase_ecc"
+          ],
+          "description": "Primary registration engine. robust_phase_ecc recommended for nebula/clouds (LoG gradient preprocessing). triangle_star_matching for clear skies (faster, rotation-invariant).",
+          "default": "triangle_star_matching"
+        },
+        "transform_model": {
+          "type": "string",
+          "enum": [
+            "similarity",
+            "affine"
+          ],
+          "description": "Global transform family for star/feature registration. similarity keeps rotation plus uniform scale, affine additionally allows shear.",
+          "default": "similarity"
+        },
+        "enable_star_pair_fallback": {
+          "type": "boolean",
+          "description": "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this.",
+          "default": true
+        },
+        "allow_rotation": {
+          "type": "boolean",
+          "description": "When true, the registration engine allows rotation in the transform model. Recommended: true for Alt/Az mounts, false for equatorial mounts with good tracking.",
+          "default": true
+        },
+        "star_topk": {
+          "type": "integer",
+          "minimum": 3,
+          "description": "Number of top brightest stars detected per frame for triangle matching. Higher values provide more matching candidates but increase computation. Range 50\u2013500. Recommended: 200.",
+          "default": 150
+        },
+        "star_min_inliers": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "Minimum number of star-pair inliers required to accept a registration transform. Higher values are more robust but may reject valid transforms for sparse star fields. Range 3\u201320. Recommended: 5.",
+          "default": 4
+        },
+        "star_inlier_tol_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Inlier tolerance in pixels for RANSAC star-pair matching. Star pairs deviating more than this distance are rejected. Range 0.5\u20135.0. Recommended: 2.0.",
+          "default": 4.0
+        },
+        "star_dist_bin_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Distance bin size in pixels for star-pair histogram matching. Controls the granularity of distance-based matching. Range 1\u201320. Recommended: 5.",
+          "default": 5.0
+        },
+        "reject_outliers": {
+          "type": "boolean",
+          "description": "When true, applies outlier rejection to registration results based on correlation coefficient and shift magnitude. Recommended: true.",
+          "default": true
+        },
+        "reject_cc_min_abs": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Absolute minimum correlation coefficient for accepting a registration. Below this, the registration is rejected. Range 0\u20131. Recommended: 0.3.",
+          "default": 0.25
+        },
+        "reject_shift_px_min": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum shift in pixels for outlier rejection. Shifts below this are always accepted regardless of other criteria. Range 0\u2013100. Recommended: 0.",
+          "default": 100.0
+        },
+        "reject_shift_median_multiplier": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Multiplier on median shift for outlier rejection. Shifts exceeding multiplier \u00d7 median_shift are rejected. Range 2\u201310. Recommended: 5.",
+          "default": 5.0
+        },
+        "reject_scale_min": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Minimum scale factor for accepting a registration transform. Below this, the transform is rejected as degenerate. Range 0.5\u20130.99. Recommended: 0.8.",
+          "default": 0.92
+        },
+        "reject_scale_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum scale factor for accepting a registration transform. Above this, the transform is rejected as degenerate. Range 1.01\u20132.0. Recommended: 1.2.",
+          "default": 1.08
+        },
+        "auto_engine": {
+          "type": "boolean",
+          "description": "Wenn true, werden vor der Registrierung einige Probe-Frames analysiert. Bei erkannter starker Feldrotation (Alt/Az-Montierung) wird die Engine automatisch auf triangle_star_matching+affine umgestellt. Default: true.",
+          "default": true
+        },
+        "auto_engine_rotation_threshold_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Rotationsschwelle in Grad/Frame, ab der auto_engine den Override ausloest. Default: 0.05 (entspricht ~0.6 Grad/min bei 5s-Belichtungen \u2014 deutlich ueber EQ-Residualrotation <0.01 Grad/Frame, sicher unter jedem Alt/Az-Wert).",
+          "default": 0.05
+        },
+        "max_blind_chain_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Maximum chain depth for blind sequential registration when direct registration fails. 0 = no chain. Higher values allow longer sequences of frame-to-frame registration. Range 0\u201350. Recommended: 10.",
+          "default": 0
+        },
+        "blind_chain_strong_anchor_cc": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.5,
+          "description": "Correlation coefficient threshold for strong anchor in blind chain registration. Anchors with cc above this are considered reliable. Range 0.01\u20130.5. Recommended: 0.3.",
+          "default": 0.08
+        },
+        "blind_chain_drift_threshold_px": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 10.0,
+          "description": "Maximum accumulated drift in pixels before a blind chain is terminated. Prevents error accumulation in long chains. Range 0.5\u201310.0. Recommended: 3.0.",
+          "default": 2.0
+        },
+        "use_astrometry": {
+          "type": "boolean",
+          "description": "When true, uses ASTAP plate solving for WCS-based registration. Requires astrometry.enabled=true and ASTAP installed. Default: false.",
+          "default": true
+        },
+        "enable_local_background_subtraction": {
+          "type": "boolean",
+          "description": "When true, applies local background subtraction before star detection to improve detection in gradient-rich fields. Default: true.",
+          "default": false
+        },
+        "star_shift_radius_px": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 2000,
+          "description": "Search radius for the shift-consistency filter in triangle_star_matching (px in proxy image). Must cover the maximum expected inter-frame shift. Equatorial mount (EQ tracker): 60. Alt/Az (e.g. DWARF II, unguided): 200\u2013400. WARNING: if set too small, frames with shifts exceeding this radius will silently fail registration (no error, just a bad warp with cc\u22480). This causes chain_depth=0 for those frames. Never reduce below the measured maximum per-frame shift. If in doubt, leave at default 200.",
+          "default": 200.0
+        }
+      }
+    },
+    "dithering": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Mark session as dithered. Enables dither diagnostics (detected_count/fraction) in global_registration.json. Dithering helps suppress walking noise and hot pixel artifacts. Default: true.",
+          "default": false
+        },
+        "min_shift_px": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum shift in pixels between consecutive frames to count as dithered. Shifts below this are ignored for dither detection. Range 0\u20135. Recommended: 0.7.",
+          "default": 0.5
+        }
+      }
+    },
+    "tile_denoise": {
+      "type": "object",
+      "properties": {
+        "soft_threshold": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable wavelet soft-thresholding denoise on tiles before reconstruction. Removes noise while preserving edges.",
+              "default": true
+            },
+            "blur_kernel": {
+              "type": "integer",
+              "minimum": 3,
+              "description": "Gaussian blur kernel size for pre-smoothing before wavelet decomposition. Must be odd. Range 3\u201315. Recommended: 5.",
+              "default": 31
+            },
+            "alpha": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Soft-thresholding strength. Higher values remove more noise but may blur faint detail. Range 0.5\u20135.0. Recommended: 2.0.",
+              "default": 1.5
+            },
+            "skip_star_tiles": {
+              "type": "boolean",
+              "description": "When true, skips denoising for tiles classified as STAR to preserve star sharpness. Recommended: true.",
+              "default": true
+            }
+          }
+        },
+        "wiener": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Wiener filter denoise on tiles. Estimates signal-to-noise ratio per tile and applies adaptive filtering.",
+              "default": true
+            },
+            "snr_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Minimum SNR for Wiener filtering. Tiles with SNR below this are filtered more aggressively. Range 0\u201310. Recommended: 1.0.",
+              "default": 5.0
+            },
+            "q_min": {
+              "type": "number",
+              "minimum": -1,
+              "description": "Minimum Wiener filter quality parameter q. Controls the lower bound of the adaptive filter. Range -1\u20131. Recommended: 0.",
+              "default": -0.5
+            },
+            "q_max": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Maximum Wiener filter quality parameter q. Controls the upper bound of the adaptive filter. Range 0\u20131. Recommended: 0.9.",
+              "default": 1.0
+            },
+            "q_step": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Step size for q parameter search. Smaller steps = finer adaptation but slower. Range 0.01\u20130.5. Recommended: 0.1.",
+              "default": 0.1
+            },
+            "min_snr": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Minimum SNR for applying Wiener filter at all. Tiles below this SNR are not filtered. Range 0\u20135. Recommended: 0.5.",
+              "default": 2.0
+            },
+            "max_iterations": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum iterations for Wiener filter convergence. Range 1\u201320. Recommended: 5.",
+              "default": 10
+            }
+          }
+        }
+      }
+    },
+    "chroma_denoise": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Default: true.",
+          "default": false
+        },
+        "color_space": {
+          "type": "string",
+          "enum": [
+            "ycbcr_linear",
+            "opponent_linear"
+          ],
+          "description": "Color space for chroma denoise. ycbcr_linear = YCbCr (standard, good for most cameras). opponent_linear = opponent color space (better for unusual sensor response). Default: ycbcr_linear.",
+          "default": "ycbcr_linear"
+        },
+        "apply_stage": {
+          "type": "string",
+          "enum": [
+            "pre_stack_tiles",
+            "post_stack_linear"
+          ],
+          "description": "Pipeline stage for chroma denoise. pre_stack_tiles = per-tile before reconstruction (preserves per-frame noise characteristics). post_stack_linear = on final stacked linear image (more effective for residual color noise). Default: post_stack_linear.",
+          "default": "post_stack_linear"
+        },
+        "protect_luma": {
+          "type": "boolean",
+          "description": "When true, luma channel is protected from denoise \u2014 only chroma is filtered. Preserves star sharpness and detail. Default: true.",
+          "default": true
+        },
+        "luma_guard_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification. Range 0\u20131. Recommended: 0.75.",
+          "default": 0.75
+        },
+        "star_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable star protection mask for chroma denoise. Prevents color noise removal from degrading star colors. Default: true.",
+              "default": true
+            },
+            "threshold_sigma": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Sigma threshold for star detection in protection mask. Lower values detect more stars. Range 1\u20135. Recommended: 2.5.",
+              "default": 2.2
+            },
+            "dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Dilation radius for star protection mask in pixels. Expands protection zone around stars. Range 0\u201310. Recommended: 2.",
+              "default": 2
+            }
+          }
+        },
+        "structure_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable structure protection for chroma denoise. Prevents denoise from blurring nebula edges and galaxy arms. Default: true.",
+              "default": true
+            },
+            "gradient_percentile": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Gradient percentile threshold for structure protection. Regions with gradient above this percentile are protected. Range 50\u201399. Recommended: 87.",
+              "default": 85.0
+            }
+          }
+        },
+        "chroma_wavelet": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable wavelet-based chroma denoise. Decomposes chroma into wavelet levels and thresholds noise. Default: true.",
+              "default": true
+            },
+            "levels": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of wavelet decomposition levels. More levels capture larger-scale noise. Range 1\u20135. Recommended: 3.",
+              "default": 3
+            },
+            "threshold_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Scale factor for wavelet noise threshold. Higher values remove more color noise. Range 0.5\u20135.0. Recommended: 1.8.",
+              "default": 1.25
+            },
+            "soft_k": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Soft-thresholding parameter k. Controls smoothness of threshold transition. Higher values = smoother. Range 0.1\u20133.0. Recommended: 1.0.",
+              "default": 1.0
+            }
+          }
+        },
+        "chroma_bilateral": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable bilateral filter for chroma denoise. Edge-preserving smoothing of color channels. Default: true.",
+              "default": true
+            },
+            "sigma_spatial": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Range 0.5\u20135.0. Recommended: 1.5.",
+              "default": 1.2
+            },
+            "sigma_range": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Range (color) sigma for bilateral filter. Controls how much color difference is tolerated. Range 0.01\u20130.5. Recommended: 0.065.",
+              "default": 0.035
+            }
+          }
+        },
+        "blend": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "chroma_only"
+              ],
+              "description": "Blend mode for chroma denoise output. chroma_only = blend only chroma channels, preserve luma. Default: chroma_only.",
+              "default": "chroma_only"
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Blend amount between original and denoised chroma. 0 = no denoise, 1 = full denoise. Range 0\u20131. Recommended: 0.95.",
+              "default": 0.85
+            }
+          }
+        }
+      }
+    },
+    "global_metrics": {
+      "type": "object",
+      "properties": {
+        "adaptive_weights": {
+          "type": "boolean",
+          "description": "When true, auto-adjusts global metric weights by variance to optimize frame quality differentiation. Default: true.",
+          "default": false
+        },
+        "weight_exponent_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1. CRITICAL SIDE EFFECT ON REGISTRATION: This value also controls the quality-based anchor frame selection for registration. Higher k concentrates weight on fewer high-quality frames, which changes which frames are selected as registration anchors. Anchor frames clustered only in high-quality regions leave the rest of the sequence without nearby anchors, causing chain_depth=0 registration failures. HARD RULES: (1) For frame_count > 300: maximum allowed value is 1.2. Do NOT recommend values above 1.2 regardless of quality spread. (2) For frame_count 100-300: maximum allowed is 1.5 only if FWHM p90/p10 ratio > 1.5 (>50% spread). (3) Only for frame_count < 100 with extreme quality spread may k=2.0 be considered. Example: 610 frames \u2192 max k=1.2 even if quality spread appears high. Recommending k=2.0 for any dataset with >300 frames is WRONG and will cause registration failures.",
+          "default": 1.0
+        },
+        "weights": {
+          "type": "object",
+          "properties": {
+            "background": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for low background in the global frame weight. Lower background is preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.45.",
+              "default": 0.4
+            },
+            "noise": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for low noise in the global frame weight. Lower noise is preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.30.",
+              "default": 0.3
+            },
+            "gradient": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for the gradient metric in the global frame weight. Lower gradient is preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.25.",
+              "default": 0.3
+            },
+            "fwhm": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for star sharpness (FWHM) in the global frame weight. Lower FWHM is preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.",
+              "default": 0.0
+            },
+            "roundness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for round stars in the global frame weight. Values near 1.0 are preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.",
+              "default": 0.0
+            },
+            "star_count": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for the number of valid measured stars in the global frame weight. More stars are preferred. All weights.* must sum to 1.0. Range 0\u20131. Default: 0.",
+              "default": 0.0
+            }
+          }
+        },
+        "clamp": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [
+            -3.0,
+            3.0
+          ]
+        }
+      }
+    },
+    "tile": {
+      "type": "object",
+      "properties": {
+        "size_factor": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Base tile size factor. Tile size T0 = size_factor \u00d7 FWHM. Larger tiles contain more signal but less spatial resolution. Range 1\u2013100. Recommended: 24.",
+          "default": 32
+        },
+        "min_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum tile size in pixels. Tiles smaller than this are merged with neighbors. Range 16\u2013256. Recommended: 64.",
+          "default": 64
+        },
+        "max_divisor": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum divisor for tile size reduction. Controls how small tiles can be subdivided for adaptive reconstruction. Range 1\u20138. Recommended: 4.",
+          "default": 6
+        },
+        "overlap_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "description": "Fractional overlap between adjacent tiles for Hanning overlap-add reconstruction. Too little overlap \u2192 visible tile boundaries. Too much \u2192 inefficient. Range 0\u20130.5. Recommended: 0.3.",
+          "default": 0.25
+        },
+        "star_min_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum star count (median across frames) for STAR tile classification. Tiles with fewer stars are classified as STRUCTURE. Range 0\u201350. Recommended: 5.",
+          "default": 10
+        },
+        "star_soft_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Soft star count threshold for STAR tile classification. Above this count, tiles are marked as STAR but less strictly than star_min_count. Range 0\u2013100. Recommended: 10.",
+          "default": 10
+        }
+      }
+    },
+    "local_metrics": {
+      "type": "object",
+      "properties": {
+        "clamp": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [
+            -3.0,
+            3.0
+          ]
+        },
+        "neighborhood_normalization": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable neighborhood normalization for local metrics. Normalizes tile quality scores against their spatial neighbors to reduce large-scale gradients in quality. Default: true.",
+              "default": true
+            },
+            "radius": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Radius in tiles for neighborhood normalization. 0 = no normalization. Larger radii = smoother normalization. Range 0\u20135. Recommended: 1.",
+              "default": 1
+            },
+            "blend": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Blend factor between raw and neighborhood-normalized local quality. 0 = raw only, 1 = fully normalized. Range 0\u20131. Recommended: 0.5.",
+              "default": 0.5
+            }
+          }
+        },
+        "spatial_regularization": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable spatial regularization for local metrics. Smooths per-tile quality weights spatially to reduce tile boundary artifacts. Default: true.",
+              "default": true
+            },
+            "lambda": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Regularization strength. Higher values produce smoother weight maps. Range 0\u20131. Recommended: 0.3.",
+              "default": 0.35
+            },
+            "passes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of regularization passes. More passes = smoother but slower. Range 0\u201310. Recommended: 3.",
+              "default": 1
+            },
+            "tau_local": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Local regularization step size tau. Controls convergence speed. Range 0.01\u20131.0. Recommended: 0.1.",
+              "default": 1.0
+            }
+          }
+        },
+        "star_mode": {
+          "type": "object",
+          "properties": {
+            "weights": {
+              "type": "object",
+              "properties": {
+                "fwhm": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Weight for FWHM (star sharpness) in STAR tile mode. Range 0\u20131. Default: 0.5.",
+                  "default": 0.6
+                },
+                "roundness": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Weight for star roundness in STAR tile mode. Range 0\u20131. Default: 0.3.",
+                  "default": 0.2
+                },
+                "contrast": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Weight for star contrast in STAR tile mode. Range 0\u20131. Default: 0.2.",
+                  "default": 0.2
+                }
+              }
+            }
+          }
+        },
+        "structure_mode": {
+          "type": "object",
+          "properties": {
+            "background_weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for background quality in STRUCTURE tile mode. Range 0\u20131. Default: 0.5.",
+              "default": 0.3
+            },
+            "metric_weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weight for structure metric in STRUCTURE tile mode. Range 0\u20131. Default: 0.5.",
+              "default": 0.7
+            }
+          }
+        },
+        "k_local": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation between tiles, <1 softens it. NOTE: unlike weight_exponent_scale, k_local does NOT affect registration anchor selection \u2014 it only influences per-tile weighting during reconstruction. Safe to tune independently. High values (>2.0) can cause tile boundary artifacts if local quality varies sharply across neighboring tiles.",
+          "default": 1.0
+        }
+      }
+    },
+    "aqmh": {
+      "type": "object",
+      "description": "AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Runtime flag derived from Config.method. true when method='aqmh', false when method='classic_tile_compile'.",
+          "default": true
+        },
+        "pyramid": {
+          "type": "object",
+          "properties": {
+            "scales": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 4,
+              "description": "Number of pyramid scales for AQMH multi-scale analysis. More scales capture larger-scale quality variations but increase memory. Range 1\u20138. Recommended: 4."
+            },
+            "base_window_px": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 4,
+              "description": "Base window size in pixels for the finest pyramid level. Controls the spatial resolution of quality analysis. Range 16\u2013256. Recommended: 64."
+            },
+            "w_sharp": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.6,
+              "description": "Weight for sharpness in the AQMH quality metric. Higher values prioritize sharp tiles. Range 0\u20132. Recommended: 1.0."
+            },
+            "w_snr": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.4,
+              "description": "Weight for signal-to-noise ratio in the AQMH quality metric. Higher values prioritize low-noise tiles. Range 0\u20132. Recommended: 1.0."
+            },
+            "k_artifact": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 3.0,
+              "description": "Artifact penalty exponent. Higher values more aggressively reject tiles with artifacts (e.g. satellite trails, cosmic rays). Range 0.1\u20135.0. Recommended: 1.0."
+            },
+            "frac_artifact_max": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.25,
+              "description": "Maximum fraction of artifact pixels allowed before a tile is rejected. Range 0\u20131. Recommended: 0.1."
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "properties": {
+            "resolution_divisor": {
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                4
+              ],
+              "default": 1,
+              "description": "Full resolution by default. Values 2 or 4 enable approximate storage and require the format-v2 full-resolution zero-veto sidecar."
+            },
+            "dtype": {
+              "type": "string",
+              "enum": [
+                "float32",
+                "uint16",
+                "uint8"
+              ],
+              "default": "float32",
+              "description": "Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."
+            },
+            "max_resident_maps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16,
+              "default": 2,
+              "description": "Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."
+            }
+          }
+        },
+        "cherry_pick": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enables per-pixel best-k frame selection during reconstruction. The pipeline also enforces an internal quality gate: if cherry_pick increases background_rms by more than max_background_rms_increase_percent, it is automatically disabled regardless of this flag. Only recommend enabling when the frame set has a significant quality spread (FWHM p90/p10 ratio > 1.3 or >20% spread) AND k_frac is set conservatively (<=0.6). Do NOT recommend enabling for large homogeneous frame sets where quality spread is low \u2014 it increases per-pixel tile inconsistency and raises background_rms."
+            },
+            "k_frac": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.3,
+              "description": "Fraction of total frames retained per pixel tile. E.g. 0.85 retains 85% of frames, discarding only the worst 15%. COMMON MISTAKE TO AVOID: The intuitive reasoning 'if ~10% of frames are bad, set k_frac=0.90 to discard 10%' is WRONG for large frame counts. This reasoning ignores the tile-inconsistency effect: with 610 frames and k_frac=0.88, each pixel tile independently selects its best 537 frames from a spatially varying quality map. Different tiles select different frame subsets, creating per-tile flux baseline shifts that raise background_rms and create a tile-pattern artifact in the final stack. The pipeline's internal quality gate (max_background_rms_increase_percent) will auto-disable cherry_pick entirely when this happens, making the setting counterproductive. HARD RULES: (1) frame_count > 300: maximum k_frac = 0.5. This is a hard ceiling. The argument that 'k_frac=0.3 discards too many good frames' does not override this rule \u2014 k_frac=0.3\u20130.5 with 610 frames still retains 183\u2013305 frames per tile, far more than the stacking minimum. (2) frame_count 100\u2013300: maximum k_frac = 0.7. (3) frame_count < 100: k_frac up to 0.9 acceptable. Correct example: 610 frames, 10% bad \u2192 k_frac=0.45 (retains 274 frames per tile, discards worst 55%). Do NOT use k_frac=0.88 or 0.85 for any dataset with >300 frames."
+            },
+            "k_min_required": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20
+            },
+            "margin_min": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.02
+            },
+            "tiered_k_frac": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "required": [
+                  "min_n_rankable",
+                  "k_frac"
+                ],
+                "properties": {
+                  "min_n_rankable": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "k_frac": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "global_quality": {
+          "type": "object",
+          "properties": {
+            "g_floor": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1,
+              "default": 0.05
+            },
+            "g_w_sharp": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.6
+            },
+            "g_w_snr": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.4
+            },
+            "g_w_background_penalty": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.3
+            }
+          }
+        },
+        "reconstruction": {
+          "type": "object",
+          "properties": {
+            "clip_sigma": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 3.0
+            },
+            "clip_sigma_low": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 3.0,
+              "description": "Lower-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value."
+            },
+            "clip_sigma_high": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 3.0,
+              "description": "Upper-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value."
+            },
+            "clip_iterations": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 3
+            },
+            "min_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.5
+            },
+            "min_n_eff": {
+              "type": "number",
+              "minimum": 1,
+              "default": 2.0
+            },
+            "chunk_rows": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Row chunk size for AQMH reconstruction. 0 = automatic based on memory budget."
+            },
+            "memory_budget_mb": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "VRAM/RAM budget for reconstruction in MB. 0 = automatic."
+            },
+            "registration_weight_guard": {
+              "type": "boolean",
+              "default": true,
+              "description": "Downweights frames with weak registration evidence before AQMH reconstruction."
+            },
+            "registration_weight_floor": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.35
+            },
+            "registration_cc_floor": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.35
+            },
+            "registration_cc_full": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.8
+            },
+            "registration_sequential_factor": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.85
+            },
+            "registration_predicted_factor": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.35
+            },
+            "registration_chain_depth_penalty": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.5,
+              "default": 0.03
+            },
+            "registration_chain_depth_max_penalty": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.15
+            }
+          }
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "max_seam_score_regression": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.02
+            },
+            "max_fwhm_regression": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.02
+            },
+            "max_background_rms_regression": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.02
+            },
+            "max_tail11_abs_regression": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.05
+            },
+            "max_elongation_regression": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.05
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable the AQMH diagnostics phase."
+            },
+            "level": {
+              "type": "string",
+              "enum": [
+                "none",
+                "summary",
+                "full"
+              ],
+              "default": "full",
+              "description": "AQMH diagnostics detail level: none = skip, summary = run-level metrics, full = per-frame block diagnostics and heatmaps."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "binary"
+              ],
+              "default": "json",
+              "description": "AQMH diagnostics output format: json or binary (AQDB)."
+            },
+            "regions": {
+              "type": "boolean",
+              "default": true,
+              "description": "When true, write artifacts/aqmh_regions.json with per-frame detected quality regions."
+            },
+            "per_frame_blocks": {
+              "type": "boolean",
+              "default": true,
+              "description": "When true and level=full, compute block-level diagnostics per frame."
+            },
+            "heatmaps": {
+              "type": "boolean",
+              "default": true,
+              "description": "When true and level=full, include heatmap arrays in diagnostics."
+            },
+            "binary_block_size_px": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 64,
+              "description": "Block size in pixels for binary AQDB diagnostics. 0 disables block grouping."
+            },
+            "tau_artifact": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.2,
+              "description": "Artifact detection threshold for AQMH diagnostics. Tiles with artifact score above this are flagged. Range 0\u20131. Recommended: 0.5."
+            },
+            "q_region": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.75,
+              "description": "Quality region size for AQMH diagnostics. Controls the spatial extent of quality region analysis. Range 0\u20131. Recommended: 0.25."
+            },
+            "r_morph_canvas_px": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 6,
+              "description": "Morphological canvas size in pixels for AQMH artifact detection. Larger canvases detect larger artifacts. Range 16\u2013256. Recommended: 64."
+            }
+          }
+        }
+      }
+    },
+    "synthetic": {
+      "type": "object",
+      "properties": {
+        "weighting": {
+          "type": "string",
+          "enum": [
+            "global",
+            "tile_weighted"
+          ],
+          "description": "global = nur G_f; tile_weighted = W_f,t = G_f*L_f,t mit tileweiser OLA-Rekonstruktion.",
+          "default": "global"
+        },
+        "frames_min": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum frames for synthetic frame generation. Below this, synthetic frames are not created. Default: 3.",
+          "default": 5
+        },
+        "frames_max": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum synthetic frames to generate. Caps the total synthetic frame count. Default: 50.",
+          "default": 30
+        },
+        "clustering": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "kmeans",
+                "quantile"
+              ],
+              "description": "Clustering mode for synthetic frame generation. kmeans = K-means clustering of frame quality. quantile = quality-based quantile binning. Default: kmeans.",
+              "default": "kmeans"
+            },
+            "cluster_count_range": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Cluster count range [k_min, k_max] for frame clustering. The optimal k is auto-selected within this range. Default: [3, 8].",
+              "default": [
+                5,
+                30
+              ]
+            }
+          }
+        }
+      }
+    },
+    "astrometry": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable ASTAP plate solving for WCS-based registration and annotation. Requires ASTAP binary and star catalog data installed. Default: true.",
+          "default": false
+        },
+        "astap_bin": {
+          "type": "string",
+          "description": "Path to ASTAP executable binary. Empty = use system default path. Default: .",
+          "default": ""
+        },
+        "astap_data_dir": {
+          "type": "string",
+          "description": "Path to ASTAP star catalog data directory. Empty = use default path. Default: /media/data/Astro/astap.",
+          "default": ""
+        },
+        "search_radius": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 360,
+          "description": "Search radius in degrees for ASTAP plate solving. 180 = blind solve (no initial guess). Smaller radii = faster solving when approximate WCS is known. Range 1\u2013360. Default: 183.",
+          "default": 180
+        }
+      }
+    },
+    "pcc": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Photometric Color Calibration (PCC). Matches catalog star colors to calibrate the RGB color balance of the stacked image. Default: true.",
+          "default": false
+        },
+        "apply_attenuation": {
+          "type": "boolean",
+          "description": "When true, applies attenuation to the PCC correction to prevent over-correction. Default: true.",
+          "default": false
+        },
+        "chroma_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Strength of chroma (color) correction applied by PCC. 0 = no correction, 1 = full correction. Range 0\u20131. Recommended: 0.85.",
+          "default": 1.0
+        },
+        "background_neutralization_mode": {
+          "type": "string",
+          "enum": [
+            "always",
+            "auto",
+            false
+          ],
+          "description": "Background neutralization mode. always = always neutralize background after PCC. auto = neutralize only if background is significantly off-neutral. off = no background neutralization. Default: auto.",
+          "default": "auto"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "siril",
+            "vizier_gaia",
+            "vizier_apass"
+          ],
+          "description": "Catalog source for PCC star matching. auto = auto-select based on availability. siril = use Siril catalog. vizier_gaia = use Gaia catalog via Vizier. vizier_apass = use APASS catalog via Vizier. Default: auto.",
+          "default": "auto"
+        },
+        "mag_limit": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 22,
+          "description": "Magnitude limit for PCC catalog star matching. Higher values include fainter stars. CAUTION: for small sensors or dense star fields, mag_limit > 15 can include stars that are below the detection threshold of the actual frames, leading to phantom catalog matches against background noise. For typical consumer OSC cameras (DWARF II, Seestar) with short exposures, keep mag_limit <= 14\u201315. Only increase to 16\u201318 for large-aperture instruments with deep exposures where faint stars are reliably detected.",
+          "default": 14.0
+        },
+        "mag_bright_limit": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 15,
+          "description": "Bright magnitude limit for PCC catalog star matching. Stars brighter than this are excluded (saturated stars give unreliable photometry). Range 0\u201315. Default: 0.",
+          "default": 6.0
+        },
+        "aperture_radius_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Fixed aperture radius in pixels for PCC photometry. Used when radii_mode=fixed. Range 2\u201330. Recommended: 6.",
+          "default": 8.0
+        },
+        "annulus_inner_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Inner radius of the sky annulus in pixels for PCC photometry. Used when radii_mode=fixed. Range 5\u201350. Recommended: 12.",
+          "default": 12.0
+        },
+        "annulus_outer_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Outer radius of the sky annulus in pixels for PCC photometry. Used when radii_mode=fixed. Range 10\u201380. Recommended: 20.",
+          "default": 18.0
+        },
+        "min_stars": {
+          "type": "integer",
+          "minimum": 3,
+          "description": "Minimum number of matched catalog stars required for PCC to proceed. Below this, PCC is skipped. Range 3\u201350. Recommended: 10.",
+          "default": 10
+        },
+        "sigma_clip": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sigma clipping threshold for PCC outlier rejection. Stars with residuals > sigma_clip \u00d7 std are rejected. Range 1\u20135. Recommended: 2.5.",
+          "default": 2.5
+        },
+        "background_model": {
+          "type": "string",
+          "enum": [
+            "median",
+            "plane"
+          ],
+          "description": "Background model for PCC sky estimation. median = robust median background. plane = fitted 2D plane (better for gradients). Default: median.",
+          "default": "plane"
+        },
+        "max_condition_number": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Maximum condition number for the PCC linear system. Above this, the system is considered ill-conditioned and PCC is skipped. Range 1\u20131000. Recommended: 100.",
+          "default": 3.0
+        },
+        "max_residual_rms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum residual RMS for PCC acceptance. If the fit residual exceeds this, PCC is skipped. Range 0.001\u20130.5. Recommended: 0.05.",
+          "default": 0.35
+        },
+        "radii_mode": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "auto_fwhm"
+          ],
+          "description": "Aperture/annulus radius mode. fixed = use absolute pixel values. auto_fwhm = scale radii by measured FWHM. Default: auto_fwhm.",
+          "default": "auto_fwhm"
+        },
+        "aperture_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Aperture radius as multiple of FWHM (when radii_mode=auto_fwhm). Range 0.5\u20135.0. Recommended: 1.0.",
+          "default": 1.8
+        },
+        "annulus_inner_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Annulus inner radius as multiple of FWHM (when radii_mode=auto_fwhm). Range 1\u201310. Recommended: 2.0.",
+          "default": 3.0
+        },
+        "annulus_outer_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Annulus outer radius as multiple of FWHM (when radii_mode=auto_fwhm). Range 2\u201315. Recommended: 3.0.",
+          "default": 5.0
+        },
+        "min_aperture_px": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Minimum aperture radius in pixels (when radii_mode=auto_fwhm). Prevents too-small apertures for undersampled images. Range 1\u201310. Recommended: 3.",
+          "default": 4.0
+        },
+        "k_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum extinction coefficient k for PCC. If the fitted k exceeds this, PCC is skipped. Range 0.01\u20132.0. Recommended: 0.5.",
+          "default": 3.2
+        },
+        "siril_catalog_dir": {
+          "type": "string",
+          "description": "Directory path for Siril catalog files used by PCC. Default: .",
+          "default": ""
+        }
+      }
+    },
+    "hypermetric_stretch": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable HyperMetric Stretch for output image. When disabled, output remains linear. Default: true.",
+          "default": true
+        },
+        "require_successful_pcc": {
+          "type": "boolean",
+          "description": "When true, HyperMetric Stretch is only applied if PCC succeeded. Prevents stretch on uncalibrated color. Default: false.",
+          "default": true
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "ready_to_use",
+            "scientific"
+          ],
+          "description": "Stretch mode. ready_to_use = produces a visually pleasing image for immediate viewing. scientific = conservative stretch preserving scientific data integrity. Default: ready_to_use.",
+          "default": "ready_to_use"
+        },
+        "sensor_profile": {
+          "type": "string",
+          "description": "Sensor profile name for the stretch algorithm (determines tone curve and color response). Empty = auto-detect from metadata. Default: empty.",
+          "default": "rec709"
+        },
+        "fallback_profile": {
+          "type": "string",
+          "description": "Fallback sensor profile when the primary is unavailable. Default: rec709.",
+          "default": "rec709"
+        },
+        "adaptive_anchor": {
+          "type": "boolean",
+          "description": "When true, the anchor point for the stretch is determined adaptively from the image histogram. When false, a fixed anchor is used. Default: true.",
+          "default": true
+        },
+        "target_bg": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 0.5,
+          "description": "Target background level after stretch, as a fraction of the dynamic range. Lower values produce darker backgrounds. Range 0.05\u20130.50. Recommended: 0.15.",
+          "default": 0.15
+        },
+        "protect_b": {
+          "type": "number",
+          "minimum": 0.1,
+          "description": "Protection factor for the B channel during stretch. Prevents blue from being over-stretched. Higher values = more protection. Range 0.1\u20135.0. Recommended: 1.0.",
+          "default": 6.0
+        },
+        "convergence_power": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 10.0,
+          "description": "Convergence power for the stretch algorithm. Higher values produce stronger contrast enhancement in dark regions. Range 1.0\u201310.0. Recommended: 3.5.",
+          "default": 3.5
+        },
+        "log_d_mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "fixed"
+          ],
+          "description": "Log-D mode for the stretch. auto = auto-determine from image dynamic range. fixed = use fixed_log_d value. Default: auto.",
+          "default": "auto"
+        },
+        "fixed_log_d": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 7,
+          "description": "Fixed log-D value for the stretch (used when log_d_mode=fixed). Controls the dynamic range mapping. Range 0\u20137. Recommended: 2.0.",
+          "default": 2.0
+        },
+        "color_strategy": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "fixed"
+          ],
+          "description": "Color strategy for the stretch. auto = automatic color balance. fixed = use fixed_color_strategy value. Default: fixed.",
+          "default": "fixed"
+        },
+        "fixed_color_strategy": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "Fixed color strategy value [-1,1], used when color_strategy=fixed. 0 = neutral, positive = warmer, negative = cooler. Range -1\u20131. Recommended: 0.0.",
+          "default": 0.0
+        },
+        "color_grip": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Color grip parameter. Controls color saturation in the stretched image. 0 = no color, 1 = full color. Range 0\u20131. Recommended: 1.0.",
+          "default": 1.0
+        },
+        "shadow_convergence": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Shadow convergence parameter. Controls how aggressively dark regions are stretched. Higher values = more shadow detail. Range 0\u20132.0. Recommended: 0.5.",
+          "default": 0.0
+        },
+        "linear_expansion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Linear expansion at the lower end of the stretch curve. Increases detail in very dark regions. Range 0\u20131. Recommended: 0.0.",
+          "default": 0.0
+        },
+        "write_channels": {
+          "type": "boolean",
+          "description": "When true, writes individual R, G, B channel files in addition to the RGB output. Default: false.",
+          "default": false
+        },
+        "output_rgb": {
+          "type": "string",
+          "description": "Output RGB color space designation (e.g. sRGB, AdobeRGB). Default: sRGB.",
+          "default": "stacked_rgb_hms.fits"
+        }
+      }
+    },
+    "bge": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Legacy compatibility flag. Prefer bge.method. If bge.method is present it is authoritative; otherwise enabled=true maps to method=classic and enabled=false maps to method=none.",
+          "default": false
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "none",
+            "classic",
+            "autobge"
+          ],
+          "default": "none",
+          "description": "BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine. This field is authoritative when present."
+        },
+        "autobge": {
+          "type": "object",
+          "properties": {
+            "num_sample_points": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Number of AutoBGE sample points. 0 lets the implementation derive a deterministic image-size-based count."
+            },
+            "poly_degree": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "default": 2,
+              "description": "Degree of the first-stage polynomial fit. 2 = quadratic (captures broad gradients), 3 = cubic (captures complex gradients). Higher degrees risk overfitting. Recommended: 2 for most datasets, 3 only for very strong asymmetric gradients."
+            },
+            "rbf_smooth": {
+              "type": "number",
+              "minimum": 0,
+              "default": 2.0,
+              "description": "RBF smoothing factor for the second-stage residual fit. Higher values produce a smoother background model but may underfit local gradients. Range 0.01\u20131.0. Recommended: 0.1 for typical images, 0.5 for smooth gradients."
+            },
+            "downsample_scale": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 4,
+              "description": "Integer downscaling factor for the working image used in AutoBGE sampling and fitting. 4 = 4x downsample (16x fewer pixels). Higher values speed up computation but reduce spatial resolution of the background model. Range 1\u20138. Recommended: 4 for full-resolution images, 2 for small images."
+            },
+            "patch_size": {
+              "type": "integer",
+              "minimum": 3,
+              "default": 35,
+              "description": "Odd patch size used for local background sampling."
+            },
+            "patch_estimator": {
+              "type": "string",
+              "enum": [
+                "median",
+                "sigma_clipped_median"
+              ],
+              "default": "sigma_clipped_median",
+              "description": "Local background estimator for each sample patch. median is fast and robust for most images; sigma_clipped_median iteratively rejects outliers and is better for fields with many stars or cosmic rays."
+            },
+            "stretch_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "linear",
+                "mtf"
+              ],
+              "default": "linear",
+              "description": "Working-space transform used only for AutoBGE sampling/fitting. Default linear preserves the additive background contract; mtf is an experimental AutoBGE-parity mode."
+            },
+            "stretch_target_median": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.25,
+              "description": "Target median for the working-space stretch (only used when stretch_mode=mtf). Controls the brightness of the stretched image used for sampling. Lower values sample darker background regions. Range 0.1\u20130.5."
+            },
+            "border_margin": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 10,
+              "description": "Pixel margin excluded from sampling at the image border. Border pixels often contain stacking artifacts or vignetting. Increase for wide-field images with strong edge effects. Range 0\u2013100. Recommended: 10\u201330."
+            },
+            "bright_exclusion_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1,
+              "default": 0.2,
+              "description": "Fraction of brightest pixels excluded from background sampling. 0.5 excludes the top 50% (conservative, good for nebula-rich fields). Lower values (0.2\u20130.3) include more pixels but risk contaminating the background model with bright structures. Range 0.1\u20130.8."
+            },
+            "gradient_descent_max_iters": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100,
+              "description": "Maximum iterations for the gradient-descent sample-point placement algorithm. Each iteration moves sample points toward dimmer local regions. Higher values find deeper background spots but increase runtime. Range 20\u2013500. Recommended: 100 for most images."
+            },
+            "random_seed": {
+              "type": "integer",
+              "default": 42,
+              "description": "Random seed for deterministic sample-point generation. Same seed + same image = identical results. Change to get alternative sample placements for comparison."
+            },
+            "normalize_between_stages": {
+              "type": "boolean",
+              "default": true,
+              "description": "When true, normalizes the residual image between the polynomial first stage and the RBF second stage. Prevents the RBF from re-fitting large-scale gradients already captured by the polynomial. Recommended: true."
+            },
+            "apply_guards": {
+              "type": "boolean",
+              "default": true,
+              "description": "When true, AutoBGE uses the shared outer BGE apply guards before mutating RGB output."
+            },
+            "mono_mode": {
+              "type": "string",
+              "enum": [
+                "rgb_duplicate",
+                "disabled"
+              ],
+              "default": "rgb_duplicate",
+              "description": "Handling of mono (single-channel) images. rgb_duplicate copies the mono channel to R/G/B before BGE, allowing per-channel correction. disabled processes only the single channel. Use rgb_duplicate for OSC images debayered to mono."
+            },
+            "exclusion_polygons": {
+              "type": "array",
+              "default": [],
+              "description": "Manual AutoBGE exclusion polygons in normalized image coordinates. Each point may be [x, y] or {x, y}, with x/y in [0,1].",
+              "items": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "user_sample_points": {
+              "type": "array",
+              "default": [],
+              "description": "Manual AutoBGE sample points in normalized image coordinates. Each point may be [x, y] or {x, y}, with x/y in [0,1]. Empty array means automatic sampling only.",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "autotune": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "When true, BGE runs a deterministic cross-validation search over sample estimators, quantiles, structure thresholds, and fit methods before applying the correction. Increases runtime but improves quality for difficult fields.",
+              "default": false
+            },
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "conservative",
+                "extended"
+              ],
+              "description": "conservative tests a small set of safe parameter combinations (faster, good for weak gradients). extended sweeps a wider range of estimators, quantiles, and fit methods (slower, better for nebulosity or complex gradients).",
+              "default": "conservative"
+            },
+            "max_evals": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Hard cap on the number of parameter candidates tested per channel. Each eval fits a full background model on a holdout split. Range 8\u201364. Recommended: 24 for conservative, 32 for extended.",
+              "default": 24
+            },
+            "holdout_fraction": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 0.5,
+              "description": "Fraction of sample points reserved for cross-validation (not used for fitting). The objective J is evaluated on this holdout. Range 0.05\u20130.50. Recommended: 0.20\u20130.25.",
+              "default": 0.25
+            },
+            "alpha_flatness": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Weight of the flatness term E_flat in the autotune objective J. Higher values prioritize smoother backgrounds over structure preservation. Range 0\u20131. Recommended: 0.25\u20130.40 for weak gradients, 0.40\u20130.80 for strong gradients.",
+              "default": 0.25
+            },
+            "beta_roughness": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Weight of the roughness penalty E_rough in the autotune objective J. Higher values penalize bumpy/wavy background models more. Range 0\u20130.5. Recommended: 0.08\u20130.15.",
+              "default": 0.1
+            }
+          }
+        },
+        "tile_weight_lambda_structure": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Higher values down-weight structure-rich tiles more aggressively. Range 0.5\u20133.0. Recommended: 1.0 for moderate fields, 2.0+ for dense nebulosity.",
+          "default": 1.0
+        },
+        "sample_quantile": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.5,
+          "description": "Tile background quantile used for robust background estimation. Lower values (0.10\u20130.15) are more conservative, resistant to nebula contamination. 0.50 = median, suitable for heavily masked fields. Range (0, 0.5].",
+          "default": 0.2
+        },
+        "sample_estimator": {
+          "type": "string",
+          "enum": [
+            "quantile",
+            "sigma_clipped_median",
+            "sextractor_mode",
+            "biweight"
+          ],
+          "description": "Tile background sample estimator. quantile uses bge.sample_quantile; sigma_clipped_median, sextractor_mode and biweight use robust tile-pixel estimators.",
+          "default": "quantile"
+        },
+        "min_sample_bg_value": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum tile background sample value accepted for BGE aggregation.",
+          "default": 1.0
+        },
+        "structure_thresh_percentile": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percentile threshold for rejecting high-structure tiles from BGE sampling. Tiles with structure energy above this percentile are excluded. 0.80 = moderate (excludes top 20%), 0.90 = strict (excludes top 10%). Lower values preserve more samples but risk structure contamination. Range 0.5\u20130.95.",
+          "default": 0.65
+        },
+        "min_tiles_per_cell": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum number of valid tiles required per BGE grid cell. Cells with fewer valid tiles trigger the insufficient_cell_strategy. Range 1\u201310. Recommended: 3.",
+          "default": 3
+        },
+        "min_valid_sample_fraction_for_apply": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "Per-channel safety gate. If valid_tile_samples / total_tile_samples falls below this fraction, BGE is skipped for that channel. Prevents poor-quality correction from sparse sampling. Range 0.1\u20130.5. Recommended: 0.25\u20130.30.",
+          "default": 0.3
+        },
+        "min_valid_samples_for_apply": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Absolute per-channel safety gate. If fewer than this many valid robust tile samples are available, BGE is skipped for that channel. Range 24\u2013200. Recommended: 96.",
+          "default": 96
+        },
+        "mask": {
+          "type": "object",
+          "properties": {
+            "star_dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Star-mask dilation radius in pixels. Expands the exclusion zone around detected stars to prevent star halos from contaminating background samples. Range 0\u201320. Recommended: 4\u20136 for typical seeing, 8\u201312 for wide-field with bright stars.",
+              "default": 4
+            },
+            "sat_dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Saturation-mask dilation radius in pixels. Expands the exclusion zone around saturated pixels/cores. Range 0\u201320. Recommended: 4\u20136, increase for sensors with strong blooming.",
+              "default": 4
+            }
+          }
+        },
+        "grid": {
+          "type": "object",
+          "properties": {
+            "N_g": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Target BGE grid density. Grid cell size G = min(W,H) / N_g. Higher values create finer grids for better gradient capture but require more samples per cell. Range 16\u201364. Recommended: 32\u201336 for typical DSO images, 48+ for wide-field.",
+              "default": 32
+            },
+            "G_min_px": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum grid cell size in pixels. Prevents cells from becoming too small on large images. Range 32\u2013128. Recommended: 56\u201364.",
+              "default": 64
+            },
+            "G_max_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "Maximum grid cell size as a fraction of min(W,H). Prevents cells from becoming too large on small images. Range 0.1\u20130.5. Recommended: 0.25.",
+              "default": 0.25
+            },
+            "insufficient_cell_strategy": {
+              "type": "string",
+              "enum": [
+                "discard",
+                "nearest",
+                "radius_expand"
+              ],
+              "description": "Strategy for grid cells with too few valid samples. discard excludes the cell from fitting (conservative). nearest fills from nearest valid cell. radius_expand enlarges the search radius to find more samples. Recommended: radius_expand for border cells.",
+              "default": "discard"
+            }
+          }
+        },
+        "fit": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "poly",
+                "spline",
+                "bicubic",
+                "rbf",
+                "modeled_mask_mesh"
+              ],
+              "description": "Surface fitting method for the background model. rbf = Radial Basis Functions (flexible, recommended for most gradients). poly = robust polynomial (good for broad smooth gradients, faster). spline = thin-plate spline. bicubic = bicubic spline. modeled_mask_mesh = segmentation-based mesh fit for large nebulae.",
+              "default": "rbf"
+            },
+            "robust_loss": {
+              "type": "string",
+              "enum": [
+                "huber",
+                "tukey"
+              ],
+              "description": "Robust loss function for IRLS fitting. huber = quadratic for small residuals, linear for large (moderate outlier rejection). tukey = completely rejects large residuals (aggressive outlier rejection). Recommended: huber for most cases.",
+              "default": "huber"
+            },
+            "huber_delta": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Huber loss transition parameter \u03b4. Residuals below \u03b4 are quadratic, above \u03b4 are linear. Smaller \u03b4 rejects more outliers. Range 0.5\u20133.0. Recommended: 1.5.",
+              "default": 1.5
+            },
+            "irls_max_iterations": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum IRLS (Iteratively Reweighted Least Squares) iterations. Higher values allow better convergence but increase runtime. Range 5\u201320. Recommended: 10.",
+              "default": 10
+            },
+            "irls_tolerance": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Convergence tolerance for IRLS. Iteration stops when the parameter change falls below this value. Range 1e-6\u20131e-3. Recommended: 1e-4.",
+              "default": 0.0001
+            },
+            "polynomial_order": {
+              "type": "integer",
+              "enum": [
+                2,
+                3
+              ],
+              "description": "Polynomial order when method=poly. 2 = quadratic (broad gradients, safe default). 3 = cubic (complex asymmetric gradients, higher overfitting risk). Recommended: 2.",
+              "default": 2
+            },
+            "rbf_phi": {
+              "type": "string",
+              "enum": [
+                "thinplate",
+                "multiquadric",
+                "gaussian"
+              ],
+              "description": "RBF kernel type. multiquadric = \u03c6(d)=\u221a(d\u00b2+\u03bc\u00b2) (recommended, balanced). thinplate = \u03c6(d)=d\u00b2log(d) (scale-invariant). gaussian = \u03c6(d)=exp(-d\u00b2/2\u03bc\u00b2) (smooth, localized).",
+              "default": "multiquadric"
+            },
+            "rbf_mu_factor": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "RBF shape parameter \u03bc = rbf_mu_factor \u00d7 G (grid spacing). Controls the width of the basis functions. Higher values produce smoother surfaces. Range 0.5\u20133.0. Recommended: 1.0\u20131.5.",
+              "default": 1.0
+            },
+            "rbf_lambda": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "RBF regularization parameter \u03bb. Prevents overfitting by penalizing large coefficients. Higher values = smoother but may underfit. Range 1e-6\u20130.1. Recommended: 0.01\u20130.1.",
+              "default": 1e-06
+            },
+            "rbf_epsilon": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Numerical stabilization epsilon for thin-plate RBF at d=0. Prevents division by zero. Range 1e-10\u20131.0. Recommended: 1e-10 for thinplate, 1.0 for multiquadric.",
+              "default": 1e-10
+            }
+          }
+        }
+      }
+    },
+    "stacking": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "rej",
+            "average"
+          ],
+          "description": "Stacking method. rej = sigma-clipped rejection (recommended, removes outliers like cosmic rays). average = simple average (faster, no outlier rejection). Default: rej.",
+          "default": "rej"
+        },
+        "common_overlap_required_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "Erforderlicher Pixel-Anteil ueber alle nutzbaren Frames fuer COMMON_OVERLAP. Default 1.0 = strikte Schnittmenge.",
+          "default": 1.0
+        },
+        "tile_common_valid_min_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "Mindestanteil gueltiger COMMON_OVERLAP-Pixel pro Tile. Default 1.0 = nur vollstaendig innerhalb der Support-Maske liegende Tiles.",
+          "default": 1.0
+        },
+        "sigma_clip": {
+          "type": "object",
+          "description": "Sigma-clipping parameters for stacking rejection. WARNING: sigma_low, sigma_high, and min_fraction interact \u2014 with small frame counts (<30), tight sigma values (sigma_low < 2.0 or sigma_high < 2.0) combined with min_fraction > 0.5 can reject most frames per pixel, leaving empty tiles or ghosting. For large frame counts (>200) the defaults are safe. Only tighten sigma if you have many frames AND visible cosmic ray artifacts in the output.",
+          "properties": {
+            "sigma_low": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Low-side sigma clipping threshold for stacking rejection. Pixels below mean - sigma_low \u00d7 std are rejected. Lower values = more aggressive. Range 1\u20135. Recommended: 3.0.",
+              "default": 2.0
+            },
+            "sigma_high": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "High-side sigma clipping threshold for stacking rejection. Pixels above mean + sigma_high \u00d7 std are rejected. Lower values = more aggressive (removes cosmic rays). Range 1\u20135. Recommended: 3.0.",
+              "default": 2.0
+            },
+            "max_iters": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum sigma-clipping iterations. More iterations = better outlier removal but slower. Range 1\u201310. Recommended: 3.",
+              "default": 3
+            },
+            "min_fraction": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Minimum fraction of frames that must survive sigma clipping per pixel. Below this, the pixel is rejected. Range 0\u20131. Recommended: 0.0.",
+              "default": 0.5
+            }
+          }
+        },
+        "cluster_quality_weighting": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Aktiviert v3.2.2 Cluster-Qualitaetsgewichtung im finalen Stack: w_k = exp(kappa_cluster * Q_k).",
+              "default": true
+            },
+            "kappa_cluster": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Exponentfaktor fuer Cluster-Qualitaet Q_k (Q_k in [-3,+3]).",
+              "default": 1.0
+            },
+            "cap_enabled": {
+              "type": "boolean",
+              "description": "Aktiviert optionales Dominanz-Cap fuer Clustergewichte.",
+              "default": false
+            },
+            "cap_ratio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j).",
+              "default": 20.0
+            }
+          }
+        },
+        "output_stretch": {
+          "type": "boolean",
+          "description": "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns).",
+          "default": false
+        },
+        "cosmetic_correction": {
+          "type": "boolean",
+          "description": "Optionale Hotpixel-/Artefakt-Kosmetik nach dem Stacken (Post-Processing, standardmaessig deaktiviert).",
+          "default": false
+        },
+        "cosmetic_correction_sigma": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Schwellwert in Vielfachen der MAD-Sigma fuer die Hotpixel-Erkennung in cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0, empfohlen fuer OSC/Seestar: 10.0.",
+          "default": 5.0
+        },
+        "per_frame_cosmetic_correction": {
+          "type": "boolean",
+          "description": "Hotpixel-Korrektur pro Frame VOR dem Stacken. Entfernt fixe Sensordefekte (immer gleiche Position), die Sigma-Clipping nicht erkennt. Empfohlen fuer OSC-Kameras mit fixen Hot Pixeln.",
+          "default": false
+        },
+        "per_frame_cosmetic_correction_sigma": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sigma-Schwelle fuer per_frame_cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0. Fuer Seestar/OSC empfohlen: 5.0.",
+          "default": 5.0
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "min_fwhm_improvement_percent": {
+          "type": "number",
+          "description": "Minimum FWHM improvement percentage required for the run to be considered successful. If the output FWHM is not at least this much better than the input median FWHM, a warning is issued. Default: 0.",
+          "default": 0.0
+        },
+        "max_background_rms_increase_percent": {
+          "type": "number",
+          "description": "Maximum allowed background RMS increase (in percent) from cherry_pick or other processing. If exceeded, the feature is auto-disabled. Range 0\u2013100. Recommended: 5.",
+          "default": 0.0
+        },
+        "min_tile_weight_variance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum required variance in tile weights. If all tiles have nearly equal weights, the reconstruction may not be benefiting from quality-based weighting. Default: 0.",
+          "default": 0.1
+        },
+        "require_no_tile_pattern": {
+          "type": "boolean",
+          "description": "When true, validates that the output has no visible tile pattern artifacts. If detected, a warning is issued. Default: true.",
+          "default": true
+        }
+      }
+    },
+    "runtime_limits": {
+      "type": "object",
+      "properties": {
+        "parallel_workers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Anzahl paralleler Worker fuer Tile-Phasen; wird zusaetzlich durch CPU-Kerne und OSC-Speicherbudget begrenzt.",
+          "default": 4
+        },
+        "memory_budget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Speicherbudget in MiB fuer OSC-Worker-Cap bei Tile-Rekonstruktion.",
+          "default": 512
+        },
+        "acceleration_backend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "cpu",
+            "opencv_cuda",
+            "opencv_opencl",
+            "opencl",
+            "cuda"
+          ],
+          "default": "auto",
+          "description": "Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' (Standard) erkennt automatisch verfuegbare GPU-Backends (CUDA/OpenCL) zur Laufzeit. Prioritaet: CUDA -> OpenCL -> CPU. 'opencv_cuda' erzwingt NVIDIA CUDA, 'opencv_opencl'/'opencl' erzwingt OpenCL (AMD/Intel/NVIDIA), 'cpu' deaktiviert GPU. Faellt sauber auf CPU zurueck wenn Hardware nicht verfuegbar."
+        },
+        "tile_reconstruction_diagnostics": {
+          "type": "string",
+          "enum": [
+            "full",
+            "minimal",
+            false
+          ],
+          "default": "full",
+          "description": "Diagnostics detail level for tile reconstruction. full = all diagnostics (maps, histograms, per-tile metrics). minimal = summary only. off = no diagnostics. Default: full."
+        },
+        "tile_analysis_max_factor_vs_stack": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum factor by which tile analysis memory can exceed the stack memory. Prevents excessive memory usage for very large images. Range 1\u201310. Recommended: 3.0.",
+          "default": 3.0
+        },
+        "hard_abort_hours": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Hard time limit in hours. The pipeline aborts after this duration regardless of progress. 0 = no limit. Range 0\u201372. Recommended: 0.",
+          "default": 6.0
+        },
+        "allow_emergency_mode": {
+          "type": "boolean",
+          "description": "Erlaubt Emergency-Mode fuer Datensaetze mit <50 nutzbaren Frames; sonst wird der Lauf kontrolliert abgebrochen.",
+          "default": false
+        }
+      }
+    }
   }
 }

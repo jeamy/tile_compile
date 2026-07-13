@@ -4,9 +4,6 @@
 
 method: classic_tile_compile
 
-aqmh:
-  enabled: false
-
 pipeline:
   mode: production
   abort_on_fail: true
@@ -20,8 +17,7 @@ data:
   image_width: 0
   image_height: 0
   color_mode: OSC
-  bayer_pattern: GBRG
-  linear_required: true
+  bayer_pattern: auto
 
 linearity:
   enabled: true
@@ -142,7 +138,6 @@ astrometry:
   search_radius: 183
 
 bge:
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800
@@ -160,6 +155,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
+    user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
   tile_weight_lambda_structure: 1.0
 
 pcc:
@@ -213,8 +210,8 @@ validation:
   require_no_tile_pattern: false
 
 runtime_limits:
-  memory_budget: 32
-  parallel_workers: 0
+  memory_budget: 4096
+  parallel_workers: 8
   acceleration_backend: auto
   allow_emergency_mode: true
   hard_abort_hours: 6
@@ -229,7 +226,7 @@ global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.0
   weights:
-    background: 0.35
+    background: 0.45
     fwhm: 0.0
     gradient: 0.25
     noise: 0.3

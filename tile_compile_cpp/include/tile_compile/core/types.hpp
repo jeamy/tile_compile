@@ -191,7 +191,12 @@ enum class Phase {
     BGE = 15,
     PCC = 16,
     HYPERMETRIC_STRETCH = 17,
-    DONE = 18
+    DONE = 18,
+    AQMH_MAPS = 19,
+    AQMH_GLOBAL_QUALITY = 20,
+    AQMH_RECONSTRUCTION = 21,
+    AQMH_DIAGNOSTICS = 22,
+    AQMH_BGE_INPUTS = 23
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -215,6 +220,11 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::PCC: return "PCC";
         case Phase::HYPERMETRIC_STRETCH: return "HYPERMETRIC_STRETCH";
         case Phase::DONE: return "DONE";
+        case Phase::AQMH_MAPS: return "AQMH_MAPS";
+        case Phase::AQMH_GLOBAL_QUALITY: return "AQMH_GLOBAL_QUALITY";
+        case Phase::AQMH_RECONSTRUCTION: return "AQMH_RECONSTRUCTION";
+        case Phase::AQMH_DIAGNOSTICS: return "AQMH_DIAGNOSTICS";
+        case Phase::AQMH_BGE_INPUTS: return "AQMH_BGE_INPUTS";
         default: return "UNKNOWN";
     }
 }
@@ -224,7 +234,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 18) {
+    if (i >= 0 && i <= 23) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

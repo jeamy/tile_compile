@@ -91,7 +91,6 @@
   "param.hypermetric_stretch.write_channels.label": "Write channels",
   "phase.astrometry": "Astrometry",
   "phase.aqmh_maps": "AQMH maps",
-  "phase.aqmh_quality_maps": "AQMH metrics",
   "phase.aqmh_reconstruction": "AQMH reconstruction",
   "phase.bge": "BGE",
   "phase.channel_split": "Channel split",

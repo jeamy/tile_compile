@@ -49,64 +49,6 @@ struct ReconstructTilesResult {
     size_t allocated_tile_batch_bytes             = 0;
 };
 
-struct AqmhReconstructionConfig {
-    float sigma_low = 3.0f;
-    float sigma_high = 3.0f;
-    float min_fraction = 0.5f;
-    float eps_weight = 1.0e-6f;
-    // Cherry-pick: use only the top-K frames per pixel (§5.3).
-    // Disabled by default; set cherry_pick = true to enable.
-    bool  cherry_pick = false;
-    int   cherry_pick_k_min = 3;
-    float cherry_pick_k_frac = 0.30f;
-};
-
-struct AqmhReconstructionResult {
-    Matrix2Df output;
-    Matrix2Df weight_sum;
-    bool acceleration_used = false;
-    bool acceleration_fallback = false;
-    uint64_t unsupported_pixels = 0;
-    uint64_t finite_map_samples = 0;
-    uint64_t missing_map_samples = 0;
-    uint64_t zero_veto_pixels = 0;
-
-    // Cherry-pick diagnostics (only populated when cfg.cherry_pick = true).
-    // cherry_pick_k_map(y,x) = number of frames actually used at pixel (x,y).
-    // Zero for canvas-invalid pixels and pixels where cherry_pick had no effect
-    // (all frames used). Empty when cherry_pick is disabled.
-    Matrix2Df cherry_pick_k_map;
-    // Fraction of canvas-valid pixels where cherry_pick was active (K < N_valid).
-    float cherry_pick_active_frac = 0.0f;
-    // Mean and median K over all cherry-pick-active canvas-valid pixels.
-    float cherry_pick_mean_k = 0.0f;
-    float cherry_pick_median_k = 0.0f;
-    // Min/max K observed (across canvas-valid pixels with cherry_pick active).
-    int cherry_pick_k_min_observed = 0;
-    int cherry_pick_k_max_observed = 0;
-    // Whether the per-pixel (true) or global-fallback (false) path was used.
-    bool cherry_pick_per_pixel_mode = false;
-};
-
-using AqmhFrameLoader = std::function<bool(size_t, Matrix2Df&)>;
-
-// Independent AQMH reconstruction path.
-//
-// The implementation is streaming: it calls `load_frame` and `q_map_cache`
-// per frame/pass and never requires all source frames or quality maps in RAM.
-// Missing maps contribute zero AQMH weight. Finite all-zero map support is an
-// explicit AQMH veto and remains unsupported/zero; there is no Classic
-// tile-weight fallback.
-AqmhReconstructionResult reconstruct_aqmh_weighted(
-    size_t frame_count,
-    const AqmhFrameLoader& load_frame,
-    metrics::QualityMapCache* q_map_cache,
-    const VectorXf& global_weights,
-    const std::vector<uint8_t>& canvas_mask,
-    int width,
-    int height,
-    const AqmhReconstructionConfig& cfg);
-
 // Parallel implementation — replaces reconstruct_tiles() for new callers.
 // dead_tile_mask must have the same size as grid.tiles; pass all-false to
 // disable dead-tile skipping.

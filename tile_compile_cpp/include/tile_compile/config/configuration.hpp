@@ -25,7 +25,7 @@ struct DataConfig {
   int image_width = 0;
   int image_height = 0;
   std::string color_mode = "OSC";
-  std::string bayer_pattern = "GBRG";
+  std::string bayer_pattern = "auto";
   bool linear_required = true;
 };
 
@@ -246,29 +246,79 @@ struct AqmhPyramidConfig {
 };
 
 struct AqmhStorageConfig {
-  int resolution_divisor = 2;
+  int resolution_divisor = 1;
   std::string dtype = "float32";
   int max_resident_maps = 2;
 };
 
+struct AqmhGlobalQualityConfig {
+  float g_floor = 0.05f;
+  float g_w_sharp = 0.6f;
+  float g_w_snr = 0.4f;
+  float g_w_background_penalty = 0.3f;
+};
+
+struct AqmhReconstructionConfig {
+  float clip_sigma = 3.0f;
+  float clip_sigma_low = 3.0f;
+  float clip_sigma_high = 3.0f;
+  int clip_iterations = 3;
+  float min_fraction = 0.5f;
+  float min_n_eff = 2.0f;
+  int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
+  size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
+  bool registration_weight_guard = true;
+  float registration_weight_floor = 0.35f;
+  float registration_cc_floor = 0.35f;
+  float registration_cc_full = 0.80f;
+  float registration_sequential_factor = 0.85f;
+  float registration_predicted_factor = 0.35f;
+  float registration_chain_depth_penalty = 0.03f;
+  float registration_chain_depth_max_penalty = 0.15f;
+};
+
+struct AqmhValidationConfig {
+  float max_seam_score_regression = 0.02f;
+  float max_fwhm_regression = 0.02f;
+  float max_background_rms_regression = 0.02f;
+  float max_tail11_abs_regression = 0.05f;
+  float max_elongation_regression = 0.05f;
+};
+
 struct AqmhDiagnosticsConfig {
+  bool enabled = true;                    // master switch
+  std::string level = "full";             // "none" | "summary" | "full"
+  bool per_frame_blocks = true;           // per-frame block-level diagnostics + heatmaps
+  bool heatmaps = true;                   // spatial heatmap arrays
+  bool regions = true;                    // region extraction (aqmh_regions.json)
+  std::string format = "json";            // "json" | "binary"
+  int binary_block_size_px = 64;           // 0 = use r_morph_canvas_px
   float tau_artifact = 0.20f;
   float q_region = 0.75f;
   int r_morph_canvas_px = 6;
 };
 
 struct AqmhCherryPickConfig {
+  struct Tier {
+    int min_n_rankable = 0;
+    float k_frac = 0.30f;
+  };
   bool enabled = false;
-  int k_min = 3;
   float k_frac = 0.30f;
+  int k_min_required = 20;
+  float margin_min = 0.02f;
+  std::vector<Tier> tiered_k_frac;
 };
 
 struct AqmhConfig {
   bool enabled = true; // Runtime-Flag, wird aus Config::method abgeleitet via normalizeMethod()
   AqmhPyramidConfig pyramid;
   AqmhStorageConfig storage;
+  AqmhGlobalQualityConfig global_quality;
   AqmhCherryPickConfig cherry_pick;
   AqmhDiagnosticsConfig diagnostics;
+  AqmhReconstructionConfig reconstruction;
+  AqmhValidationConfig validation;
 };
 
 struct SyntheticConfig {

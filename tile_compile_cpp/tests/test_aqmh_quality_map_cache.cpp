@@ -1,5 +1,6 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 
 #include <filesystem>
 #include <string>
@@ -103,6 +104,65 @@ TEST_CASE("aqmh_quality_map_cache_uint8_downsampled_readback_is_clamped") {
   REQUIRE(read(7, 7) <= 1.0f);
   REQUIRE(read(0, 0) >= 0.0f);
 
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_format_v2_preserves_full_resolution_zero_veto") {
+  const auto dir = unique_cache_dir("aqmh_cache_veto_v2");
+  std::filesystem::remove_all(dir);
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  storage.resolution_divisor = 2;
+  tile_compile::metrics::QualityMapCache cache(
+      dir, "luma", 4, 4, pyramid, storage,
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(
+          std::vector<uint8_t>(16, 1u), 4, 4));
+  tile_compile::Matrix2Df map = tile_compile::Matrix2Df::Ones(4, 4);
+  map(1, 1) = 0.0f;
+  cache.write(0, map, std::vector<uint8_t>(16, 1u));
+  const auto decoded = cache.read(0);
+  REQUIRE(decoded(1, 1) == 0.0f);
+  REQUIRE(decoded(0, 0) > 0.0f);
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_region_reads_match_full_decode_in_approximate_mode") {
+  const auto dir = unique_cache_dir("aqmh_cache_region");
+  std::filesystem::remove_all(dir);
+  constexpr int W = 11, H = 9;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  tile_compile::config::AqmhPyramidConfig pyramid;
+  tile_compile::config::AqmhStorageConfig storage;
+  storage.resolution_divisor = 2;
+  storage.dtype = "uint16";
+  tile_compile::metrics::QualityMapCache cache(
+      dir, "luma", W, H, pyramid, storage,
+      tile_compile::metrics::compute_aqmh_canvas_mask_hash(mask, W, H));
+  auto map = make_q_map(H, W, 0.2f);
+  map(4, 3) = 0.0f;
+  cache.write(0, map, mask);
+  const auto full = cache.read(0);
+  const auto region = cache.read_region(0, 3, 4);
+  REQUIRE(region.rows() == 4);
+  REQUIRE(region.cols() == W);
+  for (int y = 0; y < region.rows(); ++y)
+    for (int x = 0; x < W; ++x)
+      REQUIRE(region(y, x) == Catch::Approx(full(y + 3, x)).margin(1.0e-7f));
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_frame_mask_region_reads_preserve_unaligned_bits") {
+  const auto dir = unique_cache_dir("aqmh_mask_region");
+  std::filesystem::remove_all(dir);
+  constexpr int W = 11, H = 7;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 0u);
+  for (size_t i = 0; i < mask.size(); ++i) mask[i] = (i % 3u) != 0u;
+  tile_compile::metrics::FrameValidMaskStore store(dir, W, H);
+  store.write(2, mask);
+  const auto region = store.read_region(2, 1, 4);
+  REQUIRE(region.size() == static_cast<size_t>(W * 4));
+  for (size_t i = 0; i < region.size(); ++i)
+    REQUIRE(region[i] == mask[static_cast<size_t>(W) + i]);
   std::filesystem::remove_all(dir);
 }
 

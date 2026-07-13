@@ -3180,10 +3180,21 @@ std::optional<ReportSection> gen_aqmh_metrics(const fs::path& run_dir, const jso
 
     std::vector<std::vector<double>> metric_rows;
     std::vector<std::string> metric_labels;
-    for (const auto& entry : std::vector<std::pair<std::string, std::vector<double>>>{{"map_p10", map_p10}, {"map_p50", map_p50}, {"map_p90", map_p90}, {"map_mean", map_means}, {"artifact_frac", artifact_fracs}}) {
-        if (!entry.second.empty()) {
-            metric_labels.push_back(entry.first);
-            metric_rows.push_back(entry.second);
+    struct MetricSeriesRef {
+        const char* label;
+        const std::vector<double>* values;
+    };
+    const std::array<MetricSeriesRef, 5> metric_series{{
+        {"map_p10", &map_p10},
+        {"map_p50", &map_p50},
+        {"map_p90", &map_p90},
+        {"map_mean", &map_means},
+        {"artifact_frac", &artifact_fracs},
+    }};
+    for (const auto& entry : metric_series) {
+        if (entry.values != nullptr && !entry.values->empty()) {
+            metric_labels.emplace_back(entry.label);
+            metric_rows.push_back(*entry.values);
         }
     }
     if (!metric_rows.empty()) {
@@ -3505,7 +3516,8 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
         const json tg = read_json_if_exists(artifacts_dir / "tile_grid.json");
         const json reg = read_json_if_exists(artifacts_dir / "global_registration.json");
         const json lm = read_json_if_exists(artifacts_dir / "local_metrics.json");
-        const json recon = read_json_if_exists(artifacts_dir / "tile_reconstruction.json");
+        json recon = read_json_if_exists(artifacts_dir / "aqmh_reconstruction.json");
+        if (recon.empty()) recon = read_json_if_exists(artifacts_dir / "tile_reconstruction.json");
         const json cl = read_json_if_exists(artifacts_dir / "state_clustering.json");
         const json syn = read_json_if_exists(artifacts_dir / "synthetic_frames.json");
         const json bge = read_json_if_exists(artifacts_dir / "bge.json");
