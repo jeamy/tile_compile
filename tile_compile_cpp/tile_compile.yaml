@@ -14,7 +14,7 @@ pipeline:
 output:
   registered_dir: registered
   write_registered_frames: true
-  crop_to_nonzero_bbox: true
+  crop_to_nonzero_bbox: false
 data:
   color_mode: OSC
   bayer_pattern: RGGB
@@ -44,8 +44,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 3
   bias_dir: ""
-  reduced_mode_cluster_range: [3, 10]
-  use_bias: false
 normalization:
   enabled: true
   mode: background
@@ -252,8 +250,8 @@ hypermetric_stretch:
   target_bg: 0.15
   protect_b: 6
   convergence_power: 3.5
-  log_d_mode: auto
-  fixed_log_d: 2
+  log_d_mode: fixed
+  fixed_log_d: 3
   color_strategy: fixed
   fixed_color_strategy: 0
   color_grip: 1
