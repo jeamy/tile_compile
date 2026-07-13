@@ -95,10 +95,12 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
 
 // AQMH phases that can reuse cached quality maps and skip directly to
 // reconstruction without a full pipeline rerun (§ Resume spec).
+// STACKING is included because AQMH does not persist synthetic_*.fit files;
+// resuming STACKING therefore needs synthetic_0.fit to be produced first.
 bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
   static const std::vector<std::string> kPhases = {
       "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION",
-      "AQMH_DIAGNOSTICS"};
+      "AQMH_DIAGNOSTICS", "STACKING"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
 }
@@ -711,7 +713,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   // All AQMH phases that have cached quality maps can resume directly at
   // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
   // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
-  if (is_aqmh_cache_resume_phase(phase_upper)) {
+  // For STACKING it also provides the synthetic_0.fit file that the shared
+  // STACKING resume path expects but AQMH never writes during a normal run.
+  if (cfg.aqmh.enabled && is_aqmh_cache_resume_phase(phase_upper)) {
     phase_l = "aqmh_reconstruction";
     phase_upper = "AQMH_RECONSTRUCTION";
   }
