@@ -292,7 +292,7 @@ struct AqmhDiagnosticsConfig {
   bool heatmaps = true;                   // spatial heatmap arrays
   bool regions = true;                    // region extraction (aqmh_regions.json)
   std::string format = "json";            // "json" | "binary"
-  int binary_block_size_px = 0;            // 0 = use r_morph_canvas_px
+  int binary_block_size_px = 64;           // 0 = use r_morph_canvas_px
   float tau_artifact = 0.20f;
   float q_region = 0.75f;
   int r_morph_canvas_px = 6;
