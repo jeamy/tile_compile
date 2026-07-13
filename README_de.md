@@ -1070,6 +1070,20 @@ Die AutoBGE-Phase (Background Gradient Extraction) wurde aus dem AutoBGE Siril-S
 
 ## Changelog
 
+### (13.07.2026)
+
+**AQMH v0.2.0/v0.2.1 Implementierung (`v0.2.1`):**
+
+- **AQMH-Pipeline finalisiert:** Vollständige Adaptive-Quality-Map-Harvesting-Pipeline (`AQMH_MAPS`, `AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS`) mit Config-Blöcken für `pyramid`, `storage`, `cherry_pick`, `global_quality`, `reconstruction`, `validation` und `diagnostics`.
+- **Globale Qualitätsgewichtung:** Pro-Frame-Gewichte `G_f` aus Schärfe- und SNR-Zusammenfassungen über robuste Z-Score-Sigmoid-Normalisierung; `g_floor`, `g_w_sharp` und `g_w_snr` steuern die Verteilung.
+- **Hintergrundgradienten-Strafe (`v0.2.1`):** `aqmh.global_quality.g_w_background_penalty` ergänzt, sodass Frames mit starkem großskaligem Himmelshintergrundverlauf niedrigere Gewichte erhalten.
+- **Registrierungsrobustheit:** NCC-Berechnung in `try_method` klemmt negative Hintergrundwerte ab und wendet vor der Korrelation einen Gauß-Blur an, damit Hot-Pixel die NCC bei Sub-Pixel-Verschiebungen nicht kollabieren lassen. Der Near-Identity-Bypass erfordert jetzt `ncc_identity > 0,7`, um falsche Akzeptanzen weit entfernter Frames zu vermeiden.
+- **Registrierungs-Gewichtsschutz (`v0.2.1`):** `registration_weight_guard`, `registration_weight_floor`, `registration_cc_floor`, `registration_cc_full`, `registration_sequential_factor`, `registration_predicted_factor`, `registration_chain_depth_penalty` und `registration_chain_depth_max_penalty` ergänzt, um pixelweise Gewichte nach Korrelationsqualität und sequentieller Kettentiefe zu dämpfen.
+- **Adaptive Neutralisierung:** AQMH-Rekonstruktion wählt zwischen raw und tiefpass-neutralisiertem Hintergrund anhand der Hintergrund-Regression und fällt auf die uniforme Kontrollrekonstruktion zurück, wenn die gewichtete Ausgabe die Validierungsgates nicht besteht.
+- **Diagnose-Steuerung:** Master-Schalter `aqmh.diagnostics.enabled` plus `level`, `per_frame_blocks`, `heatmaps`, `regions`, `format` und `binary_block_size_px` ergänzt.
+- **Bayer-Pattern-Auto-Erkennung:** Standard für `data.bayer_pattern` auf `auto` geändert; FITS-Header-Schlüssel `BAYERPAT` und `COLORTYP` haben Vorrang, der konfigurierte Wert dient nur als Fallback.
+- **Dokumentation synchronisiert:** Englische und deutsche `configuration_reference` um alle neuen AQMH-v0.2.1-Parameter, korrekte Defaults und Laufzeitverhalten ergänzt; Beispielkonfigurationen verwenden jetzt `bayer_pattern: auto` und `memory_budget: 4096`.
+
 ### (03.07.2026)
 
 **AutoBGE-Vorschau-Verbesserungen, HMS-Vorschau, Resume-Unterstützung (`v0.3.B`):**

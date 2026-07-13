@@ -4,56 +4,6 @@
 
 method: classic_tile_compile
 
-aqmh:
-  enabled: true
-  pyramid:
-    scales: 4
-    base_window_px: 4
-    w_sharp: 0.6
-    w_snr: 0.4
-    k_artifact: 3.0
-    frac_artifact_max: 0.25
-  storage:
-    resolution_divisor: 2
-    dtype: uint16
-    max_resident_maps: 4
-
-  global_quality:
-    g_floor: 0.05
-    g_w_sharp: 0.6
-    g_w_snr: 0.4
-
-  cherry_pick:
-    enabled: false
-    k_min_required: 20
-    k_frac: 0.30
-    margin_min: 0.02
-    tiered_k_frac: []
-
-  diagnostics:
-    enabled: true
-    level: summary
-    per_frame_blocks: true
-    heatmaps: false
-    regions: true
-    format: json
-    binary_block_size_px: 0
-    tau_artifact: 0.20
-    q_region: 0.75
-    r_morph_canvas_px: 6
-  reconstruction:
-    clip_sigma: 3.0
-    clip_iterations: 3
-    min_fraction: 0.5
-    min_n_eff: 2.0
-    chunk_rows: 0
-    memory_budget_mb: 0
-
-  validation:
-    max_seam_score_regression: 0.02
-    max_fwhm_regression: 0.02
-    max_background_rms_regression: 0.02
-
 pipeline:
   mode: production
   abort_on_fail: true

@@ -9,6 +9,10 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Documentation status (2026-07-13):**
 - `aqmh.*` updated for v0.2.1: `pyramid`, `storage`, `cherry_pick`, `diagnostics`, `global_quality`, `reconstruction`, `validation`.
 - `data.bayer_pattern` default is `auto`; FITS header (`BAYERPAT`/`COLORTYP`) takes precedence over the config value.
+- Removed `data.linear_required` (deprecated; non-linear frames are now only warned about).
+- `aqmh.storage.dtype` covers `float32`, `uint16`, `uint8`.
+- Renamed `aqmh.cherry_pick.k_min` to `k_min_required` (default `20`).
+- `aqmh.diagnostics.binary_block_size_px` default is `64`.
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -161,16 +165,6 @@ Input data configuration.
 
 **Runtime behaviour:** For OSC data, the runner first reads `BAYERPAT` and `COLORTYP` from the FITS header. If present, that value is used and the config value is ignored. If the header contains no Bayer metadata, the configured `bayer_pattern` is used as a fallback. With `bayer_pattern: auto` and no header metadata, the run aborts with an error instead of guessing a camera-specific pattern.
 
-### `data.linear_required`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Require linear (unstretched) input data.
-
----
 
 ## 4. Linearity
 
@@ -1312,10 +1306,10 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `float32`, `uint8` |
+| **Values** | `float32`, `uint16`, `uint8` |
 | **Default** | `"float32"` |
 
-**Purpose:** Data type for cached quality maps. `float32` is precise; `uint8` saves disk space (8-bit quantisation of quality values).
+**Purpose:** Data type for cached quality maps. `float32` is precise; `uint16` offers a compact compromise; `uint8` saves the most disk space (8-bit quantisation of quality values).
 
 ---
 
@@ -1344,15 +1338,15 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
-#### `aqmh.cherry_pick.k_min`
+#### `aqmh.cherry_pick.k_min_required`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
 | **Minimum** | 1 |
-| **Default** | `3` |
+| **Default** | `20` |
 
-**Purpose:** Minimum number of frames always included even in cherry-pick mode. Prevents under-determination on small datasets.
+**Purpose:** Minimum number of frames always included even in cherry-pick mode. Prevents under-determination on small datasets. This is the run-level gate and per-pixel retained-sample floor.
 
 ---
 
@@ -1443,9 +1437,9 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `0` |
+| **Default** | `64` |
 
-**Purpose:** Block size in pixels for binary diagnostic output. `0` means `r_morph_canvas_px` is used.
+**Purpose:** Block size in pixels for binary diagnostic output. Default is 64; `0` falls back to `r_morph_canvas_px`.
 
 ----
 
@@ -2972,7 +2966,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `data.image_width`, `data.image_height`: optional expected dimensions; normally auto-detected from FITS headers.
 - `data.color_mode`: expected acquisition mode; runtime auto-detection can override with warning.
 - `data.bayer_pattern`: CFA layout for OSC processing and color reconstruction consistency.
-- `data.linear_required`: enables strict linearity requirement policy coupling with linearity diagnostics.
 
 ### A.2 Linearity / Calibration / Assumptions
 

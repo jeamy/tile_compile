@@ -18,7 +18,6 @@ data:
   image_height: 0
   color_mode: OSC
   bayer_pattern: auto
-  linear_required: true
 
 calibration:
   use_bias: false
@@ -116,12 +115,12 @@ aqmh:
   # Diagnostics parameters
   diagnostics:
     enabled: true
-    level: summary
+    level: full
     per_frame_blocks: false
     heatmaps: false
     regions: false
     format: json
-    binary_block_size_px: 0
+    binary_block_size_px: 64
     q_region: 0.75           # Quantile for region quality threshold
     r_morph_canvas_px: 6      # Morphological radius in canvas pixels
     tau_artifact: 0.2         # Artifact fraction threshold for quality degradation
@@ -129,11 +128,21 @@ aqmh:
   # Reconstruction parameters
   reconstruction:
     clip_sigma: 3.0
+    clip_sigma_low: 3.0
+    clip_sigma_high: 3.0
     clip_iterations: 3
     min_fraction: 0.5
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    registration_weight_guard: true
+    registration_weight_floor: 0.35
+    registration_cc_floor: 0.35
+    registration_cc_full: 0.80
+    registration_sequential_factor: 0.85
+    registration_predicted_factor: 0.35
+    registration_chain_depth_penalty: 0.03
+    registration_chain_depth_max_penalty: 0.15
   
   # Cherry-pick parameters (pixel-level frame selection)
   cherry_pick:

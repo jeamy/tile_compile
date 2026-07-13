@@ -9,6 +9,10 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 **Dokumentationsstand (2026-07-13):**
 - `aqmh.*` für v0.2.1 aktualisiert: `pyramid`, `storage`, `cherry_pick`, `diagnostics`, `global_quality`, `reconstruction`, `validation`.
 - `data.bayer_pattern` ist standardmäßig `auto`; FITS-Header (`BAYERPAT`/`COLORTYP`) haben Vorrang vor dem Config-Wert.
+- `data.linear_required` entfernt (deprecated; nicht-lineare Frames werden nur noch gewarnt).
+- `aqmh.storage.dtype` umfasst `float32`, `uint16`, `uint8`.
+- `aqmh.cherry_pick.k_min` in `k_min_required` umbenannt (Default `20`).
+- `aqmh.diagnostics.binary_block_size_px` Default ist `64`.
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
 - `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -198,7 +202,7 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | string |
+| **Typ** | string (enum) |
 | **Werte** | `auto`, `RGGB`, `BGGR`, `GRBG`, `GBRG`, `NONE` |
 | **Default** | `"auto"` |
 
@@ -215,20 +219,6 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 
 ---
 
-### `data.linear_required`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** Schaltet die strikte Entfernung nicht-linearer Frames ein/aus.
-
-- Non-lineare Frames werden **nicht entfernt**, es wird nur gewarnt (`warn_only`).
-
-**Zusammenspiel mit `linearity.enabled`:** Die Linearitätsprüfung muss `enabled=true` sein, damit Warnungen für non-lineare Frames entstehen.
-
----
 
 ## 4. Linearity
 
@@ -1523,10 +1513,10 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string (enum) |
-| **Werte** | `float32`, `uint8` |
+| **Werte** | `float32`, `uint16`, `uint8` |
 | **Default** | `"float32"` |
 
-**Zweck:** Datentyp für gecachte Qualitätskarten. `float32` ist präzise, `uint8` spart Speicherplatz (8-bit Quantisierung der Qualitätswerte).
+**Zweck:** Datentyp für gecachte Qualitätskarten. `float32` ist präzise, `uint16` ist ein kompakter Kompromiss, `uint8` spart am meisten Speicherplatz (8-bit Quantisierung der Qualitätswerte).
 
 ---
 
@@ -1555,15 +1545,15 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 
 ---
 
-#### `aqmh.cherry_pick.k_min`
+#### `aqmh.cherry_pick.k_min_required`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Default** | `3` |
+| **Default** | `20` |
 
-**Zweck:** Mindestanzahl Frames, die auch beim Cherry-Picking immer einbezogen werden. Verhindert Unterbestimmung bei kleinen Datensätzen.
+**Zweck:** Mindestanzahl Frames, die auch beim Cherry-Picking immer einbezogen werden. Verhindert Unterbestimmung bei kleinen Datensätzen. Dies ist das Lauf-Gate und die Untergrenze erhaltener Samples pro Pixel.
 
 ---
 
@@ -1654,9 +1644,9 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Default** | `0` |
+| **Default** | `64` |
 
-**Zweck:** Blockgröße in Pixeln für die binäre Diagnoseausgabe. `0` bedeutet, dass `r_morph_canvas_px` verwendet wird.
+**Zweck:** Blockgröße in Pixeln für die binäre Diagnoseausgabe. Standard ist 64; `0` fällt auf `r_morph_canvas_px` zurück.
 
 ----
 
@@ -3401,7 +3391,6 @@ output:
 data:
   color_mode: OSC
   bayer_pattern: auto
-  linear_required: true
 
 # Linearity
 linearity:
@@ -3759,7 +3748,6 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `data.image_width`, `data.image_height`: optionale Erwartungswerte; normalerweise FITS-headerbasiert erkannt.
 - `data.color_mode`: erwarteter Aufnahmemodus; Laufzeit-Autodetektion kann mit Warnung übersteuern.
 - `data.bayer_pattern`: CFA-Layout für OSC-Verarbeitung und korrekte Farbrekonstruktion.
-- `data.linear_required`: koppelt Policy für Linearitätsanforderung an Linearity-Diagnostik.
 
 ### A.2 Linearity / Calibration / Assumptions
 

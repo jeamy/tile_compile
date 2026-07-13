@@ -266,10 +266,11 @@ aqmh:
     g_floor: 0.05          # Untergrenze fuer globale Frame-Qualitaet G_f
     g_w_sharp: 0.6        # Gewicht Schaerfe in globaler Qualitaet
     g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
+    g_w_background_penalty: 0.3
 
   storage:
-    resolution_divisor: 2
-    dtype: uint16
+    resolution_divisor: 1
+    dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
@@ -285,12 +286,12 @@ aqmh:
     max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
   diagnostics:
     enabled: true
-    level: summary
+    level: full
     per_frame_blocks: true
     heatmaps: false
     regions: true
     format: json
-    binary_block_size_px: 0
+    binary_block_size_px: 64
     tau_artifact: 0.20
     q_region: 0.75
     r_morph_canvas_px: 6
