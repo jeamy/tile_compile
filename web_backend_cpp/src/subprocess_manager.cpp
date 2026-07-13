@@ -236,7 +236,11 @@ bool spawn_subprocess(const std::vector<std::string>& args,
 
 void terminate_spawned_process(int pid, int signal) {
     if (pid <= 0) return;
-    kill(static_cast<pid_t>(pid), signal);
+    // Send to the entire process group (pgid == pid, set via setpgid above)
+    // so all child processes spawned by the runner are also terminated.
+    if (kill(-static_cast<pid_t>(pid), signal) != 0) {
+        kill(static_cast<pid_t>(pid), signal);
+    }
 }
 
 /// @brief Implements wait for process.

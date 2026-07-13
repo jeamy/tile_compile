@@ -24,10 +24,9 @@ output:
 
 data:
   color_mode: OSC
-  bayer_pattern: RGGB
+  bayer_pattern: auto
   image_width: 0
   image_height: 0
-  linear_required: true
 
 input:
   pattern: ./data/*.fits
@@ -99,6 +98,21 @@ dithering:
   enabled: true
   min_shift_px: 0.7
 
+tile_denoise:
+  soft_threshold:
+    enabled: true
+    blur_kernel: 31
+    alpha: 1.5
+    skip_star_tiles: true
+  wiener:
+    enabled: true
+    snr_threshold: 5.0
+    q_min: -0.5
+    q_max: 1.0
+    q_step: 0.1
+    min_snr: 2.0
+    max_iterations: 10
+
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.3
@@ -155,7 +169,6 @@ astrometry:
   search_radius: 183
 
 bge:
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800
@@ -173,6 +186,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
+    user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
   tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true
@@ -287,19 +302,49 @@ aqmh:
     w_snr: 0.4
     k_artifact: 3.0
     frac_artifact_max: 0.25
+
+
+  # Globale Qualitaetsgewichtung (v0.2.0)
+  global_quality:
+    g_floor: 0.05          # Untergrenze fuer globale Frame-Qualitaet G_f
+    g_w_sharp: 0.6        # Gewicht Schaerfe in globaler Qualitaet
+    g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
+    g_w_background_penalty: 0.3
+
   storage:
-    resolution_divisor: 2
-    dtype: uint16
+    resolution_divisor: 1
+    dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
-    k_min: 3
+    k_min_required: 20
     k_frac: 0.30
+    margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
+    tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+
+  # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
+  validation:
+    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
+    max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
+    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
   diagnostics:
+    enabled: true
+    level: full
+    per_frame_blocks: true
+    heatmaps: false
+    regions: true
+    format: json
+    binary_block_size_px: 64
     tau_artifact: 0.20
     q_region: 0.75
     r_morph_canvas_px: 6
-
+  reconstruction:
+    clip_sigma: 3.0
+    clip_iterations: 3
+    min_fraction: 0.5
+    min_n_eff: 2.0
+    chunk_rows: 0
+    memory_budget_mb: 0
 stacking:
   method: rej
   common_overlap_required_fraction: 1.0
@@ -324,7 +369,7 @@ runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
   hard_abort_hours: 6
-  memory_budget: 2048
+  memory_budget: 4096
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
   tile_reconstruction_diagnostics: full

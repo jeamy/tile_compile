@@ -50,9 +50,16 @@ Reconstruction (per canvas-valid pixel p):
 | `aqmh.cherry_pick.enabled` | `false` | Stack only top-quality frames |
 | `aqmh.cherry_pick.k_frac` | `0.30` | Fraction of best frames to use (0.30 = best 30%) |
 | `aqmh.cherry_pick.k_min` | `3` | Minimum frames always included |
+| `aqmh.diagnostics.enabled` | `true` | Enable AQMH diagnostics phase |
+| `aqmh.diagnostics.level` | `summary` | Detail level: `none`, `summary`, or `full` |
+| `aqmh.diagnostics.format` | `json` | Diagnostic output format: `json` or `binary` |
+| `aqmh.diagnostics.regions` | `true` | Write `aqmh_regions.json` per-frame region list |
+| `aqmh.diagnostics.binary_block_size_px` | `64` | Block size for binary diagnostics (AQDB) |
 | `aqmh.diagnostics.tau_artifact` | `0.20` | Artifact threshold for `artifacts/aqmh.json` |
 | `aqmh.diagnostics.q_region` | `0.75` | Quantile for regional quality statistics |
 | `aqmh.diagnostics.r_morph_canvas_px` | `6` | Morphological radius for diagnostic quality map |
+| `aqmh.reconstruction.chunk_rows` | `0` | Row chunk size (0 = auto from memory budget) |
+| `aqmh.reconstruction.gpu_reconstruction` | `auto` | GPU backend: `disabled`, `auto`, or `force` |
 
 Full parameter documentation: [Configuration Reference — §12b AQMH](docs/configuration_reference_en.md)  
 Practical examples: [Configuration Examples — AQMH section](docs/configuration_examples_practical_en.md)  
@@ -88,7 +95,7 @@ aqmh:
 
 ## Documentation
 
-- **AQMH methodology (normative):** [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md)
+- **AQMH methodology (normative):** [AQMH Methodology v0.2.1](docs/AQMH/aqmh_methodik_en_v0.2.1.md)
 - **AQMH parameter reference:** [Configuration Reference — §12b AQMH](docs/configuration_reference_en.md)
 - **AQMH practical examples:** [Configuration Examples & Best Practices](docs/configuration_examples_practical_en.md)
 - Configuration reference (full): [Configuration Reference (EN)](docs/configuration_reference_en.md)
@@ -1043,6 +1050,20 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 - First public release
 
 ## Changelog
+
+### (2026-07-13)
+
+**AQMH v0.2.0/v0.2.1 implementation (`v0.2.1`):**
+
+- **AQMH pipeline finalized:** Added the complete Adaptive Quality Map Harvesting pipeline (`AQMH_MAPS`, `AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS`) with configuration blocks for `pyramid`, `storage`, `cherry_pick`, `global_quality`, `reconstruction`, `validation`, and `diagnostics`.
+- **Global quality weighting:** Per-frame global weights `G_f` are computed from sharpness and SNR summaries via robust z-score sigmoid normalization; `g_floor`, `g_w_sharp`, and `g_w_snr` control the weight distribution.
+- **Background-gradient penalty (`v0.2.1`):** Added `aqmh.global_quality.g_w_background_penalty` so frames with strong large-scale sky gradients receive lower global weights.
+- **Registration robustness:** NCC computation in `try_method` now clamps negative background values and applies a Gaussian blur before correlation, preventing hot pixels from collapsing NCC for sub-pixel shifts. The near-identity bypass now requires `ncc_identity > 0.7` to avoid false accepts on frames far from the reference.
+- **Registration weight guard (`v0.2.1`):** Added `registration_weight_guard`, `registration_weight_floor`, `registration_cc_floor`, `registration_cc_full`, `registration_sequential_factor`, `registration_predicted_factor`, `registration_chain_depth_penalty`, and `registration_chain_depth_max_penalty` to dampen per-pixel weights based on registration correlation and sequential-chain depth.
+- **Adaptive neutralization:** AQMH reconstruction chooses between raw and low-frequency-neutralized background based on background regression, and falls back to the uniform-control reconstruction when the weighted output fails validation gates.
+- **Diagnostics controls:** Added master switch `aqmh.diagnostics.enabled` plus `level`, `per_frame_blocks`, `heatmaps`, `regions`, `format`, and `binary_block_size_px`.
+- **Bayer pattern auto detection:** `data.bayer_pattern` default changed to `auto`; FITS header keys `BAYERPAT` and `COLORTYP` now take precedence, with the configured value used only as fallback.
+- **Documentation sync:** Updated English and German `configuration_reference` documents with all new AQMH v0.2.1 parameters, correct defaults, and runtime behavior; example configs now use `bayer_pattern: auto` and `memory_budget: 4096`.
 
 ### (2026-07-03)
 

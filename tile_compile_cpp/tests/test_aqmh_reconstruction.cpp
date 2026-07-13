@@ -1,7 +1,13 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/core/acceleration.hpp"
-#include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_validation.hpp"
+
+#if TILE_COMPILE_WITH_CUDA
+#include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
+#endif
+#include "tile_compile/reconstruction/aqmh_reconstruction_opencl.hpp"
 
 #include <filesystem>
 #include <string>
@@ -85,9 +91,12 @@ TEST_CASE("aqmh_reconstruction_missing_maps_do_not_fallback_to_unweighted_mean")
   tile_compile::VectorXf global_weights(2);
   global_weights << 1.0f, 1.0f;
 
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.min_n_eff = 1.0f;
+  cfg.clip_iterations = 0;
   const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
       frames.size(), loader_for(frames), &cache, global_weights, mask, 2, 2,
-      tile_compile::reconstruction::AqmhReconstructionConfig{});
+      cfg);
 
   REQUIRE(out.missing_map_samples == 8);
   REQUIRE(out.unsupported_pixels == 4);
@@ -115,13 +124,152 @@ TEST_CASE("aqmh_reconstruction_uses_per_pixel_quality_weights") {
   tile_compile::VectorXf global_weights(2);
   global_weights << 1.0f, 1.0f;
 
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.min_n_eff = 1.0f;
+  cfg.clip_iterations = 0;
   const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
       frames.size(), loader_for(frames), &cache, global_weights, mask, 2, 2,
-      tile_compile::reconstruction::AqmhReconstructionConfig{});
+      cfg);
 
   REQUIRE(out.output(0, 0) == Catch::Approx(10.0f).margin(1.0e-6f));
   REQUIRE(out.output(1, 1) == Catch::Approx(55.0f).margin(1.0e-6f));
   REQUIRE(out.zero_veto_pixels == 0);
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_cherry_pick_run_gate_forces_small_nominal_selection_off") {
+  const auto dir = unique_recon_cache_dir("aqmh_cherry_gate");
+  std::filesystem::remove_all(dir);
+  auto cache = make_cache(dir, 1, 1);
+  std::vector<tile_compile::Matrix2Df> frames;
+  for (int i = 0; i < 25; ++i) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(1, 1, 10.0f));
+    cache.write(static_cast<size_t>(i), tile_compile::Matrix2Df::Ones(1, 1));
+  }
+  tile_compile::VectorXf weights = tile_compile::VectorXf::Ones(25);
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.cherry_pick = true;
+  cfg.cherry_pick_k_frac = 0.30f;
+  cfg.cherry_pick_k_min_required = 20;
+  const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, weights, {1u}, 1, 1, cfg);
+  REQUIRE(out.cherry_pick_forced_disabled);
+  REQUIRE_FALSE(out.cherry_pick_active);
+  REQUIRE(out.k_nominal_median == 7.0f);
+  REQUIRE(out.output(0, 0) == Catch::Approx(10.0f));
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_cherry_pick_enforces_positive_sample_floor") {
+  const auto dir = unique_recon_cache_dir("aqmh_cherry_floor");
+  std::filesystem::remove_all(dir);
+  auto cache = make_cache(dir, 1, 1);
+  std::vector<tile_compile::Matrix2Df> frames;
+  tile_compile::VectorXf weights(100);
+  for (int i = 0; i < 100; ++i) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(1, 1, static_cast<float>(i)));
+    cache.write(static_cast<size_t>(i), tile_compile::Matrix2Df::Ones(1, 1));
+    weights[i] = 1.0f + static_cast<float>(i) * 0.001f;
+  }
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.cherry_pick = true;
+  cfg.cherry_pick_k_frac = 0.30f;
+  cfg.cherry_pick_k_min_required = 20;
+  cfg.clip_iterations = 0;
+  const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, weights, {1u}, 1, 1, cfg);
+  REQUIRE_FALSE(out.cherry_pick_forced_disabled);
+  REQUIRE(out.cherry_pick_active);
+  REQUIRE(out.k_effective_p50 == 30.0f);
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_uniform_control_uses_unit_weights_without_reviving_vetoes") {
+  const auto dir = unique_recon_cache_dir("aqmh_uniform_control");
+  constexpr int W = 3, H = 2;
+  std::vector<tile_compile::Matrix2Df> frames(
+      2, tile_compile::Matrix2Df::Constant(H, W, 0.0f));
+  frames[0].setConstant(10.0f);
+  frames[1].setConstant(20.0f);
+  tile_compile::metrics::QualityMapCache cache = make_cache(dir, W, H);
+  tile_compile::Matrix2Df q0 = tile_compile::Matrix2Df::Constant(H, W, 0.1f);
+  tile_compile::Matrix2Df q1 = tile_compile::Matrix2Df::Constant(H, W, 0.9f);
+  q0(0, 0) = 0.0f;
+  q1(0, 0) = 0.0f;
+  cache.write(0, q0);
+  cache.write(1, q1);
+  tile_compile::VectorXf global = tile_compile::VectorXf::Ones(2);
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.uniform_weights = true;
+  cfg.clip_iterations = 0;
+  cfg.min_n_eff = 1.0f;
+  const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global, mask, W, H, cfg);
+  REQUIRE(out.output(0, 0) == 0.0f);
+  REQUIRE(out.zero_veto_pixels == 1);
+  REQUIRE(out.output(1, 1) == Catch::Approx(15.0f));
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_validation_regression_is_zero_for_identical_control") {
+  tile_compile::Matrix2Df image(8, 8);
+  for (int y = 0; y < image.rows(); ++y)
+    for (int x = 0; x < image.cols(); ++x)
+      image(y, x) = static_cast<float>(x + 2 * y);
+  const auto comparison =
+      tile_compile::reconstruction::compare_aqmh_to_uniform_control(image,
+                                                                    image);
+  REQUIRE(comparison.seam_score_regression == Catch::Approx(0.0f));
+  REQUIRE(comparison.fwhm_regression == Catch::Approx(0.0f));
+  REQUIRE(comparison.background_rms_regression == Catch::Approx(0.0f));
+}
+
+TEST_CASE("aqmh_region_streaming_avoids_full_frame_loads") {
+  const auto dir = unique_recon_cache_dir("aqmh_region_streaming");
+  std::filesystem::remove_all(dir);
+  constexpr int W = 8, H = 6, N = 4;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  for (int fi = 0; fi < N; ++fi) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(H, W, 10.0f + fi));
+    cache.write(static_cast<size_t>(fi),
+                tile_compile::Matrix2Df::Constant(H, W, 0.5f), mask);
+  }
+  tile_compile::VectorXf global = tile_compile::VectorXf::Ones(N);
+  int full_frame_loads = 0;
+  auto full_loader = [&](size_t fi, tile_compile::Matrix2Df &out) {
+    ++full_frame_loads;
+    out = frames[fi];
+    return true;
+  };
+  auto full_mask_loader = [&](size_t, std::vector<uint8_t> &out) {
+    out = mask;
+    return true;
+  };
+  auto region_loader = [&](size_t fi, int y0, int rows,
+                           tile_compile::Matrix2Df &out) {
+    out = frames[fi].block(y0, 0, rows, W);
+    return true;
+  };
+  auto mask_region_loader = [&](size_t, int y0, int rows,
+                                std::vector<uint8_t> &out) {
+    out.assign(mask.begin() + static_cast<long>(y0 * W),
+               mask.begin() + static_cast<long>((y0 + rows) * W));
+    return true;
+  };
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.clip_iterations = 0;
+  cfg.min_n_eff = 1.0f;
+  cfg.compute_uniform_control = true;
+  const auto result = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      N, full_loader, &cache, global, mask, W, H, cfg, full_mask_loader,
+      region_loader, mask_region_loader);
+  REQUIRE(full_frame_loads == 0);
+  REQUIRE(result.region_streaming_used);
+  REQUIRE(result.output(2, 3) == Catch::Approx(11.5f));
+  REQUIRE(result.uniform_control_output(2, 3) == Catch::Approx(11.5f));
   std::filesystem::remove_all(dir);
 }
 
@@ -153,8 +301,7 @@ TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
   std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
   mask[0] = 0u;
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
-  cfg.sigma_low = 2.0f;
-  cfg.sigma_high = 2.0f;
+  cfg.clip_sigma = 2.0f;
   cfg.min_fraction = 0.5f;
 
   const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
@@ -176,6 +323,88 @@ TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
       frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
       cfg, streams.get(0));
 
+  // The v0.1 CUDA path does not implement v0.2 features (weighted median+MAD,
+  // M_f validation, cherry-pick gate). It falls back to the CPU implementation
+  // and reports acceleration_fallback=true.
+  REQUIRE_FALSE(gpu.acceleration_used);
+  REQUIRE(gpu.acceleration_fallback);
+  REQUIRE(gpu.unsupported_pixels == cpu.unsupported_pixels);
+  REQUIRE(gpu.zero_veto_pixels == cpu.zero_veto_pixels);
+  REQUIRE(gpu.finite_map_samples == cpu.finite_map_samples);
+  REQUIRE(gpu.missing_map_samples == cpu.missing_map_samples);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      REQUIRE(gpu.output(y, x) ==
+              Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
+      REQUIRE(gpu.weight_sum(y, x) ==
+              Catch::Approx(cpu.weight_sum(y, x)).margin(2.0e-4f));
+    }
+  }
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_reconstruction_chunking_splits_into_expected_chunks") {
+  const auto dir = unique_recon_cache_dir("aqmh_recon_chunking");
+  std::filesystem::remove_all(dir);
+  constexpr int W = 4, H = 10, N = 3;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  for (int fi = 0; fi < N; ++fi) {
+    frames.push_back(tile_compile::Matrix2Df::Constant(H, W, 10.0f + fi));
+    cache.write(static_cast<size_t>(fi),
+                tile_compile::Matrix2Df::Constant(H, W, 0.5f));
+  }
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  tile_compile::VectorXf global = tile_compile::VectorXf::Ones(N);
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.chunk_rows = 3;
+  cfg.clip_iterations = 0;
+  cfg.min_n_eff = 1.0f;
+  const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global, mask, W, H, cfg);
+  REQUIRE(out.chunk_rows == 3);
+  REQUIRE(out.chunk_count == 4);
+  REQUIRE(out.output(0, 0) == Catch::Approx(11.0f));
+  std::filesystem::remove_all(dir);
+}
+
+#if TILE_COMPILE_WITH_CUDA
+TEST_CASE("aqmh_native_cuda_reconstruction_matches_cpu_reference") {
+  const auto dir = unique_recon_cache_dir("aqmh_recon_native_cuda");
+  std::filesystem::remove_all(dir);
+  constexpr int H = 16, W = 18, N = 4;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  tile_compile::VectorXf global_weights(N);
+  global_weights << 1.0f, 0.8f, 1.2f, 1.0f;
+  for (int fi = 0; fi < N; ++fi) {
+    tile_compile::Matrix2Df frame(H, W);
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        frame(y, x) = 10.0f + 0.1f * x + 0.2f * y + fi;
+        q(y, x) = 0.3f + 0.15f * fi + 0.001f * (x + y);
+      }
+    }
+    if (fi == 3)
+      frame(5, 7) = 500.0f;
+    q(2, 3) = 0.0f;
+    frames.push_back(std::move(frame));
+    cache.write(static_cast<size_t>(fi), q);
+  }
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  mask[0] = 0u;
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.clip_sigma = 2.0f;
+  cfg.min_fraction = 0.5f;
+
+  const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+  const auto gpu = tile_compile::reconstruction::reconstruct_aqmh_weighted_cuda(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+
   REQUIRE(gpu.acceleration_used);
   REQUIRE_FALSE(gpu.acceleration_fallback);
   REQUIRE(gpu.unsupported_pixels == cpu.unsupported_pixels);
@@ -188,6 +417,55 @@ TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
               Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
       REQUIRE(gpu.weight_sum(y, x) ==
               Catch::Approx(cpu.weight_sum(y, x)).margin(2.0e-4f));
+    }
+  }
+  std::filesystem::remove_all(dir);
+}
+#endif
+
+TEST_CASE("aqmh_native_opencl_reconstruction_matches_cpu_reference") {
+  const auto dir = unique_recon_cache_dir("aqmh_recon_native_opencl");
+  std::filesystem::remove_all(dir);
+  constexpr int H = 8, W = 8, N = 3;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  tile_compile::VectorXf global_weights(N);
+  global_weights << 1.0f, 1.0f, 1.0f;
+  for (int fi = 0; fi < N; ++fi) {
+    tile_compile::Matrix2Df frame(H, W);
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        frame(y, x) = 10.0f + fi + 0.05f * x;
+        q(y, x) = 0.5f;
+      }
+    }
+    frames.push_back(std::move(frame));
+    cache.write(static_cast<size_t>(fi), q);
+  }
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.clip_iterations = 0;
+  cfg.min_n_eff = 1.0f;
+
+  const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+  const auto gpu = tile_compile::reconstruction::reconstruct_aqmh_weighted_opencl(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+
+  if (gpu.acceleration_fallback) {
+    std::filesystem::remove_all(dir);
+    return;
+  }
+  REQUIRE(gpu.acceleration_used);
+  REQUIRE(gpu.unsupported_pixels == cpu.unsupported_pixels);
+  REQUIRE(gpu.zero_veto_pixels == cpu.zero_veto_pixels);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      REQUIRE(gpu.output(y, x) ==
+              Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
     }
   }
   std::filesystem::remove_all(dir);

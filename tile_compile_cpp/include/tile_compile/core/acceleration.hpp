@@ -3,6 +3,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -171,7 +172,11 @@ public:
       const VectorXf &global_weights,
       const std::vector<uint8_t> &canvas_mask, int width, int height,
       const reconstruction::AqmhReconstructionConfig &cfg,
-      cv::cuda::Stream *stream = nullptr) const;
+      cv::cuda::Stream *stream = nullptr,
+      const reconstruction::AqmhMaskLoader &load_frame_valid_mask = {},
+      const reconstruction::AqmhFrameRegionLoader &load_frame_region = {},
+      const reconstruction::AqmhMaskRegionLoader &load_frame_valid_mask_region = {},
+      const reconstruction::AqmhProgressCallback &progress = {}) const;
 
   void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
                    const std::vector<float> &hann_x,

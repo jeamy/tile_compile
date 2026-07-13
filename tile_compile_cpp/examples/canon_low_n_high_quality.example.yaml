@@ -19,8 +19,7 @@ data:
   image_width: 0
   image_height: 0
   color_mode: OSC
-  bayer_pattern: GBRG
-  linear_required: true # nur lineare Daten verarbeiten
+  bayer_pattern: auto
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes
@@ -199,7 +198,6 @@ astrometry:
 
 
 bge:
-  enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
   method: autobge
   autobge:
     num_sample_points: 800
@@ -217,6 +215,8 @@ bge:
     normalize_between_stages: true
     apply_guards: true
     mono_mode: rgb_duplicate
+    exclusion_polygons: []      # Manuelle Ausschluss-Polygone (leer = keine)
+    user_sample_points: []        # Manuelle AutoBGE-Sample-Punkte (leer = automatisch)
   tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true # optionales deterministisches BGE-Autotuning (v3.3.6 §6.3.7)
@@ -298,7 +298,7 @@ hypermetric_stretch:
   output_rgb: stacked_rgb_hms.fits
 
 aqmh:
-  enabled: true # Experimentell: ersetzt Tile-OLA durch pixelgenaue AQMH-Rekonstruktion
+  enabled: true
   pyramid:
     scales: 4
     base_window_px: 4
@@ -306,19 +306,49 @@ aqmh:
     w_snr: 0.4
     k_artifact: 3.0
     frac_artifact_max: 0.25
+
+
+  # Globale Qualitaetsgewichtung (v0.2.0)
+  global_quality:
+    g_floor: 0.05          # Untergrenze fuer globale Frame-Qualitaet G_f
+    g_w_sharp: 0.6        # Gewicht Schaerfe in globaler Qualitaet
+    g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
+    g_w_background_penalty: 0.3
+
   storage:
-    resolution_divisor: 2
-    dtype: uint16
+    resolution_divisor: 1
+    dtype: float32
     max_resident_maps: 2
   cherry_pick:
     enabled: false
-    k_min: 3
+    k_min_required: 20
     k_frac: 0.30
+    margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
+    tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+
+  # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
+  validation:
+    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
+    max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
+    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
   diagnostics:
+    enabled: true
+    level: full
+    per_frame_blocks: true
+    heatmaps: false
+    regions: true
+    format: json
+    binary_block_size_px: 64
     tau_artifact: 0.20
     q_region: 0.75
     r_morph_canvas_px: 6
-
+  reconstruction:
+    clip_sigma: 3.0
+    clip_iterations: 3
+    min_fraction: 0.5
+    min_n_eff: 2.0
+    chunk_rows: 0
+    memory_budget_mb: 0
 stacking:
   method: rej # rej|average
   common_overlap_required_fraction: 1.0
@@ -346,8 +376,8 @@ validation:
   require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
 
 runtime_limits:
-  parallel_workers: 4 # konservativer Default fuer stabile Last
-  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
+  parallel_workers: 8 # konservativer Default fuer stabile Last
+  memory_budget: 4096
   acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze

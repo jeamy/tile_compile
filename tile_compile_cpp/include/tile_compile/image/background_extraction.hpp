@@ -108,6 +108,9 @@ struct BGEConfig {
     // structure_score_t) * (1 - masked_fraction_t), where structure_score_t is
     // dimensionless via local noise normalization.
     float tile_weight_lambda_structure = 1.0f;
+
+    // Internal: cap OpenMP threads used inside BGE (0 = use omp_get_max_threads).
+    int max_workers = 0;
 };
 
 // Tile background sample

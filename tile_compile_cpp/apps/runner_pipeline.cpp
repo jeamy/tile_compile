@@ -14,9 +14,13 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
+#include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
+#include "tile_compile/reconstruction/aqmh_validation.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
 #include "tile_compile/reconstruction/tile_normalization.hpp"
 #include "tile_compile/reconstruction/tile_weight_profile_diagnostics.hpp"
@@ -26,6 +30,9 @@
 
 #include "runner_phase_metrics.hpp"
 #include "runner_phase_local_metrics.hpp"
+#include "runner_phase_aqmh_maps.hpp"
+#include "runner_phase_aqmh_diagnostics.hpp"
+#include "runner_phase_aqmh_reconstruction.hpp"
 #include "runner_phase_registration.hpp"
 #include "runner_shared.hpp"
 
@@ -1284,6 +1291,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     detected_bayer = BayerPattern::UNKNOWN;
     detected_bayer_str = bayer_pattern_to_string(detected_bayer);
   }
+  if (detected_mode == ColorMode::OSC &&
+      detected_bayer == BayerPattern::UNKNOWN) {
+    const std::string msg =
+        "OSC input has no Bayer metadata (BAYERPAT/COLORTYP) and "
+        "data.bayer_pattern is auto; refusing to guess a CFA pattern";
+    emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                      {{"error", msg},
+                       {"input_dir", input_dir},
+                       {"bayer_pattern", "UNKNOWN"}},
+                      log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+    return 1;
+  }
   if (width <= 0 && cfg.data.image_width > 0) {
     width = cfg.data.image_width;
     emitter.warning(run_id,
@@ -1545,6 +1566,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &norm_scales = phase_metrics_ctx.norm_scales;
   auto &frame_metrics = phase_metrics_ctx.frame_metrics;
   VectorXf global_weights = phase_metrics_ctx.global_weights;
+  VectorXf aqmh_global_weights;
   const auto frame_cache = phase_metrics_ctx.frame_cache;
   const float output_pedestal = phase_metrics_ctx.output_pedestal;
   const float output_scale_mono = phase_metrics_ctx.output_scale_mono;
@@ -1556,9 +1578,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const float output_bg_g = phase_metrics_ctx.output_bg_g;
   const float output_bg_b = phase_metrics_ctx.output_bg_b;
 
-  // Phase 4: TILE_GRID (with adaptive optimization)
-  emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
-
+  // Seeing is shared by registration validation and Classic tile sizing.
   float seeing_fwhm_med = 3.0f;
   bool have_seeing_fwhm = false;
   {
@@ -1627,8 +1647,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   std::vector<Tile> tiles;
   int uniform_tile_size = seeing_tile_size;
-  tiles = tile_compile::pipeline::build_initial_tile_grid(
-      width, height, uniform_tile_size, overlap_fraction);
+  if (!cfg.aqmh.enabled) {
+    // Classic-only Phase 4: TILE_GRID (with adaptive optimization).
+    emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
+    tiles = tile_compile::pipeline::build_initial_tile_grid(
+        width, height, uniform_tile_size, overlap_fraction);
 
   // Overlap-fraction performance warning (Anforderung 9.1, 9.3).
   if (overlap_fraction >= 0.5f) {
@@ -1690,14 +1713,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                      artifact.dump(2));
   }
 
-  emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
-                    {
-                        {"num_tiles", static_cast<int>(tiles.size())},
-                        {"gradient_field", false},
-                    },
-                    log_file);
-  if (abort_if_runtime_limit_exceeded("TILE_GRID")) {
-    return 1;
+    emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
+                      {
+                          {"num_tiles", static_cast<int>(tiles.size())},
+                          {"gradient_field", false},
+                      },
+                      log_file);
+    if (abort_if_runtime_limit_exceeded("TILE_GRID")) {
+      return 1;
+    }
   }
 
   // Helpers for Phase 5/6
@@ -1801,7 +1825,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const int canvas_width  = (phase_registration_ctx.canvas_width  > 0)
       ? phase_registration_ctx.canvas_width  : width;
 
-  if (canvas_width != width || canvas_height != height) {
+  if (!cfg.aqmh.enabled &&
+      (canvas_width != width || canvas_height != height)) {
     tiles = tile_compile::pipeline::build_initial_tile_grid(
         canvas_width, canvas_height, uniform_tile_size, overlap_fraction);
 
@@ -1933,6 +1958,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   } else {
     reconstruction_valid_mask = common_valid_mask;
   }
+  const bool aqmh_uses_reconstruction_canvas =
+      cfg.aqmh.enabled && reconstruction_valid_mask.size() == canvas_px;
+  const std::vector<uint8_t> &aqmh_canvas_valid_mask =
+      aqmh_uses_reconstruction_canvas ? reconstruction_valid_mask
+                                      : common_valid_mask;
 
   {
     size_t common_pixels = 0;
@@ -2007,6 +2037,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
     overlap_artifact["reconstruction_pixels"] =
         static_cast<uint64_t>(reconstruction_pixels);
+    overlap_artifact["aqmh_canvas_mask"] =
+        aqmh_uses_reconstruction_canvas ? "reconstruction" : "common";
+    overlap_artifact["aqmh_canvas_pixels"] =
+        static_cast<uint64_t>(aqmh_uses_reconstruction_canvas
+                                  ? reconstruction_pixels
+                                  : common_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
             ? (static_cast<double>(common_pixels) /
@@ -2051,6 +2087,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cout << "[COMMON_OVERLAP] Canvas mask saved: " << mask_path << " ("
                 << canvas_width << "x" << canvas_height << ", valid="
                 << common_pixels << "/" << canvas_px << ")" << std::endl;
+      if (aqmh_uses_reconstruction_canvas) {
+        std::cout << "[COMMON_OVERLAP] AQMH canvas uses reconstruction support "
+                  << "(" << reconstruction_pixels << "/" << canvas_px
+                  << " pixels); COMMON_OVERLAP remains analysis mask"
+                  << std::endl;
+      }
     }
 
     emitter.phase_end(
@@ -2064,6 +2106,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	            {"tile_common_valid_min_fraction",
 	             cfg.stacking.tile_common_valid_min_fraction},
 	            {"common_pixels", static_cast<uint64_t>(common_pixels)},
+            {"reconstruction_pixels",
+             static_cast<uint64_t>(reconstruction_pixels)},
+            {"aqmh_canvas_mask",
+             aqmh_uses_reconstruction_canvas ? "reconstruction" : "common"},
             {"common_fraction",
              (canvas_px > 0)
                  ? (static_cast<double>(common_pixels) /
@@ -2107,16 +2153,30 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const auto tile_analysis_started_at = std::chrono::steady_clock::now();
   double tile_analysis_runtime_seconds = 0.0;
   double stacking_runtime_seconds = 0.0;
+  std::optional<reconstruction::AqmhValidationComparison>
+      aqmh_control_validation;
+
+  // Prefetch coordinator for AQMH Q-map I/O overlap
+  std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> aqmh_prefetch_coordinator;
 
   while (true) {
-    if (!runner::run_phase_local_metrics(
-            run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
-            common_valid_mask, canvas_width, canvas_height,
-            tile_common_valid,
-            prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
-            false, acceleration, emitter, log_file, local_metrics, local_weights,
-            tile_quality_median, tile_is_star, tile_fwhm_median, aqmh_cache,
-            canvas_tile_offset_x, canvas_tile_offset_y)) {
+    const bool metrics_ok = cfg.aqmh.enabled
+        ? runner::run_phase_aqmh_maps(
+              run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
+              canvas_width, canvas_height, prewarped_frames, norm_scales,
+              detected_mode, detected_bayer_str, false, acceleration, emitter,
+              log_file, aqmh_cache, aqmh_global_weights,
+              aqmh_prefetch_coordinator,
+              phase_metrics_ctx.frame_star_metrics)
+        : runner::run_phase_local_metrics(
+              run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
+              common_valid_mask, canvas_width, canvas_height,
+              tile_common_valid, prewarped_frames, norm_scales, detected_mode,
+              detected_bayer_str, false, acceleration, emitter, log_file,
+              local_metrics, local_weights, tile_quality_median, tile_is_star,
+              tile_fwhm_median, aqmh_cache, aqmh_global_weights,
+              canvas_tile_offset_x, canvas_tile_offset_y);
+    if (!metrics_ok) {
       return 1;
     }
     if (abort_if_runtime_limit_exceeded("LOCAL_METRICS")) {
@@ -2124,8 +2184,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // Phase 6: TILE_RECONSTRUCTION (Methodik v3)
-    emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION,
-                        "TILE_RECONSTRUCTION", log_file);
+    const Phase reconstruction_phase = cfg.aqmh.enabled
+                                           ? Phase::AQMH_RECONSTRUCTION
+                                           : Phase::TILE_RECONSTRUCTION;
+    emitter.phase_start(run_id, reconstruction_phase,
+                        phase_to_string(reconstruction_phase), log_file);
     const auto tile_reconstruction_started_at = std::chrono::steady_clock::now();
 
     const int passes_total = 1;
@@ -2224,175 +2287,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const float eps_ws = kEpsWeightSum;
 
     if (cfg.aqmh.enabled) {
-      const auto aqmh_reconstruction_acceleration = acceleration.selection_for(
-          core::AccelerationPhase::aqmh_reconstruction);
-      const core::AccelerationOps aqmh_reconstruction_ops(
-          acceleration, core::AccelerationPhase::aqmh_reconstruction);
-      core::WorkerCudaStreams aqmh_reconstruction_stream(
-          aqmh_reconstruction_acceleration.selected ==
-              core::AccelerationBackend::opencv_cuda,
-          1);
-      log_file << "[AQMH_RECONSTRUCTION] "
-               << core::acceleration_selection_summary(
-                      aqmh_reconstruction_acceleration)
-               << std::endl;
-      if (!aqmh_cache) {
-        const std::string err =
-            "AQMH enabled but AQMH quality-map cache is unavailable";
-        cv::setNumThreads(prev_cv_threads_recon);
-        emitter.phase_end(run_id, Phase::TILE_RECONSTRUCTION, "error",
-                          {{"error", err}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        std::cerr << "Error during AQMH TILE_RECONSTRUCTION: " << err
-                  << std::endl;
+      runner::AqmhReconstructionPhaseResult aqmh_recon_result;
+      if (!runner::run_phase_aqmh_reconstruction(
+              run_id, cfg, run_dir, frames, frame_has_data,
+              aqmh_canvas_valid_mask, canvas_width, canvas_height, osc_mode,
+              prewarped_frames, aqmh_cache, aqmh_global_weights,
+              acceleration, emitter, log_file,
+              tile_reconstruction_started_at, prev_cv_threads_recon,
+              aqmh_recon_result, aqmh_prefetch_coordinator.get())) {
         return 1;
       }
-
-      reconstruction::AqmhReconstructionConfig aqmh_recon_cfg;
-      aqmh_recon_cfg.sigma_low = cfg.stacking.sigma_clip.sigma_low;
-      aqmh_recon_cfg.sigma_high = cfg.stacking.sigma_clip.sigma_high;
-      aqmh_recon_cfg.min_fraction = cfg.stacking.sigma_clip.min_fraction;
-      aqmh_recon_cfg.eps_weight = kEpsWeight;
-      aqmh_recon_cfg.cherry_pick = cfg.aqmh.cherry_pick.enabled;
-      aqmh_recon_cfg.cherry_pick_k_min = cfg.aqmh.cherry_pick.k_min;
-      aqmh_recon_cfg.cherry_pick_k_frac = cfg.aqmh.cherry_pick.k_frac;
-
-      auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &out) -> bool {
-        if (fi >= frames.size() || fi >= frame_has_data.size() ||
-            frame_has_data[fi] == 0u) {
-          return false;
-        }
-        out = prewarped_frames.load(fi);
-        return out.rows() == canvas_height && out.cols() == canvas_width;
-      };
-
-      std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
-                << frames.size() << " frame slots cpu_workers=1 gpu="
-                << (aqmh_reconstruction_acceleration.using_gpu &&
-                            !aqmh_recon_cfg.cherry_pick
-                        ? "yes"
-                        : "no")
-                << " backend="
-                << (aqmh_recon_cfg.cherry_pick
-                        ? "cpu(cherry_pick_fallback)"
-                        : core::acceleration_backend_name(
-                              aqmh_reconstruction_acceleration.selected))
-                << std::endl;
-      const auto aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
-          frames.size(), aqmh_frame_loader, aqmh_cache.get(), global_weights,
-          common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
-          aqmh_reconstruction_stream.get(0));
-
-      recon = aqmh_recon.output;
-      weight_sum = aqmh_recon.weight_sum;
-      if (osc_mode) {
-        // AQMH currently reconstructs the registered mosaic/luma stream. Leave
-        // RGB planes empty so DEBAYER uses the normal mosaic debayer fallback.
+      recon = aqmh_recon_result.output;
+      weight_sum = aqmh_recon_result.weight_sum;
+      aqmh_control_validation = aqmh_recon_result.control_validation;
+      if (aqmh_recon_result.osc_rgb_cleared) {
         recon_R.resize(0, 0);
         recon_G.resize(0, 0);
         recon_B.resize(0, 0);
       }
-
-      cv::setNumThreads(prev_cv_threads_recon);
-
-      const auto aqmh_cache_stats = aqmh_cache->stats();
-      core::json artifact;
-      artifact["method"] = "aqmh";
-      artifact["acceleration"] = core::acceleration_selection_to_json(
-          aqmh_reconstruction_acceleration);
-      artifact["num_frames"] = static_cast<int>(frames.size());
-      artifact["canvas_width"] = canvas_width;
-      artifact["canvas_height"] = canvas_height;
-      artifact["map_stream_id"] = aqmh_cache->map_stream_id();
-      artifact["cache_dir"] = aqmh_cache->cache_dir().string();
-      artifact["unsupported_pixels"] = aqmh_recon.unsupported_pixels;
-      artifact["zero_veto_pixels"] = aqmh_recon.zero_veto_pixels;
-      artifact["finite_map_samples"] = aqmh_recon.finite_map_samples;
-      artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
-      artifact["acceleration_used"] = aqmh_recon.acceleration_used;
-      artifact["acceleration_fallback"] = aqmh_recon.acceleration_fallback;
-      artifact["sigma_low"] = aqmh_recon_cfg.sigma_low;
-      artifact["sigma_high"] = aqmh_recon_cfg.sigma_high;
-      artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;
-      artifact["eps_weight"] = aqmh_recon_cfg.eps_weight;
-      artifact["classic_tile_weights_used"] = false;
-      artifact["fallback_to_classic"] = false;
-      // Cherry-pick diagnostics
-      artifact["cherry_pick_enabled"] = cfg.aqmh.cherry_pick.enabled;
-      if (cfg.aqmh.cherry_pick.enabled) {
-        artifact["cherry_pick_k_min_cfg"] = cfg.aqmh.cherry_pick.k_min;
-        artifact["cherry_pick_k_frac_cfg"] = cfg.aqmh.cherry_pick.k_frac;
-        artifact["cherry_pick_per_pixel_mode"] = aqmh_recon.cherry_pick_per_pixel_mode;
-        artifact["cherry_pick_active_frac"] = aqmh_recon.cherry_pick_active_frac;
-        artifact["cherry_pick_mean_k"] = aqmh_recon.cherry_pick_mean_k;
-        artifact["cherry_pick_median_k"] = aqmh_recon.cherry_pick_median_k;
-        artifact["cherry_pick_k_min_observed"] = aqmh_recon.cherry_pick_k_min_observed;
-        artifact["cherry_pick_k_max_observed"] = aqmh_recon.cherry_pick_k_max_observed;
-        // Downsampled K-map for visualization: emit a compact flat array at
-        // 1/8 linear resolution (max 200x200 grid) so the JSON stays small.
-        const int kmap_divisor = std::max(1, std::max(canvas_width, canvas_height) / 200);
-        const int kmap_w = std::max(1, (canvas_width  + kmap_divisor - 1) / kmap_divisor);
-        const int kmap_h = std::max(1, (canvas_height + kmap_divisor - 1) / kmap_divisor);
-        if (!aqmh_recon.cherry_pick_k_map.size()) {
-          artifact["cherry_pick_k_heatmap"] = nullptr;
-        } else {
-          core::json kmap_arr = core::json::array();
-          for (int oy = 0; oy < kmap_h; ++oy) {
-            for (int ox = 0; ox < kmap_w; ++ox) {
-              double sum = 0.0;
-              int cnt = 0;
-              for (int y = oy * kmap_divisor;
-                   y < std::min(canvas_height, (oy + 1) * kmap_divisor); ++y) {
-                for (int x = ox * kmap_divisor;
-                     x < std::min(canvas_width, (ox + 1) * kmap_divisor); ++x) {
-                  const float v = aqmh_recon.cherry_pick_k_map(y, x);
-                  if (v > 0.0f) { sum += v; ++cnt; }
-                }
-              }
-              kmap_arr.push_back(cnt > 0 ? static_cast<float>(sum / cnt) : 0.0f);
-            }
-          }
-          artifact["cherry_pick_k_heatmap"] = {
-              {"width", kmap_w}, {"height", kmap_h},
-              {"divisor", kmap_divisor}, {"values", std::move(kmap_arr)}
-          };
-        }
-      }
-      artifact["cache_stats"] = {
-          {"bytes_written", aqmh_cache_stats.bytes_written},
-          {"bytes_read", aqmh_cache_stats.bytes_read},
-          {"write_count", aqmh_cache_stats.write_count},
-          {"read_count", aqmh_cache_stats.read_count},
-          {"cache_hits", aqmh_cache_stats.cache_hits},
-          {"cache_misses", aqmh_cache_stats.cache_misses},
-          {"max_resident_maps_observed",
-           static_cast<uint64_t>(aqmh_cache_stats.max_resident_maps_observed)}};
-      core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
-                       artifact.dump(2));
-
-      emitter.phase_end(
-          run_id, Phase::TILE_RECONSTRUCTION, "ok",
-          {
-              {"method", "aqmh"},
-              {"duration_s",
-               std::chrono::duration<double>(
-                   std::chrono::steady_clock::now() -
-                   tile_reconstruction_started_at)
-                   .count()},
-              {"output",
-               (run_dir / "outputs" / "reconstructed_L.fit").string()},
-              {"unsupported_pixels", aqmh_recon.unsupported_pixels},
-              {"zero_veto_pixels", aqmh_recon.zero_veto_pixels},
-              {"missing_map_samples", aqmh_recon.missing_map_samples},
-              {"classic_tile_weights_used", false},
-              {"cherry_pick_enabled", cfg.aqmh.cherry_pick.enabled},
-              {"cherry_pick_active_frac", aqmh_recon.cherry_pick_active_frac},
-              {"cherry_pick_mean_k", aqmh_recon.cherry_pick_mean_k},
-          },
-          log_file);
       weight_sum.resize(0, 0);
       first_img.resize(0, 0);
       if (abort_if_runtime_limit_exceeded("TILE_RECONSTRUCTION")) {
+        return 1;
+      }
+      // Phase: AQMH_DIAGNOSTICS — block-level Q-map statistics and heatmaps
+      if (!runner::run_phase_aqmh_diagnostics(
+              run_id, cfg, run_dir, aqmh_recon_result.recon,
+              aqmh_cache.get(), aqmh_canvas_valid_mask, frame_has_data,
+              canvas_width, canvas_height, emitter, log_file)) {
         return 1;
       }
     } else {
@@ -2639,7 +2561,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (rgb_failed.load(std::memory_order_relaxed)) {
         const std::string err =
             rgb_error.empty() ? "phase6_osc_rgb_cache_unknown_error" : rgb_error;
-        emitter.phase_end(run_id, Phase::TILE_RECONSTRUCTION, "error",
+        emitter.phase_end(run_id, reconstruction_phase, "error",
                           {{"error", err}}, log_file);
         emitter.run_end(run_id, false, "error", log_file);
         std::cerr << "Error during Phase 6 OSC RGB cache build: " << err
@@ -3096,7 +3018,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (done % 20 == 0 || done == tiles_phase56.size()) {
         std::lock_guard<std::mutex> lock(progress_mutex);
         emitter.phase_progress_counts(
-            run_id, Phase::TILE_RECONSTRUCTION, static_cast<int>(done),
+            run_id, reconstruction_phase, static_cast<int>(done),
             static_cast<int>(tiles_phase56.size()),
             "workers=" + std::to_string(parallel_tiles) + " cpu_workers=" +
                 std::to_string(parallel_tiles) + " gpu=" +
@@ -3806,7 +3728,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       emitter.warning(run_id, msg.str(), log_file);
     }
     emitter.phase_end(
-        run_id, Phase::TILE_RECONSTRUCTION, "ok",
+        run_id, reconstruction_phase, "ok",
         {
             {"duration_s",
              std::chrono::duration<double>(
@@ -3856,10 +3778,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // Phase 7: STATE_CLUSTERING (// Methodik v3 §10)
-    emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
-                        log_file);
-
-    // Reduced Mode: optionally skip clustering/synthetic frames when N is small
+    // AQMH uses independent per-pixel reconstruction; clustering and
+    // synthetic frames are classic-only and produce no meaningful output.
     bool use_synthetic_frames = true;
     std::string synthetic_skip_reason;
     float synthetic_skip_weight_spread = 0.0f;
@@ -3868,13 +3788,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::vector<int> cluster_labels(static_cast<size_t>(frames.size()), 0);
     int n_clusters = 1;
     const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
+    const bool skip_synthetic_for_aqmh = cfg.aqmh.enabled;
+    if (!skip_clustering_for_aqmh) {
+      emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
+                          log_file);
+    }
     if (skip_clustering_for_aqmh) {
       use_synthetic_frames = false;
       synthetic_skip_reason = "aqmh_independent_reconstruction";
-      emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
-                        {{"reason", synthetic_skip_reason},
-                         {"method", "aqmh"}},
-                        log_file);
     } else if (skip_clustering_in_reduced) {
       use_synthetic_frames = false;
       synthetic_skip_reason = emergency_mode ? "emergency_mode"
@@ -4227,8 +4148,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
 
     // Phase 8: SYNTHETIC_FRAMES (// Methodik v3 §11)
-    emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
-                        log_file);
+    // AQMH uses independent per-pixel reconstruction; synthetic frames are
+    // classic-only and produce no output here.
+    if (!skip_synthetic_for_aqmh) {
+      emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
+                          log_file);
+    }
 
     struct RGBFrame {
       Matrix2Df R;
@@ -4449,7 +4374,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     int synth_min = cfg.synthetic.frames_min;
     int synth_max = cfg.synthetic.frames_max;
 
-    if (!use_synthetic_frames) {
+    if (!use_synthetic_frames && !skip_synthetic_for_aqmh) {
       core::json extra;
       if (!synthetic_skip_reason.empty()) {
         extra["reason"] = synthetic_skip_reason;
@@ -4468,7 +4393,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       extra["emergency_mode"] = emergency_mode;
       emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped", extra,
                         log_file);
-    } else {
+    } else if (use_synthetic_frames) {
       std::vector<int> cluster_sizes(n_clusters, 0);
       for (size_t fi = 0; fi < frames.size(); ++fi) {
         int c = cluster_labels[fi];
@@ -4651,7 +4576,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                       tile_analysis_started_at)
             .count();
-    if (abort_if_runtime_limit_exceeded("SYNTHETIC_FRAMES")) {
+    if (!skip_synthetic_for_aqmh &&
+        abort_if_runtime_limit_exceeded("SYNTHETIC_FRAMES")) {
       return 1;
     }
 
@@ -4970,6 +4896,37 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     {
       bool validation_ok = true;
       core::json v;
+      if (cfg.aqmh.enabled && aqmh_control_validation) {
+        const auto &comparison = *aqmh_control_validation;
+        const bool seam_ok = comparison.seam_score_regression <=
+            cfg.aqmh.validation.max_seam_score_regression;
+        const bool fwhm_ok = comparison.fwhm_regression <=
+            cfg.aqmh.validation.max_fwhm_regression;
+        const bool background_ok = comparison.background_rms_regression <=
+            cfg.aqmh.validation.max_background_rms_regression;
+        v["aqmh_uniform_control"] = {
+            {"same_samples_masks_and_clipping", true},
+            {"aqmh_seam_score", comparison.aqmh.seam_score},
+            {"control_seam_score", comparison.control.seam_score},
+            {"seam_score_regression", comparison.seam_score_regression},
+            {"max_seam_score_regression",
+             cfg.aqmh.validation.max_seam_score_regression},
+            {"seam_score_ok", seam_ok},
+            {"aqmh_fwhm", comparison.aqmh.fwhm},
+            {"control_fwhm", comparison.control.fwhm},
+            {"fwhm_regression", comparison.fwhm_regression},
+            {"max_fwhm_regression",
+             cfg.aqmh.validation.max_fwhm_regression},
+            {"fwhm_ok", fwhm_ok},
+            {"aqmh_background_rms", comparison.aqmh.background_rms},
+            {"control_background_rms", comparison.control.background_rms},
+            {"background_rms_regression",
+             comparison.background_rms_regression},
+            {"max_background_rms_regression",
+             cfg.aqmh.validation.max_background_rms_regression},
+            {"background_rms_ok", background_ok}};
+        validation_ok = validation_ok && seam_ok && fwhm_ok && background_ok;
+      }
 
       float output_fwhm_med = metrics::measure_fwhm_from_image(recon);
 
@@ -5725,6 +5682,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       bge_tile_grid.cols = 0;
 
       const std::vector<Tile>* bge_tiles_source = &tiles;
+      std::vector<Tile> aqmh_bge_tiles;
       if (!bge_tile_metrics_cache.empty()) {
         const size_t metrics_tile_count = bge_tile_metrics_cache.size();
         if (metrics_tile_count == tiles_phase56.size()) {
@@ -5733,7 +5691,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           bge_tiles_source = &tiles;
         }
       } else if (cfg.aqmh.enabled) {
-        bge_tiles_source = &tiles_phase56;
+        aqmh_bge_tiles = tile_compile::pipeline::build_initial_tile_grid(
+            R_out.cols(), R_out.rows(), std::max(32, uniform_tile_size),
+            overlap_fraction);
+        bge_tiles_source = &aqmh_bge_tiles;
       }
       bge_tile_grid.tiles = *bge_tiles_source;
 
@@ -5858,6 +5819,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       image::BGEConfig bge_cfg =
           tile_compile::runner::to_image_bge_config(cfg.bge);
+      bge_cfg.max_workers = cfg.runtime_limits.parallel_workers;
       std::string mask_error;
       int rows = 0;
       int cols = 0;

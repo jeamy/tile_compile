@@ -36,6 +36,8 @@ double elapsed_seconds_since(const SteadyClock::time_point &start) {
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+static int g_bge_max_workers = 0;
+
 int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
   if (work_items <= 0) {
     return 1;
@@ -44,7 +46,10 @@ int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
   if (omp_in_parallel()) {
     return 1;
   }
-  const int max_threads = std::max(1, omp_get_max_threads());
+  int max_threads = std::max(1, omp_get_max_threads());
+  if (g_bge_max_workers > 0) {
+    max_threads = std::min(max_threads, g_bge_max_workers);
+  }
   if (max_threads <= 1) {
     return 1;
   }
@@ -3695,6 +3700,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                  const BGEConfig &config,
                                  BGEDiagnostics *diagnostics) {
   const auto bge_total_start = SteadyClock::now();
+  g_bge_max_workers = config.max_workers;
 
   if (diagnostics != nullptr) {
     diagnostics->attempted = config.enabled;

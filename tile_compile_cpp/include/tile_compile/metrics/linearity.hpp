@@ -9,9 +9,9 @@ namespace tile_compile::metrics {
 struct LinearityThresholds {
   float skewness_max = 1.2f;
   float kurtosis_max = 1.2f;
-  float variance_max = 0.5f;
-  float energy_ratio_min = 0.95f;
-  float gradient_consistency_max = 0.5f;
+  float variance_max = 0.6f;
+  float energy_ratio_min = 0.25f;
+  float gradient_consistency_max = 0.4f;
 };
 
 struct LinearityFrameResult {

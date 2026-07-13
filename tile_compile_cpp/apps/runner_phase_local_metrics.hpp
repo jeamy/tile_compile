@@ -6,6 +6,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 
 #include <memory>
 #include <string>
@@ -13,6 +14,10 @@
 
 namespace tile_compile::metrics {
 class QualityMapCache;
+}
+
+namespace tile_compile::reconstruction {
+class AqmhPrefetchCoordinator;
 }
 
 namespace tile_compile::runner {
@@ -47,6 +52,10 @@ bool run_phase_local_metrics(
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
     std::vector<float> &tile_fwhm_median,
     std::unique_ptr<metrics::QualityMapCache> &out_aqmh_cache,
-    int tile_offset_x = 0, int tile_offset_y = 0);
+    VectorXf &out_aqmh_global_weights,
+    int tile_offset_x = 0, int tile_offset_y = 0,
+    const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {},
+    std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator = nullptr,
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
 
 } // namespace tile_compile::runner
