@@ -8,6 +8,7 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { pollJob } from "../utils/poll.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
+import { getScanData, getQueueItems, getCalValues } from "./input-scan.js";
 
 export function createAiEmpfehlungPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -21,34 +22,34 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.mount", "Mount")),
-        el("select", { class: "tc-select", onchange: (e) => setAiFormData({ mount: e.target.value }) },
+        el("select", { class: "tc-select", title: t("ui.tooltip.ai.mount", "Montierungstyp fuer die Analyse einordnen."), onchange: (e) => setAiFormData({ mount: e.target.value }) },
           ...["EQ", "Tracker", "Alt/Az"].map(v => el("option", { value: v, ...(fd.mount === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.object_type", "Objekt")),
-        el("select", { class: "tc-select", onchange: (e) => setAiFormData({ object_type: e.target.value }) },
+        el("select", { class: "tc-select", title: t("ui.tooltip.ai.object_type", "Objekttyp hilft der KI, typische Artefakte richtig zu bewerten."), onchange: (e) => setAiFormData({ object_type: e.target.value }) },
           ...["Galaxie", "Nebel", "Sternhaufen", "Sterne"].map(v => el("option", { value: v, ...(fd.object_type === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.camera", "Kamera")),
-        el("select", { class: "tc-select", onchange: (e) => setAiFormData({ camera: e.target.value }) },
+        el("select", { class: "tc-select", title: t("ui.tooltip.ai.camera", "Kameratyp beeinflusst Empfehlungen fuer Farbe, Debayer und Rauschen."), onchange: (e) => setAiFormData({ camera: e.target.value }) },
           ...["Consumer OSC", "Mono CMOS", "CCD"].map(v => el("option", { value: v, ...(fd.camera === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.calibration", "Kalibrierung")),
         el("div", { class: "tc-flex tc-gap-3" },
-          el("label", { class: "tc-checkbox" }, el("input", { type: "checkbox", checked: fd.calibration_darks, onchange: (e) => setAiFormData({ calibration_darks: e.target.checked }) }), t("ui.label.darks", "Darks")),
-          el("label", { class: "tc-checkbox" }, el("input", { type: "checkbox", checked: fd.calibration_flats, onchange: (e) => setAiFormData({ calibration_flats: e.target.checked }) }), t("ui.label.flats", "Flats")),
-          el("label", { class: "tc-checkbox" }, el("input", { type: "checkbox", checked: fd.calibration_bias, onchange: (e) => setAiFormData({ calibration_bias: e.target.checked }) }), t("ui.label.bias", "Bias")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_darks, title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => setAiFormData({ calibration_darks: e.target.checked }) }), t("ui.label.darks", "Darks")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_flats, title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden."), onchange: (e) => setAiFormData({ calibration_flats: e.target.checked }) }), t("ui.label.flats", "Flats")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_bias, title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => setAiFormData({ calibration_bias: e.target.checked }) }), t("ui.label.bias", "Bias")),
         ),
       ),
     ),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.notes", "Notizen")),
-      el("input", { type: "text", class: "tc-input", value: fd.notes, placeholder: "Guiding 0.8\", M31, alt-az test", oninput: (e) => setAiFormData({ notes: e.target.value }) }),
+      el("input", { type: "text", class: "tc-input", value: fd.notes, title: t("ui.tooltip.ai.notes", "Freitext fuer Besonderheiten, die nicht automatisch aus dem Scan erkennbar sind."), placeholder: "Guiding 0.8\", M31, alt-az test", oninput: (e) => setAiFormData({ notes: e.target.value }) }),
     ),
   );
 
@@ -58,37 +59,45 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.provider", "Provider")),
-        el("select", { class: "tc-select", id: "ai-provider", onchange: (e) => { setAiFormData({ provider: e.target.value }); filterModelsByProvider(e.target.value); } },
+        el("select", { class: "tc-select", id: "ai-provider", title: t("ui.tooltip.ai.provider", "AI-Anbieter fuer Analyse und Empfehlungen."), onchange: (e) => { setAiFormData({ provider: e.target.value }); filterModelsByProvider(e.target.value); loadAiAccountStatus(e.target.value); } },
           ...["anthropic", "openai"].map(v => el("option", { value: v, ...(fd.provider === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.model", "Modell")),
-        el("select", { class: "tc-select", id: "ai-model", onchange: (e) => setAiFormData({ model: e.target.value }) },
+        el("select", { class: "tc-select", id: "ai-model", title: t("ui.tooltip.ai.model", "Modell, das die Scan-Daten und Config bewertet."), onchange: (e) => setAiFormData({ model: e.target.value }) },
           el("option", { value: fd.model || "", selected: true }, fd.model || t("ui.placeholder.select_model", "Modell wählen")),
         ),
       ),
     ),
     el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
-      el("input", { type: "password", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: fd.apiKey, placeholder: "API-Key", id: "ai-apikey", oninput: (e) => setAiFormData({ apiKey: e.target.value }) }),
-      el("button", { class: "tc-btn tc-btn-sm", style: { flexShrink: "0" }, onclick: () => saveApiKey() }, t("ui.button.save_key", "Key speichern")),
-      el("span", { class: "tc-badge tc-badge-success", style: { flexShrink: "0", whiteSpace: "nowrap" }, id: "ai-key-status" }, "\u2713 " + t("ui.state.saved", "gespeichert")),
+      el("input", { type: "password", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: fd.apiKey, title: t("ui.tooltip.ai.api_key", "API-Key fuer den ausgewaehlten Provider. Er wird nicht in Tile-Compile-Configs gespeichert."), placeholder: "API-Key", id: "ai-apikey", oninput: (e) => setAiFormData({ apiKey: e.target.value }) }),
+      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.save_key", "Speichert den Key im PI AuthStorage fuer diesen Provider."), onclick: () => saveApiKey() }, t("ui.button.save_key", "Key speichern")),
+      el("span", { class: "tc-badge tc-badge-success tc-hidden", style: { flexShrink: "0", whiteSpace: "nowrap" }, id: "ai-key-status" }, "\u2713 " + t("ui.state.saved", "gespeichert")),
     ),
     el("div", { class: "tc-mt-2" },
       el("span", { class: "tc-text-sm tc-text-muted", id: "ai-model-status" }, t("ui.state.model_loading", "Modelle werden geladen...")),
     ),
+    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
+      el("div", { class: "tc-text-sm tc-text-muted", id: "ai-account-status", style: { flex: "1 1 auto", minWidth: "0" } },
+        t("ui.state.account_loading", "Kontostatus wird geladen..."),
+      ),
+      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.refresh_account_status", "Prueft Provider-Key und ausgewaehltes Modell ueber den PI Sidecar."), onclick: () => refreshAiProviderStatus() },
+        t("ui.button.refresh_account_status", "Status abrufen"),
+      ),
+    ),
   );
 
   // Actions
-  const historySelect = el("select", { class: "tc-select", style: { width: "200px" }, id: "ai-history-select",
+  const historySelect = el("select", { class: "tc-select", style: { width: "200px" }, id: "ai-history-select", title: t("ui.tooltip.ai.saved_analyses", "Laedt eine gespeicherte Analyse aus dem Verlauf."),
     onchange: (e) => loadSavedAnalysis(e.target.value),
   },
     el("option", { value: "" }, t("ui.placeholder.saved_analyses", "Gespeicherte Analysen")),
   );
 
   const actions = el("div", { class: "tc-flex tc-gap-3 tc-flex-wrap" },
-    el("button", { class: "tc-btn tc-btn-primary", onclick: () => createAnalysis() }, t("ui.button.create_analysis", "KI-Analyse erstellen")),
-    el("button", { class: "tc-btn", onclick: () => createAnalysis(true) }, t("ui.button.reanalyze", "Neu analysieren (Cache ignorieren)")),
+    el("button", { class: "tc-btn tc-btn-primary", title: t("ui.tooltip.ai.create_analysis", "Analysiert den letzten Scan oder startet automatisch einen Scan, wenn ein Input-Ordner gesetzt ist."), onclick: () => createAnalysis() }, t("ui.button.create_analysis", "KI-Analyse erstellen")),
+    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.reanalyze", "Erstellt eine neue Analyse und ignoriert gespeicherte Analyse-Ergebnisse."), onclick: () => createAnalysis(true) }, t("ui.button.reanalyze", "Neu analysieren (Cache ignorieren)")),
     historySelect,
   );
 
@@ -101,17 +110,17 @@ export function createAiEmpfehlungPage() {
   );
 
   // Apply actions
-  const learnMemory = el("label", { class: "tc-checkbox" },
-    el("input", { type: "checkbox", id: "ai-learn-memory" }),
+  const learnMemory = el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") },
+    el("input", { type: "checkbox", id: "ai-learn-memory", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") }),
     el("span", {}, t("ui.label.pi_learn_memory", "Aus dieser Optimierung lernen")),
   );
   const applyBar = el("div", { class: "tc-flex tc-gap-3" },
     learnMemory,
-    el("button", { class: "tc-btn", onclick: () => previewPiActionPlan() }, t("ui.button.pi_preview", "PI Preview")),
-    el("button", { class: "tc-btn", id: "ai-pi-apply", disabled: true, onclick: () => applyPiActionPlan() }, t("ui.button.pi_apply", "PI anwenden")),
-    el("button", { class: "tc-btn tc-btn-primary", onclick: () => applyRecommendations() }, t("ui.button.apply_selected", "Ausgewaehlte anwenden")),
-    el("button", { class: "tc-btn", onclick: () => applyRecommendations(true) }, t("ui.button.apply_all", "Alle anwenden")),
-    el("button", { class: "tc-btn", onclick: () => discardRecommendations() }, t("ui.button.discard", "Verwerfen")),
+    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.pi_preview", "Zeigt geplante Config-Aenderungen als validierten YAML-Diff, ohne zu speichern."), onclick: () => previewPiActionPlan() }, t("ui.button.pi_preview", "PI Preview")),
+    el("button", { class: "tc-btn", id: "ai-pi-apply", disabled: true, title: t("ui.tooltip.ai.pi_apply", "Speichert die letzte gueltige PI Preview als neue Config-Revision."), onclick: () => applyPiActionPlan() }, t("ui.button.pi_apply", "PI anwenden")),
+    el("button", { class: "tc-btn tc-btn-primary", title: t("ui.tooltip.ai.apply_selected", "Wendet nur markierte Empfehlungen auf die Config an."), onclick: () => applyRecommendations() }, t("ui.button.apply_selected", "Ausgewaehlte anwenden")),
+    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.apply_all", "Wendet alle Empfehlungen aus der aktuellen Analyse an."), onclick: () => applyRecommendations(true) }, t("ui.button.apply_all", "Alle anwenden")),
+    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.discard", "Verwirft die aktuelle Analyseanzeige ohne Config-Aenderung."), onclick: () => discardRecommendations() }, t("ui.button.discard", "Verwerfen")),
   );
 
   const piPreview = el("div", { class: "tc-card", id: "ai-pi-preview" },
@@ -119,29 +128,57 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_preview", "Noch keine Preview.")),
   );
 
+  const piStorage = el("div", { class: "tc-card", id: "ai-pi-storage" },
+    el("div", { class: "tc-card-title" }, t("ui.title.pi_storage", "PI Storage")),
+    el("div", { class: "tc-flex tc-items-center tc-gap-2" },
+      el("input", {
+        type: "text",
+        class: "tc-input tc-mono",
+        id: "ai-pi-storage-dir",
+        style: { flex: "1 1 auto", minWidth: "0" },
+        title: t("ui.tooltip.ai.pi_storage_dir", "Ordner fuer PI Memories, Reviews, Audit-Kontext und kuenftige PI-Objekte."),
+        placeholder: t("ui.placeholder.pi_storage_dir", "z.B. /media/tc_500/.pi_memory"),
+      }),
+      el("button", {
+        class: "tc-btn",
+        style: { flexShrink: "0" },
+        title: t("ui.tooltip.ai.save_pi_storage", "Speichert diesen PI-Speicherort persistent."),
+        onclick: () => savePiStorage(),
+      }, t("ui.button.save", "Speichern")),
+      el("button", {
+        class: "tc-btn",
+        style: { flexShrink: "0" },
+        title: t("ui.tooltip.ai.refresh_pi_storage", "Laedt den aktiven PI-Speicherort neu."),
+        onclick: () => loadPiStorage(),
+      }, t("ui.button.refresh", "Aktualisieren")),
+    ),
+    el("div", { class: "tc-text-muted tc-text-sm tc-mt-2", id: "ai-pi-storage-status" }, t("ui.state.not_loaded", "nicht geladen")),
+  );
+
   const piMemories = el("div", { class: "tc-card", id: "ai-pi-memories" },
     el("div", { class: "tc-card-title" }, t("ui.title.pi_memories", "PI Memories")),
     el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
-      el("select", { class: "tc-select", id: "ai-pi-memory-filter", onchange: () => loadPiMemories() },
+      el("select", { class: "tc-select", id: "ai-pi-memory-filter", title: t("ui.tooltip.ai.memory_filter", "Filtert PI Memories nach Review-Status."), onchange: () => loadPiMemories() },
         el("option", { value: "candidate" }, t("ui.pi.status.candidate", "Candidate")),
         el("option", { value: "accepted" }, t("ui.pi.status.accepted", "Accepted")),
         el("option", { value: "rejected" }, t("ui.pi.status.rejected", "Rejected")),
         el("option", { value: "deprecated" }, t("ui.pi.status.deprecated", "Deprecated")),
         el("option", { value: "all" }, t("ui.option.all", "Alle")),
       ),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => loadPiMemories() }, t("ui.button.refresh", "Aktualisieren")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => exportPiMemories() }, t("ui.button.export", "Export")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => importPiMemories() }, t("ui.button.import", "Import")),
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => dedupePiMemories() }, t("ui.button.dedupe", "Dedupe")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_memories", "Laedt die PI Memory-Liste neu."), onclick: () => loadPiMemories() }, t("ui.button.refresh", "Aktualisieren")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.export_memories", "Exportiert PI Memories ohne Bilddaten."), onclick: () => exportPiMemories() }, t("ui.button.export", "Export")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.import_memories", "Importiert ein PI Memory-Bundle."), onclick: () => importPiMemories() }, t("ui.button.import", "Import")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.dedupe_memories", "Entfernt doppelte PI Memory-Kandidaten nach Bestaetigung."), onclick: () => dedupePiMemories() }, t("ui.button.dedupe", "Dedupe")),
       el("span", { class: "tc-text-muted tc-text-sm", id: "ai-pi-memory-status" }, t("ui.state.not_loaded", "nicht geladen")),
     ),
+    el("div", { class: "tc-text-muted tc-text-sm tc-mono tc-mb-2", id: "ai-pi-memory-dir" }, ""),
     el("div", { class: "tc-flex-col tc-gap-2", id: "ai-pi-memory-list" }),
   );
 
   const piAudit = el("div", { class: "tc-card", id: "ai-pi-audit" },
     el("div", { class: "tc-card-title" }, t("ui.title.pi_audit", "PI Audit")),
     el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
-      el("button", { class: "tc-btn tc-btn-sm", onclick: () => loadPiAudit() }, t("ui.button.refresh", "Aktualisieren")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_audit", "Laedt PI Audit-Eintraege neu."), onclick: () => loadPiAudit() }, t("ui.button.refresh", "Aktualisieren")),
       el("span", { class: "tc-text-muted tc-text-sm", id: "ai-pi-audit-status" }, t("ui.state.not_loaded", "nicht geladen")),
     ),
     el("div", { class: "tc-flex-col tc-gap-2", id: "ai-pi-audit-list" }),
@@ -154,19 +191,29 @@ export function createAiEmpfehlungPage() {
       onclick: () => traffic.classList.toggle("open"),
     }, "\u25b8 " + t("ui.title.ai_traffic", "KI-Datenverkehr")),
     el("div", { class: "tc-accordion-body" },
+      el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
+        el("button", {
+          class: "tc-btn tc-btn-sm",
+          title: t("ui.tooltip.ai.refresh_traffic", "Laedt den persistenten PI/KI-Traffic-Log aus dem Sidecar."),
+          onclick: () => loadPersistentTrafficLog(),
+        }, t("ui.button.refresh", "Aktualisieren")),
+        el("span", { class: "tc-text-muted tc-text-sm", id: "ai-traffic-status" }, t("ui.state.not_loaded", "nicht geladen")),
+      ),
       el("div", { class: "tc-log-viewer", id: "ai-traffic-log" },
         el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")),
       ),
     ),
   );
 
-  page.append(scanCtx, modelCard, actions, recs, applyBar, piPreview, piMemories, piAudit, traffic);
+  page.append(scanCtx, modelCard, actions, recs, applyBar, piPreview, piStorage, piMemories, piAudit, traffic);
 
   // Load models from backend
   loadModels();
   loadPiContext();
+  loadPiStorage();
   loadPiMemories();
   loadPiAudit();
+  loadAiAccountStatus(fd.provider);
 
   // Restore loading state if analysis is in progress
   if (aiState.loading) {
@@ -244,6 +291,7 @@ async function loadModels() {
     const modelCount = _allModels.length;
     if (statusEl) statusEl.textContent = t("ui.state.model_loaded", "Modelle geladen") + ` (${providerCount} Provider, ${modelCount} Modelle)`;
     filterModelsByProvider(document.getElementById("ai-provider")?.value || "");
+    loadAiAccountStatus(document.getElementById("ai-provider")?.value || "");
   } catch (e) {
     if (statusEl) statusEl.textContent = t("ui.state.model_load_failed", "Modelle laden fehlgeschlagen") + `: ${e.message}`;
   }
@@ -268,6 +316,96 @@ function filterModelsByProvider(provider) {
   }
 }
 
+function renderAiAccountStatus(payload, modelCheck = null) {
+  const container = document.getElementById("ai-account-status");
+  const keyStatus = document.getElementById("ai-key-status");
+  if (!container) return;
+  container.innerHTML = "";
+  const info = payload?.selected || null;
+  if (!info) {
+    if (keyStatus) keyStatus.classList.add("tc-hidden");
+    container.appendChild(el("span", {}, t("ui.state.account_unavailable", "Kontostatus nicht verfügbar.")));
+    return;
+  }
+  if (keyStatus) {
+    keyStatus.classList.toggle("tc-hidden", info.auth_source !== "storage");
+    keyStatus.textContent = "\u2713 " + t("ui.state.saved", "gespeichert");
+  }
+  const authSourceNode = info.auth_source === "env"
+    ? el("strong", {}, t("ui.ai.auth_env", "Key aus .env"))
+    : info.auth_source === "storage"
+      ? el("span", {}, t("ui.ai.auth_storage", "Key gespeichert"))
+      : el("span", {}, t("ui.ai.auth_missing", "Kein Key gefunden"));
+  const billingState = info.credit_query_supported
+    ? t("ui.ai.billing_supported", "Credit-/Abo-Abfrage unterstützt")
+    : t("ui.ai.billing_not_supported", "Credit-/Abo-Abfrage nicht automatisch verfügbar");
+  container.appendChild(el("div", {},
+    el("span", {}, `${t("ui.ai.account_status", "API-Key Status")}: `),
+    authSourceNode,
+    el("span", {}, ` · ${billingState}`),
+  ));
+  if (modelCheck) {
+    const ok = Boolean(modelCheck.ok);
+    container.appendChild(el("div", { class: ok ? "tc-text-success" : "tc-text-error" },
+      `${t("ui.ai.model_status", "Modellstatus")}: ${ok ? t("ui.state.model_available", "Status: Modell verfügbar") : t("ui.ai.model_unavailable_selected", "Ausgewähltes Modell nicht verfügbar")}`,
+    ));
+  }
+  container.appendChild(el("div", {}, t("ui.ai.billing_message", "Kontostand und Abo-Details bitte im Anbieter-Portal prüfen.")));
+  if (info.billing_url) {
+    container.appendChild(el("a", {
+      href: String(info.billing_url),
+      target: "_blank",
+      rel: "noopener noreferrer",
+    }, t("ui.ai.open_billing", "Anbieter-Portal öffnen")));
+  }
+}
+
+async function loadAiAccountStatus(provider = "") {
+  const container = document.getElementById("ai-account-status");
+  const selectedProvider = provider || document.getElementById("ai-provider")?.value || "";
+  if (container) container.textContent = t("ui.state.account_loading", "Kontostatus wird geladen...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.ai.account(selectedProvider));
+    if (payload?.available === false) {
+      if (container) container.textContent = t("ui.state.account_unavailable", "Kontostatus nicht verfügbar.");
+      return;
+    }
+    renderAiAccountStatus(payload);
+  } catch (e) {
+    if (container) container.textContent = `${t("ui.state.account_load_failed", "Kontostatus laden fehlgeschlagen")}: ${e.message}`;
+  }
+}
+
+async function refreshAiProviderStatus() {
+  const provider = document.getElementById("ai-provider")?.value || "";
+  const model = document.getElementById("ai-model")?.value || "";
+  const container = document.getElementById("ai-account-status");
+  if (!provider || !model) {
+    toastError(t("ui.state.account_load_failed", "Kontostatus laden fehlgeschlagen"), t("ui.ai.provider_model_required", "Bitte Provider und Modell auswählen."));
+    return;
+  }
+  if (container) container.textContent = t("ui.state.account_loading", "Kontostatus wird geladen...");
+  try {
+    const [account, modelCheck] = await Promise.all([
+      api.get(API_ENDPOINTS.ai.account(provider)),
+      api.post(API_ENDPOINTS.ai.test, { model }).catch((e) => ({
+        ok: false,
+        model,
+        error: e.message,
+      })),
+    ]);
+    if (account?.available === false) {
+      if (container) container.textContent = t("ui.state.account_unavailable", "Kontostatus nicht verfügbar.");
+      return;
+    }
+    renderAiAccountStatus(account, modelCheck);
+    toastSuccess(t("ui.toast.account_status_loaded", "Status abgerufen"));
+  } catch (e) {
+    if (container) container.textContent = `${t("ui.state.account_load_failed", "Kontostatus laden fehlgeschlagen")}: ${e.message}`;
+    toastError(t("ui.state.account_load_failed", "Kontostatus laden fehlgeschlagen"), e.message);
+  }
+}
+
 async function saveApiKey() {
   const provider = document.getElementById("ai-provider")?.value || "";
   const key = document.getElementById("ai-apikey")?.value || "";
@@ -275,9 +413,54 @@ async function saveApiKey() {
   try {
     await api.post(API_ENDPOINTS.ai.authProvider(provider), { api_key: key });
     toastSuccess(t("ui.toast.key_saved", "API-Key gespeichert"));
+    await loadAiAccountStatus(provider);
   } catch (e) {
     toastError(t("ui.toast.key_save_failed", "Key speichern fehlgeschlagen"), e.message);
   }
+}
+
+async function autoScanForAnalysis() {
+  const sd = getScanData();
+  const inputDir = String(sd.input_dir || "").trim();
+  if (!inputDir) {
+    throw new Error(t("ui.error.no_input_dir_for_scan", "Kein Eingabeordner festgelegt. Bitte zuerst unter Input & Scan konfigurieren."));
+  }
+  toast(t("ui.toast.scan_starting", "Scan wird gestartet..."), "", "info");
+  addTrafficEntry({ type: "request", text: `POST /api/scan auto input_dir=${inputDir}` });
+  const payload = {
+    input_dir: inputDir,
+    pattern: sd.pattern || "*.fits",
+    runs_dir: sd.runs_dir || "",
+    run_name: sd.run_name || "",
+    color_mode: sd.color_mode || "OSC",
+    frame_min: Number(sd.frame_min) || 1,
+    frames_min: Number(sd.frame_min) || 1,
+    max_frames: Number(sd.max_frames) || 0,
+    sort: sd.sort || "numeric",
+    with_checksums: Boolean(sd.with_checksums),
+    queue: getQueueItems(),
+    calibration: getCalValues(),
+  };
+  const jobStart = await api.post(API_ENDPOINTS.scan.root, payload);
+  if (!jobStart?.job_id) {
+    throw new Error(t("ui.error.no_job_id", "Backend hat keine job_id zurückgegeben."));
+  }
+  addTrafficEntry({ type: "progress", text: `${t("ui.toast.scan_starting", "Scan wird gestartet...")} ${jobStart.job_id}` });
+  const scan = await pollJob(jobStart.job_id, {
+    endpoint: API_ENDPOINTS.scan.jobStatus,
+    intervalMs: 1000,
+    timeoutMs: 120000,
+    errorLabel: "Scan",
+    onDone: async () => api.get(API_ENDPOINTS.scan.latest),
+  });
+  const autoHasScan = scan && (scan.has_scan || (scan.frames_detected && scan.frames_detected > 0));
+  if (!autoHasScan) {
+    throw new Error(t("ui.state.no_scan", "Kein Scan vorhanden. Bitte zuerst einen Scan durchfuehren."));
+  }
+  const frameCount = scan.frames_detected || scan.frame_count || 0;
+  addTrafficEntry({ type: "info", text: `Auto scan completed: ${frameCount} frames` });
+  toastSuccess(t("ui.toast.scan_completed", "Scan abgeschlossen"), `${frameCount} ${t("ui.label.frames_detected", "Frames erkannt")}`);
+  return scan;
 }
 
 async function createAnalysis(force = false) {
@@ -294,13 +477,11 @@ async function createAnalysis(force = false) {
 
     // Fetch latest scan result
     addTrafficEntry({ type: "info", text: "Fetching latest scan result..." });
-    const latestScan = await api.get(API_ENDPOINTS.scan.latest);
+    let latestScan = await api.get(API_ENDPOINTS.scan.latest);
     const hasScan = latestScan && (latestScan.has_scan || (latestScan.frames_detected && latestScan.frames_detected > 0));
     if (!hasScan) {
-      addTrafficEntry({ type: "error", text: "No scan result available" });
-      setAiState({ loading: false });
-      toastError(t("ui.toast.analysis_failed", "Analyse fehlgeschlagen"), t("ui.state.no_scan", "Kein Scan vorhanden. Bitte zuerst einen Scan durchfuehren."));
-      return;
+      addTrafficEntry({ type: "info", text: "No scan result available, checking configured input directory..." });
+      latestScan = await autoScanForAnalysis();
     }
     addTrafficEntry({ type: "info", text: `Scan: ${latestScan.frames_detected || 0} frames, ${latestScan.color_mode || "unknown"}` });
 
@@ -406,6 +587,7 @@ function renderRecommendations(recs) {
     const item = el("div", { class: "tc-card", style: { background: "var(--surface-2)" } },
       el("label", { class: "tc-checkbox" },
         el("input", { type: "checkbox", checked: rec.selected !== false,
+          title: t("ui.tooltip.ai.recommendation_select", "Legt fest, ob diese Empfehlung angewendet wird."),
           onchange: (e) => {
             rec.selected = e.target.checked;
             clearPiPreview();
@@ -591,13 +773,55 @@ function memoryOutcomeSummary(memory) {
   return `${t("ui.pi.outcome", "Outcome")}: ${valid}, ${t("ui.pi.update_count", "{count} Updates", { count })}${paths ? ` · ${paths}` : ""}`;
 }
 
+async function loadPiStorage() {
+  const input = document.getElementById("ai-pi-storage-dir");
+  const status = document.getElementById("ai-pi-storage-status");
+  if (status) status.textContent = t("ui.state.loading", "Lädt...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.pi.storage);
+    if (input) input.value = payload?.storage_dir || "";
+    if (status) {
+      const configured = payload?.configured
+        ? t("ui.pi.storage_configured", "persistent gespeichert")
+        : t("ui.pi.storage_default", "Default");
+      status.textContent = `${configured}: ${payload?.storage_dir || ""}`;
+    }
+    return payload;
+  } catch (e) {
+    if (status) status.textContent = e.message;
+    return null;
+  }
+}
+
+async function savePiStorage() {
+  const input = document.getElementById("ai-pi-storage-dir");
+  const raw = String(input?.value || "").trim();
+  if (!raw) {
+    toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), t("ui.error.pi_storage_required", "PI-Speicherort fehlt."));
+    return;
+  }
+  try {
+    const payload = await api.post(API_ENDPOINTS.pi.storage, { storage_dir: raw });
+    if (input) input.value = payload?.storage_dir || raw;
+    await loadPiMemories();
+    await loadPiAudit();
+    toastSuccess(t("ui.toast.saved", "Gespeichert"));
+  } catch (e) {
+    toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), e.message);
+  }
+}
+
 async function loadPiMemories() {
   const filter = document.getElementById("ai-pi-memory-filter")?.value || "candidate";
   const status = document.getElementById("ai-pi-memory-status");
   const list = document.getElementById("ai-pi-memory-list");
+  const dir = document.getElementById("ai-pi-memory-dir");
   if (status) status.textContent = t("ui.state.loading", "Lädt...");
   try {
     const payload = await api.get(`${API_ENDPOINTS.pi.memories}?limit=100&status=${encodeURIComponent(filter)}`);
+    if (dir) {
+      dir.textContent = payload?.memory_dir ? `${t("ui.pi.memory_store", "Memory Store")}: ${payload.memory_dir}` : "";
+    }
     if (list) {
       list.innerHTML = "";
       const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -614,9 +838,9 @@ async function loadPiMemories() {
           memoryOutcomeSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryOutcomeSummary(memory)) : null,
           memory?.review?.note ? el("div", { class: "tc-text-sm" }, memory.review.note) : null,
           el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
-            canReview && statusName !== "accepted" ? el("button", { class: "tc-btn tc-btn-sm", onclick: () => reviewPiMemory(id, "accepted") }, t("ui.button.accept", "Accept")) : null,
-            canReview ? el("button", { class: "tc-btn tc-btn-sm", onclick: () => reviewPiMemory(id, "rejected") }, t("ui.button.reject", "Reject")) : null,
-            canReview ? el("button", { class: "tc-btn tc-btn-sm", onclick: () => reviewPiMemory(id, "deprecated") }, t("ui.button.deprecate", "Deprecate")) : null,
+            canReview && statusName !== "accepted" ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_accept", "Markiert diese Erfahrung als nuetzlich fuer spaetere Sessions."), onclick: () => reviewPiMemory(id, "accepted") }, t("ui.button.accept", "Accept")) : null,
+            canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_reject", "Markiert diese Erfahrung als nicht hilfreich."), onclick: () => reviewPiMemory(id, "rejected") }, t("ui.button.reject", "Reject")) : null,
+            canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_deprecate", "Markiert diese Erfahrung als ueberholt."), onclick: () => reviewPiMemory(id, "deprecated") }, t("ui.button.deprecate", "Deprecate")) : null,
           ),
         ));
       }
@@ -705,6 +929,9 @@ async function dedupePiMemories() {
 function summarizeAuditItem(item) {
   if (item?.audit_type === "memory_review") {
     return `${item.memory_id || "-"} · ${item.status || "-"} · ${item.review?.reviewer || "user"}`;
+  }
+  if (item?.audit_type === "memory_candidate") {
+    return `${item.memory_id || "-"} · ${item.status || "candidate"} · ${item.source || "memory"}`;
   }
   return `${item?.event || item?.audit_type || t("ui.title.pi_audit", "PI Audit")} · ${item?.source || ""}`;
 }
@@ -796,5 +1023,22 @@ function renderTrafficLog(log) {
   for (const entry of log) {
     const cls = entry.type === "error" ? "tc-text-error" : entry.type === "summary" ? "tc-text-muted" : entry.type === "warn" ? "tc-text-warning" : "";
     container.appendChild(el("div", { class: `tc-text-sm tc-mono ${cls}` }, `[${entry.ts?.substring(11, 19) || ""}] ${entry.text}`));
+  }
+}
+
+async function loadPersistentTrafficLog() {
+  const status = document.getElementById("ai-traffic-status");
+  if (status) status.textContent = t("ui.state.loading", "Lädt...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.ai.traffic(500));
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    renderTrafficLog(items.map((line) => ({ type: "log", text: line, ts: "" })));
+    if (status) {
+      const enabled = payload?.enabled === false ? t("ui.state.disabled", "deaktiviert") : t("ui.state.enabled", "aktiv");
+      status.textContent = `${enabled} · ${t("ui.pi.traffic_count", "{count} Zeilen", { count: payload?.count || items.length })} · ${payload?.path || ""}`;
+    }
+  } catch (e) {
+    if (status) status.textContent = e.message;
+    toastError(t("ui.toast.traffic_load_failed", "Traffic-Log laden fehlgeschlagen"), e.message);
   }
 }

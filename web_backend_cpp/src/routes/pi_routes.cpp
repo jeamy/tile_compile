@@ -6,10 +6,12 @@
 #include "services/pi/pi_context_builder.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
+#include "services/pi/pi_storage_paths.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "subprocess_manager.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -27,10 +29,6 @@ std::optional<nlohmann::json> parse_body(const crow::request& req) {
     return parsed;
 }
 
-std::filesystem::path pi_memory_dir(const std::shared_ptr<AppState>& state) {
-    return state->runtime.runs_dir / ".pi_memory";
-}
-
 int int_query_param(const crow::request& req, const char* name, int fallback) {
     const char* raw = req.url_params.get(name);
     if (!raw) return fallback;
@@ -46,6 +44,226 @@ void trim_json_array_to_latest(nlohmann::json& items, int limit) {
     while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
 }
 
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool contains_any(const std::string& haystack, std::initializer_list<const char*> needles) {
+    for (const char* needle : needles) {
+        if (haystack.find(needle) != std::string::npos) return true;
+    }
+    return false;
+}
+
+nlohmann::json detect_run_chat_problem_hints(const std::string& message) {
+    const std::string text = lower_copy(message);
+    nlohmann::json hints = nlohmann::json::array();
+    auto add = [&](const std::string& id, const std::string& label, const std::string& confidence) {
+        hints.push_back({{"id", id}, {"label", label}, {"confidence", confidence}});
+    };
+    if (contains_any(text, {"schwarzen kern", "schwarzer kern", "black core", "black cores", "donut", "sternkern"})) {
+        add("black_star_cores", "Sterne mit dunklem/schwarzem Kern", "high");
+    }
+    if (contains_any(text, {"beschnitten", "abgeschnitten", "cropped", "crop", "nicht einbezogen", "outside", "rand"})) {
+        add("cropped_nebula", "Nebel oder Randstruktur wirkt beschnitten", "high");
+    }
+    if (contains_any(text, {"kaum sichtbar", "zu dunkel", "dunkel", "faint", "too dark", "nebula not visible", "nebel"})) {
+        add("faint_nebula", "Nebelanteile sind zu schwach sichtbar", "medium");
+    }
+    if (contains_any(text, {"gradient", "hintergrund", "background", "vignette", "vignett"})) {
+        add("background_gradient", "Hintergrundgradient oder Vignettierung", "medium");
+    }
+    if (contains_any(text, {"farbstich", "gruen", "magenta", "color cast", "colour cast", "farbe"})) {
+        add("color_cast", "Farbstich oder unausgewogene Farbe", "medium");
+    }
+    if (contains_any(text, {"tile", "kachel", "muster", "pattern", "seam", "naht"})) {
+        add("tile_pattern", "Tile-/Kachelmuster sichtbar", "medium");
+    }
+    if (contains_any(text, {"unscharf", "blur", "soft", "fwhm", "elongated", "eier", "verzogen"})) {
+        add("soft_or_elongated_stars", "Sterne unscharf oder verzogen", "medium");
+    }
+    if (hints.empty()) {
+        add("general_quality_issue", "Allgemeines sichtbares Qualitaetsproblem", "low");
+    }
+    return hints;
+}
+
+nlohmann::json append_text_item(const std::string& text, const std::string& evidence = "") {
+    nlohmann::json item = {{"text", text}};
+    if (!evidence.empty()) item["evidence_ref"] = evidence;
+    return item;
+}
+
+nlohmann::json build_run_chat_action_plan(const std::string& run_id, const nlohmann::json& hints) {
+    nlohmann::json actions = nlohmann::json::array();
+    int index = 1;
+    auto add_set = [&](const std::string& path, const nlohmann::json& value, const std::string& rationale) {
+        actions.push_back({
+            {"id", "run_chat_" + std::to_string(index++)},
+            {"type", "config.set"},
+            {"path", path},
+            {"value", value},
+            {"rationale", rationale}
+        });
+    };
+
+    for (const auto& hint : hints) {
+        const std::string id = hint.value("id", std::string());
+        if (id == "cropped_nebula") {
+            add_set("output.crop_to_nonzero_bbox", false,
+                    "Wenn Nebel am Rand abgeschnitten wirkt, zuerst ohne automatisches Crop testen.");
+        } else if (id == "faint_nebula") {
+            add_set("bge.enabled", false,
+                    "Bei ausgedehntem Nebel kann Hintergrundextraktion echte schwache Nebelanteile abschwaechen.");
+            add_set("normalization.mode", "median",
+                    "Median-Normalisierung ist fuer ausgedehnte Nebel oft konservativer als Hintergrund-Normalisierung.");
+        } else if (id == "black_star_cores") {
+            add_set("stacking.cosmetic_correction", false,
+                    "Dunkle Sternkerne koennen durch zu aggressive kosmetische Korrektur/Rejection entstehen; als A/B-Test deaktivieren.");
+        } else if (id == "tile_pattern") {
+            add_set("tile.overlap_fraction", 0.35,
+                    "Mehr Tile-Overlap kann sichtbare Kacheluebergaenge reduzieren.");
+        }
+    }
+
+    return {
+        {"schema_version", "pi.action-plan.v1"},
+        {"source", "pi.run-chat"},
+        {"run_id", run_id},
+        {"mutation_free", true},
+        {"actions", actions}
+    };
+}
+
+nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
+                                     const std::string& run_id,
+                                     const std::string& message) {
+    tile_compile::pi::PiToolRegistry tools(state);
+    nlohmann::json report = tools.call_tool("run.report.summary", {{"run_id", run_id}});
+    nlohmann::json artifacts = tools.call_tool("run.artifacts.summary", {{"run_id", run_id}});
+    const nlohmann::json hints = detect_run_chat_problem_hints(message);
+
+    tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+    nlohmann::json memories = store.retrieve({{"type", "config_optimization"}}, 5);
+
+    nlohmann::json evidence = nlohmann::json::array({
+        {{"id", "report"}, {"tool", "run.report.summary"}, {"available", report.value("ok", false)}, {"result", report.value("result", nlohmann::json::object())}},
+        {{"id", "artifacts"}, {"tool", "run.artifacts.summary"}, {"available", artifacts.value("ok", false)}, {"result", artifacts.value("result", nlohmann::json::object())}},
+        {{"id", "memories"}, {"tool", "pi.memory.retrieve"}, {"available", !memories.empty()}, {"result", memories}}
+    });
+
+    nlohmann::json likely_causes = nlohmann::json::array();
+    nlohmann::json checks = nlohmann::json::array();
+    nlohmann::json recommendations = nlohmann::json::array();
+
+    for (const auto& hint : hints) {
+        const std::string id = hint.value("id", std::string());
+        if (id == "black_star_cores") {
+            likely_causes.push_back(append_text_item(
+                "Dunkle Sternkerne passen zu zu aggressiver kosmetischer Korrektur, Sigma-Rejection, lokaler Hintergrundbehandlung oder Stretch/Star-Protect-Artefakten.",
+                "report"));
+            checks.push_back(append_text_item(
+                "Vergleiche lineares Stack, gestretchtes Ergebnis und ggf. Zwischenergebnisse vor/nach kosmetischer Korrektur und Rejection.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Als A/B-Test kosmetische Korrektur oder Rejection weniger aggressiv setzen und nur ab betroffener Phase neu rechnen.",
+                "report"));
+        } else if (id == "cropped_nebula") {
+            likely_causes.push_back(append_text_item(
+                "Beschnittener Nebel deutet auf Crop-to-nonzero-BBox, Common-Overlap nach Registrierung oder ein zu enges gueltiges Rekonstruktionsfenster hin.",
+                "artifacts"));
+            checks.push_back(append_text_item(
+                "Pruefe common_overlap, Registration-Artefakte und ob das finale Output kleiner als die registrierten Frames ist.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Testweise `output.crop_to_nonzero_bbox=false` und Common-Overlap/Registrierungsdiagnostik pruefen.",
+                "report"));
+        } else if (id == "faint_nebula") {
+            likely_causes.push_back(append_text_item(
+                "Schwacher Nebel kann durch Hintergrundextraktion, Hintergrund-Normalisierung oder zu dunklen Stretch-Zielhintergrund entstehen.",
+                "report"));
+            checks.push_back(append_text_item(
+                "Pruefe BGE-Report, Hintergrundkarten, Histogramm/Stretch-Parameter und ob ausgedehnte Emission als Hintergrund behandelt wurde.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Bei M42/ausgedehnten Nebeln konservativ testen: BGE aus, Median-Normalisierung, danach Stretch neu bewerten.",
+                "memories"));
+        } else if (id == "background_gradient") {
+            likely_causes.push_back(append_text_item(
+                "Gradienten koennen aus Vignettierung, Mond/Light-Pollution, fehlenden Flats oder BGE-Unter-/Ueberfit stammen.",
+                "report"));
+            checks.push_back(append_text_item(
+                "BGE-Diagnostik und Flat-/Kalibrierstatus pruefen; nicht automatisch Nebel als Gradient wegfitten.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "BGE nur mit konservativen Masken/Validierung verwenden und Ergebnis gegen BGE-off vergleichen.",
+                "report"));
+        } else if (id == "color_cast") {
+            likely_causes.push_back(append_text_item(
+                "Farbstich passt zu Bayer-Pattern, PCC-Sternauswahl, Hintergrundneutralisierung oder starker Gradientenbehandlung.",
+                "report"));
+            checks.push_back(append_text_item(
+                "PCC-Report, Bayer-Pattern und Background-Neutralization-Status pruefen.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "PCC-Parameter und Bayer-Pattern erst anhand Report/Headers bestaetigen, dann gezielt neu rechnen.",
+                "report"));
+        } else if (id == "tile_pattern") {
+            likely_causes.push_back(append_text_item(
+                "Tile-Muster spricht fuer zu wenig Overlap, zu starke lokale Gewichtung oder inkonsistente lokale Rekonstruktion.",
+                "report"));
+            checks.push_back(append_text_item(
+                "AQMH-/Tile-Artefakte, lokale Metrikkarten und Rekonstruktionsdiagnostik pruefen.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Tile-Overlap erhoehen und lokale Regularisierung/Tile-Groesse gegenpruefen.",
+                "report"));
+        } else if (id == "soft_or_elongated_stars") {
+            likely_causes.push_back(append_text_item(
+                "Weiche oder verzogene Sterne passen zu Registrierungsfehlern, Seeing-Streuung, Fokusdrift oder falscher Frame-Gewichtung.",
+                "report"));
+            checks.push_back(append_text_item(
+                "Registration-Report, FWHM-Verlauf und verworfene/gewichtete Frames pruefen.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Registration und Qualitätsgewichtung vor Stretch/Color-Fixes validieren.",
+                "report"));
+        }
+    }
+
+    if (recommendations.empty()) {
+        recommendations.push_back(append_text_item(
+            "Zuerst Report und Artefakte pruefen, dann nur eine Parametergruppe als A/B-Test aendern.",
+            "report"));
+    }
+
+    const nlohmann::json action_plan = build_run_chat_action_plan(run_id, hints);
+    return {
+        {"schema_version", "pi.run-chat-answer.v1"},
+        {"mode", "local_read_only"},
+        {"question", message},
+        {"run_id", run_id},
+        {"context", {
+            {"schema_version", "pi.run-chat-context.v1"},
+            {"run_id", run_id},
+            {"problem_hints", hints},
+            {"report_available", report.value("ok", false)},
+            {"artifacts_available", artifacts.value("ok", false)},
+            {"memory_count", memories.size()}
+        }},
+        {"summary", "Ich behandle die Beschreibung als Hinweis, nicht als bewiesene Ursache. Die naechsten Schritte sollten Report, Artefakte und gezielte A/B-Tests verbinden."},
+        {"likely_causes", likely_causes},
+        {"checks", checks},
+        {"recommendations", recommendations},
+        {"evidence", evidence},
+        {"action_plan", action_plan},
+        {"action_plan_validation", tile_compile::pi::validate_action_plan_shape(action_plan)}
+    };
+}
+
 nlohmann::json pi_audit_log(const std::shared_ptr<AppState>& state, int limit) {
     nlohmann::json items = nlohmann::json::array();
     const int event_scan_limit = std::max(limit, std::min(10000, limit * 10));
@@ -56,8 +274,18 @@ nlohmann::json pi_audit_log(const std::shared_ptr<AppState>& state, int limit) {
         items.push_back(std::move(item));
     }
 
-    tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+    tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     for (const auto& memory : store.list(100000)) {
+        items.push_back({
+            {"audit_type", "memory_candidate"},
+            {"memory_id", memory.value("memory_id", std::string())},
+            {"type", memory.value("type", std::string())},
+            {"status", memory.value("status", std::string("candidate"))},
+            {"created_at", memory.value("created_at", std::string())},
+            {"source", memory.value("source", std::string())},
+            {"analysis_id", memory.value("analysis_id", std::string())},
+            {"summary", memory.value("summary", std::string())}
+        });
         if (!memory.contains("review") || !memory["review"].is_object()) continue;
         nlohmann::json item = {
             {"audit_type", "memory_review"},
@@ -309,11 +537,48 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(assistant.answer(question));
     });
 
+    CROW_ROUTE(app, "/api/pi/storage").methods("GET"_method)
+    ([state](const crow::request&) {
+        return json_resp(tile_compile::pi::pi_storage_status(state));
+    });
+
+    CROW_ROUTE(app, "/api/pi/storage").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string storage_dir = body->value("storage_dir", std::string());
+        std::filesystem::path resolved;
+        std::string error_code;
+        std::string error_message;
+        if (!tile_compile::pi::set_pi_storage_dir(state, storage_dir, resolved, error_code, error_message)) {
+            return err_resp(error_code.empty() ? "BAD_REQUEST" : error_code,
+                            error_message.empty() ? "failed to save PI storage directory" : error_message,
+                            error_code == "PATH_NOT_ALLOWED" ? 403 : 400);
+        }
+        state->ui_event_store.push("pi.storage.save", "pi.storage", {{"storage_dir", resolved.string()}});
+        return json_resp(tile_compile::pi::pi_storage_status(state));
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-chat").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        const std::string message = body->value("message", std::string());
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
+        try {
+            return json_resp(build_run_chat_answer(state, run_id, message));
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/memories").methods("GET"_method)
     ([state](const crow::request& req) {
         const int limit = std::max(1, std::min(500, int_query_param(req, "limit", 100)));
         const std::string status_filter = req.url_params.get("status") ? std::string(req.url_params.get("status")) : "";
-        tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+        tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
         const bool filtered = !status_filter.empty() && status_filter != "all";
         nlohmann::json items = store.list(filtered ? 100000 : limit);
         if (filtered) {
@@ -339,7 +604,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             : std::string("metadata_only");
         const bool include_reviews = !req.url_params.get("include_reviews") ||
             std::string(req.url_params.get("include_reviews")) != "0";
-        tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+        tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
         return json_resp(store.export_bundle(privacy, include_reviews));
     });
 
@@ -352,7 +617,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             ? (*body)["bundle"]
             : *body;
         try {
-            tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
             return json_resp(store.import_bundle(bundle, dry_run));
         } catch (const std::invalid_argument& e) {
             return err_resp("BAD_REQUEST", e.what(), 400);
@@ -367,7 +632,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const bool dry_run = body->value("dry_run", false);
         try {
-            tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
             return json_resp(store.dedupe(dry_run));
         } catch (const std::exception& e) {
             return err_resp("BACKEND_COMMAND_FAILED", e.what(), 502);
@@ -386,7 +651,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             : nlohmann::json::object();
         if (status.empty()) return err_resp("BAD_REQUEST", "status is required", 400);
         try {
-            tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
             const auto review = store.review(memory_id, status, reviewer, note, outcome);
             return json_resp({{"ok", true}, {"review", review}});
         } catch (const std::invalid_argument& e) {
@@ -404,7 +669,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const nlohmann::json query = body->contains("query") && (*body)["query"].is_object()
             ? (*body)["query"]
             : *body;
-        tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+        tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
         const auto matches = store.retrieve(query, limit);
         return json_resp({
             {"schema_version", "pi.memory-retrieval.v1"},

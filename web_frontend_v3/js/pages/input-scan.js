@@ -42,11 +42,11 @@ async function ensureRunsDir() {
   return backendRunsDir;
 }
 
-function getScanData() { return inputStore.getState().scanData; }
+export function getScanData() { return inputStore.getState().scanData; }
 function setScanData(patch) { inputStore.setState({ scanData: { ...getScanData(), ...patch } }); }
-function getQueueItems() { return inputStore.getState().queueItems; }
+export function getQueueItems() { return inputStore.getState().queueItems; }
 function setQueueItems(items) { inputStore.setState({ queueItems: items }); }
-function getCalValues() { return inputStore.getState().calValues; }
+export function getCalValues() { return inputStore.getState().calValues; }
 function setCalValues(v) { inputStore.setState({ calValues: v }); }
 
 export function createInputScanPage() {
@@ -219,4 +219,3 @@ async function pollScanJob(jobId) {
     onDone: async () => api.get(API_ENDPOINTS.scan.latest),
   });
 }
-

@@ -15,6 +15,7 @@ export class AuthService {
     } else {
       throw new Error("PI AuthStorage does not expose a supported key setter");
     }
+    this.modelService.markStoredAuthProvider(provider);
     return { provider, stored: true };
   }
 
@@ -30,6 +31,7 @@ export class AuthService {
     } else {
       throw new Error("PI AuthStorage does not expose a supported key remover");
     }
+    this.modelService.unmarkStoredAuthProvider(provider);
     return { provider, removed: true };
   }
 }

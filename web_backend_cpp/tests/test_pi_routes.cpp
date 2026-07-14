@@ -182,7 +182,35 @@ int main(int argc, char** argv) {
                     "pi report assistant mentions artifacts");
         expect_true(report_answer["evidence"].size() >= 2, "pi report assistant evidence count");
 
-        const auto memory_dir = harness.fixture_root() / "runs" / ".pi_memory";
+        const auto run_chat = harness.post_json("/api/pi/run-chat", {
+            {"run_id", "pi_fixture_run"},
+            {"message", "Sterne oben haben schwarzen Kern. Der Nebel oben wird nicht einbezogen, sondern beschnitten und ist kaum sichtbar. Was kann man tun?"}
+        });
+        expect_equal(run_chat["_http_status"].get<long>(), 200L, "pi run chat status");
+        expect_equal(run_chat["schema_version"].get<std::string>(), "pi.run-chat-answer.v1", "pi run chat schema");
+        expect_equal(run_chat["context"]["schema_version"].get<std::string>(), "pi.run-chat-context.v1", "pi run chat context schema");
+        expect_true(run_chat["context"]["problem_hints"].is_array() && run_chat["context"]["problem_hints"].size() >= 3,
+                    "pi run chat detects problem hints");
+        expect_true(run_chat["likely_causes"].is_array() && !run_chat["likely_causes"].empty(),
+                    "pi run chat likely causes");
+        expect_true(run_chat["checks"].is_array() && !run_chat["checks"].empty(), "pi run chat checks");
+        expect_true(run_chat["recommendations"].is_array() && !run_chat["recommendations"].empty(),
+                    "pi run chat recommendations");
+        expect_true(run_chat["evidence"].is_array() && run_chat["evidence"].size() >= 2, "pi run chat evidence");
+        expect_true(run_chat["action_plan_validation"]["valid"].get<bool>(), "pi run chat action plan valid");
+
+        const auto storage_default = harness.get_json("/api/pi/storage");
+        expect_equal(storage_default["_http_status"].get<long>(), 200L, "pi storage default status");
+        expect_equal(storage_default["schema_version"].get<std::string>(), "pi.storage.v1", "pi storage schema");
+        expect_true(!storage_default["configured"].get<bool>(), "pi storage initially uses default");
+
+        const auto memory_dir = harness.fixture_root() / "pi_custom_storage";
+        const auto storage_saved = harness.post_json("/api/pi/storage", {
+            {"storage_dir", memory_dir.string()}
+        });
+        expect_equal(storage_saved["_http_status"].get<long>(), 200L, "pi storage save status");
+        expect_true(storage_saved["configured"].get<bool>(), "pi storage marked configured");
+        expect_equal(storage_saved["storage_dir"].get<std::string>(), memory_dir.string(), "pi storage saved path");
         std::filesystem::create_directories(memory_dir);
         {
             std::ofstream out(memory_dir / "memories.jsonl");

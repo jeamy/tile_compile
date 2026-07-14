@@ -1,6 +1,6 @@
 // js/pages/run-monitor.js – Sub-Tab: Run Monitor
 
-import { el } from "../utils/dom.js";
+import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 import { createPhaseList, setPhaseList, updatePhaseState, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
 import { createLogViewer } from "../components/log-viewer.js";
@@ -16,6 +16,7 @@ import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { promptGrantRoot } from "../components/path-picker-modal.js";
 import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
+import { createYamlDiff } from "../components/yaml-diff.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -98,6 +99,8 @@ export function createRunMonitorPage() {
     ),
   );
 
+  const runChat = createRunChatPanel();
+
   // Log viewer (component-based)
   const logViewer = createLogViewer();
 
@@ -110,7 +113,7 @@ export function createRunMonitorPage() {
     el("div", { id: "run-warning-list", class: "tc-flex-col tc-gap-1" }),
   );
 
-  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, logViewer.wrapper);
+  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, runChat, logViewer.wrapper);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -154,6 +157,302 @@ function getResumePending() { return getRunState().resumePending || false; }
 function setResumePending(v) { setRunState({ resumePending: v }); }
 function getResumeActive() { return getRunState().resumeActive || false; }
 function setResumeActive(v) { setRunState({ resumeActive: v }); }
+
+function monitorListSection(title, items) {
+  const list = el("div", { class: "tc-flex-col tc-gap-1" });
+  for (const item of Array.isArray(items) ? items : []) {
+    const text = typeof item === "string" ? item : item?.text || JSON.stringify(item);
+    const evidence = typeof item === "object" && item?.evidence_ref ? ` (${item.evidence_ref})` : "";
+    list.appendChild(el("div", { class: "tc-text-sm" }, `${text}${evidence}`));
+  }
+  return el("div", { class: "tc-mt-2" },
+    el("div", { class: "tc-label" }, title),
+    list,
+  );
+}
+
+function renderMonitorRunChatResult(container, result) {
+  clear(container);
+  container.appendChild(el("div", { class: "tc-text-sm" }, result?.summary || ""));
+
+  const hints = result?.context?.problem_hints || [];
+  if (Array.isArray(hints) && hints.length) {
+    container.appendChild(el("div", { class: "tc-flex tc-gap-2 tc-mt-2 tc-flex-wrap" },
+      ...hints.map(h => el("span", { class: "tc-badge", title: h.confidence || "" }, h.label || h.id || "-")),
+    ));
+  }
+
+  container.appendChild(monitorListSection(t("ui.pi.run_chat.likely_causes", "Wahrscheinliche Ursachen"), result?.likely_causes));
+  container.appendChild(monitorListSection(t("ui.pi.run_chat.checks", "Prüfen"), result?.checks));
+  container.appendChild(monitorListSection(t("ui.pi.run_chat.recommendations", "Empfehlungen"), result?.recommendations));
+
+  const actionCount = Array.isArray(result?.action_plan?.actions) ? result.action_plan.actions.length : 0;
+  if (actionCount > 0) {
+    container.appendChild(createMonitorRunChatActionControls(result.action_plan, actionCount));
+  }
+
+  const evidence = Array.isArray(result?.evidence) ? result.evidence : [];
+  if (evidence.length) {
+    container.appendChild(el("details", { class: "tc-mt-2" },
+      el("summary", { class: "tc-text-sm" }, t("ui.pi.run_chat.evidence", "Evidenz")),
+      el("pre", { class: "tc-log-viewer tc-text-sm", style: { maxHeight: "220px" } }, JSON.stringify(evidence, null, 2)),
+    ));
+  }
+}
+
+function monitorActionPlanUpdates(plan) {
+  const changes = [];
+  const actions = Array.isArray(plan?.actions) ? plan.actions : [];
+  actions.forEach((action, actionIndex) => {
+    if (!action || typeof action !== "object") return;
+    if (action.type === "config.set" && typeof action.path === "string") {
+      changes.push({
+        id: `a${actionIndex}`,
+        actionIndex,
+        updateIndex: null,
+        path: action.path,
+        value: action.value,
+        current: action.current_value ?? action.current,
+        rationale: action.rationale || action.reason || "",
+        selected: true,
+      });
+    } else if (action.type === "config.patch" && Array.isArray(action.updates)) {
+      action.updates.forEach((update, updateIndex) => {
+        if (!update || typeof update.path !== "string") return;
+        changes.push({
+          id: `a${actionIndex}_u${updateIndex}`,
+          actionIndex,
+          updateIndex,
+          path: update.path,
+          value: update.value,
+          current: update.current_value ?? update.current,
+          rationale: update.rationale || update.reason || action.rationale || "",
+          selected: true,
+        });
+      });
+    }
+  });
+  return changes;
+}
+
+function selectedMonitorActionPlan(plan, changes) {
+  const selectedIds = new Set(changes.filter(c => c.selected).map(c => c.id));
+  const copy = JSON.parse(JSON.stringify(plan || {}));
+  copy.actions = (Array.isArray(copy.actions) ? copy.actions : []).flatMap((action, actionIndex) => {
+    if (action?.type === "config.set") {
+      return selectedIds.has(`a${actionIndex}`) ? [action] : [];
+    }
+    if (action?.type === "config.patch" && Array.isArray(action.updates)) {
+      const updates = action.updates.filter((_, updateIndex) => selectedIds.has(`a${actionIndex}_u${updateIndex}`));
+      return updates.length ? [{ ...action, updates }] : [];
+    }
+    return [];
+  });
+  return copy.actions.length ? copy : null;
+}
+
+function formatMonitorActionValue(value) {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function createMonitorRunChatActionControls(plan, actionCount) {
+  const changes = monitorActionPlanUpdates(plan);
+  if (!changes.length) {
+    return el("div", { class: "tc-mt-2 tc-text-sm tc-text-muted" },
+      t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: actionCount }),
+    );
+  }
+
+  const previewTarget = el("div", { class: "tc-flex-col tc-gap-2 tc-mt-2" });
+  const applyButton = el("button", {
+    class: "tc-btn tc-btn-sm",
+    disabled: true,
+    title: t("ui.tooltip.run_chat_apply_resume", "Übernimmt die validierte PI-Preview in den Resume-Config-Editor."),
+  }, t("ui.button.apply_to_resume", "In Resume übernehmen"));
+  let lastPreview = null;
+
+  const clearPreviewState = () => {
+    lastPreview = null;
+    applyButton.disabled = true;
+    clear(previewTarget);
+  };
+
+  const previewSelection = async () => {
+    const selectedPlan = selectedMonitorActionPlan(plan, changes);
+    if (!selectedPlan) {
+      toastError(t("ui.toast.preview_failed", "Preview fehlgeschlagen"), t("ui.state.no_selection", "Keine Empfehlung ausgewählt."));
+      return null;
+    }
+    try {
+      const yaml = await getMonitorResumeYaml();
+      const preview = await previewMonitorRunChatActionPlan(selectedPlan, previewTarget, yaml);
+      lastPreview = preview ? { plan: selectedPlan, preview } : null;
+      applyButton.disabled = !lastPreview?.preview?.config_valid;
+      return lastPreview;
+    } catch (e) {
+      clearPreviewState();
+      clear(previewTarget);
+      previewTarget.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
+      toastError(t("ui.toast.preview_failed", "Preview fehlgeschlagen"), e.message);
+      return null;
+    }
+  };
+
+  applyButton.onclick = async () => {
+    const state = lastPreview || await previewSelection();
+    const patchedYaml = state?.preview?.patched_yaml || "";
+    if (!state?.preview?.config_valid || !patchedYaml) {
+      toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.preview_required", "Erst PI Preview ausführen."));
+      return;
+    }
+    const editor = document.getElementById("resume-config-yaml");
+    if (!editor) {
+      toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.error.no_config", "Config YAML ist leer"));
+      return;
+    }
+    editor.value = patchedYaml;
+    const panel = document.getElementById("resume-panel");
+    if (panel) panel.style.display = "";
+    const hint = document.getElementById("resume-hint");
+    if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+    toastSuccess(t("ui.toast.applied_to_resume", "In Resume übernommen"));
+  };
+
+  const items = changes.map((change) => el("div", { class: "tc-card", style: { background: "var(--surface-2)" } },
+    el("label", { class: "tc-checkbox" },
+      el("input", {
+        type: "checkbox",
+        checked: change.selected,
+        title: t("ui.tooltip.run_chat_change_select", "Legt fest, ob diese Parameteränderung in die PI-Preview eingeht."),
+        onchange: (e) => {
+          change.selected = e.target.checked;
+          clearPreviewState();
+        },
+      }),
+      el("span", { class: "tc-mono tc-text-sm" }, change.path),
+    ),
+    change.current !== undefined ? el("div", { class: "tc-mt-2 tc-text-sm" },
+      el("span", { class: "tc-text-muted" }, t("ui.label.current", "Aktuell") + ": "),
+      el("span", {}, formatMonitorActionValue(change.current)),
+    ) : null,
+    el("div", { class: "tc-text-sm" },
+      el("span", { class: "tc-text-muted" }, t("ui.label.recommended", "Empfohlen") + ": "),
+      el("span", {}, formatMonitorActionValue(change.value)),
+    ),
+    change.rationale ? el("div", { class: "tc-mt-1 tc-text-sm tc-text-muted" }, change.rationale) : null,
+  ));
+
+  return el("div", { class: "tc-mt-3" },
+    el("div", { class: "tc-label" }, t("ui.title.parameter_changes", "Parameteränderungen")),
+    el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" },
+      t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: actionCount }),
+    ),
+    el("div", { class: "tc-flex-col tc-gap-2" }, ...items),
+    el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
+      el("button", {
+        class: "tc-btn tc-btn-sm",
+        title: t("ui.tooltip.run_chat_preview", "Validiert den Action-Plan und zeigt den YAML-Diff ohne Speichern."),
+        onclick: () => previewSelection(),
+      }, t("ui.button.pi_preview", "PI Preview")),
+      applyButton,
+    ),
+    previewTarget,
+  );
+}
+
+async function getMonitorResumeYaml() {
+  const editor = document.getElementById("resume-config-yaml");
+  const yaml = String(editor?.value || "").trim();
+  if (yaml) return yaml;
+  const runId = getRunApiKey();
+  if (!runId) throw new Error(t("ui.error.no_run", "Kein Run ausgewählt"));
+  const resp = await api.get(API_ENDPOINTS.runs.config(runId));
+  const loaded = resp?.config_yaml || resp?.config || "";
+  if (!loaded) throw new Error(t("ui.error.no_config", "Config YAML ist leer"));
+  if (editor) editor.value = loaded;
+  return loaded;
+}
+
+async function previewMonitorRunChatActionPlan(plan, container, yaml = "") {
+  if (!plan || !container) return;
+  clear(container);
+  container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
+  try {
+    const result = await api.post(API_ENDPOINTS.pi.actionPlanPreview, yaml ? { plan, yaml } : { plan });
+    const preview = result?.preview || result;
+    clear(container);
+    const valid = preview?.config_valid === true
+      ? t("ui.state.config_valid", "Config gültig")
+      : t("ui.state.config_invalid", "Config ungültig");
+    container.appendChild(el("div", { class: preview?.config_valid === true ? "tc-text-success tc-text-sm" : "tc-text-error tc-text-sm" }, valid));
+    container.appendChild(createYamlDiff(preview?.base_yaml || "", preview?.patched_yaml || ""));
+    return preview;
+  } catch (e) {
+    clear(container);
+    container.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
+    throw e;
+  }
+}
+
+function createRunChatPanel() {
+  const inputId = "run-monitor-chat-input";
+  const outputId = "run-monitor-chat-output";
+  const placeholder = t(
+    "ui.placeholder.run_chat",
+    "z.B. Sterne oben haben schwarzen Kern, der Nebel oben wird beschnitten und ist kaum sichtbar. Was kann man tun?",
+  );
+  return el("div", { class: "tc-card", id: "run-monitor-chat-card" },
+    el("div", { class: "tc-card-title" }, t("ui.title.run_chat", "Run-Chat")),
+    el("textarea", {
+      class: "tc-input",
+      id: inputId,
+      rows: 3,
+      placeholder,
+      title: t("ui.tooltip.run_chat_input", "Beschreibe sichtbare Bildprobleme in normaler Sprache."),
+    }),
+    el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
+      el("button", {
+        class: "tc-btn tc-btn-sm",
+        title: t("ui.tooltip.run_chat_send", "Analysiert deine Beschreibung mit Run-Report, Artefakten und PI Memories."),
+        onclick: () => submitMonitorRunChat(inputId, outputId),
+      }, t("ui.button.ask_pi", "PI fragen")),
+    ),
+    el("div", { class: "tc-flex-col tc-gap-2 tc-mt-2", id: outputId },
+      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")),
+    ),
+  );
+}
+
+async function submitMonitorRunChat(inputId, outputId) {
+  const runId = getRunApiKey();
+  if (!runId) {
+    toastError(t("ui.toast.run_chat_failed", "Run-Chat fehlgeschlagen"), t("ui.error.no_run", "Kein Run ausgewählt"));
+    return;
+  }
+  const input = document.getElementById(inputId);
+  const output = document.getElementById(outputId);
+  const message = String(input?.value || "").trim();
+  if (!message) {
+    toast(t("ui.toast.run_chat_empty", "Bitte erst ein Problem beschreiben."), "", "info");
+    return;
+  }
+  if (output) {
+    clear(output);
+    output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
+  }
+  try {
+    const result = await api.post(API_ENDPOINTS.pi.runChat, { run_id: runId, message });
+    if (output) renderMonitorRunChatResult(output, result);
+  } catch (e) {
+    if (output) {
+      clear(output);
+      output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
+    }
+    toastError(t("ui.toast.run_chat_failed", "Run-Chat fehlgeschlagen"), e.message);
+  }
+}
 
 function setRunButtonsActive(isRunning) {
   const startBtn = document.getElementById("run-start-btn");

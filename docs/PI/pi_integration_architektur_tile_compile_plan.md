@@ -185,6 +185,42 @@ Ziel: PI-Aktionen bleiben nachvollziehbar und wartbar.
 - [x] Regressionstests fuer typische Optimierungsfaelle: OSC/MONO, BGE, HMS, AQMH, PCC.
 - [x] Nutzer-Dokumentation fuer Workflow: Empfehlung, Preview, Apply, Learn, Review.
 
+## Phase 8 - Run-Chat und natuerliches Qualitaetsfeedback
+
+Ziel: Nach einem abgeschlossenen Run kann der Nutzer in normaler Sprache beschreiben, was am Bild falsch wirkt. PI verbindet diese Beschreibung mit Run-Kontext, Artefakten, Reports, Config und Memories und erzeugt nachvollziehbare Diagnose- und Optimierungsvorschlaege.
+
+Beispiel aus `runs/run_20260714_091851`:
+
+> Sterne oben haben schwarzen Kern. Der Nebel oben wird nicht einbezogen, sondern beschnitten und ist kaum sichtbar. Was kann man tun?
+
+Geplanter Workflow:
+
+1. Nutzer oeffnet einen fertigen Run in GUI3.
+2. Chat-Panel bietet ein Eingabefeld fuer natuerliche Problembeschreibung.
+3. Backend baut einen `pi.run-chat-context.v1` aus Run-Status, Config-Revision, Report-Stats, Artefakten, Phasenereignissen, Scan-Metriken und relevanten Memories.
+4. PI beantwortet in normaler Nutzersprache: wahrscheinliche Ursachen, zu pruefende Artefakte, konkrete naechste Schritte.
+5. Wenn sinnvoll, erzeugt PI zusaetzlich einen `pi.action-plan.v1` fuer sichere Config-Aenderungen.
+6. GUI3 zeigt Antwort, Evidenz, Artefakt-Links und optional PI Preview/Apply.
+7. Nutzer kann den Chat-Ausgang als Memory-Kandidat speichern, wenn ein spaeterer Run die Verbesserung bestaetigt.
+
+Umsetzungsschritte:
+
+- [x] GUI3 Run-Chat-Panel in Run History ergaenzen.
+- [x] `/api/pi/run-chat` als read-only Diagnose-Endpoint implementieren.
+- [x] Run-Kontextbuilder fuer abgeschlossene Runs bauen: Report, Artefakte, Config/Preview-Kontext, relevante Metriken und Memories.
+- [x] Natuerliche Nutzerbeschreibung strukturiert in Problem-Hinweise uebersetzen, ohne sie als harte Wahrheit zu behandeln.
+- [x] Antwortformat definieren: `summary`, `likely_causes`, `checks`, `recommendations`, `evidence`, optional `action_plan`.
+- [x] Typische Bildprobleme als kontrollierte Hinweise modellieren: schwarze Sternkerne, beschnittener Nebel, zu dunkle Nebelanteile, Hintergrundgradient, Farbstich, Tile-Muster, unscharfe Sterne.
+- [x] Chat-Antworten mit bestehender PI Preview verbinden; Apply bleibt bewusst separat und reviewpflichtig.
+- [x] Tests mit Fixture-Run und Beispielproblemen anlegen.
+
+Abnahmekriterien:
+
+- [x] Chat funktioniert ohne Schreibzugriff und ohne vorhandene Bilddaten in Memories zu speichern.
+- [x] Antwort nennt konkrete Run-Artefakte oder Report-Fakten als Evidenz.
+- [x] Empfehlungen koennen optional als Action-Plan validiert und previewed werden.
+- [x] Nutzertext wie "Sterne haben schwarzen Kern" fuehrt zu nachvollziehbaren Checks statt zu blindem Parameter-Raten.
+
 ## Memory-Konzept im Detail
 
 Ein Memory ist eine reviewbare Erfahrung, keine automatische Regel.
@@ -215,4 +251,4 @@ Beispiel fuer `config_optimization`:
 
 ## Naechster sinnvoller Schritt
 
-Als naechstes sollte Phase 4 begonnen werden: akzeptierte Memories beim Aufbau neuer Scan-AI-Requests abrufen und als explizit gekennzeichneten historischen Kontext an den Agent-Service uebergeben. Das ist der Punkt, an dem "Lernen ueber Sessions" praktisch wirksam wird.
+Als naechstes sollte Phase 5 vollendet und Phase 8 begonnen werden: automatische Outcome-Metriken nach echten Runs erfassen und darauf aufbauend den Run-Chat fuer natuerliches Qualitaetsfeedback implementieren. Damit kann PI sichtbare Probleme aus Nutzersprache mit Report-/Artefakt-Evidenz und sicheren Action-Plans verbinden.

@@ -532,6 +532,32 @@ int main(int argc, char** argv) {
         const auto missing_apply = harness.post_json("/api/scan/analysis/apply", nlohmann::json::object());
         expect_equal(missing_apply["_http_status"].get<long>(), 400L, "scan ai apply missing id status");
 
+        FakeSidecar account_sidecar({
+            {"schema_version", "pi.account-status.v1"},
+            {"privacy_class", "metadata_only"},
+            {"provider", "openai"},
+            {"selected", {
+                {"provider", "openai"},
+                {"key_configured", true},
+                {"auth_source", "env"},
+                {"credit_query_supported", false},
+                {"subscription_query_supported", false},
+                {"billing_url", "https://platform.openai.com/settings/organization/billing/overview"}
+            }},
+            {"providers", nlohmann::json::array()}
+        });
+        account_sidecar.start();
+        const auto account_config = harness.patch_json("/api/ai/config", {
+            {"sidecar_url", account_sidecar.url()}
+        });
+        expect_equal(account_config["_http_status"].get<long>(), 200L, "ai account sidecar config status");
+        const auto account = harness.get_json("/api/ai/account?provider=openai");
+        expect_equal(account["_http_status"].get<long>(), 200L, "ai account status route");
+        expect_equal(account["schema_version"].get<std::string>(), "pi.account-status.v1", "ai account schema");
+        expect_equal(account["selected"]["provider"].get<std::string>(), "openai", "ai account selected provider");
+        expect_true(!account["selected"]["credit_query_supported"].get<bool>(),
+                    "ai account does not claim automatic credit support");
+
         const auto models = harness.get_json("/api/ai/models");
         expect_equal(models["_http_status"].get<long>(), 200L, "ai models unavailable status is non-fatal");
         expect_true(!models["available"].get<bool>(), "ai models unavailable flag");

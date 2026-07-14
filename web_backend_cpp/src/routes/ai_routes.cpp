@@ -6,6 +6,7 @@
 #include "services/pi/pi_action_plan.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
+#include "services/pi/pi_storage_paths.hpp"
 #include "services/scan_summary.hpp"
 
 #include <yaml-cpp/yaml.h>
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <nlohmann/json.hpp>
 #include <mutex>
@@ -30,12 +32,21 @@ namespace {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-fs::path ai_config_path(const std::shared_ptr<AppState>& state) {
-    return state->runtime.runtime_dir / "ai_scan_config.json";
+std::string url_encode_query_value(const std::string& value) {
+    std::ostringstream out;
+    out << std::hex << std::uppercase;
+    for (unsigned char c : value) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out << static_cast<char>(c);
+        } else {
+            out << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+        }
+    }
+    return out.str();
 }
 
-fs::path pi_memory_dir(const std::shared_ptr<AppState>& state) {
-    return state->runtime.runs_dir / ".pi_memory";
+fs::path ai_config_path(const std::shared_ptr<AppState>& state) {
+    return state->runtime.runtime_dir / "ai_scan_config.json";
 }
 
 json read_ai_config_file(const std::shared_ptr<AppState>& state) {
@@ -650,7 +661,7 @@ json accepted_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
     json paths = json::array();
     for (const auto& path : query_paths) paths.push_back(path);
 
-    tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+    tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     const json retrieved = store.retrieve({
         {"type", "config_optimization"},
         {"paths", paths}
@@ -675,7 +686,7 @@ json negative_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
         }
     }
 
-    tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+    tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     json negative = json::array();
     for (const auto& memory : store.list(100000)) {
         const std::string status = memory.value("status", std::string());
@@ -986,6 +997,34 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         try {
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.get("/models"));
+        } catch (const std::exception& e) {
+            return json_resp(sidecar_unavailable_payload(e));
+        }
+    });
+
+    CROW_ROUTE(app, "/api/ai/account").methods("GET"_method)
+    ([state](const crow::request& req) {
+        try {
+            std::string path = "/account";
+            if (const char* provider = req.url_params.get("provider")) {
+                path += "?provider=" + url_encode_query_value(provider);
+            }
+            tile_compile::ai::AiSidecarClient client(current_ai_config(state));
+            return json_resp(client.get(path));
+        } catch (const std::exception& e) {
+            return json_resp(sidecar_unavailable_payload(e));
+        }
+    });
+
+    CROW_ROUTE(app, "/api/ai/traffic").methods("GET"_method)
+    ([state](const crow::request& req) {
+        try {
+            std::string path = "/traffic";
+            if (const char* limit = req.url_params.get("limit")) {
+                path += "?limit=" + url_encode_query_value(limit);
+            }
+            tile_compile::ai::AiSidecarClient client(current_ai_config(state));
+            return json_resp(client.get(path));
         } catch (const std::exception& e) {
             return json_resp(sidecar_unavailable_payload(e));
         }
@@ -1497,7 +1536,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
 
         if (body->value("learn", false)) {
             try {
-                tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+                tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
                 json memory = build_apply_candidate_memory(
                     analysis_id,
                     analysis_data,

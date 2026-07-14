@@ -1,6 +1,7 @@
 #include "services/pi/pi_context_builder.hpp"
 
 #include "app_state.hpp"
+#include "services/pi/pi_storage_paths.hpp"
 
 #include <algorithm>
 
@@ -78,6 +79,7 @@ nlohmann::json PiContextBuilder::build_overview_context() const {
         {"runtime", {
             {"project_root", path_summary(_state->runtime.project_root)},
             {"runs_dir", path_summary(_state->runtime.runs_dir)},
+            {"pi_storage_dir", path_summary(pi_storage_dir(_state))},
             {"default_config_path", path_summary(_state->runtime.default_config_path)},
             {"schema_path", path_summary(_state->runtime.schema_path)},
             {"host", _state->runtime.host},

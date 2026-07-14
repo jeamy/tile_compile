@@ -85,8 +85,12 @@ export function redactedEnvSources() {
     "amazon-bedrock": [
       "AWS_PROFILE",
       "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
       "AWS_BEARER_TOKEN_BEDROCK",
+      "AWS_REGION",
       "AWS_WEB_IDENTITY_TOKEN_FILE",
+      "AWS_ROLE_ARN",
       "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
       "AWS_CONTAINER_CREDENTIALS_FULL_URI",
     ],
