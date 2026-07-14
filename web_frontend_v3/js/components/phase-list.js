@@ -96,6 +96,17 @@ export function clearSelectedPhase() {
   }
 }
 
+export function selectPhase(name) {
+  selectedPhase = name || null;
+  const list = document.getElementById("phase-list");
+  if (list) {
+    list.querySelectorAll(".tc-phase-item").forEach(item => {
+      item.classList.toggle("tc-phase-selected", !!selectedPhase && item.dataset.phase === selectedPhase);
+    });
+  }
+  if (phaseClickHandler) phaseClickHandler(selectedPhase);
+}
+
 function isPhaseResumable(state) {
   return state === "ok" || state === "done" || state === "skipped" || state === "error" || state === "aborted";
 }

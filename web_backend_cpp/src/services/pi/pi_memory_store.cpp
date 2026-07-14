@@ -45,6 +45,8 @@ nlohmann::json memory_dedupe_signature(const nlohmann::json& memory) {
         {"type", string_field(memory, "type")},
         {"source", string_field(memory, "source")},
     };
+    if (memory.contains("context_signature")) signature["context_signature"] = memory["context_signature"];
+    if (memory.contains("scope")) signature["scope"] = memory["scope"];
     if (memory.contains("config_updates")) signature["config_updates"] = memory["config_updates"];
     if (memory.contains("recommendation")) signature["recommendation"] = memory["recommendation"];
     if (memory.contains("avoid")) signature["avoid"] = memory["avoid"];
@@ -52,7 +54,7 @@ nlohmann::json memory_dedupe_signature(const nlohmann::json& memory) {
 }
 
 bool allowed_review_status(const std::string& status) {
-    return status == "accepted" || status == "rejected" || status == "deprecated";
+    return status == "promotable" || status == "accepted" || status == "rejected" || status == "deprecated";
 }
 
 void collect_paths(const nlohmann::json& value, std::set<std::string>& paths) {
@@ -99,10 +101,18 @@ PiMemoryStore::PiMemoryStore(std::filesystem::path memory_dir)
     : _memory_dir(std::move(memory_dir)) {}
 
 std::filesystem::path PiMemoryStore::memories_path() const {
-    return _memory_dir / "memories.jsonl";
+    return _memory_dir / "memories_v2.jsonl";
 }
 
 std::filesystem::path PiMemoryStore::reviews_path() const {
+    return _memory_dir / "memory_reviews_v2.jsonl";
+}
+
+std::filesystem::path PiMemoryStore::legacy_memories_path() const {
+    return _memory_dir / "memories.jsonl";
+}
+
+std::filesystem::path PiMemoryStore::legacy_reviews_path() const {
     return _memory_dir / "memory_reviews.jsonl";
 }
 
@@ -111,12 +121,15 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
         throw std::invalid_argument("PI memory must be a JSON object");
     }
     if (memory.contains("schema_version") && string_field(memory, "schema_version") != kMemorySchemaVersion) {
-        throw std::invalid_argument("PI memory schema_version must be pi.memory.v1");
+        throw std::invalid_argument("PI memory schema_version must be pi.memory.v2");
     }
 
     memory["schema_version"] = kMemorySchemaVersion;
     if (string_field(memory, "memory_id").empty()) {
         memory["memory_id"] = "mem_" + utc_timestamp_compact();
+    }
+    if (string_field(memory, "id").empty()) {
+        memory["id"] = memory["memory_id"];
     }
     if (string_field(memory, "created_at").empty()) {
         memory["created_at"] = utc_timestamp_iso();
@@ -133,6 +146,29 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
     }
     if (string_field(memory, "type").empty()) {
         throw std::invalid_argument("PI memory type is required");
+    }
+    if (!memory.contains("context_signature") || !memory["context_signature"].is_object()) {
+        throw std::invalid_argument("PI memory context_signature is required");
+    }
+    if (!memory.contains("scope") || !memory["scope"].is_object()) {
+        throw std::invalid_argument("PI memory scope is required");
+    }
+    if (!memory.contains("evidence") || !memory["evidence"].is_object()) {
+        throw std::invalid_argument("PI memory evidence is required");
+    }
+    if (!memory.contains("outcome") || !memory["outcome"].is_object()) {
+        throw std::invalid_argument("PI memory outcome is required");
+    }
+    if (!memory.contains("review") || !memory["review"].is_object()) {
+        memory["review"] = {
+            {"status", "candidate"},
+            {"reviewed_by", nullptr},
+            {"reviewed_at", nullptr},
+            {"notes", ""}
+        };
+    }
+    if (!memory.contains("retrieval") || !memory["retrieval"].is_object()) {
+        memory["retrieval"] = nlohmann::json::object();
     }
 
     const nlohmann::json new_signature = memory_dedupe_signature(memory);
@@ -205,6 +241,7 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
     nlohmann::json review_event = {
         {"schema_version", kMemorySchemaVersion},
         {"memory_id", memory_id},
+        {"id", memory_id},
         {"status", status},
         {"reviewed_at", utc_timestamp_iso()},
         {"reviewer", reviewer.empty() ? "user" : reviewer},
@@ -237,7 +274,7 @@ nlohmann::json PiMemoryStore::retrieve(const nlohmann::json& query, int limit) c
 
     for (const auto& item : list(100000)) {
         const std::string status = item.value("status", std::string());
-        if (status != "accepted" && status != "candidate") continue;
+        if (status != "accepted") continue;
         int score = 0;
         if (!wanted_type.empty() && item.value("type", std::string()) != wanted_type) continue;
         if (!wanted_type.empty()) score += 3;
@@ -267,6 +304,45 @@ nlohmann::json PiMemoryStore::retrieve(const nlohmann::json& query, int limit) c
     return matches;
 }
 
+nlohmann::json negative_matches_for_query(const nlohmann::json& items,
+                                          const nlohmann::json& query,
+                                          int limit) {
+    nlohmann::json matches = nlohmann::json::array();
+    if (limit <= 0) return matches;
+    const std::string wanted_type = string_field(query, "type");
+    std::set<std::string> wanted_paths;
+    if (query.contains("paths")) collect_paths(query["paths"], wanted_paths);
+    if (query.contains("config_updates")) collect_paths(query["config_updates"], wanted_paths);
+    collect_paths(query, wanted_paths);
+    for (const auto& item : items) {
+        const std::string status = item.value("status", std::string());
+        if (status != "rejected" && status != "deprecated") continue;
+        if (!wanted_type.empty() && item.value("type", std::string()) != wanted_type) continue;
+        int score = !wanted_type.empty() ? 3 : 0;
+        std::set<std::string> memory_paths;
+        collect_paths(item, memory_paths);
+        for (const auto& path : wanted_paths) {
+            if (memory_paths.count(path)) score += 2;
+        }
+        if (score <= 0 && (!wanted_type.empty() || !wanted_paths.empty())) continue;
+        nlohmann::json match = item;
+        match["retrieval_score"] = std::max(score, 1);
+        match["retrieval_warning"] = status == "rejected"
+            ? "similar_memory_was_rejected"
+            : "similar_memory_was_deprecated";
+        matches.push_back(std::move(match));
+    }
+    std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
+        return a.value("retrieval_score", 0) > b.value("retrieval_score", 0);
+    });
+    while (static_cast<int>(matches.size()) > limit) matches.erase(matches.end() - 1);
+    return matches;
+}
+
+nlohmann::json PiMemoryStore::retrieve_negative(const nlohmann::json& query, int limit) const {
+    return negative_matches_for_query(list(100000), query, limit);
+}
+
 nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
                                             bool include_reviews) const {
     nlohmann::json memories = nlohmann::json::array();
@@ -292,7 +368,7 @@ nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
     }
 
     return {
-        {"schema_version", "pi.memories-export.v1"},
+        {"schema_version", kMemoryExportSchemaVersion},
         {"exported_at", utc_timestamp_iso()},
         {"privacy_class", privacy_class.empty() ? "all" : privacy_class},
         {"memories", memories},
@@ -304,8 +380,8 @@ nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
 
 nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
                                             bool dry_run) const {
-    if (!bundle.is_object() || bundle.value("schema_version", std::string()) != "pi.memories-export.v1") {
-        throw std::invalid_argument("PI memory import bundle must have schema_version pi.memories-export.v1");
+    if (!bundle.is_object() || bundle.value("schema_version", std::string()) != kMemoryExportSchemaVersion) {
+        throw std::invalid_argument("PI memory import bundle must have schema_version pi.memories-export.v2");
     }
 
     std::set<std::string> existing_ids;
@@ -341,6 +417,13 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
             if (string_field(memory, "created_at").empty()) memory["created_at"] = utc_timestamp_iso();
             if (string_field(memory, "status").empty()) memory["status"] = "candidate";
             if (string_field(memory, "privacy_class").empty()) memory["privacy_class"] = "metadata_only";
+            if (!memory.contains("context_signature") || !memory["context_signature"].is_object() ||
+                !memory.contains("scope") || !memory["scope"].is_object() ||
+                !memory.contains("evidence") || !memory["evidence"].is_object() ||
+                !memory.contains("outcome") || !memory["outcome"].is_object()) {
+                ++skipped;
+                continue;
+            }
 
             const std::string memory_id = memory.value("memory_id", std::string());
             const std::string signature = memory_dedupe_signature(memory).dump();

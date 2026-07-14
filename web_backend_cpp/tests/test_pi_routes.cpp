@@ -184,20 +184,55 @@ int main(int argc, char** argv) {
 
         const auto run_chat = harness.post_json("/api/pi/run-chat", {
             {"run_id", "pi_fixture_run"},
-            {"message", "Sterne oben haben schwarzen Kern. Der Nebel oben wird nicht einbezogen, sondern beschnitten und ist kaum sichtbar. Was kann man tun?"}
+            {"message", "Unten im Zentrum Sterne mit schwarzen Zentren. Der Nebel, in dem diese Sterne sind, ist abgeschnitten und kaum zu erkennen. Loesungsmoeglichkeiten?"}
         });
         expect_equal(run_chat["_http_status"].get<long>(), 200L, "pi run chat status");
         expect_equal(run_chat["schema_version"].get<std::string>(), "pi.run-chat-answer.v1", "pi run chat schema");
         expect_equal(run_chat["context"]["schema_version"].get<std::string>(), "pi.run-chat-context.v1", "pi run chat context schema");
         expect_true(run_chat["context"]["problem_hints"].is_array() && run_chat["context"]["problem_hints"].size() >= 3,
                     "pi run chat detects problem hints");
+        bool saw_black_star_cores = false;
+        for (const auto& hint : run_chat["context"]["problem_hints"]) {
+            if (hint.value("id", std::string()) == "black_star_cores") saw_black_star_cores = true;
+        }
+        expect_true(saw_black_star_cores, "pi run chat detects black star centers");
         expect_true(run_chat["likely_causes"].is_array() && !run_chat["likely_causes"].empty(),
                     "pi run chat likely causes");
         expect_true(run_chat["checks"].is_array() && !run_chat["checks"].empty(), "pi run chat checks");
         expect_true(run_chat["recommendations"].is_array() && !run_chat["recommendations"].empty(),
                     "pi run chat recommendations");
         expect_true(run_chat["evidence"].is_array() && run_chat["evidence"].size() >= 2, "pi run chat evidence");
+        expect_equal(run_chat["resume_recommendation"]["from_phase"].get<std::string>(),
+                     "COMMON_OVERLAP", "pi run chat resume phase recommendation");
+        expect_true(run_chat["resume_recommendation"].contains("execution_note"),
+                    "pi run chat resume explains full rerun phase");
         expect_true(run_chat["action_plan_validation"]["valid"].get<bool>(), "pi run chat action plan valid");
+
+        const auto run_chat_followup = harness.post_json("/api/pi/run-chat", {
+            {"run_id", "pi_fixture_run"},
+            {"message", "Welche dieser Empfehlungen war in deiner vorherigen Antwort am wichtigsten?"}
+        });
+        expect_equal(run_chat_followup["_http_status"].get<long>(), 200L, "pi run chat followup status");
+        expect_true(run_chat_followup["context"]["conversation"]["previous_turn_count"].get<long>() >= 1,
+                    "pi run chat followup uses persisted previous turns");
+        expect_true(run_chat_followup["summary"].get<std::string>().find("Folgefrage") != std::string::npos,
+                    "pi run chat followup summary marks continuation");
+        expect_true(run_chat_followup["action_plan"]["suppressed_repeated_actions"].is_array() &&
+                    !run_chat_followup["action_plan"]["suppressed_repeated_actions"].empty(),
+                    "pi run chat followup suppresses repeated parameter suggestions");
+
+        const auto saved_chat_history = harness.post_json("/api/pi/run-chat/history", {
+            {"run_id", "pi_fixture_run"},
+            {"history", {
+                {"messages", nlohmann::json::array({{{"role", "user"}, {"content", "Was tun?"}}})},
+                {"turns", nlohmann::json::array({{{"message", "Was tun?"}, {"result", run_chat}}})}
+            }}
+        });
+        expect_equal(saved_chat_history["_http_status"].get<long>(), 200L, "pi run chat history save status");
+        expect_true(static_cast<long>(saved_chat_history["turns"].size()) >= 2L, "pi run chat history saved turn merge");
+        const auto loaded_chat_history = harness.get_json("/api/pi/run-chat/history?run_id=pi_fixture_run");
+        expect_equal(loaded_chat_history["_http_status"].get<long>(), 200L, "pi run chat history load status");
+        expect_true(static_cast<long>(loaded_chat_history["turns"].size()) >= 2L, "pi run chat history loaded merged turns");
 
         const auto storage_default = harness.get_json("/api/pi/storage");
         expect_equal(storage_default["_http_status"].get<long>(), 200L, "pi storage default status");
@@ -213,21 +248,45 @@ int main(int argc, char** argv) {
         expect_equal(storage_saved["storage_dir"].get<std::string>(), memory_dir.string(), "pi storage saved path");
         std::filesystem::create_directories(memory_dir);
         {
-            std::ofstream out(memory_dir / "memories.jsonl");
-            out << nlohmann::json{
+            std::ofstream legacy(memory_dir / "memories.jsonl");
+            legacy << nlohmann::json{
                 {"schema_version", "pi.memory.v1"},
+                {"memory_id", "legacy_must_be_ignored"},
+                {"status", "candidate"},
+                {"type", "optimization"}
+            }.dump() << "\n";
+            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_route_fixture"},
+                {"id", "mem_route_fixture"},
                 {"status", "candidate"},
                 {"type", "optimization"},
                 {"privacy_class", "metadata_only"},
+                {"context_signature", {
+                    {"schema_version", "pi.context_signature.v1"},
+                    {"target", {{"object_type", "nebula"}}},
+                    {"acquisition", {{"camera_type", "OSC"}}},
+                    {"pipeline", {{"affected_paths", nlohmann::json::array({"data.color_mode"})}}}
+                }},
+                {"scope", {
+                    {"applies_when", nlohmann::json::array({"matching context"})},
+                    {"does_not_apply_when", nlohmann::json::array({"different target class"})},
+                    {"confidence", 0.5}
+                }},
                 {"recommendation", {{"patch", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "MONO"}}})}}},
-                {"evidence", {{"validation", "fixture"}}}
+                {"evidence", {{"validation", "fixture"}}},
+                {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"data.color_mode"})}, {"negative", false}}}
             }.dump() << "\n";
         }
         const auto memories = harness.get_json("/api/pi/memories?limit=20");
         expect_equal(memories["_http_status"].get<long>(), 200L, "pi memories list status");
         expect_equal(memories["schema_version"].get<std::string>(), "pi.memories-list.v1", "pi memories list schema");
         expect_equal(static_cast<long>(memories["items"].size()), 1L, "pi memories list count");
+        expect_equal(memories["items"][0]["memory_id"].get<std::string>(), "mem_route_fixture",
+                     "pi memories ignores legacy v1 store");
 
         const auto memory_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
             {"status", "accepted"},
@@ -248,7 +307,7 @@ int main(int argc, char** argv) {
 
         const auto exported_memories = harness.get_json("/api/pi/memories/export?privacy=metadata_only");
         expect_equal(exported_memories["_http_status"].get<long>(), 200L, "pi memories export status");
-        expect_equal(exported_memories["schema_version"].get<std::string>(), "pi.memories-export.v1",
+        expect_equal(exported_memories["schema_version"].get<std::string>(), "pi.memories-export.v2",
                      "pi memories export schema");
         expect_equal(static_cast<long>(exported_memories["memory_count"].get<size_t>()), 1L,
                      "pi memories export count");
@@ -274,9 +333,10 @@ int main(int argc, char** argv) {
             {"limit", 5}
         });
         expect_equal(retrieved_memories["_http_status"].get<long>(), 200L, "pi memory retrieve status");
-        expect_equal(retrieved_memories["schema_version"].get<std::string>(), "pi.memory-retrieval.v1",
+        expect_equal(retrieved_memories["schema_version"].get<std::string>(), "pi.memory-retrieval.v2",
                      "pi memory retrieval schema");
         expect_equal(static_cast<long>(retrieved_memories["matches"].size()), 1L, "pi memory retrieve match count");
+        expect_true(retrieved_memories.contains("warnings"), "pi memory retrieval includes warnings");
 
         const nlohmann::json plan = {
             {"schema_version", "pi.action-plan.v1"},

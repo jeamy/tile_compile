@@ -2,7 +2,7 @@
 
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { createPhaseList, setPhaseList, updatePhaseState, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
+import { createPhaseList, setPhaseList, updatePhaseState, setPhaseClickHandler, getSelectedPhase, clearSelectedPhase, selectPhase, resetPhasesForResume, getPhasesForConfig } from "../components/phase-list.js";
 import { createLogViewer } from "../components/log-viewer.js";
 import { connectWebSocket, disconnectWebSocket, onWebSocketMessage } from "../components/ws-manager.js";
 import { api } from "../api/client.js";
@@ -17,6 +17,7 @@ import { promptGrantRoot } from "../components/path-picker-modal.js";
 import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
+import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -99,10 +100,12 @@ export function createRunMonitorPage() {
     ),
   );
 
+  const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
   const runChat = createRunChatPanel();
 
   // Log viewer (component-based)
   const logViewer = createLogViewer();
+  activeLogViewer = logViewer;
 
   // Warning banner — collects calibration/run warnings and shows them as a batch
   const warningBanner = el("div", { id: "run-warning-banner", class: "tc-card", style: "display:none" },
@@ -113,7 +116,7 @@ export function createRunMonitorPage() {
     el("div", { id: "run-warning-list", class: "tc-flex-col tc-gap-1" }),
   );
 
-  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, runChat, logViewer.wrapper);
+  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, runPreview, runChat, logViewer.wrapper);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -149,6 +152,12 @@ export function createRunMonitorPage() {
 
 let pollTimer = null;
 let resumePendingTimer = null;
+let lastImagePreviewKey = "";
+let monitorRunChatMessages = [];
+let activeLogViewer = null;
+let runChatTrafficTimer = null;
+const runChatStore = getStore("run-chat", { chats: {} });
+const RESUME_PENDING_TIMEOUT_MS = 120000;
 
 // Returns the most specific run key for API calls: full path if known, else run_id.
 // This allows the backend to locate runs on network drives or non-default runs_dir.
@@ -157,6 +166,77 @@ function getResumePending() { return getRunState().resumePending || false; }
 function setResumePending(v) { setRunState({ resumePending: v }); }
 function getResumeActive() { return getRunState().resumeActive || false; }
 function setResumeActive(v) { setRunState({ resumeActive: v }); }
+function getResumeFromPhase() { return getRunState().resumeFromPhase || ""; }
+function setResumeFromPhase(v) { setRunState({ resumeFromPhase: v || "" }); }
+
+function phaseIndexInCurrentList(phaseName) {
+  const phases = getRunState().phases;
+  if (!Array.isArray(phases) || !phaseName) return -1;
+  return phases.findIndex(p => {
+    const name = typeof p === "string" ? p : (p.phase || p.name || "");
+    return name === phaseName;
+  });
+}
+
+function isBeforeResumePhase(phaseName) {
+  const resumePhase = getResumeFromPhase();
+  if (!resumePhase || !phaseName) return false;
+  const phaseIdx = phaseIndexInCurrentList(phaseName);
+  const resumeIdx = phaseIndexInCurrentList(resumePhase);
+  return phaseIdx >= 0 && resumeIdx >= 0 && phaseIdx < resumeIdx;
+}
+
+function refreshCurrentImagePreview(force = false) {
+  const { currentRunId, currentRunDir } = getRunState();
+  if (!currentRunId) return;
+  const key = `${currentRunId}|${currentRunDir || ""}`;
+  const body = document.getElementById("run-monitor-image-preview-body");
+  if (!force && key === lastImagePreviewKey && body?._previewBuiltKey === key) return;
+  lastImagePreviewKey = key;
+  loadRunImagePreview(currentRunId, currentRunDir || "", null, "run-monitor-image-preview");
+}
+
+function getRunChatKey() {
+  const { currentRunId, currentRunDir } = getRunState();
+  return currentRunId || currentRunDir || "";
+}
+
+function getRunChatRecord(runKey = getRunChatKey()) {
+  const chats = runChatStore.getState().chats || {};
+  return chats[runKey] || { messages: [], turns: [] };
+}
+
+function setRunChatRecord(runKey, record) {
+  if (!runKey) return;
+  const chats = { ...(runChatStore.getState().chats || {}) };
+  const messages = Array.isArray(record.messages) ? record.messages.slice(-24) : [];
+  const turns = Array.isArray(record.turns) ? record.turns.slice(-24) : [];
+  chats[runKey] = { messages, turns, updated_at: new Date().toISOString() };
+  runChatStore.setState({ chats });
+}
+
+function persistRunChatRecordToServer(runKey = getRunChatKey()) {
+  const runId = getRunApiKey();
+  if (!runId || !runKey) return;
+  const record = getRunChatRecord(runKey);
+  api.post(API_ENDPOINTS.pi.runChatHistory(runId), {
+    run_id: runId,
+    history: {
+      messages: record.messages || [],
+      turns: record.turns || [],
+      updated_at: record.updated_at || new Date().toISOString(),
+    },
+  }).catch(() => {});
+}
+
+function appendRunChatTurn(runKey, turn) {
+  const record = getRunChatRecord(runKey);
+  setRunChatRecord(runKey, {
+    messages: monitorRunChatMessages,
+    turns: [...(record.turns || []), turn],
+  });
+  persistRunChatRecordToServer(runKey);
+}
 
 function monitorListSection(title, items) {
   const list = el("div", { class: "tc-flex-col tc-gap-1" });
@@ -171,8 +251,34 @@ function monitorListSection(title, items) {
   );
 }
 
-function renderMonitorRunChatResult(container, result) {
-  clear(container);
+function applyResumeRecommendation(phase) {
+  if (!phase) return;
+  selectPhase(phase);
+  const panel = document.getElementById("resume-panel");
+  if (panel) panel.style.display = "";
+  const hint = document.getElementById("resume-hint");
+  if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+}
+
+function renderResumeRecommendation(result) {
+  const rec = result?.resume_recommendation || result?.resume || null;
+  const phase = rec?.from_phase || rec?.phase || "";
+  if (!phase) return null;
+  return el("div", { class: "tc-card tc-mt-3", style: { background: "var(--surface-2)" } },
+    el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
+    el("div", { class: "tc-text-sm tc-mono" }, phase),
+    rec.reason ? el("div", { class: "tc-text-sm tc-text-muted tc-mt-1" }, rec.reason) : null,
+    rec.execution_note ? el("div", { class: "tc-text-sm tc-text-warning tc-mt-1" }, rec.execution_note) : null,
+    el("button", {
+      class: "tc-btn tc-btn-sm tc-mt-2",
+      title: t("ui.tooltip.run_chat_use_resume_phase", "Wählt diese Phase im Resume-Panel aus."),
+      onclick: () => applyResumeRecommendation(phase),
+    }, t("ui.button.use_resume_phase", "Resume ab Phase wählen")),
+  );
+}
+
+function renderMonitorRunChatResult(container, result, opts = {}) {
+  if (!opts.append) clear(container);
   container.appendChild(el("div", { class: "tc-text-sm" }, result?.summary || ""));
 
   const hints = result?.context?.problem_hints || [];
@@ -185,6 +291,9 @@ function renderMonitorRunChatResult(container, result) {
   container.appendChild(monitorListSection(t("ui.pi.run_chat.likely_causes", "Wahrscheinliche Ursachen"), result?.likely_causes));
   container.appendChild(monitorListSection(t("ui.pi.run_chat.checks", "Prüfen"), result?.checks));
   container.appendChild(monitorListSection(t("ui.pi.run_chat.recommendations", "Empfehlungen"), result?.recommendations));
+
+  const resumeRec = renderResumeRecommendation(result);
+  if (resumeRec) container.appendChild(resumeRec);
 
   const actionCount = Array.isArray(result?.action_plan?.actions) ? result.action_plan.actions.length : 0;
   if (actionCount > 0) {
@@ -399,12 +508,20 @@ async function previewMonitorRunChatActionPlan(plan, container, yaml = "") {
 function createRunChatPanel() {
   const inputId = "run-monitor-chat-input";
   const outputId = "run-monitor-chat-output";
+  const trafficId = "run-monitor-chat-traffic";
   const placeholder = t(
     "ui.placeholder.run_chat",
     "z.B. Sterne oben haben schwarzen Kern, der Nebel oben wird beschnitten und ist kaum sichtbar. Was kann man tun?",
   );
   return el("div", { class: "tc-card", id: "run-monitor-chat-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.run_chat", "Run-Chat")),
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between" },
+      el("span", {}, t("ui.title.run_chat", "Run-Chat")),
+      el("button", {
+        class: "tc-btn tc-btn-sm",
+        title: t("ui.tooltip.run_chat_clear", "Leert den lokalen Chat-Verlauf."),
+        onclick: () => clearMonitorRunChat(outputId),
+      }, t("ui.button.clear", "Zurücksetzen")),
+    ),
     el("textarea", {
       class: "tc-input",
       id: inputId,
@@ -419,13 +536,146 @@ function createRunChatPanel() {
         onclick: () => submitMonitorRunChat(inputId, outputId),
       }, t("ui.button.ask_pi", "PI fragen")),
     ),
-    el("div", { class: "tc-flex-col tc-gap-2 tc-mt-2", id: outputId },
+    el("div", { class: "tc-flex-col tc-gap-3 tc-mt-2", id: outputId },
       el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")),
+    ),
+    el("div", { class: "tc-mt-3" },
+      el("div", { class: "tc-flex tc-items-center tc-justify-between tc-gap-2" },
+        el("div", { class: "tc-label" }, t("ui.title.ai_traffic", "KI-Datenverkehr")),
+        el("div", { class: "tc-flex tc-items-center tc-gap-2" },
+          el("span", { class: "tc-text-muted tc-text-sm", id: `${trafficId}-status` }, t("ui.state.not_loaded", "nicht geladen")),
+          el("button", {
+            class: "tc-btn tc-btn-sm",
+            title: t("ui.tooltip.ai.refresh_traffic", "Lädt den persistenten PI/KI-Traffic-Log aus dem Sidecar."),
+            onclick: () => loadRunChatTrafficLog(),
+          }, t("ui.button.refresh", "Aktualisieren")),
+        ),
+      ),
+      el("div", { class: "tc-log-viewer tc-mt-2", id: trafficId, style: { maxHeight: "220px" } },
+        el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")),
+      ),
     ),
   );
 }
 
+function renderMonitorRunChatTurn(output, turn) {
+  const card = el("div", { class: "tc-run-chat-turn" },
+    el("div", { class: "tc-run-chat-question" },
+      el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
+      el("div", { class: "tc-text-sm tc-run-chat-question-text" }, turn?.message || ""),
+    ),
+  );
+  if (turn?.result) {
+    const answer = el("div", { class: "tc-run-chat-answer" },
+      el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+    );
+    renderMonitorRunChatResult(answer, turn.result, { append: true });
+    card.appendChild(answer);
+  } else if (turn?.error) {
+    card.appendChild(el("div", { class: "tc-text-error tc-text-sm tc-mt-2" }, turn.error));
+  }
+  output.appendChild(card);
+}
+
+function restoreMonitorRunChat(outputId = "run-monitor-chat-output") {
+  const output = document.getElementById(outputId);
+  if (!output) return;
+  const runKey = getRunChatKey();
+  const record = getRunChatRecord(runKey);
+  monitorRunChatMessages = Array.isArray(record.messages) ? [...record.messages] : [];
+  clear(output);
+  const turns = Array.isArray(record.turns) ? record.turns : [];
+  if (!runKey || !turns.length) {
+    output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")));
+    return;
+  }
+  for (const turn of [...turns].reverse()) renderMonitorRunChatTurn(output, turn);
+}
+
+async function restoreMonitorRunChatFromServer(outputId = "run-monitor-chat-output") {
+  const runKey = getRunChatKey();
+  const runId = getRunApiKey();
+  if (!runKey || !runId) return;
+  try {
+    const history = await api.get(API_ENDPOINTS.pi.runChatHistory(runId));
+    const serverTurns = Array.isArray(history?.turns) ? history.turns : [];
+    const localTurns = Array.isArray(getRunChatRecord(runKey).turns) ? getRunChatRecord(runKey).turns : [];
+    if (serverTurns.length >= localTurns.length) {
+      setRunChatRecord(runKey, {
+        messages: Array.isArray(history?.messages) ? history.messages : [],
+        turns: serverTurns,
+      });
+      restoreMonitorRunChat(outputId);
+    }
+  } catch {}
+}
+
+function restoreMonitorRunChatAll(outputId = "run-monitor-chat-output") {
+  restoreMonitorRunChat(outputId);
+  restoreMonitorRunChatFromServer(outputId);
+}
+
+function clearMonitorRunChat(outputId = "run-monitor-chat-output") {
+  monitorRunChatMessages = [];
+  const runKey = getRunChatKey();
+  if (runKey) {
+    const chats = { ...(runChatStore.getState().chats || {}) };
+    delete chats[runKey];
+    runChatStore.setState({ chats });
+    persistRunChatRecordToServer(runKey);
+  }
+  const output = document.getElementById(outputId);
+  if (output) {
+    clear(output);
+    output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")));
+  }
+}
+
+function renderRunChatTrafficLog(items) {
+  const container = document.getElementById("run-monitor-chat-traffic");
+  if (!container) return;
+  clear(container);
+  if (!Array.isArray(items) || items.length === 0) {
+    container.appendChild(el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")));
+    return;
+  }
+  for (const line of items.slice(-80)) {
+    container.appendChild(el("div", { class: "tc-text-sm tc-mono" }, String(line)));
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+async function loadRunChatTrafficLog() {
+  const status = document.getElementById("run-monitor-chat-traffic-status");
+  if (status) status.textContent = t("ui.state.loading", "Lädt...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.ai.traffic(500));
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    renderRunChatTrafficLog(items);
+    if (status) {
+      const enabled = payload?.enabled === false ? t("ui.state.disabled", "deaktiviert") : t("ui.state.enabled", "aktiv");
+      status.textContent = `${enabled} · ${t("ui.pi.traffic_count", "{count} Zeilen", { count: payload?.count || items.length })}`;
+    }
+  } catch (e) {
+    if (status) status.textContent = e.message;
+  }
+}
+
+function startRunChatTrafficPolling() {
+  if (runChatTrafficTimer) clearInterval(runChatTrafficTimer);
+  loadRunChatTrafficLog();
+  runChatTrafficTimer = setInterval(() => loadRunChatTrafficLog(), 1500);
+}
+
+function stopRunChatTrafficPolling() {
+  if (!runChatTrafficTimer) return;
+  clearInterval(runChatTrafficTimer);
+  runChatTrafficTimer = null;
+  loadRunChatTrafficLog();
+}
+
 async function submitMonitorRunChat(inputId, outputId) {
+  const runKey = getRunChatKey();
   const runId = getRunApiKey();
   if (!runId) {
     toastError(t("ui.toast.run_chat_failed", "Run-Chat fehlgeschlagen"), t("ui.error.no_run", "Kein Run ausgewählt"));
@@ -438,19 +688,52 @@ async function submitMonitorRunChat(inputId, outputId) {
     toast(t("ui.toast.run_chat_empty", "Bitte erst ein Problem beschreiben."), "", "info");
     return;
   }
-  if (output) {
+  if (!monitorRunChatMessages.length && output) {
     clear(output);
-    output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
   }
+  monitorRunChatMessages.push({ role: "user", content: message });
+  const turn = output ? el("div", { class: "tc-run-chat-turn" },
+    el("div", { class: "tc-run-chat-question" },
+      el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
+      el("div", { class: "tc-text-sm tc-run-chat-question-text" }, message),
+    ),
+    el("div", { class: "tc-run-chat-answer" },
+      el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")),
+    ),
+  ) : null;
+  if (output && turn) output.prepend(turn);
+  startRunChatTrafficPolling();
   try {
-    const result = await api.post(API_ENDPOINTS.pi.runChat, { run_id: runId, message });
-    if (output) renderMonitorRunChatResult(output, result);
-  } catch (e) {
-    if (output) {
-      clear(output);
-      output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
+    const result = await api.post(API_ENDPOINTS.pi.runChat, {
+      run_id: runId,
+      message,
+      messages: monitorRunChatMessages.slice(-12),
+    });
+    monitorRunChatMessages.push({ role: "assistant", content: result?.summary || "", result });
+    appendRunChatTurn(runKey, { message, result, created_at: new Date().toISOString() });
+    if (input) input.value = "";
+    if (turn) {
+      clear(turn);
+      turn.appendChild(el("div", { class: "tc-run-chat-question" },
+        el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
+        el("div", { class: "tc-text-sm tc-run-chat-question-text" }, message),
+      ));
+      const answer = el("div", { class: "tc-run-chat-answer" },
+        el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+      );
+      renderMonitorRunChatResult(answer, result, { append: true });
+      turn.appendChild(answer);
+    } else if (output) {
+      renderMonitorRunChatResult(output, result);
     }
+  } catch (e) {
+    appendRunChatTurn(runKey, { message, error: e.message, created_at: new Date().toISOString() });
+    if (turn) turn.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
+    else if (output) output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
     toastError(t("ui.toast.run_chat_failed", "Run-Chat fehlgeschlagen"), e.message);
+  } finally {
+    stopRunChatTrafficPolling();
   }
 }
 
@@ -469,12 +752,6 @@ function startPolling(runId) {
   stopPolling();
   pollTimer = setInterval(async () => {
     const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
-    // Safety: if backend says not running but resume flags are still set, clear them
-    if (status && status.status !== "running" && (getResumeActive() || getResumePending())) {
-      setResumeActive(false);
-      setResumePending(false);
-      if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
-    }
     await refreshRunStatus(runId);
     if (getResumePending() || getResumeActive()) return;
     const { status: runStatus } = getRunState();
@@ -530,14 +807,9 @@ async function restoreCurrentRun() {
 
     if (current?.run_id) {
       const backendRunning = current.status === "running";
-      // If backend says not running but resume flags are still set, resume_end was missed
-      if (!backendRunning && (getResumeActive() || getResumePending())) {
-        setResumeActive(false);
-        setResumePending(false);
-        if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
-      }
       const isRunning = backendRunning || getResumeActive() || getResumePending();
       setRunState({ currentRunId: current.run_id, currentRunDir: current.run_dir || null, status: current.status || "running" });
+      restoreMonitorRunChatAll();
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
       updateStat("stat-status", isRunning ? "running" : (current.status || "running"));
@@ -547,11 +819,12 @@ async function restoreCurrentRun() {
       const runName = current.run_id.replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
       updateStat("info-run-name", runName);
       await refreshRunStatus(current.run_id);
+      refreshCurrentImagePreview();
       setRunButtonsActive(isRunning);
       // Load existing logs from REST endpoint
-      await loadInitialLogs(current.run_id, logViewer, warningBanner);
+      await loadInitialLogs(current.run_id, logViewer, warningBanner, current.run_dir || getRunState().currentRunDir || "");
       if (isRunning) {
-        connectWebSocket(current.run_id, getResumeActive() || getResumePending());
+        connectWebSocket(current.run_id, getResumeActive() || getResumePending(), current.run_dir || getRunState().currentRunDir || "");
         startPolling(current.run_id);
       } else {
         enableStatsButtons(current.run_id);
@@ -560,9 +833,9 @@ async function restoreCurrentRun() {
   } catch {}
 }
 
-async function loadInitialLogs(runId, logViewer, warningBanner) {
+async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
   try {
-    const logs = await api.get(API_ENDPOINTS.runs.logs(runId));
+    const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250, runDir));
     if (!logs || !Array.isArray(logs.lines)) return;
     for (const line of logs.lines) {
       let ts = formatTime();
@@ -680,6 +953,7 @@ async function refreshRunStatus(runId) {
     if (status.run_dir) {
       setRunState({ currentRunDir: status.run_dir });
       updateStat("info-output-dir", status.run_dir + "/outputs");
+      refreshCurrentImagePreview();
     }
 
     const runName = (status.run_id || runId).replace(/_\d{4}-\d{2}-\d{2}.*$/, "");
@@ -783,12 +1057,13 @@ async function startRun() {
     const runId = result?.run_id || result?.id;
     if (runId) {
       const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p.phase, status: "pending", pct: 0, label: p.label }));
-      setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false });
+      setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false, resumeFromPhase: "" });
+      restoreMonitorRunChatAll();
       setRunButtonsActive(true);
       updateStat("stat-run-id", runId);
       updateStat("stat-status", "running");
       setPhaseList(newPhases);
-      connectWebSocket(runId);
+      connectWebSocket(runId, false, getRunState().currentRunDir || "");
       startPolling(runId);
       toastSuccess(t("ui.toast.run_started", "Run gestartet"), runId);
       refreshRunStatus(runId);
@@ -803,7 +1078,7 @@ async function stopRun() {
   if (!currentRunId) return;
   try {
     await api.post(API_ENDPOINTS.runs.stop(currentRunId), {});
-    setRunState({ status: "stopped" });
+    setRunState({ status: "stopped", resumeFromPhase: "" });
     setRunButtonsActive(false);
     updateStat("stat-status", "stopped");
     updateStat("info-status", "stopped");
@@ -837,18 +1112,23 @@ async function resumeRun() {
     const revSelect = document.getElementById("resume-config-revision");
     if (revSelect?.value) payload.config_revision_id = revSelect.value;
     toast(t("ui.toast.resuming", `Resume ab ${phase}...`), "", "info");
+    if (activeLogViewer) activeLogViewer.addLine(formatTime(), "INFO", `Resume | queued | ${phase}`);
     const result = await api.post(API_ENDPOINTS.runs.resume(currentRunId), payload);
     const jobId = result?.job_id;
     setResumePending(true);
+    setResumeFromPhase(phase);
     if (resumePendingTimer) clearTimeout(resumePendingTimer);
-    resumePendingTimer = setTimeout(() => { setResumePending(false); }, 15000);
+    resumePendingTimer = setTimeout(() => {
+      setResumePending(false);
+      setResumeFromPhase("");
+    }, RESUME_PENDING_TIMEOUT_MS);
     setRunState({ status: "running" });
     setRunButtonsActive(true);
     updateStat("stat-status", "running");
     updateStat("info-status", `running — ${phase}`);
     const newPhases = resetPhasesForResume(phase);
     if (newPhases.length > 0) setRunState({ phases: newPhases });
-    connectWebSocket(currentRunId, true);
+    connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
     return true;
@@ -989,16 +1269,31 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   if (type === "phase_start" || type === "phase_progress" || type === "phase_end") {
     const phaseName = data.phase || payload.phase_name || payload.phase || data.phase_name || "";
     if (!phaseName || phaseName === "null") return;
-    const status = type === "phase_start" ? "running" : type === "phase_end" ? (payload.status || "ok") : (payload.status || "running");
+    if (getResumePending() && !getResumeActive()) return;
     const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;
     const label = payload.label || null;
+    const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
+    const logLabel = label || phaseName;
+    const substep = payload.substep || data.substep || "";
+    if (getResumeActive() && isBeforeResumePhase(phaseName)) {
+      logViewer.addLine(
+        data.ts || formatTime(),
+        "INFO",
+        `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
+      );
+      return;
+    }
+    if ((getResumePending() || getResumeActive()) && type === "phase_start") {
+      const existing = getRunState().phases;
+      if (Array.isArray(existing) && existing.length > 0) {
+        setPhaseList(existing);
+      }
+    }
+    const status = type === "phase_start" ? "running" : type === "phase_end" ? (payload.status || "ok") : (payload.status || "running");
     updatePhaseState(phaseName, status, pct, label);
     savePhaseToStore(phaseName, status, pct);
     if (payload.elapsed || data.elapsed) updateStat("stat-elapsed", payload.elapsed || data.elapsed);
     // Also log phase events
-    const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
-    const logLabel = label || phaseName;
-    const substep = payload.substep || data.substep || "";
     logViewer.addLine(
       data.ts || formatTime(),
       "INFO",
@@ -1035,6 +1330,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     setResumeActive(true);
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const fromPhase = payload.from_phase || data.from_phase || "";
+    setResumeFromPhase(fromPhase);
     logViewer.addLine(data.ts || formatTime(), "INFO", `Resume | start | ${fromPhase}`);
     if (fromPhase) {
       updatePhaseState(fromPhase, "running", 0);
@@ -1047,6 +1343,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   if (type === "resume_end") {
     setResumePending(false);
     setResumeActive(false);
+    setResumeFromPhase("");
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const success = payload.success ?? data.success ?? false;
     const fromPhase = payload.from_phase || data.from_phase || "";
@@ -1065,6 +1362,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
       toastSuccess(t("ui.toast.run_done", "Run abgeschlossen"));
       enableStatsButtons(getRunState().currentRunId);
       clearSelectedPhase();
+      refreshCurrentImagePreview();
       const panel = document.getElementById("resume-panel");
       if (panel) panel.style.display = "none";
       // Refresh full status from backend to get all final phase states
@@ -1106,6 +1404,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
       disconnectWebSocket();
       toastSuccess(t("ui.toast.run_done", "Run abgeschlossen"));
       enableStatsButtons(getRunState().currentRunId);
+      refreshCurrentImagePreview();
       if (getRunState().currentRunId) refreshRunStatus(getRunState().currentRunId);
     }
   }

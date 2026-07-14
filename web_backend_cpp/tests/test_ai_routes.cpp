@@ -170,6 +170,24 @@ int main(int argc, char** argv) {
         expect_equal(stored_config["model"].get<std::string>(), "claude-test", "ai config persisted model");
         expect_true(!stored_config.contains("api_key"), "ai config never persists api key");
 
+        const auto patched_ui_config = harness.patch_json("/api/ai/config", {
+            {"ui", {
+                {"mount", "Alt/Az"},
+                {"object_type", "Nebel"},
+                {"camera", "Mono CMOS"},
+                {"calibration_darks", true},
+                {"calibration_flats", true},
+                {"calibration_bias", false},
+                {"notes", "wide nebula test"}
+            }}
+        });
+        expect_equal(patched_ui_config["_http_status"].get<long>(), 200L, "ai ui config patch status");
+        expect_equal(patched_ui_config["ui"]["mount"].get<std::string>(), "Alt/Az", "ai ui config mount");
+        expect_equal(patched_ui_config["provider"].get<std::string>(), "anthropic", "ai ui config preserves provider");
+        const auto reloaded_ui_config = harness.get_json("/api/ai/config");
+        expect_equal(reloaded_ui_config["ui"]["object_type"].get<std::string>(), "Nebel", "ai ui config persisted object type");
+        expect_true(reloaded_ui_config["ui"]["calibration_flats"].get<bool>(), "ai ui config persisted flats");
+
         const auto malformed_config = harness.patch_json("/api/ai/config", {
             {"enabled", "true"},
             {"mode", false},
@@ -238,62 +256,108 @@ int main(int argc, char** argv) {
         const auto memory_dir = harness.fixture_root() / "runs" / ".pi_memory";
         std::filesystem::create_directories(memory_dir);
         {
-            std::ofstream out(memory_dir / "memories.jsonl");
-            out << nlohmann::json{
+            std::ofstream legacy(memory_dir / "memories.jsonl");
+            legacy << nlohmann::json{
                 {"schema_version", "pi.memory.v1"},
+                {"memory_id", "legacy_memory_must_be_ignored"},
+                {"status", "accepted"},
+                {"type", "config_optimization"},
+                {"summary", "legacy memory must not enter request context"}
+            }.dump() << "\n";
+            const nlohmann::json ctx = {
+                {"schema_version", "pi.context_signature.v1"},
+                {"target", {{"object_type", "galaxy"}}},
+                {"acquisition", {{"camera_type", "OSC"}}},
+                {"pipeline", {{"affected_paths", nlohmann::json::array({"data.color_mode"})}}}
+            };
+            const nlohmann::json scope = {
+                {"applies_when", nlohmann::json::array({"matching fixture context"})},
+                {"does_not_apply_when", nlohmann::json::array({"different color mode problem"})},
+                {"confidence", 0.5}
+            };
+            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
+                {"id", "mem_scan_context_accepted"},
                 {"status", "candidate"},
                 {"type", "config_optimization"},
                 {"source", "scan_ai_apply"},
                 {"privacy_class", "metadata_only"},
                 {"summary", "MONO was useful for this fixture"},
+                {"context_signature", ctx},
+                {"scope", scope},
                 {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "MONO"}}})},
-                {"validation", {{"valid", true}}}
+                {"recommendation", {{"explanation", "MONO was useful for this fixture"}}},
+                {"evidence", {{"validation", "fixture"}}},
+                {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
+                {"validation", {{"valid", true}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"data.color_mode"})}, {"negative", false}}}
             }.dump() << "\n";
             out << nlohmann::json{
-                {"schema_version", "pi.memory.v1"},
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_rejected"},
+                {"id", "mem_scan_context_rejected"},
                 {"status", "candidate"},
                 {"type", "config_optimization"},
                 {"source", "scan_ai_apply"},
                 {"privacy_class", "metadata_only"},
                 {"summary", "Rejected memory must not become request context"},
+                {"context_signature", ctx},
+                {"scope", scope},
                 {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "RGB"}}})},
-                {"validation", {{"valid", true}}}
+                {"recommendation", {{"explanation", "Rejected memory must not become request context"}}},
+                {"evidence", {{"validation", "fixture"}}},
+                {"outcome", {{"validation_valid", false}, {"applied_count", 1}}},
+                {"validation", {{"valid", true}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"data.color_mode"})}, {"negative", false}}}
             }.dump() << "\n";
             out << nlohmann::json{
-                {"schema_version", "pi.memory.v1"},
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_wrong_type"},
+                {"id", "mem_scan_context_wrong_type"},
                 {"status", "candidate"},
                 {"type", "config_optimization"},
                 {"source", "scan_ai_apply"},
                 {"privacy_class", "metadata_only"},
                 {"summary", "Accepted memory with invalid historical value must not bypass schema validation"},
+                {"context_signature", ctx},
+                {"scope", scope},
                 {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", 123}}})},
-                {"validation", {{"valid", true}}}
+                {"recommendation", {{"explanation", "Accepted memory with invalid historical value must not bypass schema validation"}}},
+                {"evidence", {{"validation", "fixture"}}},
+                {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
+                {"validation", {{"valid", true}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"data.color_mode"})}, {"negative", false}}}
             }.dump() << "\n";
         }
         {
-            std::ofstream out(memory_dir / "memory_reviews.jsonl");
+            std::ofstream out(memory_dir / "memory_reviews_v2.jsonl");
             out << nlohmann::json{
-                {"schema_version", "pi.memory.v1"},
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
+                {"id", "mem_scan_context_accepted"},
                 {"status", "accepted"},
                 {"reviewed_at", "2026-07-14T00:00:00Z"},
                 {"reviewer", "fixture"},
                 {"note", "useful"}
             }.dump() << "\n";
             out << nlohmann::json{
-                {"schema_version", "pi.memory.v1"},
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_rejected"},
+                {"id", "mem_scan_context_rejected"},
                 {"status", "rejected"},
                 {"reviewed_at", "2026-07-14T00:00:01Z"},
                 {"reviewer", "fixture"},
                 {"note", "bad"}
             }.dump() << "\n";
             out << nlohmann::json{
-                {"schema_version", "pi.memory.v1"},
+                {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_wrong_type"},
+                {"id", "mem_scan_context_wrong_type"},
                 {"status", "accepted"},
                 {"reviewed_at", "2026-07-14T00:00:02Z"},
                 {"reviewer", "fixture"},

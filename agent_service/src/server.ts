@@ -3,6 +3,7 @@ import { runtimeConfig } from "./config.js";
 import { AuthService } from "./services/authService.js";
 import { FrameAnalysisService } from "./services/frameAnalysisService.js";
 import { ModelService } from "./services/modelService.js";
+import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
 import type { AnalysisProgressEvent } from "./types.js";
 
@@ -101,6 +102,15 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const body = await readJson(req);
       appendTrafficLog(`POST /analyze/stream request ${JSON.stringify(body).substring(0, 10000)}`);
       await handleAnalyzeStream(req, res, body);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/run-chat") {
+      const body = await readJson(req);
+      appendTrafficLog(`POST /run-chat request ${JSON.stringify({ ...body, image_base64: body?.image_base64 ? "<image>" : undefined }).substring(0, 10000)}`);
+      const service = new RunChatService(config.agent, modelService);
+      const result = await service.ask(body);
+      appendTrafficLog(`POST /run-chat response ${JSON.stringify(result).substring(0, 10000)}`);
+      sendJson(res, 200, result);
       return;
     }
 

@@ -7,8 +7,19 @@ const projectRoot = path.resolve(
 const trafficLogPath = path.resolve(
   process.env.AI_TRAFFIC_LOG_PATH ||
   process.env.TILE_COMPILE_PI_TRAFFIC_LOG_PATH ||
-  path.join(projectRoot, "runs", "pi_agent_traffic.log"),
+  (process.env.TILE_COMPILE_PI_STORAGE_DIR
+    ? path.join(process.env.TILE_COMPILE_PI_STORAGE_DIR, "pi_agent_traffic.log")
+    : path.join(projectRoot, "runs", ".pi_memory", "pi_agent_traffic.log")),
 );
+
+type PendingTrafficRepeat = {
+  redactedMessage: string;
+  count: number;
+  lastTs: string;
+};
+
+let pendingRepeat: PendingTrafficRepeat | null = null;
+let exitFlushRegistered = false;
 
 function envBool(name: string, fallback: boolean): boolean {
   const raw = process.env[name];
@@ -41,18 +52,57 @@ export function redactTrafficLogText(message: string): string {
   return redacted;
 }
 
-export function appendTrafficLog(message: string): void {
-  if (!envBool("AI_TRAFFIC_LOG", true)) return;
+function appendTrafficLogLine(ts: string, message: string): void {
   try {
     fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
-    fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${redactTrafficLogText(message)}\n`);
+    fs.appendFileSync(trafficLogPath, `[${ts}] ${message}\n`);
   } catch {
     // Ignore logging errors.
   }
 }
 
+function flushPendingTrafficRepeat(): void {
+  if (!pendingRepeat) return;
+  const pending = pendingRepeat;
+  pendingRepeat = null;
+
+  if (pending.count <= 1) return;
+  if (pending.count > 2) {
+    appendTrafficLogLine(
+      pending.lastTs,
+      `traffic_log_compacted repeated previous entry ${pending.count - 2} additional times`,
+    );
+  }
+  appendTrafficLogLine(pending.lastTs, pending.redactedMessage);
+}
+
+function ensureExitFlushRegistered(): void {
+  if (exitFlushRegistered) return;
+  exitFlushRegistered = true;
+  process.once("beforeExit", flushPendingTrafficRepeat);
+  process.once("exit", flushPendingTrafficRepeat);
+}
+
+export function appendTrafficLog(message: string): void {
+  if (!envBool("AI_TRAFFIC_LOG", true)) return;
+  ensureExitFlushRegistered();
+  const ts = new Date().toISOString();
+  const redacted = redactTrafficLogText(message);
+
+  if (pendingRepeat && pendingRepeat.redactedMessage === redacted) {
+    pendingRepeat.count += 1;
+    pendingRepeat.lastTs = ts;
+    return;
+  }
+
+  flushPendingTrafficRepeat();
+  appendTrafficLogLine(ts, redacted);
+  pendingRepeat = { redactedMessage: redacted, count: 1, lastTs: ts };
+}
+
 export function readTrafficLog(limit = 500): { path: string; items: string[]; count: number; enabled: boolean } {
   const enabled = envBool("AI_TRAFFIC_LOG", true);
+  flushPendingTrafficRepeat();
   if (!fs.existsSync(trafficLogPath)) {
     return { path: trafficLogPath, items: [], count: 0, enabled };
   }

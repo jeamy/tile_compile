@@ -188,6 +188,9 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
                                     const nlohmann::json& patch,
                                     const BackendRuntime& runtime) {
     nlohmann::json merged = ai_config_to_json(ai_config_from_json(base, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (base.is_object() && base.contains(key)) merged[key] = base[key];
+    }
     if (!patch.is_object()) return merged;
     set_if_present(merged, patch, "enabled");
     set_if_present(merged, patch, "mode");
@@ -199,7 +202,14 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
     set_if_present(merged, patch, "send_paths");
     set_if_present(merged, patch, "persist_recommendations");
     set_if_present(merged, patch, "sidecar_url");
-    return ai_config_to_json(ai_config_from_json(merged, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (patch.contains(key)) merged[key] = patch[key];
+    }
+    nlohmann::json normalized = ai_config_to_json(ai_config_from_json(merged, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (merged.contains(key)) normalized[key] = merged[key];
+    }
+    return normalized;
 }
 
 AiSidecarClient::AiSidecarClient(AiConfig config) : _config(std::move(config)) {}

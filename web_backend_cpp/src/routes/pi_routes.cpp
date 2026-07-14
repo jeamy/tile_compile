@@ -2,22 +2,33 @@
 
 #include "app_state.hpp"
 #include "routes/route_utils.hpp"
+#include "services/ai_service.hpp"
 #include "services/pi/pi_assistant.hpp"
 #include "services/pi/pi_context_builder.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/pi/pi_tool_registry.hpp"
+#include "services/run_inspector.hpp"
 #include "subprocess_manager.hpp"
+#include "time_utils.hpp"
 
+#include <fitsio.h>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iomanip>
+#include <set>
 #include <sstream>
 #include <yaml-cpp/yaml.h>
 
 using namespace tile_compile::routes;
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -35,13 +46,498 @@ int int_query_param(const crow::request& req, const char* name, int fallback) {
     try {
         return std::stoi(raw);
     } catch (...) {
-        return fallback;
     }
+    return fallback;
+}
+
+std::string base64_encode(const std::vector<unsigned char>& bytes) {
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((bytes.size() + 2) / 3) * 4);
+    int val = 0;
+    int valb = -6;
+    for (unsigned char c : bytes) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(alphabet[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back(alphabet[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
+
+std::string fits_status_text(int status) {
+    char text[FLEN_STATUS]{};
+    fits_get_errstatus(status, text);
+    return text;
+}
+
+std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
+                                           long& width, long& height, long& planes) {
+    fitsfile* file = nullptr;
+    int status = 0;
+    if (fits_open_file(&file, path.string().c_str(), READONLY, &status)) {
+        throw std::runtime_error("Cannot open FITS: " + fits_status_text(status));
+    }
+    int naxis = 0;
+    long axes[3]{1, 1, 1};
+    if (fits_get_img_dim(file, &naxis, &status) ||
+        fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Invalid FITS image");
+    }
+    width = axes[0];
+    height = axes[1];
+    planes = naxis >= 3 ? axes[2] : 1;
+    if (plane < 1 || plane > planes) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Missing FITS plane");
+    }
+    std::vector<float> pixels(static_cast<size_t>(width * height));
+    long first[3]{1, 1, plane};
+    int any_null = 0;
+    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr, pixels.data(), &any_null, &status)) {
+        const auto message = fits_status_text(status);
+        fits_close_file(file, &status);
+        throw std::runtime_error("Cannot read FITS: " + message);
+    }
+    fits_close_file(file, &status);
+    return pixels;
+}
+
+cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) {
+    cv::Mat mat(static_cast<int>(height), static_cast<int>(width), CV_32F);
+    for (long y = 0; y < height; ++y)
+        for (long x = 0; x < width; ++x)
+            mat.at<float>(static_cast<int>(y), static_cast<int>(x)) = values[static_cast<size_t>(y * width + x)];
+    return mat;
+}
+
+std::pair<float, float> robust_range(const std::vector<cv::Mat>& planes) {
+    std::vector<float> sample;
+    for (const auto& mat : planes) {
+        const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(mat.rows * mat.cols) / 250000.0)));
+        for (int y = 0; y < mat.rows; y += stride)
+            for (int x = 0; x < mat.cols; x += stride) {
+                const float v = mat.at<float>(y, x);
+                if (std::isfinite(v)) sample.push_back(v);
+            }
+    }
+    if (sample.empty()) return {0.0f, 1.0f};
+    std::sort(sample.begin(), sample.end());
+    auto at = [&](double q) {
+        const size_t idx = std::min(sample.size() - 1, static_cast<size_t>(std::llround(q * static_cast<double>(sample.size() - 1))));
+        return sample[idx];
+    };
+    float lo = at(0.01);
+    float hi = at(0.995);
+    if (!std::isfinite(lo) || !std::isfinite(hi) || hi <= lo) {
+        lo = sample.front();
+        hi = sample.back();
+    }
+    if (hi <= lo) hi = lo + 1.0f;
+    return {lo, hi};
+}
+
+std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, int max_edge = 1024) {
+    long w = 0, h = 0, p = 0;
+    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    cv::Mat r = plane_to_mat(rv, w, h);
+    cv::Mat g = r;
+    cv::Mat b = r;
+    if (p >= 3) {
+        long wg = 0, hg = 0, pg = 0;
+        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        g = plane_to_mat(gv, wg, hg);
+        long wb = 0, hb = 0, pb = 0;
+        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        b = plane_to_mat(bv, wb, hb);
+    }
+    const int edge = std::max(r.rows, r.cols);
+    if (edge > max_edge) {
+        const double scale = static_cast<double>(max_edge) / static_cast<double>(edge);
+        const cv::Size size(std::max(1, static_cast<int>(std::lround(r.cols * scale))),
+                            std::max(1, static_cast<int>(std::lround(r.rows * scale))));
+        cv::resize(r, r, size, 0, 0, cv::INTER_AREA);
+        cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
+        cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
+    }
+    const auto [lo, hi] = robust_range({r, g, b});
+    const float denom = std::max(hi - lo, 1e-9f);
+    cv::Mat out(r.rows, r.cols, CV_8UC3);
+    for (int y = 0; y < r.rows; ++y) {
+        for (int x = 0; x < r.cols; ++x) {
+            auto convert = [&](float v) -> unsigned char {
+                if (!std::isfinite(v)) v = lo;
+                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
+                n = std::pow(n, 0.6f);
+                return cv::saturate_cast<unsigned char>(n * 255.0f);
+            };
+            auto& px = out.at<cv::Vec3b>(y, x);
+            px[2] = convert(r.at<float>(y, x));
+            px[1] = convert(g.at<float>(y, x));
+            px[0] = convert(b.at<float>(y, x));
+        }
+    }
+    std::vector<unsigned char> png;
+    if (!cv::imencode(".png", out, png)) throw std::runtime_error("PNG encoding failed");
+    return png;
 }
 
 void trim_json_array_to_latest(nlohmann::json& items, int limit) {
     if (!items.is_array() || limit <= 0) return;
     while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
+}
+
+nlohmann::json read_pi_ai_config_file(const std::shared_ptr<AppState>& state) {
+    const fs::path path = state->runtime.runtime_dir / "ai_scan_config.json";
+    std::ifstream in(path);
+    if (!in) return nlohmann::json::object();
+    auto parsed = nlohmann::json::parse(in, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return nlohmann::json::object();
+    return parsed;
+}
+
+tile_compile::ai::AiConfig current_pi_ai_config(const std::shared_ptr<AppState>& state) {
+    nlohmann::json memory_config = nlohmann::json::object();
+    {
+        std::lock_guard<std::mutex> lk(state->state_mutex);
+        if (state->ui_state.contains("ai") && state->ui_state["ai"].contains("scan_analysis") &&
+            state->ui_state["ai"]["scan_analysis"].is_object()) {
+            memory_config = state->ui_state["ai"]["scan_analysis"];
+        }
+    }
+    nlohmann::json merged = tile_compile::ai::merge_ai_config_json(
+        tile_compile::ai::ai_config_to_json(tile_compile::ai::default_ai_config(state->runtime)),
+        read_pi_ai_config_file(state),
+        state->runtime);
+    return tile_compile::ai::ai_config_from_json(
+        tile_compile::ai::merge_ai_config_json(merged, memory_config, state->runtime),
+        state->runtime);
+}
+
+std::filesystem::path pi_run_chat_history_path(const std::shared_ptr<AppState>& state,
+                                               const std::string& run_id) {
+    std::string safe;
+    safe.reserve(run_id.size());
+    for (unsigned char ch : run_id) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') safe.push_back(static_cast<char>(ch));
+        else safe.push_back('_');
+    }
+    if (safe.empty()) safe = "run";
+    const auto hash = std::hash<std::string>{}(run_id);
+    return tile_compile::pi::pi_storage_dir(state) / "run_chat" /
+        (safe + "_" + std::to_string(static_cast<unsigned long long>(hash)) + ".json");
+}
+
+std::filesystem::path legacy_pi_run_chat_history_path(const std::shared_ptr<AppState>& state,
+                                                      const std::string& run_id) {
+    const auto run_dir = state->runtime.resolve_run_dir(run_id);
+    return run_dir / "artifacts" / "pi_run_chat_history.json";
+}
+
+nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
+                                        const std::string& run_id) {
+    auto path = pi_run_chat_history_path(state, run_id);
+    if (!std::filesystem::exists(path)) {
+        const auto legacy = legacy_pi_run_chat_history_path(state, run_id);
+        if (std::filesystem::exists(legacy)) path = legacy;
+    }
+    if (!std::filesystem::exists(path)) {
+        return {
+            {"schema_version", "pi.run-chat-history.v1"},
+            {"run_id", run_id},
+            {"messages", nlohmann::json::array()},
+            {"turns", nlohmann::json::array()}
+        };
+    }
+    std::ifstream in(path);
+    nlohmann::json parsed = nlohmann::json::parse(in, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) {
+        throw std::runtime_error("invalid run chat history");
+    }
+    parsed["schema_version"] = "pi.run-chat-history.v1";
+    parsed["run_id"] = run_id;
+    if (!parsed.contains("messages") || !parsed["messages"].is_array()) parsed["messages"] = nlohmann::json::array();
+    if (!parsed.contains("turns") || !parsed["turns"].is_array()) parsed["turns"] = nlohmann::json::array();
+    return parsed;
+}
+
+void write_pi_run_chat_history(const std::shared_ptr<AppState>& state,
+                               const std::string& run_id,
+                               nlohmann::json history) {
+    auto path = pi_run_chat_history_path(state, run_id);
+    std::filesystem::create_directories(path.parent_path());
+    history["schema_version"] = "pi.run-chat-history.v1";
+    history["run_id"] = run_id;
+    if (!history.contains("messages") || !history["messages"].is_array()) history["messages"] = nlohmann::json::array();
+    if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
+    trim_json_array_to_latest(history["messages"], 24);
+    trim_json_array_to_latest(history["turns"], 24);
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out) throw std::runtime_error("failed to open run chat history for writing");
+    out << history.dump(2);
+}
+
+std::string chat_message_key(const nlohmann::json& item) {
+    if (!item.is_object()) return "";
+    return item.value("role", std::string()) + "\n" + item.value("content", std::string());
+}
+
+void append_chat_message_unique(nlohmann::json& messages,
+                                const std::string& role,
+                                const std::string& content) {
+    if (content.empty()) return;
+    nlohmann::json item = {{"role", role}, {"content", content}};
+    const std::string key = chat_message_key(item);
+    for (const auto& existing : messages) {
+        if (chat_message_key(existing) == key) return;
+    }
+    messages.push_back(std::move(item));
+}
+
+nlohmann::json compact_run_chat_history_messages(const nlohmann::json& server_history,
+                                                 const nlohmann::json& body,
+                                                 const std::string& message) {
+    nlohmann::json messages = nlohmann::json::array();
+
+    if (server_history.contains("messages") && server_history["messages"].is_array()) {
+        for (const auto& item : server_history["messages"]) {
+            if (!item.is_object()) continue;
+            append_chat_message_unique(messages,
+                                       item.value("role", std::string()),
+                                       item.value("content", std::string()));
+        }
+    }
+
+    if (body.contains("messages") && body["messages"].is_array()) {
+        for (const auto& item : body["messages"]) {
+            if (!item.is_object()) continue;
+            append_chat_message_unique(messages,
+                                       item.value("role", std::string()),
+                                       item.value("content", std::string()));
+        }
+    }
+
+    append_chat_message_unique(messages, "user", message);
+    trim_json_array_to_latest(messages, 24);
+    return messages;
+}
+
+std::string run_chat_analysis_message_from_messages(const nlohmann::json& messages,
+                                                    const std::string& message) {
+    std::string combined;
+    int count = 0;
+    for (const auto& item : messages) {
+        if (!item.is_object()) continue;
+        const std::string content = item.value("content", std::string());
+        if (content.empty()) continue;
+        if (!combined.empty()) combined += "\n";
+        combined += content;
+        if (++count >= 12) break;
+    }
+    if (combined.find(message) == std::string::npos) {
+        if (!combined.empty()) combined += "\n";
+        combined += message;
+    }
+    return combined;
+}
+
+nlohmann::json run_chat_previous_turns_context(const nlohmann::json& history, int limit = 4) {
+    nlohmann::json out = nlohmann::json::array();
+    if (!history.contains("turns") || !history["turns"].is_array()) return out;
+    const auto& turns = history["turns"];
+    const size_t start = turns.size() > static_cast<size_t>(limit)
+        ? turns.size() - static_cast<size_t>(limit)
+        : 0;
+    for (size_t i = start; i < turns.size(); ++i) {
+        const auto& turn = turns[i];
+        if (!turn.is_object()) continue;
+        out.push_back({
+            {"message", turn.value("message", std::string())},
+            {"summary", turn.contains("result") && turn["result"].is_object()
+                ? turn["result"].value("summary", std::string())
+                : std::string()},
+            {"resume_recommendation", turn.contains("result") && turn["result"].is_object() && turn["result"].contains("resume_recommendation")
+                ? turn["result"]["resume_recommendation"]
+                : nlohmann::json(nullptr)},
+            {"action_plan", turn.contains("result") && turn["result"].is_object() && turn["result"].contains("action_plan")
+                ? turn["result"]["action_plan"]
+                : nlohmann::json(nullptr)}
+        });
+    }
+    return out;
+}
+
+std::string chat_turn_key(const nlohmann::json& turn) {
+    if (!turn.is_object()) return "";
+    std::string summary;
+    if (turn.contains("result") && turn["result"].is_object()) {
+        summary = turn["result"].value("summary", std::string());
+    }
+    return turn.value("message", std::string()) + "\n" + summary;
+}
+
+nlohmann::json merge_run_chat_history(nlohmann::json existing, const nlohmann::json& incoming) {
+    if (!existing.is_object()) existing = nlohmann::json::object();
+    if (!existing.contains("messages") || !existing["messages"].is_array()) existing["messages"] = nlohmann::json::array();
+    if (!existing.contains("turns") || !existing["turns"].is_array()) existing["turns"] = nlohmann::json::array();
+
+    if (incoming.contains("messages") && incoming["messages"].is_array()) {
+        for (const auto& item : incoming["messages"]) {
+            if (!item.is_object()) continue;
+            append_chat_message_unique(existing["messages"],
+                                       item.value("role", std::string()),
+                                       item.value("content", std::string()));
+        }
+    }
+
+    if (incoming.contains("turns") && incoming["turns"].is_array()) {
+        for (const auto& turn : incoming["turns"]) {
+            const std::string key = chat_turn_key(turn);
+            if (key.empty()) continue;
+            bool exists = false;
+            for (const auto& existing_turn : existing["turns"]) {
+                if (chat_turn_key(existing_turn) == key) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) existing["turns"].push_back(turn);
+        }
+    }
+
+    trim_json_array_to_latest(existing["messages"], 24);
+    trim_json_array_to_latest(existing["turns"], 24);
+    return existing;
+}
+
+std::string lower_ext(const fs::path& path) {
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return ext;
+}
+
+int pi_preview_artifact_score(const std::string& rel) {
+    std::string p = rel;
+    std::transform(p.begin(), p.end(), p.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    int score = 0;
+    if (p.rfind("outputs/", 0) == 0 || p.find("/outputs/") != std::string::npos) score += 20;
+    if (p.find("stacked_rgb_hms") != std::string::npos || p.find("hms_") != std::string::npos) score += 100;
+    else if (p.find("stacked_rgb_pcc") != std::string::npos || p.find("pcc_") != std::string::npos) score += 90;
+    else if (p.find("stacked_rgb_bge") != std::string::npos) score += 80;
+    else if (p.find("stacked_rgb") != std::string::npos) score += 60;
+    if (p.size() >= 4 && p.substr(p.size() - 4) == ".png") score += 10;
+    return score;
+}
+
+std::optional<fs::path> resolve_run_relative_artifact(const fs::path& run_dir, const std::string& rel) {
+    if (rel.empty()) return std::nullopt;
+    fs::path candidate = fs::weakly_canonical(run_dir / fs::path(rel));
+    fs::path root = fs::weakly_canonical(run_dir);
+    const fs::path relative = candidate.lexically_relative(root);
+    if (relative.empty()) return std::nullopt;
+    for (const auto& part : relative) {
+        if (part == "..") return std::nullopt;
+    }
+    if (!fs::exists(candidate) || !fs::is_regular_file(candidate)) return std::nullopt;
+    return candidate;
+}
+
+nlohmann::json build_run_chat_preview_image(const fs::path& run_dir) {
+    const auto artifacts = list_run_artifacts(run_dir);
+    std::string best_rel;
+    int best_score = -1;
+    for (const auto& item : artifacts) {
+        if (!item.is_object()) continue;
+        const std::string rel = item.value("path", item.value("relative_path", std::string()));
+        const std::string ext = lower_ext(rel);
+        if (ext != ".png" && ext != ".fits" && ext != ".fit" && ext != ".fts") continue;
+        const int score = pi_preview_artifact_score(rel);
+        if (score > best_score) {
+            best_score = score;
+            best_rel = rel;
+        }
+    }
+    if (best_rel.empty()) return nlohmann::json{{"available", false}};
+    auto full = resolve_run_relative_artifact(run_dir, best_rel);
+    if (!full) return nlohmann::json{{"available", false}, {"path", best_rel}};
+    try {
+        std::vector<unsigned char> png;
+        const std::string ext = lower_ext(*full);
+        if (ext == ".png") {
+            std::ifstream in(*full, std::ios::binary);
+            png.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        } else {
+            png = render_fits_preview_png_for_pi(*full, 1024);
+        }
+        return {
+            {"available", true},
+            {"path", best_rel},
+            {"mime", "image/png"},
+            {"base64", base64_encode(png)},
+            {"bytes", png.size()}
+        };
+    } catch (const std::exception& e) {
+        return {{"available", false}, {"path", best_rel}, {"error", e.what()}};
+    }
+}
+
+std::string build_provider_run_chat_prompt(const std::string& run_id,
+                                           const std::string& message,
+                                           const nlohmann::json& local_answer,
+                                           const nlohmann::json& conversation_messages,
+                                           const nlohmann::json& previous_turns,
+                                           const nlohmann::json& status,
+                                           const nlohmann::json& artifacts,
+                                           const nlohmann::json& image_info) {
+    std::ostringstream prompt;
+    prompt
+        << "You are PI for tile_compile, an astrophotography stacking/configuration assistant.\n"
+        << "Answer the user's run-specific question using the attached preview image when available, plus the structured run context.\n"
+        << "Do not invent visual facts. If the image is unavailable or insufficient, say that explicitly.\n"
+        << "Do not repeat identical parameter changes that previous turns already tried or suggested; propose a new diagnostic or a different parameter group instead.\n"
+        << "Return exactly one JSON object, no markdown.\n\n"
+        << "Schema:\n"
+        << "{\n"
+        << "  \"schema_version\":\"pi.run-chat-answer.v1\",\n"
+        << "  \"summary\": string,\n"
+        << "  \"likely_causes\": [{\"text\":string,\"evidence_ref\":string}],\n"
+        << "  \"checks\": [{\"text\":string,\"evidence_ref\":string}],\n"
+        << "  \"recommendations\": [{\"text\":string,\"evidence_ref\":string}],\n"
+        << "  \"resume_recommendation\": {\"from_phase\":string,\"confidence\":string,\"reason\":string},\n"
+        << "  \"image_observations\": string[],\n"
+        << "  \"warnings\": string[]\n"
+        << "}\n\n"
+        << "USER QUESTION:\n" << message << "\n\n"
+        << "RUN ID:\n" << run_id << "\n\n"
+        << "IMAGE CONTEXT:\n" << image_info.dump(2) << "\n\n"
+        << "CONVERSATION MESSAGES:\n" << conversation_messages.dump(2) << "\n\n"
+        << "PREVIOUS TURNS:\n" << previous_turns.dump(2) << "\n\n"
+        << "RUN STATUS:\n" << status.dump(2).substr(0, 20000) << "\n\n"
+        << "ARTIFACT SUMMARY:\n" << artifacts.dump(2).substr(0, 20000) << "\n\n"
+        << "LOCAL PI STRUCTURED CONTEXT (use as hints only, verify against image/context):\n"
+        << local_answer.dump(2).substr(0, 30000) << "\n";
+    return prompt.str();
+}
+
+nlohmann::json merge_provider_run_chat_answer(nlohmann::json local_answer, const nlohmann::json& provider_answer) {
+    if (!provider_answer.is_object()) return local_answer;
+    for (const auto* key : {"summary", "likely_causes", "checks", "recommendations", "resume_recommendation"}) {
+        if (provider_answer.contains(key)) local_answer[key] = provider_answer[key];
+    }
+    local_answer["mode"] = "provider";
+    local_answer["provider_meta"] = provider_answer.value("_meta", nlohmann::json::object());
+    if (provider_answer.contains("image_observations")) local_answer["image_observations"] = provider_answer["image_observations"];
+    if (provider_answer.contains("warnings")) local_answer["warnings"] = provider_answer["warnings"];
+    return local_answer;
 }
 
 std::string lower_copy(std::string value) {
@@ -64,7 +560,13 @@ nlohmann::json detect_run_chat_problem_hints(const std::string& message) {
     auto add = [&](const std::string& id, const std::string& label, const std::string& confidence) {
         hints.push_back({{"id", id}, {"label", label}, {"confidence", confidence}});
     };
-    if (contains_any(text, {"schwarzen kern", "schwarzer kern", "black core", "black cores", "donut", "sternkern"})) {
+    if (contains_any(text, {
+            "schwarzen kern", "schwarzer kern", "schwarze kerne", "schwarzen kernen",
+            "schwarzes zentrum", "schwarzen zentrum", "schwarze zentren", "schwarzen zentren",
+            "dunkles zentrum", "dunkle zentren", "dunklen zentren",
+            "black core", "black cores", "black center", "black centers", "black centre", "black centres",
+            "donut", "sternkern", "sternkerne"
+        })) {
         add("black_star_cores", "Sterne mit dunklem/schwarzem Kern", "high");
     }
     if (contains_any(text, {"beschnitten", "abgeschnitten", "cropped", "crop", "nicht einbezogen", "outside", "rand"})) {
@@ -97,10 +599,59 @@ nlohmann::json append_text_item(const std::string& text, const std::string& evid
     return item;
 }
 
-nlohmann::json build_run_chat_action_plan(const std::string& run_id, const nlohmann::json& hints) {
+std::string action_update_key(const std::string& path, const nlohmann::json& value) {
+    return path + "\n" + value.dump();
+}
+
+std::set<std::string> previous_run_chat_action_updates(const nlohmann::json& previous_turns) {
+    std::set<std::string> out;
+    if (!previous_turns.is_array()) return out;
+    for (const auto& turn : previous_turns) {
+        if (!turn.is_object()) continue;
+        const nlohmann::json* plan_ptr = nullptr;
+        if (turn.contains("action_plan") && turn["action_plan"].is_object()) {
+            plan_ptr = &turn["action_plan"];
+        } else if (turn.contains("result") && turn["result"].is_object() &&
+                   turn["result"].contains("action_plan") && turn["result"]["action_plan"].is_object()) {
+            plan_ptr = &turn["result"]["action_plan"];
+        }
+        if (!plan_ptr) continue;
+        const auto& plan = *plan_ptr;
+        if (!plan.contains("actions") || !plan["actions"].is_array()) continue;
+        for (const auto& action : plan["actions"]) {
+            if (!action.is_object()) continue;
+            const std::string type = action.value("type", std::string());
+            if (type == "config.set" && action.contains("path") && action["path"].is_string() && action.contains("value")) {
+                out.insert(action_update_key(action["path"].get<std::string>(), action["value"]));
+            } else if (type == "config.patch" && action.contains("updates") && action["updates"].is_array()) {
+                for (const auto& update : action["updates"]) {
+                    if (!update.is_object() || !update.contains("path") || !update["path"].is_string() || !update.contains("value")) continue;
+                    out.insert(action_update_key(update["path"].get<std::string>(), update["value"]));
+                }
+            }
+        }
+    }
+    return out;
+}
+
+nlohmann::json build_run_chat_action_plan(const std::string& run_id,
+                                          const nlohmann::json& hints,
+                                          const nlohmann::json& previous_turns = nlohmann::json::array()) {
     nlohmann::json actions = nlohmann::json::array();
+    nlohmann::json suppressed = nlohmann::json::array();
+    const auto previous_updates = previous_run_chat_action_updates(previous_turns);
     int index = 1;
     auto add_set = [&](const std::string& path, const nlohmann::json& value, const std::string& rationale) {
+        const std::string key = action_update_key(path, value);
+        if (previous_updates.find(key) != previous_updates.end()) {
+            suppressed.push_back({
+                {"type", "config.set"},
+                {"path", path},
+                {"value", value},
+                {"reason", "same_parameter_value_was_already_suggested_in_this_run_chat"}
+            });
+            return;
+        }
         actions.push_back({
             {"id", "run_chat_" + std::to_string(index++)},
             {"type", "config.set"},
@@ -134,17 +685,59 @@ nlohmann::json build_run_chat_action_plan(const std::string& run_id, const nlohm
         {"source", "pi.run-chat"},
         {"run_id", run_id},
         {"mutation_free", true},
-        {"actions", actions}
+        {"actions", actions},
+        {"suppressed_repeated_actions", suppressed}
     };
+}
+
+nlohmann::json build_resume_recommendation(const nlohmann::json& hints) {
+    std::string phase = "HYPERMETRIC_STRETCH";
+    std::string reason = "Nur Darstellung/Stretch neu bewerten, wenn keine fruehere Pipeline-Ursache klar ist.";
+    std::string execution_note;
+    int priority = 90;
+    auto choose = [&](int candidate_priority, const std::string& candidate_phase,
+                      const std::string& candidate_reason,
+                      const std::string& candidate_execution_note = "") {
+        if (candidate_priority >= priority) return;
+        priority = candidate_priority;
+        phase = candidate_phase;
+        reason = candidate_reason;
+        execution_note = candidate_execution_note;
+    };
+    for (const auto& hint : hints) {
+        const std::string id = hint.value("id", std::string());
+        if (id == "soft_or_elongated_stars") {
+            choose(5, "REGISTRATION", "Sternform und Schaerfe haengen oft an Registrierung, Frame-Gewichtung oder fruehen Geometrieschritten.");
+        }
+        if (id == "cropped_nebula") {
+            choose(10, "COMMON_OVERLAP",
+                   "Beschnitt und gueltiger Bildbereich entstehen vor Stack/Stretch; daher ab Common-Overlap neu testen.",
+                   "COMMON_OVERLAP ist im Runner ein In-place-Full-Rerun; im Log koennen deshalb fruehere Pipeline-Phasen auftauchen.");
+        } else if (id == "tile_pattern") {
+            choose(20, "TILE_RECONSTRUCTION", "Tile-Muster entstehen in lokaler Rekonstruktion; ab Tile-Reconstruction neu rechnen.");
+        } else if (id == "black_star_cores") {
+            choose(30, "STACKING", "Dunkle Sternkerne koennen durch Rejection/Kosmetik/Stacking entstehen; ab Stacking ist der kleinste sinnvolle A/B-Test.");
+        } else if (id == "background_gradient" || id == "faint_nebula") {
+            choose(50, "BGE", "Hintergrundextraktion und Nebelsichtbarkeit werden ab BGE/Stretch entschieden; ab BGE neu testen.");
+        } else if (id == "color_cast") {
+            choose(60, "PCC", "Farbstich sollte zuerst ab PCC/Farbkalibrierung neu bewertet werden.");
+        }
+    }
+    nlohmann::json out = {{"from_phase", phase}, {"confidence", "medium"}, {"reason", reason}};
+    if (!execution_note.empty()) out["execution_note"] = execution_note;
+    return out;
 }
 
 nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
                                      const std::string& run_id,
-                                     const std::string& message) {
+                                     const std::string& message,
+                                     const std::string& analysis_message,
+                                     const nlohmann::json& conversation_messages = nlohmann::json::array(),
+                                     const nlohmann::json& previous_turns = nlohmann::json::array()) {
     tile_compile::pi::PiToolRegistry tools(state);
     nlohmann::json report = tools.call_tool("run.report.summary", {{"run_id", run_id}});
     nlohmann::json artifacts = tools.call_tool("run.artifacts.summary", {{"run_id", run_id}});
-    const nlohmann::json hints = detect_run_chat_problem_hints(message);
+    const nlohmann::json hints = detect_run_chat_problem_hints(analysis_message.empty() ? message : analysis_message);
 
     tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     nlohmann::json memories = store.retrieve({{"type", "config_optimization"}}, 5);
@@ -154,6 +747,14 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
         {{"id", "artifacts"}, {"tool", "run.artifacts.summary"}, {"available", artifacts.value("ok", false)}, {"result", artifacts.value("result", nlohmann::json::object())}},
         {{"id", "memories"}, {"tool", "pi.memory.retrieve"}, {"available", !memories.empty()}, {"result", memories}}
     });
+    if (previous_turns.is_array() && !previous_turns.empty()) {
+        evidence.push_back({
+            {"id", "conversation"},
+            {"tool", "pi.run-chat.history"},
+            {"available", true},
+            {"result", previous_turns}
+        });
+    }
 
     nlohmann::json likely_causes = nlohmann::json::array();
     nlohmann::json checks = nlohmann::json::array();
@@ -240,7 +841,18 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
             "report"));
     }
 
-    const nlohmann::json action_plan = build_run_chat_action_plan(run_id, hints);
+    const nlohmann::json action_plan = build_run_chat_action_plan(run_id, hints, previous_turns);
+    if (action_plan.contains("suppressed_repeated_actions") &&
+        action_plan["suppressed_repeated_actions"].is_array() &&
+        !action_plan["suppressed_repeated_actions"].empty()) {
+        recommendations.push_back(append_text_item(
+            "Ich schlage dieselben Parameterwerte nicht erneut vor, weil sie in diesem Run-Chat bereits empfohlen wurden. Wenn das Ergebnis gleich geblieben ist, sollten stattdessen Report/Artefakte verglichen und eine andere Ursache oder Parametergruppe getestet werden.",
+            "conversation"));
+    }
+    const long previous_turn_count = previous_turns.is_array() ? static_cast<long>(previous_turns.size()) : 0L;
+    const std::string summary = previous_turn_count > 0
+        ? "Ich behandle das als Folgefrage im bisherigen Run-Chat und beziehe die vorherigen Hinweise, Empfehlungen und Resume-Phase mit ein."
+        : "Ich behandle die Beschreibung als Hinweis, nicht als bewiesene Ursache. Die naechsten Schritte sollten Report, Artefakte und gezielte A/B-Tests verbinden.";
     return {
         {"schema_version", "pi.run-chat-answer.v1"},
         {"mode", "local_read_only"},
@@ -252,16 +864,42 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
             {"problem_hints", hints},
             {"report_available", report.value("ok", false)},
             {"artifacts_available", artifacts.value("ok", false)},
-            {"memory_count", memories.size()}
+            {"memory_count", memories.size()},
+            {"conversation", {
+                {"message_count", conversation_messages.is_array() ? conversation_messages.size() : 0},
+                {"previous_turn_count", previous_turn_count},
+                {"previous_turns", previous_turns}
+            }}
         }},
-        {"summary", "Ich behandle die Beschreibung als Hinweis, nicht als bewiesene Ursache. Die naechsten Schritte sollten Report, Artefakte und gezielte A/B-Tests verbinden."},
+        {"summary", summary},
         {"likely_causes", likely_causes},
         {"checks", checks},
         {"recommendations", recommendations},
         {"evidence", evidence},
+        {"resume_recommendation", build_resume_recommendation(hints)},
         {"action_plan", action_plan},
         {"action_plan_validation", tile_compile::pi::validate_action_plan_shape(action_plan)}
     };
+}
+
+std::string run_chat_analysis_message(const nlohmann::json& body, const std::string& message) {
+    std::string combined;
+    if (body.contains("messages") && body["messages"].is_array()) {
+        int count = 0;
+        for (const auto& item : body["messages"]) {
+            if (!item.is_object()) continue;
+            const std::string content = item.value("content", std::string());
+            if (content.empty()) continue;
+            if (!combined.empty()) combined += "\n";
+            combined += content;
+            if (++count >= 12) break;
+        }
+    }
+    if (combined.find(message) == std::string::npos) {
+        if (!combined.empty()) combined += "\n";
+        combined += message;
+    }
+    return combined;
 }
 
 nlohmann::json pi_audit_log(const std::shared_ptr<AppState>& state, int limit) {
@@ -568,9 +1206,92 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
         if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
         try {
-            return json_resp(build_run_chat_answer(state, run_id, message));
+            nlohmann::json history = read_pi_run_chat_history(state, run_id);
+            nlohmann::json messages = compact_run_chat_history_messages(history, *body, message);
+            const nlohmann::json previous_turns = run_chat_previous_turns_context(history);
+            nlohmann::json local_answer = build_run_chat_answer(
+                state,
+                run_id,
+                message,
+                run_chat_analysis_message_from_messages(messages, message),
+                messages,
+                previous_turns);
+
+            nlohmann::json answer = local_answer;
+            auto ai_config = current_pi_ai_config(state);
+            if (!ai_config.model.empty()) {
+                const fs::path run_dir = state->runtime.resolve_run_dir(run_id);
+                const nlohmann::json status = read_run_status(run_dir);
+                const nlohmann::json artifacts = list_run_artifacts(run_dir);
+                nlohmann::json image = build_run_chat_preview_image(run_dir);
+                nlohmann::json image_info = image;
+                image_info.erase("base64");
+                const std::string prompt = build_provider_run_chat_prompt(
+                    run_id, message, local_answer, messages, previous_turns, status, artifacts, image_info);
+                tile_compile::ai::AiSidecarClient client(ai_config);
+                nlohmann::json payload = {
+                    {"model", ai_config.model},
+                    {"prompt", prompt},
+                    {"run_id", run_id},
+                    {"image_available", image.value("available", false)},
+                    {"image_path", image.value("path", std::string())}
+                };
+                if (image.value("available", false) && image.contains("base64") && image["base64"].is_string()) {
+                    payload["image_base64"] = image["base64"];
+                    payload["image_mime"] = image.value("mime", std::string("image/png"));
+                }
+                const nlohmann::json provider_answer = client.post("/run-chat", payload);
+                answer = merge_provider_run_chat_answer(local_answer, provider_answer);
+                answer["context"]["image"] = image_info;
+            } else {
+                answer["mode"] = "local_fallback_no_model_configured";
+                answer["warnings"] = nlohmann::json::array({
+                    "No AI model is configured; this is a local structured fallback without visual/provider reasoning."
+                });
+            }
+
+            append_chat_message_unique(messages, "assistant", answer.value("summary", std::string()));
+            history["messages"] = messages;
+            if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
+            history["turns"].push_back({
+                {"message", message},
+                {"result", answer},
+                {"created_at", utc_now_iso()}
+            });
+            write_pi_run_chat_history(state, run_id, history);
+
+            return json_resp(answer);
         } catch (const std::exception& e) {
             return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-chat/history").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string run_id = req.url_params.get("run_id") ? std::string(req.url_params.get("run_id")) : "";
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        try {
+            return json_resp(read_pi_run_chat_history(state, run_id));
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CHAT_HISTORY_UNAVAILABLE", e.what(), 400);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-chat/history").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        try {
+            nlohmann::json incoming = body->contains("history") && (*body)["history"].is_object()
+                ? (*body)["history"]
+                : nlohmann::json::object();
+            nlohmann::json history = merge_run_chat_history(read_pi_run_chat_history(state, run_id), incoming);
+            write_pi_run_chat_history(state, run_id, history);
+            return json_resp(read_pi_run_chat_history(state, run_id));
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CHAT_HISTORY_SAVE_FAILED", e.what(), 400);
         }
     });
 
@@ -671,10 +1392,13 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             : *body;
         tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
         const auto matches = store.retrieve(query, limit);
+        const auto warnings = store.retrieve_negative(query, limit);
         return json_resp({
-            {"schema_version", "pi.memory-retrieval.v1"},
+            {"schema_version", tile_compile::pi::kMemoryRetrievalSchemaVersion},
             {"matches", matches},
-            {"count", matches.size()}
+            {"warnings", warnings},
+            {"count", matches.size()},
+            {"warning_count", warnings.size()}
         });
     });
 

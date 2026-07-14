@@ -1,5 +1,6 @@
 #include "services/pi/pi_storage_paths.hpp"
 
+#include <cstdlib>
 #include <fstream>
 #include <system_error>
 
@@ -46,6 +47,9 @@ fs::path configured_storage_dir_unlocked(const std::shared_ptr<AppState>& state)
         state->ui_state["pi"].contains("storage_dir") && state->ui_state["pi"]["storage_dir"].is_string()) {
         const std::string raw = state->ui_state["pi"]["storage_dir"].get<std::string>();
         if (!raw.empty()) return fs::path(raw);
+    }
+    if (const char* raw = std::getenv("TILE_COMPILE_PI_STORAGE_DIR")) {
+        if (*raw) return fs::path(raw);
     }
     return {};
 }

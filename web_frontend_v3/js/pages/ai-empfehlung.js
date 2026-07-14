@@ -22,34 +22,34 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.mount", "Mount")),
-        el("select", { class: "tc-select", title: t("ui.tooltip.ai.mount", "Montierungstyp fuer die Analyse einordnen."), onchange: (e) => setAiFormData({ mount: e.target.value }) },
+        el("select", { class: "tc-select", id: "ai-mount", title: t("ui.tooltip.ai.mount", "Montierungstyp fuer die Analyse einordnen."), onchange: (e) => updateAiUiConfig({ mount: e.target.value }) },
           ...["EQ", "Tracker", "Alt/Az"].map(v => el("option", { value: v, ...(fd.mount === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.object_type", "Objekt")),
-        el("select", { class: "tc-select", title: t("ui.tooltip.ai.object_type", "Objekttyp hilft der KI, typische Artefakte richtig zu bewerten."), onchange: (e) => setAiFormData({ object_type: e.target.value }) },
+        el("select", { class: "tc-select", id: "ai-object-type", title: t("ui.tooltip.ai.object_type", "Objekttyp hilft der KI, typische Artefakte richtig zu bewerten."), onchange: (e) => updateAiUiConfig({ object_type: e.target.value }) },
           ...["Galaxie", "Nebel", "Sternhaufen", "Sterne"].map(v => el("option", { value: v, ...(fd.object_type === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.camera", "Kamera")),
-        el("select", { class: "tc-select", title: t("ui.tooltip.ai.camera", "Kameratyp beeinflusst Empfehlungen fuer Farbe, Debayer und Rauschen."), onchange: (e) => setAiFormData({ camera: e.target.value }) },
+        el("select", { class: "tc-select", id: "ai-camera", title: t("ui.tooltip.ai.camera", "Kameratyp beeinflusst Empfehlungen fuer Farbe, Debayer und Rauschen."), onchange: (e) => updateAiUiConfig({ camera: e.target.value }) },
           ...["Consumer OSC", "Mono CMOS", "CCD"].map(v => el("option", { value: v, ...(fd.camera === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.calibration", "Kalibrierung")),
         el("div", { class: "tc-flex tc-gap-3" },
-          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_darks, title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => setAiFormData({ calibration_darks: e.target.checked }) }), t("ui.label.darks", "Darks")),
-          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_flats, title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden."), onchange: (e) => setAiFormData({ calibration_flats: e.target.checked }) }), t("ui.label.flats", "Flats")),
-          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", checked: fd.calibration_bias, title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => setAiFormData({ calibration_bias: e.target.checked }) }), t("ui.label.bias", "Bias")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", id: "ai-calibration-darks", checked: fd.calibration_darks, title: t("ui.tooltip.ai.darks", "Aktivieren, wenn Dark-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => updateAiUiConfig({ calibration_darks: e.target.checked }) }), t("ui.label.darks", "Darks")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden.") }, el("input", { type: "checkbox", id: "ai-calibration-flats", checked: fd.calibration_flats, title: t("ui.tooltip.ai.flats", "Aktivieren, wenn Flats gegen Vignettierung/Staub genutzt wurden."), onchange: (e) => updateAiUiConfig({ calibration_flats: e.target.checked }) }), t("ui.label.flats", "Flats")),
+          el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden.") }, el("input", { type: "checkbox", id: "ai-calibration-bias", checked: fd.calibration_bias, title: t("ui.tooltip.ai.bias", "Aktivieren, wenn Bias-Frames in der Kalibrierung genutzt wurden."), onchange: (e) => updateAiUiConfig({ calibration_bias: e.target.checked }) }), t("ui.label.bias", "Bias")),
         ),
       ),
     ),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.notes", "Notizen")),
-      el("input", { type: "text", class: "tc-input", value: fd.notes, title: t("ui.tooltip.ai.notes", "Freitext fuer Besonderheiten, die nicht automatisch aus dem Scan erkennbar sind."), placeholder: "Guiding 0.8\", M31, alt-az test", oninput: (e) => setAiFormData({ notes: e.target.value }) }),
+      el("input", { type: "text", class: "tc-input", id: "ai-notes", value: fd.notes, title: t("ui.tooltip.ai.notes", "Freitext fuer Besonderheiten, die nicht automatisch aus dem Scan erkennbar sind."), placeholder: "Guiding 0.8\", M31, alt-az test", oninput: (e) => updateAiUiConfig({ notes: e.target.value }, true) }),
     ),
   );
 
@@ -59,13 +59,13 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.provider", "Provider")),
-        el("select", { class: "tc-select", id: "ai-provider", title: t("ui.tooltip.ai.provider", "AI-Anbieter fuer Analyse und Empfehlungen."), onchange: (e) => { setAiFormData({ provider: e.target.value }); filterModelsByProvider(e.target.value); loadAiAccountStatus(e.target.value); } },
+        el("select", { class: "tc-select", id: "ai-provider", title: t("ui.tooltip.ai.provider", "AI-Anbieter fuer Analyse und Empfehlungen."), onchange: (e) => onAiProviderChange(e.target.value) },
           ...["anthropic", "openai"].map(v => el("option", { value: v, ...(fd.provider === v ? { selected: true } : {}) }, v)),
         ),
       ),
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.model", "Modell")),
-        el("select", { class: "tc-select", id: "ai-model", title: t("ui.tooltip.ai.model", "Modell, das die Scan-Daten und Config bewertet."), onchange: (e) => { setAiFormData({ model: e.target.value }); renderCachedVisionCapability(); } },
+        el("select", { class: "tc-select", id: "ai-model", title: t("ui.tooltip.ai.model", "Modell, das die Scan-Daten und Config bewertet."), onchange: (e) => onAiModelChange(e.target.value) },
           el("option", { value: fd.model || "", selected: true }, fd.model || t("ui.placeholder.select_model", "Modell wählen")),
         ),
       ),
@@ -226,8 +226,8 @@ export function createAiEmpfehlungPage() {
 
   page.append(scanCtx, modelCard, actions, recs, applyBar, piPreview, piStorage, piMemories, piAudit, traffic);
 
-  // Load models from backend
-  loadModels();
+  // Load persisted provider/model before loading the model registry.
+  loadAiConfig().finally(() => loadModels());
   loadPiContext();
   loadPiStorage();
   loadPiMemories();
@@ -277,6 +277,38 @@ export function createAiEmpfehlungPage() {
 let _allModels = [];
 let _aiUnsub = null;
 let _lastPiPreview = null;
+let _aiUiPersistTimer = null;
+
+function persistentAiUiFromForm(form = getAiFormData()) {
+  return {
+    mount: String(form.mount || "EQ"),
+    object_type: String(form.object_type || "Galaxie"),
+    camera: String(form.camera || "Consumer OSC"),
+    calibration_darks: Boolean(form.calibration_darks),
+    calibration_flats: Boolean(form.calibration_flats),
+    calibration_bias: Boolean(form.calibration_bias),
+    notes: String(form.notes || ""),
+  };
+}
+
+function syncAiControlsFromForm() {
+  const fd = getAiFormData();
+  const setValue = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.value = value;
+  };
+  const setChecked = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.checked = Boolean(value);
+  };
+  setValue("ai-mount", fd.mount || "EQ");
+  setValue("ai-object-type", fd.object_type || "Galaxie");
+  setValue("ai-camera", fd.camera || "Consumer OSC");
+  setValue("ai-notes", fd.notes || "");
+  setChecked("ai-calibration-darks", fd.calibration_darks);
+  setChecked("ai-calibration-flats", fd.calibration_flats);
+  setChecked("ai-calibration-bias", fd.calibration_bias);
+}
 
 async function loadPiContext() {
   try {
@@ -284,6 +316,106 @@ async function loadPiContext() {
   } catch {
     // PI context is optional for the AI tab.
   }
+}
+
+function ensureProviderOption(provider) {
+  const select = document.getElementById("ai-provider");
+  if (!select || !provider) return;
+  const exists = Array.from(select.options).some(option => option.value === provider);
+  if (!exists) select.appendChild(el("option", { value: provider }, provider));
+}
+
+async function loadAiConfig() {
+  try {
+    const config = await api.get(API_ENDPOINTS.ai.config);
+    if (!config || config.available === false) return;
+    const provider = String(config.provider || "").trim();
+    const model = String(config.model || "").trim();
+    const ui = config.ui && typeof config.ui === "object" ? config.ui : {};
+    setAiState({ config });
+    const patch = {};
+    if (provider) patch.provider = provider;
+    if (model) patch.model = model;
+    for (const key of ["mount", "object_type", "camera", "notes"]) {
+      if (typeof ui[key] === "string") patch[key] = ui[key];
+    }
+    for (const key of ["calibration_darks", "calibration_flats", "calibration_bias"]) {
+      if (typeof ui[key] === "boolean") patch[key] = ui[key];
+    }
+    if (Object.keys(patch).length > 0) setAiFormData(patch);
+    syncAiControlsFromForm();
+    ensureProviderOption(provider);
+    const providerSelect = document.getElementById("ai-provider");
+    const modelSelect = document.getElementById("ai-model");
+    if (providerSelect && provider) providerSelect.value = provider;
+    if (modelSelect && model) {
+      modelSelect.innerHTML = "";
+      modelSelect.appendChild(el("option", { value: model, selected: true }, model));
+    }
+  } catch {
+    // Defaults from local UI state remain usable when config loading fails.
+  }
+}
+
+async function persistAiUiConfig(uiPatch = {}) {
+  const ui = { ...persistentAiUiFromForm(), ...uiPatch };
+  try {
+    const saved = await api.patch(API_ENDPOINTS.ai.config, { ui });
+    setAiState({ config: saved });
+    return saved;
+  } catch (e) {
+    toastError(t("ui.toast.ai_config_save_failed", "AI-Auswahl speichern fehlgeschlagen"), e.message);
+    return null;
+  }
+}
+
+function updateAiUiConfig(patch, debounce = false) {
+  setAiFormData(patch);
+  const ui = persistentAiUiFromForm({ ...getAiFormData(), ...patch });
+  if (_aiUiPersistTimer) {
+    clearTimeout(_aiUiPersistTimer);
+    _aiUiPersistTimer = null;
+  }
+  if (debounce) {
+    _aiUiPersistTimer = setTimeout(() => {
+      _aiUiPersistTimer = null;
+      persistAiUiConfig(ui);
+    }, 500);
+  } else {
+    persistAiUiConfig(ui);
+  }
+}
+
+async function persistAiProviderModelConfig(patch) {
+  const clean = {};
+  if (Object.prototype.hasOwnProperty.call(patch, "provider")) clean.provider = String(patch.provider || "").trim();
+  if (Object.prototype.hasOwnProperty.call(patch, "model")) clean.model = String(patch.model || "").trim();
+  try {
+    const saved = await api.patch(API_ENDPOINTS.ai.config, clean);
+    setAiState({ config: saved });
+    return saved;
+  } catch (e) {
+    toastError(t("ui.toast.ai_config_save_failed", "AI-Auswahl speichern fehlgeschlagen"), e.message);
+    return null;
+  }
+}
+
+async function onAiProviderChange(provider) {
+  const normalized = String(provider || "").trim();
+  setAiFormData({ provider: normalized, model: "" });
+  const modelSelect = document.getElementById("ai-model");
+  if (modelSelect) modelSelect.value = "";
+  filterModelsByProvider(normalized);
+  loadAiAccountStatus(normalized);
+  await persistAiProviderModelConfig({ provider: normalized, model: "" });
+}
+
+async function onAiModelChange(model) {
+  const normalized = String(model || "").trim();
+  const provider = document.getElementById("ai-provider")?.value || getAiFormData().provider || "";
+  setAiFormData({ provider, model: normalized });
+  renderCachedVisionCapability();
+  await persistAiProviderModelConfig({ provider, model: normalized });
 }
 
 async function loadModels() {
@@ -303,7 +435,7 @@ async function loadModels() {
       for (const m of modelList) {
         const id = m?.id || m?.name || "";
         const label = m?.label || m?.name || id;
-        if (id) _allModels.push({ value: `${providerName}/${id}`, label: `${providerName}: ${label}`, provider: providerName });
+        if (id) _allModels.push({ value: `${providerName}/${id}`, label: `${providerName}: ${label}`, provider: providerName, capabilities: m.capabilities || null });
       }
     }
     const providerCount = providers.length;
@@ -314,6 +446,7 @@ async function loadModels() {
   } catch (e) {
     if (statusEl) statusEl.textContent = t("ui.state.model_load_failed", "Modelle laden fehlgeschlagen") + `: ${e.message}`;
   }
+  renderCachedVisionCapability();
 }
 
 function filterModelsByProvider(provider) {
@@ -332,6 +465,76 @@ function filterModelsByProvider(provider) {
   }
   if (currentModel && !foundCurrent) {
     select.appendChild(el("option", { value: currentModel, selected: true }, `${currentModel} ${t("ui.state.saved_parenthetical", "(gespeichert)")}`));
+  }
+  renderCachedVisionCapability();
+}
+
+function selectedModelCapabilities() {
+  const model = document.getElementById("ai-model")?.value || getAiState().aiFormData?.model || "";
+  if (!model) return null;
+  return _allModels.find(m => m.value === model)?.capabilities || null;
+}
+
+function visionStatusText(capabilities) {
+  if (!capabilities) return t("ui.state.not_loaded", "nicht geladen");
+  const support = capabilities.supports_images
+    ? t("ui.state.vision_supported", "Bildfähig")
+    : t("ui.state.vision_not_supported", "Nicht bildfähig");
+  const sourceMap = {
+    override: t("ui.ai.vision_source_override", "Override"),
+    live_probe: t("ui.ai.vision_source_live", "Live-Test"),
+    registry: t("ui.ai.vision_source_registry", "Registry"),
+    heuristic: t("ui.ai.vision_source_heuristic", "Heuristik"),
+    unknown: t("ui.ai.vision_source_unknown", "unbekannt"),
+  };
+  const source = sourceMap[capabilities.source] || capabilities.source || sourceMap.unknown;
+  const tested = capabilities.live?.tested_at ? ` · ${capabilities.live.tested_at}` : "";
+  const error = capabilities.live?.error && capabilities.live?.status === "error" ? ` · ${capabilities.live.error}` : "";
+  return `${support} (${source})${tested}${error}`;
+}
+
+function setVisionOverrideControl(capabilities) {
+  const select = document.getElementById("ai-vision-override");
+  if (!select) return;
+  const override = capabilities?.override;
+  select.value = override === true ? "true" : override === false ? "false" : "";
+}
+
+function renderVisionCapability(capabilities) {
+  const status = document.getElementById("ai-vision-status");
+  if (status) status.textContent = visionStatusText(capabilities);
+  setVisionOverrideControl(capabilities);
+}
+
+function renderCachedVisionCapability() {
+  renderVisionCapability(selectedModelCapabilities());
+}
+
+function updateCachedVisionCapability(model, capabilities) {
+  const item = _allModels.find(m => m.value === model);
+  if (item) item.capabilities = capabilities;
+  renderVisionCapability(capabilities);
+}
+
+function currentVisionOverrideValue() {
+  const raw = document.getElementById("ai-vision-override")?.value ?? "";
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
+async function saveVisionOverride() {
+  const model = document.getElementById("ai-model")?.value || "";
+  if (!model) return;
+  try {
+    const result = await api.post(API_ENDPOINTS.ai.test, {
+      model,
+      vision_override: currentVisionOverrideValue(),
+    });
+    updateCachedVisionCapability(model, result?.capabilities || null);
+    toastSuccess(t("ui.toast.vision_override_saved", "Bildfähigkeits-Override gespeichert"));
+  } catch (e) {
+    toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), e.message);
   }
 }
 
@@ -368,6 +571,12 @@ function renderAiAccountStatus(payload, modelCheck = null) {
     container.appendChild(el("div", { class: ok ? "tc-text-success" : "tc-text-error" },
       `${t("ui.ai.model_status", "Modellstatus")}: ${ok ? t("ui.state.model_available", "Status: Modell verfügbar") : t("ui.ai.model_unavailable_selected", "Ausgewähltes Modell nicht verfügbar")}`,
     ));
+    if (modelCheck.capabilities) {
+      updateCachedVisionCapability(modelCheck.model, modelCheck.capabilities);
+      container.appendChild(el("div", { class: modelCheck.capabilities.supports_images ? "tc-text-success" : "tc-text-muted" },
+        `${t("ui.label.vision_status", "Vision-Status")}: ${visionStatusText(modelCheck.capabilities)}`,
+      ));
+    }
   }
   container.appendChild(el("div", {}, t("ui.ai.billing_message", "Kontostand und Abo-Details bitte im Anbieter-Portal prüfen.")));
   if (info.billing_url) {
@@ -407,7 +616,11 @@ async function refreshAiProviderStatus() {
   try {
     const [account, modelCheck] = await Promise.all([
       api.get(API_ENDPOINTS.ai.account(provider)),
-      api.post(API_ENDPOINTS.ai.test, { model }).catch((e) => ({
+      api.post(API_ENDPOINTS.ai.test, {
+        model,
+        vision_probe: true,
+        vision_override: currentVisionOverrideValue(),
+      }).catch((e) => ({
         ok: false,
         model,
         error: e.message,
@@ -555,6 +768,15 @@ async function createAnalysis(force = false) {
       force: true,
       scan_result: latestScan,
       model: fd.model || undefined,
+      session_context: {
+        mount_type: fd.mount || undefined,
+        target_type: fd.object_type || undefined,
+        camera_type: fd.camera || undefined,
+        calibration_darks: Boolean(fd.calibration_darks),
+        calibration_flats: Boolean(fd.calibration_flats),
+        calibration_bias: Boolean(fd.calibration_bias),
+        notes: fd.notes || undefined,
+      },
     };
     if (scanMetrics) payload.scan_metrics = scanMetrics;
     if (configSchema) payload.config_schema = configSchema;

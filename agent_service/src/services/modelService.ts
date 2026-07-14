@@ -291,7 +291,7 @@ export class ModelService {
       try {
         await Promise.race([
           session.prompt("Vision capability probe. Reply with exactly: vision-ok", {
-            images: [{ type: "image", source: { type: "base64", mediaType: "image/png", data: tinyPng } }],
+            images: [{ type: "image", data: tinyPng, mimeType: "image/png" }],
           }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("vision_probe_timeout")), 60000)),
         ]);

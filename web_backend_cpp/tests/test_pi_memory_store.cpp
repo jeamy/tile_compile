@@ -12,9 +12,22 @@ int main() {
         std::filesystem::remove_all(dir);
 
         tile_compile::pi::PiMemoryStore store(dir);
+        const nlohmann::json ctx = {
+            {"schema_version", "pi.context_signature.v1"},
+            {"target", {{"object_type", "emission_nebula"}}},
+            {"acquisition", {{"camera_type", "OSC"}}},
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.model"})}}}
+        };
+        const nlohmann::json scope = {
+            {"applies_when", nlohmann::json::array({"matching context"})},
+            {"does_not_apply_when", nlohmann::json::array({"different target class"})},
+            {"confidence", 0.5}
+        };
         const auto first = store.append_candidate({
             {"type", "optimization"},
             {"source_session_id", "pi_sess_fixture"},
+            {"context_signature", ctx},
+            {"scope", scope},
             {"recommendation", {
                 {"patch", nlohmann::json::array({{{"path", "bge.model"}, {"value", "rbf"}}})}
             }},
@@ -22,17 +35,23 @@ int main() {
             {"outcome", {{"validation_valid", true}, {"applied_count", 1}}}
         });
 
-        expect_equal(first["schema_version"].get<std::string>(), "pi.memory.v1", "memory schema");
+        expect_equal(first["schema_version"].get<std::string>(), "pi.memory.v2", "memory schema");
         expect_equal(first["status"].get<std::string>(), "candidate", "memory default status");
         expect_equal(first["privacy_class"].get<std::string>(), "metadata_only", "memory default privacy");
         expect_true(!first["memory_id"].get<std::string>().empty(), "memory id generated");
+        expect_equal(first["id"].get<std::string>(), first["memory_id"].get<std::string>(), "memory id alias generated");
         expect_true(std::filesystem::is_regular_file(store.memories_path()), "memory jsonl exists");
+        expect_true(!std::filesystem::exists(store.legacy_memories_path()), "legacy memory jsonl ignored");
 
         store.append_candidate({
             {"memory_id", "mem_fixture_second"},
             {"type", "failure"},
             {"status", "candidate"},
             {"privacy_class", "metadata_only"},
+            {"context_signature", ctx},
+            {"scope", scope},
+            {"evidence", {{"validation", "fixture"}}},
+            {"outcome", {{"validation_valid", false}, {"applied_count", 1}}},
             {"avoid", {{"path", "bge.model"}, {"value", "classic"}}}
         });
         store.append_candidate({
@@ -40,9 +59,12 @@ int main() {
             {"type", "optimization"},
             {"status", "candidate"},
             {"privacy_class", "metadata_only"},
+            {"context_signature", ctx},
+            {"scope", scope},
             {"recommendation", {
                 {"patch", nlohmann::json::array({{{"path", "bge.model"}, {"value", "poly"}}})}
             }},
+            {"evidence", {{"validation", "fixture"}}},
             {"outcome", {{"validation_valid", false}, {"applied_count", 1}}}
         });
 
@@ -77,6 +99,8 @@ int main() {
                      "deprecated memory review stores outcome");
         const auto negative_matches = store.retrieve({{"type", "failure"}, {"paths", nlohmann::json::array({"bge.model"})}}, 5);
         expect_equal(static_cast<long>(negative_matches.size()), 0L, "deprecated memory excluded from retrieval");
+        const auto negative_warnings = store.retrieve_negative({{"type", "failure"}, {"paths", nlohmann::json::array({"bge.model"})}}, 5);
+        expect_equal(static_cast<long>(negative_warnings.size()), 1L, "deprecated memory returned as warning");
 
         const auto string_path_matches = store.retrieve({
             {"type", "optimization"},
@@ -88,17 +112,20 @@ int main() {
         const auto duplicate = store.append_candidate({
             {"type", "optimization"},
             {"source_session_id", "pi_sess_fixture"},
+            {"context_signature", ctx},
+            {"scope", scope},
             {"recommendation", {
                 {"patch", nlohmann::json::array({{{"path", "bge.model"}, {"value", "rbf"}}})}
             }},
-            {"evidence", {{"validation", "fixture"}}}
+            {"evidence", {{"validation", "fixture"}}},
+            {"outcome", {{"validation_valid", true}, {"applied_count", 1}}}
         });
         expect_true(!duplicate.value("created", true), "duplicate memory is not appended");
         expect_true(duplicate.value("duplicate", false), "duplicate memory is flagged");
         expect_equal(static_cast<long>(store.list().size()), 3L, "duplicate memory keeps list count");
 
         const auto exported = store.export_bundle("metadata_only", true);
-        expect_equal(exported["schema_version"].get<std::string>(), "pi.memories-export.v1",
+        expect_equal(exported["schema_version"].get<std::string>(), "pi.memories-export.v2",
                      "memory export schema");
         expect_equal(static_cast<long>(exported["memory_count"].get<size_t>()), 3L,
                      "memory export count");
@@ -115,11 +142,19 @@ int main() {
 
         bool rejected_non_candidate = false;
         try {
-            store.append_candidate({{"type", "optimization"}, {"status", "accepted"}});
+            store.append_candidate({{"type", "optimization"}, {"status", "accepted"}, {"context_signature", ctx}, {"scope", scope}, {"evidence", nlohmann::json::object()}, {"outcome", nlohmann::json::object()}});
         } catch (const std::invalid_argument&) {
             rejected_non_candidate = true;
         }
         expect_true(rejected_non_candidate, "non-candidate memory rejected");
+
+        bool rejected_missing_context = false;
+        try {
+            store.append_candidate({{"type", "optimization"}, {"evidence", nlohmann::json::object()}, {"outcome", nlohmann::json::object()}});
+        } catch (const std::invalid_argument&) {
+            rejected_missing_context = true;
+        }
+        expect_true(rejected_missing_context, "memory without context signature rejected");
 
         bool rejected_bad_review = false;
         try {

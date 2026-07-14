@@ -112,10 +112,10 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
     if (method == "aqmh") {
         return {
             "SCAN_INPUT",
-            "CHANNEL_SPLIT",
-            "NORMALIZATION",
             "REGISTRATION",
             "PREWARP",
+            "CHANNEL_SPLIT",
+            "NORMALIZATION",
             "COMMON_OVERLAP",
             "AQMH_MAPS",
             "AQMH_GLOBAL_QUALITY",
@@ -1042,7 +1042,7 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
     if (!fs::is_directory(run_dir)) return items;
 
     static const std::vector<std::string> ARTIFACT_EXTS = {
-        ".json", ".jsonl", ".html", ".md", ".yaml", ".yml", ".csv", ".txt", ".png", ".fits", ".log"
+        ".json", ".jsonl", ".html", ".md", ".yaml", ".yml", ".csv", ".txt", ".png", ".fits", ".fit", ".fts", ".log"
     };
 
     std::function<void(const fs::path&, const std::string&)> scan =

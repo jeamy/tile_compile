@@ -9,6 +9,9 @@
 #include "services/bge_preview_service.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
+#include <fitsio.h>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -302,6 +305,143 @@ static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, co
         }
     }
     return candidate;
+}
+
+static size_t count_run_event_lines_for_resume(const fs::path& run_dir) {
+    const std::vector<fs::path> candidates = {
+        run_dir / "logs" / "run_events.jsonl",
+        run_dir / "events.jsonl",
+        run_dir / "logs" / "events.jsonl"
+    };
+    for (const auto& path : candidates) {
+        if (!fs::exists(path)) continue;
+        std::ifstream in(path);
+        size_t count = 0;
+        std::string line;
+        while (std::getline(in, line)) ++count;
+        return count;
+    }
+    return 0;
+}
+
+static std::string fits_status_text(int status) {
+    char text[FLEN_STATUS]{};
+    fits_get_errstatus(status, text);
+    return text;
+}
+
+static std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
+                                                  long& width, long& height, long& planes) {
+    fitsfile* file = nullptr;
+    int status = 0;
+    if (fits_open_file(&file, path.string().c_str(), READONLY, &status))
+        throw std::runtime_error("Cannot open FITS: " + fits_status_text(status));
+    int naxis = 0;
+    long axes[3]{1, 1, 1};
+    if (fits_get_img_dim(file, &naxis, &status) ||
+        fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Invalid FITS image");
+    }
+    width = axes[0];
+    height = axes[1];
+    planes = naxis >= 3 ? axes[2] : 1;
+    if (plane < 1 || plane > planes) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Missing FITS plane");
+    }
+    std::vector<float> pixels(static_cast<size_t>(width * height));
+    long first[3]{1, 1, plane};
+    int any_null = 0;
+    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr, pixels.data(), &any_null, &status)) {
+        const auto message = fits_status_text(status);
+        fits_close_file(file, &status);
+        throw std::runtime_error("Cannot read FITS: " + message);
+    }
+    fits_close_file(file, &status);
+    return pixels;
+}
+
+static cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) {
+    cv::Mat mat(static_cast<int>(height), static_cast<int>(width), CV_32F);
+    for (long y = 0; y < height; ++y)
+        for (long x = 0; x < width; ++x)
+            mat.at<float>(static_cast<int>(y), static_cast<int>(x)) = values[static_cast<size_t>(y * width + x)];
+    return mat;
+}
+
+static std::pair<float, float> robust_range(const std::vector<cv::Mat>& planes) {
+    std::vector<float> sample;
+    for (const auto& mat : planes) {
+        const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(mat.rows * mat.cols) / 250000.0)));
+        for (int y = 0; y < mat.rows; y += stride) {
+            for (int x = 0; x < mat.cols; x += stride) {
+                const float v = mat.at<float>(y, x);
+                if (std::isfinite(v)) sample.push_back(v);
+            }
+        }
+    }
+    if (sample.empty()) return {0.0f, 1.0f};
+    std::sort(sample.begin(), sample.end());
+    auto at = [&](double q) {
+        const size_t idx = std::min(sample.size() - 1, static_cast<size_t>(std::llround(q * static_cast<double>(sample.size() - 1))));
+        return sample[idx];
+    };
+    float lo = at(0.01);
+    float hi = at(0.995);
+    if (!std::isfinite(lo) || !std::isfinite(hi) || hi <= lo) {
+        lo = sample.front();
+        hi = sample.back();
+    }
+    if (hi <= lo) hi = lo + 1.0f;
+    return {lo, hi};
+}
+
+static std::vector<unsigned char> render_fits_preview_png(const fs::path& path, int max_edge = 1400) {
+    long w = 0, h = 0, p = 0;
+    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    cv::Mat r = plane_to_mat(rv, w, h);
+    cv::Mat g = r;
+    cv::Mat b = r;
+    if (p >= 3) {
+        long wg = 0, hg = 0, pg = 0;
+        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        g = plane_to_mat(gv, wg, hg);
+        long wb = 0, hb = 0, pb = 0;
+        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        b = plane_to_mat(bv, wb, hb);
+        if (g.cols != r.cols || g.rows != r.rows || b.cols != r.cols || b.rows != r.rows)
+            throw std::runtime_error("RGB FITS planes have different dimensions");
+    }
+    const int edge = std::max(r.rows, r.cols);
+    if (edge > max_edge) {
+        const double scale = static_cast<double>(max_edge) / static_cast<double>(edge);
+        const cv::Size size(std::max(1, static_cast<int>(std::lround(r.cols * scale))),
+                            std::max(1, static_cast<int>(std::lround(r.rows * scale))));
+        cv::resize(r, r, size, 0, 0, cv::INTER_AREA);
+        cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
+        cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
+    }
+    const auto [lo, hi] = robust_range({r, g, b});
+    const float denom = std::max(hi - lo, 1e-9f);
+    cv::Mat out(r.rows, r.cols, CV_8UC3);
+    for (int y = 0; y < r.rows; ++y) {
+        for (int x = 0; x < r.cols; ++x) {
+            auto convert = [&](float v) -> unsigned char {
+                if (!std::isfinite(v)) v = lo;
+                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
+                n = std::pow(n, 0.6f);
+                return cv::saturate_cast<unsigned char>(n * 255.0f);
+            };
+            auto& px = out.at<cv::Vec3b>(y, x);
+            px[2] = convert(r.at<float>(y, x));
+            px[1] = convert(g.at<float>(y, x));
+            px[0] = convert(b.at<float>(y, x));
+        }
+    }
+    std::vector<unsigned char> png;
+    if (!cv::imencode(".png", out, png)) throw std::runtime_error("PNG encoding failed");
+    return png;
 }
 
 /// @brief Applies color mode to yaml.
@@ -1146,6 +1286,7 @@ void register_runs_routes(CrowApp& app,
 
         fs::path run_dir;
         if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
+        const size_t event_cursor_before_resume = count_run_event_lines_for_resume(run_dir);
 
         const fs::path run_config_path = run_dir / "config.yaml";
         std::string requested_yaml = config_yaml;
@@ -1181,6 +1322,7 @@ void register_runs_routes(CrowApp& app,
             {"run_dir", run_dir.string()},
             {"runs_dir", run_dir.parent_path().string()},
             {"from_phase", from_phase},
+            {"event_cursor_before_resume", event_cursor_before_resume},
             {"config_revision_id", rev_id},
             {"filter_context", filter_ctx.empty() ? nlohmann::json(nullptr) : nlohmann::json(filter_ctx)},
             {"command", args}
@@ -1209,25 +1351,29 @@ void register_runs_routes(CrowApp& app,
         if (req.url_params.get("tail"))
             try { tail = std::stoi(req.url_params.get("tail")); } catch (...) {}
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             std::string text = read_run_logs(run_dir, tail);
             nlohmann::json lines = nlohmann::json::array();
             std::istringstream iss(text);
             std::string line;
             while (std::getline(iss, line)) lines.push_back(line);
-            return json_resp({{"lines", lines}, {"cursor", nullptr}});
+            return json_resp({{"lines", lines}, {"cursor", nullptr}, {"run_dir", run_dir.string()}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
         }
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts").methods("GET"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             auto items   = list_run_artifacts(run_dir);
-            return json_resp({{"items", items}, {"run_id", run_id}});
+            return json_resp({{"items", items}, {"run_id", run_id}, {"run_dir", run_dir.string()}});
         } catch (const std::exception& e) {
             if (pending_run_status(state, run_id)) {
                 return json_resp({{"items", nlohmann::json::array()}, {"run_id", run_id}});
@@ -1267,6 +1413,35 @@ void register_runs_routes(CrowApp& app,
             return json_resp({{"text", content}, {"is_json", false}, {"filename", full->filename().string()}, {"path", full->string()}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/image-preview").methods("GET"_method)
+    ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
+        std::string rel_path = req.url_params.get("path") ? req.url_params.get("path") : "";
+        if (rel_path.empty()) {
+            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+        }
+        try {
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
+            auto full = resolve_artifact_path(run_dir, rel_path);
+            if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
+            if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
+            const std::string ext = full->extension().string();
+            if (ext != ".fits" && ext != ".fit" && ext != ".fts") {
+                return err_resp("UNSUPPORTED_PREVIEW_FORMAT", "image-preview currently supports FITS files", 415, nlohmann::json::object());
+            }
+            const auto png = render_fits_preview_png(*full);
+            crow::response res(200);
+            res.set_header("Content-Type", "image/png");
+            res.set_header("Cache-Control", "no-store");
+            res.body.assign(reinterpret_cast<const char*>(png.data()), png.size());
+            return res;
+        } catch (const std::exception& e) {
+            return err_resp("PREVIEW_RENDER_FAILED", e.what(), 422, nlohmann::json::object());
         }
     });
 

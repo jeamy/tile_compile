@@ -263,13 +263,18 @@ std::string run_id_from_ws_url(const std::string& url) {
 /// @brief Builds run ctx.
 /// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& state, const std::string& run_id) {
+std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& state,
+                                           const std::string& run_id,
+                                           const std::string& requested_run_dir = "") {
     auto ctx = std::make_shared<RunWsContext>();
     ctx->state = state;
     ctx->run_id = run_id;
+    if (!requested_run_dir.empty()) {
+        ctx->alt_runs_dir = fs::path(requested_run_dir).parent_path().string();
+    }
     // Get alt_runs_dir from job data so we can find runs in custom runs_dir locations
     const auto job = latest_run_job(state->job_store, run_id);
-    if (job && job->data.is_object()) {
+    if (ctx->alt_runs_dir.empty() && job && job->data.is_object()) {
         ctx->alt_runs_dir = job->data.value("runs_dir", "");
     }
     try {
@@ -278,6 +283,14 @@ std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& stat
         // Historical logs are loaded via the REST endpoints and replaying old
         // terminal events breaks resume monitoring by closing the fresh stream.
         ctx->cursor = count_existing_event_lines(run_dir);
+        if (job && job->type == "resume" && job->data.is_object() &&
+            job->data.contains("event_cursor_before_resume") &&
+            job->data["event_cursor_before_resume"].is_number_unsigned()) {
+            ctx->cursor = job->data["event_cursor_before_resume"].get<size_t>();
+        } else if (job && job->type == "resume" &&
+                   (job->state == JobState::pending || job->state == JobState::running)) {
+            ctx->cursor = ctx->cursor > 50 ? ctx->cursor - 50 : 0;
+        }
     } catch (...) {
         ctx->cursor = 0;
     }
@@ -601,7 +614,8 @@ void register_ws_routes(CrowApp& app,
     })
     .onaccept([state](const crow::request& req, void** userdata) -> bool {
         std::string run_id = run_id_from_ws_url(req.url);
-        *userdata = new std::shared_ptr<RunWsContext>(make_run_ctx(state, run_id));
+        const std::string run_dir = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+        *userdata = new std::shared_ptr<RunWsContext>(make_run_ctx(state, run_id, run_dir));
         return !run_id.empty();
     });
 

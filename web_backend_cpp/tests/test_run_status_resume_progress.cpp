@@ -263,6 +263,11 @@ int main(int argc, char** argv) {
         expect_true(found_overlay_bge, "resume overlay target phase present");
         expect_true(found_overlay_pcc, "resume overlay later phase present");
 
+        const auto overlay_logs = harness.get_json(
+            "/api/runs/resume_overlay_without_events/logs?tail=20&run_dir=runs%2Fresume_overlay_without_events");
+        expect_equal(overlay_logs["_http_status"].get<long>(), 200L, "resume logs with run_dir status code");
+        expect_true(!overlay_logs["lines"].empty(), "resume logs with run_dir returns event lines");
+
         const auto resumed_job = harness.wait_for_job(resumed["job_id"].get<std::string>(), 5.0);
         expect_equal(resumed_job["state"].get<std::string>(), "ok", "resume overlay job completes");
         expect_equal(resumed_job["data"]["run_dir"].get<std::string>(),
@@ -322,7 +327,7 @@ int main(int argc, char** argv) {
         }
         expect_true(found_overlay_aqmh_maps, "aqmh maps phase present after resume overlay");
         expect_true(found_overlay_aqmh_reconstruction, "aqmh reconstruction phase present after resume overlay");
-        expect_true(!found_overlay_stack, "aqmh resume overlay hides classic stacking phase");
+        expect_true(found_overlay_stack, "aqmh resume overlay keeps aqmh stacking phase visible");
 
         const auto aqmh_resumed_job = harness.wait_for_job(aqmh_resumed["job_id"].get<std::string>(), 5.0);
         expect_equal(aqmh_resumed_job["state"].get<std::string>(), "ok", "aqmh resume overlay job completes");

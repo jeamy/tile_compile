@@ -9,7 +9,7 @@ import { getStore } from "../state/store.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
-import { createYamlDiff } from "../components/yaml-diff.js";
+import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 const store = getStore("run-history", {
   selectedRunId: null,
@@ -139,10 +139,11 @@ async function selectRun(runId) {
   body.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mb-2" }, runId));
 
   try {
-    const [status, stats, artifacts] = await Promise.all([
-      api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null),
+    const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
+    const runDir = status?.run_dir || "";
+    const [stats, artifacts] = await Promise.all([
       api.get(API_ENDPOINTS.runs.stats(runId)).catch(() => null),
-      api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => null),
+      api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
     ]);
 
     if (status) {
@@ -180,7 +181,8 @@ async function selectRun(runId) {
       body.appendChild(artList);
     }
 
-    body.appendChild(createRunChatPanel(runId));
+    body.appendChild(createRunImagePreviewPanel("run-history-image-preview"));
+    loadRunImagePreview(runId, status?.run_dir || "", artifacts, "run-history-image-preview");
 
     const actions = document.getElementById("run-actions");
     if (actions) {
@@ -216,131 +218,6 @@ async function viewArtifact(runId, path, runDir = "") {
     window.open(url, "_blank");
   } catch (e) {
     toastError(t("ui.toast.view_failed", "Anzeigen fehlgeschlagen"), e.message);
-  }
-}
-
-function listSection(title, items) {
-  const list = el("div", { class: "tc-flex-col tc-gap-1" });
-  for (const item of Array.isArray(items) ? items : []) {
-    const text = typeof item === "string" ? item : item?.text || JSON.stringify(item);
-    const evidence = typeof item === "object" && item?.evidence_ref ? ` (${item.evidence_ref})` : "";
-    list.appendChild(el("div", { class: "tc-text-sm" }, `${text}${evidence}`));
-  }
-  return el("div", { class: "tc-mt-2" },
-    el("div", { class: "tc-label" }, title),
-    list,
-  );
-}
-
-function renderRunChatResult(container, result) {
-  clear(container);
-  container.appendChild(el("div", { class: "tc-text-sm" }, result?.summary || ""));
-
-  const hints = result?.context?.problem_hints || [];
-  if (Array.isArray(hints) && hints.length) {
-    container.appendChild(el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
-      ...hints.map(h => el("span", { class: "tc-badge", title: h.confidence || "" }, h.label || h.id || "-")),
-    ));
-  }
-
-  container.appendChild(listSection(t("ui.pi.run_chat.likely_causes", "Wahrscheinliche Ursachen"), result?.likely_causes));
-  container.appendChild(listSection(t("ui.pi.run_chat.checks", "Prüfen"), result?.checks));
-  container.appendChild(listSection(t("ui.pi.run_chat.recommendations", "Empfehlungen"), result?.recommendations));
-
-  const actionCount = Array.isArray(result?.action_plan?.actions) ? result.action_plan.actions.length : 0;
-  if (actionCount > 0) {
-    const previewTarget = el("div", { class: "tc-flex-col tc-gap-2 tc-mt-2" });
-    container.appendChild(el("div", { class: "tc-mt-2" },
-      el("div", { class: "tc-text-sm tc-text-muted" },
-        t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: actionCount }),
-      ),
-      el("button", {
-        class: "tc-btn tc-btn-sm tc-mt-2",
-        title: t("ui.tooltip.run_chat_preview", "Validiert den Action-Plan und zeigt den YAML-Diff ohne Speichern."),
-        onclick: () => previewRunChatActionPlan(result.action_plan, previewTarget),
-      }, t("ui.button.pi_preview", "PI Preview")),
-      previewTarget,
-    ));
-  }
-
-  const evidence = Array.isArray(result?.evidence) ? result.evidence : [];
-  if (evidence.length) {
-    const ev = el("details", { class: "tc-mt-2" },
-      el("summary", { class: "tc-text-sm" }, t("ui.pi.run_chat.evidence", "Evidenz")),
-      el("pre", { class: "tc-log-viewer tc-text-sm", style: { maxHeight: "220px" } }, JSON.stringify(evidence, null, 2)),
-    );
-    container.appendChild(ev);
-  }
-}
-
-async function previewRunChatActionPlan(plan, container) {
-  if (!plan || !container) return;
-  clear(container);
-  container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
-  try {
-    const preview = await api.post(API_ENDPOINTS.pi.actionPlanPreview, { plan });
-    clear(container);
-    const valid = preview?.config_valid === true
-      ? t("ui.state.valid", "valid")
-      : t("ui.state.invalid", "invalid");
-    container.appendChild(el("div", { class: "tc-text-sm tc-text-muted" }, `${t("ui.label.config", "Config")}: ${valid}`));
-    container.appendChild(createYamlDiff(preview?.base_yaml || "", preview?.patched_yaml || ""));
-  } catch (e) {
-    clear(container);
-    container.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
-  }
-}
-
-function createRunChatPanel(runId) {
-  const outputId = `run-chat-output-${String(runId).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-  const inputId = `run-chat-input-${String(runId).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-  const placeholder = t(
-    "ui.placeholder.run_chat",
-    "z.B. Sterne oben haben schwarzen Kern, der Nebel oben wird beschnitten und ist kaum sichtbar. Was kann man tun?",
-  );
-  return el("div", { class: "tc-card tc-mt-3", id: "run-chat-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.run_chat", "Run-Chat")),
-    el("textarea", {
-      class: "tc-input",
-      id: inputId,
-      rows: 3,
-      placeholder,
-      title: t("ui.tooltip.run_chat_input", "Beschreibe sichtbare Bildprobleme in normaler Sprache."),
-    }),
-    el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
-      el("button", {
-        class: "tc-btn tc-btn-sm",
-        title: t("ui.tooltip.run_chat_send", "Analysiert deine Beschreibung mit Run-Report, Artefakten und PI Memories."),
-        onclick: () => submitRunChat(runId, inputId, outputId),
-      }, t("ui.button.ask_pi", "PI fragen")),
-    ),
-    el("div", { class: "tc-flex-col tc-gap-2 tc-mt-2", id: outputId },
-      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")),
-    ),
-  );
-}
-
-async function submitRunChat(runId, inputId, outputId) {
-  const input = document.getElementById(inputId);
-  const output = document.getElementById(outputId);
-  const message = String(input?.value || "").trim();
-  if (!message) {
-    toast(t("ui.toast.run_chat_empty", "Bitte erst ein Problem beschreiben."), "", "info");
-    return;
-  }
-  if (output) {
-    clear(output);
-    output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
-  }
-  try {
-    const result = await api.post(API_ENDPOINTS.pi.runChat, { run_id: runId, message });
-    if (output) renderRunChatResult(output, result);
-  } catch (e) {
-    if (output) {
-      clear(output);
-      output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
-    }
-    toastError(t("ui.toast.run_chat_failed", "Run-Chat fehlgeschlagen"), e.message);
   }
 }
 
@@ -407,7 +284,7 @@ async function loadRunSnapshot(runId) {
 
     const [statsStatus, artifactsResult, logs] = await Promise.all([
       api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => null),
-      api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => null),
+      api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
       api.get(API_ENDPOINTS.runs.logs(runId, 99999)).catch(() => null),
     ]);
     const artifacts = artifactsResult?.items || artifactsResult || [];

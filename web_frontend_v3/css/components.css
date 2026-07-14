@@ -99,6 +99,49 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* ── Run Chat ───────────────────────────────────── */
+.tc-run-chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.tc-run-chat-question {
+  align-self: flex-start;
+  max-width: min(760px, 100%);
+  padding: var(--space-3);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+  color: var(--foreground);
+}
+
+.tc-run-chat-question-text {
+  font-style: italic;
+}
+
+.tc-run-chat-answer {
+  max-width: 100%;
+  padding: var(--space-3);
+  border-left: 3px solid var(--info);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--foreground);
+}
+
+.tc-run-chat-role {
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* ── Inputs ─────────────────────────────────────── */
 .tc-input,
 .tc-select {

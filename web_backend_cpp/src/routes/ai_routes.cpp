@@ -559,22 +559,117 @@ json build_apply_candidate_memory(const std::string& analysis_id,
             if (!path.empty()) applied_paths.push_back(path);
         }
     }
+    json context = analysis_data.contains("analysis_context") && analysis_data["analysis_context"].is_object()
+        ? analysis_data["analysis_context"]
+        : json::object();
+    json session_context = context.contains("session_context") && context["session_context"].is_object()
+        ? context["session_context"]
+        : json::object();
+    json scan_metrics = context.contains("scan_metrics") && context["scan_metrics"].is_object()
+        ? context["scan_metrics"]
+        : json::object();
+    auto optional_context_value = [&](const char* key) -> json {
+        return session_context.contains(key) ? session_context[key] : json(nullptr);
+    };
+
+    json context_signature = {
+        {"schema_version", "pi.context_signature.v1"},
+        {"target", {
+            {"object_name", session_context.value("target_name", std::string("unknown"))},
+            {"object_type", session_context.value("target_type", std::string("unknown"))},
+            {"angular_size_class", session_context.value("target_angular_size", std::string("unknown"))},
+            {"has_extended_emission", optional_context_value("has_extended_emission")}
+        }},
+        {"acquisition", {
+            {"camera_name", session_context.value("camera_name", std::string("unknown"))},
+            {"camera_type", session_context.value("camera_type", std::string("unknown"))},
+            {"color_mode", context.contains("scan_metadata") && context["scan_metadata"].is_object()
+                ? context["scan_metadata"].value("color_mode", std::string("unknown"))
+                : std::string("unknown")},
+            {"filters", session_context.contains("filters") ? session_context["filters"] : json::array()},
+            {"frame_count", context.value("frame_count", 0)},
+            {"calibration", {
+                {"darks", session_context.value("calibration_darks", false)},
+                {"flats", session_context.value("calibration_flats", false)},
+                {"bias", session_context.value("calibration_bias", false)}
+            }}
+        }},
+        {"optics", {
+            {"telescope", session_context.value("telescope", std::string("unknown"))},
+            {"focal_length_mm", optional_context_value("focal_length_mm")},
+            {"f_ratio", optional_context_value("f_ratio")},
+            {"pixel_scale_arcsec", optional_context_value("pixel_scale_arcsec")}
+        }},
+        {"mount", {
+            {"type", session_context.value("mount_type", std::string("unknown"))},
+            {"tracking_quality", session_context.value("tracking_quality", std::string("unknown"))}
+        }},
+        {"pipeline", {
+            {"affected_paths", applied_paths},
+            {"phases", json::array()}
+        }},
+        {"quality", {
+            {"aggregate", scan_metrics.contains("aggregate") ? scan_metrics["aggregate"] : json::object()},
+            {"session_geometry", scan_metrics.contains("session_geometry") ? scan_metrics["session_geometry"] : json::object()}
+        }}
+    };
+
+    json scope = {
+        {"applies_when", json::array({
+            "context_signature_matches_target_acquisition_and_affected_config_paths"
+        })},
+        {"does_not_apply_when", json::array({
+            "different_target_class_or_acquisition_setup",
+            "contradicting_outcome_memory_exists"
+        })},
+        {"confidence", analysis_data.value("confidence", 0.0)}
+    };
+
     json memory = {
         {"type", "config_optimization"},
         {"status", "candidate"},
         {"privacy_class", "metadata_only"},
         {"source", "scan_ai_apply"},
         {"analysis_id", analysis_id},
-        {"config_path_name", config_path.filename().string()},
+        {"provenance", {
+            {"analysis_id", analysis_id},
+            {"config_path_name", config_path.filename().string()},
+            {"source", "scan_ai_apply"}
+        }},
         {"persisted", persisted},
         {"config_updates", applied},
+        {"recommendation", {
+            {"action_plan_fragment", {
+                {"actions", applied}
+            }},
+            {"explanation", analysis_data.value("summary", std::string())}
+        }},
+        {"context_signature", context_signature},
+        {"scope", scope},
+        {"evidence", {
+            {"analysis_id", analysis_id},
+            {"validation", validation},
+            {"human_feedback", nullptr},
+            {"ai_summary", analysis_data.value("summary", std::string())}
+        }},
         {"validation", validation},
         {"outcome", {
             {"stage", "scan_ai_apply"},
             {"validation_valid", validation.value("valid", false)},
             {"applied_count", applied.is_array() ? applied.size() : 0},
             {"applied_paths", applied_paths},
-            {"persist_requested", persisted}
+            {"persist_requested", persisted},
+            {"verified", false}
+        }},
+        {"review", {
+            {"status", "candidate"},
+            {"reviewed_by", nullptr},
+            {"reviewed_at", nullptr},
+            {"notes", ""}
+        }},
+        {"retrieval", {
+            {"keywords", applied_paths},
+            {"negative", false}
         }},
     };
     if (analysis_data.is_object()) {
@@ -630,6 +725,11 @@ json compact_memory_for_scan_context(const json& memory) {
     if (memory.contains("summary")) out["summary"] = memory["summary"];
     if (memory.contains("confidence")) out["confidence"] = memory["confidence"];
     if (memory.contains("config_updates")) out["config_updates"] = memory["config_updates"];
+    if (memory.contains("context_signature")) out["context_signature"] = memory["context_signature"];
+    if (memory.contains("scope")) out["scope"] = memory["scope"];
+    if (memory.contains("evidence")) out["evidence"] = memory["evidence"];
+    if (memory.contains("outcome")) out["outcome"] = memory["outcome"];
+    if (memory.contains("retrieval_warning")) out["retrieval_warning"] = memory["retrieval_warning"];
     if (memory.contains("detected_scenarios")) out["detected_scenarios"] = memory["detected_scenarios"];
     if (memory.contains("warnings")) out["warnings"] = memory["warnings"];
     if (memory.contains("validation") && memory["validation"].is_object()) {
@@ -686,25 +786,16 @@ json negative_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
         }
     }
 
+    json paths = json::array();
+    for (const auto& path : query_paths) paths.push_back(path);
+
     tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     json negative = json::array();
-    for (const auto& memory : store.list(100000)) {
-        const std::string status = memory.value("status", std::string());
-        if (status != "rejected" && status != "deprecated") continue;
-        if (memory.value("type", std::string()) != "config_optimization") continue;
-
-        std::set<std::string> memory_paths;
-        collect_json_path_fields(memory, memory_paths);
-        bool intersects = query_paths.empty();
-        for (const auto& path : memory_paths) {
-            if (query_paths.count(path)) {
-                intersects = true;
-                break;
-            }
-        }
-        if (!intersects) continue;
+    for (const auto& memory : store.retrieve_negative({
+            {"type", "config_optimization"},
+            {"paths", paths}
+        }, 8)) {
         negative.push_back(compact_memory_for_scan_context(memory));
-        if (negative.size() >= 8) break;
     }
     return negative;
 }
