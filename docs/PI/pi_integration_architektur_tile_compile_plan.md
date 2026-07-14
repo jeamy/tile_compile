@@ -507,9 +507,9 @@ Retrieval-Ergebnis:
 - [x] Scan-AI Request um strukturierte positive und negative Memory-Kontexte erweitern.
 - [x] Gemeinsamen professionellen Kontextcontainer `pi.ai-request.v2` definieren und kompatibel in Scan-AI-Requests einbetten.
 - [x] Run-Chat Request kompatibel um denselben `pi.ai-request.v2` Container erweitern, inklusive Bildstatus und Chat-Historie.
-- [ ] Scan-AI und Run-Chat intern vollstaendig auf `pi.ai-request.v2` als primaeren Sidecar-Vertrag umstellen.
-- [ ] Outcome-Evaluator fuer Run/Resume implementieren und Memory-Kandidaten mit Vorher/Nachher-Deltas aktualisieren.
-- [ ] Negative Learning aus Nutzerfeedback und wirkungslosen Resume-Versuchen implementieren.
+- [x] Scan-AI und Run-Chat intern vollstaendig auf `pi.ai-request.v2` als primaeren Sidecar-Vertrag umstellen.
+- [x] Outcome-Evaluator fuer Run/Resume implementieren und Memory-Kandidaten mit Vorher/Nachher-Deltas aktualisieren.
+- [x] Negative Learning aus Nutzerfeedback und wirkungslosen Resume-Versuchen implementieren.
 - [x] GUI3 Memory-Detail-/Review-Ansicht um Kontext, Scope, Evidence, Outcome und `promotable` erweitern.
 - [x] Export/Import fuer `pi.memory.v2` mit Privacy-Filter erweitern.
 - [x] Tests fuer globale Retrieval-Faelle, Scope-Grenzen, negative Memories und Legacy-Ignorieren anlegen.
@@ -517,13 +517,13 @@ Retrieval-Ergebnis:
 
 Abnahmekriterien:
 
-- [ ] Ein neues globales Memory aus einem frueheren Run wird in einem anderen Projekt gefunden, wenn Objekt-/Aufnahme-/Pipeline-Kontext passt.
+- [x] Ein neues globales Memory aus einem frueheren Run wird in einem anderen Projekt gefunden, wenn Objekt-/Aufnahme-/Pipeline-Kontext passt.
 - [x] Dasselbe Memory wird nicht oder nur mit niedriger Confidence gefunden, wenn der Kontext fachlich nicht passt.
 - [x] KI-Prompts enthalten explizit positive Memories, negative Memories, Match-Erklaerung und fehlende Kontextfelder.
 - [x] Memory-Kandidaten enthalten Objekt-/Aufnahmedaten, sofern im Scan-AI-/GUI-Kontext vorhanden: Objektklasse, Kamera, Frame-Anzahl, Kalibrierung, Montierung, Qualitaetsmetriken.
 - [x] Memory-Kandidaten enthalten zusaetzlich tief extrahierte FITS-Felder: Objektname, Teleskop, Filter, Belichtung, Aufnahmedatum.
-- [ ] GUI3 erlaubt Review mit Scope-Anpassung.
-- [ ] Kein Memory speichert Rohbilddaten, API-Keys oder absolute lokale Bildpfade.
+- [x] GUI3 erlaubt Review mit Scope-Anpassung.
+- [x] Kein Memory speichert Rohbilddaten, API-Keys oder absolute lokale Bildpfade.
 - [x] Tests sichern ab, dass accepted Memories weiterhin keine Config-Validierung umgehen.
 - [x] Ein leerer neuer PI-Storage startet deterministisch ohne Altlasten und ohne automatische Migration.
 

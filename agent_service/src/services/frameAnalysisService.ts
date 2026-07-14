@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import crypto from "node:crypto";
 import path from "node:path";
-import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent } from "../types.js";
+import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent, SessionContext } from "../types.js";
 import type { ModelService } from "./modelService.js";
 import { appendTrafficLog } from "./trafficLog.js";
 
@@ -275,8 +275,20 @@ export class FrameAnalysisService {
   }
 
   private buildPrompt(request: ScanAnalysisRequest): string {
+    const aiRequest = request.ai_request && typeof request.ai_request === "object" && !Array.isArray(request.ai_request)
+      ? request.ai_request as Record<string, any>
+      : {};
+    const scanContext = aiRequest.scan_context && typeof aiRequest.scan_context === "object" && !Array.isArray(aiRequest.scan_context)
+      ? aiRequest.scan_context as Record<string, any>
+      : {};
+    const configContext = aiRequest.config && typeof aiRequest.config === "object" && !Array.isArray(aiRequest.config)
+      ? aiRequest.config as Record<string, any>
+      : {};
+    const sessionContextFromAiRequest = aiRequest.session_context && typeof aiRequest.session_context === "object" && !Array.isArray(aiRequest.session_context)
+      ? aiRequest.session_context as SessionContext
+      : undefined;
     // Build compact schema reference: only leaf paths (non-object types)
-    const configSchema = request.config_schema || {};
+    const configSchema = request.config_schema || configContext.config_schema || {};
     const schemaLines: string[] = [];
     for (const [path, info] of Object.entries<any>(configSchema)) {
       if (path.startsWith("aqmh.cherry_pick.")) continue;
@@ -294,7 +306,7 @@ export class FrameAnalysisService {
     }
 
     // Build compact scan summary (no frame list, just counts and metadata)
-    const scan = (request as any).scan_result || {};
+    const scan = (request as any).scan_result || scanContext.scan_result || {};
     const frames = Array.isArray(scan.frames) ? scan.frames : [];
     const frameCount = scan.frames_detected ?? scan.frames_total ?? frames.length;
 
@@ -352,7 +364,7 @@ export class FrameAnalysisService {
     }
 
     // Build compact current config (only leaf values, flatten dotted paths)
-    const baseConfig = (request.base_config as any) || {};
+    const baseConfig = (request.base_config as any) || configContext.base_config || {};
     const configLines: string[] = [];
     const flattenConfig = (obj: any, prefix: string) => {
       if (obj == null) return;
@@ -367,7 +379,7 @@ export class FrameAnalysisService {
     flattenConfig(baseConfig, "");
 
     // Use scan_metrics (from scan-metrics CLI) if provided — authoritative quality data
-    const scanMetrics = (request.scan_metrics as any) || null;
+    const scanMetrics = (request.scan_metrics as any) || scanContext.scan_metrics || null;
     const metricsLines: string[] = [];
     if (scanMetrics && scanMetrics.aggregate) {
       const agg = scanMetrics.aggregate;
@@ -563,7 +575,7 @@ export class FrameAnalysisService {
         "",
       ] : []),
       ...((() => {
-        const ctx = request.session_context || {};
+        const ctx = request.session_context || sessionContextFromAiRequest || {};
         const lines: string[] = [];
         if (ctx.mount_type) lines.push(`mount_type: ${ctx.mount_type}  (eq=equatorial tracker, altaz=alt/az unguided)`);
         if (ctx.target_angular_size) lines.push(`target_angular_size: ${ctx.target_angular_size}  (compact=<5% frame, extended=>10% frame, full_frame=fills frame)`);
@@ -589,7 +601,9 @@ export class FrameAnalysisService {
         return lines.length > 0 ? ["=== SESSION CONTEXT (mount, target, system, geometry) ===", ...lines, ""] : [];
       })()),
       ...((() => {
-        const memories = Array.isArray(request.session_context?.accepted_pi_memories)
+        const memories = Array.isArray(aiRequest.positive_memories)
+          ? aiRequest.positive_memories
+          : Array.isArray(request.session_context?.accepted_pi_memories)
           ? request.session_context.accepted_pi_memories
           : [];
         if (memories.length === 0) return [];
@@ -600,7 +614,9 @@ export class FrameAnalysisService {
         return ["=== ACCEPTED PI MEMORIES (reviewed historical optimizations) ===", ...lines, ""];
       })()),
       ...((() => {
-        const memories = Array.isArray(request.session_context?.negative_pi_memories)
+        const memories = Array.isArray(aiRequest.negative_memories)
+          ? aiRequest.negative_memories
+          : Array.isArray(request.session_context?.negative_pi_memories)
           ? request.session_context.negative_pi_memories
           : [];
         if (memories.length === 0) return [];

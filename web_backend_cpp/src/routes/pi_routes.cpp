@@ -24,6 +24,7 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <yaml-cpp/yaml.h>
@@ -74,6 +75,55 @@ std::string fits_status_text(int status) {
     char text[FLEN_STATUS]{};
     fits_get_errstatus(status, text);
     return text;
+}
+
+nlohmann::json evaluate_memory_outcome_payload(const nlohmann::json& body) {
+    nlohmann::json outcome = body.contains("outcome") && body["outcome"].is_object()
+        ? body["outcome"]
+        : nlohmann::json::object();
+    const std::string user_result = body.value("result", std::string());
+    const std::string feedback = body.value("feedback", std::string());
+    const nlohmann::json before = body.contains("before") && body["before"].is_object()
+        ? body["before"]
+        : nlohmann::json::object();
+    const nlohmann::json after = body.contains("after") && body["after"].is_object()
+        ? body["after"]
+        : nlohmann::json::object();
+
+    auto number_or_nan = [](const nlohmann::json& object, const char* key) {
+        if (!object.is_object() || !object.contains(key) || !object[key].is_number()) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        return object[key].get<double>();
+    };
+    const double before_score = number_or_nan(before, "quality_score");
+    const double after_score = number_or_nan(after, "quality_score");
+    double delta = std::numeric_limits<double>::quiet_NaN();
+    if (std::isfinite(before_score) && std::isfinite(after_score)) {
+        delta = after_score - before_score;
+        outcome["quality_score_before"] = before_score;
+        outcome["quality_score_after"] = after_score;
+        outcome["quality_score_delta"] = delta;
+    }
+
+    std::string verdict = "unknown";
+    if (user_result == "improved" || user_result == "better") verdict = "improved";
+    else if (user_result == "worse" || user_result == "regression") verdict = "worse";
+    else if (user_result == "same" || user_result == "unchanged" || user_result == "no_improvement") verdict = "unchanged";
+    else if (std::isfinite(delta)) {
+        if (delta > 0.02) verdict = "improved";
+        else if (delta < -0.02) verdict = "worse";
+        else verdict = "unchanged";
+    }
+
+    outcome["schema_version"] = "pi.memory-outcome.v1";
+    outcome["verdict"] = verdict;
+    outcome["verified"] = verdict != "unknown";
+    outcome["human_feedback"] = feedback.empty() ? nlohmann::json(nullptr) : nlohmann::json(feedback);
+    outcome["review_recommendation"] = verdict == "improved"
+        ? "promotable"
+        : (verdict == "worse" || verdict == "unchanged" ? "rejected" : "promotable");
+    return outcome;
 }
 
 std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
@@ -633,6 +683,127 @@ std::set<std::string> previous_run_chat_action_updates(const nlohmann::json& pre
         }
     }
     return out;
+}
+
+bool message_reports_ineffective_result(const std::string& message) {
+    std::string text = message;
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    for (const std::string marker : {
+             "gleich", "keine verbesserung", "nicht besser", "unveraendert",
+             "unverändert", "same result", "no improvement", "unchanged", "not better"
+         }) {
+        if (text.find(marker) != std::string::npos) return true;
+    }
+    return false;
+}
+
+nlohmann::json suppressed_actions_as_updates(const nlohmann::json& action_plan) {
+    nlohmann::json updates = nlohmann::json::array();
+    if (!action_plan.is_object()) return updates;
+    const nlohmann::json actions = action_plan.contains("suppressed_repeated_actions") &&
+        action_plan["suppressed_repeated_actions"].is_array()
+        ? action_plan["suppressed_repeated_actions"]
+        : (action_plan.contains("actions") && action_plan["actions"].is_array()
+            ? action_plan["actions"]
+            : nlohmann::json::array());
+    if (!actions.is_array()) {
+        return updates;
+    }
+    for (const auto& action : actions) {
+        if (!action.is_object() || !action.contains("path") || !action["path"].is_string() || !action.contains("value")) continue;
+        updates.push_back({
+            {"path", action["path"]},
+            {"value", action["value"]},
+            {"reason", action.value("reason", std::string("ineffective_repeated_suggestion"))}
+        });
+    }
+    return updates;
+}
+
+nlohmann::json maybe_record_negative_run_chat_memory(const std::shared_ptr<AppState>& state,
+                                                     const std::string& run_id,
+                                                     const std::string& message,
+                                                     const nlohmann::json& answer) {
+    if (!message_reports_ineffective_result(message)) return nlohmann::json(nullptr);
+    nlohmann::json updates = suppressed_actions_as_updates(answer.value("action_plan", nlohmann::json::object()));
+    if (updates.empty() && answer.contains("context") && answer["context"].is_object() &&
+        answer["context"].contains("conversation") && answer["context"]["conversation"].is_object() &&
+        answer["context"]["conversation"].contains("previous_turns") &&
+        answer["context"]["conversation"]["previous_turns"].is_array()) {
+        for (auto it = answer["context"]["conversation"]["previous_turns"].rbegin();
+             it != answer["context"]["conversation"]["previous_turns"].rend(); ++it) {
+            if (!it->is_object() || !it->contains("result") || !(*it)["result"].is_object()) continue;
+            updates = suppressed_actions_as_updates((*it)["result"].value("action_plan", nlohmann::json::object()));
+            if (updates.is_array() && !updates.empty()) break;
+        }
+    }
+    if (!updates.is_array() || updates.empty()) return nlohmann::json(nullptr);
+
+    nlohmann::json affected_paths = nlohmann::json::array();
+    for (const auto& update : updates) {
+        if (update.is_object() && update.contains("path") && update["path"].is_string()) {
+            affected_paths.push_back(update["path"]);
+        }
+    }
+    nlohmann::json problem_ids = nlohmann::json::array();
+    if (answer.contains("context") && answer["context"].is_object() &&
+        answer["context"].contains("problem_hints") && answer["context"]["problem_hints"].is_array()) {
+        for (const auto& hint : answer["context"]["problem_hints"]) {
+            if (hint.is_object() && hint.contains("id") && hint["id"].is_string()) problem_ids.push_back(hint["id"]);
+        }
+    }
+
+    tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+    nlohmann::json memory = store.append_candidate({
+        {"type", "config_optimization"},
+        {"status", "candidate"},
+        {"privacy_class", "metadata_only"},
+        {"source", "pi.run-chat.negative-learning"},
+        {"summary", "Run-Chat feedback reported no improvement for repeated parameter suggestions."},
+        {"context_signature", {
+            {"schema_version", "pi.context_signature.v1"},
+            {"target", nlohmann::json::object()},
+            {"acquisition", nlohmann::json::object()},
+            {"pipeline", {{"affected_paths", affected_paths}}},
+            {"problem", {{"classes", problem_ids}, {"hints", problem_ids}}}
+        }},
+        {"scope", {
+            {"applies_when", nlohmann::json::array({"same_run_chat_problem_context_and_same_parameter_values"})},
+            {"does_not_apply_when", nlohmann::json::array({"new evidence or materially different acquisition context"})},
+            {"confidence", 0.7}
+        }},
+        {"config_updates", updates},
+        {"recommendation", {
+            {"avoid_repeating", updates},
+            {"explanation", "User feedback indicated the same recommendation did not improve the result."}
+        }},
+        {"evidence", {
+            {"run_id", run_id},
+            {"human_feedback", message},
+            {"source", "run_chat_followup"}
+        }},
+        {"outcome", {
+            {"schema_version", "pi.memory-outcome.v1"},
+            {"verdict", "unchanged"},
+            {"verified", true},
+            {"human_feedback", message},
+            {"applied_count", updates.size()},
+            {"applied_paths", affected_paths}
+        }},
+        {"retrieval", {
+            {"keywords", affected_paths},
+            {"negative", true}
+        }}
+    });
+    const std::string memory_id = memory.value("memory_id", std::string());
+    if (!memory_id.empty() && memory.value("created", true)) {
+        store.review(memory_id, "rejected", "pi_negative_learning",
+                     "User reported no improvement for repeated run-chat suggestion.",
+                     memory["outcome"], memory["scope"]);
+    }
+    return memory;
 }
 
 nlohmann::json build_run_chat_action_plan(const std::string& run_id,
@@ -1306,6 +1477,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     "No AI model is configured; this is a local structured fallback without visual/provider reasoning."
                 });
             }
+            nlohmann::json negative_learning = maybe_record_negative_run_chat_memory(state, run_id, message, answer);
+            if (!negative_learning.is_null()) {
+                answer["negative_learning"] = {
+                    {"created", negative_learning.value("created", false)},
+                    {"duplicate", negative_learning.value("duplicate", false)},
+                    {"memory_id", negative_learning.value("memory_id", std::string())}
+                };
+            }
 
             append_chat_message_unique(messages, "assistant", answer.value("summary", std::string()));
             history["messages"] = messages;
@@ -1437,11 +1616,38 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const nlohmann::json outcome = body->contains("outcome") && (*body)["outcome"].is_object()
             ? (*body)["outcome"]
             : nlohmann::json::object();
+        const nlohmann::json scope = body->contains("scope") && (*body)["scope"].is_object()
+            ? (*body)["scope"]
+            : nlohmann::json::object();
         if (status.empty()) return err_resp("BAD_REQUEST", "status is required", 400);
         try {
             tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
-            const auto review = store.review(memory_id, status, reviewer, note, outcome);
+            const auto review = store.review(memory_id, status, reviewer, note, outcome, scope);
             return json_resp({{"ok", true}, {"review", review}});
+        } catch (const std::invalid_argument& e) {
+            return err_resp("BAD_REQUEST", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("BACKEND_COMMAND_FAILED", e.what(), 502);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/memories/<string>/outcome").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& memory_id) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        try {
+            const nlohmann::json outcome = evaluate_memory_outcome_payload(*body);
+            const std::string status = body->value(
+                "status",
+                outcome.value("review_recommendation", std::string("promotable")));
+            const std::string reviewer = body->value("reviewer", std::string("pi_outcome_evaluator"));
+            const std::string note = body->value("note", std::string("outcome evaluator"));
+            const nlohmann::json scope = body->contains("scope") && (*body)["scope"].is_object()
+                ? (*body)["scope"]
+                : nlohmann::json::object();
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto review = store.review(memory_id, status, reviewer, note, outcome, scope);
+            return json_resp({{"ok", true}, {"outcome", outcome}, {"review", review}});
         } catch (const std::invalid_argument& e) {
             return err_resp("BAD_REQUEST", e.what(), 400);
         } catch (const std::exception& e) {

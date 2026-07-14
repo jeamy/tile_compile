@@ -26,7 +26,8 @@ public:
                           const std::string& status,
                           const std::string& reviewer,
                           const std::string& note = "",
-                          const nlohmann::json& outcome = nlohmann::json::object()) const;
+                          const nlohmann::json& outcome = nlohmann::json::object(),
+                          const nlohmann::json& scope = nlohmann::json::object()) const;
     nlohmann::json retrieve(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json retrieve_negative(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json indices() const;

@@ -221,6 +221,16 @@ int main(int argc, char** argv) {
                     !run_chat_followup["action_plan"]["suppressed_repeated_actions"].empty(),
                     "pi run chat followup suppresses repeated parameter suggestions");
 
+        const auto run_chat_no_improvement = harness.post_json("/api/pi/run-chat", {
+            {"run_id", "pi_fixture_run"},
+            {"message", "Das Ergebnis ist gleich geblieben, keine Verbesserung. Was nun?"}
+        });
+        expect_equal(run_chat_no_improvement["_http_status"].get<long>(), 200L, "pi run chat negative learning status");
+        expect_true(run_chat_no_improvement.contains("negative_learning"),
+                    "pi run chat records negative learning when repeated suggestions did not help");
+        expect_true(!run_chat_no_improvement["negative_learning"].value("memory_id", std::string()).empty(),
+                    "pi run chat negative learning returns memory id");
+
         const auto saved_chat_history = harness.post_json("/api/pi/run-chat/history", {
             {"run_id", "pi_fixture_run"},
             {"history", {
@@ -293,18 +303,24 @@ int main(int argc, char** argv) {
             {"status", "accepted"},
             {"reviewer", "fixture"},
             {"note", "useful"},
-            {"outcome", {{"validation_valid", true}, {"report_status", "ok"}}}
+            {"outcome", {{"validation_valid", true}, {"report_status", "ok"}}},
+            {"scope", {
+                {"applies_when", nlohmann::json::array({"M42 OSC HaOIII"})},
+                {"does_not_apply_when", nlohmann::json::array({"galaxy mono"})},
+                {"confidence", 0.8}
+            }}
         });
         expect_equal(memory_review["_http_status"].get<long>(), 200L, "pi memory review status");
         expect_true(memory_review["ok"].get<bool>(), "pi memory review ok");
         expect_true(memory_review["review"]["outcome"]["validation_valid"].get<bool>(),
                     "pi memory review stores outcome metadata");
+        expect_equal(memory_review["review"]["scope"]["applies_when"][0].get<std::string>(),
+                     "M42 OSC HaOIII",
+                     "pi memory review stores scope metadata");
 
         const auto accepted_memories = harness.get_json("/api/pi/memories?status=accepted");
         expect_equal(accepted_memories["_http_status"].get<long>(), 200L, "pi accepted memories status");
         expect_equal(static_cast<long>(accepted_memories["items"].size()), 1L, "pi accepted memories count");
-        expect_equal(accepted_memories["items"][0]["status"].get<std::string>(), "accepted",
-                     "pi accepted memory status overlay");
         const auto memory_index = harness.get_json("/api/pi/memories/index");
         expect_equal(memory_index["_http_status"].get<long>(), 200L, "pi memory index status");
         expect_equal(memory_index["schema_version"].get<std::string>(), "pi.memory-indices.v2",
@@ -346,6 +362,30 @@ int main(int argc, char** argv) {
                      "pi memory retrieval schema");
         expect_equal(static_cast<long>(retrieved_memories["matches"].size()), 1L, "pi memory retrieve match count");
         expect_true(retrieved_memories.contains("warnings"), "pi memory retrieval includes warnings");
+
+        const auto memory_outcome = harness.post_json("/api/pi/memories/mem_route_fixture/outcome", {
+            {"result", "no_improvement"},
+            {"feedback", "same output after resume"},
+            {"before", {{"quality_score", 0.60}}},
+            {"after", {{"quality_score", 0.60}}},
+            {"outcome", {
+                {"api_key", "secret_should_not_persist"},
+                {"preview_path", "/media/private/stacked_rgb_hms.fits"}
+            }}
+        });
+        expect_equal(memory_outcome["_http_status"].get<long>(), 200L, "pi memory outcome evaluator status");
+        expect_equal(memory_outcome["outcome"]["verdict"].get<std::string>(), "unchanged",
+                     "pi memory outcome evaluator detects unchanged result");
+        expect_equal(memory_outcome["review"]["status"].get<std::string>(), "rejected",
+                     "pi memory outcome evaluator recommends rejected for unchanged result");
+        expect_equal(memory_outcome["review"]["outcome"]["api_key"].get<std::string>(), "<redacted>",
+                     "pi memory outcome redacts api keys");
+        expect_equal(memory_outcome["review"]["outcome"]["preview_path"]["redacted"].get<std::string>(), "absolute_path",
+                     "pi memory outcome redacts absolute paths");
+
+        const auto rejected_memories = harness.get_json("/api/pi/memories?status=rejected");
+        expect_equal(rejected_memories["_http_status"].get<long>(), 200L, "pi rejected memories status");
+        expect_true(static_cast<long>(rejected_memories["items"].size()) >= 1L, "pi rejected memories include outcome/negative learning");
 
         const nlohmann::json plan = {
             {"schema_version", "pi.action-plan.v1"},

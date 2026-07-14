@@ -1185,6 +1185,7 @@ json build_analysis_context(const json& scan_result, const json& request_or_body
     json context = {
         {"schema_version", "pi.scan-analysis-context.v1"},
         {"frame_count", infer_frame_count(scan_result, request_or_body.value("scan_metrics", json::object()))},
+        {"scan_metadata", extract_scan_metadata(scan_result)}
     };
     if (request_or_body.contains("scan_metrics") && request_or_body["scan_metrics"].is_object()) {
         context["scan_metrics"] = compact_scan_metrics_for_analysis_context(request_or_body["scan_metrics"]);
@@ -1723,7 +1724,22 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (!schema) return err_resp("SCHEMA_UNAVAILABLE", schema_error, 502);
 
         json allowed_paths = json::array();
-        for (const auto& [path, _] : schema->paths) allowed_paths.push_back(path);
+        json config_schema = json::object();
+        for (const auto& [path, schema_node] : schema->paths) {
+            allowed_paths.push_back(path);
+            if (schema_node.is_object()) {
+                json entry = json::object();
+                if (schema_node.contains("type")) entry["type"] = schema_node["type"];
+                if (schema_node.contains("enum")) entry["enum"] = schema_node["enum"];
+                if (schema_node.contains("description") && schema_node["description"].is_string()) {
+                    entry["desc"] = schema_node["description"];
+                }
+                if (schema_node.contains("default")) entry["default"] = schema_node["default"];
+                if (schema_node.contains("minimum")) entry["minimum"] = schema_node["minimum"];
+                if (schema_node.contains("maximum")) entry["maximum"] = schema_node["maximum"];
+                if (!entry.empty()) config_schema[path] = std::move(entry);
+            }
+        }
 
         const json selected_allowed_paths = body->value("allowed_config_paths", allowed_paths);
         const json session_context = session_context_with_accepted_memories(
@@ -1737,6 +1753,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             {"scan_result", scan_result},
             {"base_config", *base_config},
             {"allowed_config_paths", selected_allowed_paths},
+            {"config_schema", config_schema},
             {"model", json_string_field(*body, "model", config.model)},
             {"send_paths", config.send_paths},
             {"force", force},
@@ -1760,7 +1777,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 {"scan_metrics", body->contains("scan_metrics") ? (*body)["scan_metrics"] : json::object()}
             }},
             {"config", {
-                {"base_config", *base_config}
+                {"base_config", *base_config},
+                {"config_schema", config_schema}
             }},
             {"allowed_config_paths", selected_allowed_paths},
             {"session_context", session_context},
@@ -1770,17 +1788,52 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             {"source_request_schema", "pi.scan-analysis.request.v1"}
         });
 
-        // Return SSE stream response
         crow::response res;
         res.code = 200;
         res.set_header("Content-Type", "text/event-stream");
         res.set_header("Cache-Control", "no-cache");
         res.set_header("Connection", "keep-alive");
-        res.set_header("X-Accel-Buffering", "no"); // Disable nginx buffering
-
-        // Note: Full SSE proxy implementation would require async handling
-        // For now, return the initial response with headers
-        res.body = "event: started\ndata: \"Analysis starting...\"\n\n";
+        res.set_header("X-Accel-Buffering", "no");
+        std::ostringstream stream;
+        stream << "event: progress\ndata: " << json({{"phase", "building_prompt"}, {"progress", 10}}).dump() << "\n\n";
+        try {
+            tile_compile::ai::AiSidecarClient client(config);
+            json analysis = client.post("/analyze", request_payload);
+            if (!analysis.is_object() || json_string_field(analysis, "schema_version") != "pi.scan-analysis.v1") {
+                stream << "event: error\ndata: " << json({{"phase", "error"}, {"message", "AI sidecar returned an invalid analysis payload"}}).dump() << "\n\n";
+                res.body = stream.str();
+                return res;
+            }
+            const json candidates = normalize_candidate_updates(analysis);
+            const json validation = validate_updates_against_schema(candidates, *schema, *base_config, state);
+            analysis["updates"] = candidates;
+            analysis["validated_updates"] = validation["validated_updates"];
+            analysis["rejected_updates"] = validation["rejected_updates"];
+            analysis["validation"] = validation["validation"];
+            analysis["candidate_count"] = validation["candidate_count"];
+            analysis["validated_count"] = validation["validated_updates"].size();
+            analysis["rejected_count"] = validation["rejected_updates"].size();
+            analysis["config_path"] = target_config_path.string();
+            analysis["analysis_context"] = build_analysis_context(scan_result, request_payload);
+            if (validation.contains("patched_config") && validation["patched_config"].is_object())
+                analysis["analysis_context"]["patched_config"] = validation["patched_config"];
+            if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
+                analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
+            attach_pi_action_plan(analysis);
+            const std::string job_id = state->job_store.create("scan_ai_analysis");
+            json job_data = analysis;
+            job_data["analysis_id"] = job_id;
+            job_data["model"] = request_payload["model"];
+            job_data["provider"] = config.provider;
+            state->job_store.update_state(job_id, JobState::ok, job_data);
+            analysis["analysis_id"] = job_id;
+            persist_analysis(state, analysis, extract_scan_metadata(scan_result),
+                             analysis["analysis_context"]);
+            stream << "event: complete\ndata: " << analysis.dump() << "\n\n";
+        } catch (const std::exception& e) {
+            stream << "event: error\ndata: " << json({{"phase", "error"}, {"message", e.what()}}).dump() << "\n\n";
+        }
+        res.body = stream.str();
         return res;
     });
 

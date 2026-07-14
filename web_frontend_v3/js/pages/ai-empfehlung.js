@@ -1124,6 +1124,7 @@ async function loadPiMemories() {
             canReview && statusName !== "accepted" ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_accept", "Markiert diese Erfahrung als nuetzlich fuer spaetere Sessions."), onclick: () => reviewPiMemory(id, "accepted") }, t("ui.button.accept", "Accept")) : null,
             canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_reject", "Markiert diese Erfahrung als nicht hilfreich."), onclick: () => reviewPiMemory(id, "rejected") }, t("ui.button.reject", "Reject")) : null,
             canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_deprecate", "Markiert diese Erfahrung als ueberholt."), onclick: () => reviewPiMemory(id, "deprecated") }, t("ui.button.deprecate", "Deprecate")) : null,
+            canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_scope", "Bearbeitet, fuer welche Kontexte diese Memory gilt oder nicht gilt."), onclick: () => editPiMemoryScope(memory) }, t("ui.button.edit_scope", "Scope")) : null,
           ),
         ));
       }
@@ -1141,6 +1142,50 @@ async function reviewPiMemory(memoryId, reviewStatus) {
     await api.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
       status: reviewStatus,
       reviewer: "gui3",
+    });
+    await loadPiMemories();
+    await loadPiAudit();
+    toastSuccess(t("ui.toast.saved", "Gespeichert"));
+  } catch (e) {
+    toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), e.message);
+  }
+}
+
+function splitScopeLines(value) {
+  return String(value || "")
+    .split(/\n|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function editPiMemoryScope(memory) {
+  const memoryId = memory?.memory_id || "";
+  if (!memoryId) return;
+  const scope = memory?.scope && typeof memory.scope === "object" ? memory.scope : {};
+  const appliesDefault = Array.isArray(scope.applies_when) ? scope.applies_when.join("; ") : "";
+  const avoidsDefault = Array.isArray(scope.does_not_apply_when) ? scope.does_not_apply_when.join("; ") : "";
+  const appliesRaw = window.prompt(t("ui.prompt.pi_scope_applies", "Gilt wenn (mit Semikolon trennen)"), appliesDefault);
+  if (appliesRaw === null) return;
+  const avoidsRaw = window.prompt(t("ui.prompt.pi_scope_avoids", "Gilt nicht wenn (mit Semikolon trennen)"), avoidsDefault);
+  if (avoidsRaw === null) return;
+  const confidenceRaw = window.prompt(t("ui.prompt.pi_scope_confidence", "Confidence 0..1"), scope.confidence ?? "");
+  if (confidenceRaw === null) return;
+  const confidence = Number(confidenceRaw);
+  const nextScope = {
+    applies_when: splitScopeLines(appliesRaw),
+    does_not_apply_when: splitScopeLines(avoidsRaw),
+  };
+  if (Number.isFinite(confidence)) nextScope.confidence = Math.max(0, Math.min(1, confidence));
+  const currentStatus = String(memory.status || "");
+  const reviewStatus = ["accepted", "promotable", "rejected", "deprecated"].includes(currentStatus)
+    ? currentStatus
+    : "promotable";
+  try {
+    await api.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
+      status: reviewStatus,
+      reviewer: "gui3",
+      note: t("ui.pi.scope_updated", "Scope updated in GUI3"),
+      scope: nextScope,
     });
     await loadPiMemories();
     await loadPiAudit();

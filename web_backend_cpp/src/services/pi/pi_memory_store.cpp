@@ -132,6 +132,52 @@ double numeric_value(const nlohmann::json& value, double fallback = 0.0) {
     return fallback;
 }
 
+bool sensitive_key(const std::string& key) {
+    const std::string lowered = normalized_text(key);
+    return lowered.find("api_key") != std::string::npos ||
+           lowered.find("apikey") != std::string::npos ||
+           lowered.find("secret") != std::string::npos ||
+           lowered.find("token") != std::string::npos ||
+           lowered.find("authorization") != std::string::npos ||
+           lowered.find("password") != std::string::npos;
+}
+
+bool looks_like_absolute_local_path(const std::string& value) {
+    if (value.size() >= 2 && value[0] == '/') return true;
+    if (value.size() >= 3 && std::isalpha(static_cast<unsigned char>(value[0])) && value[1] == ':' &&
+        (value[2] == '\\' || value[2] == '/')) {
+        return true;
+    }
+    return false;
+}
+
+nlohmann::json sanitize_memory_privacy(const nlohmann::json& value, const std::string& key_hint = "") {
+    if (sensitive_key(key_hint)) return "<redacted>";
+    if (value.is_string()) {
+        const std::string text = value.get<std::string>();
+        if (looks_like_absolute_local_path(text)) {
+            return {
+                {"redacted", "absolute_path"},
+                {"name", std::filesystem::path(text).filename().string()}
+            };
+        }
+        return value;
+    }
+    if (value.is_array()) {
+        nlohmann::json out = nlohmann::json::array();
+        for (const auto& item : value) out.push_back(sanitize_memory_privacy(item, key_hint));
+        return out;
+    }
+    if (value.is_object()) {
+        nlohmann::json out = nlohmann::json::object();
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            out[it.key()] = sanitize_memory_privacy(it.value(), it.key());
+        }
+        return out;
+    }
+    return value;
+}
+
 void add_match_detail(nlohmann::json& details,
                       const std::string& field,
                       const nlohmann::json& memory_value,
@@ -360,6 +406,7 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
     if (!memory.is_object()) {
         throw std::invalid_argument("PI memory must be a JSON object");
     }
+    memory = sanitize_memory_privacy(memory);
     if (memory.contains("schema_version") && string_field(memory, "schema_version") != kMemorySchemaVersion) {
         throw std::invalid_argument("PI memory schema_version must be pi.memory.v2");
     }
@@ -456,6 +503,12 @@ nlohmann::json PiMemoryStore::list(int limit) const {
         if (it == latest_reviews.end()) continue;
         item["status"] = it->second.value("status", item.value("status", std::string("candidate")));
         item["review"] = it->second;
+        if (it->second.contains("scope") && it->second["scope"].is_object()) {
+            item["scope"] = it->second["scope"];
+        }
+        if (it->second.contains("outcome") && it->second["outcome"].is_object()) {
+            item["outcome"] = it->second["outcome"];
+        }
     }
 
     while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
@@ -466,7 +519,8 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
                                      const std::string& status,
                                      const std::string& reviewer,
                                      const std::string& note,
-                                     const nlohmann::json& outcome) const {
+                                     const nlohmann::json& outcome,
+                                     const nlohmann::json& scope) const {
     if (memory_id.empty()) throw std::invalid_argument("memory_id is required");
     if (!allowed_review_status(status)) throw std::invalid_argument("unsupported memory review status");
 
@@ -489,7 +543,10 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
         {"note", note}
     };
     if (outcome.is_object() && !outcome.empty()) {
-        review_event["outcome"] = outcome;
+        review_event["outcome"] = sanitize_memory_privacy(outcome);
+    }
+    if (scope.is_object() && !scope.empty()) {
+        review_event["scope"] = sanitize_memory_privacy(scope);
     }
 
     std::error_code ec;
@@ -722,6 +779,7 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
 
     if (bundle.contains("memories") && bundle["memories"].is_array()) {
         for (auto memory : bundle["memories"]) {
+            memory = sanitize_memory_privacy(memory);
             if (!memory.is_object()) {
                 ++skipped;
                 continue;
