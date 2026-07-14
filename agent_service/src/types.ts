@@ -29,6 +29,7 @@ export interface SessionContext {
 
 export interface ScanAnalysisRequest {
   schema_version?: string;
+  ai_request?: unknown;
   scan_result?: unknown;
   base_config?: unknown;
   config_schema?: Record<string, unknown>;

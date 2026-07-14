@@ -14,9 +14,10 @@ int main() {
         tile_compile::pi::PiMemoryStore store(dir);
         const nlohmann::json ctx = {
             {"schema_version", "pi.context_signature.v1"},
-            {"target", {{"object_type", "emission_nebula"}}},
-            {"acquisition", {{"camera_type", "OSC"}}},
-            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.model"})}}}
+            {"target", {{"object_name", "M42"}, {"object_type", "emission_nebula"}}},
+            {"acquisition", {{"camera_name", "ASI2600MC"}, {"camera_type", "OSC"}, {"filters", nlohmann::json::array({"HaOIII"})}}},
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.model"})}}},
+            {"problem", {{"classes", nlohmann::json::array({"faint_nebula"})}}}
         };
         const nlohmann::json scope = {
             {"applies_when", nlohmann::json::array({"matching context"})},
@@ -82,6 +83,17 @@ int main() {
         const auto reviewed = store.list();
         expect_equal(reviewed[0]["status"].get<std::string>(), "accepted", "memory list overlays review status");
         expect_true(reviewed[0].contains("review"), "memory list includes latest review");
+        const auto indices = store.indices();
+        expect_equal(indices["schema_version"].get<std::string>(), "pi.memory-indices.v2",
+                     "memory index schema");
+        expect_true(std::filesystem::is_regular_file(store.indices_path()), "memory index file exists");
+        expect_true(indices["by_type"]["optimization"].is_array(), "memory index by type");
+        expect_true(indices["by_status"]["accepted"].is_array(), "memory index by status");
+        expect_true(indices["by_path"]["bge.model"].is_array(), "memory index by path");
+        expect_true(indices["by_target"]["m42"].is_array(), "memory index by target name");
+        expect_true(indices["by_camera"]["asi2600mc"].is_array(), "memory index by camera");
+        expect_true(indices["by_filter"]["haoiii"].is_array(), "memory index by filter");
+        expect_true(indices["by_problem"]["faint_nebula"].is_array(), "memory index by problem");
 
         const auto matches = store.retrieve({
             {"type", "optimization"},
@@ -101,6 +113,7 @@ int main() {
         expect_equal(static_cast<long>(negative_matches.size()), 0L, "deprecated memory excluded from retrieval");
         const auto negative_warnings = store.retrieve_negative({{"type", "failure"}, {"paths", nlohmann::json::array({"bge.model"})}}, 5);
         expect_equal(static_cast<long>(negative_warnings.size()), 1L, "deprecated memory returned as warning");
+        expect_true(negative_warnings[0].contains("match_coverage"), "negative retrieval explains match coverage");
 
         const auto string_path_matches = store.retrieve({
             {"type", "optimization"},
@@ -108,6 +121,44 @@ int main() {
         }, 5);
         expect_equal(static_cast<long>(string_path_matches.size()), 2L,
                      "memory retrieval accepts string path lists");
+        expect_true(string_path_matches[0].contains("match_explanation"), "memory retrieval includes match explanation");
+
+        const nlohmann::json irrelevant_ctx = {
+            {"schema_version", "pi.context_signature.v1"},
+            {"target", {{"object_type", "galaxy"}}},
+            {"acquisition", {{"camera_type", "MONO"}}},
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.model"})}}}
+        };
+        store.append_candidate({
+            {"memory_id", "mem_fixture_irrelevant_context"},
+            {"type", "optimization"},
+            {"status", "candidate"},
+            {"privacy_class", "metadata_only"},
+            {"context_signature", irrelevant_ctx},
+            {"scope", scope},
+            {"recommendation", {
+                {"patch", nlohmann::json::array({{{"path", "bge.model"}, {"value", "galaxy_model"}}})}
+            }},
+            {"evidence", {{"validation", "fixture"}}},
+            {"outcome", {{"validation_valid", true}, {"applied_count", 1}}}
+        });
+        store.review("mem_fixture_irrelevant_context", "accepted", "fixture", "different setup");
+
+        const auto contextual_matches = store.retrieve({
+            {"type", "optimization"},
+            {"context_signature", ctx}
+        }, 5);
+        expect_equal(static_cast<long>(contextual_matches.size()), 2L,
+                     "context-only retrieval excludes different target and camera memories");
+        expect_true(contextual_matches[0].value("context_match_score", 0) > 0,
+                    "contextual retrieval scores signature matches");
+        bool found_irrelevant_context = false;
+        for (const auto& match : contextual_matches) {
+            if (match.value("memory_id", std::string()) == "mem_fixture_irrelevant_context") {
+                found_irrelevant_context = true;
+            }
+        }
+        expect_true(!found_irrelevant_context, "contextual retrieval filters unrelated accepted memory");
 
         const auto duplicate = store.append_candidate({
             {"type", "optimization"},
@@ -122,12 +173,12 @@ int main() {
         });
         expect_true(!duplicate.value("created", true), "duplicate memory is not appended");
         expect_true(duplicate.value("duplicate", false), "duplicate memory is flagged");
-        expect_equal(static_cast<long>(store.list().size()), 3L, "duplicate memory keeps list count");
+        expect_equal(static_cast<long>(store.list().size()), 4L, "duplicate memory keeps list count");
 
         const auto exported = store.export_bundle("metadata_only", true);
         expect_equal(exported["schema_version"].get<std::string>(), "pi.memories-export.v2",
                      "memory export schema");
-        expect_equal(static_cast<long>(exported["memory_count"].get<size_t>()), 3L,
+        expect_equal(static_cast<long>(exported["memory_count"].get<size_t>()), 4L,
                      "memory export count");
 
         const auto dry_import = store.import_bundle(exported, true);

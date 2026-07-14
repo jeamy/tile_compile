@@ -5,6 +5,7 @@
 #include "services/ai_service.hpp"
 #include "services/pi/pi_action_plan.hpp"
 #include "services/pi/pi_action_validator.hpp"
+#include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/scan_summary.hpp"
@@ -546,6 +547,11 @@ void attach_pi_action_plan(json& analysis) {
     analysis["action_plan_validation"] = tile_compile::pi::validate_action_plan_shape(plan);
 }
 
+json build_memory_query_context_signature(const json& body,
+                                          const json& base_config,
+                                          const json& allowed_paths,
+                                          const json& paths);
+
 json build_apply_candidate_memory(const std::string& analysis_id,
                                   const json& analysis_data,
                                   const json& applied,
@@ -568,51 +574,21 @@ json build_apply_candidate_memory(const std::string& analysis_id,
     json scan_metrics = context.contains("scan_metrics") && context["scan_metrics"].is_object()
         ? context["scan_metrics"]
         : json::object();
-    auto optional_context_value = [&](const char* key) -> json {
-        return session_context.contains(key) ? session_context[key] : json(nullptr);
+    json signature_body = {
+        {"session_context", session_context},
+        {"scan_metrics", scan_metrics},
+        {"scan_result", context.contains("scan_metadata") && context["scan_metadata"].is_object()
+            ? context["scan_metadata"]
+            : json::object()}
     };
-
-    json context_signature = {
-        {"schema_version", "pi.context_signature.v1"},
-        {"target", {
-            {"object_name", session_context.value("target_name", std::string("unknown"))},
-            {"object_type", session_context.value("target_type", std::string("unknown"))},
-            {"angular_size_class", session_context.value("target_angular_size", std::string("unknown"))},
-            {"has_extended_emission", optional_context_value("has_extended_emission")}
-        }},
-        {"acquisition", {
-            {"camera_name", session_context.value("camera_name", std::string("unknown"))},
-            {"camera_type", session_context.value("camera_type", std::string("unknown"))},
-            {"color_mode", context.contains("scan_metadata") && context["scan_metadata"].is_object()
-                ? context["scan_metadata"].value("color_mode", std::string("unknown"))
-                : std::string("unknown")},
-            {"filters", session_context.contains("filters") ? session_context["filters"] : json::array()},
-            {"frame_count", context.value("frame_count", 0)},
-            {"calibration", {
-                {"darks", session_context.value("calibration_darks", false)},
-                {"flats", session_context.value("calibration_flats", false)},
-                {"bias", session_context.value("calibration_bias", false)}
-            }}
-        }},
-        {"optics", {
-            {"telescope", session_context.value("telescope", std::string("unknown"))},
-            {"focal_length_mm", optional_context_value("focal_length_mm")},
-            {"f_ratio", optional_context_value("f_ratio")},
-            {"pixel_scale_arcsec", optional_context_value("pixel_scale_arcsec")}
-        }},
-        {"mount", {
-            {"type", session_context.value("mount_type", std::string("unknown"))},
-            {"tracking_quality", session_context.value("tracking_quality", std::string("unknown"))}
-        }},
-        {"pipeline", {
-            {"affected_paths", applied_paths},
-            {"phases", json::array()}
-        }},
-        {"quality", {
-            {"aggregate", scan_metrics.contains("aggregate") ? scan_metrics["aggregate"] : json::object()},
-            {"session_geometry", scan_metrics.contains("session_geometry") ? scan_metrics["session_geometry"] : json::object()}
-        }}
-    };
+    if (context.contains("frame_count") && context["frame_count"].is_number()) {
+        signature_body["scan_result"]["frames_detected"] = context["frame_count"];
+    }
+    json context_signature = build_memory_query_context_signature(
+        signature_body,
+        json::object(),
+        applied_paths,
+        applied_paths);
 
     json scope = {
         {"applies_when", json::array({
@@ -722,6 +698,10 @@ json compact_memory_for_scan_context(const json& memory) {
         {"privacy_class", memory.value("privacy_class", std::string("metadata_only"))},
         {"retrieval_score", memory.value("retrieval_score", 0)}
     };
+    if (memory.contains("context_match_score")) out["context_match_score"] = memory["context_match_score"];
+    if (memory.contains("path_match_score")) out["path_match_score"] = memory["path_match_score"];
+    if (memory.contains("match_explanation")) out["match_explanation"] = memory["match_explanation"];
+    if (memory.contains("match_coverage")) out["match_coverage"] = memory["match_coverage"];
     if (memory.contains("summary")) out["summary"] = memory["summary"];
     if (memory.contains("confidence")) out["confidence"] = memory["confidence"];
     if (memory.contains("config_updates")) out["config_updates"] = memory["config_updates"];
@@ -747,7 +727,237 @@ json compact_memory_for_scan_context(const json& memory) {
     return out;
 }
 
+json array_or_singleton_string(const json& value) {
+    if (value.is_array()) return value;
+    if (value.is_string() && !value.get<std::string>().empty()) return json::array({value});
+    return json::array();
+}
+
+json session_value_or_null(const json& session_context, const char* key) {
+    return session_context.is_object() && session_context.contains(key) ? session_context[key] : json(nullptr);
+}
+
+std::string lower_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+std::string known_string_or_empty(const json& value) {
+    if (!value.is_string()) return "";
+    std::string text = value.get<std::string>();
+    text.erase(text.begin(), std::find_if(text.begin(), text.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    text.erase(std::find_if(text.rbegin(), text.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), text.end());
+    const std::string lowered = lower_ascii(text);
+    if (text.empty() || lowered == "unknown" || lowered == "null" || lowered == "n/a") return "";
+    return text;
+}
+
+json first_known_string_json(const std::vector<json>& values, const std::string& fallback = "unknown") {
+    for (const auto& value : values) {
+        const std::string text = known_string_or_empty(value);
+        if (!text.empty()) return text;
+    }
+    return fallback;
+}
+
+json first_known_number_json(const std::vector<json>& values) {
+    for (const auto& value : values) {
+        if (value.is_number()) return value;
+        if (value.is_string()) {
+            try {
+                return std::stod(value.get<std::string>());
+            } catch (...) {
+            }
+        }
+    }
+    return nullptr;
+}
+
+json header_value_ci(const json& header, const std::vector<std::string>& aliases) {
+    if (!header.is_object()) return nullptr;
+    for (const auto& alias : aliases) {
+        if (header.contains(alias)) return header[alias];
+    }
+    std::map<std::string, json> lowered;
+    for (auto it = header.begin(); it != header.end(); ++it) {
+        lowered[lower_ascii(it.key())] = it.value();
+    }
+    for (const auto& alias : aliases) {
+        auto it = lowered.find(lower_ascii(alias));
+        if (it != lowered.end()) return it->second;
+    }
+    return nullptr;
+}
+
+void collect_frame_header_values(const json& frame,
+                                 const std::vector<std::string>& frame_keys,
+                                 const std::vector<std::string>& header_keys,
+                                 std::vector<json>& out) {
+    if (!frame.is_object()) return;
+    for (const auto& key : frame_keys) {
+        if (frame.contains(key)) out.push_back(frame[key]);
+    }
+    if (frame.contains("header") && frame["header"].is_object()) {
+        const json value = header_value_ci(frame["header"], header_keys);
+        if (!value.is_null()) out.push_back(value);
+    }
+}
+
+std::vector<json> scan_values_from_frames(const json& scan_result,
+                                          const json& scan_metrics,
+                                          const std::vector<std::string>& frame_keys,
+                                          const std::vector<std::string>& header_keys) {
+    std::vector<json> values;
+    if (scan_result.contains("frames") && scan_result["frames"].is_array()) {
+        for (const auto& frame : scan_result["frames"]) {
+            collect_frame_header_values(frame, frame_keys, header_keys, values);
+        }
+    }
+    if (scan_metrics.contains("frames") && scan_metrics["frames"].is_array()) {
+        for (const auto& frame : scan_metrics["frames"]) {
+            collect_frame_header_values(frame, frame_keys, header_keys, values);
+        }
+    }
+    return values;
+}
+
+json unique_known_strings(const std::vector<json>& values) {
+    std::set<std::string> seen;
+    json out = json::array();
+    for (const auto& value : values) {
+        const std::string text = known_string_or_empty(value);
+        if (text.empty()) continue;
+        const std::string key = lower_ascii(text);
+        if (seen.insert(key).second) out.push_back(text);
+    }
+    return out;
+}
+
+json build_memory_query_context_signature(const json& body,
+                                          const json& base_config,
+                                          const json& allowed_paths,
+                                          const json& paths) {
+    const json session_context = body.contains("session_context") && body["session_context"].is_object()
+        ? body["session_context"]
+        : json::object();
+    const json scan_result = body.contains("scan_result") && body["scan_result"].is_object()
+        ? body["scan_result"]
+        : json::object();
+    const json scan_metrics = body.contains("scan_metrics") && body["scan_metrics"].is_object()
+        ? body["scan_metrics"]
+        : json::object();
+
+    std::string color_mode = scan_result.value("color_mode", std::string("unknown"));
+    if (color_mode == "unknown" && base_config.contains("data") && base_config["data"].is_object()) {
+        color_mode = json_string_field(base_config["data"], "color_mode", "unknown");
+    }
+
+    auto target_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"target", "object", "object_name"}, {"OBJECT", "TARGET", "OBJNAME"});
+    auto camera_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"camera", "camera_name", "instrument"}, {"INSTRUME", "CAMERA", "CCDNAME"});
+    auto telescope_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"telescope", "scope"}, {"TELESCOP", "SCOPE", "INSTRUME"});
+    auto filter_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"filter", "filter_name"}, {"FILTER", "FILTER1", "FILTER2", "FILTER3", "FILTERID"});
+    auto exposure_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"exposure_seconds", "exposure", "exptime"}, {"EXPTIME", "EXPOSURE", "EXP-TIME"});
+    auto date_values = scan_values_from_frames(
+        scan_result, scan_metrics, {"date_obs", "date-obs", "date"}, {"DATE-OBS", "DATEOBS", "DATE"});
+    for (const std::string key : {"target", "object", "object_name"}) if (scan_result.contains(key)) target_values.push_back(scan_result[key]);
+    for (const std::string key : {"camera", "camera_name", "instrument"}) if (scan_result.contains(key)) camera_values.push_back(scan_result[key]);
+    for (const std::string key : {"telescope", "scope"}) if (scan_result.contains(key)) telescope_values.push_back(scan_result[key]);
+    for (const std::string key : {"filter", "filter_name"}) if (scan_result.contains(key)) filter_values.push_back(scan_result[key]);
+    for (const std::string key : {"exposure_seconds", "exposure", "exptime"}) if (scan_result.contains(key)) exposure_values.push_back(scan_result[key]);
+    for (const std::string key : {"date_obs", "date-obs", "date"}) if (scan_result.contains(key)) date_values.push_back(scan_result[key]);
+
+    json filters = session_context.contains("filters")
+        ? array_or_singleton_string(session_context["filters"])
+        : unique_known_strings(filter_values);
+
+    json affected_paths = paths.is_array() ? paths : json::array();
+    if (allowed_paths.is_array()) {
+        for (const auto& path : allowed_paths) {
+            if (path.is_string()) affected_paths.push_back(path);
+        }
+    }
+
+    json problem_classes = json::array();
+    if (body.contains("problem_classes")) problem_classes = array_or_singleton_string(body["problem_classes"]);
+    else if (session_context.contains("problem_classes")) problem_classes = array_or_singleton_string(session_context["problem_classes"]);
+    json problem_hints = json::array();
+    if (body.contains("problem_hints")) problem_hints = array_or_singleton_string(body["problem_hints"]);
+    else if (session_context.contains("problem_hints")) problem_hints = array_or_singleton_string(session_context["problem_hints"]);
+
+    return {
+        {"schema_version", "pi.context_signature.v1"},
+        {"target", {
+            {"object_name", first_known_string_json({
+                session_value_or_null(session_context, "target_name"),
+                scan_result.contains("target") ? scan_result["target"] : json(nullptr),
+                scan_result.contains("object") ? scan_result["object"] : json(nullptr),
+                target_values.empty() ? json(nullptr) : target_values.front()
+            })},
+            {"object_type", session_context.value("target_type", std::string("unknown"))},
+            {"angular_size_class", session_context.value("target_angular_size", std::string("unknown"))},
+            {"has_extended_emission", session_value_or_null(session_context, "has_extended_emission")}
+        }},
+        {"acquisition", {
+            {"camera_name", first_known_string_json({
+                session_value_or_null(session_context, "camera_name"),
+                scan_result.contains("camera") ? scan_result["camera"] : json(nullptr),
+                camera_values.empty() ? json(nullptr) : camera_values.front()
+            })},
+            {"camera_type", session_context.value("camera_type", std::string("unknown"))},
+            {"color_mode", color_mode},
+            {"filters", filters},
+            {"frame_count", infer_frame_count(scan_result, scan_metrics)},
+            {"exposure_seconds", first_known_number_json(exposure_values)},
+            {"date_obs_first", date_values.empty() ? json(nullptr) : first_known_string_json({date_values.front()}, "")},
+            {"date_obs_last", date_values.empty() ? json(nullptr) : first_known_string_json({date_values.back()}, "")},
+            {"calibration", {
+                {"darks", session_context.value("calibration_darks", false)},
+                {"flats", session_context.value("calibration_flats", false)},
+                {"bias", session_context.value("calibration_bias", false)}
+            }}
+        }},
+        {"optics", {
+            {"telescope", first_known_string_json({
+                session_value_or_null(session_context, "telescope"),
+                scan_result.contains("telescope") ? scan_result["telescope"] : json(nullptr),
+                telescope_values.empty() ? json(nullptr) : telescope_values.front()
+            })},
+            {"focal_length_mm", session_value_or_null(session_context, "focal_length_mm")},
+            {"f_ratio", session_value_or_null(session_context, "f_ratio")},
+            {"pixel_scale_arcsec", session_value_or_null(session_context, "pixel_scale_arcsec")}
+        }},
+        {"mount", {
+            {"type", session_context.value("mount_type", std::string("unknown"))},
+            {"tracking_quality", session_context.value("tracking_quality", std::string("unknown"))}
+        }},
+        {"pipeline", {
+            {"affected_paths", affected_paths},
+            {"phases", body.contains("pipeline_phases") ? array_or_singleton_string(body["pipeline_phases"]) : json::array()}
+        }},
+        {"problem", {
+            {"classes", problem_classes},
+            {"hints", problem_hints}
+        }},
+        {"quality", {
+            {"aggregate", scan_metrics.contains("aggregate") ? scan_metrics["aggregate"] : json::object()},
+            {"session_geometry", scan_metrics.contains("session_geometry") ? scan_metrics["session_geometry"] : json::object()}
+        }}
+    };
+}
+
 json accepted_pi_memories_for_scan_request(const std::shared_ptr<AppState>& state,
+                                           const json& body,
                                            const json& base_config,
                                            const json& allowed_paths) {
     std::set<std::string> query_paths;
@@ -760,11 +970,13 @@ json accepted_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
 
     json paths = json::array();
     for (const auto& path : query_paths) paths.push_back(path);
+    const json context_signature = build_memory_query_context_signature(body, base_config, allowed_paths, paths);
 
     tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     const json retrieved = store.retrieve({
         {"type", "config_optimization"},
-        {"paths", paths}
+        {"paths", paths},
+        {"context_signature", context_signature}
     }, 8);
 
     json accepted = json::array();
@@ -776,6 +988,7 @@ json accepted_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
 }
 
 json negative_pi_memories_for_scan_request(const std::shared_ptr<AppState>& state,
+                                           const json& body,
                                            const json& base_config,
                                            const json& allowed_paths) {
     std::set<std::string> query_paths;
@@ -788,12 +1001,14 @@ json negative_pi_memories_for_scan_request(const std::shared_ptr<AppState>& stat
 
     json paths = json::array();
     for (const auto& path : query_paths) paths.push_back(path);
+    const json context_signature = build_memory_query_context_signature(body, base_config, allowed_paths, paths);
 
     tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     json negative = json::array();
     for (const auto& memory : store.retrieve_negative({
             {"type", "config_optimization"},
-            {"paths", paths}
+            {"paths", paths},
+            {"context_signature", context_signature}
         }, 8)) {
         negative.push_back(compact_memory_for_scan_context(memory));
     }
@@ -807,11 +1022,11 @@ json session_context_with_accepted_memories(const std::shared_ptr<AppState>& sta
     json session_context = body.contains("session_context") && body["session_context"].is_object()
         ? body["session_context"]
         : json::object();
-    const json memories = accepted_pi_memories_for_scan_request(state, base_config, allowed_paths);
+    const json memories = accepted_pi_memories_for_scan_request(state, body, base_config, allowed_paths);
     if (!memories.empty()) {
         session_context["accepted_pi_memories"] = memories;
     }
-    const json negative_memories = negative_pi_memories_for_scan_request(state, base_config, allowed_paths);
+    const json negative_memories = negative_pi_memories_for_scan_request(state, body, base_config, allowed_paths);
     if (!negative_memories.empty()) {
         session_context["negative_pi_memories"] = negative_memories;
     }
@@ -882,13 +1097,55 @@ json extract_scan_metadata(const json& scan_result) {
             auto fstr = [&](const std::string& key) { if (f.contains(key) && f[key].is_string() && !meta.contains(key)) meta[key] = f[key]; };
             auto fnum = [&](const std::string& key) { if (f.contains(key) && f[key].is_number() && !meta.contains(key)) meta[key] = f[key]; };
             fstr("target");
+            fstr("object");
             fstr("camera");
             fstr("telescope");
+            fstr("filter");
+            fstr("date_obs");
             fnum("exposure_seconds");
+            fnum("exposure");
+            fnum("exptime");
             fnum("gain");
             fnum("image_width");
             fnum("image_height");
             fnum("temperature_c");
+            if (f.contains("header") && f["header"].is_object()) {
+                const auto& h = f["header"];
+                auto hval = [&](std::initializer_list<const char*> keys) -> json {
+                    for (const char* key : keys) {
+                        if (h.contains(key)) return h[key];
+                    }
+                    for (auto it = h.begin(); it != h.end(); ++it) {
+                        const std::string lowered_key = lower_ascii(it.key());
+                        for (const char* key : keys) {
+                            if (lowered_key == lower_ascii(key)) return it.value();
+                        }
+                    }
+                    return nullptr;
+                };
+                auto hstr = [&](const std::string& out_key, std::initializer_list<const char*> keys) {
+                    if (meta.contains(out_key)) return;
+                    json value = hval(keys);
+                    if (value.is_string()) meta[out_key] = value;
+                };
+                auto hnum = [&](const std::string& out_key, std::initializer_list<const char*> keys) {
+                    if (meta.contains(out_key)) return;
+                    json value = hval(keys);
+                    if (value.is_number()) meta[out_key] = value;
+                    else if (value.is_string()) {
+                        try {
+                            meta[out_key] = std::stod(value.get<std::string>());
+                        } catch (...) {
+                        }
+                    }
+                };
+                hstr("target", {"OBJECT", "TARGET", "OBJNAME"});
+                hstr("camera", {"INSTRUME", "CAMERA", "CCDNAME"});
+                hstr("telescope", {"TELESCOP", "SCOPE"});
+                hstr("filter", {"FILTER", "FILTER1", "FILTER2", "FILTER3", "FILTERID"});
+                hstr("date_obs", {"DATE-OBS", "DATEOBS", "DATE"});
+                hnum("exposure_seconds", {"EXPTIME", "EXPOSURE", "EXP-TIME"});
+            }
         }
     }
     return meta;
@@ -1243,6 +1500,29 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (!session_context.empty()) {
                 request_payload["session_context"] = session_context;
             }
+            request_payload["ai_request"] = tile_compile::pi::build_ai_request_v2({
+                {"task", "scan_recommendation"},
+                {"user_message", "Analyze the transferred scan, config and memory data and propose validated tile_compile parameter changes."},
+                {"context_signature", build_memory_query_context_signature(
+                    *body,
+                    *base_config,
+                    body->value("allowed_config_paths", allowed_paths),
+                    body->value("allowed_config_paths", allowed_paths))},
+                {"scan_context", {
+                    {"scan_result", scan_result},
+                    {"scan_metrics", body->contains("scan_metrics") ? (*body)["scan_metrics"] : json::object()}
+                }},
+                {"config", {
+                    {"base_config", *base_config},
+                    {"config_schema", config_schema}
+                }},
+                {"allowed_config_paths", body->value("allowed_config_paths", allowed_paths)},
+                {"session_context", session_context},
+                {"expected_response", "pi.scan-analysis.v1 with parameter recommendations, evidence, risks, confidence and action plan candidates"},
+                {"provider", config.provider},
+                {"model", json_string_field(*body, "model", config.model)},
+                {"source_request_schema", "pi.scan-analysis.request.v1"}
+            });
         } catch (const nlohmann::json::type_error& e) {
             return err_resp("JSON_TYPE_ERROR", std::string("Failed to build request payload: ") + e.what(), 500);
         } catch (const std::exception& e) {
@@ -1467,6 +1747,28 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (!session_context.empty()) {
             request_payload["session_context"] = session_context;
         }
+        request_payload["ai_request"] = tile_compile::pi::build_ai_request_v2({
+            {"task", "scan_recommendation"},
+            {"user_message", "Analyze the transferred scan, config and memory data and propose validated tile_compile parameter changes."},
+            {"context_signature", build_memory_query_context_signature(
+                *body,
+                *base_config,
+                selected_allowed_paths,
+                selected_allowed_paths)},
+            {"scan_context", {
+                {"scan_result", scan_result},
+                {"scan_metrics", body->contains("scan_metrics") ? (*body)["scan_metrics"] : json::object()}
+            }},
+            {"config", {
+                {"base_config", *base_config}
+            }},
+            {"allowed_config_paths", selected_allowed_paths},
+            {"session_context", session_context},
+            {"expected_response", "pi.scan-analysis.v1 stream with parameter recommendations, evidence, risks and confidence"},
+            {"provider", config.provider},
+            {"model", json_string_field(*body, "model", config.model)},
+            {"source_request_schema", "pi.scan-analysis.request.v1"}
+        });
 
         // Return SSE stream response
         crow::response res;

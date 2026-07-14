@@ -16,6 +16,7 @@ public:
     const std::filesystem::path& memory_dir() const { return _memory_dir; }
     std::filesystem::path memories_path() const;
     std::filesystem::path reviews_path() const;
+    std::filesystem::path indices_path() const;
     std::filesystem::path legacy_memories_path() const;
     std::filesystem::path legacy_reviews_path() const;
 
@@ -28,6 +29,8 @@ public:
                           const nlohmann::json& outcome = nlohmann::json::object()) const;
     nlohmann::json retrieve(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json retrieve_negative(const nlohmann::json& query, int limit = 10) const;
+    nlohmann::json indices() const;
+    nlohmann::json rebuild_indices() const;
     nlohmann::json export_bundle(const std::string& privacy_class = "metadata_only",
                                  bool include_reviews = true) const;
     nlohmann::json import_bundle(const nlohmann::json& bundle,

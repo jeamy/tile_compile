@@ -265,9 +265,10 @@ int main(int argc, char** argv) {
                 {"privacy_class", "metadata_only"},
                 {"context_signature", {
                     {"schema_version", "pi.context_signature.v1"},
-                    {"target", {{"object_type", "nebula"}}},
-                    {"acquisition", {{"camera_type", "OSC"}}},
-                    {"pipeline", {{"affected_paths", nlohmann::json::array({"data.color_mode"})}}}
+                    {"target", {{"object_name", "M42"}, {"object_type", "nebula"}}},
+                    {"acquisition", {{"camera_name", "ASI2600MC"}, {"camera_type", "OSC"}, {"filters", nlohmann::json::array({"HaOIII"})}}},
+                    {"pipeline", {{"affected_paths", nlohmann::json::array({"data.color_mode"})}}},
+                    {"problem", {{"classes", nlohmann::json::array({"faint_nebula"})}}}
                 }},
                 {"scope", {
                     {"applies_when", nlohmann::json::array({"matching context"})},
@@ -304,6 +305,14 @@ int main(int argc, char** argv) {
         expect_equal(static_cast<long>(accepted_memories["items"].size()), 1L, "pi accepted memories count");
         expect_equal(accepted_memories["items"][0]["status"].get<std::string>(), "accepted",
                      "pi accepted memory status overlay");
+        const auto memory_index = harness.get_json("/api/pi/memories/index");
+        expect_equal(memory_index["_http_status"].get<long>(), 200L, "pi memory index status");
+        expect_equal(memory_index["schema_version"].get<std::string>(), "pi.memory-indices.v2",
+                     "pi memory index schema");
+        expect_true(memory_index["by_target"]["m42"].is_array(), "pi memory index by target");
+        expect_true(memory_index["by_camera"]["asi2600mc"].is_array(), "pi memory index by camera");
+        expect_true(memory_index["by_filter"]["haoiii"].is_array(), "pi memory index by filter");
+        expect_true(memory_index["by_problem"]["faint_nebula"].is_array(), "pi memory index by problem");
 
         const auto exported_memories = harness.get_json("/api/pi/memories/export?privacy=metadata_only");
         expect_equal(exported_memories["_http_status"].get<long>(), 200L, "pi memories export status");

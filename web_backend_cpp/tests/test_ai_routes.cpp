@@ -367,7 +367,19 @@ int main(int argc, char** argv) {
 
         const auto analysis = harness.post_json("/api/scan/analysis", {
             {"force", true},
-            {"scan_result", {{"frames_detected", 12}, {"color_mode", "OSC"}}},
+            {"scan_result", {
+                {"frames_detected", 12},
+                {"color_mode", "OSC"},
+                {"frames", nlohmann::json::array({{{"header", {
+                    {"OBJECT", "M42"},
+                    {"TELESCOP", "RASA 8"},
+                    {"INSTRUME", "ASI2600MC"},
+                    {"FILTER", "HaOIII"},
+                    {"EXPTIME", 180.0},
+                    {"DATE-OBS", "2026-01-02T03:04:05"}
+                }}}})}
+            }},
+            {"scan_metrics", {{"frames_total", 12}}},
             {"base_config", {{"data", {{"color_mode", "OSC"}}}}},
             {"model", false}
         });
@@ -381,6 +393,28 @@ int main(int argc, char** argv) {
         expect_equal(static_cast<long>(analysis["validated_updates"][0]["evidence"].size()), 2L, "scan ai preserves evidence");
         expect_equal(analysis["validation"]["valid"].get<bool>() ? "true" : "false", "true", "scan ai validation ok");
         const auto sidecar_request = sidecar.request_json();
+        expect_equal(sidecar_request["ai_request"]["schema_version"].get<std::string>(),
+                     "pi.ai-request.v2",
+                     "scan ai request includes canonical ai request container");
+        expect_equal(sidecar_request["ai_request"]["task"].get<std::string>(),
+                     "scan_recommendation",
+                     "scan ai canonical request task");
+        expect_equal(sidecar_request["ai_request"]["context_signature"]["target"]["object_name"].get<std::string>(),
+                     "M42",
+                     "scan ai canonical request extracts target from FITS header");
+        expect_equal(sidecar_request["ai_request"]["context_signature"]["optics"]["telescope"].get<std::string>(),
+                     "RASA 8",
+                     "scan ai canonical request extracts telescope from FITS header");
+        expect_equal(sidecar_request["ai_request"]["context_signature"]["acquisition"]["filters"][0].get<std::string>(),
+                     "HaOIII",
+                     "scan ai canonical request extracts filter from FITS header");
+        expect_equal(sidecar_request["ai_request"]["context_signature"]["acquisition"]["exposure_seconds"].get<double>(),
+                     180.0,
+                     "scan ai canonical request extracts exposure from FITS header");
+        expect_equal(static_cast<long>(sidecar_request["ai_request"]["positive_memories"].size()), 2L,
+                     "scan ai canonical request includes accepted pi memories");
+        expect_equal(static_cast<long>(sidecar_request["ai_request"]["negative_memories"].size()), 1L,
+                     "scan ai canonical request includes negative pi memories");
         expect_equal(static_cast<long>(sidecar_request["session_context"]["accepted_pi_memories"].size()), 2L,
                      "scan ai request includes accepted pi memories");
         bool found_accepted_memory = false;
@@ -389,6 +423,8 @@ int main(int argc, char** argv) {
             const std::string memory_id = memory.value("memory_id", std::string());
             if (memory_id == "mem_scan_context_accepted") found_accepted_memory = true;
             if (memory_id == "mem_scan_context_rejected") found_rejected_memory = true;
+            expect_true(memory.contains("match_explanation"), "accepted memory context includes retrieval explanation");
+            expect_true(memory.contains("match_coverage"), "accepted memory context includes retrieval coverage");
         }
         expect_true(found_accepted_memory, "scan ai request includes reviewed accepted memory");
         expect_true(!found_rejected_memory, "scan ai request excludes rejected memories");
@@ -397,6 +433,8 @@ int main(int argc, char** argv) {
         expect_equal(sidecar_request["session_context"]["negative_pi_memories"][0]["memory_id"].get<std::string>(),
                      "mem_scan_context_rejected",
                      "scan ai request carries rejected memory as negative signal");
+        expect_true(sidecar_request["session_context"]["negative_pi_memories"][0].contains("match_explanation"),
+                    "negative memory context includes retrieval explanation");
         bool rejected_wrong_type_from_memory_context = false;
         for (const auto& rejected : analysis["rejected_updates"]) {
             if (rejected.value("path", std::string()) == "data.color_mode" &&
@@ -530,8 +568,16 @@ int main(int argc, char** argv) {
         expect_equal(static_cast<long>(apply["applied_paths"].size()), 1L, "scan ai apply selected count");
         expect_true(apply.contains("revision_id"), "scan ai apply creates revision");
         expect_equal(apply["memory"]["type"].get<std::string>(), "config_optimization", "scan ai apply learns memory");
-        expect_true(apply["memory"].value("duplicate", false), "scan ai apply deduplicates existing learned memory");
-        expect_equal(apply["memory"]["status"].get<std::string>(), "accepted", "scan ai learned memory reuses accepted duplicate");
+        expect_true(!apply["memory"].value("duplicate", false), "scan ai apply creates context-specific memory candidate");
+        expect_equal(apply["memory"]["status"].get<std::string>(), "candidate", "scan ai learned memory starts as candidate");
+        expect_true(apply["memory"].contains("context_signature"), "scan ai learned memory records context signature");
+        expect_true(apply["memory"].contains("scope"), "scan ai learned memory records scope");
+        expect_equal(apply["memory"]["context_signature"]["target"]["object_name"].get<std::string>(),
+                     "M42",
+                     "scan ai learned memory preserves FITS-derived target");
+        expect_equal(apply["memory"]["context_signature"]["acquisition"]["filters"][0].get<std::string>(),
+                     "HaOIII",
+                     "scan ai learned memory preserves FITS-derived filter");
 
         const auto rounded_store = harness.post_json("/api/scan/analysis/store", {
             {"analysis", {

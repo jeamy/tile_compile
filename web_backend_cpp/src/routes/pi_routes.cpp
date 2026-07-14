@@ -4,6 +4,7 @@
 #include "routes/route_utils.hpp"
 #include "services/ai_service.hpp"
 #include "services/pi/pi_assistant.hpp"
+#include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_builder.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
@@ -1226,12 +1227,68 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 nlohmann::json image = build_run_chat_preview_image(run_dir);
                 nlohmann::json image_info = image;
                 image_info.erase("base64");
+                nlohmann::json problem_ids = nlohmann::json::array();
+                if (local_answer.contains("context") && local_answer["context"].is_object() &&
+                    local_answer["context"].contains("problem_hints") &&
+                    local_answer["context"]["problem_hints"].is_array()) {
+                    for (const auto& hint : local_answer["context"]["problem_hints"]) {
+                        if (hint.is_object() && hint.contains("id") && hint["id"].is_string()) {
+                            problem_ids.push_back(hint["id"]);
+                        }
+                    }
+                }
+                nlohmann::json resume_phases = nlohmann::json::array();
+                if (local_answer.contains("resume_recommendation") &&
+                    local_answer["resume_recommendation"].is_object() &&
+                    local_answer["resume_recommendation"].contains("from_phase")) {
+                    resume_phases.push_back(local_answer["resume_recommendation"]["from_phase"]);
+                }
+                nlohmann::json positive_memories = nlohmann::json::array();
+                if (local_answer.contains("evidence") && local_answer["evidence"].is_array()) {
+                    for (const auto& item : local_answer["evidence"]) {
+                        if (item.is_object() && item.value("id", std::string()) == "memories" &&
+                            item.contains("result") && item["result"].is_array()) {
+                            positive_memories = item["result"];
+                            break;
+                        }
+                    }
+                }
+                const nlohmann::json ai_request = tile_compile::pi::build_ai_request_v2({
+                    {"task", "run_chat"},
+                    {"user_message", message},
+                    {"context_signature", {
+                        {"schema_version", "pi.context_signature.v1"},
+                        {"problem", {
+                            {"classes", problem_ids},
+                            {"hints", problem_ids}
+                        }},
+                        {"pipeline", {
+                            {"affected_paths", nlohmann::json::array()},
+                            {"phases", resume_phases}
+                        }}
+                    }},
+                    {"run_context", {
+                        {"run_id", run_id},
+                        {"status", status},
+                        {"local_answer_context", local_answer.value("context", nlohmann::json::object())},
+                        {"previous_turns", previous_turns}
+                    }},
+                    {"artifacts", artifacts},
+                    {"image_context", image_info},
+                    {"positive_memories", positive_memories},
+                    {"conversation", messages},
+                    {"expected_response", "pi.run-chat-answer.v1 with diagnosis, checks, recommendations, resume phase and action plan candidates"},
+                    {"provider", ai_config.provider},
+                    {"model", ai_config.model},
+                    {"source_request_schema", "pi.run-chat.request.v1"}
+                });
                 const std::string prompt = build_provider_run_chat_prompt(
                     run_id, message, local_answer, messages, previous_turns, status, artifacts, image_info);
                 tile_compile::ai::AiSidecarClient client(ai_config);
                 nlohmann::json payload = {
                     {"model", ai_config.model},
                     {"prompt", prompt},
+                    {"ai_request", ai_request},
                     {"run_id", run_id},
                     {"image_available", image.value("available", false)},
                     {"image_path", image.value("path", std::string())}
@@ -1327,6 +1384,16 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             std::string(req.url_params.get("include_reviews")) != "0";
         tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
         return json_resp(store.export_bundle(privacy, include_reviews));
+    });
+
+    CROW_ROUTE(app, "/api/pi/memories/index").methods("GET"_method)
+    ([state](const crow::request&) {
+        try {
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.indices());
+        } catch (const std::exception& e) {
+            return err_resp("MEMORY_INDEX_FAILED", e.what(), 502);
+        }
     });
 
     CROW_ROUTE(app, "/api/pi/memories/import").methods("POST"_method)

@@ -136,6 +136,7 @@ export class FrameAnalysisService {
     const prompt = this.buildPrompt(request);
     const requestAuditPayload = {
       schema_version: request.schema_version,
+      ai_request: request.ai_request,
       scan_result: request.scan_result,
       base_config: request.base_config,
       config_schema: request.config_schema,
@@ -146,7 +147,7 @@ export class FrameAnalysisService {
       force: request.force,
     };
     appendTrafficLog(`prompt_length ${prompt.length} sections=${[
-      'IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
+      'AI REQUEST V2','IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
     ].map(s => s + ':' + (prompt.includes(s) ? 'YES' : 'NO')).join(' ')}`);
     appendTrafficLog(`prompt ${prompt.substring(0, 50000)}`);
 
@@ -534,6 +535,15 @@ export class FrameAnalysisService {
       "- Never recommend a single weight from a group without recommending all others in the same group.",
       "- Double-check that all weights in a group sum to exactly 1.0 before including them.",
       "",
+      ...((() => {
+        if (!request.ai_request) return [];
+        return [
+          "=== AI REQUEST V2 (canonical task/context/memory container) ===",
+          "Prefer this structured container for task intent, context signature, memory evidence and conversation state. Legacy sections below are compatibility details and validation references.",
+          JSON.stringify(request.ai_request, null, 2),
+          "",
+        ];
+      })()),
       "=== CONFIG SCHEMA (path  type  [enum]  [description]) ===",
       ...schemaLines,
       "",

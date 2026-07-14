@@ -497,30 +497,35 @@ Retrieval-Ergebnis:
 
 ### 9.8 Umsetzungsschritte
 
-- [ ] `pi.memory.v2` Schema als neuen Baseline-Vertrag definieren; keine Legacy-/Draft-Migration.
-- [ ] Store-Reset-Verhalten definieren: neuer globaler Store, alte AI-/Memory-Dateien sichtbar ignorieren, keine automatische Uebernahme.
-- [ ] `pi.context_signature.v1` Builder aus Scan, Run, FITS-Headern, Config, GUI-Kontext und Reports implementieren.
-- [ ] Memory Store auf globale Indizes erweitern: `by_type`, `by_status`, `by_path`, `by_target`, `by_camera`, `by_filter`, `by_problem`.
-- [ ] Retrieval-Service mit Scoring und Match-Erklaerung implementieren.
-- [ ] Scan-AI Request auf professionellen Kontextcontainer `pi.ai-request.v2` umstellen.
-- [ ] Run-Chat Request auf denselben Kontextcontainer umstellen, inklusive Bildstatus und Chat-Historie.
+- [x] `pi.memory.v2` Schema als neuen Baseline-Vertrag definieren; keine Legacy-/Draft-Migration.
+- [x] Store-Reset-Verhalten definieren: neuer globaler Store, alte AI-/Memory-Dateien sichtbar ignorieren, keine automatische Uebernahme.
+- [x] `pi.context_signature.v1` Builder aus Scan-AI-Kontext, GUI-Kontext, Config-Pfaden und Scan-Metriken implementieren.
+- [x] `pi.context_signature.v1` um tiefere FITS-Header-/Run-Report-Extraktion fuer Objekt, Teleskop, Filter, Belichtung und Aufnahmezeit erweitern.
+- [x] Memory Store auf globale Indizes erweitern: `by_type`, `by_status`, `by_path`, `by_target`, `by_camera`, `by_filter`, `by_problem`.
+- [x] Retrieval-Service mit Scoring, accepted-only Matches und negativen Warnungen implementieren.
+- [x] Retrieval-Match-Erklaerung und Coverage-Felder fuer Scan-AI-Kontext und Store-Retrieval ausbauen.
+- [x] Scan-AI Request um strukturierte positive und negative Memory-Kontexte erweitern.
+- [x] Gemeinsamen professionellen Kontextcontainer `pi.ai-request.v2` definieren und kompatibel in Scan-AI-Requests einbetten.
+- [x] Run-Chat Request kompatibel um denselben `pi.ai-request.v2` Container erweitern, inklusive Bildstatus und Chat-Historie.
+- [ ] Scan-AI und Run-Chat intern vollstaendig auf `pi.ai-request.v2` als primaeren Sidecar-Vertrag umstellen.
 - [ ] Outcome-Evaluator fuer Run/Resume implementieren und Memory-Kandidaten mit Vorher/Nachher-Deltas aktualisieren.
 - [ ] Negative Learning aus Nutzerfeedback und wirkungslosen Resume-Versuchen implementieren.
-- [ ] GUI3 Memory-Detail-/Review-Ansicht erweitern.
-- [ ] Export/Import fuer `pi.memory.v2` mit Privacy-Filter erweitern.
-- [ ] Tests fuer globale Retrieval-Faelle, Scope-Grenzen, negative Memories und Privacy-Redaction anlegen.
-- [ ] Tests pruefen, dass alte AI-/Memory-Daten nicht geladen, migriert oder als Retrieval-Kontext verwendet werden.
+- [x] GUI3 Memory-Detail-/Review-Ansicht um Kontext, Scope, Evidence, Outcome und `promotable` erweitern.
+- [x] Export/Import fuer `pi.memory.v2` mit Privacy-Filter erweitern.
+- [x] Tests fuer globale Retrieval-Faelle, Scope-Grenzen, negative Memories und Legacy-Ignorieren anlegen.
+- [x] Tests pruefen, dass alte AI-/Memory-Daten nicht geladen, migriert oder als Retrieval-Kontext verwendet werden.
 
 Abnahmekriterien:
 
 - [ ] Ein neues globales Memory aus einem frueheren Run wird in einem anderen Projekt gefunden, wenn Objekt-/Aufnahme-/Pipeline-Kontext passt.
-- [ ] Dasselbe Memory wird nicht oder nur mit niedriger Confidence gefunden, wenn der Kontext fachlich nicht passt.
-- [ ] KI-Prompts enthalten explizit positive Memories, negative Memories, Match-Erklaerung und fehlende Kontextfelder.
-- [ ] Memory-Kandidaten enthalten Objekt-/Aufnahmedaten, sofern vorhanden: Objekt, Kamera, Teleskop, Filter, Belichtung, Frame-Anzahl, Kalibrierung, Montierung, Qualitaetsmetriken.
+- [x] Dasselbe Memory wird nicht oder nur mit niedriger Confidence gefunden, wenn der Kontext fachlich nicht passt.
+- [x] KI-Prompts enthalten explizit positive Memories, negative Memories, Match-Erklaerung und fehlende Kontextfelder.
+- [x] Memory-Kandidaten enthalten Objekt-/Aufnahmedaten, sofern im Scan-AI-/GUI-Kontext vorhanden: Objektklasse, Kamera, Frame-Anzahl, Kalibrierung, Montierung, Qualitaetsmetriken.
+- [x] Memory-Kandidaten enthalten zusaetzlich tief extrahierte FITS-Felder: Objektname, Teleskop, Filter, Belichtung, Aufnahmedatum.
 - [ ] GUI3 erlaubt Review mit Scope-Anpassung.
 - [ ] Kein Memory speichert Rohbilddaten, API-Keys oder absolute lokale Bildpfade.
-- [ ] Tests sichern ab, dass accepted Memories weiterhin keine Config-Validierung umgehen.
-- [ ] Ein leerer neuer PI-Storage startet deterministisch ohne Altlasten und ohne automatische Migration.
+- [x] Tests sichern ab, dass accepted Memories weiterhin keine Config-Validierung umgehen.
+- [x] Ein leerer neuer PI-Storage startet deterministisch ohne Altlasten und ohne automatische Migration.
 
 ## Memory-Konzept im Detail
 
@@ -592,8 +597,10 @@ Pflichtanforderungen fuer KI-Antworten:
 
 ## Naechster sinnvoller Schritt
 
-Als naechstes sollte Phase 9 begonnen werden: `pi.memory.v2`,
-`pi.context_signature.v1` und der professionelle AI-Request-Container muessen
-definiert und implementiert werden. Danach koennen Phase 5 Outcome-Metriken und
-Phase 8 Run-Chat auf denselben globalen Memory-Layer schreiben und daraus
-retrieven.
+Als naechstes sollte die Kontextsignatur aus echten Run-/FITS-Daten vertieft
+werden: Objektname, Teleskop, Filter, Belichtungszeit, Aufnahmedatum und
+Report-Metriken muessen automatisch extrahiert werden. Danach sollten
+Scan-AI und Run-Chat auf denselben professionellen Request-Container
+`pi.ai-request.v2` umgestellt werden, damit Diagnose, Resume-Plan,
+Bildkontext, Memories und negative Gegenbeispiele einheitlich verarbeitet
+werden.

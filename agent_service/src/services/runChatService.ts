@@ -111,10 +111,19 @@ export class RunChatService {
       const images = body.image_base64
         ? [{ type: "image" as const, data: String(body.image_base64), mimeType: String(body.image_mime || "image/png") }]
         : undefined;
-      appendTrafficLog(`run_chat prompt model=${model.id} has_image=${images ? "yes" : "no"} prompt_length=${String(body.prompt || "").length}`);
-      appendTrafficLog(`run_chat prompt_text ${String(body.prompt || "").substring(0, 50000)}`);
-      if (images) await session.prompt(String(body.prompt || ""), { images });
-      else await session.prompt(String(body.prompt || ""));
+      const aiRequestSection = body.ai_request
+        ? [
+            "=== AI REQUEST V2 (canonical task/context/memory container) ===",
+            "Prefer this structured container for task intent, run context, image status, memory evidence and conversation state. The legacy prompt below is compatibility detail.",
+            JSON.stringify(body.ai_request, null, 2),
+            "",
+          ].join("\n")
+        : "";
+      const prompt = `${aiRequestSection}${String(body.prompt || "")}`;
+      appendTrafficLog(`run_chat prompt model=${model.id} has_image=${images ? "yes" : "no"} ai_request=${body.ai_request ? "yes" : "no"} prompt_length=${prompt.length}`);
+      appendTrafficLog(`run_chat prompt_text ${prompt.substring(0, 50000)}`);
+      if (images) await session.prompt(prompt, { images });
+      else await session.prompt(prompt);
     } finally {
       unsubscribe();
       session.dispose();

@@ -131,7 +131,7 @@ export function createAiEmpfehlungPage() {
   // Apply actions
   const learnMemory = el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") },
     el("input", { type: "checkbox", id: "ai-learn-memory", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") }),
-    el("span", {}, t("ui.label.pi_learn_memory", "Aus dieser Optimierung lernen")),
+    el("span", {}, t("ui.label.pi_learn_memory", "Lernkandidat speichern")),
   );
   const applyBar = el("div", { class: "tc-flex tc-gap-3" },
     learnMemory,
@@ -179,6 +179,7 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
       el("select", { class: "tc-select", id: "ai-pi-memory-filter", title: t("ui.tooltip.ai.memory_filter", "Filtert PI Memories nach Review-Status."), onchange: () => loadPiMemories() },
         el("option", { value: "candidate" }, t("ui.pi.status.candidate", "Candidate")),
+        el("option", { value: "promotable" }, t("ui.pi.status.promotable", "Promotable")),
         el("option", { value: "accepted" }, t("ui.pi.status.accepted", "Accepted")),
         el("option", { value: "rejected" }, t("ui.pi.status.rejected", "Rejected")),
         el("option", { value: "deprecated" }, t("ui.pi.status.deprecated", "Deprecated")),
@@ -998,6 +999,7 @@ function memoryStatusLabel(memory) {
   const status = String(memory?.status || "candidate");
   const reviewed = memory?.review?.reviewed_at ? ` · ${memory.review.reviewed_at}` : "";
   if (status === "accepted") return `${t("ui.pi.status.accepted", "Accepted")}${reviewed}`;
+  if (status === "promotable") return `${t("ui.pi.status.promotable", "Promotable")}${reviewed}`;
   if (status === "rejected") return `${t("ui.pi.status.rejected", "Rejected")}${reviewed}`;
   if (status === "deprecated") return `${t("ui.pi.status.deprecated", "Deprecated")}${reviewed}`;
   return t("ui.pi.status.candidate", "Candidate");
@@ -1012,6 +1014,43 @@ function memoryOutcomeSummary(memory) {
   const count = Number.isFinite(Number(outcome.applied_count)) ? Number(outcome.applied_count) : 0;
   const paths = Array.isArray(outcome.applied_paths) ? outcome.applied_paths.slice(0, 3).join(", ") : "";
   return `${t("ui.pi.outcome", "Outcome")}: ${valid}, ${t("ui.pi.update_count", "{count} Updates", { count })}${paths ? ` · ${paths}` : ""}`;
+}
+
+function memoryContextSummary(memory) {
+  const ctx = memory?.context_signature;
+  if (!ctx || typeof ctx !== "object") return "";
+  const target = ctx.target || {};
+  const acquisition = ctx.acquisition || {};
+  const mount = ctx.mount || {};
+  const pipeline = ctx.pipeline || {};
+  const parts = [
+    target.object_name || target.object_type,
+    acquisition.camera_name || acquisition.camera_type || acquisition.color_mode,
+    Array.isArray(acquisition.filters) ? acquisition.filters.slice(0, 3).join("+") : "",
+    mount.type,
+    Array.isArray(pipeline.affected_paths) ? pipeline.affected_paths.slice(0, 3).join(", ") : "",
+  ].filter(Boolean);
+  return parts.length ? `${t("ui.pi.context_signature", "Kontext")}: ${parts.join(" · ")}` : "";
+}
+
+function memoryScopeSummary(memory) {
+  const scope = memory?.scope;
+  if (!scope || typeof scope !== "object") return "";
+  const applies = Array.isArray(scope.applies_when) ? scope.applies_when.slice(0, 2).join("; ") : "";
+  const avoids = Array.isArray(scope.does_not_apply_when) ? scope.does_not_apply_when.slice(0, 2).join("; ") : "";
+  const confidence = scope.confidence !== undefined ? ` · ${t("ui.label.confidence", "Confidence")}: ${scope.confidence}` : "";
+  const text = [applies ? `${t("ui.pi.applies_when", "Gilt wenn")}: ${applies}` : "", avoids ? `${t("ui.pi.does_not_apply_when", "Gilt nicht wenn")}: ${avoids}` : ""].filter(Boolean).join(" · ");
+  return text ? `${text}${confidence}` : "";
+}
+
+function memoryEvidenceSummary(memory) {
+  const evidence = memory?.evidence;
+  if (!evidence || typeof evidence !== "object") return "";
+  const refs = Array.isArray(evidence.run_refs) ? evidence.run_refs.length : 0;
+  const human = evidence.human_feedback ? t("ui.pi.human_feedback", "Nutzerfeedback") : "";
+  const validation = evidence.validation ? t("ui.pi.validation_evidence", "Validierung") : "";
+  const parts = [refs ? `${refs} ${t("ui.pi.run_refs", "Run-Referenzen")}` : "", human, validation].filter(Boolean);
+  return parts.length ? `${t("ui.pi.evidence", "Evidenz")}: ${parts.join(" · ")}` : "";
 }
 
 async function loadPiStorage() {
@@ -1069,13 +1108,16 @@ async function loadPiMemories() {
       for (const memory of items) {
         const id = memory.memory_id || "";
         const statusName = String(memory.status || "candidate");
-        const canReview = statusName === "candidate" || statusName === "accepted";
+        const canReview = statusName === "candidate" || statusName === "promotable" || statusName === "accepted";
         list.appendChild(el("div", { class: "tc-card", style: { background: "var(--surface-2)" } },
           el("div", { class: "tc-flex tc-justify-between tc-gap-2" },
             el("div", { class: "tc-mono tc-text-sm" }, id || "-"),
             el("span", { class: "tc-badge" }, memoryStatusLabel(memory)),
           ),
           el("div", { class: "tc-text-sm tc-text-muted" }, summarizeMemory(memory)),
+          memoryContextSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryContextSummary(memory)) : null,
+          memoryScopeSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryScopeSummary(memory)) : null,
+          memoryEvidenceSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryEvidenceSummary(memory)) : null,
           memoryOutcomeSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryOutcomeSummary(memory)) : null,
           memory?.review?.note ? el("div", { class: "tc-text-sm" }, memory.review.note) : null,
           el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },

@@ -160,6 +160,7 @@ set(BACKEND_SOURCES
     src/services/config_revisions.cpp
     src/services/pi/pi_action_plan.cpp
     src/services/pi/pi_action_validator.cpp
+    src/services/pi/pi_ai_request_builder.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_storage_paths.cpp
     src/services/pi/pi_context_builder.cpp
