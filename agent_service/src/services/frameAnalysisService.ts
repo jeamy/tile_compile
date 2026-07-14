@@ -6,28 +6,10 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent } from "../types.js";
 import type { ModelService } from "./modelService.js";
-
-const trafficLogPath = path.resolve(process.env.TILE_COMPILE_PROJECT_ROOT || path.resolve(process.cwd(), ".."), "runs", "pi_agent_traffic.log");
-
-function envBool(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
-}
-
-function appendTrafficLog(message: string) {
-  if (!envBool("AI_TRAFFIC_LOG", false)) return;
-  try {
-    fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
-    fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${message}\n`);
-  } catch {
-    // Ignore logging errors.
-  }
-}
+import { appendTrafficLog } from "./trafficLog.js";
 
 function stableNormalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableNormalize);
@@ -595,6 +577,28 @@ export class FrameAnalysisService {
         }
         if (ctx.notes) lines.push(`notes: ${ctx.notes}`);
         return lines.length > 0 ? ["=== SESSION CONTEXT (mount, target, system, geometry) ===", ...lines, ""] : [];
+      })()),
+      ...((() => {
+        const memories = Array.isArray(request.session_context?.accepted_pi_memories)
+          ? request.session_context.accepted_pi_memories
+          : [];
+        if (memories.length === 0) return [];
+        const lines = [
+          "Use these as reviewed historical experience only. Do not copy values blindly; every recommendation still must match CONFIG SCHEMA and current evidence.",
+          JSON.stringify(memories.slice(0, 8), null, 2),
+        ];
+        return ["=== ACCEPTED PI MEMORIES (reviewed historical optimizations) ===", ...lines, ""];
+      })()),
+      ...((() => {
+        const memories = Array.isArray(request.session_context?.negative_pi_memories)
+          ? request.session_context.negative_pi_memories
+          : [];
+        if (memories.length === 0) return [];
+        const lines = [
+          "Avoid repeating these reviewed rejected or deprecated optimizations unless current evidence is materially different and review_required=true.",
+          JSON.stringify(memories.slice(0, 8), null, 2),
+        ];
+        return ["=== NEGATIVE PI MEMORIES (reviewed rejected/deprecated optimizations) ===", ...lines, ""];
       })()),
       "=== SCAN RESULT ===",
       JSON.stringify(scanCompact, null, 2),

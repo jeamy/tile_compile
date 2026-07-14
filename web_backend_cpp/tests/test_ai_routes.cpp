@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <netinet/in.h>
 #include <stdexcept>
 #include <string>
@@ -68,6 +69,16 @@ public:
         return "http://127.0.0.1:" + std::to_string(_port);
     }
 
+    nlohmann::json request_json() const {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!_handled.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        auto parsed = nlohmann::json::parse(_request_body, nullptr, false);
+        if (parsed.is_discarded()) return nlohmann::json::object();
+        return parsed;
+    }
+
 private:
     void serve_once() {
         int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -91,8 +102,16 @@ private:
 
         int client = accept(fd, nullptr, nullptr);
         if (client >= 0) {
-            char buffer[4096];
-            recv(client, buffer, sizeof(buffer), 0);
+            char buffer[32768];
+            const ssize_t received = recv(client, buffer, sizeof(buffer) - 1, 0);
+            if (received > 0) {
+                buffer[received] = '\0';
+                const std::string request(buffer, static_cast<size_t>(received));
+                const auto body_pos = request.find("\r\n\r\n");
+                if (body_pos != std::string::npos) {
+                    _request_body = request.substr(body_pos + 4);
+                }
+            }
             const std::string body = _response.dump();
             const std::string http =
                 "HTTP/1.1 200 OK\r\n"
@@ -102,12 +121,15 @@ private:
             send(client, http.data(), http.size(), 0);
             close(client);
         }
+        _handled.store(true);
         close(fd);
     }
 
     nlohmann::json _response;
+    std::string _request_body;
     int _port{0};
     std::atomic<bool> _ready{false};
+    std::atomic<bool> _handled{false};
     std::thread _thread;
 };
 
@@ -213,6 +235,72 @@ int main(int argc, char** argv) {
         });
         expect_equal(sidecar_config["_http_status"].get<long>(), 200L, "ai sidecar config status");
 
+        const auto memory_dir = harness.fixture_root() / "runs" / ".pi_memory";
+        std::filesystem::create_directories(memory_dir);
+        {
+            std::ofstream out(memory_dir / "memories.jsonl");
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_accepted"},
+                {"status", "candidate"},
+                {"type", "config_optimization"},
+                {"source", "scan_ai_apply"},
+                {"privacy_class", "metadata_only"},
+                {"summary", "MONO was useful for this fixture"},
+                {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "MONO"}}})},
+                {"validation", {{"valid", true}}}
+            }.dump() << "\n";
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_rejected"},
+                {"status", "candidate"},
+                {"type", "config_optimization"},
+                {"source", "scan_ai_apply"},
+                {"privacy_class", "metadata_only"},
+                {"summary", "Rejected memory must not become request context"},
+                {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "RGB"}}})},
+                {"validation", {{"valid", true}}}
+            }.dump() << "\n";
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_wrong_type"},
+                {"status", "candidate"},
+                {"type", "config_optimization"},
+                {"source", "scan_ai_apply"},
+                {"privacy_class", "metadata_only"},
+                {"summary", "Accepted memory with invalid historical value must not bypass schema validation"},
+                {"config_updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", 123}}})},
+                {"validation", {{"valid", true}}}
+            }.dump() << "\n";
+        }
+        {
+            std::ofstream out(memory_dir / "memory_reviews.jsonl");
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_accepted"},
+                {"status", "accepted"},
+                {"reviewed_at", "2026-07-14T00:00:00Z"},
+                {"reviewer", "fixture"},
+                {"note", "useful"}
+            }.dump() << "\n";
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_rejected"},
+                {"status", "rejected"},
+                {"reviewed_at", "2026-07-14T00:00:01Z"},
+                {"reviewer", "fixture"},
+                {"note", "bad"}
+            }.dump() << "\n";
+            out << nlohmann::json{
+                {"schema_version", "pi.memory.v1"},
+                {"memory_id", "mem_scan_context_wrong_type"},
+                {"status", "accepted"},
+                {"reviewed_at", "2026-07-14T00:00:02Z"},
+                {"reviewer", "fixture"},
+                {"note", "historical context only"}
+            }.dump() << "\n";
+        }
+
         const auto analysis = harness.post_json("/api/scan/analysis", {
             {"force", true},
             {"scan_result", {{"frames_detected", 12}, {"color_mode", "OSC"}}},
@@ -228,6 +316,38 @@ int main(int argc, char** argv) {
         expect_equal(analysis["validated_updates"][0]["risk"].get<std::string>(), "false", "scan ai coerces boolean risk");
         expect_equal(static_cast<long>(analysis["validated_updates"][0]["evidence"].size()), 2L, "scan ai preserves evidence");
         expect_equal(analysis["validation"]["valid"].get<bool>() ? "true" : "false", "true", "scan ai validation ok");
+        const auto sidecar_request = sidecar.request_json();
+        expect_equal(static_cast<long>(sidecar_request["session_context"]["accepted_pi_memories"].size()), 2L,
+                     "scan ai request includes accepted pi memories");
+        bool found_accepted_memory = false;
+        bool found_rejected_memory = false;
+        for (const auto& memory : sidecar_request["session_context"]["accepted_pi_memories"]) {
+            const std::string memory_id = memory.value("memory_id", std::string());
+            if (memory_id == "mem_scan_context_accepted") found_accepted_memory = true;
+            if (memory_id == "mem_scan_context_rejected") found_rejected_memory = true;
+        }
+        expect_true(found_accepted_memory, "scan ai request includes reviewed accepted memory");
+        expect_true(!found_rejected_memory, "scan ai request excludes rejected memories");
+        expect_equal(static_cast<long>(sidecar_request["session_context"]["negative_pi_memories"].size()), 1L,
+                     "scan ai request includes negative pi memories");
+        expect_equal(sidecar_request["session_context"]["negative_pi_memories"][0]["memory_id"].get<std::string>(),
+                     "mem_scan_context_rejected",
+                     "scan ai request carries rejected memory as negative signal");
+        bool rejected_wrong_type_from_memory_context = false;
+        for (const auto& rejected : analysis["rejected_updates"]) {
+            if (rejected.value("path", std::string()) == "data.color_mode" &&
+                rejected.value("reject_reason", std::string()) == "wrong_type") {
+                rejected_wrong_type_from_memory_context = true;
+                break;
+            }
+        }
+        expect_true(rejected_wrong_type_from_memory_context,
+                    "accepted memory context cannot bypass config schema validation");
+        expect_equal(analysis["action_plan"]["schema_version"].get<std::string>(),
+                     "pi.action-plan.v1",
+                     "scan ai attaches pi action plan");
+        expect_true(analysis["action_plan_validation"]["valid"].get<bool>(),
+                    "scan ai action plan validates");
 
         const auto context_store = harness.post_json("/api/scan/analysis/store", {
             {"analysis", {
@@ -329,19 +449,25 @@ int main(int argc, char** argv) {
         expect_equal(context_file["analysis_context"]["scan_metrics"]["sampling"]["strategy"].get<std::string>(),
                      "stratified_header_edges_even_fill",
                      "context persisted file preserves sampling strategy");
+        expect_true(context_store["action_plan_validation"]["valid"].get<bool>(),
+                    "stored scan ai action plan validates");
 
         const std::string analysis_id = analysis["analysis_id"].get<std::string>();
         const auto apply = harness.post_json("/api/scan/analysis/apply", {
             {"analysis_id", analysis_id},
             {"base_config", {{"data", {{"color_mode", "OSC"}}}}},
             {"selected_paths", {"data.color_mode"}},
-            {"persist", true}
+            {"persist", true},
+            {"learn", true}
         });
         expect_equal(apply["_http_status"].get<long>(), 200L, "scan ai apply status");
         expect_true(apply["ok"].get<bool>(), "scan ai apply ok");
         expect_equal(apply["config"]["data"]["color_mode"].get<std::string>(), "MONO", "scan ai apply config value");
         expect_equal(static_cast<long>(apply["applied_paths"].size()), 1L, "scan ai apply selected count");
         expect_true(apply.contains("revision_id"), "scan ai apply creates revision");
+        expect_equal(apply["memory"]["type"].get<std::string>(), "config_optimization", "scan ai apply learns memory");
+        expect_true(apply["memory"].value("duplicate", false), "scan ai apply deduplicates existing learned memory");
+        expect_equal(apply["memory"]["status"].get<std::string>(), "accepted", "scan ai learned memory reuses accepted duplicate");
 
         const auto rounded_store = harness.post_json("/api/scan/analysis/store", {
             {"analysis", {
@@ -374,6 +500,8 @@ int main(int argc, char** argv) {
             }}
         });
         expect_equal(rounded_store["_http_status"].get<long>(), 200L, "rounded float store status");
+        expect_equal(static_cast<long>(rounded_store["validated_updates"].size()), 1L,
+                     "rounded float store validated updates");
         const std::string rounded_id = rounded_store["analysis_id"].get<std::string>();
         const auto rounded_apply = harness.post_json("/api/scan/analysis/apply", {
             {"analysis_id", rounded_id},
@@ -384,7 +512,8 @@ int main(int argc, char** argv) {
                 }}
             }},
             {"selected_paths", {"aqmh.cherry_pick.k_frac"}},
-            {"persist", false}
+            {"persist", false},
+            {"learn", true}
         });
         expect_equal(rounded_apply["_http_status"].get<long>(), 200L, "rounded float apply status");
         const std::string rounded_yaml = rounded_apply["config_yaml"].get<std::string>();
@@ -392,6 +521,13 @@ int main(int argc, char** argv) {
                     "rounded float yaml uses compact decimal: " + rounded_yaml);
         expect_true(rounded_yaml.find("0.299999999999999") == std::string::npos,
                     "rounded float yaml omits binary noise: " + rounded_yaml);
+        expect_true(rounded_apply["memory"]["outcome"]["validation_valid"].get<bool>(),
+                    "learned memory records validation outcome");
+        expect_equal(rounded_apply["memory"]["outcome"]["applied_count"].get<long>(), 1L,
+                     "learned memory records applied count");
+        expect_equal(rounded_apply["memory"]["outcome"]["applied_paths"][0].get<std::string>(),
+                     "aqmh.cherry_pick.k_frac",
+                     "learned memory records applied path");
 
         const auto missing_apply = harness.post_json("/api/scan/analysis/apply", nlohmann::json::object());
         expect_equal(missing_apply["_http_status"].get<long>(), 400L, "scan ai apply missing id status");

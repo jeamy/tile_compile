@@ -23,6 +23,8 @@ export interface SessionContext {
   system_ram_mb?: number;
   cpu_cores?: number;
   notes?: string;
+  accepted_pi_memories?: unknown[];
+  negative_pi_memories?: unknown[];
 }
 
 export interface ScanAnalysisRequest {

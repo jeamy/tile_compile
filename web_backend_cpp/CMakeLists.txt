@@ -147,6 +147,7 @@ set(BACKEND_SOURCES
     src/routes/app_state_routes.cpp
     src/routes/scan_routes.cpp
     src/routes/ai_routes.cpp
+    src/routes/pi_routes.cpp
     src/routes/config_routes.cpp
     src/routes/runs_routes.cpp
     src/routes/ws_routes.cpp
@@ -157,6 +158,12 @@ set(BACKEND_SOURCES
     src/services/scan_summary.cpp
     src/services/ai_service.cpp
     src/services/config_revisions.cpp
+    src/services/pi/pi_action_plan.cpp
+    src/services/pi/pi_action_validator.cpp
+    src/services/pi/pi_memory_store.cpp
+    src/services/pi/pi_context_builder.cpp
+    src/services/pi/pi_tool_registry.cpp
+    src/services/pi/pi_assistant.cpp
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
     src/services/hme_preview_service.cpp
@@ -300,6 +307,16 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
     add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
     add_backend_cpp_test(web_backend_cpp_ai_routes tests/test_ai_routes.cpp)
+    add_backend_cpp_test(web_backend_cpp_pi_action_plan tests/test_pi_action_plan.cpp)
+    target_sources(web_backend_cpp_pi_action_plan PRIVATE
+        src/services/pi/pi_action_plan.cpp
+        src/services/pi/pi_action_validator.cpp
+    )
+    add_backend_cpp_test(web_backend_cpp_pi_memory_store tests/test_pi_memory_store.cpp)
+    target_sources(web_backend_cpp_pi_memory_store PRIVATE
+        src/services/pi/pi_memory_store.cpp
+    )
+    add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)

@@ -3,6 +3,9 @@
 #include "routes/route_utils.hpp"
 #include "subprocess_manager.hpp"
 #include "services/ai_service.hpp"
+#include "services/pi/pi_action_plan.hpp"
+#include "services/pi/pi_action_validator.hpp"
+#include "services/pi/pi_memory_store.hpp"
 #include "services/scan_summary.hpp"
 
 #include <yaml-cpp/yaml.h>
@@ -29,6 +32,10 @@ using json = nlohmann::json;
 
 fs::path ai_config_path(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / "ai_scan_config.json";
+}
+
+fs::path pi_memory_dir(const std::shared_ptr<AppState>& state) {
+    return state->runtime.runs_dir / ".pi_memory";
 }
 
 json read_ai_config_file(const std::shared_ptr<AppState>& state) {
@@ -519,6 +526,196 @@ json selected_validated_updates(const json& data, const json& body) {
     return selected;
 }
 
+void attach_pi_action_plan(json& analysis) {
+    const json updates = analysis.contains("validated_updates") && analysis["validated_updates"].is_array()
+        ? analysis["validated_updates"]
+        : json::array();
+    json plan = tile_compile::pi::build_scan_analysis_action_plan(analysis, updates);
+    analysis["action_plan"] = plan;
+    analysis["action_plan_validation"] = tile_compile::pi::validate_action_plan_shape(plan);
+}
+
+json build_apply_candidate_memory(const std::string& analysis_id,
+                                  const json& analysis_data,
+                                  const json& applied,
+                                  const json& validation,
+                                  const fs::path& config_path,
+                                  bool persisted) {
+    json applied_paths = json::array();
+    if (applied.is_array()) {
+        for (const auto& update : applied) {
+            const std::string path = json_string_field(update, "path");
+            if (!path.empty()) applied_paths.push_back(path);
+        }
+    }
+    json memory = {
+        {"type", "config_optimization"},
+        {"status", "candidate"},
+        {"privacy_class", "metadata_only"},
+        {"source", "scan_ai_apply"},
+        {"analysis_id", analysis_id},
+        {"config_path_name", config_path.filename().string()},
+        {"persisted", persisted},
+        {"config_updates", applied},
+        {"validation", validation},
+        {"outcome", {
+            {"stage", "scan_ai_apply"},
+            {"validation_valid", validation.value("valid", false)},
+            {"applied_count", applied.is_array() ? applied.size() : 0},
+            {"applied_paths", applied_paths},
+            {"persist_requested", persisted}
+        }},
+    };
+    if (analysis_data.is_object()) {
+        if (analysis_data.contains("summary")) memory["summary"] = analysis_data["summary"];
+        if (analysis_data.contains("confidence")) memory["confidence"] = analysis_data["confidence"];
+        if (analysis_data.contains("detected_scenarios")) memory["detected_scenarios"] = analysis_data["detected_scenarios"];
+        if (analysis_data.contains("warnings")) memory["warnings"] = analysis_data["warnings"];
+    }
+    return memory;
+}
+
+void collect_config_leaf_paths(const json& value, const std::string& prefix, std::set<std::string>& paths) {
+    if (value.is_object()) {
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            const std::string next = prefix.empty() ? it.key() : prefix + "." + it.key();
+            collect_config_leaf_paths(it.value(), next, paths);
+        }
+        return;
+    }
+    if (!prefix.empty()) paths.insert(prefix);
+}
+
+void collect_json_path_fields(const json& value, std::set<std::string>& paths) {
+    if (value.is_string()) {
+        const std::string path = value.get<std::string>();
+        if (!path.empty()) paths.insert(path);
+        return;
+    }
+    if (value.is_object()) {
+        if (value.contains("path") && value["path"].is_string()) {
+            const std::string path = value["path"].get<std::string>();
+            if (!path.empty()) paths.insert(path);
+        }
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            collect_json_path_fields(it.value(), paths);
+        }
+        return;
+    }
+    if (value.is_array()) {
+        for (const auto& item : value) collect_json_path_fields(item, paths);
+    }
+}
+
+json compact_memory_for_scan_context(const json& memory) {
+    json out = {
+        {"memory_id", json_string_field(memory, "memory_id")},
+        {"type", json_string_field(memory, "type")},
+        {"source", json_string_field(memory, "source")},
+        {"status", memory.value("status", std::string("candidate"))},
+        {"privacy_class", memory.value("privacy_class", std::string("metadata_only"))},
+        {"retrieval_score", memory.value("retrieval_score", 0)}
+    };
+    if (memory.contains("summary")) out["summary"] = memory["summary"];
+    if (memory.contains("confidence")) out["confidence"] = memory["confidence"];
+    if (memory.contains("config_updates")) out["config_updates"] = memory["config_updates"];
+    if (memory.contains("detected_scenarios")) out["detected_scenarios"] = memory["detected_scenarios"];
+    if (memory.contains("warnings")) out["warnings"] = memory["warnings"];
+    if (memory.contains("validation") && memory["validation"].is_object()) {
+        out["validation"] = {
+            {"valid", memory["validation"].value("valid", false)}
+        };
+    }
+    if (memory.contains("review") && memory["review"].is_object()) {
+        out["review"] = {
+            {"status", memory["review"].value("status", std::string())},
+            {"reviewed_at", memory["review"].value("reviewed_at", std::string())},
+            {"note", memory["review"].value("note", std::string())}
+        };
+    }
+    return out;
+}
+
+json accepted_pi_memories_for_scan_request(const std::shared_ptr<AppState>& state,
+                                           const json& base_config,
+                                           const json& allowed_paths) {
+    std::set<std::string> query_paths;
+    collect_config_leaf_paths(base_config, "", query_paths);
+    if (allowed_paths.is_array()) {
+        for (const auto& path : allowed_paths) {
+            if (path.is_string()) query_paths.insert(path.get<std::string>());
+        }
+    }
+
+    json paths = json::array();
+    for (const auto& path : query_paths) paths.push_back(path);
+
+    tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+    const json retrieved = store.retrieve({
+        {"type", "config_optimization"},
+        {"paths", paths}
+    }, 8);
+
+    json accepted = json::array();
+    for (const auto& memory : retrieved) {
+        if (memory.value("status", std::string()) != "accepted") continue;
+        accepted.push_back(compact_memory_for_scan_context(memory));
+    }
+    return accepted;
+}
+
+json negative_pi_memories_for_scan_request(const std::shared_ptr<AppState>& state,
+                                           const json& base_config,
+                                           const json& allowed_paths) {
+    std::set<std::string> query_paths;
+    collect_config_leaf_paths(base_config, "", query_paths);
+    if (allowed_paths.is_array()) {
+        for (const auto& path : allowed_paths) {
+            if (path.is_string()) query_paths.insert(path.get<std::string>());
+        }
+    }
+
+    tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+    json negative = json::array();
+    for (const auto& memory : store.list(100000)) {
+        const std::string status = memory.value("status", std::string());
+        if (status != "rejected" && status != "deprecated") continue;
+        if (memory.value("type", std::string()) != "config_optimization") continue;
+
+        std::set<std::string> memory_paths;
+        collect_json_path_fields(memory, memory_paths);
+        bool intersects = query_paths.empty();
+        for (const auto& path : memory_paths) {
+            if (query_paths.count(path)) {
+                intersects = true;
+                break;
+            }
+        }
+        if (!intersects) continue;
+        negative.push_back(compact_memory_for_scan_context(memory));
+        if (negative.size() >= 8) break;
+    }
+    return negative;
+}
+
+json session_context_with_accepted_memories(const std::shared_ptr<AppState>& state,
+                                            const json& body,
+                                            const json& base_config,
+                                            const json& allowed_paths) {
+    json session_context = body.contains("session_context") && body["session_context"].is_object()
+        ? body["session_context"]
+        : json::object();
+    const json memories = accepted_pi_memories_for_scan_request(state, base_config, allowed_paths);
+    if (!memories.empty()) {
+        session_context["accepted_pi_memories"] = memories;
+    }
+    const json negative_memories = negative_pi_memories_for_scan_request(state, base_config, allowed_paths);
+    if (!negative_memories.empty()) {
+        session_context["negative_pi_memories"] = negative_memories;
+    }
+    return session_context;
+}
+
 json scan_result_from_request_or_latest(const std::shared_ptr<AppState>& state, const json& body) {
     if (body.contains("scan_result") && body["scan_result"].is_object()) {
         if (body["scan_result"].contains("has_scan") && !body["scan_result"].value("has_scan", false)) {
@@ -546,7 +743,7 @@ json scan_result_from_request_or_latest(const std::shared_ptr<AppState>& state, 
 }
 
 fs::path ai_analyses_dir(const std::shared_ptr<AppState>& state) {
-    return ".ai_analyses";
+    return state->runtime.runtime_dir / ".ai_analyses";
 }
 
 json extract_scan_metadata(const json& scan_result) {
@@ -895,6 +1092,11 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
 
         json request_payload;
         try {
+            const json session_context = session_context_with_accepted_memories(
+                state,
+                *body,
+                *base_config,
+                body->value("allowed_config_paths", allowed_paths));
             request_payload = {
                 {"schema_version", "pi.scan-analysis.request.v1"},
                 {"scan_result", scan_result},
@@ -908,8 +1110,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()) {
                 request_payload["scan_metrics"] = (*body)["scan_metrics"];
             }
-            if (body->contains("session_context") && (*body)["session_context"].is_object()) {
-                request_payload["session_context"] = (*body)["session_context"];
+            if (!session_context.empty()) {
+                request_payload["session_context"] = session_context;
             }
         } catch (const nlohmann::json::type_error& e) {
             return err_resp("JSON_TYPE_ERROR", std::string("Failed to build request payload: ") + e.what(), 500);
@@ -938,6 +1140,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 analysis["analysis_context"]["patched_config"] = validation["patched_config"];
             if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
                 analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
+            attach_pi_action_plan(analysis);
             const std::string job_id = state->job_store.create("scan_ai_analysis");
             json job_data = analysis;
             job_data["analysis_id"] = job_id;
@@ -1009,6 +1212,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             analysis["analysis_context"]["patched_config"] = validation["patched_config"];
         if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
             analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
+        attach_pi_action_plan(analysis);
 
         const std::string job_id = state->job_store.create("scan_ai_analysis");
         json job_data = analysis;
@@ -1111,17 +1315,27 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         json allowed_paths = json::array();
         for (const auto& [path, _] : schema->paths) allowed_paths.push_back(path);
 
+        const json selected_allowed_paths = body->value("allowed_config_paths", allowed_paths);
+        const json session_context = session_context_with_accepted_memories(
+            state,
+            *body,
+            *base_config,
+            selected_allowed_paths);
+
         json request_payload = {
             {"schema_version", "pi.scan-analysis.request.v1"},
             {"scan_result", scan_result},
             {"base_config", *base_config},
-            {"allowed_config_paths", body->value("allowed_config_paths", allowed_paths)},
+            {"allowed_config_paths", selected_allowed_paths},
             {"model", json_string_field(*body, "model", config.model)},
             {"send_paths", config.send_paths},
             {"force", force},
         };
         if (body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()) {
             request_payload["scan_metrics"] = (*body)["scan_metrics"];
+        }
+        if (!session_context.empty()) {
+            request_payload["session_context"] = session_context;
         }
 
         // Return SSE stream response
@@ -1279,6 +1493,22 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             result["saved"] = saved->value("saved", false);
             result["revision_id"] = rev_id;
             result["path"] = saved_path.string();
+        }
+
+        if (body->value("learn", false)) {
+            try {
+                tile_compile::pi::PiMemoryStore store(pi_memory_dir(state));
+                json memory = build_apply_candidate_memory(
+                    analysis_id,
+                    analysis_data,
+                    applied,
+                    validation,
+                    target_config_path,
+                    body->value("persist", false));
+                result["memory"] = store.append_candidate(std::move(memory));
+            } catch (const std::exception& e) {
+                result["memory_error"] = e.what();
+            }
         }
 
         return json_resp(result);
