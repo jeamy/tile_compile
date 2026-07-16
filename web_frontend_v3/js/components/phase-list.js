@@ -96,7 +96,7 @@ export function clearSelectedPhase() {
   }
 }
 
-export function selectPhase(name) {
+export function selectPhase(name, opts = {}) {
   selectedPhase = name || null;
   const list = document.getElementById("phase-list");
   if (list) {
@@ -104,7 +104,7 @@ export function selectPhase(name) {
       item.classList.toggle("tc-phase-selected", !!selectedPhase && item.dataset.phase === selectedPhase);
     });
   }
-  if (phaseClickHandler) phaseClickHandler(selectedPhase);
+  if (phaseClickHandler && opts.notify !== false) phaseClickHandler(selectedPhase);
 }
 
 function isPhaseResumable(state) {

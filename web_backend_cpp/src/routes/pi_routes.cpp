@@ -564,9 +564,17 @@ std::string build_provider_run_chat_prompt(const std::string& run_id,
         << "  \"checks\": [{\"text\":string,\"evidence_ref\":string}],\n"
         << "  \"recommendations\": [{\"text\":string,\"evidence_ref\":string}],\n"
         << "  \"resume_recommendation\": {\"from_phase\":string,\"confidence\":string,\"reason\":string},\n"
+        << "  \"action_plan\": {\"schema_version\":\"pi.action-plan.v1\",\"source\":\"pi.run-chat.provider\",\"run_id\":string,\"mutation_free\":true,\"actions\":[{\"id\":string,\"type\":\"config.set\",\"path\":string,\"value\":any,\"rationale\":string}]},\n"
         << "  \"image_observations\": string[],\n"
         << "  \"warnings\": string[]\n"
         << "}\n\n"
+        << "ACTION PLAN RULES:\n"
+        << "- Put every concrete parameter recommendation with an exact config path and exact value into action_plan.actions.\n"
+        << "- Do not put vague changes into action_plan. Keep those only in recommendations.\n"
+        << "- If you recommend disabling/enabling a config path, encode it as false/true in action_plan.\n"
+        << "- If you recommend a numeric range or alternatives, choose one conservative primary value for action_plan and mention alternatives in rationale.\n"
+        << "- Use only config.set actions unless multiple values are inseparable.\n"
+        << "- Do not repeat identical parameter/value pairs already present in PREVIOUS TURNS.\n\n"
         << "USER QUESTION:\n" << message << "\n\n"
         << "RUN ID:\n" << run_id << "\n\n"
         << "IMAGE CONTEXT:\n" << image_info.dump(2) << "\n\n"
@@ -586,6 +594,50 @@ nlohmann::json merge_provider_run_chat_answer(nlohmann::json local_answer, const
     }
     local_answer["mode"] = "provider";
     local_answer["provider_meta"] = provider_answer.value("_meta", nlohmann::json::object());
+    if (provider_answer.contains("action_plan") && provider_answer["action_plan"].is_object()) {
+        nlohmann::json provider_plan = provider_answer["action_plan"];
+        provider_plan["schema_version"] = provider_plan.value("schema_version", "pi.action-plan.v1");
+        provider_plan["source"] = provider_plan.value("source", "pi.run-chat.provider");
+        provider_plan["mutation_free"] = provider_plan.value("mutation_free", true);
+        if (!provider_plan.contains("run_id") && local_answer.contains("run_id")) provider_plan["run_id"] = local_answer["run_id"];
+        const auto validation = tile_compile::pi::validate_action_plan_shape(provider_plan);
+        if (validation.value("valid", false)) {
+            nlohmann::json merged_plan = local_answer.value("action_plan", nlohmann::json::object());
+            if (!merged_plan.is_object()) merged_plan = nlohmann::json::object();
+            merged_plan["schema_version"] = merged_plan.value("schema_version", "pi.action-plan.v1");
+            merged_plan["source"] = "pi.run-chat.merged";
+            merged_plan["mutation_free"] = merged_plan.value("mutation_free", true);
+            if (!merged_plan.contains("run_id") && local_answer.contains("run_id")) merged_plan["run_id"] = local_answer["run_id"];
+            if (!merged_plan.contains("actions") || !merged_plan["actions"].is_array()) merged_plan["actions"] = nlohmann::json::array();
+
+            std::set<std::string> seen;
+            auto update_key = [](const nlohmann::json& action) {
+                if (action.value("type", std::string()) != "config.set" ||
+                    !action.contains("path") || !action["path"].is_string() ||
+                    !action.contains("value")) {
+                    return std::string();
+                }
+                return action["path"].get<std::string>() + "=" + action["value"].dump();
+            };
+            for (const auto& action : merged_plan["actions"]) {
+                const auto key = update_key(action);
+                if (!key.empty()) seen.insert(key);
+            }
+            for (const auto& action : provider_plan.value("actions", nlohmann::json::array())) {
+                const auto key = update_key(action);
+                if (!key.empty() && seen.find(key) == seen.end()) {
+                    merged_plan["actions"].push_back(action);
+                    seen.insert(key);
+                }
+            }
+            const auto merged_validation = tile_compile::pi::validate_action_plan_shape(merged_plan);
+            local_answer["action_plan"] = merged_plan;
+            local_answer["action_plan_validation"] = merged_validation;
+            local_answer["provider_action_plan_validation"] = validation;
+        } else {
+            local_answer["provider_action_plan_rejected"] = validation;
+        }
+    }
     if (provider_answer.contains("image_observations")) local_answer["image_observations"] = provider_answer["image_observations"];
     if (provider_answer.contains("warnings")) local_answer["warnings"] = provider_answer["warnings"];
     return local_answer;
@@ -648,6 +700,51 @@ nlohmann::json append_text_item(const std::string& text, const std::string& evid
     nlohmann::json item = {{"text", text}};
     if (!evidence.empty()) item["evidence_ref"] = evidence;
     return item;
+}
+
+bool hints_contain(const nlohmann::json& hints, const std::string& id) {
+    if (!hints.is_array()) return false;
+    for (const auto& hint : hints) {
+        if (hint.is_object() && hint.value("id", std::string()) == id) return true;
+    }
+    return false;
+}
+
+void add_hint_once(nlohmann::json& hints,
+                   const std::string& id,
+                   const std::string& label,
+                   const std::string& confidence,
+                   const std::string& source = "") {
+    if (!hints.is_array() || hints_contain(hints, id)) return;
+    nlohmann::json hint = {{"id", id}, {"label", label}, {"confidence", confidence}};
+    if (!source.empty()) hint["source"] = source;
+    hints.push_back(hint);
+}
+
+nlohmann::json augment_run_chat_hints_from_context(nlohmann::json hints,
+                                                   const nlohmann::json& report,
+                                                   const nlohmann::json& artifacts,
+                                                   const std::string& run_log_tail = "") {
+    const std::string context = lower_copy(report.dump() + "\n" + artifacts.dump() + "\n" + run_log_tail);
+    if (context.find("empty_valid_crop") != std::string::npos ||
+        context.find("crop_to_nonzero_bbox produced empty valid canvas") != std::string::npos) {
+        add_hint_once(hints, "empty_valid_crop",
+                      "Stacking bricht wegen leerem Crop-Fenster ab",
+                      "high", "artifacts");
+        add_hint_once(hints, "cropped_nebula",
+                      "Nebel oder Randstruktur wirkt beschnitten",
+                      "high", "artifacts");
+    }
+    return hints;
+}
+
+std::string run_chat_log_tail(const std::shared_ptr<AppState>& state, const std::string& run_id, int tail = 120) {
+    try {
+        const fs::path run_dir = state->runtime.resolve_run_dir(run_id);
+        return read_run_logs(run_dir, tail);
+    } catch (...) {
+        return {};
+    }
 }
 
 std::string action_update_key(const std::string& path, const nlohmann::json& value) {
@@ -813,9 +910,9 @@ nlohmann::json build_run_chat_action_plan(const std::string& run_id,
     nlohmann::json suppressed = nlohmann::json::array();
     const auto previous_updates = previous_run_chat_action_updates(previous_turns);
     int index = 1;
-    auto add_set = [&](const std::string& path, const nlohmann::json& value, const std::string& rationale) {
+    auto add_set = [&](const std::string& path, const nlohmann::json& value, const std::string& rationale, bool force_repeat = false) {
         const std::string key = action_update_key(path, value);
-        if (previous_updates.find(key) != previous_updates.end()) {
+        if (!force_repeat && previous_updates.find(key) != previous_updates.end()) {
             suppressed.push_back({
                 {"type", "config.set"},
                 {"path", path},
@@ -835,7 +932,11 @@ nlohmann::json build_run_chat_action_plan(const std::string& run_id,
 
     for (const auto& hint : hints) {
         const std::string id = hint.value("id", std::string());
-        if (id == "cropped_nebula") {
+        if (id == "empty_valid_crop") {
+            add_set("output.crop_to_nonzero_bbox", false,
+                    "Der letzte Resume scheiterte in STACKING mit empty_valid_crop; automatisches Crop muss fuer den naechsten Resume deaktiviert werden.",
+                    true);
+        } else if (id == "cropped_nebula") {
             add_set("output.crop_to_nonzero_bbox", false,
                     "Wenn Nebel am Rand abgeschnitten wirkt, zuerst ohne automatisches Crop testen.");
         } else if (id == "faint_nebula") {
@@ -878,7 +979,10 @@ nlohmann::json build_resume_recommendation(const nlohmann::json& hints) {
     };
     for (const auto& hint : hints) {
         const std::string id = hint.value("id", std::string());
-        if (id == "soft_or_elongated_stars") {
+        if (id == "empty_valid_crop") {
+            choose(1, "STACKING",
+                   "Der letzte Resume brach in STACKING mit empty_valid_crop ab; nach Deaktivieren von output.crop_to_nonzero_bbox reicht Resume ab STACKING.");
+        } else if (id == "soft_or_elongated_stars") {
             choose(5, "REGISTRATION", "Sternform und Schaerfe haengen oft an Registrierung, Frame-Gewichtung oder fruehen Geometrieschritten.");
         }
         if (id == "cropped_nebula") {
@@ -909,7 +1013,12 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
     tile_compile::pi::PiToolRegistry tools(state);
     nlohmann::json report = tools.call_tool("run.report.summary", {{"run_id", run_id}});
     nlohmann::json artifacts = tools.call_tool("run.artifacts.summary", {{"run_id", run_id}});
-    const nlohmann::json hints = detect_run_chat_problem_hints(analysis_message.empty() ? message : analysis_message);
+    const std::string log_tail = run_chat_log_tail(state, run_id);
+    const nlohmann::json hints = augment_run_chat_hints_from_context(
+        detect_run_chat_problem_hints(analysis_message.empty() ? message : analysis_message),
+        report,
+        artifacts,
+        log_tail);
 
     tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
     nlohmann::json memories = store.retrieve({{"type", "config_optimization"}}, 5);
@@ -917,6 +1026,7 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
     nlohmann::json evidence = nlohmann::json::array({
         {{"id", "report"}, {"tool", "run.report.summary"}, {"available", report.value("ok", false)}, {"result", report.value("result", nlohmann::json::object())}},
         {{"id", "artifacts"}, {"tool", "run.artifacts.summary"}, {"available", artifacts.value("ok", false)}, {"result", artifacts.value("result", nlohmann::json::object())}},
+        {{"id", "run_log_tail"}, {"tool", "run.logs.tail"}, {"available", !log_tail.empty()}, {"result", log_tail.substr(0, 20000)}},
         {{"id", "memories"}, {"tool", "pi.memory.retrieve"}, {"available", !memories.empty()}, {"result", memories}}
     });
     if (previous_turns.is_array() && !previous_turns.empty()) {
@@ -934,7 +1044,17 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
 
     for (const auto& hint : hints) {
         const std::string id = hint.value("id", std::string());
-        if (id == "black_star_cores") {
+        if (id == "empty_valid_crop") {
+            likely_causes.push_back(append_text_item(
+                "Der letzte Resume scheiterte in STACKING, weil crop_to_nonzero_bbox nach AQMH-Reconstruction kein gueltiges Nicht-Null-Crop-Fenster mehr fand.",
+                "artifacts"));
+            checks.push_back(append_text_item(
+                "Pruefe STACKING phase_end und AQMH-Reconstruction-Warnungen: empty_valid_crop, unsupported_pixels und post-clipping numerical guard zeigen, dass automatisches Crop hier nicht belastbar ist.",
+                "artifacts"));
+            recommendations.push_back(append_text_item(
+                "Vor dem naechsten Resume `output.crop_to_nonzero_bbox=false` setzen und ab `STACKING` neu rechnen.",
+                "artifacts"));
+        } else if (id == "black_star_cores") {
             likely_causes.push_back(append_text_item(
                 "Dunkle Sternkerne passen zu zu aggressiver kosmetischer Korrektur, Sigma-Rejection, lokaler Hintergrundbehandlung oder Stretch/Star-Protect-Artefakten.",
                 "report"));

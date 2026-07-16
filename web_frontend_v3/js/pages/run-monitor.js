@@ -62,12 +62,14 @@ export function createRunMonitorPage() {
     ),
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.label.config_yaml", "Config YAML")),
+      el("div", { class: "tc-config-section-nav", id: "resume-config-sections" }),
       el("textarea", {
         class: "tc-input tc-mono",
         id: "resume-config-yaml",
         rows: 16,
         style: "width:100%;font-size:0.85em;resize:vertical",
         spellcheck: false,
+        oninput: (e) => updateResumeConfigSectionHighlights(e.target.value),
       }),
     ),
     el("div", { class: "tc-mt-2 tc-flex tc-gap-2 tc-items-center tc-flex-wrap" },
@@ -106,6 +108,7 @@ export function createRunMonitorPage() {
   // Log viewer (component-based)
   const logViewer = createLogViewer();
   activeLogViewer = logViewer;
+  const runMonitorTabs = createRunMonitorTabs(resumePanel, runChat, logViewer.wrapper);
 
   // Warning banner — collects calibration/run warnings and shows them as a batch
   const warningBanner = el("div", { id: "run-warning-banner", class: "tc-card", style: "display:none" },
@@ -115,8 +118,9 @@ export function createRunMonitorPage() {
     ),
     el("div", { id: "run-warning-list", class: "tc-flex-col tc-gap-1" }),
   );
+  activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, resumePanel, stats, runPreview, runChat, logViewer.wrapper);
+  page.append(control, runInfo, phases, warningBanner, stats, runPreview, runMonitorTabs);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -131,16 +135,6 @@ export function createRunMonitorPage() {
 
   setPhaseClickHandler((phase) => onPhaseSelected(phase, logViewer));
 
-  // Restore saved phase states from store after page is in the DOM
-  // (setPhaseList uses getElementById which requires the page to be mounted)
-  requestAnimationFrame(() => {
-    const savedPhases = getRunState().phases;
-    if (savedPhases && Array.isArray(savedPhases) && savedPhases.length > 0) {
-      setPhaseList(savedPhases);
-    }
-    // If no saved phases, the config-based phases from createPhaseList are already shown
-  });
-
   // Defer until the page element is mounted in the DOM. createRunMonitorPage
   // returns the page node which the caller appends — any getElementById calls
   // before that (e.g. setRunButtonsActive) silently find nothing. Yielding via
@@ -151,13 +145,28 @@ export function createRunMonitorPage() {
 }
 
 let pollTimer = null;
+let logTailTimer = null;
 let resumePendingTimer = null;
 let lastImagePreviewKey = "";
 let monitorRunChatMessages = [];
 let activeLogViewer = null;
+let activeWarningBanner = null;
 let runChatTrafficTimer = null;
+let replayedRunLogEvents = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
+const RESUME_CONFIG_SECTIONS = [
+  { key: "aqmh", label: "AQMH" },
+  { key: "common_overlap", label: "COMMON" },
+  { key: "stacking", label: "STACKING" },
+  { key: "output", label: "OUTPUT" },
+  { key: "normalization", label: "NORM" },
+  { key: "bge", label: "BGE" },
+  { key: "pcc", label: "PCC" },
+  { key: "hypermetric_stretch", label: "HMS" },
+  { key: "registration", label: "REG" },
+  { key: "astrometry", label: "ASTRO" },
+];
 
 // Returns the most specific run key for API calls: full path if known, else run_id.
 // This allows the backend to locate runs on network drives or non-default runs_dir.
@@ -168,6 +177,88 @@ function getResumeActive() { return getRunState().resumeActive || false; }
 function setResumeActive(v) { setRunState({ resumeActive: v }); }
 function getResumeFromPhase() { return getRunState().resumeFromPhase || ""; }
 function setResumeFromPhase(v) { setRunState({ resumeFromPhase: v || "" }); }
+
+function activateRunMonitorTab(tabId) {
+  const root = document.getElementById("run-monitor-work-tabs");
+  if (!root) return;
+  for (const btn of root.querySelectorAll(".tc-tab")) {
+    btn.classList.toggle("active", btn.dataset.workTab === tabId);
+    btn.setAttribute("aria-selected", btn.dataset.workTab === tabId ? "true" : "false");
+  }
+  for (const panel of root.querySelectorAll("[data-work-tab-panel]")) {
+    panel.style.display = panel.dataset.workTabPanel === tabId ? "" : "none";
+  }
+}
+
+function createRunMonitorTabs(resumePanel, runChatPanel, logPanel) {
+  const tabs = [
+    { id: "resume", label: t("ui.title.resume", "Resume"), node: resumePanel },
+    { id: "chat", label: t("ui.title.run_chat", "Run-Chat"), node: runChatPanel },
+    { id: "log", label: t("ui.title.live_log", "Live Log"), node: logPanel },
+  ];
+  const tabButtons = tabs.map((tab, index) => el("button", {
+    class: `tc-tab${index === 0 ? " active" : ""}`,
+    "data-work-tab": tab.id,
+    role: "tab",
+    "aria-selected": index === 0 ? "true" : "false",
+    onclick: () => activateRunMonitorTab(tab.id),
+  }, tab.label));
+  const panels = tabs.map((tab, index) => el("div", {
+    "data-work-tab-panel": tab.id,
+    style: index === 0 ? "" : "display:none",
+  }, tab.node));
+  return el("div", { class: "tc-flex-col tc-gap-3", id: "run-monitor-work-tabs" },
+    el("div", { class: "tc-tabs", role: "tablist" }, ...tabButtons),
+    ...panels,
+  );
+}
+
+function findYamlTopLevelSectionLine(yaml, key) {
+  const lines = String(yaml || "").split(/\r?\n/);
+  const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*(?:#.*)?$`);
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i])) return i;
+  }
+  return -1;
+}
+
+function focusResumeConfigSection(key) {
+  const editor = document.getElementById("resume-config-yaml");
+  if (!editor) return;
+  const lines = String(editor.value || "").split(/\r?\n/);
+  const line = findYamlTopLevelSectionLine(editor.value, key);
+  if (line < 0) return;
+  let start = 0;
+  for (let i = 0; i < line; i++) start += lines[i].length + 1;
+  const end = start + lines[line].length;
+  editor.focus();
+  editor.setSelectionRange(start, end);
+  const lineHeight = 18;
+  editor.scrollTop = Math.max(0, line * lineHeight - editor.clientHeight * 0.25);
+}
+
+function updateResumeConfigSectionHighlights(yaml = "") {
+  const container = document.getElementById("resume-config-sections");
+  if (!container) return;
+  clear(container);
+  const found = RESUME_CONFIG_SECTIONS
+    .map(section => ({ ...section, line: findYamlTopLevelSectionLine(yaml, section.key) }))
+    .filter(section => section.line >= 0);
+  if (!found.length) {
+    container.appendChild(el("span", { class: "tc-text-muted tc-text-sm" },
+      t("ui.state.no_config_sections", "Keine Config-Abschnitte erkannt")));
+    return;
+  }
+  container.appendChild(el("span", { class: "tc-text-muted tc-text-sm" },
+    t("ui.label.config_sections", "Config-Abschnitte")));
+  for (const section of found) {
+    container.appendChild(el("button", {
+      class: "tc-config-section-chip",
+      title: t("ui.tooltip.config_section_jump", "Springt zum YAML-Abschnitt {section}.", { section: section.label }),
+      onclick: () => focusResumeConfigSection(section.key),
+    }, section.label));
+  }
+}
 
 function phaseIndexInCurrentList(phaseName) {
   const phases = getRunState().phases;
@@ -238,48 +329,89 @@ function appendRunChatTurn(runKey, turn) {
   persistRunChatRecordToServer(runKey);
 }
 
-function monitorListSection(title, items) {
-  const list = el("div", { class: "tc-flex-col tc-gap-1" });
-  for (const item of Array.isArray(items) ? items : []) {
-    const text = typeof item === "string" ? item : item?.text || JSON.stringify(item);
-    const evidence = typeof item === "object" && item?.evidence_ref ? ` (${item.evidence_ref})` : "";
-    list.appendChild(el("div", { class: "tc-text-sm" }, `${text}${evidence}`));
+function monitorTextItem(item) {
+  if (typeof item === "string") return { text: item, evidence: "" };
+  if (item && typeof item === "object") {
+    return {
+      text: item.text || item.message || JSON.stringify(item),
+      evidence: item.evidence_ref || item.evidence || "",
+    };
   }
-  return el("div", { class: "tc-mt-2" },
+  return { text: String(item ?? ""), evidence: "" };
+}
+
+function monitorListSection(title, items) {
+  const values = Array.isArray(items) ? items.map(monitorTextItem).filter(item => item.text) : [];
+  if (!values.length) return null;
+  const list = el("div", { class: "tc-run-chat-list" });
+  for (const item of values) {
+    list.appendChild(el("div", { class: "tc-run-chat-list-item" },
+      el("div", { class: "tc-text-sm" }, item.text),
+      item.evidence ? el("span", { class: "tc-badge tc-run-chat-evidence" }, item.evidence) : null,
+    ));
+  }
+  return el("div", { class: "tc-run-chat-section" },
     el("div", { class: "tc-label" }, title),
     list,
   );
 }
 
-function applyResumeRecommendation(phase) {
+function appendMonitorSection(container, section) {
+  if (section) container.appendChild(section);
+}
+
+function monitorStringListSection(title, items) {
+  const values = Array.isArray(items) ? items.filter(Boolean).map(String) : [];
+  if (!values.length) return null;
+  const list = el("div", { class: "tc-run-chat-list" });
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item) continue;
+    list.appendChild(el("div", { class: "tc-run-chat-list-item" }, el("div", { class: "tc-text-sm" }, String(item))));
+  }
+  return el("div", { class: "tc-run-chat-section" },
+    el("div", { class: "tc-label" }, title),
+    list,
+  );
+}
+
+function applyResumeRecommendation(phase, statusEl = null) {
   if (!phase) return;
-  selectPhase(phase);
+  selectPhase(phase, { notify: false });
   const panel = document.getElementById("resume-panel");
   if (panel) panel.style.display = "";
+  const badge = document.getElementById("resume-phase-badge");
+  if (badge) badge.textContent = phase;
   const hint = document.getElementById("resume-hint");
   if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+  if (statusEl) statusEl.textContent = t("ui.message.phase_selected", "Phase ausgewählt");
 }
 
 function renderResumeRecommendation(result) {
   const rec = result?.resume_recommendation || result?.resume || null;
   const phase = rec?.from_phase || rec?.phase || "";
   if (!phase) return null;
-  return el("div", { class: "tc-card tc-mt-3", style: { background: "var(--surface-2)" } },
+  const status = el("span", { class: "tc-text-success tc-text-sm tc-mt-2" }, "");
+  return el("div", { class: "tc-card tc-mt-3 tc-run-chat-resume-rec" },
     el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
     el("div", { class: "tc-text-sm tc-mono" }, phase),
     rec.reason ? el("div", { class: "tc-text-sm tc-text-muted tc-mt-1" }, rec.reason) : null,
     rec.execution_note ? el("div", { class: "tc-text-sm tc-text-warning tc-mt-1" }, rec.execution_note) : null,
-    el("button", {
-      class: "tc-btn tc-btn-sm tc-mt-2",
-      title: t("ui.tooltip.run_chat_use_resume_phase", "Wählt diese Phase im Resume-Panel aus."),
-      onclick: () => applyResumeRecommendation(phase),
-    }, t("ui.button.use_resume_phase", "Resume ab Phase wählen")),
+    el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mt-2 tc-flex-wrap" },
+      el("button", {
+        class: "tc-btn tc-btn-sm",
+        title: t("ui.tooltip.run_chat_use_resume_phase", "Wählt diese Phase im Resume-Panel aus."),
+        onclick: () => applyResumeRecommendation(phase, status),
+      }, t("ui.button.use_resume_phase", "Resume ab Phase wählen")),
+      status,
+    ),
   );
 }
 
 function renderMonitorRunChatResult(container, result, opts = {}) {
   if (!opts.append) clear(container);
-  container.appendChild(el("div", { class: "tc-text-sm" }, result?.summary || ""));
+  if (result?.summary) {
+    container.appendChild(el("div", { class: "tc-run-chat-summary tc-text-sm" }, result.summary));
+  }
 
   const hints = result?.context?.problem_hints || [];
   if (Array.isArray(hints) && hints.length) {
@@ -288,17 +420,18 @@ function renderMonitorRunChatResult(container, result, opts = {}) {
     ));
   }
 
-  container.appendChild(monitorListSection(t("ui.pi.run_chat.likely_causes", "Wahrscheinliche Ursachen"), result?.likely_causes));
-  container.appendChild(monitorListSection(t("ui.pi.run_chat.checks", "Prüfen"), result?.checks));
-  container.appendChild(monitorListSection(t("ui.pi.run_chat.recommendations", "Empfehlungen"), result?.recommendations));
+  appendMonitorSection(container, monitorStringListSection(t("ui.pi.run_chat.image_observations", "Bildbeobachtungen"), result?.image_observations));
+  appendMonitorSection(container, monitorListSection(t("ui.pi.run_chat.likely_causes", "Wahrscheinliche Ursachen"), result?.likely_causes));
+  appendMonitorSection(container, monitorListSection(t("ui.pi.run_chat.checks", "Prüfen"), result?.checks));
+  appendMonitorSection(container, monitorListSection(t("ui.pi.run_chat.recommendations", "Empfehlungen"), result?.recommendations));
+  appendMonitorSection(container, monitorStringListSection(t("ui.pi.run_chat.warnings", "Hinweise"), result?.warnings));
 
   const resumeRec = renderResumeRecommendation(result);
   if (resumeRec) container.appendChild(resumeRec);
 
-  const actionCount = Array.isArray(result?.action_plan?.actions) ? result.action_plan.actions.length : 0;
-  if (actionCount > 0) {
-    container.appendChild(createMonitorRunChatActionControls(result.action_plan, actionCount));
-  }
+  const actionPlan = monitorRunChatActionPlanWithTextRecommendations(result);
+  const actionCount = monitorActionPlanUpdates(actionPlan).length;
+  container.appendChild(createMonitorRunChatActionControls(actionPlan, actionCount));
 
   const evidence = Array.isArray(result?.evidence) ? result.evidence : [];
   if (evidence.length) {
@@ -307,6 +440,84 @@ function renderMonitorRunChatResult(container, result, opts = {}) {
       el("pre", { class: "tc-log-viewer tc-text-sm", style: { maxHeight: "220px" } }, JSON.stringify(evidence, null, 2)),
     ));
   }
+}
+
+function monitorParseActionValue(raw) {
+  const value = String(raw || "").trim().replace(/^`|`$/g, "");
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (value === "null") return null;
+  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  return value;
+}
+
+function monitorExtractTextConfigActions(result) {
+  const sourceItems = [
+    ...(Array.isArray(result?.recommendations) ? result.recommendations : []),
+    ...(Array.isArray(result?.checks) ? result.checks : []),
+  ];
+  const actions = [];
+  const seen = new Set();
+  const addAction = (path, value, text, evidence, source = "text") => {
+    if (!path) return;
+    if (source === "directive" && typeof value === "boolean" && !/(^|\.)(enabled|enable|disabled|disable)$|clipping|correction|cleanup|use_|apply_/i.test(path)) {
+      return;
+    }
+    const key = `${path}:${JSON.stringify(value)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    actions.push({
+      id: `run_chat_${source}_${actions.length + 1}`,
+      type: "config.set",
+      path,
+      value,
+      rationale: evidence ? `${text} (${evidence})` : text,
+    });
+  };
+
+  const exactPattern = /`?([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)`?\s*=\s*`?("([^"\\]|\\.)*"|'([^'\\]|\\.)*'|true|false|null|-?\d+(?:\.\d+)?)`?/g;
+  const exampleNumberPattern = /`?([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)`?[^.\n]{0,180}?(?:z\.B\.|zum Beispiel|beispielsweise)[^\d-]{0,30}(-?\d+(?:\.\d+)?)/gi;
+  const boolDirectivePattern = /`?([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)`?[^.\n]{0,160}?\b(deaktivieren|abschalten|disable|aktivieren|einschalten|enable)\b/gi;
+  for (const item of sourceItems) {
+    const { text, evidence } = monitorTextItem(item);
+    let match;
+    while ((match = exactPattern.exec(text)) !== null) {
+      addAction(match[1], monitorParseActionValue(match[2]), text, evidence, "text");
+    }
+    while ((match = exampleNumberPattern.exec(text)) !== null) {
+      addAction(match[1], Number(match[2]), text, evidence, "example");
+    }
+    while ((match = boolDirectivePattern.exec(text)) !== null) {
+      const directive = String(match[2] || "").toLowerCase();
+      const value = ["aktivieren", "einschalten", "enable"].includes(directive);
+      addAction(match[1], value, text, evidence, "directive");
+    }
+  }
+  return actions;
+}
+
+function monitorRunChatActionPlanWithTextRecommendations(result) {
+  const plan = result?.action_plan && typeof result.action_plan === "object"
+    ? JSON.parse(JSON.stringify(result.action_plan))
+    : {
+        schema_version: "pi.action-plan.v1",
+        source: "pi.run-chat.text-recommendations",
+        run_id: result?.run_id || getRunApiKey(),
+        mutation_free: true,
+        actions: [],
+      };
+  if (!Array.isArray(plan.actions)) plan.actions = [];
+  const existing = new Set(monitorActionPlanUpdates(plan).map(change => `${change.path}:${JSON.stringify(change.value)}`));
+  for (const action of monitorExtractTextConfigActions(result)) {
+    const key = `${action.path}:${JSON.stringify(action.value)}`;
+    if (existing.has(key)) continue;
+    plan.actions.push(action);
+    existing.add(key);
+  }
+  return plan;
 }
 
 function monitorActionPlanUpdates(plan) {
@@ -369,8 +580,9 @@ function formatMonitorActionValue(value) {
 function createMonitorRunChatActionControls(plan, actionCount) {
   const changes = monitorActionPlanUpdates(plan);
   if (!changes.length) {
-    return el("div", { class: "tc-mt-2 tc-text-sm tc-text-muted" },
-      t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: actionCount }),
+    return el("div", { class: "tc-run-chat-section tc-text-sm tc-text-muted" },
+      el("div", { class: "tc-label" }, t("ui.title.parameter_changes", "Parameteränderungen")),
+      el("div", {}, t("ui.pi.run_chat.no_parameter_changes", "Keine konkreten Parameterwerte zum direkten Übernehmen erkannt.")),
     );
   }
 
@@ -422,6 +634,7 @@ function createMonitorRunChatActionControls(plan, actionCount) {
       return;
     }
     editor.value = patchedYaml;
+    updateResumeConfigSectionHighlights(patchedYaml);
     const panel = document.getElementById("resume-panel");
     if (panel) panel.style.display = "";
     const hint = document.getElementById("resume-hint");
@@ -456,7 +669,7 @@ function createMonitorRunChatActionControls(plan, actionCount) {
   return el("div", { class: "tc-mt-3" },
     el("div", { class: "tc-label" }, t("ui.title.parameter_changes", "Parameteränderungen")),
     el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" },
-      t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: actionCount }),
+      t("ui.pi.run_chat.action_plan", "{count} optionale PI-Action-Plan-Schritte erzeugt.", { count: changes.length || actionCount }),
     ),
     el("div", { class: "tc-flex-col tc-gap-2" }, ...items),
     el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
@@ -480,7 +693,10 @@ async function getMonitorResumeYaml() {
   const resp = await api.get(API_ENDPOINTS.runs.config(runId));
   const loaded = resp?.config_yaml || resp?.config || "";
   if (!loaded) throw new Error(t("ui.error.no_config", "Config YAML ist leer"));
-  if (editor) editor.value = loaded;
+  if (editor) {
+    editor.value = loaded;
+    updateResumeConfigSectionHighlights(loaded);
+  }
   return loaded;
 }
 
@@ -558,7 +774,56 @@ function createRunChatPanel() {
   );
 }
 
-function renderMonitorRunChatTurn(output, turn) {
+function createMonitorRunChatAnswer(result, { collapsed = false, loading = false } = {}) {
+  if (collapsed) {
+    const details = el("details", { class: "tc-run-chat-answer tc-run-chat-answer-collapsible" },
+      el("summary", { class: "tc-run-chat-answer-summary" },
+        el("span", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+        result?.summary ? el("span", { class: "tc-run-chat-answer-summary-text" }, result.summary) : null,
+      ),
+    );
+    if (result) renderMonitorRunChatResult(details, result, { append: true });
+    return details;
+  }
+
+  const answer = el("div", { class: "tc-run-chat-answer" },
+    el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+  );
+  if (loading) {
+    answer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
+  } else if (result) {
+    renderMonitorRunChatResult(answer, result, { append: true });
+  }
+  return answer;
+}
+
+function collapseExistingMonitorRunChatAnswers(output) {
+  if (!output) return;
+  for (const answer of output.querySelectorAll(".tc-run-chat-answer-collapsible")) {
+    answer.open = false;
+  }
+  for (const answer of output.querySelectorAll(".tc-run-chat-answer:not(.tc-run-chat-answer-collapsible)")) {
+    const turn = answer.closest(".tc-run-chat-turn");
+    const summaryText = answer.querySelector(".tc-run-chat-summary")?.textContent || "";
+    const details = el("details", { class: "tc-run-chat-answer tc-run-chat-answer-collapsible" },
+      el("summary", { class: "tc-run-chat-answer-summary" },
+        el("span", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
+        summaryText ? el("span", { class: "tc-run-chat-answer-summary-text" }, summaryText) : null,
+      ),
+    );
+    while (answer.firstChild) {
+      const child = answer.firstChild;
+      if (child.classList?.contains("tc-run-chat-role")) {
+        answer.removeChild(child);
+      } else {
+        details.appendChild(child);
+      }
+    }
+    if (turn) turn.replaceChild(details, answer);
+  }
+}
+
+function renderMonitorRunChatTurn(output, turn, { collapsed = false } = {}) {
   const card = el("div", { class: "tc-run-chat-turn" },
     el("div", { class: "tc-run-chat-question" },
       el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
@@ -566,11 +831,7 @@ function renderMonitorRunChatTurn(output, turn) {
     ),
   );
   if (turn?.result) {
-    const answer = el("div", { class: "tc-run-chat-answer" },
-      el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
-    );
-    renderMonitorRunChatResult(answer, turn.result, { append: true });
-    card.appendChild(answer);
+    card.appendChild(createMonitorRunChatAnswer(turn.result, { collapsed }));
   } else if (turn?.error) {
     card.appendChild(el("div", { class: "tc-text-error tc-text-sm tc-mt-2" }, turn.error));
   }
@@ -589,7 +850,9 @@ function restoreMonitorRunChat(outputId = "run-monitor-chat-output") {
     output.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.run_chat_empty", "Noch keine Frage gestellt.")));
     return;
   }
-  for (const turn of [...turns].reverse()) renderMonitorRunChatTurn(output, turn);
+  [...turns].reverse().forEach((turn, index) => {
+    renderMonitorRunChatTurn(output, turn, { collapsed: index > 0 });
+  });
 }
 
 async function restoreMonitorRunChatFromServer(outputId = "run-monitor-chat-output") {
@@ -691,16 +954,14 @@ async function submitMonitorRunChat(inputId, outputId) {
   if (!monitorRunChatMessages.length && output) {
     clear(output);
   }
+  collapseExistingMonitorRunChatAnswers(output);
   monitorRunChatMessages.push({ role: "user", content: message });
   const turn = output ? el("div", { class: "tc-run-chat-turn" },
     el("div", { class: "tc-run-chat-question" },
       el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
       el("div", { class: "tc-text-sm tc-run-chat-question-text" }, message),
     ),
-    el("div", { class: "tc-run-chat-answer" },
-      el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
-      el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")),
-    ),
+    createMonitorRunChatAnswer(null, { loading: true }),
   ) : null;
   if (output && turn) output.prepend(turn);
   startRunChatTrafficPolling();
@@ -719,11 +980,7 @@ async function submitMonitorRunChat(inputId, outputId) {
         el("div", { class: "tc-run-chat-role" }, t("ui.label.question", "Frage")),
         el("div", { class: "tc-text-sm tc-run-chat-question-text" }, message),
       ));
-      const answer = el("div", { class: "tc-run-chat-answer" },
-        el("div", { class: "tc-run-chat-role" }, t("ui.label.answer", "Antwort")),
-      );
-      renderMonitorRunChatResult(answer, result, { append: true });
-      turn.appendChild(answer);
+      turn.appendChild(createMonitorRunChatAnswer(result));
     } else if (output) {
       renderMonitorRunChatResult(output, result);
     }
@@ -750,6 +1007,7 @@ function setRunButtonsActive(isRunning) {
 
 function startPolling(runId) {
   stopPolling();
+  startLogTailPolling(runId, getRunState().currentRunDir || "");
   pollTimer = setInterval(async () => {
     const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
     await refreshRunStatus(runId);
@@ -768,6 +1026,7 @@ function stopPolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  stopLogTailPolling();
 }
 
 function savePhaseToStore(phaseName, status, pct) {
@@ -782,6 +1041,45 @@ function savePhaseToStore(phaseName, status, pct) {
     return p;
   });
   setRunState({ phases: updated });
+}
+
+function resetRunMonitorNoRun() {
+  stopPolling();
+  disconnectWebSocket();
+  clearSelectedPhase();
+  const neutralPhases = getPhasesForConfig(getConfigState().draft)
+    .map(p => ({ ...p, status: "pending", pct: 0 }));
+  setPhaseList(neutralPhases);
+  setRunState({
+    currentRunId: null,
+    currentRunDir: null,
+    status: null,
+    phases: [],
+    resumeActive: false,
+    resumePending: false,
+    resumeFromPhase: "",
+  });
+  setRunButtonsActive(false);
+  for (const [id, value] of [
+    ["stat-run-id", "\u2014"],
+    ["stat-status", "\u2014"],
+    ["stat-elapsed", "\u2014"],
+    ["stat-frames", "\u2014"],
+    ["info-run-id", "\u2014"],
+    ["info-run-dir", "\u2014"],
+    ["info-run-name", "\u2014"],
+    ["info-status", "\u2014"],
+    ["info-pipeline", "\u2014"],
+  ]) {
+    updateStat(id, value);
+  }
+  restoreMonitorRunChat();
+  if (activeLogViewer) activeLogViewer.clearLines();
+  const preview = document.getElementById("run-monitor-image-preview");
+  if (preview) {
+    const status = preview.querySelector("[data-preview-status]");
+    if (status) status.textContent = t("ui.state.no_run_selected", "Kein Run ausgewählt");
+  }
 }
 
 async function restoreCurrentRun() {
@@ -829,6 +1127,8 @@ async function restoreCurrentRun() {
       } else {
         enableStatsButtons(current.run_id);
       }
+    } else {
+      resetRunMonitorNoRun();
     }
   } catch {}
 }
@@ -842,9 +1142,11 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
       let level = "INFO";
       let text = "";
       let evType = "";
+      let parsedEvent = null;
       if (typeof line === "string") {
         try {
           const ev = JSON.parse(line);
+          parsedEvent = ev;
           ts = ev.ts ? ev.ts.split("T")[1]?.replace("Z", "") || ev.ts : formatTime();
           level = (ev.type === "error" || ev.type === "warning") ? ev.type.toUpperCase() : "INFO";
           evType = ev.type || "";
@@ -873,8 +1175,40 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
       if (warningBanner && (evType === "warning" || evType === "error" || level === "WARNING" || level === "ERROR")) {
         addRunWarning(warningBanner, text, evType === "error" || level === "ERROR" ? "error" : "warning");
       }
+      if ((getResumePending() || getResumeActive()) && parsedEvent && shouldReplayResumeLogEvent(parsedEvent)) {
+        const key = typeof line === "string" ? line : JSON.stringify(parsedEvent);
+        if (!replayedRunLogEvents.has(key)) {
+          replayedRunLogEvents.add(key);
+          handleWsMessage(parsedEvent, activeLogViewer || logViewer, null, activeWarningBanner || warningBanner);
+        }
+      }
     }
   } catch {}
+}
+
+function shouldReplayResumeLogEvent(ev) {
+  const type = ev?.type || "";
+  return type === "resume_start" ||
+    type === "resume_end" ||
+    type === "phase_start" ||
+    type === "phase_progress" ||
+    type === "phase_end" ||
+    type === "warning" ||
+    type === "error";
+}
+
+function startLogTailPolling(runId, runDir = "") {
+  stopLogTailPolling();
+  if (!runId || !activeLogViewer) return;
+  const refresh = () => loadInitialLogs(runId, activeLogViewer, null, runDir || getRunState().currentRunDir || "");
+  refresh();
+  logTailTimer = setInterval(refresh, 2000);
+}
+
+function stopLogTailPolling() {
+  if (!logTailTimer) return;
+  clearInterval(logTailTimer);
+  logTailTimer = null;
 }
 
 function formatEventMessage(ev) {
@@ -1056,6 +1390,7 @@ async function startRun() {
     }
     const runId = result?.run_id || result?.id;
     if (runId) {
+      replayedRunLogEvents = new Set();
       const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p.phase, status: "pending", pct: 0, label: p.label }));
       setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false, resumeFromPhase: "" });
       restoreMonitorRunChatAll();
@@ -1115,12 +1450,14 @@ async function resumeRun() {
     if (activeLogViewer) activeLogViewer.addLine(formatTime(), "INFO", `Resume | queued | ${phase}`);
     const result = await api.post(API_ENDPOINTS.runs.resume(currentRunId), payload);
     const jobId = result?.job_id;
+    replayedRunLogEvents = new Set();
     setResumePending(true);
     setResumeFromPhase(phase);
     if (resumePendingTimer) clearTimeout(resumePendingTimer);
     resumePendingTimer = setTimeout(() => {
-      setResumePending(false);
-      setResumeFromPhase("");
+      if (getResumePending() && activeLogViewer) {
+        activeLogViewer.addLine(formatTime(), "WARN", `Resume | waiting for live events | ${phase}`);
+      }
     }, RESUME_PENDING_TIMEOUT_MS);
     setRunState({ status: "running" });
     setRunButtonsActive(true);
@@ -1130,6 +1467,7 @@ async function resumeRun() {
     if (newPhases.length > 0) setRunState({ phases: newPhases });
     connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
+    activateRunMonitorTab("log");
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
     return true;
   } catch (e) {
@@ -1139,6 +1477,7 @@ async function resumeRun() {
 }
 
 function onPhaseSelected(phase, logViewer) {
+  activateRunMonitorTab("resume");
   const panel = document.getElementById("resume-panel");
   const badge = document.getElementById("resume-phase-badge");
   const hint = document.getElementById("resume-hint");
@@ -1168,7 +1507,7 @@ function openSelectedHmsPreview() {
   }
   openHmsPreview({
     runId: currentRunId, runDir: currentRunDir, yaml: editor.value,
-    onApply: async (updatedYaml) => { editor.value = updatedYaml; if (!await resumeRun()) throw new Error("Resume failed"); },
+    onApply: async (updatedYaml) => { editor.value = updatedYaml; updateResumeConfigSectionHighlights(updatedYaml); if (!await resumeRun()) throw new Error("Resume failed"); },
   });
 }
 
@@ -1181,7 +1520,7 @@ function openSelectedBgePreview() {
   }
   openBgePreview({
     runId: currentRunId, runDir: currentRunDir, yaml: editor.value,
-    onApply: async (updatedYaml) => { editor.value = updatedYaml; if (!await resumeRun()) throw new Error(t("ui.toast.resume_failed", "Resume failed")); },
+    onApply: async (updatedYaml) => { editor.value = updatedYaml; updateResumeConfigSectionHighlights(updatedYaml); if (!await resumeRun()) throw new Error(t("ui.toast.resume_failed", "Resume failed")); },
   });
 }
 
@@ -1192,7 +1531,10 @@ async function loadRunConfig(phase) {
     const resp = await api.get(API_ENDPOINTS.runs.config(getRunApiKey()));
     const yaml = resp?.config_yaml || resp?.config || "";
     const editor = document.getElementById("resume-config-yaml");
-    if (editor) editor.value = yaml;
+    if (editor) {
+      editor.value = yaml;
+      updateResumeConfigSectionHighlights(yaml);
+    }
     const hint = document.getElementById("resume-hint");
     if (hint) hint.textContent = yaml ? t("ui.message.resume_ready", "Bereit zum Resume") : t("ui.message.resume_no_config", "Keine Config gefunden");
     return true;
@@ -1236,7 +1578,10 @@ async function loadRevisionIntoEditor() {
     const resp = await api.get(API_ENDPOINTS.runs.configRevision(getRunApiKey(), revId));
     const yaml = resp?.config || "";
     const editor = document.getElementById("resume-config-yaml");
-    if (editor) editor.value = yaml;
+    if (editor) {
+      editor.value = yaml;
+      updateResumeConfigSectionHighlights(yaml);
+    }
     toastSuccess(t("ui.toast.revision_loaded", "Revision geladen"));
   } catch (e) {
     toastError(t("ui.toast.revision_load_failed", "Revision laden fehlgeschlagen"), e.message);
