@@ -256,14 +256,14 @@ struct AqmhGlobalQualityConfig {
   float g_w_sharp = 0.55f;
   float g_w_snr = 0.3f;
   float g_w_background_penalty = 0.25f;
-  float g_k_scale = 1.5f;            // exponential weight scale: G_f = max(g_floor, exp(g_k_scale * score))
+  float g_k_scale = 1.5f;            // sigmoid temperature; output remains in [g_floor, 1]
 };
 
 struct AqmhReconstructionConfig {
-  float clip_sigma = 3.0f;
-  float clip_sigma_low = 3.0f;
-  float clip_sigma_high = 3.0f;
-  int clip_iterations = 3;
+  float clip_sigma = 2.0f;
+  float clip_sigma_low = 2.0f;
+  float clip_sigma_high = 1.5f;
+  int clip_iterations = 4;
   float min_fraction = 0.4f;
   float min_n_eff = 2.0f;
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override

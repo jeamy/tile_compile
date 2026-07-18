@@ -75,17 +75,17 @@ const std::string phase_display_name =
 | Parameter | Beschreibung | Default |
 |-----------|-------------|---------|
 | `aqmh.pyramid.scales` | Anzahl Pyramid-Level (1–8) | 4 |
-| `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 16 |
+| `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 4 |
 | `aqmh.pyramid.w_sharp` | Gewicht Sharpness | 0.6 |
 | `aqmh.pyramid.w_snr` | Gewicht SNR | 0.4 |
-| `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 2.0 |
-| `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.1 |
+| `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 3.0 |
+| `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.25 |
 | `aqmh.storage.resolution_divisor` | Speicher-Auflösungsteiler (1/2/4) | 2 |
-| `aqmh.storage.dtype` | Speichertyp (float32/uint16/uint8) | float32 |
-| `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 4 |
+| `aqmh.storage.dtype` | Speichertyp (float32/uint16/uint8) | uint16 |
+| `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 2 |
 | `aqmh.cherry_pick.enabled` | Cherry-Pick-Frame-Selektion | false |
-| `aqmh.cherry_pick.k_min` | Min. Frames pro Pixel | 3 |
-| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.5 |
+| `aqmh.cherry_pick.k_min_required` | Run-Gate und Min. Samples pro Pixel | 20 |
+| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.30 |
 
 ### Phase 9: AQMH-Rekonstruktion (ersetzt TILE_RECONSTRUCTION)
 

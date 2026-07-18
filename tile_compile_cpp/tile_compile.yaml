@@ -12,9 +12,7 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  flats_dir: ""
-  bias_master: ""
-  flat_master: ""
+  use_bias: false
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -26,9 +24,19 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
+  darks_dir: ""
+  flats_dir: ""
+  bias_master: ""
+  dark_master: ""
+  flat_master: ""
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range: [5, 10]
-  use_bias: false
+  reduced_mode_cluster_range:
+    - 5
+    - 10
 normalization:
   enabled: true
   mode: background
@@ -60,28 +68,29 @@ registration:
   auto_engine_rotation_threshold_deg: 0.05
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.05
-  blind_chain_drift_threshold_px: 2
+  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
 aqmh:
   enabled: true
   storage:
-    resolution_divisor: 1
-    dtype: float32
+    resolution_divisor: 2
+    dtype: uint16
     max_resident_maps: 2
   pyramid:
     base_window_px: 4
     scales: 4
     w_sharp: 0.6
     w_snr: 0.4
-    k_artifact: 3
+    k_artifact: 3.0
     frac_artifact_max: 0.25
   global_quality:
-    g_floor: 0.05
-    g_w_sharp: 0.6
-    g_w_snr: 0.4
-    g_w_background_penalty: 0.3
+    g_floor: 0.03
+    g_w_sharp: 0.55
+    g_w_snr: 0.30
+    g_w_background_penalty: 0.25
+    g_k_scale: 1.5
   diagnostics:
     enabled: true
     level: full
@@ -94,55 +103,61 @@ aqmh:
     r_morph_canvas_px: 6
     tau_artifact: 0.2
   reconstruction:
-    clip_sigma: 3
-    clip_sigma_low: 3
-    clip_sigma_high: 3
-    clip_iterations: 3
-    min_fraction: 0.5
-    min_n_eff: 2
+    clip_sigma: 2.0
+    clip_sigma_low: 2.0
+    clip_sigma_high: 1.5
+    clip_iterations: 4
+    min_fraction: 0.4
+    min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
     registration_weight_guard: true
-    registration_weight_floor: 0.35
+    registration_weight_floor: 0.30
     registration_cc_floor: 0.35
-    registration_cc_full: 0.8
-    registration_sequential_factor: 0.85
-    registration_predicted_factor: 0.35
+    registration_cc_full: 0.80
+    registration_sequential_factor: 0.92
+    registration_predicted_factor: 0.50
     registration_chain_depth_penalty: 0.03
     registration_chain_depth_max_penalty: 0.15
   cherry_pick:
     enabled: false
-    k_frac: 0.3
-    k_min_required: 20
+    k_frac: 0.50
+    k_min_required: 30
     margin_min: 0.02
     tiered_k_frac: []
   validation:
-    max_seam_score_regression: 0.02
     max_fwhm_regression: 0.02
-    max_background_rms_regression: 0.02
+    max_background_rms_regression: 0.05
+    max_seam_score_regression: 0.05
+    max_tail11_abs_regression: 0.10
+    max_elongation_regression: 0.08
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.8
-  clamp: [-3, 3]
+  clamp:
+    - -3
+    - 3
   weights:
     background: 0.4
-    fwhm: 0
+    fwhm: 0.0
     gradient: 0.3
     noise: 0.3
-    roundness: 0
-    star_count: 0
+    roundness: 0.0
+    star_count: 0.0
 local_metrics:
-  clamp: [-3, 3]
-  k_local: 1
+  clamp:
+    - -3
+    - 3
+  k_local: 1.0
   neighborhood_normalization:
     enabled: false
     radius: 0
-    blend: 0
+    blend: 0.0
   spatial_regularization:
     enabled: false
-    lambda: 0
+    lambda: 0.0
     passes: 0
-    tau_local: 1
+    tau_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6
@@ -182,7 +197,7 @@ chroma_denoise:
     enabled: true
     levels: 4
     threshold_scale: 1.5
-    soft_k: 1
+    soft_k: 1.0
   chroma_bilateral:
     enabled: true
     sigma_spatial: 2
@@ -196,10 +211,12 @@ synthetic:
   frames_max: 20
   clustering:
     mode: kmeans
-    cluster_count_range: [3, 12]
+    cluster_count_range:
+      - 3
+      - 12
 astrometry:
   enabled: true
-  astap_bin: ~
+  astap_bin: ""
   astap_data_dir: /home/lux/.local/share/tile_compile/astap
   search_radius: 183
 tile:
@@ -211,15 +228,15 @@ tile:
   star_soft_count: 4
 stacking:
   method: rej
-  common_overlap_required_fraction: 1
-  tile_common_valid_min_fraction: 1
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 2
+  per_frame_cosmetic_correction_sigma: 2.0
   sigma_clip:
-    sigma_low: 2
+    sigma_low: 2.0
     sigma_high: 1.5
     max_iters: 3
     min_fraction: 0.4

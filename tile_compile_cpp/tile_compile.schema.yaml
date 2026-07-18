@@ -868,33 +868,33 @@ properties:
             type: number
             exclusiveMinimum: 0
             default: 1.5
-            description: Exponential weight scale factor. Controls separation between good and bad frames.
+            description: Sigmoid temperature for global AQMH quality. The resulting frame weight remains bounded to [g_floor, 1].
       reconstruction:
         type: object
         properties:
           clip_sigma:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
+            default: 2.0
           clip_sigma_low:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
-            description: Lower-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value.
+            default: 2.0
+            description: Lower-side AQMH sigma clipping threshold.
           clip_sigma_high:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
-            description: Upper-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value.
+            default: 1.5
+            description: Upper-side AQMH sigma clipping threshold.
           clip_iterations:
             type: integer
             minimum: 0
-            default: 3
+            default: 4
           min_fraction:
             type: number
             exclusiveMinimum: 0
             maximum: 1
-            default: 0.5
+            default: 0.4
           min_n_eff:
             type: number
             minimum: 1
@@ -932,12 +932,12 @@ properties:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.95
+            default: 0.92
           registration_predicted_factor:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.55
+            default: 0.50
           registration_chain_depth_penalty:
             type: number
             minimum: 0
@@ -983,7 +983,7 @@ properties:
           max_tail11_abs_regression:
             type: number
             minimum: 0
-            default: 0.08
+            default: 0.10
           max_elongation_regression:
             type: number
             minimum: 0

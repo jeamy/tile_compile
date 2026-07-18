@@ -1295,9 +1295,9 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 |----------|-------|
 | **Type** | integer |
 | **Values** | `1`, `2`, `4` |
-| **Default** | `1` |
+| **Default** | `2` |
 
-**Purpose:** Resolution reduction factor for stored quality maps. `1` = full resolution (default, preserves exact-zero veto). `2` or `4` reduce storage at the cost of spatial approximation.
+**Purpose:** Resolution reduction factor for stored quality maps. `2` is the storage-efficient, object-agnostic default. `1` is the full-resolution reference mode and is required for cherry-pick; `4` saves more storage at the cost of spatial accuracy.
 
 ---
 
@@ -1307,9 +1307,9 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 |----------|-------|
 | **Type** | string (enum) |
 | **Values** | `float32`, `uint16`, `uint8` |
-| **Default** | `"float32"` |
+| **Default** | `"uint16"` |
 
-**Purpose:** Data type for cached quality maps. `float32` is precise; `uint16` offers a compact compromise; `uint8` saves the most disk space (8-bit quantisation of quality values).
+**Purpose:** Data type for cached quality maps. `uint16` is the compact default. `float32` is the exact reference mode and is required for cherry-pick; `uint8` saves the most storage but quantises quality values more coarsely.
 
 ---
 
@@ -1489,7 +1489,7 @@ Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with
 |----------|-------|
 | **Type** | number |
 | **Range** | 0 – 1 |
-| **Default** | `0.05` |
+| **Default** | `0.03` |
 
 **Purpose:** Minimum global weight any frame receives. Prevents a frame from being completely ignored by the AQMH reconstruction.
 
@@ -1501,7 +1501,7 @@ Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with
 |----------|-------|
 | **Type** | number |
 | **Range** | >= 0 |
-| **Default** | `0.6` |
+| **Default** | `0.55` |
 
 **Purpose:** Weight of the sharpness summary in the global quality score. Higher values make seeing/FWHM differences more influential across frames.
 
@@ -1513,7 +1513,7 @@ Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with
 |----------|-------|
 | **Type** | number |
 | **Range** | >= 0 |
-| **Default** | `0.4` |
+| **Default** | `0.30` |
 
 **Purpose:** Weight of the SNR summary in the global quality score.
 
@@ -1525,9 +1525,21 @@ Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with
 |----------|-------|
 | **Type** | number |
 | **Range** | >= 0 |
-| **Default** | `0.3` |
+| **Default** | `0.25` |
 
-**Purpose:** Weight of the background-gradient penalty. Penalises frames with strong large-scale background gradients (e.g. moon glow, light pollution). Set to `0.0` to disable the penalty and obtain the exact v0.2.0 global-quality behaviour.
+**Purpose:** Weight of the background-gradient penalty. Penalises frames with strong large-scale background gradients (e.g. moon glow, light pollution). Setting it to `0.0` disables only this penalty; the bounded v0.2.1 sigmoid mapping remains active.
+
+----
+
+#### `aqmh.global_quality.g_k_scale`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | > 0 |
+| **Default** | `1.5` |
+
+**Purpose:** Sigmoid temperature for the global quality score. Larger values separate strong and weak frames more aggressively, while the resulting weight remains bounded to `[g_floor, 1]`.
 
 ----
 
@@ -1540,9 +1552,9 @@ Per-pixel weighted reconstruction parameters.
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `3.0` |
+| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 1.5` |
 
-**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. Samples with residuals below `clip_sigma_low` or above `clip_sigma_high` are clipped. When only `clip_sigma` is set, it is copied to both low and high thresholds.
+**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. The stricter upper threshold rejects positive outliers more aggressively. When only `clip_sigma` is set, it is copied to both limits for compatibility; the current baseline uses the explicit low/high defaults.
 
 ----
 
@@ -1551,7 +1563,7 @@ Per-pixel weighted reconstruction parameters.
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `3` |
+| **Default** | `4` |
 
 **Purpose:** Number of sigma-clipping iterations.
 
@@ -1563,7 +1575,7 @@ Per-pixel weighted reconstruction parameters.
 |----------|-------|
 | **Type** | number |
 | **Range** | 0 – 1 |
-| **Default** | `0.5` |
+| **Default** | `0.4` |
 
 **Purpose:** Minimum fraction of valid pixels in the output canvas that must have enough samples to produce a non-zero result.
 
@@ -1619,7 +1631,7 @@ Per-pixel weighted reconstruction parameters.
 |----------|-------|
 | **Type** | number |
 | **Range** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.30` |
 
 **Purpose:** Lower bound for the per-frame registration-confidence factor.
 
@@ -1655,7 +1667,7 @@ Per-pixel weighted reconstruction parameters.
 |----------|-------|
 | **Type** | number |
 | **Range** | 0 – 1 |
-| **Default** | `0.85` |
+| **Default** | `0.92` |
 
 **Purpose:** Additional damping applied to frames whose registration source is `sequential_refined`.
 
@@ -1667,7 +1679,7 @@ Per-pixel weighted reconstruction parameters.
 |----------|-------|
 | **Type** | number |
 | **Range** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.50` |
 
 **Purpose:** Additional damping applied to predicted, interpolated, or unknown registration sources.
 
@@ -1697,16 +1709,40 @@ Per-pixel weighted reconstruction parameters.
 
 ----
 
+#### `aqmh.reconstruction.structure_mask_low_q` / `structure_mask_high_q`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | 0 – 1, `low_q < high_q` |
+| **Defaults** | `0.40` / `0.90` |
+
+**Purpose:** Lower and upper gradient quantiles for the soft structure mask. Below `low_q`, a candidate follows the uniform control more closely; above `high_q`, AQMH detail is fully retained.
+
+----
+
+#### `aqmh.reconstruction.structure_mask_blur_sigma_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | > 0 |
+| **Default** | `4.0` |
+
+**Purpose:** Gaussian sigma for the soft transition of the structure mask.
+
+----
+
 ### `aqmh.validation.*` — Output validation
 
-Regression thresholds comparing the AQMH output against the uniform-control (unweighted) mean.
+Regression thresholds comparing every post-processing candidate against both the uniform-control mean and the immutable raw AQMH baseline. Tail and elongation are measured at the same star positions detected in the respective reference.
 
 #### `aqmh.validation.max_seam_score_regression`
 
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
 **Purpose:** Maximum allowed seam-score regression relative to the uniform-control mean.
 
@@ -1728,7 +1764,7 @@ Regression thresholds comparing the AQMH output against the uniform-control (unw
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
 **Purpose:** Maximum allowed background-RMS regression.
 
@@ -1739,7 +1775,7 @@ Regression thresholds comparing the AQMH output against the uniform-control (unw
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `0.05` |
+| **Default** | `0.10` |
 
 **Purpose:** Maximum allowed tail-11 absolute regression.
 
@@ -1750,7 +1786,7 @@ Regression thresholds comparing the AQMH output against the uniform-control (unw
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `0.05` |
+| **Default** | `0.08` |
 
 **Purpose:** Maximum allowed elongation regression.
 

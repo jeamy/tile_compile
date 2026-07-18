@@ -40,7 +40,8 @@ hinzugekommen sind:
    Anschließend wird Detail in strukturreichen Regionen selektiv
    zurückgeblendet. Ein Validierungsgate entscheidet, ob das
    neutralisierte/geblendete Ergebnis übernommen wird; andernfalls bleibt das
-   rohe AQMH-Ergebnis oder ein sicheres uniformes Kontroll-Blend erhalten.
+   rohe AQMH-Ergebnis erhalten. Das uniforme Kontrollmittel darf das rohe
+   AQMH-Ergebnis nicht als stillen Fallback ersetzen.
 
 Ziel dieser Ergänzungen ist es, das v0.2.0-Pixelqualitätsmodell zu erhalten,
 während drei praktische Fehlermuster reduziert werden:
@@ -180,12 +181,14 @@ Erweiterungen:
    Sie dürfen `Q_map` nicht verändern, dürfen keine pixelabhängigen Gewichte
    einführen und müssen unabhängig deaktivierbar sein.
 
-8. **Neutralisierung muss validierungsgegated sein.**  
-   Jede Nachverarbeitung nach der Rekonstruktion muss mit dem gewöhnlichen
-   AQMH-Ergebnis und/oder dem uniformen Kontrollmittel verglichen werden. Der
-   Run muss aufzeichnen, welcher Kandidat ausgewählt wurde und warum. Das
-   Endergebnis darf nach den dokumentierten Regressionsmetriken nicht schlechter
-   sein als das gewöhnliche AQMH-Ergebnis.
+8. **Nachverarbeitung muss zwei Referenzen bestehen.**
+   Das rohe AQMH-Ergebnis `A` ist die unveränderliche Qualitäts-Baseline. Jeder
+   nachverarbeitete Kandidat muss sowohl gegen das uniforme Kontrollmittel `U`
+   als auch gegen `A` alle jeweils anwendbaren Regressionsschwellen bestehen.
+   Besteht kein Kandidat beide Vergleiche, ist `A` das Endergebnis. Der Run muss
+   den ausgewählten Kandidaten, beide Vergleiche und den Auswahlgrund
+   aufzeichnen. Eine Verbesserung einer Einzelmetrik darf keine Lockerung einer
+   anderen Schwelle auslösen.
 
 ### 1.4 Deterministische Statistik-Konvention
 
@@ -226,7 +229,7 @@ z_n,f = robust_zscore(g_snr)
 z_b,f = robust_zscore(g_background)
 
 score_f = w_sharp * z_s,f + w_snr * z_n,f - w_background * z_b,f
-G_f     = g_floor + (1 - g_floor) * sigmoid(score_f)
+G_f     = g_floor + (1 - g_floor) * sigmoid(g_k_scale * score_f)
 ```
 
 mit `sigmoid(v) = 1 / (1 + exp(-v))`.
@@ -250,17 +253,22 @@ w_sharp_norm + w_snr_norm + w_background_norm = 1
 ```
 
 sofern mindestens ein effektives Gewicht positiv ist. Sind alle effektiven
-Gewichte null, erhält jeder Frame `G_f = g_floor`.
+Gewichte null, ist `score_f = 0` und jeder Frame erhält dasselbe Gewicht
+`G_f = g_floor + 0.5 * (1 - g_floor)`. Die absolute gemeinsame Skalierung ist
+für den gewichteten Mittelwert irrelevant.
 
 **Normative Vorgabewerte (v0.2.1):**
 
-- `g_floor = 0.05`
-- `g_w_sharp = 0.6`
-- `g_w_snr = 0.4`
-- `g_w_background_penalty = 0.3`
+- `g_floor = 0.03`
+- `g_w_sharp = 0.55`
+- `g_w_snr = 0.30`
+- `g_w_background_penalty = 0.25`
+- `g_k_scale = 1.5`
 
-Mit `g_w_background_penalty = 0.0` wird das exakte v0.2.0-Verhalten der
-Globalqualität wiederhergestellt.
+Die Sigmoid-Abbildung begrenzt `G_f` auf `[g_floor, 1]`. Dadurch kann kein
+einzelner Frame durch ein exponentiell wachsendes globales Gewicht die lokalen
+Quality-Maps dominieren. Mit `g_w_background_penalty = 0.0` wird nur die
+Hintergrundstrafe deaktiviert; die begrenzte v0.2.1-Abbildung bleibt aktiv.
 
 **Begründung.** Ein starker Großskalengradient bedeutet, dass das vom SNR-
 Signal verwendete Hintergrundmodell (`b_s` in §2.3.2(b)) lokal verzerrt ist.
@@ -316,9 +324,11 @@ Identisch zu v0.2.0 §2.5.
 
 ## 3. Quality-Map-Speicher und Speichermodell
 
-Identisch zu v0.2.0. Normativer Standard bleibt Full-Resolution `float32` mit
-`resolution_divisor = 1`. Optionale Approximationsmodi (`uint16`, `uint8`,
-Teiler `> 1`) werden mit denselben Reporting-Anforderungen unterstützt.
+Der produktive, objektklassenunabhängige Standard ist `uint16` mit
+`resolution_divisor = 2`. Der strikte Referenz- und Fidelity-Modus bleibt
+Full-Resolution `float32` mit `resolution_divisor = 1`. Cherry-Pick erfordert
+den Referenzmodus, weil eine reduzierte oder quantisierte Map die per-Pixel-
+Rangfolge verändern kann. Jeder Run muss Auflösung und Datentyp berichten.
 
 Das Hintergrundstrafe-Signal beeinflusst den Quality-Map-Speicher nicht; es ist
 ein Frame-skaliger Wert, der während oder nach der Map-Berechnung ermittelt
@@ -372,14 +382,14 @@ Für jeden Frame `f`:
    r_cc = r_floor + (1 - r_floor) * t
    ```
 
-   mit den Vorgaben `r_floor = 0.35`, `cc_floor = 0.35`, `cc_full = 0.80`.
+   mit den Vorgaben `r_floor = 0.30`, `cc_floor = 0.35`, `cc_full = 0.80`.
 
 2. **Dämpfung nach Registrierungsquelle.**
 
    - Falls `source == "sequential_refined"`: `r_f *= sequential_factor`
-     (Vorgabe `0.85`).
+     (Vorgabe `0.92`).
    - Falls `source` den String `"predicted"`, `"interpolated"` enthält oder
-     `"unknown"` ist: `r_f *= predicted_factor` (Vorgabe `0.35`).
+     `"unknown"` ist: `r_f *= predicted_factor` (Vorgabe `0.50`).
 
 3. **Kettentiefen-Dämpfung.**
 
@@ -456,9 +466,13 @@ Frames mit finite Intensität und finite Quality-Map an Pixel `p` ist.
 
 ### 5.2 Sigma-Clipping und effektive Sample-Suffizienz
 
-Identisch zu v0.2.0. Iteratives Sigma-Clipping mit `clip_sigma_low` und
-`clip_sigma_high` sowie Mindestwerte für effektive Samples `min_n_eff` und
-Mindestanteil `min_fraction`.
+Iteratives asymmetrisches Sigma-Clipping verwendet standardmäßig
+`clip_sigma_low = 2.0`, `clip_sigma_high = 1.5` und `clip_iterations = 4`.
+Die strengere Oberseite unterdrückt positive Ausreißer wie Satellitenspuren,
+Hotpixel und nicht vollständig maskierte Sterne, ohne die Unterseite gleich
+stark abzuschneiden. Es gelten außerdem `min_n_eff = 2.0` und
+`min_fraction = 0.40`. Reicht die Sample-Suffizienz nicht aus, darf kein
+scheinbar qualitätsverbesserter Wert aus einer zu kleinen Restmenge entstehen.
 
 ### 5.3 Cherry-Pick-Stacking-Modus
 
@@ -486,9 +500,9 @@ Referenzwert.
 
 ### 6.2 Validierungsmetriken
 
-Sowohl das rohe AQMH-Ergebnis `A(p)` als auch jeder nachverarbeitete Kandidat
-werden mit `U(p)` verglichen. Dazu dienen dieselben Metriken wie die
-v0.2.0-Validierung:
+Das rohe AQMH-Ergebnis `A(p)` wird mit `U(p)` verglichen. Jeder
+nachverarbeitete Kandidat wird zusätzlich mit `A(p)` verglichen. Dazu dienen
+dieselben Metriken wie die v0.2.0-Validierung:
 
 - `seam_score_regression`
 - `fwhm_regression`
@@ -496,7 +510,16 @@ v0.2.0-Validierung:
 - `tail11_abs_regression`
 - `elongation_regression`
 
-Diese Vergleiche werden in `aqmh_reconstruction.json` protokolliert.
+Für Tail- und Elongationsmetriken werden Sterne genau einmal in der jeweiligen
+Referenz erkannt und anschließend in Kandidat und Referenz an denselben
+Koordinaten vermessen. Unabhängige Sternerkennungen sind für einen
+Regressionsvergleich unzulässig, weil sie unterschiedliche Sternpopulationen
+und damit eine künstliche Regression erzeugen können. Tail und Elongation sind
+nur bei mindestens zwölf gemeinsam messbaren Sternen anwendbar.
+
+Diese Vergleiche und ihre Anwendbarkeit werden in
+`aqmh_reconstruction.json` protokolliert. Nicht anwendbare Metriken gelten
+nicht als Fehler, dürfen aber auch nicht als Verbesserung ausgelegt werden.
 
 ### 6.3 Adaptive Niederfrequenz-Neutralisierung
 
@@ -512,11 +535,15 @@ Das Blurring verwendet den Reflektionsrandmodus REFLECT101. Die Sigma von
 96 px wurde empirisch gewählt, um großskalige „Veil“-Residuen anzugehen, ohne
 Struktur auf kleineren Skalen zu beeinträchtigen.
 
-Ein Validierungsvergleich `compare(N, U)` wird berechnet. `N(p)` wird gegenüber
-`A(p)` genau dann ausgewählt, wenn gilt:
+Die Vergleiche `compare(N, U)` und `compare(N, A)` werden berechnet. `N(p)`
+wird gegenüber `A(p)` nur dann ausgewählt, wenn der Hintergrundvergleich
+anwendbar ist, `A` gegenüber `U` tatsächlich einen schlechteren Hintergrund
+besitzt, `N` diesen verbessert und beide Vergleiche alle Schwellen bestehen:
 
 ```
 background_rms_regression(N, U) < background_rms_regression(A, U)
+background_rms_regression(A, U) > 0
+gate(N, U) && gate(N, A)
 ```
 
 Das ausgewählte Basisbild wird `B(p)` genannt (entweder `A(p)` oder `N(p)`).
@@ -535,8 +562,8 @@ Hintergrund von `B(p)` erhalten bleibt:
 
 1. Berechne die Gradientenbetrag `grad(U)` des uniformen Kontrollmittels.
 2. Erstelle eine weiche Strukturmaske `M_s(p)`, indem der Gradientenbetrag von
-   dem Quantil `low_q = 0.70` auf das Quantil `high_q = 0.97` auf `[0, 1]
-   abgebildet und anschließend mit `sigma = 2 px` geglättet wird.
+   dem Quantil `low_q = 0.40` auf das Quantil `high_q = 0.90` auf `[0, 1]`
+   abgebildet und anschließend mit `sigma = 4 px` geglättet wird.
 3. Berechne den Detail-Kandidaten:
 
    ```
@@ -546,7 +573,8 @@ Hintergrund von `B(p)` erhalten bleibt:
    In strukturreichen Regionen (`M_s ≈ 1`) folgt `D(p)` der AQMH-Basis; in
    glatten Regionen (`M_s ≈ 0`) folgt es dem uniformen Kontrollmittel.
 
-`D(p)` wird akzeptiert, wenn er alle Validierungsschwellen besteht:
+`D(p)` wird akzeptiert, wenn er alle Validierungsschwellen sowohl gegen `U`
+als auch gegen die unveränderliche Baseline `A` besteht:
 
 ```
 background_rms_regression(D, U) <= max_background_rms_regression
@@ -554,6 +582,7 @@ fwhm_regression(D, U)            <= max_fwhm_regression
 seam_score_regression(D, U)      <= max_seam_score_regression
 tail11_abs_regression(D, U)      <= max_tail11_abs_regression
 elongation_regression(D, U)      <= max_elongation_regression
+gate(D, A)
 ```
 
 und zumindest FWHM oder Seam-Score gegenüber `U` verbessert.
@@ -565,9 +594,10 @@ Schlägt `D(p)` fehl, wird eine **Alpha-Blend-Attenuierung** über
 D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
 ```
 
-Das größte `alpha`, das die Validierungsschwellen besteht und FWHM oder
-Seam-Score verbessert, wird ausgewählt. Gibt es kein `alpha > 0`, das besteht,
-so bleibt die Basis `B(p)` erhalten.
+Das größte `alpha`, das `gate(D_alpha, U)` und `gate(D_alpha, A)` besteht und
+FWHM oder Seam-Score gegenüber `U` verbessert, wird ausgewählt. Gibt es kein
+`alpha > 0`, das beide Vergleiche besteht, bleibt die bereits validierte Basis
+`B(p)` erhalten.
 
 ### 6.5 Finale Rückfalloption auf Uniformes Kontrollmittel
 
@@ -586,17 +616,20 @@ O_blend(p) = beta * O(p) + (1 - beta) * U(p)
 ```
 
 wobei `beta` durch binäre Suche über `[0, 1]` als größtes `beta` bestimmt
-wird, das alle Schwellen erfüllt. Die Operation wird in
+wird, das `gate(O_blend, U)` und `gate(O_blend, A)` erfüllt. Die Operation wird in
 `aqmh_reconstruction.json` als `fallback_to_uniform_control` und
 `uniform_control_blend_alpha` protokolliert. Lässt sich kein `beta > 0`
-finden, das alle Schwellen erfüllt, fällt der Run vollständig auf `U(p)`
-zurück.
+finden, das beide Referenzen erfüllt, wird `A(p)` ausgegeben. Ein vollständiger
+Rückfall auf `U(p)` ist nicht zulässig, wenn `U` die AQMH-Baseline regressiert.
+Unmittelbar vor dem Schreiben des Ergebnisses erzwingt ein finaler Vergleich
+`gate(O_final, A)` diese Invariante unabhängig vom zuvor gewählten Pfad.
 
 ### 6.6 Reporting-Anforderungen
 
 `aqmh_reconstruction.json` muss enthalten:
 
 - `low_frequency_neutralization_applied` (`true`/`false`)
+- `low_frequency_neutralization_evaluated` (`true`/`false`)
 - `low_frequency_neutralization` (Vergleichsmetriken plus `sigma_px`)
 - `structure_masked_detail_applied` (`true`/`false`)
 - `structure_masked_detail_alpha` (finale Blend-Alpha, falls Attenuierung
@@ -605,6 +638,10 @@ zurück.
 - `fallback_to_uniform_control` (`true`/`false`)
 - `uniform_control_blend_accepted` (`true`/`false`)
 - `uniform_control_blend_alpha`
+- `raw_aqmh_validation`
+- `final_vs_raw_aqmh_validation`
+- `raw_aqmh_preserved_by_guard` (`true`/`false`)
+- `selected_candidate`
 
 ---
 
@@ -615,11 +652,11 @@ zurück.
 Identisch zu v0.2.0 §9. Das rekonstruierte Ergebnis wird mit dem uniformen
 Kontrollmittel verglichen. Die Regressionsschwellen bleiben:
 
-- `max_seam_score_regression = 0.02`
+- `max_seam_score_regression = 0.05`
 - `max_fwhm_regression = 0.02`
-- `max_background_rms_regression = 0.02`
-- `max_tail11_abs_regression = 0.05`
-- `max_elongation_regression = 0.05`
+- `max_background_rms_regression = 0.05`
+- `max_tail11_abs_regression = 0.10`
+- `max_elongation_regression = 0.08`
 
 ### 7.2 Zero-Veto-Test
 
@@ -671,34 +708,37 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
 - `aqmh.pyramid.w_snr = 0.4`
 - `aqmh.pyramid.k_artifact = 3.0`
 - `aqmh.pyramid.frac_artifact_max = 0.25`
-- `aqmh.storage.resolution_divisor = 1`
-- `aqmh.storage.dtype = "float32"`
+- `aqmh.storage.resolution_divisor = 2`
+- `aqmh.storage.dtype = "uint16"`
 
 ### 9.3 Globale Qualität (v0.2.1)
 
-- `aqmh.global_quality.g_floor = 0.05`
-- `aqmh.global_quality.g_w_sharp = 0.6`
-- `aqmh.global_quality.g_w_snr = 0.4`
-- `aqmh.global_quality.g_w_background_penalty = 0.3`
+- `aqmh.global_quality.g_floor = 0.03`
+- `aqmh.global_quality.g_w_sharp = 0.55`
+- `aqmh.global_quality.g_w_snr = 0.30`
+- `aqmh.global_quality.g_w_background_penalty = 0.25`
+- `aqmh.global_quality.g_k_scale = 1.5`
 
-Mit `g_w_background_penalty = 0.0` erhält man das exakte v0.2.0-Verhalten.
+Mit `g_w_background_penalty = 0.0` wird die Hintergrundstrafe deaktiviert; die
+begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.
 
 ### 9.4 Registrierungs-Gewichtsschutz (v0.2.1)
 
 - `aqmh.reconstruction.registration_weight_guard = true`
-- `aqmh.reconstruction.registration_weight_floor = 0.35`
+- `aqmh.reconstruction.registration_weight_floor = 0.30`
 - `aqmh.reconstruction.registration_cc_floor = 0.35`
 - `aqmh.reconstruction.registration_cc_full = 0.80`
-- `aqmh.reconstruction.registration_sequential_factor = 0.85`
-- `aqmh.reconstruction.registration_predicted_factor = 0.35`
+- `aqmh.reconstruction.registration_sequential_factor = 0.92`
+- `aqmh.reconstruction.registration_predicted_factor = 0.50`
 - `aqmh.reconstruction.registration_chain_depth_penalty = 0.03`
 - `aqmh.reconstruction.registration_chain_depth_max_penalty = 0.15`
 
 ### 9.5 Neutralisierung und Blending (v0.2.1)
 
 - Neutralisierungs-Blur-Sigma: `96 px` (fest verdrahtet).
-- Strukturmaske-Quantile: `low_q = 0.70`, `high_q = 0.97`.
-- Strukturmaske-Blur-Sigma: `2 px`.
+- Strukturmaske-Quantile: `low_q = 0.40`, `high_q = 0.90`.
+- Strukturmaske-Blur-Sigma: `4 px`.
+- Sigma-Clipping: `low = 2.0`, `high = 1.5`, `4` Iterationen.
 - Die Validierungsschwellen stammen aus `aqmh.validation`.
 
 ### 9.6 Cherry-Pick (unverändert)
@@ -715,8 +755,8 @@ Mit `g_w_background_penalty = 0.0` erhält man das exakte v0.2.0-Verhalten.
 Ein Run ist **v0.2.1-konform**, genau dann wenn:
 
 1. Er alle verbindlichen Invarianten von v0.2.0 (§1.3) einhält.
-2. Er `Q_map` gemäß §2 und §3 mit Full-Resolution-Float32-Speicher berechnet,
-   sofern nicht explizit ein Approximationsmodus gewählt und berichtet wird.
+2. Er `Q_map` gemäß §2 und §3 berechnet und den verwendeten Speichermodus
+   berichtet; Cherry-Pick verwendet zwingend Full-Resolution-Float32.
 3. Er die globale Qualität mit der erweiterten Formel aus §1.5 berechnet,
    wenn `g_w_background_penalty > 0`, oder mit der v0.2.0-Formel, wenn der Wert
    `0` ist.

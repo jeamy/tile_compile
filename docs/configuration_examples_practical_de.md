@@ -4,7 +4,7 @@
 
 Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.3.
 
-## Änderungsstand (2026-07-13)
+## Änderungsstand (2026-07-18)
 
 - AQMH (`aqmh.*`) vollständig dokumentiert und mit praktischen Beispielen versehen.
 - HyperMetric Stretch (`hypermetric_stretch.*`) ist als optionale Post-PCC-Phase mit `ready_to_use`- und `scientific`-Modus dokumentiert.
@@ -16,7 +16,7 @@ Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen,
 - `bge.tile_weight_lambda_structure` auf den aktuellen Default `1.0` abgeglichen.
 - `stacking.common_overlap_required_fraction` und `stacking.tile_common_valid_min_fraction` mit der aktuellen strikten Default-Semantik `1.0 / 1.0` dokumentiert.
 - Das Basis-Snippet wurde auf das strikte `v3.3.9`-Profil aktualisiert.
-- AQMH-Beispiele auf v0.2.1-Defaults abgeglichen: `resolution_divisor: 1`, `dtype: float32`, `diagnostics.level: full`, `binary_block_size_px: 64`, `cherry_pick.k_min_required: 20`.
+- AQMH-Beispiele auf die objektklassenunabhängige v0.2.1-Baseline abgeglichen: begrenzte globale Sigmoid-Gewichte, `resolution_divisor: 2`, `dtype: uint16`, asymmetrisches Sigma-Clipping `2.0 / 1.5` mit vier Iterationen und duales Validierungsgate gegen Uniformkontrolle und rohe AQMH-Baseline.
 
 **Strict-v3.3.9-Basis-Snippet:**
 
@@ -56,11 +56,37 @@ aqmh:
     k_artifact: 3.0     # MAD-Multiplikator für Artefakt-Erkennung
     frac_artifact_max: 0.25  # max. Artefaktanteil pro Fenster
   storage:
-    resolution_divisor: 1   # volle Auflösung der Qualitätskarten (v0.2.1-Default)
-    dtype: float32
+    resolution_divisor: 2   # robuster Standard; 1 für Cherry-Pick/Referenzläufe
+    dtype: uint16           # float32 für Cherry-Pick/Referenzläufe
     max_resident_maps: 2
+  global_quality:
+    g_floor: 0.03
+    g_w_sharp: 0.55
+    g_w_snr: 0.30
+    g_w_background_penalty: 0.25
+    g_k_scale: 1.5         # begrenzte Sigmoid-Temperatur
+  reconstruction:
+    clip_sigma: 2.0
+    clip_sigma_low: 2.0
+    clip_sigma_high: 1.5
+    clip_iterations: 4
+    min_fraction: 0.4
+    min_n_eff: 2.0
+    registration_weight_guard: true
+    registration_weight_floor: 0.30
+    registration_sequential_factor: 0.92
+    registration_predicted_factor: 0.50
+    structure_mask_low_q: 0.40
+    structure_mask_high_q: 0.90
+    structure_mask_blur_sigma_px: 4.0
   cherry_pick:
     enabled: false
+  validation:
+    max_seam_score_regression: 0.05
+    max_fwhm_regression: 0.02
+    max_background_rms_regression: 0.05
+    max_tail11_abs_regression: 0.10
+    max_elongation_regression: 0.08
   diagnostics:
     level: full
     tau_artifact: 0.20
@@ -84,6 +110,9 @@ aqmh:
 ```yaml
 aqmh:
   enabled: true
+  storage:
+    resolution_divisor: 1
+    dtype: float32
   cherry_pick:
     enabled: true
     k_min_required: 20  # Lauf-Gate und Untergrenze Samples pro Pixel

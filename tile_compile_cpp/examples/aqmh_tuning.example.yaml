@@ -117,6 +117,7 @@ aqmh:
     g_w_sharp: 0.55        # Weight for sharpness in global quality
     g_w_snr: 0.30          # Weight for SNR in global quality
     g_w_background_penalty: 0.25  # Penalty for large-scale sky gradients
+    g_k_scale: 1.5         # Sigmoid temperature; G_f remains bounded to 1
 
   # Diagnostics parameters
   diagnostics:
@@ -133,10 +134,10 @@ aqmh:
   
   # Reconstruction parameters
   reconstruction:
-    clip_sigma: 3.0
-    clip_sigma_low: 3.0
-    clip_sigma_high: 3.0
-    clip_iterations: 3
+    clip_sigma: 2.0
+    clip_sigma_low: 2.0
+    clip_sigma_high: 1.5
+    clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0
     chunk_rows: 0
@@ -149,6 +150,9 @@ aqmh:
     registration_predicted_factor: 0.50
     registration_chain_depth_penalty: 0.03
     registration_chain_depth_max_penalty: 0.15
+    structure_mask_low_q: 0.40
+    structure_mask_high_q: 0.90
+    structure_mask_blur_sigma_px: 4.0
   
   # Cherry-pick parameters (pixel-level frame selection).
   # Keep disabled for the general baseline. If enabled for many-frame runs,
@@ -161,7 +165,8 @@ aqmh:
     tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
 
   # Validierungsgrenzen fuer rekonstruierte Tiles.
-  # Future gate semantics: thresholds apply only to applicable metrics.
+  # Gate thresholds apply only to applicable metrics and must pass against
+  # both the uniform control and the immutable raw AQMH baseline.
   # Degenerate comparisons, empty star samples, and zero baselines must be
   # not_applicable in code instead of causing false FAIL results.
   validation:

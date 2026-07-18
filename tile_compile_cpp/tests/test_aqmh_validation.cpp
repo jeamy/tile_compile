@@ -47,6 +47,33 @@ tc::Matrix2Df make_gradient_frame(int w, int h) {
   return f;
 }
 
+tc::Matrix2Df make_validation_star_field(int w, int h, int extra_stars = 0) {
+  tc::Matrix2Df image(h, w);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      image(y, x) = 100.0f + 0.01f * static_cast<float>((x + 3 * y) % 17);
+
+  int star_index = 0;
+  for (int y = 24; y < h - 24; y += 20) {
+    for (int x = 24; x < w - 24; x += 20) {
+      const float peak = 20.0f + static_cast<float>(star_index % 9);
+      for (int dy = -3; dy <= 3; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+          const float r2 = static_cast<float>(dx * dx + dy * dy);
+          image(y + dy, x + dx) += peak * std::exp(-0.5f * r2 / 1.4f);
+        }
+      }
+      ++star_index;
+    }
+  }
+  for (int i = 0; i < extra_stars; ++i) {
+    const int x = 30 + 17 * i;
+    const int y = h - 30;
+    image(y, x) += 60.0f + static_cast<float>(i);
+  }
+  return image;
+}
+
 std::vector<uint8_t> full_mask(int w, int h) {
   return std::vector<uint8_t>(static_cast<size_t>(w * h), 1u);
 }
@@ -282,7 +309,26 @@ TEST_CASE("aqmh_validation_14_global_quality_bounded") {
   for (size_t i = 0; i < result.weights.size(); ++i) {
     REQUIRE(std::isfinite(result.weights[i]));
     REQUIRE(result.weights[i] >= cfg.g_floor);
+    REQUIRE(result.weights[i] <= 1.0f);
   }
+}
+
+TEST_CASE("aqmh_validation_comparison_uses_common_control_stars") {
+  const auto control = make_validation_star_field(160, 160);
+  const auto candidate = make_validation_star_field(160, 160, 4);
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.control.star_count >= 12);
+  REQUIRE(cmp.aqmh.star_count == cmp.control.star_count);
+}
+
+TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
+  const auto control = make_validation_star_field(160, 160);
+  const auto smaller_candidate = make_validation_star_field(96, 96);
+
+  REQUIRE_NOTHROW(
+      recon::compare_aqmh_to_uniform_control(smaller_candidate, control));
 }
 
 // §9.14 — Global quality: identical inputs → identical G
@@ -327,6 +373,10 @@ TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
   REQUIRE(global.g_k_scale == Catch::Approx(1.5f));
 
   tc::config::AqmhReconstructionConfig reconstruction;
+  REQUIRE(reconstruction.clip_sigma == Catch::Approx(2.0f));
+  REQUIRE(reconstruction.clip_sigma_low == Catch::Approx(2.0f));
+  REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(1.5f));
+  REQUIRE(reconstruction.clip_iterations == 4);
   REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
   REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
   REQUIRE(reconstruction.registration_sequential_factor == Catch::Approx(0.92f));
@@ -350,6 +400,10 @@ TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
   REQUIRE(aqmh.at("storage").at("properties").at("dtype").at("default") == "uint16");
   REQUIRE(aqmh.at("global_quality").at("properties").at("g_k_scale").at("default") == 1.5);
   const auto &reconstruction = aqmh.at("reconstruction").at("properties");
+  REQUIRE(reconstruction.at("clip_sigma").at("default") == 2.0);
+  REQUIRE(reconstruction.at("clip_sigma_low").at("default") == 2.0);
+  REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 1.5);
+  REQUIRE(reconstruction.at("clip_iterations").at("default") == 4);
   REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
   REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);
   REQUIRE(reconstruction.at("registration_predicted_factor").at("default") == 0.50);

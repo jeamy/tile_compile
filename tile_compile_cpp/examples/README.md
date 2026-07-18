@@ -54,7 +54,10 @@ They are kept in sync with the active runner/config parser defaults, including:
   - `pyramid.*`: steuert Pyramidenstufen, Fenstergröße, Gewichtung Schärfe/SNR, Artefakt-Gate.
     - `k_artifact`: MAD-Multiplikator — höher = toleranter gegenüber Ausreißern (Default 5.0)
     - `frac_artifact_max`: max. Artefaktanteil pro Fenster (auf 0.30–0.40 erhöhen bei Satellitenspuren)
-  - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint8), `max_resident_maps` — RAM-Budget für Quality-Map-Cache.
+  - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint16/uint8), `max_resident_maps` — Standard `2`/`uint16`; Cherry-Pick benötigt `1`/`float32`.
+  - `global_quality.*`: begrenzte Sigmoid-Gewichtung mit `g_floor: 0.03`, `g_w_sharp: 0.55`, `g_w_snr: 0.30`, `g_w_background_penalty: 0.25`, `g_k_scale: 1.5`.
+  - `reconstruction.*`: asymmetrisches AQMH-Clipping (`2.0` unten, `1.5` oben, vier Iterationen), Registrierungs-Gewichtsschutz und Strukturmaske (`0.40`/`0.90`, Sigma `4.0`).
+  - `validation.*`: jeder Nachverarbeitungskandidat muss die Grenzwerte sowohl gegen das uniforme Kontrollmittel als auch gegen das rohe AQMH bestehen.
   - `cherry_pick.*`: selektives Stacking — nur beste `k_frac` Frames (Default disabled; `k_min_required` schützt vor Unterbestimmung).
   - `diagnostics.*`: Schwellen für `artifacts/aqmh.json` Diagnose-Output.
   - Logs erscheinen unter `[AQMH]`; Ergebnis in `artifacts/aqmh.json`.

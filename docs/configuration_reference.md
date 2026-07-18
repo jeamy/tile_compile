@@ -1502,9 +1502,9 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 |-------------|------|
 | **Typ** | integer |
 | **Werte** | `1`, `2`, `4` |
-| **Default** | `1` |
+| **Default** | `2` |
 
-**Zweck:** Auflösungsfaktor für die gespeicherten Qualitätskarten. `1` = volle Auflösung (Default, erhält das Exact-Zero-Veto). `2` oder `4` reduzieren den Speicherbedarf, geben aber räumliche Genauigkeit auf.
+**Zweck:** Auflösungsfaktor für die gespeicherten Qualitätskarten. `2` ist der speichereffiziente, objektklassenunabhängige Standard. `1` ist der Full-Resolution-Referenzmodus und für Cherry-Pick erforderlich; `4` spart mehr Speicher, reduziert aber die räumliche Genauigkeit.
 
 ---
 
@@ -1514,9 +1514,9 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 |-------------|------|
 | **Typ** | string (enum) |
 | **Werte** | `float32`, `uint16`, `uint8` |
-| **Default** | `"float32"` |
+| **Default** | `"uint16"` |
 
-**Zweck:** Datentyp für gecachte Qualitätskarten. `float32` ist präzise, `uint16` ist ein kompakter Kompromiss, `uint8` spart am meisten Speicherplatz (8-bit Quantisierung der Qualitätswerte).
+**Zweck:** Datentyp für gecachte Qualitätskarten. `uint16` ist der kompakte Standard. `float32` ist der exakte Referenzmodus und für Cherry-Pick erforderlich; `uint8` spart am meisten Speicherplatz, quantisiert die Qualitätswerte aber deutlich gröber.
 
 ---
 
@@ -1696,7 +1696,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.05` |
+| **Default** | `0.03` |
 
 **Zweck:** Minimales globales Gewicht, das jeder Frame erhält. Verhindert, dass ein Frame von der AQMH-Rekonstruktion vollständig ignoriert wird.
 
@@ -1708,7 +1708,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.6` |
+| **Default** | `0.55` |
 
 **Zweck:** Gewicht der Schärfe-Zusammenfassung im globalen Qualitätsscore. Höhere Werte lassen Seeing/FWHM-Unterschiede stärker zwischen den Frames wirken.
 
@@ -1720,7 +1720,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.4` |
+| **Default** | `0.30` |
 
 **Zweck:** Gewicht der SNR-Zusammenfassung im globalen Qualitätsscore.
 
@@ -1732,9 +1732,21 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.3` |
+| **Default** | `0.25` |
 
-**Zweck:** Gewicht der Hintergrundgradienten-Strafe. Bestraft Frames mit starkem großskaligem Hintergrundgradienten (z. B. Mondglühen, Lichtverschmutzung). Mit `0.0` wird die Strafe deaktiviert und das exakte v0.2.0-Verhalten der Globalqualität wiederhergestellt.
+**Zweck:** Gewicht der Hintergrundgradienten-Strafe. Bestraft Frames mit starkem großskaligem Hintergrundgradienten (z. B. Mondglühen, Lichtverschmutzung). Mit `0.0` wird nur diese Strafe deaktiviert; die begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.
+
+----
+
+#### `aqmh.global_quality.g_k_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | > 0 |
+| **Default** | `1.5` |
+
+**Zweck:** Temperatur der Sigmoid-Abbildung für den globalen Qualitätsscore. Größere Werte trennen gute und schwache Frames stärker, das Ergebnis bleibt jedoch immer auf `[g_floor, 1]` begrenzt.
 
 ----
 
@@ -1747,9 +1759,9 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `3.0` |
+| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 1.5` |
 
-**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Samples mit Residuen unter `clip_sigma_low` oder über `clip_sigma_high` werden verworfen. Wird nur `clip_sigma` gesetzt, wird es auf beide Grenzen übertragen.
+**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Die strengere Obergrenze unterdrückt positive Ausreißer. Wird nur `clip_sigma` gesetzt, wird es aus Kompatibilitätsgründen auf beide Grenzen übertragen; die aktuelle Baseline verwendet die expliziten Low-/High-Defaults.
 
 ----
 
@@ -1758,7 +1770,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Default** | `3` |
+| **Default** | `4` |
 
 **Zweck:** Anzahl der Sigma-Clipping-Iterationen.
 
@@ -1770,7 +1782,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.5` |
+| **Default** | `0.4` |
 
 **Zweck:** Mindestanteil gültiger Pixel im Output-Canvas, der genügend Samples haben muss, um ein nicht-null Ergebnis zu erzeugen.
 
@@ -1826,7 +1838,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.30` |
 
 **Zweck:** Untere Grenze für den pro-Frame Registrierungs-Konfidenz-Faktor.
 
@@ -1862,7 +1874,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.85` |
+| **Default** | `0.92` |
 
 **Zweck:** Zusätzliche Dämpfung für Frames mit der Registrierungsquelle `sequential_refined`.
 
@@ -1874,7 +1886,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.50` |
 
 **Zweck:** Zusätzliche Dämpfung für vorhergesagte, interpolierte oder unbekannte Registrierungsquellen.
 
@@ -1904,16 +1916,40 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.structure_mask_low_q` / `structure_mask_high_q`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1, `low_q < high_q` |
+| **Defaults** | `0.40` / `0.90` |
+
+**Zweck:** Unteres und oberes Gradientenquantil der weichen Strukturmaske. Unterhalb `low_q` folgt ein Kandidat stärker der Uniformkontrolle, oberhalb `high_q` bleibt das AQMH-Detail vollständig erhalten.
+
+----
+
+#### `aqmh.reconstruction.structure_mask_blur_sigma_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | > 0 |
+| **Default** | `4.0` |
+
+**Zweck:** Gauß-Sigma für den weichen Übergang der Strukturmaske.
+
+----
+
 ### `aqmh.validation.*` — Output-Validierung
 
-Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen Kontrollmittel (ungewichteter Mittelwert).
+Regressions-Schwellen für Vergleiche eines Nachverarbeitungskandidaten sowohl mit dem uniformen Kontrollmittel als auch mit der unveränderten rohen AQMH-Baseline. Tail- und Elongationswerte werden an denselben, in der jeweiligen Referenz erkannten Sternpositionen gemessen.
 
 #### `aqmh.validation.max_seam_score_regression`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
 **Zweck:** Maximal erlaubte Seam-Score-Regression gegenüber dem uniformen Kontrollmittel.
 
@@ -1935,7 +1971,7 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
 **Zweck:** Maximal erlaubte Hintergrund-RMS-Regression.
 
@@ -1946,7 +1982,7 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.05` |
+| **Default** | `0.10` |
 
 **Zweck:** Maximal erlaubte Tail-11-Absolut-Regression.
 
@@ -1957,7 +1993,7 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.05` |
+| **Default** | `0.08` |
 
 **Zweck:** Maximal erlaubte Elongation-Regression.
 

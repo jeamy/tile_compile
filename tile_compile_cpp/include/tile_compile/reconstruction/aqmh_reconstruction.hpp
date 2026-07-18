@@ -12,11 +12,11 @@ namespace tile_compile::metrics { class QualityMapCache; }
 namespace tile_compile::reconstruction {
 
 struct AqmhReconstructionConfig {
-  float clip_sigma = 3.0f;
-  float clip_sigma_low = 3.0f;
-  float clip_sigma_high = 3.0f;
-  int clip_iterations = 3;
-  float min_fraction = 0.5f;
+  float clip_sigma = 2.0f;
+  float clip_sigma_low = 2.0f;
+  float clip_sigma_high = 1.5f;
+  int clip_iterations = 4;
+  float min_fraction = 0.4f;
   float min_n_eff = 2.0f;
   bool cherry_pick = false;
   bool uniform_weights = false;

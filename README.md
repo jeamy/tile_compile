@@ -45,13 +45,13 @@ Reconstruction (per canvas-valid pixel p):
 | `aqmh.pyramid.k_artifact` | `3.0` | MAD multiplier for artifact detection (higher = more tolerant) |
 | `aqmh.pyramid.frac_artifact_max` | `0.25` | Max artifact fraction per window before discard |
 | `aqmh.storage.resolution_divisor` | `2` | Quality map cache resolution (1/2/4) |
-| `aqmh.storage.dtype` | `float32` | Cache data type (`float32` or `uint8`) |
+| `aqmh.storage.dtype` | `uint16` | Cache data type (`float32`, `uint16`, or `uint8`) |
 | `aqmh.storage.max_resident_maps` | `2` | Max quality maps in RAM simultaneously |
 | `aqmh.cherry_pick.enabled` | `false` | Stack only top-quality frames |
 | `aqmh.cherry_pick.k_frac` | `0.30` | Fraction of best frames to use (0.30 = best 30%) |
-| `aqmh.cherry_pick.k_min` | `3` | Minimum frames always included |
+| `aqmh.cherry_pick.k_min_required` | `20` | Run gate and minimum retained samples per pixel |
 | `aqmh.diagnostics.enabled` | `true` | Enable AQMH diagnostics phase |
-| `aqmh.diagnostics.level` | `summary` | Detail level: `none`, `summary`, or `full` |
+| `aqmh.diagnostics.level` | `full` | Detail level: `none`, `summary`, or `full` |
 | `aqmh.diagnostics.format` | `json` | Diagnostic output format: `json` or `binary` |
 | `aqmh.diagnostics.regions` | `true` | Write `aqmh_regions.json` per-frame region list |
 | `aqmh.diagnostics.binary_block_size_px` | `64` | Block size for binary diagnostics (AQDB) |
@@ -59,7 +59,9 @@ Reconstruction (per canvas-valid pixel p):
 | `aqmh.diagnostics.q_region` | `0.75` | Quantile for regional quality statistics |
 | `aqmh.diagnostics.r_morph_canvas_px` | `6` | Morphological radius for diagnostic quality map |
 | `aqmh.reconstruction.chunk_rows` | `0` | Row chunk size (0 = auto from memory budget) |
-| `aqmh.reconstruction.gpu_reconstruction` | `auto` | GPU backend: `disabled`, `auto`, or `force` |
+| `aqmh.global_quality.g_k_scale` | `1.5` | Sigmoid temperature; global weight remains bounded to `[g_floor, 1]` |
+| `aqmh.reconstruction.clip_sigma_low/high` | `2.0 / 1.5` | Asymmetric lower/upper clipping thresholds |
+| `aqmh.reconstruction.clip_iterations` | `4` | AQMH clipping iterations |
 
 Full parameter documentation: [Configuration Reference — §12b AQMH](docs/configuration_reference_en.md)  
 Practical examples: [Configuration Examples — AQMH section](docs/configuration_examples_practical_en.md)  
@@ -71,7 +73,7 @@ Normative specification: [AQMH Methodology v0.1.0](docs/AQMH/aqmh_methodik_en.md
 |-----------|----------------|
 | Default / most sessions | **AQMH** (enabled by default) |
 | Tile seams or OLA artifacts visible | **AQMH** eliminates seams entirely |
-| Strongly varying frame quality (seeing, clouds) | **AQMH** with `cherry_pick.enabled: true` |
+| Strongly varying frame quality (seeing, clouds) | **AQMH** with `cherry_pick.enabled: true`, `resolution_divisor: 1`, `dtype: float32` |
 | Very large sessions, RAM-limited | **AQMH** with `storage.resolution_divisor: 4`, `dtype: uint8` |
 | Sessions with satellite trails / cosmetic issues | **AQMH** with `k_artifact: 5.0`, `frac_artifact_max: 0.35` |
 | Research requiring TBQR tile-weighted OLA | Classic (`aqmh.enabled: false`) |
@@ -1060,7 +1062,7 @@ The AutoBGE (Background Gradient Extraction) phase is based on the AutoBGE Siril
 - **Background-gradient penalty (`v0.2.1`):** Added `aqmh.global_quality.g_w_background_penalty` so frames with strong large-scale sky gradients receive lower global weights.
 - **Registration robustness:** NCC computation in `try_method` now clamps negative background values and applies a Gaussian blur before correlation, preventing hot pixels from collapsing NCC for sub-pixel shifts. The near-identity bypass now requires `ncc_identity > 0.7` to avoid false accepts on frames far from the reference.
 - **Registration weight guard (`v0.2.1`):** Added `registration_weight_guard`, `registration_weight_floor`, `registration_cc_floor`, `registration_cc_full`, `registration_sequential_factor`, `registration_predicted_factor`, `registration_chain_depth_penalty`, and `registration_chain_depth_max_penalty` to dampen per-pixel weights based on registration correlation and sequential-chain depth.
-- **Adaptive neutralization:** AQMH reconstruction chooses between raw and low-frequency-neutralized background based on background regression, and falls back to the uniform-control reconstruction when the weighted output fails validation gates.
+- **Adaptive neutralization:** AQMH reconstruction evaluates raw, low-frequency-neutralized, structure-masked, and optional control-blend candidates. Every selected candidate must pass against both the uniform control and the immutable raw AQMH baseline; otherwise raw AQMH is preserved.
 - **Diagnostics controls:** Added master switch `aqmh.diagnostics.enabled` plus `level`, `per_frame_blocks`, `heatmaps`, `regions`, `format`, and `binary_block_size_px`.
 - **Bayer pattern auto detection:** `data.bayer_pattern` default changed to `auto`; FITS header keys `BAYERPAT` and `COLORTYP` now take precedence, with the configured value used only as fallback.
 - **Documentation sync:** Updated English and German `configuration_reference` documents with all new AQMH v0.2.1 parameters, correct defaults, and runtime behavior; example configs now use `bayer_pattern: auto` and `memory_budget: 4096`.

@@ -41,18 +41,19 @@ float percentile(std::vector<float> values, float q) {
   return values[idx];
 }
 
-void measure_star_tail_metrics(const Matrix2Df &image,
-                               AqmhValidationMetrics &out) {
+std::vector<StarSample> detect_validation_stars(const Matrix2Df &image) {
   constexpr int border = 16;
   constexpr int max_stars = 250;
-  if (image.rows() < 2 * border + 1 || image.cols() < 2 * border + 1) return;
+  std::vector<StarSample> stars;
+  if (image.rows() < 2 * border + 1 || image.cols() < 2 * border + 1)
+    return stars;
 
   std::vector<float> finite;
   finite.reserve(static_cast<size_t>(image.size()));
   for (int y = 0; y < image.rows(); ++y)
     for (int x = 0; x < image.cols(); ++x)
       if (std::isfinite(image(y, x))) finite.push_back(image(y, x));
-  if (finite.empty()) return;
+  if (finite.empty()) return stars;
   const float med = metrics::aqmh_median(finite);
   const float sigma = std::max(1.4826f * metrics::aqmh_mad(finite, med),
                                metrics::eps_scale(finite));
@@ -60,7 +61,6 @@ void measure_star_tail_metrics(const Matrix2Df &image,
                                    percentile(finite, 0.999f));
   const float sat = percentile(finite, 0.9998f);
 
-  std::vector<StarSample> stars;
   stars.reserve(max_stars);
   for (int y = border; y < image.rows() - border; ++y) {
     for (int x = border; x < image.cols() - border; ++x) {
@@ -94,6 +94,12 @@ void measure_star_tail_metrics(const Matrix2Df &image,
     if (stars.size() >= max_stars) break;
   }
 
+  return stars;
+}
+
+void measure_star_tail_metrics_at_samples(
+    const Matrix2Df &image, const std::vector<StarSample> &stars,
+    AqmhValidationMetrics &out) {
   constexpr float pi = 3.14159265358979323846f;
   const float target = -3.0f * pi / 4.0f;
   const float opposite = pi / 4.0f;
@@ -108,6 +114,11 @@ void measure_star_tail_metrics(const Matrix2Df &image,
   std::vector<float> tail_raw;
   std::vector<float> elongations;
   for (const auto &s : stars) {
+    constexpr int sample_radius = 14;
+    if (s.x < sample_radius || s.y < sample_radius ||
+        s.x + sample_radius >= image.cols() ||
+        s.y + sample_radius >= image.rows())
+      continue;
     float bg_values[76];
     int bg_count = 0;
     for (int dy = -14; dy <= 14; ++dy) {
@@ -192,9 +203,8 @@ void measure_star_tail_metrics(const Matrix2Df &image,
   }
 }
 
-} // namespace
-
-AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image) {
+AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
+    const Matrix2Df &image, const std::vector<StarSample> &stars) {
   AqmhValidationMetrics out;
   if (image.rows() <= 0 || image.cols() <= 0) return out;
   std::vector<float> finite;
@@ -226,15 +236,28 @@ AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image) {
   out.background_rms = sigma;
   out.fwhm = metrics::measure_fwhm_from_image(image);
   if (!std::isfinite(out.fwhm) || out.fwhm < 0.0f) out.fwhm = 0.0f;
-  measure_star_tail_metrics(image, out);
+  measure_star_tail_metrics_at_samples(image, stars, out);
   return out;
+}
+
+} // namespace
+
+AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image) {
+  return measure_aqmh_validation_metrics_at_samples(
+      image, detect_validation_stars(image));
 }
 
 AqmhValidationComparison compare_aqmh_to_uniform_control(
     const Matrix2Df &aqmh, const Matrix2Df &control) {
   AqmhValidationComparison out;
-  out.aqmh = measure_aqmh_validation_metrics(aqmh);
-  out.control = measure_aqmh_validation_metrics(control);
+  // Candidate and control must use the same stars. Independent detections
+  // compare different populations when sharpness or contrast changes and can
+  // manufacture a tail/elongation regression that is not present in the
+  // image pair.
+  const auto common_stars = detect_validation_stars(control);
+  out.aqmh = measure_aqmh_validation_metrics_at_samples(aqmh, common_stars);
+  out.control =
+      measure_aqmh_validation_metrics_at_samples(control, common_stars);
   out.seam_score_regression = regression(out.aqmh.seam_score,
                                          out.control.seam_score);
   out.fwhm_regression = regression(out.aqmh.fwhm, out.control.fwhm);

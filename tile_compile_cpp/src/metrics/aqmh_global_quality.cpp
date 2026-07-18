@@ -90,13 +90,14 @@ AqmhGlobalQualityResult compute_aqmh_global_quality(
     zb = std::clamp(zb, -5.0f, 5.0f);
     const float score =
         w_sharp_norm * zs + w_snr_norm * zn - w_background_norm * zb;
-    // Exponential weighting analogous to classic G_f = exp(k_global * Q).
-    // score=0 (median frame) → weight=1.0; positive scores get exponentially
-    // higher weight, negative scores exponentially lower. This provides much
-    // stronger separation (~400:1) than the previous sigmoid (~5:1).
-    const float clamped_score = std::clamp(score, -3.0f, 3.0f);
-    const float raw_weight = std::exp(cfg.g_k_scale * clamped_score);
-    result.weights[i] = std::max(cfg.g_floor, raw_weight);
+    // Bounded global weighting prevents a small set of frames from dominating
+    // every local quality map. g_k_scale controls sigmoid temperature without
+    // changing the normative [g_floor, 1] range.
+    const float scaled_score =
+        std::clamp(cfg.g_k_scale * score, -8.0f, 8.0f);
+    const float sigmoid = 1.0f / (1.0f + std::exp(-scaled_score));
+    result.weights[i] =
+        cfg.g_floor + (1.0f - cfg.g_floor) * sigmoid;
   }
   return result;
 }
