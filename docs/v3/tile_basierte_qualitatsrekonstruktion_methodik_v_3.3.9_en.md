@@ -45,13 +45,13 @@ The method models two orthogonal quality axes:
 "Strictly linear" (as established in v3.3.6, unchanged in v3.3.9) means:
 
 1. **Photometric signal mapping** remains linear (no global nonlinear tone curves such as stretch, asinh, log).
-2. Linear reconstruction steps (scaling, weighted mean, overlap-add) are mandatory.
-3. Robust/statistical nonlinearities (MAD, clipping, sigma clipping, adaptive gating decisions) are allowed as **auxiliary steps**.
-4. Data-dependent tile-wise renormalization of reconstructed pixel values (for example median/MAD equalization before overlap-add) is **not part of the mandatory linear core**.
-
----
-
-## 2. Assumptions and Operating Modes
+| `aqmh.storage.dtype` | `float32` | Cache-Datentyp (`float32`, `uint16` oder `uint8`) |
+| `aqmh.storage.max_resident_maps` | `2` | Max. gleichzeitig im RAM gehaltene Qualitätskarten |
+| `aqmh.cherry_pick.enabled` | `false` | Nur beste Frames stacken |
+| `aqmh.cherry_pick.k_frac` | `0.30` | Anteil bester Frames (0.30 = beste 30%) |
+| `aqmh.cherry_pick.k_min_required` | `20` | Lauf-Gate und Untergrenze Samples pro Pixel |
+| `aqmh.diagnostics.enabled` | `true` | AQMH-Diagnosephase aktivieren |
+| `aqmh.diagnostics.level` | `full` | Detaillierungsgrad: `none`, `summary` oder `full` |
 
 ### 2.1 Hard Assumptions (Violation -> Abort)
 
@@ -893,7 +893,7 @@ AQMH preserves the mandatory core invariants:
 | `aqmh.storage.dtype` | string | `"float32"` | float32,uint16,uint8 | Map data type |
 | `aqmh.storage.max_resident_maps` | int | `2` | 0–16 | Max resident maps in RAM |
 | `aqmh.cherry_pick.enabled` | bool | `false` | — | Per-pixel frame selection |
-| `aqmh.cherry_pick.k_min` | int | `3` | ≥1 | Min frames per pixel |
+| `aqmh.cherry_pick.k_min_required` | int | `20` | ≥1 | Run gate and min retained samples per pixel |
 | `aqmh.cherry_pick.k_frac` | float | `0.30` | (0,1] | Best-frame fraction |
 | `aqmh.diagnostics.tau_artifact` | float | `0.1` | — | Artefact diagnostic threshold |
 
