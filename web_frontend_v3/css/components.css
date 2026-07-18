@@ -328,32 +328,55 @@
 /* ── Tabs ───────────────────────────────────────── */
 .tc-tabs {
   display: flex;
-  gap: var(--space-1);
   align-items: center;
+  gap: var(--space-1);
+  width: max-content;
+  max-width: 100%;
+  padding: 3px;
+  /* border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);*/
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  /* box-shadow: inset 0 1px 0 rgba(255,255,255,0.36); */
 }
 
 .tc-tab {
-  padding: var(--space-2) var(--space-4);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px var(--space-3);
   font-size: var(--text-sm);
-  font-weight: 500;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-weight: 650;
+  line-height: 1.2;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: all var(--transition);
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition),
+    color var(--transition),
+    transform var(--transition);
   white-space: nowrap;
 }
 
 .tc-tab:hover {
   color: var(--foreground);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+
+.tc-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-soft), 0 0 0 4px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 .tc-tab.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px color-mix(in srgb, var(--border) 66%, transparent);
 }
 
 /* ── Progress ───────────────────────────────────── */

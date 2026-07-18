@@ -112,10 +112,10 @@ std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
     if (method == "aqmh") {
         return {
             "SCAN_INPUT",
-            "REGISTRATION",
-            "PREWARP",
             "CHANNEL_SPLIT",
             "NORMALIZATION",
+            "REGISTRATION",
+            "PREWARP",
             "COMMON_OVERLAP",
             "AQMH_MAPS",
             "AQMH_GLOBAL_QUALITY",
@@ -789,6 +789,19 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     std::string resume_from_phase;
     bool resume_active = false;
 
+    auto reset_phase_tracking = [&]() {
+        phases = nlohmann::json::object();
+        for (const auto& phase : phase_order) {
+            phases[phase] = nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
+        }
+        extra_phases = nlohmann::json::object();
+        progress_map = nlohmann::json::object();
+        run_status = "unknown";
+        current_phase.clear();
+        resume_from_phase.clear();
+        resume_active = false;
+    };
+
     auto is_resume_prereq_phase = [&](const std::string& phase_name) {
         if (!resume_active || resume_from_phase.empty() || phase_name.empty() || phase_name == resume_from_phase) {
             return false;
@@ -803,6 +816,11 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (events_tail.size() > 200) events_tail.pop_front();
         std::string event_type = ev.value("type", std::string());
         std::string phase_name = phase_name_from_event(ev);
+
+        if (event_type == "run_start") {
+            reset_phase_tracking();
+            run_status = "running";
+        }
 
         if (!phase_name.empty()) {
             const std::string normalized_phase = normalizePhaseEvent(phase_name, effective_method);

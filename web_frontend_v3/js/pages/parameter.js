@@ -21,21 +21,24 @@ export function createParameterPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
   const paramView = getUiState().paramView || "parameter";
 
-  // Parameter / AI switch – card style like Run Control
   const paramTab = el("button", {
-    class: `tc-btn${paramView === "parameter" ? " tc-btn-primary" : ""}`,
+    class: `tc-tab${paramView === "parameter" ? " active" : ""}`,
     id: "tab-param",
+    role: "tab",
+    "aria-selected": paramView === "parameter" ? "true" : "false",
   }, t("ui.tab.parameter", "Parameter"));
   const aiTab = el("button", {
-    class: `tc-btn${paramView === "ai" ? " tc-btn-primary" : ""}`,
+    class: `tc-tab${paramView === "ai" ? " active" : ""}`,
     id: "tab-ai",
+    role: "tab",
+    "aria-selected": paramView === "ai" ? "true" : "false",
   }, t("ui.tab.ai", "AI Empfehlung"));
   paramTab.onclick = () => switchView("parameter", page, paramTab, aiTab);
   aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
 
   const topBar = el("div", { class: "tc-card", id: "param-switchbar" },
     el("div", { class: "tc-card-title" }, t("ui.title.view", "Ansicht")),
-    el("div", { class: "tc-flex tc-gap-3" }, paramTab, aiTab),
+    el("div", { class: "tc-tabs", role: "tablist" }, paramTab, aiTab),
   );
 
   // 3-column grid
@@ -117,8 +120,10 @@ export function createParameterPage() {
 
 function switchView(view, page, paramTab, aiTab) {
   setUiState({ paramView: view });
-  paramTab.classList.toggle("tc-btn-primary", view === "parameter");
-  aiTab.classList.toggle("tc-btn-primary", view === "ai");
+  paramTab.classList.toggle("active", view === "parameter");
+  aiTab.classList.toggle("active", view === "ai");
+  paramTab.setAttribute("aria-selected", view === "parameter" ? "true" : "false");
+  aiTab.setAttribute("aria-selected", view === "ai" ? "true" : "false");
 
   const grid = document.getElementById("param-grid");
   const nextBar = document.getElementById("param-nextbar");

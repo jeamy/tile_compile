@@ -470,6 +470,223 @@ int main(int argc, char** argv) {
         });
         expect_equal(invalid_config_preview["_http_status"].get<long>(), 200L, "pi invalid config preview status");
         expect_true(!invalid_config_preview["preview"]["config_valid"].get<bool>(), "pi invalid config preview validation");
+
+        // --- Outcome-Delta-Test ---
+        // evaluate_memory_outcome_payload muss FWHM-Delta, Report-Warnings-Delta
+        // und user_rating verarbeiten und das Verdict korrekt ableiten.
+        {
+            // Memory fuer Outcome-Delta-Tests anlegen
+            std::ofstream delta_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            const nlohmann::json delta_ctx = {
+                {"schema_version", "pi.context_signature.v1"},
+                {"target", {{"object_name", "M31"}, {"object_type", "galaxy"}}},
+                {"acquisition", {{"camera_type", "MONO"}}},
+                {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}}}
+            };
+            delta_out << nlohmann::json{
+                {"schema_version", "pi.memory.v2"},
+                {"memory_id", "mem_outcome_delta_fixture"},
+                {"id", "mem_outcome_delta_fixture"},
+                {"status", "candidate"},
+                {"type", "config_optimization"},
+                {"source", "scan_ai_apply"},
+                {"privacy_class", "metadata_only"},
+                {"context_signature", delta_ctx},
+                {"scope", {
+                    {"applies_when", nlohmann::json::array({"galaxy MONO BGE context"})},
+                    {"does_not_apply_when", nlohmann::json::array({"OSC context"})},
+                    {"confidence", 0.5}
+                }},
+                {"recommendation", {{"explanation", "delta test fixture"}}},
+                {"evidence", {{"validation", "fixture"}, {"run_id", "pi_fixture_run"}}},
+                {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"bge.enabled"})}, {"negative", false}}}
+            }.dump() << "\n";
+        }
+
+        // Outcome mit FWHM-Verbesserung: soll verdict=improved ergeben und promotable setzen
+        const auto outcome_improved = harness.post_json("/api/pi/memories/mem_outcome_delta_fixture/outcome", {
+            {"before", {{"fwhm_median", 3.2}, {"report_warnings", nlohmann::json::array({"faint_nebula"})}}},
+            {"after",  {{"fwhm_median", 2.5}, {"report_warnings", nlohmann::json::array()},
+                         {"artifact_status", {{"bge.json", "ok"}}}}},
+            {"feedback", "Sterne sehen schoerfer aus"}
+        });
+        expect_equal(outcome_improved["_http_status"].get<long>(), 200L, "outcome-delta: improved outcome status");
+        expect_equal(outcome_improved["outcome"]["verdict"].get<std::string>(), "improved",
+                     "outcome-delta: FWHM improvement detected");
+        expect_true(outcome_improved["outcome"].contains("fwhm_before"),
+                    "outcome-delta: fwhm_before field present");
+        expect_true(outcome_improved["outcome"].contains("fwhm_after"),
+                    "outcome-delta: fwhm_after field present");
+        expect_true(outcome_improved["outcome"].contains("report_warnings_delta"),
+                    "outcome-delta: report_warnings_delta field present");
+        expect_equal(outcome_improved["outcome"]["report_warnings_delta"].get<long>(), -1L,
+                     "outcome-delta: one fewer warning after");
+        expect_true(outcome_improved["outcome"].contains("artifact_status"),
+                    "outcome-delta: artifact_status preserved in outcome");
+        expect_equal(outcome_improved["review"]["status"].get<std::string>(), "promotable",
+                     "outcome-delta: improved verdict sets promotable status");
+        // Kein counterexample bei verbessertem Ergebnis
+        expect_true(!outcome_improved.contains("counterexample") ||
+                     outcome_improved["counterexample"].is_null(),
+                     "outcome-delta: no counterexample created for improved verdict");
+
+        // Outcome mit Verschlechterung: soll verdict=worse + counterexample anlegen
+        const auto outcome_worse = harness.post_json("/api/pi/memories/mem_outcome_delta_fixture/outcome", {
+            {"result", "worse"},
+            {"feedback", "Hintergrund jetzt heller"},
+            {"before", {{"quality_score", 0.70}}},
+            {"after",  {{"quality_score", 0.55}}},
+            {"negative_learning", true}
+        });
+        expect_equal(outcome_worse["_http_status"].get<long>(), 200L, "outcome-delta: worse outcome status");
+        expect_equal(outcome_worse["outcome"]["verdict"].get<std::string>(), "worse",
+                     "outcome-delta: worse verdict");
+        expect_true(outcome_worse["outcome"].contains("quality_score_delta"),
+                    "outcome-delta: quality_score_delta present");
+        expect_true(outcome_worse["outcome"]["quality_score_delta"].get<double>() < 0.0,
+                    "outcome-delta: negative score delta");
+        expect_equal(outcome_worse["review"]["status"].get<std::string>(), "rejected",
+                     "outcome-delta: worse verdict sets rejected status");
+        expect_true(outcome_worse.contains("counterexample") &&
+                    !outcome_worse["counterexample"].is_null() &&
+                    !outcome_worse["counterexample"].value("memory_id", std::string()).empty(),
+                    "outcome-delta: counterexample created for worse verdict");
+        expect_equal(outcome_worse["counterexample"]["type"].get<std::string>(), "counterexample",
+                     "outcome-delta: counterexample has correct type");
+
+        // User-Rating ueberschreibt quantitatives Verdict
+        const auto outcome_user_rated = harness.post_json("/api/pi/memories/mem_outcome_delta_fixture/outcome", {
+            {"user_rating", 5},
+            {"negative_learning", false}
+        });
+        expect_equal(outcome_user_rated["_http_status"].get<long>(), 200L, "outcome-delta: user rating status");
+        expect_equal(outcome_user_rated["outcome"]["verdict"].get<std::string>(), "improved",
+                     "outcome-delta: user rating 5 overrides to improved");
+
+        // --- Promotable → accepted (promote endpoint) ---
+        // mem_outcome_delta_fixture ist nach outcome_improved promotable
+        const auto promote = harness.post_json("/api/pi/memories/mem_outcome_delta_fixture/promote", {
+            {"reviewer", "fixture"},
+            {"note", "manually promoted after FWHM improvement confirmed"}
+        });
+        expect_equal(promote["_http_status"].get<long>(), 200L, "promote: status");
+        expect_true(promote["ok"].get<bool>(), "promote: ok flag");
+        expect_equal(promote["review"]["status"].get<std::string>(), "accepted",
+                     "promote: memory is now accepted");
+
+        // Nicht-promotable Memory kann nicht promoted werden
+        const auto promote_non_promotable = harness.post_json("/api/pi/memories/mem_route_fixture/promote", {
+            {"reviewer", "fixture"}
+        });
+        expect_equal(promote_non_promotable["_http_status"].get<long>(), 400L,
+                     "promote: non-promotable memory returns 400");
+
+        // --- Post-Run-Trigger (evaluate-run) ---
+        // Ein stats.json mit FWHM anlegen damit evaluate_run Metriken lesen kann
+        harness.make_file("runs/pi_fixture_run/artifacts/stats.json",
+            "{\"phase_issues\":[\"faint_emission\"],\"summary\":{\"status\":\"ok\"},"
+            "\"aggregate\":{\"fwhm\":{\"median\":2.8}}}\n");
+
+        // Memory mit run_id-Provenance anlegen
+        {
+            std::ofstream run_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            run_out << nlohmann::json{
+                {"schema_version", "pi.memory.v2"},
+                {"memory_id", "mem_postrun_fixture"},
+                {"id", "mem_postrun_fixture"},
+                {"status", "candidate"},
+                {"type", "config_optimization"},
+                {"source", "scan_ai_apply"},
+                {"privacy_class", "metadata_only"},
+                {"context_signature", {
+                    {"schema_version", "pi.context_signature.v1"},
+                    {"target", {{"object_name", "M42"}}},
+                    {"acquisition", {{"camera_type", "OSC"}}},
+                    {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}}}
+                }},
+                {"scope", {
+                    {"applies_when", nlohmann::json::array({"BGE optimization context"})},
+                    {"does_not_apply_when", nlohmann::json::array({"galaxy targets"})},
+                    {"confidence", 0.5}
+                }},
+                {"recommendation", {{"explanation", "post-run trigger fixture"}}},
+                {"evidence", {{"validation", "fixture"}, {"run_id", "pi_fixture_run"}}},
+                {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
+                {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
+                {"retrieval", {{"keywords", nlohmann::json::array({"bge.enabled"})}, {"negative", false}}}
+            }.dump() << "\n";
+        }
+
+        const auto eval_run = harness.post_json("/api/pi/memories/evaluate-run", {
+            {"run_id", "pi_fixture_run"},
+            {"result", "improved"},
+            {"feedback", "BGE improvement visible"}
+        });
+        expect_equal(eval_run["_http_status"].get<long>(), 200L, "post-run-trigger: status");
+        expect_true(eval_run["ok"].get<bool>(), "post-run-trigger: ok flag");
+        expect_equal(eval_run["run_id"].get<std::string>(), "pi_fixture_run",
+                     "post-run-trigger: run_id echoed");
+        expect_true(eval_run["updated"].get<long>() >= 1L,
+                    "post-run-trigger: at least one memory updated");
+        expect_true(eval_run["run_metrics"].contains("artifact_status"),
+                    "post-run-trigger: run_metrics includes artifact_status");
+        expect_true(eval_run["run_metrics"].contains("report_warnings"),
+                    "post-run-trigger: run_metrics includes report_warnings from stats.json");
+
+        // Ungueltige run_id
+        const auto eval_run_invalid = harness.post_json("/api/pi/memories/evaluate-run", {
+            {"run_id", "nonexistent_run_xyz"}
+        });
+        expect_equal(eval_run_invalid["_http_status"].get<long>(), 404L,
+                     "post-run-trigger: nonexistent run returns 404");
+
+        // --- resume_feedback Endpoint ---
+        const auto resume_fb = harness.post_json("/api/pi/memories/resume-feedback", {
+            {"run_id", "pi_fixture_run"},
+            {"from_phase", "BGE"},
+            {"result", "improved"},
+            {"feedback", "Resuming from BGE reduced gradient artifact"},
+            {"context_signature", {
+                {"schema_version", "pi.context_signature.v1"},
+                {"target", {{"object_name", "M42"}}},
+                {"acquisition", {{"camera_type", "OSC"}}},
+                {"pipeline", {{"resume_phase", "BGE"}, {"phases", nlohmann::json::array({"BGE"})}}}
+            }}
+        });
+        expect_equal(resume_fb["_http_status"].get<long>(), 200L, "resume-feedback: status");
+        expect_true(resume_fb["ok"].get<bool>(), "resume-feedback: ok flag");
+        expect_equal(resume_fb["from_phase"].get<std::string>(), "BGE",
+                     "resume-feedback: from_phase echoed");
+        expect_equal(resume_fb["memory"]["source"].get<std::string>(), "resume_feedback",
+                     "resume-feedback: memory source is resume_feedback");
+        expect_equal(resume_fb["memory"]["type"].get<std::string>(), "resume_strategy",
+                     "resume-feedback: improved feedback creates resume_strategy memory");
+        expect_true(resume_fb["outcome"]["verdict"].get<std::string>() == "improved",
+                    "resume-feedback: verdict is improved");
+
+        // Negatives Resume-Feedback erzeugt counterexample
+        const auto resume_fb_neg = harness.post_json("/api/pi/memories/resume-feedback", {
+            {"run_id", "pi_fixture_run"},
+            {"from_phase", "PCC"},
+            {"result", "worse"},
+            {"feedback", "PCC resume made colors worse"}
+        });
+        expect_equal(resume_fb_neg["_http_status"].get<long>(), 200L, "resume-feedback neg: status");
+        expect_equal(resume_fb_neg["memory"]["type"].get<std::string>(), "counterexample",
+                     "resume-feedback neg: worse feedback creates counterexample memory");
+        expect_equal(resume_fb_neg["memory"]["source"].get<std::string>(), "resume_feedback",
+                     "resume-feedback neg: source is resume_feedback");
+
+        // Fehlende Pflichtfelder
+        const auto resume_fb_no_phase = harness.post_json("/api/pi/memories/resume-feedback", {
+            {"run_id", "pi_fixture_run"},
+            {"feedback", "something"}
+        });
+        expect_equal(resume_fb_no_phase["_http_status"].get<long>(), 400L,
+                     "resume-feedback: missing from_phase returns 400");
+
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

@@ -9,6 +9,7 @@ import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { pollJob } from "../utils/poll.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { getScanData, getQueueItems, getCalValues } from "./input-scan.js";
+import { getScanState } from "../state/scan-state.js";
 
 export function createAiEmpfehlungPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -78,6 +79,7 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-mt-2" },
       el("span", { class: "tc-text-sm tc-text-muted", id: "ai-model-status" }, t("ui.state.model_loading", "Modelle werden geladen...")),
     ),
+    el("div", { class: "tc-text-sm tc-text-muted", id: "ai-pi-version-status" }, t("ui.state.not_loaded", "nicht geladen")),
     el("div", { class: "tc-mt-2 tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.label.image_capability", "Bildfähigkeit")),
@@ -246,8 +248,10 @@ export function createAiEmpfehlungPage() {
 
   // Load saved analyses history and restore current analysis
   loadAnalysisHistory();
-  if (aiState.currentAnalysis?.recommendations) {
-    renderRecommendations(aiState.currentAnalysis.recommendations);
+  if (analysisMatchesCurrentScope(aiState.currentAnalysis)) {
+    renderRecommendations(analysisRecommendations(aiState.currentAnalysis));
+  } else if (aiState.currentAnalysis) {
+    setAiState({ currentAnalysis: null });
   }
   if (aiState.trafficLog?.length > 0) {
     renderTrafficLog(aiState.trafficLog);
@@ -267,8 +271,8 @@ export function createAiEmpfehlungPage() {
         recsContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.toast.analysis_creating", "KI-Analyse wird erstellt...") + " " + t("ui.state.background_running", "(läuft im Hintergrund)")));
       }
     }
-    if (state.currentAnalysis?.recommendations) {
-      renderRecommendations(state.currentAnalysis.recommendations);
+    if (analysisMatchesCurrentScope(state.currentAnalysis)) {
+      renderRecommendations(analysisRecommendations(state.currentAnalysis));
     }
   });
 
@@ -281,15 +285,64 @@ let _lastPiPreview = null;
 let _aiUiPersistTimer = null;
 
 function persistentAiUiFromForm(form = getAiFormData()) {
+  const scanData = getScanData();
   return {
     mount: String(form.mount || "EQ"),
     object_type: String(form.object_type || "Galaxie"),
+    target_name: String(scanData.object_name || ""),
     camera: String(form.camera || "Consumer OSC"),
     calibration_darks: Boolean(form.calibration_darks),
     calibration_flats: Boolean(form.calibration_flats),
     calibration_bias: Boolean(form.calibration_bias),
     notes: String(form.notes || ""),
   };
+}
+
+function normalizedObjectName() {
+  return String(getScanData().object_name || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function scanScopeFromScan(scan) {
+  const source = scan && typeof scan === "object" ? scan : {};
+  return {
+    input_path: String(source.input_path || source.input_dir || source.input_dirs?.[0] || getScanData().input_dir || "").trim(),
+    frame_count: Number(source.frames_detected || source.frames_total || source.frame_count || 0) || 0,
+    object_name: normalizedObjectName(),
+  };
+}
+
+function analysisScopeFromAnalysis(analysis) {
+  if (!analysis || typeof analysis !== "object") return null;
+  const meta = analysis.scan_metadata && typeof analysis.scan_metadata === "object"
+    ? analysis.scan_metadata
+    : analysis.analysis_context?.scan_metadata || {};
+  const session = analysis.analysis_context?.session_context || {};
+  return {
+    input_path: String(meta.input_path || "").trim(),
+    frame_count: Number(meta.frame_count || meta.frames_detected || meta.frames_total || 0) || 0,
+    object_name: String(meta.object_name || meta.target || meta.object || session.target_name || analysis.analysis_scope?.object_name || "")
+      .trim().replace(/\s+/g, " ").toUpperCase(),
+  };
+}
+
+function sameAnalysisScope(analysis, scan) {
+  const a = analysisScopeFromAnalysis(analysis);
+  if (!a) return false;
+  const b = scanScopeFromScan(scan);
+  if (a.input_path && b.input_path && a.input_path !== b.input_path) return false;
+  if (a.frame_count && b.frame_count && a.frame_count !== b.frame_count) return false;
+  if (a.object_name || b.object_name) return a.object_name === b.object_name;
+  return Boolean(a.input_path || a.frame_count);
+}
+
+function analysisMatchesCurrentScope(analysis) {
+  const recs = analysisRecommendations(analysis);
+  if (!analysis || !recs.length) return false;
+  return sameAnalysisScope(analysis, getScanState().lastScan || {});
+}
+
+function analysisRecommendations(analysis) {
+  return analysis?.validated_updates || analysis?.updates || analysis?.recommendations || [];
 }
 
 function syncAiControlsFromForm() {
@@ -324,6 +377,24 @@ function ensureProviderOption(provider) {
   if (!select || !provider) return;
   const exists = Array.from(select.options).some(option => option.value === provider);
   if (!exists) select.appendChild(el("option", { value: provider }, provider));
+}
+
+function renderProviderOptions(providers) {
+  const select = document.getElementById("ai-provider");
+  if (!select) return;
+  const fd = getAiFormData();
+  const current = select.value || fd.provider || "";
+  const names = new Set(["anthropic", "openai"]);
+  for (const p of Array.isArray(providers) ? providers : []) {
+    const providerName = String(p?.provider || "").trim();
+    if (providerName) names.add(providerName);
+  }
+  if (current) names.add(current);
+  select.innerHTML = "";
+  for (const provider of Array.from(names).sort()) {
+    select.appendChild(el("option", { value: provider, ...(provider === current ? { selected: true } : {}) }, provider));
+  }
+  if (current) select.value = current;
 }
 
 async function loadAiConfig() {
@@ -421,14 +492,17 @@ async function onAiModelChange(model) {
 
 async function loadModels() {
   const statusEl = document.getElementById("ai-model-status");
+  const piVersionEl = document.getElementById("ai-pi-version-status");
   const modelSelect = document.getElementById("ai-model");
   try {
     const models = await api.get(API_ENDPOINTS.ai.models);
     if (models?.available === false) {
       if (statusEl) statusEl.textContent = t("ui.state.model_unavailable", "Sidecar nicht erreichbar");
+      if (piVersionEl) piVersionEl.textContent = "";
       return;
     }
     const providers = Array.isArray(models?.providers) ? models.providers : [];
+    renderProviderOptions(providers);
     _allModels = [];
     for (const p of providers) {
       const providerName = String(p?.provider || "").trim();
@@ -442,12 +516,33 @@ async function loadModels() {
     const providerCount = providers.length;
     const modelCount = _allModels.length;
     if (statusEl) statusEl.textContent = t("ui.state.model_loaded", "Modelle geladen") + ` (${providerCount} Provider, ${modelCount} Modelle)`;
+    if (piVersionEl) piVersionEl.textContent = piVersionStatusText(models?.pi || null);
     filterModelsByProvider(document.getElementById("ai-provider")?.value || "");
     loadAiAccountStatus(document.getElementById("ai-provider")?.value || "");
   } catch (e) {
     if (statusEl) statusEl.textContent = t("ui.state.model_load_failed", "Modelle laden fehlgeschlagen") + `: ${e.message}`;
+    if (piVersionEl) piVersionEl.textContent = "";
   }
   renderCachedVisionCapability();
+}
+
+function piVersionStatusText(pi) {
+  if (!pi) return "";
+  const current = String(pi.current || "");
+  const latest = String(pi.latest || "");
+  const base = current
+    ? t("ui.ai.pi_version_current", "PI-Version: {version}", { version: current })
+    : t("ui.ai.pi_version_unknown", "PI-Version: unbekannt");
+  if (pi.status === "current" && latest) {
+    return `${base} · ${t("ui.ai.pi_version_latest_current", "aktuell")}`;
+  }
+  if (pi.status === "update_available" && latest) {
+    return `${base} · ${t("ui.ai.pi_version_update_available", "Update verfügbar: {version}", { version: latest })}`;
+  }
+  if (pi.status === "not_installed") {
+    return t("ui.ai.pi_version_not_installed", "PI-Paket nicht gefunden");
+  }
+  return `${base} · ${t("ui.ai.pi_version_latest_unknown", "Latest-Check nicht verfügbar")}`;
 }
 
 function filterModelsByProvider(provider) {
@@ -489,7 +584,7 @@ function visionStatusText(capabilities) {
     unknown: t("ui.ai.vision_source_unknown", "unbekannt"),
   };
   const source = sourceMap[capabilities.source] || capabilities.source || sourceMap.unknown;
-  const tested = capabilities.live?.tested_at ? ` · ${capabilities.live.tested_at}` : "";
+  const tested = capabilities.source === "live_probe" && capabilities.live?.tested_at ? ` · ${capabilities.live.tested_at}` : "";
   const error = capabilities.live?.error && capabilities.live?.status === "error" ? ` · ${capabilities.live.error}` : "";
   return `${support} (${source})${tested}${error}`;
 }
@@ -665,6 +760,8 @@ async function autoScanForAnalysis() {
     pattern: sd.pattern || "*.fits",
     runs_dir: sd.runs_dir || "",
     run_name: sd.run_name || "",
+    object_name: sd.object_name || "",
+    target: sd.object_name || "",
     color_mode: sd.color_mode || "OSC",
     frame_min: Number(sd.frame_min) || 1,
     frames_min: Number(sd.frame_min) || 1,
@@ -716,18 +813,24 @@ async function createAnalysis(force = false) {
       addTrafficEntry({ type: "info", text: "No scan result available, checking configured input directory..." });
       latestScan = await autoScanForAnalysis();
     }
+    const objectName = String(getScanData().object_name || "").trim();
+    if (objectName) {
+      latestScan = { ...latestScan, object_name: objectName, target: objectName };
+    }
     addTrafficEntry({ type: "info", text: `Scan: ${latestScan.frames_detected || 0} frames, ${latestScan.color_mode || "unknown"}` });
 
     // Check cache first when force=false
     if (!force) {
       try {
         const cached = await api.get(API_ENDPOINTS.scan.analysisLatest);
-        if (cached && cached.has_analysis && cached.recommendations?.length > 0) {
+        if (cached && cached.has_analysis && cached.recommendations?.length > 0 && sameAnalysisScope(cached, latestScan)) {
           addTrafficEntry({ type: "response", text: `Cache hit: ${cached.recommendations.length} recommendations` });
           renderRecommendations(cached.recommendations);
           setAiState({ currentAnalysis: cached, loading: false });
           toastSuccess(t("ui.toast.analysis_done", "Analyse aus Cache geladen"));
           return;
+        } else if (cached && cached.has_analysis && cached.recommendations?.length > 0) {
+          addTrafficEntry({ type: "info", text: "Cached analysis belongs to a different scan/object; ignoring it." });
         }
       } catch {}
       addTrafficEntry({ type: "info", text: "No cached analysis, starting new..." });
@@ -736,14 +839,25 @@ async function createAnalysis(force = false) {
     // Compute scan metrics (image statistics like FWHM, star count)
     let scanMetrics = null;
     try {
-      addTrafficEntry({ type: "info", text: "Computing image statistics..." });
-      const metricsStart = await api.post(API_ENDPOINTS.scan.metrics, { input_path: latestScan.input_path || latestScan.input_dirs?.[0] || "" });
-      if (metricsStart?.job_id) {
+      addTrafficEntry({ type: "info", text: "Loading image statistics..." });
+      const metricsStart = await api.post(API_ENDPOINTS.scan.metrics, {
+        input_path: latestScan.input_path || latestScan.input_dirs?.[0] || "",
+        object_name: objectName || latestScan.object_name || latestScan.target || "",
+        target: objectName || latestScan.object_name || latestScan.target || "",
+        frame_count: latestScan.frames_detected || latestScan.frames_total || latestScan.frame_count || 0,
+      });
+      if (metricsStart?.cached && metricsStart?.result) {
+        scanMetrics = metricsStart.result;
+        const sampled = scanMetrics.sample_count ?? "?";
+        const total = scanMetrics.frames_total ?? latestScan.frames_detected ?? "?";
+        addTrafficEntry({ type: "response", text: `Image statistics cache hit: sampled=${sampled}/${total}` });
+      } else if (metricsStart?.job_id) {
+        addTrafficEntry({ type: "info", text: "Computing image statistics..." });
         scanMetrics = await pollJobResult(metricsStart.job_id);
         if (scanMetrics) {
           const sampled = scanMetrics.sample_count ?? "?";
           const total = scanMetrics.frames_total ?? latestScan.frames_detected ?? "?";
-          addTrafficEntry({ type: "info", text: `Image statistics: sampled=${sampled}/${total}` });
+          addTrafficEntry({ type: "info", text: `Image statistics computed: sampled=${sampled}/${total}` });
         }
       }
     } catch (metricsErr) {
@@ -771,6 +885,7 @@ async function createAnalysis(force = false) {
       model: fd.model || undefined,
       session_context: {
         mount_type: fd.mount || undefined,
+        target_name: objectName || undefined,
         target_type: fd.object_type || undefined,
         camera_type: fd.camera || undefined,
         calibration_darks: Boolean(fd.calibration_darks),
@@ -789,7 +904,7 @@ async function createAnalysis(force = false) {
     addTrafficEntry({ type: "progress", text: "Prompt wird gebaut... 10%" });
     addTrafficEntry({ type: "progress", text: "Warte auf KI-Antwort... 15%" });
 
-    const result = await api.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 600000 });
+    const result = await api.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 1200000 });
     const recs = result?.validated_updates || result?.updates || result?.recommendations || [];
     addTrafficEntry({ type: "progress", text: "Antwort wird verarbeitet... 90%" });
     if (recs.length > 0) {
@@ -1128,7 +1243,16 @@ async function loadPiMemories() {
           ),
         ));
       }
-      if (!items.length) list.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_data", "Keine Daten")));
+      if (!items.length) {
+        const legacyCount = Number(payload?.legacy_ignored_count || 0);
+        const message = legacyCount > 0
+          ? t("ui.pi.no_current_memories_legacy_ignored", "Keine aktuellen v2-Memories. {count} alte v1-Memories werden ignoriert.", { count: legacyCount })
+          : t("ui.pi.no_current_memories", "Keine aktuellen v2-Memories. Neue Einträge entstehen erst, wenn ein Lernkandidat gespeichert wird.");
+        list.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, message));
+        if (payload?.memory_file) {
+          list.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mono" }, payload.memory_file));
+        }
+      }
     }
     if (status) status.textContent = t("ui.pi.memory_count", "{count} Memories", { count: payload?.count || 0 });
   } catch (e) {

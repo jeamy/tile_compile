@@ -8,22 +8,32 @@ import {
 import path from "node:path";
 import type { AgentConfig } from "../types.js";
 import type { ModelService } from "./modelService.js";
+import { promptWithTimeout } from "./agentPrompt.js";
+import { sidecarExtensionPaths } from "./piExtensions.js";
+import { sanitizeProviderPayloadForModel } from "./providerPayload.js";
+import { recordProviderResponseHeaders, rememberProviderRateLimitError, waitForProviderSlot } from "./providerRateLimit.js";
 import { appendTrafficLog } from "./trafficLog.js";
 
-function createProviderOptionsExtension(config: AgentConfig) {
+function createProviderOptionsExtension(config: AgentConfig, model: any) {
   return (pi: ExtensionAPI) => {
     pi.on("before_provider_request", (event) => {
       if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) return undefined;
       const payload = { ...(event.payload as Record<string, unknown>) };
       const hasThinking = payload.thinking !== undefined && payload.thinking !== null && payload.thinking !== false;
       if (Number.isFinite(config.temperature) && (!hasThinking || config.temperature === 1)) payload.temperature = config.temperature;
+      let effectiveMaxTokens = config.maxTokens;
       if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
-        const effectiveMaxTokens = hasThinking ? Math.max(config.maxTokens, 32000) : config.maxTokens;
+        const isKiro = String(model?.provider || "") === "kiro-api-key" || String(model?.api || "") === "kiro-api";
+        effectiveMaxTokens = hasThinking && !isKiro ? Math.max(config.maxTokens, 32000) : config.maxTokens;
         if (Object.prototype.hasOwnProperty.call(payload, "max_tokens")) payload.max_tokens = effectiveMaxTokens;
         if (Object.prototype.hasOwnProperty.call(payload, "max_output_tokens")) payload.max_output_tokens = effectiveMaxTokens;
       }
-      appendTrafficLog(`run_chat provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")}`);
-      return payload;
+      const sanitized = sanitizeProviderPayloadForModel(payload, model, "run_chat");
+      appendTrafficLog(`run_chat provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(sanitized.temperature ?? "")} max_tokens=${String(sanitized.max_tokens ?? sanitized.max_output_tokens ?? "")} effective_max_tokens=${String(effectiveMaxTokens)}`);
+      return sanitized;
+    });
+    pi.on("after_provider_response", (event) => {
+      recordProviderResponseHeaders(model, event.headers || {}, "run_chat");
     });
   };
 }
@@ -69,7 +79,7 @@ export class RunChatService {
 
   async ask(body: any): Promise<Record<string, unknown>> {
     const modelRef = String(body.model || this.config.model || "");
-    const model = this.modelService.findModel(modelRef);
+    const model = await this.modelService.findModel(modelRef);
     if (!model) throw new Error(`Model ${modelRef || "(empty)"} not found in PI registry`);
 
     const agentCwd = process.env.TILE_COMPILE_PROJECT_ROOT
@@ -78,15 +88,15 @@ export class RunChatService {
     const resourceLoader = new DefaultResourceLoader({
       cwd: agentCwd,
       agentDir: getAgentDir(),
-      extensionFactories: [createProviderOptionsExtension(this.config)],
+      additionalExtensionPaths: sidecarExtensionPaths(),
+      extensionFactories: [createProviderOptionsExtension(this.config, model)],
     });
     await resourceLoader.reload();
 
     const { session } = await createAgentSession({
       cwd: agentCwd,
       model,
-      authStorage: this.modelService.getAuthStorage(),
-      modelRegistry: this.modelService.getModelRegistry(),
+      modelRuntime: await this.modelService.getModelRuntime(),
       sessionManager: SessionManager.inMemory(),
       resourceLoader,
       tools: [],
@@ -122,15 +132,24 @@ export class RunChatService {
       const prompt = `${aiRequestSection}${String(body.prompt || "")}`;
       appendTrafficLog(`run_chat prompt model=${model.id} has_image=${images ? "yes" : "no"} ai_request=${body.ai_request ? "yes" : "no"} prompt_length=${prompt.length}`);
       appendTrafficLog(`run_chat prompt_text ${prompt.substring(0, 50000)}`);
-      if (images) await session.prompt(prompt, { images });
-      else await session.prompt(prompt);
+      await waitForProviderSlot(model, prompt, this.config, "run_chat");
+      await promptWithTimeout(
+        session,
+        prompt,
+        this.config.timeoutMs,
+        `PI run-chat request (model=${model.id}, provider=${model.provider || "unknown"})`,
+        images ? { images } : undefined,
+      );
     } finally {
       unsubscribe();
       session.dispose();
     }
 
     appendTrafficLog(`run_chat raw_response ${responseText.substring(0, 20000)}`);
-    if (!responseText.trim() && assistantError) throw new Error(`PI run-chat provider error: ${assistantError}`);
+    if (!responseText.trim() && assistantError) {
+      rememberProviderRateLimitError(model, assistantError, "run_chat");
+      throw new Error(`PI run-chat provider error: ${assistantError}`);
+    }
     const parsed = parseJsonObject(responseText);
     parsed._meta = {
       model: model.id,

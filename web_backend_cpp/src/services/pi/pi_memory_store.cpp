@@ -307,12 +307,53 @@ int context_match_score(const nlohmann::json& memory,
     compare_set_overlap("/problem/classes", "problem.classes", 3, 9);
     compare_set_overlap("/problem/hints", "problem.hints", 2, 6);
 
+    // Mismatch-Strafe: wenn object_type oder camera_type in beiden bekannt sind und
+    // sich aktiv unterscheiden, bestraft das aktiv den Score. Damit wird verhindert,
+    // dass Pipeline- oder Config-Pfad-Ueberlappungen einen fachlich falschen Kontext
+    // trotzdem als Match durchlassen (Cross-Contamination-Schutz).
+    auto apply_mismatch_penalty = [&](const char* pointer, int penalty) {
+        const nlohmann::json mem_val = pointer_value(memory_ctx, pointer);
+        const nlohmann::json qry_val = pointer_value(query_ctx, pointer);
+        if (!has_known_value(mem_val) || !has_known_value(qry_val)) return;
+        const std::string mem_text = normalized_text(mem_val);
+        const std::string qry_text = normalized_text(qry_val);
+        if (mem_text.empty() || qry_text.empty()) return;
+        if (mem_text != qry_text) score -= penalty;
+    };
+    apply_mismatch_penalty("/target/object_type", 6);
+    apply_mismatch_penalty("/acquisition/camera_type", 5);
+
     coverage = {
         {"matched_fields", matched},
         {"compared_fields", compared},
         {"missing_query_fields", missing_query_fields}
     };
     return score;
+}
+
+// Begrenzt die Matches auf max. `cap_per_class` Eintraege pro Diversity-Klasse.
+// Die Klasse wird aus object_type und camera_type der context_signature gebildet.
+// Memories ohne Kontextsignatur fallen alle in eine eigene "unknown"-Klasse.
+// Das Array muss vor dem Aufruf bereits nach retrieval_score absteigend sortiert sein.
+nlohmann::json apply_diversity_cap(const nlohmann::json& sorted_matches, int cap_per_class) {
+    if (cap_per_class <= 0 || sorted_matches.empty()) return sorted_matches;
+    nlohmann::json result = nlohmann::json::array();
+    std::map<std::string, int> class_counts;
+    for (const auto& match : sorted_matches) {
+        std::string object_type = "unknown";
+        std::string camera_type = "unknown";
+        if (match.contains("context_signature") && match["context_signature"].is_object()) {
+            const auto& ctx = match["context_signature"];
+            const nlohmann::json ot = pointer_value(ctx, "/target/object_type");
+            const nlohmann::json ct = pointer_value(ctx, "/acquisition/camera_type");
+            if (ot.is_string()) object_type = normalized_text(ot);
+            if (ct.is_string()) camera_type = normalized_text(ct);
+        }
+        const std::string class_key = object_type + "|" + camera_type;
+        if (++class_counts[class_key] > cap_per_class) continue;
+        result.push_back(match);
+    }
+    return result;
 }
 
 nlohmann::json read_jsonl(const std::filesystem::path& path) {
@@ -668,6 +709,11 @@ nlohmann::json PiMemoryStore::retrieve(const nlohmann::json& query, int limit) c
     std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
         return a.value("retrieval_score", 0) > b.value("retrieval_score", 0);
     });
+    // Diversity-Cap: max. 2 Memories pro Objekt-/Kamera-Klasse bei Kontext-Abfrage,
+    // sonst 3. Verhindert Prompt-Flutung durch viele aehnliche Memories einer Klasse.
+    const bool has_context_query = query.contains("context_signature") && query["context_signature"].is_object();
+    const int diversity_cap = has_context_query ? 2 : 3;
+    matches = apply_diversity_cap(matches, diversity_cap);
     while (static_cast<int>(matches.size()) > limit) matches.erase(matches.end() - 1);
     return matches;
 }
@@ -716,6 +762,10 @@ nlohmann::json negative_matches_for_query(const nlohmann::json& items,
     std::sort(matches.begin(), matches.end(), [](const auto& a, const auto& b) {
         return a.value("retrieval_score", 0) > b.value("retrieval_score", 0);
     });
+    // Diversity-Cap fuer negative Matches: max. 3 pro Klasse — Warnungen sollen
+    // sichtbar sein, aber nicht unverhaltnisMaessig viele gleiche Negativsignale liefern.
+    const bool has_context_query_neg = query.contains("context_signature") && query["context_signature"].is_object();
+    matches = apply_diversity_cap(matches, has_context_query_neg ? 3 : 4);
     while (static_cast<int>(matches.size()) > limit) matches.erase(matches.end() - 1);
     return matches;
 }

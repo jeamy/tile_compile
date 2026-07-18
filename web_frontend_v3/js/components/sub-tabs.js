@@ -7,13 +7,15 @@ export function createSubTabs(tabs, parentTab, onSubTabChange) {
   const ui = getUiState();
   const activeSub = ui.activeSubTab[parentTab] || tabs[0]?.id;
 
-  const bar = el("div", { class: "tc-subtab-bar" });
+  const bar = el("div", { class: "tc-subtab-list tc-tabs", role: "tablist" });
 
   for (const tab of tabs) {
     const isActive = tab.id === activeSub;
     const btn = el("button", {
       class: `tc-tab${isActive ? " active" : ""}`,
       "data-subtab": tab.id,
+      role: "tab",
+      "aria-selected": isActive ? "true" : "false",
       onclick: () => {
         setUiState({
           activeSubTab: { ...ui.activeSubTab, [parentTab]: tab.id },
@@ -30,6 +32,8 @@ export function createSubTabs(tabs, parentTab, onSubTabChange) {
 
 function updateActive(bar, activeId) {
   for (const btn of bar.querySelectorAll(".tc-tab")) {
-    btn.classList.toggle("active", btn.getAttribute("data-subtab") === activeId);
+    const active = btn.getAttribute("data-subtab") === activeId;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
   }
 }

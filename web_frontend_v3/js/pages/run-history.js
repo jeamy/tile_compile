@@ -7,6 +7,7 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
+import { setRunState } from "../state/run-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
@@ -226,6 +227,14 @@ async function setRunCurrent(runId) {
     const cached = getRunsCache().find(r => (r.run_id || r.id) === runId);
     const runDir = cached?.path || cached?.run_dir || "";
     await api.post(API_ENDPOINTS.runs.setCurrent(runId), runDir ? { run_dir: runDir } : {});
+    setRunState({
+      currentRunId: runId,
+      currentRunDir: runDir || null,
+      status: cached?.status || cached?.state || null,
+      resumeActive: false,
+      resumePending: false,
+      resumeFromPhase: "",
+    });
     toastSuccess(t("ui.toast.set_current", "Als aktuell gesetzt"));
     const ui = getUiState();
     setUiState({ activeTab: "processing", activeSubTab: { ...ui.activeSubTab, processing: "run-monitor" } });

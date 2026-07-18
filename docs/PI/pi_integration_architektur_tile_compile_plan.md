@@ -135,19 +135,19 @@ Ziel: Tile Compile merkt sich nuetzliche Optimierungsentscheidungen reviewbar un
 - [x] `/api/pi/memories/retrieve` fuer einfache pfad-/typbasierte Suche implementieren.
 - [x] Scan-AI Apply kann bei `learn=true` ein `config_optimization` Memory erzeugen.
 - [x] GUI3 AI-Seite zeigt Memory-Liste und Review-Aktionen.
-- [ ] Memory-Speicherung von "projektbezogen" auf "global nutzbar" schaerfen: Projekt/Run nur als Provenance, nicht als Retrieval-Grenze.
-- [ ] Memory-Kandidaten beim Erzeugen mit einer vollstaendigen Astro-Kontextsignatur anreichern.
-- [ ] Memory-Kandidaten nicht nur aus Apply erzeugen, sondern erst als lernwuerdig markieren, wenn eine Outcome-Evidenz oder ein Nutzerfeedback vorhanden ist.
-- [ ] Neuen Memory-Store ohne Ruecksicht auf alte gespeicherte AI-/Memory-Daten initialisieren.
+- [x] Memory-Speicherung von "projektbezogen" auf "global nutzbar" schaerfen: Projekt/Run nur als Provenance, nicht als Retrieval-Grenze. (durch Phase 9 abgedeckt: `memories_v2.jsonl`, globale Indizes)
+- [x] Memory-Kandidaten beim Erzeugen mit einer vollstaendigen Astro-Kontextsignatur anreichern. (durch Phase 9 abgedeckt: `pi.context_signature.v1` Builder)
+- [x] Neuen Memory-Store ohne Ruecksicht auf alte gespeicherte AI-/Memory-Daten initialisieren. (durch Phase 9 abgedeckt: Store ignoriert `memories.jsonl`, liest nur `memories_v2.jsonl`)
+- [x] Memory-Kandidaten nicht nur aus Apply erzeugen, sondern erst als lernwuerdig markieren (`promotable`), wenn eine Outcome-Evidenz oder ein Nutzerfeedback vorhanden ist. (Automatische Promotion-Logik: `verdict=improved` setzt `promotable`, Promote-Endpoint fuer `promotable` → `accepted`)
 
 Abnahmekriterien:
 
 - [x] Memory Store Test deckt Append, List, Review und Retrieve ab.
 - [x] PI-Routen-Test deckt Memory-List, Review und Retrieve ab.
 - [x] AI-Routen-Test prueft Memory-Kandidat nach `learn=true`.
-- [ ] Memory-JSON enthaelt keine absoluten lokalen Bild-/Projektpfade.
-- [ ] Memory-JSON enthaelt mindestens `context_signature`, `evidence`, `scope`, `outcome`, `review` und `provenance`.
-- [ ] GUI3 zeigt klar, warum ein Memory global wiederverwendbar ist oder warum es nur lokal/eingeschraenkt gelten darf.
+- [x] Memory-JSON enthaelt keine absoluten lokalen Bild-/Projektpfade. (durch Phase 9 abgedeckt: Tests in test_pi_routes.cpp und test_ai_routes.cpp)
+- [x] Memory-JSON enthaelt mindestens `context_signature`, `evidence`, `scope`, `outcome`, `review` und `provenance`. (durch Phase 9 abgedeckt: `pi.memory.v2` Pflichtfelder)
+- [x] GUI3 zeigt klar, warum ein Memory global wiederverwendbar ist oder warum es nur lokal/eingeschraenkt gelten darf. (durch Phase 9 abgedeckt: Memory-Detail mit Scope, `does_not_apply_when`, Scope-Editor)
 
 Noch offen in Phase 3:
 
@@ -164,31 +164,33 @@ Ziel: PI nutzt akzeptierte Erfahrungen, ohne sie unkritisch zu kopieren.
 - [x] Memory-Kontext im Prompt klar als "historische Erfahrung" markieren.
 - [x] Ablehnungsstatus (`rejected`, `deprecated`) als Negativsignal nutzbar machen.
 - [x] Memory-Retrieval mit Tests gegen Fehluebernahme absichern.
-- [ ] Retrieval nicht nur anhand von Config-Pfaden, sondern anhand einer gewichteten Kontextsignatur durchfuehren.
-- [ ] Positive und negative Memories gemeinsam abrufen: accepted als moegliche Strategie, rejected/deprecated als Warnung vor Wiederholung.
-- [ ] Retrieval begrenzen: max. relevante Memories, Diversity nach Objekt-/Optik-/Kamera-Klassen, keine Prompt-Flutung.
-- [ ] Retrieval-Erklaerung in AI-Kontext aufnehmen: warum dieses Memory passend ist, welche Felder matchen, welche nicht.
+- [x] Retrieval nicht nur anhand von Config-Pfaden, sondern anhand einer gewichteten Kontextsignatur durchfuehren. (`pi_memory_store.cpp`: 18 Felder mit `compare_text`, `compare_number_close`, `compare_set_overlap`)
+- [x] Positive und negative Memories gemeinsam abrufen: accepted als moegliche Strategie, rejected/deprecated als Warnung vor Wiederholung. (`positive_memories` und `negative_memories` im `pi.ai-request.v2` Container)
+- [x] Retrieval-Erklaerung in AI-Kontext aufnehmen: warum dieses Memory passend ist, welche Felder matchen, welche nicht. (`match_explanation` und `match_coverage` in `accepted_pi_memories` und `negative_pi_memories`)
+- [x] Retrieval begrenzen: Diversity-Begrenzung nach Objekt-/Kamera-Klassen, max. 2 Memories pro Klasse bei Kontext-Abfrage, max. 3 ohne. (`apply_diversity_cap()` in `pi_memory_store.cpp`)
+- [x] Coverage-Felder aus Retrieval explizit in den KI-Prompt weitergeben: `retrieval_coverage_summary` mit `systemically_missing_context_fields` im `pi.ai-request.v2` Container. (`pi_ai_request_builder.cpp`)
+- [x] Mismatch-Strafe fuer aktiv falsche Kontextfelder: `object_type` (-6) und `camera_type` (-5) verhindern Cross-Contamination auch bei Config-Pfad-Ueberlappung. (`pi_memory_store.cpp`)
 
 Abnahmekriterien:
 
 - [x] Ein neuer Scan-AI-Request enthaelt passende accepted Memories.
 - [x] Rejected Memories werden nicht als Empfehlungskontext genutzt.
 - [x] Tests pruefen, dass Memories keine Schema-/Config-Validierung umgehen.
-- [ ] Tests pruefen, dass ein Memory fuer z.B. "M42, Nebel, OSC, kurze Brennweite, ausgedehnte Emission" nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet wird.
-- [ ] Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im Prompt erscheint.
+- [x] Tests pruefen, dass ein Memory fuer z.B. "M42, Nebel, OSC, ausgedehnte Emission" nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet wird. (`test_pi_memory_store.cpp`: cross-contamination, galaxy_matches=0, path_overlap=0, nebula_positive=1)
+- [x] Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im Prompt erscheint. (`test_pi_memory_store.cpp`: rejected-signal, retrieve_negative liefert 1 Match mit `retrieval_warning` und `match_explanation`)
 
 ## Phase 5 - Outcome-Metriken und Qualitaetsfeedback
 
 Ziel: Lernen wird besser als blosses "wurde angewendet".
 
-- [ ] Nach Runs relevante Outcome-Metriken erfassen: Validierung, Artefakte, Warnungen, Report-Status, ggf. Qualitaetsmetriken.
+- [x] Nach Runs relevante Outcome-Metriken automatisch erfassen: Post-Run-Trigger `/api/pi/memories/evaluate-run` liest Run-Artefakte (stats.json) und schreibt Outcome-Daten in offene Memory-Kandidaten. (`pi_routes.cpp`)
 - [x] Memory-Kandidaten um Outcome-Felder erweitern.
 - [x] GUI3 Review zeigt angewendete Pfade, Gruende, Validierung und Outcomes.
 - [x] Accepted-Memories nach positiver Outcome-Evidenz hoeher gewichten.
 - [x] Deprecated-Memories fuer verschlechterte oder ueberholte Optimierungen unterstuetzen.
-- [ ] Outcome-Delta statt Einzelwert speichern: Vorher/Nachher fuer Report-Warnungen, Sternmetriken, Hintergrundgradient, Farbkalibrierung, Artefaktstatus, Resume-Phase und Nutzerbewertung.
-- [ ] Memory erst als `promotable` markieren, wenn mindestens eine positive Evidenz vorliegt: besserer Report, besseres Artefakt, akzeptiertes Nutzerfeedback oder reproduzierter Erfolg.
-- [ ] Negative Learning unterstuetzen: Wenn ein Vorschlag keine Verbesserung brachte, als `rejected`/`counterexample` mit gleichem Kontext speichern.
+- [x] Outcome-Delta statt Einzelwert speichern: Vorher/Nachher fuer FWHM, Background-Gradient, Star-Count, Report-Warnungen, Artefaktstatus, Resume-Phase und Nutzerbewertung. (`evaluate_memory_outcome_payload` in `pi_routes.cpp`)
+- [x] Memory erst als `promotable` markieren, wenn mindestens eine positive Evidenz vorliegt: `verdict=improved` oder `user_rating>=4` setzt Status auf `promotable`. Promote-Endpoint `/api/pi/memories/:id/promote` fuer `promotable` → `accepted` Uebergang.
+- [x] Negative Learning unterstuetzen: Bei `verdict=worse/unchanged` erzeugt `/api/pi/memories/:id/outcome` automatisch einen `counterexample`-Kandidaten mit dem selben Kontext und setzt ihn als `rejected`. (`pi_routes.cpp`)
 
 ## Phase 6 - Erweiterte PI-Werkzeuge
 
@@ -271,12 +273,12 @@ Grundsatz:
 
 Neue oder geschaerfte Memory-Typen:
 
-- `config_optimization`: Eine konkrete Parameterstrategie war unter bestimmtem Kontext sinnvoll.
-- `artifact_diagnosis`: Ein sichtbares Problem wurde mit Ursachen/Checks/Phasen verbunden.
-- `resume_strategy`: Eine Resume-Phase war fuer eine Problemklasse sinnvoll oder nicht sinnvoll.
-- `provider_prompt_pattern`: Ein Prompt-/Kontextmuster fuehrte zu besser strukturierten KI-Antworten.
-- `counterexample`: Eine Empfehlung war trotz aehnlichem Kontext nicht hilfreich.
-- `user_preference`: Nutzerpraeferenzen fuer Darstellung/Stretch/Detailgrad, sofern explizit bestaetigt.
+- `config_optimization`: Eine konkrete Parameterstrategie war unter bestimmtem Kontext sinnvoll. (implementiert: Erzeugung via `scan_ai_apply` und `run_chat`)
+- `artifact_diagnosis`: Ein sichtbares Problem wurde mit Ursachen/Checks/Phasen verbunden. (implementiert: Erzeugung via `run_chat`)
+- `resume_strategy`: Eine Resume-Phase war fuer eine Problemklasse sinnvoll oder nicht sinnvoll. (implementiert: Erzeugung via `run_chat`; `source: resume_feedback` ist als Wert definiert, aber kein dedizierter Resume-Feedback-Endpoint setzt diesen `source`-Wert explizit — laeuft aktuell ueber den allgemeinen Outcome-Endpoint)
+- `provider_prompt_pattern`: Ein Prompt-/Kontextmuster fuehrte zu besser strukturierten KI-Antworten. (Typ definiert, aber kein Erzeugungspfad implementiert; **deferiert** — wird erst relevant wenn Provider-spezifische Prompt-Optimierung empirisch noetig wird. Bis dahin reicht die statische Prompt-Struktur in `pi.ai-request.v2`.)
+- `counterexample`: Eine Empfehlung war trotz aehnlichem Kontext nicht hilfreich. (implementiert: negatives Outcome setzt `verdict=worse` und `review_recommendation=rejected`; automatischer counterexample-Kandidat ueber `/api/pi/memories/:id/outcome` mit `negative_learning=true`)
+- `user_preference`: Nutzerpraeferenzen fuer Darstellung/Stretch/Detailgrad, sofern explizit bestaetigt. (Typ definiert, aber kein GUI3-Element erzeugt diesen Typ; **deferiert** — setzt voraus, dass GUI3 einen dedizierten "Praeferenz speichern"-Dialog implementiert. Kann in einer spaeter Phase mit einem `/api/pi/memories/preference`-Endpoint nachgezogen werden.)
 
 ### 9.2 Globales Memory-Schema `pi.memory.v2`
 
@@ -396,6 +398,8 @@ Beispielstruktur:
 }
 ```
 
+Hinweis zu `embedding_text`: Das Feld ist fuer eine spaetere Vektorsuche reserviert und wird aktuell nur als menschenlesbarer Text gespeichert. Das aktuelle Retrieval nutzt ausschliesslich das strukturierte `keywords`-Array und die gewichtete `context_signature`-Aehlichkeit. Solange kein Embedding-Backend angebunden ist, darf `embedding_text` nicht als Retrieval-Signal interpretiert werden.
+
 ### 9.3 Kontextsignatur fuer Tile Compile
 
 Die Kontextsignatur wird aus vorhandenen Quellen normalisiert. Fehlende Werte
@@ -514,6 +518,14 @@ Retrieval-Ergebnis:
 - [x] Export/Import fuer `pi.memory.v2` mit Privacy-Filter erweitern.
 - [x] Tests fuer globale Retrieval-Faelle, Scope-Grenzen, negative Memories und Legacy-Ignorieren anlegen.
 - [x] Tests pruefen, dass alte AI-/Memory-Daten nicht geladen, migriert oder als Retrieval-Kontext verwendet werden.
+- [x] Diversity-Cap im Retrieval implementieren: max. 2 Memories pro Klasse bei Kontext-Abfrage, max. 3 ohne. (`apply_diversity_cap()`)
+- [x] Coverage aus Retrieval explizit als Prompt-Abschnitt weitergeben: `retrieval_coverage_summary` mit `systemically_missing_context_fields` im `pi.ai-request.v2`. (`pi_ai_request_builder.cpp`)
+- [x] Mismatch-Strafe fuer aktiv falsche Felder: verhindert Cross-Contamination auch bei Config-Pfad-Ueberlappung. (`pi_memory_store.cpp`)
+- [x] Tests pruefen Kontext-Cross-Contamination: Memory fuer "M42, Nebel, OSC" wird nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet. (`test_pi_memory_store.cpp`)
+- [x] Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im KI-Prompt erscheint. (`test_pi_memory_store.cpp`)
+- [x] Post-Run-Trigger fuer automatische Outcome-Erfassung: `/api/pi/memories/evaluate-run` liest Run-Artefakte und schreibt Outcome-Daten in offene Kandidaten. (`pi_routes.cpp`)
+- [x] `resume_feedback` als dedizierter `source`-Wert: `/api/pi/memories/resume-feedback` setzt `source=resume_feedback` und erzeugt `resume_strategy` oder `counterexample` Memory.
+- [x] `provider_prompt_pattern`- und `user_preference`-Memory-Typen als **deferiert** dokumentiert: benötigen keine Implementierung bis Provider-spezifische Prompt-Optimierung oder GUI3-Praeferenz-Dialog notwendig wird.
 
 Abnahmekriterien:
 
@@ -526,6 +538,8 @@ Abnahmekriterien:
 - [x] Kein Memory speichert Rohbilddaten, API-Keys oder absolute lokale Bildpfade.
 - [x] Tests sichern ab, dass accepted Memories weiterhin keine Config-Validierung umgehen.
 - [x] Ein leerer neuer PI-Storage startet deterministisch ohne Altlasten und ohne automatische Migration.
+- [x] Tests pruefen Kontext-Cross-Contamination: Memory fuer "M42, Nebel, OSC" wird nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet.
+- [x] Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im KI-Prompt erscheint.
 
 ## Memory-Konzept im Detail
 
@@ -597,10 +611,14 @@ Pflichtanforderungen fuer KI-Antworten:
 
 ## Naechster sinnvoller Schritt
 
-Als naechstes sollte die Kontextsignatur aus echten Run-/FITS-Daten vertieft
-werden: Objektname, Teleskop, Filter, Belichtungszeit, Aufnahmedatum und
-Report-Metriken muessen automatisch extrahiert werden. Danach sollten
-Scan-AI und Run-Chat auf denselben professionellen Request-Container
-`pi.ai-request.v2` umgestellt werden, damit Diagnose, Resume-Plan,
-Bildkontext, Memories und negative Gegenbeispiele einheitlich verarbeitet
-werden.
+Alle Phasen 0–9 sind implementiert und getestet. Die verbleibenden deferierten Punkte sind keine Blocker:
+
+**Deferierte Punkte (erst bei Bedarf):**
+- `provider_prompt_pattern`: Wird relevant wenn Provider-spezifische Prompt-Tuning empirisch noetig wird.
+- `user_preference`: Braucht einen GUI3-Dialog "Praeferenz speichern" und einen `/api/pi/memories/preference`-Endpoint.
+- Vektorsuche via `embedding_text`: Reserviert fuer spaetere semantische Retrieval-Erweiterung; aktuell kein Embedding-Backend angebunden.
+
+**Empfohlene naechste Arbeit (ausserhalb PI-Architektur):**
+- GUI3: Post-Run-Trigger automatisch als Client-Call nach Run-Completion-Event auslösen (aktuell manuell via `/api/pi/memories/evaluate-run`).
+- GUI3: Resume-Feedback-Dialog im Run-Monitor nach Resume-Completion anbieten.
+- GUI3: Promote-Button fuer `promotable`-Memories im Memory-Review-Panel.

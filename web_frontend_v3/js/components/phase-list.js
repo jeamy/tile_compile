@@ -3,16 +3,15 @@
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 
-// Phase order must match tile_compile_cpp/include/tile_compile/core/types.hpp
-// and the v0.2.0 AQMH methodology.
+// Phase order must match the runner's event order, not the numeric Phase enum ids.
 const CLASSIC_PHASES = [
   "SCAN_INPUT",
-  "REGISTRATION",
-  "PREWARP",
   "CHANNEL_SPLIT",
   "NORMALIZATION",
   "GLOBAL_METRICS",
   "TILE_GRID",
+  "REGISTRATION",
+  "PREWARP",
   "COMMON_OVERLAP",
   "LOCAL_METRICS",
   "TILE_RECONSTRUCTION",
@@ -31,10 +30,10 @@ const CLASSIC_PHASES = [
 // STACKING is still executed for AQMH (output scaling/writing).
 const AQMH_PHASES = [
   "SCAN_INPUT",
-  "REGISTRATION",
-  "PREWARP",
   "CHANNEL_SPLIT",
   "NORMALIZATION",
+  "REGISTRATION",
+  "PREWARP",
   "COMMON_OVERLAP",
   "AQMH_MAPS",
   "AQMH_GLOBAL_QUALITY",
@@ -50,12 +49,7 @@ const AQMH_PHASES = [
 
 const DEFAULT_PHASES = AQMH_PHASES;
 
-const RESUMABLE_PHASES = new Set([
-  "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH",
-  "STACKING", "DEBAYER", "TILE_RECONSTRUCTION",
-  "LOCAL_METRICS", "COMMON_OVERLAP", "PREWARP",
-  "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
-]);
+const CLICKABLE_PHASES = new Set([...CLASSIC_PHASES, ...AQMH_PHASES]);
 
 let selectedPhase = null;
 let phaseClickHandler = null;
@@ -107,8 +101,15 @@ export function selectPhase(name, opts = {}) {
   if (phaseClickHandler && opts.notify !== false) phaseClickHandler(selectedPhase);
 }
 
-function isPhaseResumable(state) {
-  return state === "ok" || state === "done" || state === "skipped" || state === "error" || state === "aborted";
+function isResumePhase(name) {
+  return CLICKABLE_PHASES.has(name);
+}
+
+function applyPhaseInteractivity(item, name) {
+  if (!item || !isResumePhase(name)) return;
+  item.classList.add("tc-phase-clickable");
+  item.onclick = () => onPhaseClick(name);
+  item.title = t("ui.message.resume_from_phase", "Klicken um Resume ab {phase} zu starten", { phase: name });
 }
 
 export function createPhaseList(phases = DEFAULT_PHASES, states = {}) {
@@ -151,6 +152,7 @@ export function updatePhaseState(phaseName, status, pct, label) {
     if (item.dataset.phase === phaseName) {
       const wasSelected = item.classList.contains("tc-phase-selected");
       item.className = `tc-phase-item ${status}${wasSelected ? " tc-phase-selected" : ""}`;
+      applyPhaseInteractivity(item, phaseName);
       let displayPct = pct || 0;
       if (status === "ok" || status === "done") displayPct = 100;
       if (status === "skipped") displayPct = 100;
@@ -188,6 +190,7 @@ export function resetPhasesForResume(fromPhase) {
       pct = 0;
     }
     item.className = `tc-phase-item ${state}${wasSelected ? " tc-phase-selected" : ""}`;
+    applyPhaseInteractivity(item, name);
     const pctEl = item.querySelector(".tc-phase-progress");
     if (pctEl) pctEl.textContent = pct > 0 ? `${pct}%` : "";
     const barFill = item.querySelector(".tc-phase-bar-fill");
@@ -202,7 +205,7 @@ export function resetPhasesForResume(fromPhase) {
 function createPhaseItem(name, state, pct = 0, label = name) {
   const pctLabel = pct > 0 ? `${Math.round(pct)}%` : "";
   const barWidth = Math.min(100, Math.round(pct || 0));
-  const resumable = RESUMABLE_PHASES.has(name) && isPhaseResumable(state);
+  const resumable = isResumePhase(name);
   const item = el("div", {
     class: `tc-phase-item ${state}${resumable ? " tc-phase-clickable" : ""}`,
     "data-phase": name,
@@ -224,16 +227,9 @@ function createPhaseItem(name, state, pct = 0, label = name) {
 function onPhaseClick(name) {
   const list = document.getElementById("phase-list");
   if (!list) return;
-  if (selectedPhase === name) {
-    selectedPhase = null;
-    list.querySelectorAll(".tc-phase-item").forEach(item => {
-      item.classList.remove("tc-phase-selected");
-    });
-  } else {
-    selectedPhase = name;
-    list.querySelectorAll(".tc-phase-item").forEach(item => {
-      item.classList.toggle("tc-phase-selected", item.dataset.phase === name);
-    });
-  }
+  selectedPhase = name;
+  list.querySelectorAll(".tc-phase-item").forEach(item => {
+    item.classList.toggle("tc-phase-selected", item.dataset.phase === name);
+  });
   if (phaseClickHandler) phaseClickHandler(selectedPhase);
 }

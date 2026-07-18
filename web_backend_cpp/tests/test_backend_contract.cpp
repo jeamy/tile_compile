@@ -18,8 +18,8 @@ int main(int argc, char** argv) {
         expect_equal(constants["_http_status"].get<long>(), 200L, "constants status");
         expect_true(constants["phases"].is_array(), "constants phases array");
         expect_true(constants["resume_from"].is_array(), "constants resume array");
-        expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "TILE_RECONSTRUCTION") != constants["resume_from"].end(),
-                    "constants resume includes TILE_RECONSTRUCTION");
+        expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "STACKING") != constants["resume_from"].end(),
+                    "constants resume includes STACKING");
         expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "PCC") != constants["resume_from"].end(),
                     "constants resume includes PCC");
         expect_equal(constants["color_modes"][0].get<std::string>(), "OSC", "constants color mode 0");

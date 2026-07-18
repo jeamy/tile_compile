@@ -70,6 +70,7 @@ export function redactedEnvSources() {
     "vercel-ai-gateway": ["AI_GATEWAY_API_KEY"],
     zai: ["ZAI_API_KEY"],
     "zai-coding-cn": ["ZAI_CODING_CN_API_KEY"],
+    "kiro-api-key": ["KIRO_API_KEY"],
     opencode: ["OPENCODE_API_KEY"],
     "opencode-go": ["OPENCODE_API_KEY"],
     huggingface: ["HF_TOKEN"],

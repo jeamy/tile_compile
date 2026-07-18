@@ -112,6 +112,53 @@ Aggregate enthalten `median`, `mean`, `std`, `min`, `max`, `p10`, `p90`.
 Die KI nutzt diese Werte als **gemessene Fakten** – nicht als Annahmen – für Empfehlungen
 zu `aqmh.cherry_pick`, `local_metrics`, `global_metrics.weights` und Sigma-Clip-Parametern.
 
+### Metrik-Cache
+
+`POST /api/scan/metrics` verwendet bereits berechnete Bildstatistiken erneut, wenn der
+Cache-Key identisch ist:
+
+```
+input_path | normalisierter object_name | frame_count
+```
+
+Erfolgreiche Ergebnisse werden sowohl im Backend-Jobstore als auch auf Disk gespeichert:
+
+```
+runs/.pi_memory/scan_metrics_cache/
+```
+
+Bei einem Cache-Hit antwortet der Endpunkt sofort:
+
+```json
+{
+  "cached": true,
+  "state": "ok",
+  "result": {
+    "cache_hit": true,
+    "cache_source": "job_store | disk",
+    "cache_source_job_id": "...",
+    "cache_key": "..."
+  }
+}
+```
+
+Das Frontend protokolliert dies als `Image statistics cache hit` und startet keinen neuen
+`scan-metrics`-Job. Neu berechnet wird nur, wenn sich Input-Pfad, Objektname oder Frame-Anzahl
+ändern.
+
+### Sidecar-Timeouts
+
+Backend-Aufrufe an den PI-Sidecar verwenden einen kurzen Verbindungs-Timeout und einen langen
+Analyse-Timeout:
+
+| Env-Variable | Default | Zweck |
+|--------------|---------|-------|
+| `AI_AGENT_CONNECT_TIMEOUT_MS` | `10000` | Schnelles Scheitern nur, wenn der Sidecar nicht erreichbar ist. |
+| `AI_AGENT_ANALYSIS_TIMEOUT_MS` | `1200000` | Mindest-Timeout für `/analyze`; verhindert, dass lange Provider-Aufrufe als Sidecar-Ausfall gemeldet werden. |
+
+`AI_SCAN_TIMEOUT_MS` bleibt der allgemeine AI-Timeout. Für `/analyze` wird aber der größere Wert
+aus `AI_SCAN_TIMEOUT_MS` und `AI_AGENT_ANALYSIS_TIMEOUT_MS` verwendet.
+
 ---
 
 ## Ausgabeformat

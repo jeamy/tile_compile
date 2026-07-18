@@ -9,6 +9,7 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
+import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
 import { getConfigState, validateConfig } from "../state/config-state.js";
 import { pollJob } from "../utils/poll.js";
@@ -153,6 +154,7 @@ let activeLogViewer = null;
 let activeWarningBanner = null;
 let runChatTrafficTimer = null;
 let replayedRunLogEvents = new Set();
+let resumeFeasibilitySeq = 0;
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
 const RESUME_CONFIG_SECTIONS = [
@@ -177,6 +179,56 @@ function getResumeActive() { return getRunState().resumeActive || false; }
 function setResumeActive(v) { setRunState({ resumeActive: v }); }
 function getResumeFromPhase() { return getRunState().resumeFromPhase || ""; }
 function setResumeFromPhase(v) { setRunState({ resumeFromPhase: v || "" }); }
+
+function isRunTerminalStatus(status) {
+  return ["completed", "failed", "stopped", "error", "aborted", "unknown"].includes(String(status || "").toLowerCase());
+}
+
+function sameRunIdentity(a, b, aDir = "", bDir = "") {
+  if (!a || !b || a !== b) return false;
+  if (!aDir || !bDir) return true;
+  return aDir === bDir;
+}
+
+function resumeErrorPayload(error) {
+  const payload = error?.payload || {};
+  return {
+    code: payload.code || payload.error?.code || "",
+    message: payload.message || payload.error?.message || error?.message || "",
+    details: payload.details || payload.error?.details || {},
+  };
+}
+
+function formatResumeError(error, phase) {
+  const parsed = resumeErrorPayload(error);
+  const details = parsed.details || {};
+  let title = parsed.message || error?.message || t("ui.error.unknown", "Unbekannter Fehler");
+  let body = "";
+  if (parsed.code === "RESUME_PHASE_NOT_FEASIBLE") {
+    title = t("ui.error.resume_not_feasible", "Resume ab {phase} nicht möglich", { phase });
+    body = parsed.message || "";
+    if (details.reason) {
+      body += `\nGrund: ${details.reason}`;
+    }
+    if (details.effective_runner_phase && details.effective_runner_phase !== phase) {
+      body += `\nRunner-Phase: ${details.effective_runner_phase}`;
+    }
+    if (details.cache_dir) {
+      body += `\nCache: ${details.cache_dir}`;
+    }
+    if (Array.isArray(details.missing_files) && details.missing_files.length) {
+      body += "\n" + t("ui.error.missing_files", "Fehlende Dateien: {files}", {
+        files: details.missing_files.join(", ")
+      });
+    }
+    if (Array.isArray(details.feasible_phases) && details.feasible_phases.length) {
+      body += "\n" + t("ui.error.feasible_phases", "Mögliche Resume-Phasen: {phases}", {
+        phases: details.feasible_phases.join(", ")
+      });
+    }
+  }
+  return { title, body: body.trim() };
+}
 
 function activateRunMonitorTab(tabId) {
   const root = document.getElementById("run-monitor-work-tabs");
@@ -377,12 +429,7 @@ function monitorStringListSection(title, items) {
 function applyResumeRecommendation(phase, statusEl = null) {
   if (!phase) return;
   selectPhase(phase, { notify: false });
-  const panel = document.getElementById("resume-panel");
-  if (panel) panel.style.display = "";
-  const badge = document.getElementById("resume-phase-badge");
-  if (badge) badge.textContent = phase;
-  const hint = document.getElementById("resume-hint");
-  if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+  onPhaseSelected(phase, activeLogViewer);
   if (statusEl) statusEl.textContent = t("ui.message.phase_selected", "Phase ausgewählt");
 }
 
@@ -970,6 +1017,7 @@ async function submitMonitorRunChat(inputId, outputId) {
       run_id: runId,
       message,
       messages: monitorRunChatMessages.slice(-12),
+      object_name: getStore("input-scan", { scanData: {} }).getState().scanData?.object_name || "",
     });
     monitorRunChatMessages.push({ role: "assistant", content: result?.summary || "", result });
     appendRunChatTurn(runKey, { message, result, created_at: new Date().toISOString() });
@@ -1085,7 +1133,15 @@ function resetRunMonitorNoRun() {
 async function restoreCurrentRun() {
   try {
     const appState = await api.get(API_ENDPOINTS.app.state);
-    const current = appState?.run?.current;
+    const storedRun = getRunState();
+    const backendCurrent = appState?.run?.current;
+    const current = backendCurrent?.run_id
+      ? backendCurrent
+      : (storedRun.currentRunId ? {
+          run_id: storedRun.currentRunId,
+          run_dir: storedRun.currentRunDir || "",
+          status: storedRun.status || storedRun.runStatus || "unknown",
+        } : null);
     const scan = appState?.scan?.last_scan;
 
     // Always show scan info immediately, even without active run
@@ -1105,8 +1161,22 @@ async function restoreCurrentRun() {
 
     if (current?.run_id) {
       const backendRunning = current.status === "running";
-      const isRunning = backendRunning || getResumeActive() || getResumePending();
-      setRunState({ currentRunId: current.run_id, currentRunDir: current.run_dir || null, status: current.status || "running" });
+      const runDir = current.run_dir || storedRun.currentRunDir || "";
+      const storedResumeForCurrent = sameRunIdentity(
+        storedRun.currentRunId,
+        current.run_id,
+        storedRun.currentRunDir || "",
+        runDir || "",
+      );
+      const allowStoredResumeState =
+        storedResumeForCurrent && !isRunTerminalStatus(current.status);
+      const isRunning =
+        backendRunning ||
+        (allowStoredResumeState && (getResumeActive() || getResumePending()));
+      if (!allowStoredResumeState && (getResumeActive() || getResumePending())) {
+        setRunState({ resumeActive: false, resumePending: false, resumeFromPhase: "" });
+      }
+      setRunState({ currentRunId: current.run_id, currentRunDir: runDir || null, status: current.status || "running" });
       restoreMonitorRunChatAll();
       setRunButtonsActive(isRunning);
       updateStat("stat-run-id", current.run_id);
@@ -1120,9 +1190,9 @@ async function restoreCurrentRun() {
       refreshCurrentImagePreview();
       setRunButtonsActive(isRunning);
       // Load existing logs from REST endpoint
-      await loadInitialLogs(current.run_id, logViewer, warningBanner, current.run_dir || getRunState().currentRunDir || "");
+      await loadInitialLogs(current.run_id, activeLogViewer, activeWarningBanner, runDir || getRunState().currentRunDir || "");
       if (isRunning) {
-        connectWebSocket(current.run_id, getResumeActive() || getResumePending(), current.run_dir || getRunState().currentRunDir || "");
+        connectWebSocket(current.run_id, getResumeActive() || getResumePending(), runDir || getRunState().currentRunDir || "");
         startPolling(current.run_id);
       } else {
         enableStatsButtons(current.run_id);
@@ -1130,7 +1200,9 @@ async function restoreCurrentRun() {
     } else {
       resetRunMonitorNoRun();
     }
-  } catch {}
+  } catch (e) {
+    console.error("Run monitor restore failed:", e);
+  }
 }
 
 async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
@@ -1361,12 +1433,15 @@ async function startRun() {
       input_dir: sd.input_dir || "",
       runs_dir: sd.runs_dir || "",
       run_name: sd.run_name || "",
+      object_name: sd.object_name || "",
+      target: sd.object_name || "",
       color_mode: sd.color_mode || "",
       queue: queue.length > 0 ? queue : undefined,
       config_yaml: configYaml || undefined,
     };
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
+    setAiState({ currentAnalysis: null });
     clearRunWarnings();
     let result;
     try {
@@ -1392,13 +1467,13 @@ async function startRun() {
     if (runId) {
       replayedRunLogEvents = new Set();
       const newPhases = getPhasesForConfig(getConfigState().draft).map(p => ({ phase: p.phase, status: "pending", pct: 0, label: p.label }));
-      setRunState({ currentRunId: runId, status: "running", phases: newPhases, resumeActive: false, resumePending: false, resumeFromPhase: "" });
+      setRunState({ currentRunId: runId, currentRunDir: result?.run_dir || getRunState().currentRunDir || null, status: "running", phases: newPhases, resumeActive: false, resumePending: false, resumeFromPhase: "" });
       restoreMonitorRunChatAll();
       setRunButtonsActive(true);
       updateStat("stat-run-id", runId);
       updateStat("stat-status", "running");
       setPhaseList(newPhases);
-      connectWebSocket(runId, false, getRunState().currentRunDir || "");
+      connectWebSocket(runId, false, result?.run_dir || getRunState().currentRunDir || "");
       startPolling(runId);
       toastSuccess(t("ui.toast.run_started", "Run gestartet"), runId);
       refreshRunStatus(runId);
@@ -1471,22 +1546,59 @@ async function resumeRun() {
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
     return true;
   } catch (e) {
-    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), e.message);
+    const formatted = formatResumeError(e, phase);
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), formatted.body || formatted.title);
     return false;
   }
 }
 
-function onPhaseSelected(phase, logViewer) {
+async function checkResumeFeasibility(phase) {
+  const seq = ++resumeFeasibilitySeq;
+  const { currentRunId, currentRunDir, status } = getRunState();
+  const hint = document.getElementById("resume-hint");
+  const resumeExecBtn = document.getElementById("resume-execute-btn");
+  if (!phase || !currentRunId) return false;
+
+  if (resumeExecBtn) resumeExecBtn.disabled = true;
+  if (hint) hint.textContent = t("ui.message.resume_checking", "Prüfe Resume-Möglichkeit...");
+
+  try {
+    const payload = { from_phase: phase, dry_run: true };
+    if (currentRunDir) payload.run_dir = currentRunDir;
+    const editor = document.getElementById("resume-config-yaml");
+    if (editor?.value?.trim()) payload.config_yaml = editor.value;
+    const revSelect = document.getElementById("resume-config-revision");
+    if (revSelect?.value) payload.config_revision_id = revSelect.value;
+
+    await api.post(API_ENDPOINTS.runs.resume(currentRunId), payload);
+    if (seq !== resumeFeasibilitySeq || getSelectedPhase() !== phase) return false;
+    if (hint) hint.textContent = t("ui.message.resume_feasible", "Resume ab {phase} ist möglich.", { phase });
+    if (resumeExecBtn) resumeExecBtn.disabled = status === "running";
+    return true;
+  } catch (e) {
+    if (seq !== resumeFeasibilitySeq || getSelectedPhase() !== phase) return false;
+    const formatted = formatResumeError(e, phase);
+    if (hint) hint.textContent = formatted.body || formatted.title;
+    if (resumeExecBtn) resumeExecBtn.disabled = true;
+    toastError(formatted.title, formatted.body || e.message);
+    return false;
+  }
+}
+
+async function onPhaseSelected(phase, logViewer) {
   activateRunMonitorTab("resume");
   const panel = document.getElementById("resume-panel");
   const badge = document.getElementById("resume-phase-badge");
   const hint = document.getElementById("resume-hint");
   const hmsButton = document.getElementById("resume-hms-config-btn");
   const bgeButton = document.getElementById("resume-bge-config-btn");
+  const resumeExecBtn = document.getElementById("resume-execute-btn");
   if (!phase) {
+    ++resumeFeasibilitySeq;
     if (panel) panel.style.display = "none";
     if (hmsButton) hmsButton.style.display = "none";
     if (bgeButton) bgeButton.style.display = "none";
+    if (resumeExecBtn) resumeExecBtn.disabled = getRunState().status === "running";
     return;
   }
   if (panel) panel.style.display = "";
@@ -1494,7 +1606,9 @@ function onPhaseSelected(phase, logViewer) {
   if (hmsButton) hmsButton.style.display = phase === "HYPERMETRIC_STRETCH" ? "" : "none";
   if (bgeButton) bgeButton.style.display = phase === "BGE" ? "" : "none";
   if (hint) hint.textContent = t("ui.message.resume_hint", "Config wird geladen...");
-  loadRunConfig(phase);
+  if (resumeExecBtn) resumeExecBtn.disabled = true;
+  await loadRunConfig(phase);
+  await checkResumeFeasibility(phase);
   loadConfigRevisions();
 }
 

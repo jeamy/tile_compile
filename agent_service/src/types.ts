@@ -15,6 +15,7 @@ export interface RuntimeConfig {
 
 export interface SessionContext {
   mount_type?: "eq" | "altaz" | "unknown";
+  target_name?: string;
   target_angular_size?: "compact" | "extended" | "full_frame";
   camera_type?: "consumer_osc" | "astronomy_camera" | "unknown";
   calibration_darks?: boolean;

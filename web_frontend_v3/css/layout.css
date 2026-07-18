@@ -20,8 +20,6 @@
 }
 
 .tc-header-tabs {
-  display: flex;
-  gap: var(--space-1);
   margin-left: auto;
   margin-right: auto;
 }
@@ -84,13 +82,23 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--surface-2);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  min-height: 44px;
+  min-height: 52px;
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+}
+
+.tc-subtab-list {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tc-subtab-list::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Content Area ───────────────────────────────── */
@@ -180,6 +188,10 @@
     flex-wrap: wrap;
   }
 
+  .tc-subtab-list {
+    width: 100%;
+  }
+
   .tc-content {
     padding: var(--space-2);
   }
@@ -192,7 +204,6 @@
 
   .tc-tab {
     font-size: var(--text-xs);
-    padding: var(--space-1) var(--space-2);
   }
 
   .tc-card {

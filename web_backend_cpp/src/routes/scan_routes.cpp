@@ -2,8 +2,10 @@
 #include "routes/route_utils.hpp"
 #include "services/scan_summary.hpp"
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <thread>
 #include <yaml-cpp/yaml.h>
 
@@ -46,6 +48,88 @@ void append_limited_array(json& target,
         if (target.size() < limit) target.push_back(item);
         else truncated = true;
     }
+}
+
+std::string normalized_cache_object(std::string value) {
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+    value.erase(std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), value.end());
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
+    return value;
+}
+
+std::string scan_metrics_cache_key(const std::string& input_path,
+                                   const std::string& object_name,
+                                   int frame_count) {
+    return input_path + "|" + normalized_cache_object(object_name) + "|" + std::to_string(frame_count);
+}
+
+std::string fnv1a_hex(const std::string& value) {
+    uint64_t hash = 1469598103934665603ull;
+    for (unsigned char ch : value) {
+        hash ^= ch;
+        hash *= 1099511628211ull;
+    }
+    std::ostringstream out;
+    out << std::hex << hash;
+    return out.str();
+}
+
+fs::path scan_metrics_cache_dir(const std::shared_ptr<AppState>& state) {
+    return state->runtime.project_root / "runs" / ".pi_memory" / "scan_metrics_cache";
+}
+
+fs::path scan_metrics_cache_path(const std::shared_ptr<AppState>& state, const std::string& cache_key) {
+    return scan_metrics_cache_dir(state) / (fnv1a_hex(cache_key) + ".json");
+}
+
+json find_disk_cached_scan_metrics(const std::shared_ptr<AppState>& state,
+                                   const std::string& cache_key) {
+    const auto path = scan_metrics_cache_path(state, cache_key);
+    std::ifstream in(path);
+    if (!in) return json::object();
+    auto parsed = json::parse(in, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return json::object();
+    if (parsed.value("cache_key", std::string()) != cache_key) return json::object();
+    json result = parsed.contains("result") && parsed["result"].is_object()
+        ? parsed["result"]
+        : parsed;
+    if (!result.value("ok", false)) return json::object();
+    result["cache_hit"] = true;
+    result["cache_source"] = "disk";
+    result["cache_key"] = cache_key;
+    if (parsed.contains("job_id")) result["cache_source_job_id"] = parsed["job_id"];
+    if (parsed.contains("created_at")) result["cache_created_at"] = parsed["created_at"];
+    return result;
+}
+
+json find_cached_scan_metrics(const std::shared_ptr<AppState>& state,
+                              const std::string& input_path,
+                              const std::string& object_name,
+                              int frame_count) {
+    const std::string wanted_key = scan_metrics_cache_key(input_path, object_name, frame_count);
+    auto jobs = state->job_store.list();
+    json best = nullptr;
+    std::string best_job_id;
+    for (const auto& j : jobs) {
+        if (j.type != "scan-metrics" || j.state != JobState::ok) continue;
+        if (!j.data.contains("result") || !j.data["result"].is_object()) continue;
+        const auto& r = j.data["result"];
+        if (!r.value("ok", false)) continue;
+        const std::string cached_input = j.data.value("input_path", r.value("input_path", std::string()));
+        const std::string cached_object = j.data.value("object_name", r.value("object_name", r.value("target", std::string())));
+        const int cached_frames = r.value("frames_total", r.value("frame_count", 0));
+        if (scan_metrics_cache_key(cached_input, cached_object, cached_frames) != wanted_key) continue;
+        if (j.job_id > best_job_id) {
+            best_job_id = j.job_id;
+            best = r;
+        }
+    }
+    if (best.is_null()) return json::object();
+    best["cache_hit"] = true;
+    best["cache_source"] = "job_store";
+    best["cache_source_job_id"] = best_job_id;
+    best["cache_key"] = wanted_key;
+    return best;
 }
 
 json make_scan_item(const std::string& input_path,
@@ -109,6 +193,7 @@ void register_scan_routes(CrowApp& app,
         auto& body = *body_opt;
 
         std::string input_dir  = body.value("input_dir", body.value("input_path", ""));
+        std::string object_name = body.value("object_name", body.value("target", std::string()));
         int frames_min         = body.value("frames_min", 1);
         bool with_checksums    = body.value("with_checksums", false);
 
@@ -150,6 +235,8 @@ void register_scan_routes(CrowApp& app,
         nlohmann::json initial_data = {
             {"input_path", input_dir},
             {"input_dirs", resolved_inputs},
+            {"object_name", object_name},
+            {"target", object_name},
             {"frames_min", frames_min},
             {"with_checksums", with_checksums},
         };
@@ -166,7 +253,7 @@ void register_scan_routes(CrowApp& app,
                                                       initial_data);
         } else {
             job_id = spawn_job_thread(state, "scan", "", initial_data,
-                [resolved_inputs, frames_min, with_checksums, limits](std::shared_ptr<AppState> state, const std::string& job_id) {
+                [resolved_inputs, frames_min, with_checksums, limits, object_name](std::shared_ptr<AppState> state, const std::string& job_id) {
                     try {
                         nlohmann::json per_dir_results = nlohmann::json::array();
                         std::vector<std::string> color_modes_detected;
@@ -274,6 +361,8 @@ void register_scan_routes(CrowApp& app,
                             {"ok", ok && all_errors.empty()},
                             {"input_path", resolved_inputs.front()},
                             {"input_dirs", resolved_inputs},
+                            {"object_name", object_name},
+                            {"target", object_name},
                             {"frames_detected", frames_detected_total},
                             {"image_width", image_width},
                             {"image_height", image_height},
@@ -297,6 +386,8 @@ void register_scan_routes(CrowApp& app,
                         state->job_store.update_state(job_id, summary.value("ok", false) ? JobState::ok : JobState::error, {
                             {"input_path", resolved_inputs.front()},
                             {"input_dirs", resolved_inputs},
+                            {"object_name", object_name},
+                            {"target", object_name},
                             {"result", summary}
                         });
                     } catch (const std::exception& e) {
@@ -311,6 +402,7 @@ void register_scan_routes(CrowApp& app,
             {
                 {"input_path", input_dir},
                 {"input_dirs", resolved_inputs},
+                {"object_name", object_name},
                 {"frames_min", frames_min},
                 {"with_checksums", with_checksums},
             },
@@ -334,9 +426,17 @@ void register_scan_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/scan/metrics").methods("POST"_method)
     ([state](const crow::request& req) {
         std::string input_path;
+        std::string object_name;
+        int frame_count = 0;
         if (auto body = parse_body(req)) {
             if (body->contains("input_path") && (*body)["input_path"].is_string())
                 input_path = (*body)["input_path"].get<std::string>();
+            if (body->contains("object_name") && (*body)["object_name"].is_string())
+                object_name = (*body)["object_name"].get<std::string>();
+            else if (body->contains("target") && (*body)["target"].is_string())
+                object_name = (*body)["target"].get<std::string>();
+            if (body->contains("frame_count") && (*body)["frame_count"].is_number_integer())
+                frame_count = (*body)["frame_count"].get<int>();
         }
         if (input_path.empty()) {
             // Try to infer from last scan
@@ -345,11 +445,31 @@ void register_scan_routes(CrowApp& app,
         if (input_path.empty()) {
             return json_resp({{"error", "no input_path provided and no previous scan"}}, 400);
         }
+        if (frame_count <= 0) {
+            auto latest = latest_scan_job(state->job_store);
+            auto summary = summarize_scan_job(latest, state->last_scan_input_path);
+            frame_count = summary.value("frames_detected", summary.value("frames_total", 0));
+            if (object_name.empty()) object_name = summary.value("object_name", summary.value("target", std::string()));
+        }
+        const std::string cache_key = scan_metrics_cache_key(input_path, object_name, frame_count);
+        if (auto cached = find_cached_scan_metrics(state, input_path, object_name, frame_count); !cached.empty()) {
+            return json_resp({{"cached", true}, {"state", "ok"}, {"result", cached}});
+        }
+        if (auto cached = find_disk_cached_scan_metrics(state, cache_key); !cached.empty()) {
+            return json_resp({{"cached", true}, {"state", "ok"}, {"result", cached}});
+        }
         std::vector<std::string> args = {state->runtime.cli_exe, "scan-metrics", input_path};
-        json initial_data = {{"input_path", input_path}, {"command", args}};
+        json initial_data = {
+            {"input_path", input_path},
+            {"object_name", object_name},
+            {"target", object_name},
+            {"frame_count", frame_count},
+            {"cache_key", cache_key},
+            {"command", args}
+        };
         std::string job_id = state->subprocess_manager.launch(
             "scan-metrics", args, state->runtime.project_root.string(), "", initial_data);
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}, {"cached", false}, {"cache_key", cache_key}});
     });
 
     CROW_ROUTE(app, "/api/scan/metrics/latest").methods("GET"_method)

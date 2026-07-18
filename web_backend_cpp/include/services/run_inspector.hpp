@@ -38,19 +38,10 @@ static const std::vector<std::string> PHASE_ORDER = {
 };
 
 /// @brief Phases accepted by resume endpoints and UI selectors.
+/// Only phases whose required artifacts persist after a normal run are listed.
+/// Earlier phases (before STACKING) require .prewarped_cache which is normally
+/// deleted and are therefore validated dynamically in the resume endpoint.
 static const std::vector<std::string> RESUME_FROM_PHASES = {
-    "SCAN_INPUT",
-    "CHANNEL_SPLIT",
-    "NORMALIZATION",
-    "GLOBAL_METRICS",
-    "TILE_GRID",
-    "REGISTRATION",
-    "PREWARP",
-    "COMMON_OVERLAP",
-    "LOCAL_METRICS",
-    "TILE_RECONSTRUCTION",
-    "STATE_CLUSTERING",
-    "SYNTHETIC_FRAMES",
     "STACKING",
     "DEBAYER",
     "ASTROMETRY",

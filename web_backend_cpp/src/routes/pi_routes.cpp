@@ -52,6 +52,17 @@ int int_query_param(const crow::request& req, const char* name, int fallback) {
     return fallback;
 }
 
+long count_jsonl_records(const fs::path& path) {
+    std::ifstream in(path);
+    if (!in) return 0;
+    long count = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty()) ++count;
+    }
+    return count;
+}
+
 std::string base64_encode(const std::vector<unsigned char>& bytes) {
     static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
@@ -96,6 +107,9 @@ nlohmann::json evaluate_memory_outcome_payload(const nlohmann::json& body) {
         }
         return object[key].get<double>();
     };
+
+    // --- Outcome-Delta: Vorher/Nachher fuer alle relevanten Metriken ---
+    // quality_score (globaler Composite-Score)
     const double before_score = number_or_nan(before, "quality_score");
     const double after_score = number_or_nan(after, "quality_score");
     double delta = std::numeric_limits<double>::quiet_NaN();
@@ -106,6 +120,64 @@ nlohmann::json evaluate_memory_outcome_payload(const nlohmann::json& body) {
         outcome["quality_score_delta"] = delta;
     }
 
+    // fwhm_median: niedrigerer Wert = bessere Sternschärfe
+    const double before_fwhm = number_or_nan(before, "fwhm_median");
+    const double after_fwhm = number_or_nan(after, "fwhm_median");
+    if (std::isfinite(before_fwhm) && std::isfinite(after_fwhm)) {
+        outcome["fwhm_before"] = before_fwhm;
+        outcome["fwhm_after"] = after_fwhm;
+        outcome["fwhm_delta"] = after_fwhm - before_fwhm;
+    }
+
+    // background_gradient: niedrigerer Wert = flacherer Hintergrund
+    const double before_grad = number_or_nan(before, "background_gradient");
+    const double after_grad = number_or_nan(after, "background_gradient");
+    if (std::isfinite(before_grad) && std::isfinite(after_grad)) {
+        outcome["background_gradient_before"] = before_grad;
+        outcome["background_gradient_after"] = after_grad;
+        outcome["background_gradient_delta"] = after_grad - before_grad;
+    }
+
+    // star_count: zur Plausibilitaetsprüfung (grosse Aenderung = Analyse-Artefakt)
+    const double before_stars = number_or_nan(before, "star_count");
+    const double after_stars = number_or_nan(after, "star_count");
+    if (std::isfinite(before_stars) && std::isfinite(after_stars)) {
+        outcome["star_count_before"] = before_stars;
+        outcome["star_count_after"] = after_stars;
+        outcome["star_count_delta"] = after_stars - before_stars;
+    }
+
+    // report_warnings: Array-Vergleich — wurden Warnungen weniger?
+    const bool has_before_warnings = before.contains("report_warnings") && before["report_warnings"].is_array();
+    const bool has_after_warnings = after.contains("report_warnings") && after["report_warnings"].is_array();
+    if (has_before_warnings || has_after_warnings) {
+        const int before_warn_count = has_before_warnings
+            ? static_cast<int>(before["report_warnings"].size()) : 0;
+        const int after_warn_count = has_after_warnings
+            ? static_cast<int>(after["report_warnings"].size()) : 0;
+        outcome["report_warnings_before_count"] = before_warn_count;
+        outcome["report_warnings_after_count"] = after_warn_count;
+        outcome["report_warnings_delta"] = after_warn_count - before_warn_count;
+        if (has_before_warnings) outcome["report_warnings_before"] = before["report_warnings"];
+        if (has_after_warnings) outcome["report_warnings_after"] = after["report_warnings"];
+    }
+
+    // resume_phase: welche Phase wurde als Startpunkt gewaehlt?
+    if (after.contains("resume_phase") && after["resume_phase"].is_string()) {
+        outcome["resume_phase"] = after["resume_phase"];
+    }
+
+    // artifact_status: ok/error/missing fuer kritische Artefakte
+    if (after.contains("artifact_status") && after["artifact_status"].is_object()) {
+        outcome["artifact_status"] = after["artifact_status"];
+    }
+
+    // Nutzer-Bewertung (1..5 oder bool)
+    if (body.contains("user_rating")) {
+        outcome["user_rating"] = body["user_rating"];
+    }
+
+    // Verdict ableiten: zuerst aus user_result, dann aus quantitativen Deltas
     std::string verdict = "unknown";
     if (user_result == "improved" || user_result == "better") verdict = "improved";
     else if (user_result == "worse" || user_result == "regression") verdict = "worse";
@@ -114,6 +186,32 @@ nlohmann::json evaluate_memory_outcome_payload(const nlohmann::json& body) {
         if (delta > 0.02) verdict = "improved";
         else if (delta < -0.02) verdict = "worse";
         else verdict = "unchanged";
+    } else if (std::isfinite(before_fwhm) && std::isfinite(after_fwhm) && before_fwhm > 0) {
+        // FWHM-Verbesserung als sekundaeres Signal (kleiner = besser)
+        const double fwhm_rel = (before_fwhm - after_fwhm) / before_fwhm;
+        if (fwhm_rel > 0.05) verdict = "improved";
+        else if (fwhm_rel < -0.05) verdict = "worse";
+        else verdict = "unchanged";
+    } else if (has_before_warnings && has_after_warnings) {
+        // Weniger Warnungen nach dem Run = Verbesserung
+        const int dw = static_cast<int>(after["report_warnings"].size())
+                     - static_cast<int>(before["report_warnings"].size());
+        if (dw < 0) verdict = "improved";
+        else if (dw > 0) verdict = "worse";
+        else verdict = "unchanged";
+    }
+
+    // User-Rating ueberschreibt quantitative Ableitung
+    if (body.contains("user_rating")) {
+        const auto& ur = body["user_rating"];
+        if (ur.is_boolean() && ur.get<bool>()) verdict = "improved";
+        else if (ur.is_boolean() && !ur.get<bool>()) verdict = "worse";
+        else if (ur.is_number()) {
+            const double v = ur.get<double>();
+            if (v >= 4.0) verdict = "improved";
+            else if (v <= 2.0) verdict = "worse";
+            else verdict = "unchanged";
+        }
     }
 
     outcome["schema_version"] = "pi.memory-outcome.v1";
@@ -124,6 +222,58 @@ nlohmann::json evaluate_memory_outcome_payload(const nlohmann::json& body) {
         ? "promotable"
         : (verdict == "worse" || verdict == "unchanged" ? "rejected" : "promotable");
     return outcome;
+}
+
+// Extrahiert Outcome-Metriken direkt aus Run-Artefakten fuer den Post-Run-Trigger.
+// Liest stats.json und bge.json um FWHM, Warnungen und Artefaktstatus zu ermitteln.
+nlohmann::json extract_run_outcome_metrics(const fs::path& run_dir) {
+    nlohmann::json metrics = nlohmann::json::object();
+    const fs::path artifacts_dir = run_dir / "artifacts";
+    std::error_code ec;
+    if (!fs::is_directory(artifacts_dir, ec)) return metrics;
+
+    // stats.json: phase_issues, summary.status, quality metrics
+    const fs::path stats_path = artifacts_dir / "stats.json";
+    if (fs::is_regular_file(stats_path, ec)) {
+        std::ifstream in(stats_path);
+        if (in) {
+            auto parsed = nlohmann::json::parse(in, nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object()) {
+                nlohmann::json warnings = nlohmann::json::array();
+                if (parsed.contains("phase_issues") && parsed["phase_issues"].is_array()) {
+                    for (const auto& issue : parsed["phase_issues"]) {
+                        if (issue.is_string()) warnings.push_back(issue);
+                        else if (issue.is_object() && issue.contains("message")) warnings.push_back(issue["message"]);
+                    }
+                }
+                metrics["report_warnings"] = warnings;
+                if (parsed.contains("summary") && parsed["summary"].is_object()) {
+                    metrics["report_status"] = parsed["summary"].value("status", std::string("unknown"));
+                }
+                // Qualitaetsmetriken aus stats
+                for (const char* key : {"fwhm_median", "background_gradient", "star_count", "quality_score"}) {
+                    if (parsed.contains(key) && parsed[key].is_number()) metrics[key] = parsed[key];
+                }
+                // Tiefere Metriken aus aggregate-Sektion
+                if (parsed.contains("aggregate") && parsed["aggregate"].is_object()) {
+                    const auto& agg = parsed["aggregate"];
+                    if (agg.contains("fwhm") && agg["fwhm"].is_object() && agg["fwhm"].contains("median")) {
+                        if (!metrics.contains("fwhm_median")) metrics["fwhm_median"] = agg["fwhm"]["median"];
+                    }
+                }
+            }
+        }
+    }
+
+    // Artefaktstatus: welche bekannten Ausgabedateien existieren?
+    nlohmann::json artifact_status = nlohmann::json::object();
+    for (const char* artifact : {"bge.json", "stacked.fits", "stacked_rgb.fits",
+                                   "pcc.json", "hms_preview.jpg", "hms_preview.png"}) {
+        artifact_status[artifact] = fs::is_regular_file(artifacts_dir / artifact, ec) ? "ok" : "missing";
+    }
+    metrics["artifact_status"] = artifact_status;
+
+    return metrics;
 }
 
 std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
@@ -548,7 +698,8 @@ std::string build_provider_run_chat_prompt(const std::string& run_id,
                                            const nlohmann::json& previous_turns,
                                            const nlohmann::json& status,
                                            const nlohmann::json& artifacts,
-                                           const nlohmann::json& image_info) {
+                                           const nlohmann::json& image_info,
+                                           const nlohmann::json& target_context = nlohmann::json::object()) {
     std::ostringstream prompt;
     prompt
         << "You are PI for tile_compile, an astrophotography stacking/configuration assistant.\n"
@@ -577,6 +728,7 @@ std::string build_provider_run_chat_prompt(const std::string& run_id,
         << "- Do not repeat identical parameter/value pairs already present in PREVIOUS TURNS.\n\n"
         << "USER QUESTION:\n" << message << "\n\n"
         << "RUN ID:\n" << run_id << "\n\n"
+        << "TARGET CONTEXT:\n" << target_context.dump(2) << "\n\n"
         << "IMAGE CONTEXT:\n" << image_info.dump(2) << "\n\n"
         << "CONVERSATION MESSAGES:\n" << conversation_messages.dump(2) << "\n\n"
         << "PREVIOUS TURNS:\n" << previous_turns.dump(2) << "\n\n"
@@ -1009,7 +1161,8 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
                                      const std::string& message,
                                      const std::string& analysis_message,
                                      const nlohmann::json& conversation_messages = nlohmann::json::array(),
-                                     const nlohmann::json& previous_turns = nlohmann::json::array()) {
+                                     const nlohmann::json& previous_turns = nlohmann::json::array(),
+                                     const nlohmann::json& target_context = nlohmann::json::object()) {
     tile_compile::pi::PiToolRegistry tools(state);
     nlohmann::json report = tools.call_tool("run.report.summary", {{"run_id", run_id}});
     nlohmann::json artifacts = tools.call_tool("run.artifacts.summary", {{"run_id", run_id}});
@@ -1153,6 +1306,7 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
         {"context", {
             {"schema_version", "pi.run-chat-context.v1"},
             {"run_id", run_id},
+            {"target", target_context},
             {"problem_hints", hints},
             {"report_available", report.value("ok", false)},
             {"artifacts_available", artifacts.value("ok", false)},
@@ -1495,10 +1649,15 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
         const std::string message = body->value("message", std::string());
+        const std::string object_name = body->value("object_name", body->value("target", std::string()));
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
         if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
         try {
+            nlohmann::json target_context = {
+                {"object_name", object_name.empty() ? nlohmann::json(nullptr) : nlohmann::json(object_name)}
+            };
             nlohmann::json history = read_pi_run_chat_history(state, run_id);
+            history["target"] = target_context;
             nlohmann::json messages = compact_run_chat_history_messages(history, *body, message);
             const nlohmann::json previous_turns = run_chat_previous_turns_context(history);
             nlohmann::json local_answer = build_run_chat_answer(
@@ -1507,7 +1666,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 message,
                 run_chat_analysis_message_from_messages(messages, message),
                 messages,
-                previous_turns);
+                previous_turns,
+                target_context);
 
             nlohmann::json answer = local_answer;
             auto ai_config = current_pi_ai_config(state);
@@ -1560,6 +1720,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     }},
                     {"run_context", {
                         {"run_id", run_id},
+                        {"target", target_context},
                         {"status", status},
                         {"local_answer_context", local_answer.value("context", nlohmann::json::object())},
                         {"previous_turns", previous_turns}
@@ -1574,13 +1735,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"source_request_schema", "pi.run-chat.request.v1"}
                 });
                 const std::string prompt = build_provider_run_chat_prompt(
-                    run_id, message, local_answer, messages, previous_turns, status, artifacts, image_info);
+                    run_id, message, local_answer, messages, previous_turns, status, artifacts, image_info, target_context);
                 tile_compile::ai::AiSidecarClient client(ai_config);
                 nlohmann::json payload = {
                     {"model", ai_config.model},
                     {"prompt", prompt},
                     {"ai_request", ai_request},
                     {"run_id", run_id},
+                    {"object_name", object_name},
                     {"image_available", image.value("available", false)},
                     {"image_path", image.value("path", std::string())}
                 };
@@ -1612,6 +1774,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             history["turns"].push_back({
                 {"message", message},
                 {"result", answer},
+                {"target", target_context},
                 {"created_at", utc_now_iso()}
             });
             write_pi_run_chat_history(state, run_id, history);
@@ -1666,9 +1829,17 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             items = std::move(filtered_items);
             trim_json_array_to_latest(items, limit);
         }
+        const fs::path memory_file = store.memories_path();
+        const fs::path legacy_memory_file = store.legacy_memories_path();
+        const long legacy_count = count_jsonl_records(legacy_memory_file);
         return json_resp({
             {"schema_version", "pi.memories-list.v1"},
             {"memory_dir", store.memory_dir().string()},
+            {"memory_file", memory_file.string()},
+            {"memory_file_exists", fs::exists(memory_file)},
+            {"legacy_memory_file", legacy_memory_file.string()},
+            {"legacy_memory_file_exists", fs::exists(legacy_memory_file)},
+            {"legacy_ignored_count", legacy_count},
             {"items", items},
             {"count", items.size()}
         });
@@ -1767,7 +1938,309 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 : nlohmann::json::object();
             tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
             const auto review = store.review(memory_id, status, reviewer, note, outcome, scope);
-            return json_resp({{"ok", true}, {"outcome", outcome}, {"review", review}});
+
+            // Negative Learning: bei verschlechtertem oder unveraendertem Outcome
+            // automatisch einen counterexample-Kandidaten erzeugen, damit die KI
+            // dieselbe erfolglose Strategie nicht wiederholt.
+            const std::string verdict = outcome.value("verdict", std::string("unknown"));
+            nlohmann::json counterexample = nlohmann::json(nullptr);
+            const bool create_counterexample = body->value("negative_learning", true)
+                && (verdict == "worse" || verdict == "unchanged");
+            if (create_counterexample) {
+                // Original-Memory finden um Kontext zu uebernehmen
+                nlohmann::json original_ctx = nlohmann::json::object({
+                    {"schema_version", "pi.context_signature.v1"},
+                    {"target", nlohmann::json::object()},
+                    {"acquisition", nlohmann::json::object()},
+                    {"pipeline", nlohmann::json::object()}
+                });
+                nlohmann::json original_config_updates = nlohmann::json::array();
+                nlohmann::json original_scope = {
+                    {"applies_when", nlohmann::json::array({"same_context_and_config_paths"})},
+                    {"does_not_apply_when", nlohmann::json::array({"materially_different_acquisition_or_outcome"})},
+                    {"confidence", 0.6}
+                };
+                for (const auto& mem : store.list(10000)) {
+                    if (mem.value("memory_id", std::string()) == memory_id) {
+                        if (mem.contains("context_signature") && mem["context_signature"].is_object())
+                            original_ctx = mem["context_signature"];
+                        if (mem.contains("config_updates") && mem["config_updates"].is_array())
+                            original_config_updates = mem["config_updates"];
+                        if (mem.contains("scope") && mem["scope"].is_object())
+                            original_scope = mem["scope"];
+                        break;
+                    }
+                }
+                try {
+                    counterexample = store.append_candidate({
+                        {"type", "counterexample"},
+                        {"source", "outcome_evaluator"},
+                        {"privacy_class", "metadata_only"},
+                        {"summary", "Outcome verdict '" + verdict + "' for memory " + memory_id + ": config change did not improve result."},
+                        {"context_signature", original_ctx},
+                        {"scope", original_scope},
+                        {"config_updates", original_config_updates},
+                        {"recommendation", {
+                            {"avoid_repeating", original_config_updates},
+                            {"explanation", "Outcome evaluator recorded verdict=" + verdict + ". This config change did not produce a measurable improvement."}
+                        }},
+                        {"evidence", {
+                            {"original_memory_id", memory_id},
+                            {"outcome_verdict", verdict},
+                            {"human_feedback", outcome.value("human_feedback", nlohmann::json(nullptr))}
+                        }},
+                        {"outcome", outcome},
+                        {"retrieval", {
+                            {"keywords", nlohmann::json::array({verdict, "counterexample"})},
+                            {"negative", true}
+                        }}
+                    });
+                    const std::string ce_id = counterexample.value("memory_id", std::string());
+                    if (!ce_id.empty() && counterexample.value("created", true)) {
+                        store.review(ce_id, "rejected", "pi_outcome_evaluator",
+                                     "auto-rejected counterexample: verdict=" + verdict,
+                                     outcome, nlohmann::json::object());
+                    }
+                } catch (const std::exception&) {
+                    // Counterexample-Erzeugung ist best-effort; Fehler nicht nach oben werfen
+                }
+            }
+            nlohmann::json resp = {{"ok", true}, {"outcome", outcome}, {"review", review}};
+            if (!counterexample.is_null()) resp["counterexample"] = counterexample;
+            return json_resp(resp);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("BAD_REQUEST", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("BACKEND_COMMAND_FAILED", e.what(), 502);
+        }
+    });
+
+    // Promotable → accepted: wenn ein Memory als promotable markiert ist und der Nutzer
+    // oder ein automatischer Prozess es bestaetigt, wird es zu accepted.
+    CROW_ROUTE(app, "/api/pi/memories/<string>/promote").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& memory_id) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        try {
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            // Pruefen ob Memory tatsaechlich promotable ist
+            bool is_promotable = false;
+            for (const auto& mem : store.list(10000)) {
+                if (mem.value("memory_id", std::string()) == memory_id) {
+                    is_promotable = (mem.value("status", std::string()) == "promotable");
+                    break;
+                }
+            }
+            if (!is_promotable) {
+                return err_resp("BAD_REQUEST",
+                    "memory is not in promotable status; only promotable memories can be accepted via promote", 400);
+            }
+            const std::string reviewer = body->value("reviewer", std::string("user"));
+            const std::string note = body->value("note", std::string("promoted to accepted"));
+            const nlohmann::json outcome = body->contains("outcome") && (*body)["outcome"].is_object()
+                ? (*body)["outcome"] : nlohmann::json::object();
+            const nlohmann::json scope = body->contains("scope") && (*body)["scope"].is_object()
+                ? (*body)["scope"] : nlohmann::json::object();
+            const auto review = store.review(memory_id, "accepted", reviewer, note, outcome, scope);
+            return json_resp({{"ok", true}, {"memory_id", memory_id}, {"review", review}});
+        } catch (const std::invalid_argument& e) {
+            return err_resp("BAD_REQUEST", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("BACKEND_COMMAND_FAILED", e.what(), 502);
+        }
+    });
+
+    // Post-Run-Trigger: liest Run-Artefakte und schreibt Outcome-Daten in alle offenen
+    // Memory-Kandidaten, die zu diesem Run passen (source = scan_ai_apply).
+    // Kann nach Run-Ende manuell oder automatisch vom GUI3-Client aufgerufen werden.
+    CROW_ROUTE(app, "/api/pi/memories/evaluate-run").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        fs::path run_dir;
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::runtime_error&) {
+            return err_resp("NOT_FOUND", "run directory not found", 404);
+        }
+        try {
+            if (!fs::is_directory(run_dir)) {
+                return err_resp("NOT_FOUND", "run directory not found", 404);
+            }
+            // Metriken aus Run-Artefakten extrahieren
+            const nlohmann::json after_metrics = extract_run_outcome_metrics(run_dir);
+
+            // Optionale "before"-Metriken aus Request (vom Caller mitgegeben)
+            const nlohmann::json before_metrics = body->contains("before") && (*body)["before"].is_object()
+                ? (*body)["before"]
+                : nlohmann::json::object();
+
+            // Alle candidate-Memories pruefen, die source=scan_ai_apply haben
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            int updated = 0;
+            int skipped = 0;
+            nlohmann::json updated_ids = nlohmann::json::array();
+
+            for (const auto& memory : store.list(10000)) {
+                const std::string status = memory.value("status", std::string());
+                // Nur Kandidaten ohne abgeschlossenes Outcome
+                if (status != "candidate" && status != "promotable") { ++skipped; continue; }
+                const std::string source = memory.value("source", std::string());
+                if (source != "scan_ai_apply" && source != "run_chat" && source != "resume_feedback") {
+                    ++skipped; continue;
+                }
+                // Pruefe ob Provenance auf diesen Run zeigt
+                bool matches_run = false;
+                if (memory.contains("evidence") && memory["evidence"].is_object()) {
+                    const auto& ev = memory["evidence"];
+                    if (ev.value("run_id", std::string()) == run_id) matches_run = true;
+                    if (ev.contains("run_id_hash")) matches_run = true; // gehashte Referenz akzeptiert
+                }
+                if (memory.contains("provenance") && memory["provenance"].is_object()) {
+                    if (memory["provenance"].value("run_id", std::string()) == run_id) matches_run = true;
+                }
+                // Ohne explizite Run-Verknuepfung: neueste Kandidaten einschliessen
+                // wenn kein run_id angegeben ist (Fallback fuer aeltere Memories)
+                if (!matches_run && body->value("all_candidates", false)) matches_run = true;
+                if (!matches_run) { ++skipped; continue; }
+
+                const std::string memory_id = memory.value("memory_id", std::string());
+                if (memory_id.empty()) { ++skipped; continue; }
+
+                // Outcome-Payload bauen
+                nlohmann::json eval_body = {
+                    {"before", before_metrics},
+                    {"after", after_metrics},
+                    {"feedback", body->value("feedback", std::string())},
+                    {"result", body->value("result", std::string())}
+                };
+                if (body->contains("user_rating")) eval_body["user_rating"] = (*body)["user_rating"];
+
+                const nlohmann::json outcome = evaluate_memory_outcome_payload(eval_body);
+                const std::string rec_status = outcome.value("review_recommendation", std::string("promotable"));
+                try {
+                    store.review(memory_id, rec_status, "pi_run_outcome_evaluator",
+                                 "post-run outcome evaluation for run " + run_id,
+                                 outcome, nlohmann::json::object());
+                    updated_ids.push_back(memory_id);
+                    ++updated;
+                } catch (const std::exception&) {
+                    ++skipped;
+                }
+            }
+            return json_resp({
+                {"ok", true},
+                {"run_id", run_id},
+                {"updated", updated},
+                {"skipped", skipped},
+                {"updated_memory_ids", updated_ids},
+                {"run_metrics", after_metrics}
+            });
+        } catch (const std::exception& e) {
+            return err_resp("BACKEND_COMMAND_FAILED", e.what(), 502);
+        }
+    });
+
+    // Dedizierter Resume-Feedback-Endpoint: setzt source=resume_feedback explizit.
+    // Erzeugt einen Memory-Kandidaten aus dem Resume-Ergebnis und markiert ihn
+    // als resume_strategy mit dem gegebenen Feedback.
+    CROW_ROUTE(app, "/api/pi/memories/resume-feedback").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        const std::string from_phase = body->value("from_phase", std::string());
+        const std::string feedback = body->value("feedback", std::string());
+        const std::string result = body->value("result", std::string());
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        if (from_phase.empty()) return err_resp("BAD_REQUEST", "from_phase is required", 400);
+        if (feedback.empty() && result.empty()) {
+            return err_resp("BAD_REQUEST", "feedback or result is required", 400);
+        }
+        try {
+            // Kontext aus dem Run lesen
+            const fs::path run_dir = state->runtime.resolve_run_dir(run_id);
+            const nlohmann::json context_signature = body->contains("context_signature") &&
+                                                      (*body)["context_signature"].is_object()
+                ? (*body)["context_signature"]
+                : nlohmann::json::object({
+                    {"schema_version", "pi.context_signature.v1"},
+                    {"target", nlohmann::json::object()},
+                    {"acquisition", nlohmann::json::object()},
+                    {"pipeline", {{"resume_phase", from_phase}, {"phases", nlohmann::json::array({from_phase})}}}
+                });
+
+            nlohmann::json after_metrics = nlohmann::json::object();
+            if (fs::is_directory(run_dir)) {
+                after_metrics = extract_run_outcome_metrics(run_dir);
+            }
+            after_metrics["resume_phase"] = from_phase;
+
+            nlohmann::json eval_body = {
+                {"before", body->contains("before") ? (*body)["before"] : nlohmann::json::object()},
+                {"after", after_metrics},
+                {"result", result},
+                {"feedback", feedback}
+            };
+            if (body->contains("user_rating")) eval_body["user_rating"] = (*body)["user_rating"];
+            const nlohmann::json outcome = evaluate_memory_outcome_payload(eval_body);
+
+            const std::string verdict = outcome.value("verdict", std::string("unknown"));
+            const std::string memory_type = verdict == "improved" ? "resume_strategy" : "counterexample";
+            nlohmann::json summary_parts = nlohmann::json::array();
+            summary_parts.push_back("Resume from " + from_phase);
+            if (!result.empty()) summary_parts.push_back(result);
+            if (!feedback.empty()) summary_parts.push_back(feedback);
+            std::string summary;
+            for (size_t i = 0; i < summary_parts.size(); ++i) {
+                if (i > 0) summary += ": ";
+                summary += summary_parts[i].get<std::string>();
+            }
+
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            nlohmann::json memory = store.append_candidate({
+                {"type", memory_type},
+                {"source", "resume_feedback"},
+                {"privacy_class", "metadata_only"},
+                {"summary", summary},
+                {"context_signature", context_signature},
+                {"scope", {
+                    {"applies_when", nlohmann::json::array({"resume from " + from_phase + " with similar acquisition context"})},
+                    {"does_not_apply_when", nlohmann::json::array({"materially different pipeline or acquisition setup"})},
+                    {"confidence", outcome.value("verified", false) ? 0.7 : 0.4}
+                }},
+                {"recommendation", {
+                    {"resume_phase", from_phase},
+                    {"verdict", verdict},
+                    {"explanation", feedback.empty() ? result : feedback}
+                }},
+                {"evidence", {
+                    {"run_id", run_id},
+                    {"human_feedback", feedback.empty() ? nlohmann::json(nullptr) : nlohmann::json(feedback)},
+                    {"source", "resume_feedback"}
+                }},
+                {"outcome", outcome},
+                {"retrieval", {
+                    {"keywords", nlohmann::json::array({from_phase, verdict})},
+                    {"negative", verdict != "improved"}
+                }}
+            });
+            const std::string memory_id = memory.value("memory_id", std::string());
+            if (!memory_id.empty() && memory.value("created", true)) {
+                const std::string rec_status = outcome.value("review_recommendation", std::string("promotable"));
+                store.review(memory_id, rec_status, "pi_resume_feedback",
+                             "resume feedback: " + (feedback.empty() ? result : feedback),
+                             outcome, nlohmann::json::object());
+            }
+            return json_resp({
+                {"ok", true},
+                {"memory", memory},
+                {"outcome", outcome},
+                {"run_id", run_id},
+                {"from_phase", from_phase}
+            });
         } catch (const std::invalid_argument& e) {
             return err_resp("BAD_REQUEST", e.what(), 400);
         } catch (const std::exception& e) {

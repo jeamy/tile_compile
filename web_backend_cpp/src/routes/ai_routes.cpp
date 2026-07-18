@@ -1077,6 +1077,9 @@ json extract_scan_metadata(const json& scan_result) {
     str("color_mode");
     str("bayer_pattern");
     str("input_path");
+    str("object_name");
+    str("target");
+    str("object");
     num("errors_total");
     num("image_width");
     num("image_height");
@@ -1259,7 +1262,8 @@ std::string persist_analysis(const std::shared_ptr<AppState>& state,
 /// Returns the full analysis JSON with has_analysis=true, or {has_analysis:false} if none found.
 json find_cached_analysis(const std::shared_ptr<AppState>& state,
                           const std::string& input_path,
-                          int frame_count = 0) {
+                          int frame_count = 0,
+                          const std::string& object_name = "") {
     if (input_path.empty()) return json({{"has_analysis", false}});
     const fs::path dir = ai_analyses_dir(state);
     for (const auto& path : list_json_files(dir, true)) {
@@ -1272,6 +1276,10 @@ json find_cached_analysis(const std::shared_ptr<AppState>& state,
         if (meta["input_path"].get<std::string>() != input_path) continue;
         if (frame_count > 0 && meta.contains("frame_count") && meta["frame_count"].is_number()) {
             if (meta["frame_count"].get<int>() != frame_count) continue;
+        }
+        if (!object_name.empty()) {
+            const std::string cached_object = meta.value("object_name", meta.value("target", meta.value("object", std::string())));
+            if (cached_object != object_name) continue;
         }
         parsed["has_analysis"] = true;
         parsed["from_cache"] = true;
@@ -1441,7 +1449,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 fc = scan_result["frames_detected"].get<int>();
             else if (scan_result.contains("frames_total") && scan_result["frames_total"].is_number())
                 fc = scan_result["frames_total"].get<int>();
-            json cached = find_cached_analysis(state, ip, fc);
+            const std::string object_name = scan_result.value("object_name", scan_result.value("target", scan_result.value("object", std::string())));
+            json cached = find_cached_analysis(state, ip, fc, object_name);
             if (cached.value("has_analysis", false)) {
                 return json_resp(cached);
             }

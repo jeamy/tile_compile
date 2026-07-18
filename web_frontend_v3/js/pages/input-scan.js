@@ -9,6 +9,7 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { getScanState, setScanState } from "../state/scan-state.js";
+import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
 import { setRunState } from "../state/run-state.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
@@ -17,12 +18,17 @@ import { goToSubTab } from "../utils/navigation.js";
 import { t } from "../i18n/i18n.js";
 
 const inputStore = getStore("input-scan", {
-  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "", run_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
+  scanData: { input_dir: "", pattern: "*.fits", runs_dir: "", run_name: "", object_name: "", color_mode: "OSC", frame_min: 30, max_frames: 0, sort: "numeric", with_checksums: false },
   queueItems: [],
   calValues: {},
 });
 
 let backendRunsDir = "";
+
+const OBJECT_NAME_OPTIONS = [
+  ...Array.from({ length: 110 }, (_, i) => `M${i + 1}`),
+  ...Array.from({ length: 7840 }, (_, i) => `NGC ${i + 1}`),
+];
 
 async function ensureRunsDir() {
   if (backendRunsDir) return backendRunsDir;
@@ -83,6 +89,22 @@ export function createInputScanPage() {
       el("label", { class: "tc-label" }, t("ui.field.run_name", "Run Name")),
       el("input", { type: "text", class: "tc-input", id: "run-name-input", value: getScanData().run_name, placeholder: "M31_altaz_test",
         oninput: (e) => setScanData({ run_name: e.target.value }) }),
+    ),
+    el("div", { class: "tc-mt-2" },
+      el("label", { class: "tc-label" }, t("ui.field.object_name", "Objektname")),
+      el("input", {
+        type: "text",
+        class: "tc-input",
+        id: "object-name-input",
+        list: "object-name-options",
+        value: getScanData().object_name || "",
+        placeholder: "M31, NGC 7000, IC 434",
+        title: t("ui.tooltip.input_scan.object_name", "Name des Zielobjekts. Wird als Referenz fuer Scan, KI-Analyse und Run-Chat verwendet."),
+        oninput: (e) => setScanData({ object_name: e.target.value }),
+      }),
+      el("datalist", { id: "object-name-options" },
+        ...OBJECT_NAME_OPTIONS.map(name => el("option", { value: name })),
+      ),
     ),
   );
 
@@ -164,6 +186,7 @@ export function createInputScanPage() {
 async function doScan() {
   try {
     const sd = getScanData();
+    setAiState({ currentAnalysis: null });
     setRunState({ currentRunId: null, currentRunDir: null, status: null, phases: [], resumeActive: false, resumePending: false });
     toast(t("ui.toast.scan_starting", "Scan wird gestartet..."), "", "info");
     const effectiveInputDir = sd.input_dir || sd.runs_dir || backendRunsDir || "";
@@ -172,6 +195,8 @@ async function doScan() {
       pattern: sd.pattern,
       runs_dir: sd.runs_dir || backendRunsDir || "",
       run_name: sd.run_name,
+      object_name: sd.object_name || "",
+      target: sd.object_name || "",
       color_mode: sd.color_mode,
       frame_min: sd.frame_min,
       max_frames: sd.max_frames,

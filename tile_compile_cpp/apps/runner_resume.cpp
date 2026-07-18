@@ -710,6 +710,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
   }
 
+  bool aqmh_stacking_from_reconstructed = false;
+  if (cfg.aqmh.enabled && phase_upper == "STACKING" &&
+      fs::is_regular_file(run_dir / "outputs" / "reconstructed_L.fit")) {
+    aqmh_stacking_from_reconstructed = true;
+    phase_l = "stacking";
+  } else
   // All AQMH phases that have cached quality maps can resume directly at
   // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
   // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
@@ -757,6 +763,31 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
               << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
     return true;
   };
+
+  if (aqmh_stacking_from_reconstructed) {
+    const fs::path outputs_dir = run_dir / "outputs";
+    const fs::path reconstructed_l = outputs_dir / "reconstructed_L.fit";
+    const fs::path synthetic_0 = outputs_dir / "synthetic_0.fit";
+    try {
+      fs::create_directories(outputs_dir);
+      fs::copy_file(reconstructed_l, synthetic_0,
+                    fs::copy_options::overwrite_existing);
+    } catch (const std::exception &e) {
+      core::emit_event("resume_end", run_id,
+                       {{"success", false},
+                        {"status", "prepare_stacking_failed"},
+                        {"reason", "copy_reconstructed_l_failed"},
+                        {"source", reconstructed_l.string()},
+                        {"target", synthetic_0.string()},
+                        {"error", e.what()}},
+                       log_file);
+      std::cerr << "Error: cannot prepare AQMH STACKING resume from "
+                << reconstructed_l << ": " << e.what() << std::endl;
+      return 1;
+    }
+    std::cout << "[STACKING][resume] Prepared synthetic_0.fit from "
+              << reconstructed_l << std::endl;
+  }
 
   if (phase_l == "hypermetric_stretch" || phase_l == "hms") {
     namespace image = tile_compile::image;
@@ -1015,6 +1046,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       available_frames += frame_has_data[fi] != 0u;
     }
     if (available_frames == 0) {
+      core::emit_event("resume_end", run_id,
+                       {{"success", false},
+                        {"status", "prewarped_cache_missing"},
+                        {"reason", "no_reusable_prewarped_cache_frames"},
+                        {"cache_dir", (run_dir / ".prewarped_cache").string()}},
+                       log_file);
       std::cerr << "Error: no reusable .prewarped_cache frames found"
                 << std::endl;
       return 1;

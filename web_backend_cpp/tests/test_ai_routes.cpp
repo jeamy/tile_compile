@@ -415,6 +415,14 @@ int main(int argc, char** argv) {
                      "scan ai canonical request includes accepted pi memories");
         expect_equal(static_cast<long>(sidecar_request["ai_request"]["negative_memories"].size()), 1L,
                      "scan ai canonical request includes negative pi memories");
+        expect_true(sidecar_request["ai_request"].contains("retrieval_coverage_summary"),
+                    "scan ai canonical request includes retrieval_coverage_summary prompt section");
+        expect_true(sidecar_request["ai_request"]["retrieval_coverage_summary"].is_object(),
+                    "scan ai retrieval_coverage_summary is an object");
+        expect_true(sidecar_request["ai_request"]["retrieval_coverage_summary"].contains("systemically_missing_context_fields"),
+                    "scan ai retrieval_coverage_summary lists systemically_missing_context_fields");
+        expect_true(sidecar_request["ai_request"]["retrieval_coverage_summary"].contains("note"),
+                    "scan ai retrieval_coverage_summary includes explanatory note for the model");
         expect_equal(static_cast<long>(sidecar_request["session_context"]["accepted_pi_memories"].size()), 2L,
                      "scan ai request includes accepted pi memories");
         bool found_accepted_memory = false;

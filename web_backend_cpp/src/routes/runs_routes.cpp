@@ -53,6 +53,75 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+static std::string read_method_from_yaml_text_local(const std::string& yaml_text) {
+    if (yaml_text.empty()) return "";
+    try {
+        YAML::Node root = YAML::Load(yaml_text);
+        if (root["method"] && root["method"].IsScalar()) {
+            return root["method"].as<std::string>();
+        }
+    } catch (...) {}
+    return "";
+}
+
+static std::string read_run_method_local(const fs::path& run_dir, const std::string& yaml_override = "") {
+    std::string method = read_method_from_yaml_text_local(yaml_override);
+    if (!method.empty()) return method;
+    std::ifstream f(run_dir / "config.yaml");
+    if (f) {
+        try {
+            YAML::Node root = YAML::Load(f);
+            if (root["method"] && root["method"].IsScalar()) {
+                return root["method"].as<std::string>();
+            }
+        } catch (...) {}
+    }
+    return "";
+}
+
+static bool has_nonempty_prewarped_cache(const fs::path& run_dir) {
+    std::error_code ec;
+    const fs::path cache_dir = run_dir / ".prewarped_cache";
+    if (!fs::is_directory(cache_dir, ec)) return false;
+    return !fs::is_empty(cache_dir, ec);
+}
+
+static std::string read_resume_input_dir_from_events(const fs::path& run_dir) {
+    std::ifstream f(run_dir / "logs" / "run_events.jsonl");
+    if (!f) return "";
+    std::string line;
+    std::string last_input_dir;
+    while (std::getline(f, line)) {
+        if (line.find("input_dir") == std::string::npos) continue;
+        try {
+            auto ev = nlohmann::json::parse(line);
+            if (ev.contains("input_dir") && ev["input_dir"].is_string()) {
+                last_input_dir = ev["input_dir"].get<std::string>();
+            } else if (ev.contains("payload") && ev["payload"].is_object() &&
+                       ev["payload"].contains("input_dir") && ev["payload"]["input_dir"].is_string()) {
+                last_input_dir = ev["payload"]["input_dir"].get<std::string>();
+            }
+        } catch (...) {}
+    }
+    return last_input_dir;
+}
+
+static bool has_synthetic_outputs(const fs::path& run_dir) {
+    std::error_code ec;
+    const fs::path outputs_dir = run_dir / "outputs";
+    if (!fs::is_directory(outputs_dir, ec)) return false;
+    for (const auto& entry : fs::directory_iterator(outputs_dir, ec)) {
+        if (ec || !entry.is_regular_file(ec)) continue;
+        const fs::path path = entry.path();
+        const std::string stem = path.stem().string();
+        const std::string ext = path.extension().string();
+        if (stem.rfind("synthetic_", 0) == 0 && (ext == ".fit" || ext == ".fits")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// @brief Implements sanitize run id.
 /// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -1281,12 +1350,12 @@ void register_runs_routes(CrowApp& app,
         std::string rev_id       = body.value("config_revision_id", "");
         std::string config_yaml  = body.value("config_yaml",  "");
         std::string filter_ctx   = body.value("filter_context", "");
+        const bool dry_run       = body.value("dry_run", false);
 
         if (from_phase.empty()) return err_resp("RESUME_PHASE_REQUIRED", "from_phase is required for resume", 409, nlohmann::json::object());
 
         fs::path run_dir;
         if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
-        const size_t event_cursor_before_resume = count_run_event_lines_for_resume(run_dir);
 
         const fs::path run_config_path = run_dir / "config.yaml";
         std::string requested_yaml = config_yaml;
@@ -1294,6 +1363,139 @@ void register_runs_routes(CrowApp& app,
             auto rev = resolve_config_revision(state, run_dir, rev_id);
             if (!rev) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404, nlohmann::json::object());
             requested_yaml = rev->yaml_text;
+        }
+
+        // Validate that the requested resume phase is feasible given the
+        // artifacts that actually exist in the run directory. This must mirror
+        // the runner's resume path. AQMH map/reconstruction phases need the
+        // prewarp cache; AQMH STACKING can use persisted reconstructed_L.fit.
+        {
+            static const std::set<std::string> inplace_rerun_phases = {
+                "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS",
+                "TILE_GRID", "REGISTRATION", "PREWARP", "COMMON_OVERLAP",
+                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
+                "SYNTHETIC_FRAMES", "DEBAYER"
+            };
+            static const std::set<std::string> aqmh_cache_resume_phases = {
+                "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_METRICS",
+                "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"
+            };
+            static const std::map<std::string, std::vector<std::string>> phase_required_files = {
+                {"DEBAYER",            {"outputs/stacked.fits"}},
+                {"ASTROMETRY",         {"outputs/stacked_rgb.fits"}},
+                {"BGE",                {"outputs/stacked_rgb_solve.fits"}},
+                {"PCC",                {"outputs/stacked_rgb_solve.fits"}},
+                {"HYPERMETRIC_STRETCH",{"outputs/pcc_R.fit", "outputs/pcc_G.fit", "outputs/pcc_B.fit"}},
+            };
+            static const std::set<std::string> supported_resume_phases = {
+                "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT",
+                "NORMALIZATION", "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP",
+                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
+                "SYNTHETIC_FRAMES", "AQMH_MAPS", "AQMH_GLOBAL_QUALITY",
+                "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
+                "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC",
+                "HYPERMETRIC_STRETCH"
+            };
+            if (!supported_resume_phases.count(from_phase)) {
+                return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                    "Cannot resume from phase '" + from_phase + "': this phase is not a supported resume start point.",
+                    409, {{"from_phase", from_phase}, {"reason", "unsupported_resume_phase"}});
+            }
+            const std::string method = read_run_method_local(run_dir, requested_yaml);
+
+            std::error_code ec;
+            if (inplace_rerun_phases.count(from_phase)) {
+                const fs::path config_path = run_dir / "config.yaml";
+                if (!fs::is_regular_file(config_path, ec) || tile_compile::routes::read_file_str(config_path).empty()) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': config.yaml is missing or empty, so the runner cannot replay the run in place.",
+                        409, {{"from_phase", from_phase}, {"reason", "config_missing"}});
+                }
+                const std::string input_dir = read_resume_input_dir_from_events(run_dir);
+                if (input_dir.empty()) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': the original input_dir is missing from logs/run_events.jsonl, so the runner cannot replay the run in place.",
+                        409, {{"from_phase", from_phase}, {"reason", "input_dir_missing"}});
+                }
+            } else if (method == "aqmh" && aqmh_cache_resume_phases.count(from_phase)) {
+                bool cache_exists = has_nonempty_prewarped_cache(run_dir);
+                if (!cache_exists) {
+                    nlohmann::json feasible_phases = nlohmann::json::array(
+                        {"SCAN_INPUT", "REGISTRATION", "PREWARP", "STACKING", "DEBAYER",
+                         "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"});
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': runner would resume at '" +
+                        "AQMH_RECONSTRUCTION' and requires .prewarped_cache frames, but no reusable "
+                        ".prewarped_cache frames are present in the run directory. "
+                        "Use an in-place rerun phase such as SCAN_INPUT/REGISTRATION/PREWARP, or resume from a persisted downstream artifact. "
+                        "Feasible resume phases for this run: " +
+                        [&feasible_phases]() {
+                            std::string out;
+                            for (const auto& phase : feasible_phases) {
+                                if (!out.empty()) out += ", ";
+                                out += phase.get<std::string>();
+                            }
+                            return out;
+                        }() + ".",
+                        409, {{"from_phase", from_phase}, {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
+                              {"reason", "prewarped_cache_missing"},
+                              {"cache_dir", (run_dir / ".prewarped_cache").string()},
+                              {"feasible_phases", feasible_phases}});
+                }
+            } else {
+                if (from_phase == "STACKING") {
+                    if (method == "aqmh") {
+                        if (!fs::is_regular_file(run_dir / "outputs" / "reconstructed_L.fit", ec)) {
+                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                                "Cannot resume from phase 'STACKING': outputs/reconstructed_L.fit is missing.",
+                                409, {{"from_phase", from_phase}, {"reason", "artifacts_missing"},
+                                      {"missing_files", nlohmann::json::array({"outputs/reconstructed_L.fit"})}});
+                        }
+                    } else if (!has_synthetic_outputs(run_dir)) {
+                        return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                            "Cannot resume from phase 'STACKING': synthetic_*.fit outputs are missing.",
+                            409, {{"from_phase", from_phase}, {"reason", "missing_synthetic_outputs"}});
+                    }
+                }
+                auto it = phase_required_files.find(from_phase);
+                if (it != phase_required_files.end()) {
+                    std::vector<std::string> missing;
+                    for (const auto& rel_path : it->second) {
+                        if (!fs::is_regular_file(run_dir / rel_path, ec)) {
+                            missing.push_back(rel_path);
+                        }
+                    }
+                    if (!missing.empty()) {
+                        // Special case: HYPERMETRIC_STRETCH can also work from stacked_rgb_pcc.fits
+                        bool fallback_ok = false;
+                        if (from_phase == "HYPERMETRIC_STRETCH") {
+                            fallback_ok = fs::is_regular_file(run_dir / "outputs" / "stacked_rgb_pcc.fits", ec);
+                        }
+                        if (!fallback_ok) {
+                            nlohmann::json missing_arr = nlohmann::json::array();
+                            for (const auto& m : missing) missing_arr.push_back(m);
+                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                                "Cannot resume from phase '" + from_phase + "': required artifacts missing: " +
+                                missing_arr.dump(),
+                                409, {{"from_phase", from_phase}, {"reason", "artifacts_missing"},
+                                      {"missing_files", missing_arr}});
+                        }
+                    }
+                }
+            }
+        }
+
+        const size_t event_cursor_before_resume = count_run_event_lines_for_resume(run_dir);
+
+        if (dry_run) {
+            return json_resp({
+                {"run_id", run_id},
+                {"run_dir", run_dir.string()},
+                {"from_phase", from_phase},
+                {"feasible", true},
+                {"dry_run", true},
+                {"message", "Resume from phase '" + from_phase + "' is feasible."}
+            });
         }
 
         if (!requested_yaml.empty()) {

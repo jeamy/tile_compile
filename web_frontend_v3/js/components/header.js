@@ -9,7 +9,7 @@ export function createHeader(onTabChange) {
 
   const header = el("header", { class: "tc-header" },
     el("div", { class: "tc-header-logo" }, "Tile Compile"),
-    el("div", { class: "tc-header-tabs", id: "header-tabs" },
+    el("div", { class: "tc-header-tabs tc-tabs", id: "header-tabs", role: "tablist" },
       createTab("processing", t("ui.tab.processing", "Processing"), ui.activeTab === "processing", onTabChange),
       createTab("tools", t("ui.tab.tools", "Tools"), ui.activeTab === "tools", onTabChange),
       createTab("history", t("ui.tab.history", "History"), ui.activeTab === "history", onTabChange),
@@ -55,7 +55,9 @@ export function updateActiveTab(tabId) {
   const bar = document.getElementById("header-tabs");
   if (!bar) return;
   for (const btn of bar.querySelectorAll(".tc-tab")) {
-    btn.classList.toggle("active", btn.getAttribute("data-tab") === tabId);
+    const active = btn.getAttribute("data-tab") === tabId;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
   }
 }
 
@@ -63,6 +65,8 @@ function createTab(id, label, active, onTabChange) {
   return el("button", {
     class: `tc-tab${active ? " active" : ""}`,
     "data-tab": id,
+    role: "tab",
+    "aria-selected": active ? "true" : "false",
     onclick: () => {
       updateActiveTab(id);
       setUiState({ activeTab: id });

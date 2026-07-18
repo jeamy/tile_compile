@@ -5393,6 +5393,8 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
         type="button"
         class="ps-phase-tab${activeTabClass}${currentRunClass}"
         data-batch-key="${escapeRunMonitorAttr(group.key)}"
+        role="tab"
+        aria-selected="${group.key === uiState.runMonitorSelectedBatchKey ? "true" : "false"}"
         title="${escapeRunMonitorAttr(title)}"
       >
         <span class="ps-phase-tab-label">${escapeRunMonitorHtml(group.label)}</span>
