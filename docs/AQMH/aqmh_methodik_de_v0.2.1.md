@@ -464,6 +464,25 @@ R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
 wobei `w_f(p) = G_f^{eff} * Q_map_{f,c}(p)` und `V_c^I(p)` die Menge der
 Frames mit finite Intensität und finite Quality-Map an Pixel `p` ist.
 
+Der geometrische Support jedes registrierten Frames ist Bestandteil von
+`V_c^I(p)`. Prewarp-Pixel außerhalb dieses Supports müssen als ungültig
+(`NaN` plus Frame-Support-Maske) erhalten bleiben; nullgefüllte Warpränder
+dürfen niemals als reale Intensitätswerte in AQMH eingehen. Dabei gelten drei
+getrennte Maskenrollen:
+
+- Die Frame-Support-Maske beschreibt, welche Pixel ein einzelner Frame liefert.
+- Die Common-Overlap-Maske dient ausschließlich Analyse, Validierung und
+  Kalibrierung mit der konfigurierten Mindestüberdeckung.
+- Die Output-Maske ist die Vereinigung der Frame-Support-Masken und erhält alle
+  tatsächlich rekonstruierbaren Randstrukturen.
+
+Die Common-Overlap-Maske darf weder die AQMH-Rekonstruktion noch BGE-, PCC- oder
+HMS-Ausgaben auf den gemeinsamen Kern beschneiden. Pixel, welche
+`min_n_eff` nicht erfüllen, bleiben als nicht ausreichend gestützte Pixel
+diagnostizierbar; ihre Existenz darf jedoch nicht dazu führen, dass gültige
+Nachbarpixel aus wenigen Frames mit nicht vorhandenen Nullsamples verdünnt
+werden.
+
 ### 5.2 Sigma-Clipping und effektive Sample-Suffizienz
 
 Iteratives asymmetrisches Sigma-Clipping verwendet standardmäßig

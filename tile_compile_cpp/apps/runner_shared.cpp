@@ -471,6 +471,20 @@ AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
   return plan;
 }
 
+OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
+                                   int required_common_frames) {
+  OverlapMasks masks;
+  masks.analysis_common.assign(coverage.size(), 0u);
+  masks.reconstruction_support.assign(coverage.size(), 0u);
+  const int common_floor = std::max(1, required_common_frames);
+  for (size_t i = 0; i < coverage.size(); ++i) {
+    const int count = static_cast<int>(coverage[i]);
+    masks.reconstruction_support[i] = count > 0 ? 1u : 0u;
+    masks.analysis_common[i] = count >= common_floor ? 1u : 0u;
+  }
+  return masks;
+}
+
 FrameSubBatchPlan compute_memory_capped_frame_sub_batch(
     size_t frame_count,
     size_t pixels_per_worker,

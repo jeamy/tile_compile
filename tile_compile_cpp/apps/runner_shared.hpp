@@ -81,6 +81,15 @@ AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
     const std::vector<std::filesystem::path> &frames, int width, int height,
     uint64_t available_memory_bytes = 0);
 
+struct OverlapMasks {
+  std::vector<uint8_t> analysis_common;
+  std::vector<uint8_t> reconstruction_support;
+};
+
+/// Build independent analysis and output masks from per-pixel frame coverage.
+OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
+                                   int required_common_frames);
+
 /// Determine default parallel workers for CPU bound tasks without memory capping.
 int default_parallel_workers(size_t items, int requested_workers = 0);
 

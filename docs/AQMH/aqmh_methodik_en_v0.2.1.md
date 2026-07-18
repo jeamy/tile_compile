@@ -466,6 +466,22 @@ R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
 where `w_f(p) = G_f^{eff} * Q_map_{f,c}(p)` and `V_c^I(p)` is the set of frames
 with finite intensity and finite quality-map value at pixel `p`.
 
+The geometric support of each registered frame is part of `V_c^I(p)`.
+Prewarp pixels outside that support must remain invalid (`NaN` plus the
+per-frame support mask); zero-filled warp borders must never enter AQMH as real
+intensity samples. Three mask roles remain separate:
+
+- The frame-support mask states which pixels are supplied by one frame.
+- The common-overlap mask is used only for analysis, validation, and
+  calibration at the configured minimum coverage.
+- The output mask is the union of all frame-support masks and preserves every
+  genuinely reconstructable edge structure.
+
+The common-overlap mask must not crop AQMH reconstruction or BGE, PCC, and HMS
+outputs to the common core. Pixels that do not satisfy `min_n_eff` remain
+diagnosable as insufficiently supported, but they must not cause valid nearby
+pixels from a few frames to be diluted by nonexistent zero samples.
+
 ### 5.2 Sigma Clipping and Effective-Sample Sufficiency
 
 Identical to v0.2.0. Iterative sigma clipping with `clip_sigma_low` and

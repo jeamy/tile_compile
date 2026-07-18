@@ -1889,11 +1889,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              cfg.stacking.common_overlap_required_fraction *
              static_cast<float>(std::max(1, n_usable_frames)))));
   std::vector<uint16_t> overlap_coverage_count_fallback;
-  std::vector<uint8_t> common_valid_mask_fallback;
   std::vector<uint16_t> *overlap_coverage_count_ptr =
       &phase_registration_ctx.overlap_coverage_count;
-  std::vector<uint8_t> *common_valid_mask_ptr =
-      &phase_registration_ctx.common_valid_mask;
   std::vector<uint8_t> reconstruction_valid_mask;
   std::vector<float> tile_common_overlap_ratio(tiles_phase56.size(), 0.0f);
   std::vector<uint8_t> tile_common_valid(tiles_phase56.size(), 0);
@@ -1905,9 +1902,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   if (phase_registration_ctx.overlap_coverage_count.size() != canvas_px ||
       phase_registration_ctx.common_valid_mask.size() != canvas_px) {
     overlap_coverage_count_fallback.assign(canvas_px, 0);
-    common_valid_mask_fallback.assign(canvas_px, 0);
     overlap_coverage_count_ptr = &overlap_coverage_count_fallback;
-    common_valid_mask_ptr = &common_valid_mask_fallback;
     loaded_frames = 0;
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (!frame_has_data[fi]) {
@@ -1938,31 +1933,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    for (size_t i = 0; i < canvas_px; ++i) {
-      if (static_cast<int>(overlap_coverage_count_fallback[i]) >=
-          required_common_frames) {
-        common_valid_mask_fallback[i] = static_cast<uint8_t>(1);
-      }
-    }
   }
 
   auto &overlap_coverage_count = *overlap_coverage_count_ptr;
-  auto &common_valid_mask = *common_valid_mask_ptr;
+  std::vector<uint8_t> common_valid_mask;
   if (overlap_coverage_count.size() == canvas_px) {
-    reconstruction_valid_mask.assign(canvas_px, 0u);
-    for (size_t i = 0; i < canvas_px; ++i) {
-      if (overlap_coverage_count[i] > 0) {
-        reconstruction_valid_mask[i] = 1u;
-      }
-    }
+    auto masks = runner::compute_overlap_masks(overlap_coverage_count,
+                                               required_common_frames);
+    common_valid_mask = std::move(masks.analysis_common);
+    reconstruction_valid_mask = std::move(masks.reconstruction_support);
   } else {
-    reconstruction_valid_mask = common_valid_mask;
+    common_valid_mask.assign(canvas_px, 0u);
+    reconstruction_valid_mask.assign(canvas_px, 0u);
   }
   const bool aqmh_uses_reconstruction_canvas =
       cfg.aqmh.enabled && reconstruction_valid_mask.size() == canvas_px;
   const std::vector<uint8_t> &aqmh_canvas_valid_mask =
       aqmh_uses_reconstruction_canvas ? reconstruction_valid_mask
                                       : common_valid_mask;
+  const std::vector<uint8_t> &output_valid_mask =
+      cfg.aqmh.enabled ? reconstruction_valid_mask : common_valid_mask;
 
   {
     size_t common_pixels = 0;
@@ -2043,6 +2033,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         static_cast<uint64_t>(aqmh_uses_reconstruction_canvas
                                   ? reconstruction_pixels
                                   : common_pixels);
+    overlap_artifact["analysis_mask"] =
+        (run_dir / "outputs" / "common_overlap_mask.fits").string();
+    overlap_artifact["output_mask"] =
+        (run_dir / "outputs" / "canvas_mask.fits").string();
+    overlap_artifact["output_mask_source"] =
+        cfg.aqmh.enabled ? "reconstruction_support" : "common_overlap";
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
             ? (static_cast<double>(common_pixels) /
@@ -2071,9 +2067,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                      overlap_artifact.dump(2));
 
     {
+      const fs::path common_mask_path =
+          run_dir / "outputs" / "common_overlap_mask.fits";
       const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_write_error;
-      if (!write_canvas_mask_fits(mask_path, common_valid_mask, canvas_height,
+      if (!write_canvas_mask_fits(common_mask_path, common_valid_mask,
+                                  canvas_height, canvas_width, first_hdr,
+                                  mask_write_error) ||
+          !write_canvas_mask_fits(mask_path, output_valid_mask, canvas_height,
                                   canvas_width, first_hdr, mask_write_error)) {
         emitter.phase_end(run_id, Phase::COMMON_OVERLAP, "error",
                           {{"reason", "canvas_mask_write_failed"},
@@ -2084,9 +2085,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::cerr << "Error: " << mask_write_error << std::endl;
         return 1;
       }
-      std::cout << "[COMMON_OVERLAP] Canvas mask saved: " << mask_path << " ("
-                << canvas_width << "x" << canvas_height << ", valid="
-                << common_pixels << "/" << canvas_px << ")" << std::endl;
+      std::cout << "[COMMON_OVERLAP] Analysis mask saved: "
+                << common_mask_path << " (" << canvas_width << "x"
+                << canvas_height << ", valid=" << common_pixels << "/"
+                << canvas_px << ")" << std::endl;
+      std::cout << "[COMMON_OVERLAP] Output canvas mask saved: " << mask_path
+                << " (valid="
+                << (cfg.aqmh.enabled ? reconstruction_pixels : common_pixels)
+                << "/" << canvas_px << ")" << std::endl;
       if (aqmh_uses_reconstruction_canvas) {
         std::cout << "[COMMON_OVERLAP] AQMH canvas uses reconstruction support "
                   << "(" << reconstruction_pixels << "/" << canvas_px
@@ -4826,8 +4832,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	            output_bg_g, output_bg_b, output_pedestal);
 	      }
 	      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
-	        if (static_cast<size_t>(k) >= common_valid_mask.size() ||
-	            common_valid_mask[static_cast<size_t>(k)] == 0) {
+	        if (static_cast<size_t>(k) >= output_valid_mask.size() ||
+	            output_valid_mask[static_cast<size_t>(k)] == 0) {
 	          recon_out.data()[k] = 0.0f;
 	        }
 	      }
@@ -5307,10 +5313,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           reconstruction_valid_mask.swap(cropped_recon_mask);
         }
 
+        const fs::path common_mask_path =
+            run_dir / "outputs" / "common_overlap_mask.fits";
         const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
         std::string mask_write_error;
-        if (!write_canvas_mask_fits(mask_path, common_valid_mask, crop_h, crop_w,
-                                    first_hdr, mask_write_error)) {
+        if (!write_canvas_mask_fits(common_mask_path, common_valid_mask, crop_h,
+                                    crop_w, first_hdr, mask_write_error) ||
+            !write_canvas_mask_fits(mask_path, output_valid_mask, crop_h,
+                                    crop_w, first_hdr, mask_write_error)) {
           emitter.phase_end(run_id, Phase::STACKING, "error",
                             {{"reason", "canvas_mask_write_failed"},
                              {"error", mask_write_error},
@@ -5321,9 +5331,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     << std::endl;
           return 1;
         }
-        std::cout << "[COMMON_OVERLAP] Canvas mask updated after crop: "
-                  << mask_path << " (" << crop_w << "x" << crop_h << ")"
-                  << std::endl;
+        std::cout << "[COMMON_OVERLAP] Analysis and output masks updated after "
+                     "crop: "
+                  << crop_w << "x" << crop_h << std::endl;
       }
     }
 
@@ -6278,9 +6288,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         const int hms_rows = static_cast<int>(R_out.rows());
         const int hms_cols = static_cast<int>(R_out.cols());
         const std::vector<uint8_t> *hms_mask = nullptr;
-        if (common_valid_mask.size() ==
+        if (output_valid_mask.size() ==
             static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols)) {
-          hms_mask = &common_valid_mask;
+          hms_mask = &output_valid_mask;
         }
 
         auto hms_diag = image::run_hypermetric_stretch_rgb(

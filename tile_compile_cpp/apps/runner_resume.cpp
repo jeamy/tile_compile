@@ -1010,7 +1010,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       // Rebuild the full AQMH common mask from the persisted per-frame masks.
       tile_compile::metrics::FrameValidMaskStore mask_store(
           run_dir / "cache" / "aqmh_masks", canvas_width, canvas_height);
-      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 1u);
+      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 0u);
       bool rebuilt_mask = false;
       for (size_t fi = 0; fi < frame_count; ++fi) {
         std::vector<uint8_t> frame_mask = mask_store.read(fi);
@@ -1020,7 +1020,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         rebuilt_mask = true;
         for (size_t i = 0; i < common_valid_mask.size(); ++i) {
           common_valid_mask[i] =
-              (common_valid_mask[i] != 0u && frame_mask[i] != 0u) ? 1u : 0u;
+              (common_valid_mask[i] != 0u || frame_mask[i] != 0u) ? 1u : 0u;
         }
       }
       if (!rebuilt_mask) {
@@ -1227,6 +1227,28 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {{"success", false}, {"status", "canvas_mask_invalid"}},
                        log_file);
       return 1;
+    }
+    std::vector<uint8_t> analysis_valid_mask = common_valid_mask;
+    const fs::path analysis_mask_path =
+        run_dir / "outputs" / "common_overlap_mask.fits";
+    if (fs::exists(analysis_mask_path)) {
+      std::string analysis_mask_error;
+      std::vector<uint8_t> loaded_analysis_mask;
+      if (!tile_compile::runner::load_canvas_mask_fits(
+              analysis_mask_path, first_synth.rows(), first_synth.cols(),
+              loaded_analysis_mask, analysis_mask_error)) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "analysis_mask_invalid"},
+                           {"analysis_mask", analysis_mask_path.string()},
+                           {"error", analysis_mask_error}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "analysis_mask_invalid"}},
+            log_file);
+        return 1;
+      }
+      analysis_valid_mask = std::move(loaded_analysis_mask);
     }
 
     int debayer_tile_offset_x = 0;
@@ -1525,6 +1547,20 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          log_file);
         return 1;
       }
+      if (analysis_valid_mask.size() != full_mask_px) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "analysis_mask_size_mismatch"},
+                           {"mask_pixels", static_cast<uint64_t>(
+                                               analysis_valid_mask.size())},
+                           {"expected_mask_pixels",
+                            static_cast<uint64_t>(full_mask_px)}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "analysis_mask_size_mismatch"}},
+            log_file);
+        return 1;
+      }
 
       stacking_crop_box = cfg.aqmh.enabled
           ? tile_compile::runner::compute_support_mask_bbox(
@@ -1564,6 +1600,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
         std::vector<uint8_t> cropped_mask(
             static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+        std::vector<uint8_t> cropped_analysis_mask(
+            static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
         for (int y = 0; y < crop_h; ++y) {
           const int sy = crop_y + y;
           const size_t src_row_off =
@@ -1574,14 +1612,21 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             const int sx = crop_x + x;
             cropped_mask[dst_row_off + static_cast<size_t>(x)] =
                 common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            cropped_analysis_mask[dst_row_off + static_cast<size_t>(x)] =
+                analysis_valid_mask[src_row_off + static_cast<size_t>(sx)];
           }
         }
         common_valid_mask.swap(cropped_mask);
+        analysis_valid_mask.swap(cropped_analysis_mask);
 
         std::string mask_write_error;
         if (!write_canvas_mask_fits(run_dir / "outputs" / "canvas_mask.fits",
                                     common_valid_mask, crop_h, crop_w, first_hdr,
-                                    mask_write_error)) {
+                                    mask_write_error) ||
+            !write_canvas_mask_fits(
+                run_dir / "outputs" / "common_overlap_mask.fits",
+                analysis_valid_mask, crop_h, crop_w, first_hdr,
+                mask_write_error)) {
           emitter.phase_end(run_id, Phase::STACKING, "error",
                             {{"reason", "canvas_mask_write_failed"},
                              {"error", mask_write_error}},
@@ -2376,9 +2421,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       std::string analysis_mask_error;
       int analysis_rows = 0;
       int analysis_cols = 0;
+      fs::path analysis_mask_path =
+          run_dir / "outputs" / "common_overlap_mask.fits";
+      if (!fs::exists(analysis_mask_path)) {
+        analysis_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+      }
       if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-              analysis_mask, analysis_rows, analysis_cols, analysis_mask_error)) {
+              analysis_mask_path, rgb.R, rgb.G, rgb.B, analysis_mask,
+              analysis_rows, analysis_cols, analysis_mask_error)) {
         emitter.phase_end(run_id, Phase::PCC, "error",
                           {{"reason", "analysis_mask_invalid"},
                            {"error", analysis_mask_error}},

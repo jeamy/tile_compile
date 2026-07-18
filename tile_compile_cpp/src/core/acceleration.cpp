@@ -275,6 +275,23 @@ void write_valid_outputs_from_mask(const cv::Mat &mask,
   }
 }
 
+void invalidate_matrix_outside_support(Matrix2Df &matrix,
+                                       const cv::Mat &support_mask) {
+  if (matrix.rows() != support_mask.rows ||
+      matrix.cols() != support_mask.cols || support_mask.type() != CV_8U) {
+    return;
+  }
+  const float invalid = std::numeric_limits<float>::quiet_NaN();
+  for (int y = 0; y < support_mask.rows; ++y) {
+    const uchar *mask_row = support_mask.ptr<uchar>(y);
+    for (int x = 0; x < support_mask.cols; ++x) {
+      if (mask_row[x] == 0) {
+        matrix(y, x) = invalid;
+      }
+    }
+  }
+}
+
 /// @brief Builds warped support mask.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -2365,6 +2382,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
         (dst_x + copy_w) <= canvas_width) {
       mask(cv::Rect(dst_x, dst_y, copy_w, copy_h)).setTo(cv::Scalar(255));
     }
+    invalidate_matrix_outside_support(warped_out, mask);
     write_valid_outputs_from_mask(mask, valid_mask_out, has_data_out);
   };
 
@@ -2378,6 +2396,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       support_mask = cv::Mat(canvas_height, canvas_width, CV_8U,
                              cv::Scalar(0));
     }
+    invalidate_matrix_outside_support(warped_out, support_mask);
     write_valid_outputs_from_mask(support_mask, valid_mask_out, has_data_out);
   };
 
