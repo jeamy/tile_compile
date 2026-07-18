@@ -1526,10 +1526,13 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         return 1;
       }
 
-      stacking_crop_box = tile_compile::runner::compute_nonzero_data_bbox(
-          recon, have_rgb_full ? &recon_R : nullptr,
-          have_rgb_full ? &recon_G : nullptr,
-          have_rgb_full ? &recon_B : nullptr);
+      stacking_crop_box = cfg.aqmh.enabled
+          ? tile_compile::runner::compute_support_mask_bbox(
+                common_valid_mask, full_rows, full_cols)
+          : tile_compile::runner::compute_nonzero_data_bbox(
+                recon, have_rgb_full ? &recon_R : nullptr,
+                have_rgb_full ? &recon_G : nullptr,
+                have_rgb_full ? &recon_B : nullptr);
       if (!stacking_crop_box.valid()) {
         emitter.phase_end(run_id, Phase::STACKING, "error",
                           {{"reason", "empty_valid_crop"},
@@ -1619,6 +1622,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           core::device_frame_batch_to_json(stacking_input_batch)},
          {"input_frames", static_cast<int>(valid_synth.size())},
          {"crop_applied", stacking_crop_applied},
+         {"crop_source", cfg.aqmh.enabled ? "reconstruction_support_mask"
+                                           : "nonzero_data_bbox"},
          {"crop_x", stacking_crop_box.x},
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},

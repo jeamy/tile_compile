@@ -17,6 +17,15 @@ subdirectories may add or override rules for their subtree.
   changes scoped to the request.
 - Do not use destructive Git or filesystem commands without explicit approval.
 
+## Running Services
+
+- Assume `tile_compile_web_backend` is always running and available at
+  `http://127.0.0.1:8080/ui` (Crow server: `http://127.0.0.1:8080`).
+- Assume the `tile_compile_pi_agent` sidecar is always running and listening at
+  `http://127.0.0.1:3001`.
+- Use these existing services when needed; do not start additional backend or
+  sidecar processes.
+
 ## Terminal Output
 
 **Alle Terminalkommandos nach `/tmp/out*.txt` umleiten und das Ergebnis aus

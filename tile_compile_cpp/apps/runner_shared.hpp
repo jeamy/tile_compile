@@ -64,6 +64,23 @@ int compute_adaptive_worker_count(
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
 
+/// Memory-aware worker plan for full-resolution AQMH quality-map generation.
+/// AQMH_MAPS allocates several full-canvas intermediate matrices per worker;
+/// its ordinary CPU worker heuristic must therefore be capped separately.
+struct AqmhMapWorkerPlan {
+  int requested_workers = 1;
+  int effective_workers = 1;
+  uint64_t memory_budget_bytes = 0;
+  uint64_t available_memory_bytes = 0;
+  uint64_t estimated_bytes_per_worker = 0;
+  bool memory_capped = false;
+};
+
+AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
+    const config::Config &cfg, size_t task_count,
+    const std::vector<std::filesystem::path> &frames, int width, int height,
+    uint64_t available_memory_bytes = 0);
+
 /// Determine default parallel workers for CPU bound tasks without memory capping.
 int default_parallel_workers(size_t items, int requested_workers = 0);
 
@@ -492,6 +509,10 @@ CropBox compute_nonzero_data_bbox(const Matrix2Df &luma,
                                   const Matrix2Df *r = nullptr,
                                   const Matrix2Df *g = nullptr,
                                   const Matrix2Df *b = nullptr);
+
+/// Find the axis-aligned bounding box of reconstructed support pixels.
+CropBox compute_support_mask_bbox(const std::vector<uint8_t> &support_mask,
+                                  int mask_rows, int mask_cols);
 
 /// Find the largest crop box supported by the common-valid mask and data planes.
 CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,

@@ -587,6 +587,7 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            apps/runner_shared.cpp
             tests/test_background_extraction.cpp
             tests/test_autobge.cpp
             tests/test_utils.cpp

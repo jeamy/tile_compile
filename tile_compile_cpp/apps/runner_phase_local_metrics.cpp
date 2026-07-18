@@ -396,9 +396,23 @@ bool run_phase_local_metrics(
         }
       }
 
-      const int aqmh_workers = compute_adaptive_worker_count(
-          cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
-      const int aqmh_effective_workers = aqmh_workers;
+      const auto aqmh_worker_plan = compute_aqmh_map_worker_plan(
+          cfg, frames.size(), frames, common_mask_width, common_mask_height);
+      const int aqmh_effective_workers = aqmh_worker_plan.effective_workers;
+      log_file << "[AQMH] memory worker cap: requested="
+               << aqmh_worker_plan.requested_workers
+               << " effective=" << aqmh_worker_plan.effective_workers
+               << " budget_mb="
+               << (aqmh_worker_plan.memory_budget_bytes / (1024ull * 1024ull))
+               << " available_mb="
+               << (aqmh_worker_plan.available_memory_bytes /
+                   (1024ull * 1024ull))
+               << " estimated_per_worker_mb="
+               << (aqmh_worker_plan.estimated_bytes_per_worker /
+                   (1024ull * 1024ull))
+               << " capped="
+               << (aqmh_worker_plan.memory_capped ? "true" : "false")
+               << std::endl;
       std::cout << "[AQMH] Using " << aqmh_effective_workers
                 << " parallel workers for quality-map computation"
                 << " cpu_workers=" << aqmh_effective_workers
@@ -629,6 +643,14 @@ bool run_phase_local_metrics(
       aqmh_artifact["global_sharpness_method"] =
           !frame_star_metrics.empty() ? "psf_wfwhm_inverted" : "laplacian_variance";
       aqmh_artifact["frames_total"] = static_cast<uint64_t>(frames.size());
+      aqmh_artifact["worker_plan"] = {
+          {"requested_workers", aqmh_worker_plan.requested_workers},
+          {"effective_workers", aqmh_worker_plan.effective_workers},
+          {"memory_budget_bytes", aqmh_worker_plan.memory_budget_bytes},
+          {"available_memory_bytes", aqmh_worker_plan.available_memory_bytes},
+          {"estimated_bytes_per_worker",
+           aqmh_worker_plan.estimated_bytes_per_worker},
+          {"memory_capped", aqmh_worker_plan.memory_capped}};
       aqmh_artifact["frames_written"] =
           static_cast<uint64_t>(aqmh_written.load(std::memory_order_relaxed));
       aqmh_artifact["diagnostics"] = core::json::array();

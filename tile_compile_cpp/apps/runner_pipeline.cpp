@@ -5237,10 +5237,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return 1;
       }
 
-      stacking_crop_box = runner::compute_nonzero_data_bbox(
-          recon, have_rgb_full ? &recon_R : nullptr,
-          have_rgb_full ? &recon_G : nullptr,
-          have_rgb_full ? &recon_B : nullptr);
+      stacking_crop_box = cfg.aqmh.enabled
+          ? runner::compute_support_mask_bbox(reconstruction_valid_mask,
+                                               full_rows, full_cols)
+          : runner::compute_nonzero_data_bbox(
+                recon, have_rgb_full ? &recon_R : nullptr,
+                have_rgb_full ? &recon_G : nullptr,
+                have_rgb_full ? &recon_B : nullptr);
       if (!stacking_crop_box.valid()) {
         const std::string msg =
             "crop_to_nonzero_bbox produced empty valid canvas";
@@ -5336,6 +5339,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           core::device_frame_batch_to_json(stacking_input_batch)},
          {"input_frames", static_cast<int>(stacking_input_count)},
          {"crop_applied", stacking_crop_applied},
+         {"crop_source", cfg.aqmh.enabled ? "reconstruction_support_mask"
+                                           : "nonzero_data_bbox"},
          {"crop_x", stacking_crop_box.x},
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},

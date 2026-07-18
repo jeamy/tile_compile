@@ -9,6 +9,8 @@
 #include <limits>
 #include <vector>
 
+#include <opencv2/imgproc.hpp>
+
 namespace tile_compile::reconstruction {
 namespace {
 
@@ -234,7 +236,28 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
             std::max(sigma, metrics::eps_scale(finite))
       : 0.0f;
   out.background_rms = sigma;
-  out.fwhm = metrics::measure_fwhm_from_image(image);
+  // FWHM is a scale-invariant comparison metric here, but its corner/PSF
+  // fitting cost grows sharply with the full canvas size. Keep the original
+  // image for background, seam, and star-tail metrics; use a bounded-size
+  // copy only for the FWHM estimate so validation remains usable on large
+  // astronomical canvases.
+  constexpr int max_fwhm_dimension = 800;
+  if (std::max(image.rows(), image.cols()) > max_fwhm_dimension) {
+    const float scale = static_cast<float>(max_fwhm_dimension) /
+                        static_cast<float>(std::max(image.rows(), image.cols()));
+    const int rows = std::max(1, static_cast<int>(std::lround(image.rows() * scale)));
+    const int cols = std::max(1, static_cast<int>(std::lround(image.cols() * scale)));
+    cv::Mat source(image.rows(), image.cols(), CV_32F,
+                   const_cast<float *>(image.data()),
+                   static_cast<size_t>(image.outerStride()) * sizeof(float));
+    Matrix2Df reduced(rows, cols);
+    cv::Mat target(rows, cols, CV_32F, reduced.data(),
+                   static_cast<size_t>(reduced.outerStride()) * sizeof(float));
+    cv::resize(source, target, target.size(), 0.0, 0.0, cv::INTER_AREA);
+    out.fwhm = metrics::measure_fwhm_from_image(reduced, 80, 8, 6);
+  } else {
+    out.fwhm = metrics::measure_fwhm_from_image(image);
+  }
   if (!std::isfinite(out.fwhm) || out.fwhm < 0.0f) out.fwhm = 0.0f;
   measure_star_tail_metrics_at_samples(image, stars, out);
   return out;

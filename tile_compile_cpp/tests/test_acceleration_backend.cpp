@@ -92,6 +92,78 @@ TEST_CASE("acceleration_backend_selection_keeps_cpu_requests") {
   REQUIRE_FALSE(selection.using_gpu);
 }
 
+TEST_CASE("aqmh_map_workers_are_not_capped_with_sufficient_memory") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+  reconstruction:
+    memory_budget_mb: 0
+  storage:
+    resolution_divisor: 2
+    max_resident_maps: 2
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382, 64ull * 1024ull * 1024ull * 1024ull);
+
+  REQUIRE(plan.requested_workers == 8);
+  REQUIRE(plan.effective_workers == plan.requested_workers);
+  REQUIRE_FALSE(plan.memory_capped);
+  REQUIRE(plan.estimated_bytes_per_worker > 0);
+}
+
+TEST_CASE("aqmh_map_workers_are_capped_only_when_available_memory_is_low") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382, 2ull * 1024ull * 1024ull * 1024ull);
+
+  REQUIRE(plan.requested_workers == 8);
+  REQUIRE(plan.effective_workers < plan.requested_workers);
+  REQUIRE(plan.effective_workers >= 1);
+  REQUIRE(plan.memory_capped);
+}
+
+TEST_CASE("aqmh_map_worker_cap_uses_explicit_reconstruction_budget") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+  reconstruction:
+    memory_budget_mb: 8192
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382);
+
+  REQUIRE(plan.memory_budget_bytes == 8192ull * 1024ull * 1024ull);
+  REQUIRE(plan.effective_workers >= 1);
+  REQUIRE(plan.effective_workers <= plan.requested_workers);
+}
+
 TEST_CASE("acceleration_backend_selection_auto_chooses_supported_stacking_backend") {
   const auto selection = tile_compile::core::select_acceleration_backend(
       "auto", tile_compile::core::AccelerationPhase::stacking);
