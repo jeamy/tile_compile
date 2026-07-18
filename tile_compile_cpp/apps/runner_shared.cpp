@@ -25,6 +25,13 @@
 #include <sys/stat.h>
 #include <windows.h>
 #include <fileapi.h>
+#elif defined(__APPLE__)
+#include <fcntl.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -362,6 +369,32 @@ uint64_t query_available_memory_bytes() {
   MEMORYSTATUSEX status{};
   status.dwLength = sizeof(status);
   return GlobalMemoryStatusEx(&status) ? status.ullAvailPhys : 0ull;
+#elif defined(__APPLE__)
+  mach_port_t host = mach_host_self();
+  vm_size_t page_size = 0;
+  if (host_page_size(host, &page_size) != KERN_SUCCESS || page_size == 0) {
+    mach_port_deallocate(mach_task_self(), host);
+    return 0ull;
+  }
+
+  vm_statistics64_data_t vm_stat{};
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  const kern_return_t result = host_statistics64(
+      host, HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vm_stat),
+      &count);
+  mach_port_deallocate(mach_task_self(), host);
+  if (result != KERN_SUCCESS) {
+    return 0ull;
+  }
+
+  // Include reclaimable inactive, speculative, and purgeable pages. This is
+  // the closest portable equivalent to Linux MemAvailable for worker sizing.
+  const uint64_t available_pages =
+      static_cast<uint64_t>(vm_stat.free_count) +
+      static_cast<uint64_t>(vm_stat.inactive_count) +
+      static_cast<uint64_t>(vm_stat.speculative_count) +
+      static_cast<uint64_t>(vm_stat.purgeable_count);
+  return available_pages * static_cast<uint64_t>(page_size);
 #else
   std::ifstream meminfo("/proc/meminfo");
   std::string key;
