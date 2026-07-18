@@ -966,7 +966,7 @@
                 2,
                 4
               ],
-              "default": 1,
+              "default": 2,
               "description": "Full resolution by default. Values 2 or 4 enable approximate storage and require the format-v2 full-resolution zero-veto sidecar."
             },
             "dtype": {
@@ -976,7 +976,7 @@
                 "uint16",
                 "uint8"
               ],
-              "default": "float32",
+              "default": "uint16",
               "description": "Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."
             },
             "max_resident_maps": {
@@ -1045,22 +1045,28 @@
               "type": "number",
               "exclusiveMinimum": 0,
               "exclusiveMaximum": 1,
-              "default": 0.05
+              "default": 0.03
             },
             "g_w_sharp": {
               "type": "number",
               "minimum": 0,
-              "default": 0.6
+              "default": 0.55
             },
             "g_w_snr": {
               "type": "number",
               "minimum": 0,
-              "default": 0.4
+              "default": 0.3
             },
             "g_w_background_penalty": {
               "type": "number",
               "minimum": 0,
-              "default": 0.3
+              "default": 0.25
+            },
+            "g_k_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.5,
+              "description": "Exponential weight scale factor. Controls separation between good and bad frames: G_f = max(g_floor, exp(g_k_scale * score)). Higher values give more weight to the best frames."
             }
           }
         },
@@ -1093,7 +1099,7 @@
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 1,
-              "default": 0.5
+              "default": 0.4
             },
             "min_n_eff": {
               "type": "number",
@@ -1121,7 +1127,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.35
+              "default": 0.30
             },
             "registration_cc_floor": {
               "type": "number",
@@ -1139,13 +1145,13 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.85
+              "default": 0.92
             },
             "registration_predicted_factor": {
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.35
+              "default": 0.50
             },
             "registration_chain_depth_penalty": {
               "type": "number",
@@ -1158,6 +1164,26 @@
               "minimum": 0,
               "maximum": 1,
               "default": 0.15
+            },
+            "structure_mask_low_q": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.40,
+              "description": "Gradient quantile mapped to structure mask = 0 (background). Lower values include more nebula structure in AQMH weighting."
+            },
+            "structure_mask_high_q": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.90,
+              "description": "Gradient quantile mapped to structure mask = 1 (full AQMH detail). Lower values give more pixels full AQMH benefit."
+            },
+            "structure_mask_blur_sigma_px": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 4.0,
+              "description": "Gaussian blur sigma for soft structure mask transition."
             }
           }
         },
@@ -1167,7 +1193,7 @@
             "max_seam_score_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.02
+              "default": 0.05
             },
             "max_fwhm_regression": {
               "type": "number",
@@ -1177,17 +1203,17 @@
             "max_background_rms_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.02
+              "default": 0.05
             },
             "max_tail11_abs_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.05
+              "default": 0.10
             },
             "max_elongation_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.05
+              "default": 0.08
             }
           }
         },

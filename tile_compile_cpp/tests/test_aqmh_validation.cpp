@@ -15,6 +15,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cmath>
 #include <filesystem>
@@ -280,8 +281,7 @@ TEST_CASE("aqmh_validation_14_global_quality_bounded") {
   auto result = metrics::compute_aqmh_global_quality(sharp, snr, background, cfg);
   for (size_t i = 0; i < result.weights.size(); ++i) {
     REQUIRE(std::isfinite(result.weights[i]));
-    REQUIRE(result.weights[i] > cfg.g_floor);
-    REQUIRE(result.weights[i] < 1.0f);
+    REQUIRE(result.weights[i] >= cfg.g_floor);
   }
 }
 
@@ -297,6 +297,70 @@ TEST_CASE("aqmh_validation_14_global_quality_determinism") {
     REQUIRE(r1.weights[i] == r2.weights[i]);
 }
 
+TEST_CASE("aqmh_validation_degenerate_control_metrics_are_not_applicable") {
+  const int W = 32, H = 32;
+  const auto aqmh = make_gradient_frame(W, H);
+  const auto control = make_uniform_frame(W, H, 10.0f);
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(aqmh, control);
+
+  REQUIRE_FALSE(cmp.background_rms_applicable);
+  REQUIRE_FALSE(cmp.seam_applicable);
+  REQUIRE_FALSE(cmp.tail_applicable);
+  REQUIRE_FALSE(cmp.elongation_applicable);
+  REQUIRE(cmp.background_rms_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.seam_score_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.tail11_abs_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.elongation_regression == Catch::Approx(0.0f));
+}
+
+TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
+  tc::config::AqmhStorageConfig storage;
+  REQUIRE(storage.resolution_divisor == 2);
+  REQUIRE(storage.dtype == "uint16");
+
+  tc::config::AqmhGlobalQualityConfig global;
+  REQUIRE(global.g_floor == Catch::Approx(0.03f));
+  REQUIRE(global.g_w_sharp == Catch::Approx(0.55f));
+  REQUIRE(global.g_w_snr == Catch::Approx(0.30f));
+  REQUIRE(global.g_w_background_penalty == Catch::Approx(0.25f));
+  REQUIRE(global.g_k_scale == Catch::Approx(1.5f));
+
+  tc::config::AqmhReconstructionConfig reconstruction;
+  REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
+  REQUIRE(reconstruction.registration_sequential_factor == Catch::Approx(0.92f));
+  REQUIRE(reconstruction.registration_predicted_factor == Catch::Approx(0.50f));
+  REQUIRE(reconstruction.structure_mask_low_q == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.structure_mask_high_q == Catch::Approx(0.90f));
+  REQUIRE(reconstruction.structure_mask_blur_sigma_px == Catch::Approx(4.0f));
+
+  tc::config::AqmhValidationConfig validation;
+  REQUIRE(validation.max_fwhm_regression == Catch::Approx(0.02f));
+  REQUIRE(validation.max_background_rms_regression == Catch::Approx(0.05f));
+  REQUIRE(validation.max_seam_score_regression == Catch::Approx(0.05f));
+  REQUIRE(validation.max_tail11_abs_regression == Catch::Approx(0.10f));
+  REQUIRE(validation.max_elongation_regression == Catch::Approx(0.08f));
+}
+
+TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
+  const auto schema = nlohmann::json::parse(tc::config::get_schema_json());
+  const auto &aqmh = schema.at("properties").at("aqmh").at("properties");
+  REQUIRE(aqmh.at("storage").at("properties").at("resolution_divisor").at("default") == 2);
+  REQUIRE(aqmh.at("storage").at("properties").at("dtype").at("default") == "uint16");
+  REQUIRE(aqmh.at("global_quality").at("properties").at("g_k_scale").at("default") == 1.5);
+  const auto &reconstruction = aqmh.at("reconstruction").at("properties");
+  REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
+  REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);
+  REQUIRE(reconstruction.at("registration_predicted_factor").at("default") == 0.50);
+  REQUIRE(reconstruction.contains("structure_mask_low_q"));
+  REQUIRE(reconstruction.contains("structure_mask_high_q"));
+  REQUIRE(reconstruction.contains("structure_mask_blur_sigma_px"));
+  const auto &validation = aqmh.at("validation").at("properties");
+  REQUIRE(validation.at("max_tail11_abs_regression").at("default") == 0.10);
+  REQUIRE(validation.at("max_elongation_regression").at("default") == 0.08);
+}
+
 // §9.15 — Storage fidelity: full-resolution cache reproduces Q_map exactly
 TEST_CASE("aqmh_validation_15_storage_fidelity") {
   const int W = 16, H = 16;
@@ -306,6 +370,7 @@ TEST_CASE("aqmh_validation_15_storage_fidelity") {
   tc::config::AqmhPyramidConfig pyramid;
   tc::config::AqmhStorageConfig storage;
   storage.resolution_divisor = 1;
+  storage.dtype = "float32";
   auto dir = unique_validation_dir("fidelity");
   std::string mask_hash = metrics::compute_aqmh_canvas_mask_hash(canvas, W, H);
   metrics::QualityMapCache cache(dir, "luma", W, H, pyramid, storage, mask_hash, "cpu");

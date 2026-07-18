@@ -332,11 +332,10 @@
   gap: var(--space-1);
   width: max-content;
   max-width: 100%;
-  padding: 3px;
-  /* border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);*/
+  padding: 4px;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
-  /* box-shadow: inset 0 1px 0 rgba(255,255,255,0.36); */
+  background: var(--bg-page);
 }
 
 .tc-tab {
@@ -345,10 +344,10 @@
   align-items: center;
   justify-content: center;
   min-height: 32px;
-  padding: 6px var(--space-3);
+  padding: 6px var(--space-4);
   font-size: var(--text-sm);
   font-family: var(--font-ui);
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1.2;
   border: 0;
   border-radius: 999px;
@@ -358,14 +357,13 @@
   transition:
     background-color var(--transition),
     box-shadow var(--transition),
-    color var(--transition),
-    transform var(--transition);
+    color var(--transition);
   white-space: nowrap;
 }
 
 .tc-tab:hover {
   color: var(--foreground);
-  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
 }
 
 .tc-tab:focus-visible {
@@ -376,7 +374,8 @@
 .tc-tab.active {
   background: var(--surface);
   color: var(--foreground);
-  box-shadow: var(--shadow-sm), inset 0 0 0 1px color-mix(in srgb, var(--border) 66%, transparent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* ── Progress ───────────────────────────────────── */

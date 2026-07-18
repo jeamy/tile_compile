@@ -12,9 +12,19 @@
 namespace tile_compile::reconstruction {
 namespace {
 
+// Safe regression: returns 0 when both values are degenerate (near-zero or
+// non-finite). This prevents artificial large regressions when control has
+// no meaningful signal (e.g. background_rms=0 on a synthetic image, or
+// tail metrics on a star-free field).
 float regression(float value, float control) {
-  return (value - control) /
-         std::max(std::abs(control), metrics::eps_scale({value, control}));
+  if (!std::isfinite(value) || !std::isfinite(control))
+    return 0.0f;
+  const float denom = std::max(std::abs(control),
+                               metrics::eps_scale({value, control}));
+  // If both value and control are near-zero, the regression is meaningless.
+  if (std::abs(value) < 1.0e-12f && std::abs(control) < 1.0e-12f)
+    return 0.0f;
+  return (value - control) / denom;
 }
 
 struct StarSample {
@@ -234,6 +244,36 @@ AqmhValidationComparison compare_aqmh_to_uniform_control(
                                          out.control.tail11_abs_median);
   out.elongation_regression = regression(out.aqmh.elongation_median,
                                          out.control.elongation_median);
+
+  // Applicability: metrics are only comparable when the control side has a
+  // finite, non-degenerate reference value. Non-applicable metrics must never
+  // trigger fallback decisions.
+  out.fwhm_applicable = out.aqmh.fwhm > 0.0f && out.control.fwhm > 0.0f;
+  const float seam_eps = metrics::eps_scale(
+      {out.aqmh.seam_score, out.control.seam_score});
+  out.seam_applicable =
+      std::isfinite(out.aqmh.seam_score) &&
+      std::isfinite(out.control.seam_score) &&
+      out.control.seam_score > std::max(seam_eps, 1.0e-12f);
+  const float background_eps = metrics::eps_scale(
+      {out.aqmh.background_rms, out.control.background_rms});
+  out.background_rms_applicable =
+      std::isfinite(out.aqmh.background_rms) &&
+      std::isfinite(out.control.background_rms) &&
+      out.control.background_rms > std::max(background_eps, 1.0e-12f);
+  // Tail and elongation require sufficient stars in BOTH images
+  constexpr int min_stars_for_tail = 12;
+  out.tail_applicable = out.aqmh.star_count >= min_stars_for_tail &&
+                        out.control.star_count >= min_stars_for_tail;
+  out.elongation_applicable = out.tail_applicable;
+
+  // Zero out regressions for non-applicable metrics to prevent spurious triggers
+  if (!out.fwhm_applicable) out.fwhm_regression = 0.0f;
+  if (!out.seam_applicable) out.seam_score_regression = 0.0f;
+  if (!out.background_rms_applicable) out.background_rms_regression = 0.0f;
+  if (!out.tail_applicable) out.tail11_abs_regression = 0.0f;
+  if (!out.elongation_applicable) out.elongation_regression = 0.0f;
+
   return out;
 }
 

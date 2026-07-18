@@ -22,6 +22,13 @@ struct AqmhValidationComparison {
   float background_rms_regression = 0.0f;
   float tail11_abs_regression = 0.0f;
   float elongation_regression = 0.0f;
+  // Gate applicability: false means the metric could not be reliably computed
+  // (e.g. too few stars) and must not trigger a fallback.
+  bool fwhm_applicable = true;
+  bool seam_applicable = true;
+  bool background_rms_applicable = true;
+  bool tail_applicable = false;       // requires sufficient star_count in both images
+  bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
 AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image);

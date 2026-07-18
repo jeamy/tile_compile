@@ -851,19 +851,24 @@ properties:
             type: number
             exclusiveMinimum: 0
             exclusiveMaximum: 1
-            default: 0.05
+            default: 0.03
           g_w_sharp:
             type: number
             minimum: 0
-            default: 0.6
+            default: 0.55
           g_w_snr:
             type: number
             minimum: 0
-            default: 0.4
+            default: 0.3
           g_w_background_penalty:
             type: number
             minimum: 0
-            default: 0.3
+            default: 0.25
+          g_k_scale:
+            type: number
+            exclusiveMinimum: 0
+            default: 1.5
+            description: Exponential weight scale factor. Controls separation between good and bad frames.
       reconstruction:
         type: object
         properties:
@@ -912,7 +917,7 @@ properties:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.35
+            default: 0.30
           registration_cc_floor:
             type: number
             minimum: 0
@@ -927,12 +932,12 @@ properties:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.85
+            default: 0.95
           registration_predicted_factor:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.35
+            default: 0.55
           registration_chain_depth_penalty:
             type: number
             minimum: 0
@@ -943,13 +948,30 @@ properties:
             minimum: 0
             maximum: 1
             default: 0.15
+          structure_mask_low_q:
+            type: number
+            minimum: 0
+            maximum: 1
+            default: 0.40
+            description: Gradient quantile mapped to structure mask = 0 (background).
+          structure_mask_high_q:
+            type: number
+            minimum: 0
+            maximum: 1
+            default: 0.90
+            description: Gradient quantile mapped to structure mask = 1 (full AQMH detail).
+          structure_mask_blur_sigma_px:
+            type: number
+            exclusiveMinimum: 0
+            default: 4.0
+            description: Gaussian blur sigma for soft structure mask transition.
       validation:
         type: object
         properties:
           max_seam_score_regression:
             type: number
             minimum: 0
-            default: 0.02
+            default: 0.05
           max_fwhm_regression:
             type: number
             minimum: 0
@@ -957,15 +979,15 @@ properties:
           max_background_rms_regression:
             type: number
             minimum: 0
-            default: 0.02
+            default: 0.05
           max_tail11_abs_regression:
             type: number
             minimum: 0
-            default: 0.05
+            default: 0.08
           max_elongation_regression:
             type: number
             minimum: 0
-            default: 0.05
+            default: 0.08
       diagnostics:
         type: object
         properties:

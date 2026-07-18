@@ -12,7 +12,7 @@
 
 Version `v0.2.1` is a strict superset of `v0.2.0`. All mathematical definitions,
 invariants, normative defaults and diagnostic requirements of `v0.2.0` remain
-binding. `v0.2.1` formalises four additions that were introduced in the
+binding. `v0.2.1` formalises three main additions that were introduced in the
 reference implementation after the `v0.2.0` baseline:
 
 1. **Background-gradient penalty in global frame quality (§1.5, §4.2).**  
@@ -21,7 +21,7 @@ reference implementation after the `v0.2.0` baseline:
    derived from a quadrant-based sky-gradient estimator, not from the AQMH
    quality map itself. It is therefore documented as a permitted
    **cross-infrastructure extension** that remains compatible with the AQMH
-   independence principle (§0.3).
+   independence principle (§0.4).
 
 2. **Registration-weight guard (§4.3).**  
    Before the per-pixel weighted reconstruction, each frame's global AQMH
@@ -40,18 +40,49 @@ reference implementation after the `v0.2.0` baseline:
    not, the raw AQMH output or a safe uniform-control blend is used.
 
 The goal of these additions is to preserve the v0.2.0 pixel-quality model
-while reducing two practical failure modes:
+while reducing three practical failure modes:
 
 - Large-scale background gradients that would otherwise dominate the final
   stack because every frame shares a similar additive gradient.
 - Residual registration weakness (low correlation or deep chain-predicted frames)
-  being amplified by high AQHM quality scores.
+  being amplified by high AQMH quality scores.
 - Low-frequency "veil" or background non-linearity introduced by the
   weighted reconstruction itself.
 
+### 0.2 Gate Applicability Clarification (2026-07-18)
+
+The validation gates introduced by `v0.2.1` are only meaningful for metrics
+that are finite and comparable in both the AQMH candidate and the uniform
+control. A metric whose control value is non-finite, missing, or numerically
+degenerate must be reported as `not_applicable`; it must not be converted into
+an artificial hard failure.
+
+This clarification is object-agnostic. Implementations must not special-case
+individual targets or object names. The same applicability rules must work for
+bright emission nebulae, faint galaxies, large galaxy arms, star clusters,
+high-latitude dust/IFN fields and sparse star fields. Scene content may affect
+whether a metric is applicable; it must not change the mathematical meaning of
+the metric.
+
+In particular:
+
+- Relative regression must not be computed from a zero or near-zero control
+  denominator without an explicit absolute fallback threshold.
+- `null`/`NaN` seam scores are diagnostic values, not valid veto values.
+- Star-tail and elongation gates require enough comparable star samples in both
+  candidates.
+- Final selection may use asymmetric tradeoffs: a clear primary improvement
+  (e.g. FWHM or elongation) may tolerate bounded secondary regressions
+  (background, seam, tail) when those secondary metrics are applicable and
+  reported.
+- Structure preservation must be evaluated over more than the brightest
+  high-gradient pixels. Faint galaxy arms, dust lanes and diffuse nebula
+  structures are valid signal and must not be treated as background solely
+  because their gradients fall below a high global quantile.
+
 ---
 
-## 0.2 Independence and Shared Infrastructure
+## 0.3 Independence and Shared Infrastructure
 
 AQMH remains an **independent reconstruction method**. It may reuse shared
 pipeline infrastructure, but its quality model and reconstruction weights are
@@ -75,7 +106,7 @@ The AQMH algorithm itself consists of:
 Classic Tile Compile and AQMH must remain runnable independently. Enabling or
 disabling one method must not change the mathematical definition of the other.
 
-### 0.3 Cross-Infrastructure Extensions
+### 0.4 Cross-Infrastructure Extensions
 
 `v0.2.1` explicitly allows the following carefully scoped inputs from shared
 infrastructure, provided they are documented and do not replace AQMH-native
@@ -474,7 +505,17 @@ to `U(p)` using the same metrics as v0.2.0 validation:
 - `tail11_abs_regression`
 - `elongation_regression`
 
-These comparisons are recorded in `aqmh_reconstruction.json`.
+These comparisons are recorded in `aqmh_reconstruction.json`. Each metric must
+also record an applicability state:
+
+```
+status = pass | fail | not_applicable
+```
+
+`not_applicable` is required when either side of the comparison is missing,
+non-finite, has too few samples, or would require a relative regression against
+a zero/near-zero control denominator. A `not_applicable` metric is diagnostic
+only and must not by itself trigger fallback to uniform control.
 
 ### 6.3 Adaptive Low-Frequency Neutralisation
 
@@ -490,18 +531,21 @@ The blur uses a reflect-101 border mode. The sigma of 96 px was chosen
 empirically to target large-scale "veil" residuals without affecting
 structure on smaller scales.
 
-A validation comparison `compare(N, U)` is computed. `N(p)` is selected as the
-base over `A(p)` if and only if its background RMS regression is strictly
-smaller:
+A validation comparison `compare(N, U)` is computed. `N(p)` may be selected as
+the base over `A(p)` only when the background RMS metric is applicable and its
+regression is strictly smaller:
 
 ```
 background_rms_regression(N, U) < background_rms_regression(A, U)
 ```
 
-The configured background threshold is recorded as a diagnostic gate at this
-stage; the final structure candidate and final output are subject to the full
-validation gates in §6.4 and §6.5. The selected base image is called `B(p)`
-(either `A(p)` or `N(p)`).
+If the raw AQMH candidate already passes applicable background gates, the
+neutralised candidate must not replace it unless it also preserves the primary
+image-quality metrics used by the final selector. The configured background
+threshold is recorded as a diagnostic gate at this stage; the final structure
+candidate and final output are subject to the applicable validation gates in
+§6.4 and §6.5. The selected base image is called `B(p)` (either `A(p)` or
+`N(p)`).
 
 **Rationale.** The per-pixel weighted mean can, in rare cases, create a
 low-frequency residual that is smoother than the true background. Subtracting
@@ -527,7 +571,15 @@ from `B(p)`:
    In high-structure regions (`M_s ≈ 1`) `D(p)` follows the AQMH base; in
    smooth regions (`M_s ≈ 0`) it follows the uniform control.
 
-`D(p)` is accepted if it passes all validation thresholds:
+The structure mask is a scene-independent signal-confidence estimate, not a
+nebula-specific heuristic. Implementations may extend it with additional
+deterministic multi-scale structure measures (for example DoG/Laplacian or
+background-mask-aware faint-structure confidence), provided that all components
+are reported and no object-specific rules are used. This is important for
+galaxies, where scientifically relevant spiral arms and dust lanes often occupy
+mid-gradient percentile ranges rather than only the top gradient quantiles.
+
+`D(p)` is accepted if it passes all applicable validation thresholds:
 
 ```
 background_rms_regression(D, U) <= max_background_rms_regression
@@ -546,7 +598,7 @@ If `D(p)` fails, an **alpha-blended attenuation** search is performed over
 D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
 ```
 
-The largest `alpha` that satisfies the validation thresholds and improves
+The largest `alpha` that satisfies the applicable validation thresholds and improves
 FWHM or seam score is selected. If no `alpha > 0` passes, the base `B(p)` is
 kept.
 
@@ -559,15 +611,15 @@ time against `U(p)`. If:
 background_rms_regression(O, U) > max_background_rms_regression
 ```
 
-or any other configured threshold is exceeded, the runner may fall back to a
-uniform-control blend:
+or any other applicable configured threshold is exceeded, the runner may fall
+back to a uniform-control blend:
 
 ```
 O_blend(p) = beta * O(p) + (1 - beta) * U(p)
 ```
 
 with `beta` chosen by a binary search over `[0, 1]` for the largest `beta`
-that satisfies all thresholds. The operation is recorded in
+that satisfies all applicable thresholds. The operation is recorded in
 `aqmh_reconstruction.json` as `fallback_to_uniform_control` and
 `uniform_control_blend_alpha`. If no `beta > 0` satisfies the thresholds, the
 run falls back entirely to `U(p)`.
@@ -599,6 +651,10 @@ uniform-control mean. Regression thresholds remain:
 - `max_background_rms_regression = 0.02`
 - `max_tail11_abs_regression = 0.05`
 - `max_elongation_regression = 0.05`
+
+These thresholds apply only to metrics whose applicability state is `pass` or
+`fail`. Metrics reported as `not_applicable` are excluded from the hard veto and
+must carry a reason string in the diagnostic artifact.
 
 ### 7.2 Zero-Veto Test
 

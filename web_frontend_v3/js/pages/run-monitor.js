@@ -260,7 +260,9 @@ function createRunMonitorTabs(resumePanel, runChatPanel, logPanel) {
     style: index === 0 ? "" : "display:none",
   }, tab.node));
   return el("div", { class: "tc-flex-col tc-gap-3", id: "run-monitor-work-tabs" },
-    el("div", { class: "tc-tabs", role: "tablist" }, ...tabButtons),
+    el("div", { class: "tc-subtab-bar" },
+      el("div", { class: "tc-subtab-list tc-tabs", role: "tablist" }, ...tabButtons),
+    ),
     ...panels,
   );
 }
@@ -426,10 +428,10 @@ function monitorStringListSection(title, items) {
   );
 }
 
-function applyResumeRecommendation(phase, statusEl = null) {
+async function applyResumeRecommendation(phase, statusEl = null) {
   if (!phase) return;
   selectPhase(phase, { notify: false });
-  onPhaseSelected(phase, activeLogViewer);
+  await onPhaseSelected(phase, activeLogViewer);
   if (statusEl) statusEl.textContent = t("ui.message.phase_selected", "Phase ausgewählt");
 }
 
