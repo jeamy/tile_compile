@@ -1399,9 +1399,19 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     std::vector<TileMetrics> tile_metrics = measure_bge_tile_metrics(rgb.R, rgb.G, rgb.B, grid);
     image::BGEConfig bge_cfg = runner::to_image_bge_config(bge_source);
     bge_cfg.max_workers = cfg.runtime_limits.parallel_workers;
-    bge_cfg.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
-    bge_cfg.common_mask_rows = rgb.R.rows();
-    bge_cfg.common_mask_cols = rgb.R.cols();
+    std::string bge_mask_error;
+    if (!runner::load_canvas_mask_for_rgb(
+            output_dir / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+            bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
+            bge_cfg.common_mask_cols, bge_mask_error)) {
+      add_phase_result(result.phases, "BGE", "error",
+                       {{"reason", "output_canvas_mask_invalid"},
+                        {"error", bge_mask_error}});
+      emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::BGE), "error",
+                        result.phases.back(), event_out);
+      throw std::runtime_error("BGE output canvas mask is invalid: " +
+                               bge_mask_error);
+    }
     runner::apply_autobge_exclusion_polygons(
         bge_source, rgb.R.rows(), rgb.R.cols(), bge_cfg);
     image::BGEDiagnostics diag;
@@ -1502,10 +1512,32 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     } else {
       auto rgb = io::read_fits_rgb(current_rgb);
       astro::PCCConfig pc = runner::to_astrometry_pcc_config(pcc_config);
-      pc.common_valid_mask.assign(static_cast<size_t>(rgb.R.rows() * rgb.R.cols()), 1);
-      pc.output_valid_mask = pc.common_valid_mask;
-      pc.common_mask_rows = pc.output_mask_rows = rgb.R.rows();
-      pc.common_mask_cols = pc.output_mask_cols = rgb.R.cols();
+      std::string output_mask_error;
+      if (!runner::load_canvas_mask_for_rgb(
+              output_dir / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+              pc.output_valid_mask, pc.output_mask_rows, pc.output_mask_cols,
+              output_mask_error)) {
+        add_phase_result(result.phases, "PCC", "error",
+                         {{"reason", "output_canvas_mask_invalid"},
+                          {"error", output_mask_error}});
+        emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::PCC), "error",
+                          result.phases.back(), event_out);
+        throw std::runtime_error("PCC output canvas mask is invalid: " +
+                                 output_mask_error);
+      }
+      std::string analysis_mask_error;
+      if (!runner::load_canvas_mask_for_rgb(
+              output_dir / "common_overlap_mask.fits", rgb.R, rgb.G, rgb.B,
+              pc.common_valid_mask, pc.common_mask_rows, pc.common_mask_cols,
+              analysis_mask_error)) {
+        add_phase_result(result.phases, "PCC", "error",
+                         {{"reason", "analysis_mask_invalid"},
+                          {"error", analysis_mask_error}});
+        emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::PCC), "error",
+                          result.phases.back(), event_out);
+        throw std::runtime_error("PCC analysis mask is invalid: " +
+                                 analysis_mask_error);
+      }
       astro::PCCResult pcc = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, catalog.stars, pc);
       result.pcc_diag_path = artifact_dir / "pcc_diagnostics.json";
       json pcc_diag = {

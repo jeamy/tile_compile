@@ -445,3 +445,33 @@ Die v0.2.1-Invariante §1.3.8 ("Neutralisation must be validation-gated") ist ko
 > (Background, Tail, Seam) innerhalb definierter Grenzen tolerieren.
 
 Dies bleibt konform mit dem Nicht-Halluzinations-Prinzip und der Determinismus-Invariante, gibt aber dem Qualitätsmodell den Raum, seinen Mehrwert tatsächlich zu liefern.
+
+---
+
+## 7. Korrektur nach `M42-default-tuning-5_20260719_115158`
+
+Der Run belegt einen weiteren konkreten Logikfehler. Raw AQMH wurde wegen
+`background_rms_regression = 0.512099` durch eine binär gesuchte Mischung mit
+Uniform Control auf `alpha = 0.105469` abgeschwächt. Das ausgegebene Luminanzbild
+enthielt damit nur rund 10,5 % des AQMH-Kandidaten. Dieser Entscheidungsweg wurde
+erst nach dem guten Vergleichsrun `m42_20260703_083337` eingeführt.
+
+Die bisherige Metrik maß `background_rms` als `1,4826 * MAD` aller Bildpixel.
+Das ist die globale Bildspreizung und kein Hintergrundrauschen: diffuse Nebel,
+Galaxienarme und IFN erhöhen den Wert absichtlich. Der Gate-Entscheid konnte
+dadurch reales Signal als Rauschregression klassifizieren. Gleichzeitig war der
+Vergleich gegen Raw AQMH einseitig; Signalverlust senkte die Metrik und erschien
+daher als Verbesserung.
+
+Die verbindliche Korrektur lautet:
+
+1. `background_rms` wird aus robusten lokalen Pixel-Differenzen bestimmt, sodass
+   langsam veränderliche astronomische Struktur nicht als Rauschen zählt.
+2. Uniform Control ist ausschließlich eine diagnostische Referenz und niemals
+   ein finaler Ersatz- oder Attenuierungskandidat.
+3. Besteht ein AQMH-Nachbearbeitungskandidat das Gate nicht, wird die
+   unveränderliche Raw-AQMH-Baseline samt ihrer Gewichtssumme ausgegeben.
+
+Damit kann ein Gate weiterhin eine riskante Nachbearbeitung verwerfen, aber
+nicht mehr die eigentliche AQMH-Rekonstruktion durch ein signalärmeres
+Uniform-Control-Ergebnis ersetzen.

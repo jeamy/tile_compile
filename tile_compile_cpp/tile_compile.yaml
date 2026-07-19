@@ -1,7 +1,6 @@
 method: aqmh
 pipeline:
   mode: production
-  abort_on_fail: true
 output:
   registered_dir: registered
   write_registered_frames: false
@@ -12,10 +11,9 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  flat_master: ""
   dark_master: ""
   darks_dir: ""
-  flats_dir: ""
+  use_bias: false
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -27,11 +25,13 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
+  flats_dir: ""
+  flat_master: ""
+assumptions:
   frames_min: 50
   frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
-  use_bias: false
 normalization:
   enabled: true
   mode: background
@@ -100,13 +100,13 @@ aqmh:
   reconstruction:
     clip_sigma: 2
     clip_sigma_low: 2
-    clip_sigma_high: 1.5
+    clip_sigma_high: 2
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2
     chunk_rows: 0
     memory_budget_mb: 0
-    delete_prewarped_cache_after_run: true
+    delete_prewarped_cache_after_run: false
     registration_weight_guard: true
     registration_weight_floor: 0.3
     registration_cc_floor: 0.35
@@ -115,6 +115,9 @@ aqmh:
     registration_predicted_factor: 0.5
     registration_chain_depth_penalty: 0.03
     registration_chain_depth_max_penalty: 0.15
+    structure_mask_low_q: 0.4
+    structure_mask_high_q: 0.9
+    structure_mask_blur_sigma_px: 4
   cherry_pick:
     enabled: false
     k_frac: 0.5
@@ -220,7 +223,7 @@ stacking:
   method: rej
   common_overlap_required_fraction: 1
   tile_common_valid_min_fraction: 1
-  output_stretch: true
+  output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true

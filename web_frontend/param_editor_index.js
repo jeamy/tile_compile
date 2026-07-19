@@ -1105,13 +1105,6 @@ window.PARAM_EDITOR_INDEX = [
   },
   {
     "category": "pipeline",
-    "path": "pipeline.abort_on_fail",
-    "source": "schema",
-    "type": "boolean",
-    "yaml_default": false
-  },
-  {
-    "category": "pipeline",
     "enum": [
       "production",
       "test"

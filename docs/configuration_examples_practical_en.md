@@ -66,10 +66,10 @@ aqmh:
     g_w_background_penalty: 0.25
     g_k_scale: 1.5         # bounded sigmoid temperature
   reconstruction:
-    delete_prewarped_cache_after_run: true  # false to resume from AQMH_RECONSTRUCTION/STACKING
+    delete_prewarped_cache_after_run: true  # false to retain cache/prewarped_frames for resume
     clip_sigma: 2.0
     clip_sigma_low: 2.0
-    clip_sigma_high: 1.5
+    clip_sigma_high: 2.0
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0

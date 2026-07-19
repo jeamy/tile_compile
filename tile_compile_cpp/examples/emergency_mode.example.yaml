@@ -15,7 +15,6 @@ log_level: info # trace|debug|info|warn|error
 
 pipeline:
   mode: production # production|test
-  abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
 
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
@@ -355,7 +354,7 @@ aqmh:
   reconstruction:
     clip_sigma: 2.0
     clip_sigma_low: 2.0
-    clip_sigma_high: 1.5
+    clip_sigma_high: 2.0
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0

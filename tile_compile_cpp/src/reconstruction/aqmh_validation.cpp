@@ -43,6 +43,36 @@ float percentile(std::vector<float> values, float q) {
   return values[idx];
 }
 
+float robust_local_noise_sigma(const Matrix2Df &image) {
+  if (image.rows() <= 0 || image.cols() <= 0) return 0.0f;
+
+  // First differences reject slowly varying astronomical signal while
+  // retaining pixel-scale noise. Their sigma is sqrt(2) times source noise.
+  std::vector<float> differences;
+  differences.reserve(static_cast<size_t>(image.rows()) *
+                      static_cast<size_t>(image.cols()) * 2u);
+  constexpr float inv_sqrt_two = 0.7071067811865475f;
+  for (int y = 0; y < image.rows(); ++y) {
+    for (int x = 0; x < image.cols(); ++x) {
+      const float v = image(y, x);
+      if (!std::isfinite(v)) continue;
+      if (x + 1 < image.cols()) {
+        const float right = image(y, x + 1);
+        if (std::isfinite(right))
+          differences.push_back((v - right) * inv_sqrt_two);
+      }
+      if (y + 1 < image.rows()) {
+        const float below = image(y + 1, x);
+        if (std::isfinite(below))
+          differences.push_back((v - below) * inv_sqrt_two);
+      }
+    }
+  }
+  if (differences.empty()) return 0.0f;
+  const float median = metrics::aqmh_median(differences);
+  return 1.4826f * metrics::aqmh_mad(differences, median);
+}
+
 std::vector<StarSample> detect_validation_stars(const Matrix2Df &image) {
   constexpr int border = 16;
   constexpr int max_stars = 250;
@@ -235,7 +265,7 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
       ? static_cast<float>(gradient_sum / gradient_count) /
             std::max(sigma, metrics::eps_scale(finite))
       : 0.0f;
-  out.background_rms = sigma;
+  out.background_rms = robust_local_noise_sigma(image);
   // FWHM is a scale-invariant comparison metric here, but its corner/PSF
   // fitting cost grows sharply with the full canvas size. Keep the original
   // image for background, seam, and star-tail metrics; use a bounded-size

@@ -12,7 +12,6 @@ namespace fs = std::filesystem;
 
 struct PipelineConfig {
   std::string mode = "production";
-  bool abort_on_fail = true;
 };
 
 struct OutputConfig {
@@ -262,7 +261,7 @@ struct AqmhGlobalQualityConfig {
 struct AqmhReconstructionConfig {
   float clip_sigma = 2.0f;
   float clip_sigma_low = 2.0f;
-  float clip_sigma_high = 1.5f;
+  float clip_sigma_high = 2.0f;
   int clip_iterations = 4;
   float min_fraction = 0.4f;
   float min_n_eff = 2.0f;

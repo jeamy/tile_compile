@@ -89,20 +89,6 @@ Grundlegende Pipeline-Steuerung.
 
 ---
 
-### `pipeline.abort_on_fail`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** Bestimmt, ob die Pipeline bei kritischen Fehlern sofort abbricht.
-
-- **`true`**: Pipeline stoppt bei `phase_end(error)` — empfohlen für Produktion
-- **`false`**: Pipeline versucht fortzufahren (nützlich für Debugging, um alle Phasen-Outputs zu erhalten)
-
----
-
 ## 2. Output
 
 Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben werden.
@@ -1759,9 +1745,9 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 1.5` |
+| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 2.0` |
 
-**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Die strengere Obergrenze unterdrückt positive Ausreißer. Wird nur `clip_sigma` gesetzt, wird es aus Kompatibilitätsgründen auf beide Grenzen übertragen; die aktuelle Baseline verwendet die expliziten Low-/High-Defaults.
+**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Die symmetrische Baseline `2.0/2.0` verhindert einen negativen Helligkeitsbias bei wiederholtem Clipping diffuser Hintergründe. Asymmetrische Werte sind nur für bewusst einseitige Ausreißerunterdrückung vorgesehen. Wird nur `clip_sigma` gesetzt, wird es aus Kompatibilitätsgründen auf beide Grenzen übertragen.
 
 ----
 
@@ -1828,7 +1814,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Steuert, ob der diskbasierte `.prewarped_cache` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
+**Zweck:** Steuert, ob der diskbasierte Cache `cache/prewarped_frames` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
 
 ----
 
@@ -1839,7 +1825,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Aktiviert den Registrierungs-Konfidenz-Schutz. Wenn aktiviert, wird das globale AQMH-Gewicht jedes Frames vor der Rekonstruktion mit einem Faktor aus `artifacts/global_registration.json` (`cc`, `source`, `chain_depth`) multipliziert.
+**Zweck:** Aktiviert den Registrierungs-Konfidenz-Schutz. Direkte oder Referenz-Registrierungen erhalten oberhalb von `registration_cc_floor` den Faktor `1.0`; nur direkte Lösungen unterhalb dieses Floors sowie sequenzielle, vorhergesagte, interpolierte oder unbekannte Lösungen werden gedämpft. `chain_depth` wirkt nur auf nicht-direkte Lösungen.
 
 ----
 
@@ -1875,7 +1861,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Bereich** | 0 – 1 |
 | **Default** | `0.80` |
 
-**Zweck:** Kreuzkorrelations-Wert, der auf einen Faktor von `1.0` abgebildet wird. Muss größer als `registration_cc_floor` sein.
+**Zweck:** Kreuzkorrelations-Wert, der bei nicht-direkten Registrierungen auf einen Faktor von `1.0` abgebildet wird. Muss größer als `registration_cc_floor` sein. Direkte und Referenz-Lösungen erreichen bereits am Floor den Faktor `1.0`.
 
 ----
 
@@ -1984,7 +1970,11 @@ Regressions-Schwellen für Vergleiche eines Nachverarbeitungskandidaten sowohl m
 | **Typ** | number |
 | **Default** | `0.05` |
 
-**Zweck:** Maximal erlaubte Hintergrund-RMS-Regression.
+**Zweck:** Maximal erlaubte relative Regression des robusten lokalen
+Hintergrundrauschens gegenüber Uniform Control. Die Messung verwendet die MAD
+benachbarter Pixel-Differenzen; großflächige astronomische Struktur geht nicht
+als Hintergrundrauschen ein. Bei Überschreitung wird ein optionaler
+Nachbearbeitungskandidat verworfen und Raw AQMH erhalten. Wertebereich `>= 0`.
 
 ----
 
@@ -3426,7 +3416,6 @@ Phasengrenzen geprüft. Bei Überschreitung endet der Lauf mit
 # Pipeline
 pipeline:
   mode: production
-  abort_on_fail: true
 
 # Output
 output:
@@ -3639,7 +3628,6 @@ Die Datei `tile_compile.yaml` im Repository enthält eine **Beispiel-/Szenario-K
 
 | Key | `tile_compile.yaml` | C++ Default | Bemerkung |
 |-----|---------------------|-------------|-----------|
-| `pipeline.abort_on_fail` | `false` | `true` | Debug-freundlich |
 | `output.write_registered_frames` | `true` | `false` | Speicherintensiv |
 | `global_metrics.weights.background` | `0.40` | `0.4` | Praktisch identisch |
 | `global_metrics.weights.noise` | `0.35` | `0.3` | Abweichende Gewichtung |
@@ -3788,7 +3776,6 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 ### A.1 Pipeline / Output / Data
 
 - `pipeline.mode`: wählt Produktions- vs. Testpfad (gleiche Kernphasen, anderes Striktheits-/Debug-Profil).
-- `pipeline.abort_on_fail`: steuert, ob bei `phase_end(error)` sofort abgebrochen wird.
 - `output.registered_dir`: Ziel-Unterordner für registrierte Frame-Ausgaben.
 - `output.write_registered_frames`: schreibt pro Frame registrierte FITS; erhöht IO- und Speicherbedarf stark.
 - `output.crop_to_nonzero_bbox`: schneidet den finalen Stack auf die nichtleere Bounding Box zu.

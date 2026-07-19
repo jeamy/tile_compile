@@ -81,7 +81,7 @@ static std::string read_run_method_local(const fs::path& run_dir, const std::str
 
 static bool has_nonempty_prewarped_cache(const fs::path& run_dir) {
     std::error_code ec;
-    const fs::path cache_dir = run_dir / ".prewarped_cache";
+    const fs::path cache_dir = run_dir / "cache" / "prewarped_frames";
     if (!fs::is_directory(cache_dir, ec)) return false;
     return !fs::is_empty(cache_dir, ec);
 }
@@ -1426,8 +1426,8 @@ void register_runs_routes(CrowApp& app,
                          "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"});
                     return err_resp("RESUME_PHASE_NOT_FEASIBLE",
                         "Cannot resume from phase '" + from_phase + "': runner would resume at '" +
-                        "AQMH_RECONSTRUCTION' and requires .prewarped_cache frames, but no reusable "
-                        ".prewarped_cache frames are present in the run directory. "
+                        "AQMH_RECONSTRUCTION' and requires cache/prewarped_frames frames, but no reusable "
+                        "cache/prewarped_frames frames are present in the run directory. "
                         "Use an in-place rerun phase such as SCAN_INPUT/REGISTRATION/PREWARP, or resume from a persisted downstream artifact. "
                         "Feasible resume phases for this run: " +
                         [&feasible_phases]() {
@@ -1440,7 +1440,7 @@ void register_runs_routes(CrowApp& app,
                         }() + ".",
                         409, {{"from_phase", from_phase}, {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
                               {"reason", "prewarped_cache_missing"},
-                              {"cache_dir", (run_dir / ".prewarped_cache").string()},
+                              {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()},
                               {"feasible_phases", feasible_phases}});
                 }
             } else {
@@ -1451,12 +1451,12 @@ void register_runs_routes(CrowApp& app,
                         if (!fs::is_regular_file(raw_reconstruction, ec) &&
                             !has_nonempty_prewarped_cache(run_dir)) {
                             return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                                "Cannot resume from phase 'STACKING': outputs/aqmh_reconstructed_raw.fit is missing and cannot be regenerated because no reusable .prewarped_cache frames are present. Resume from PREWARP or an earlier in-place phase first.",
+                                "Cannot resume from phase 'STACKING': outputs/aqmh_reconstructed_raw.fit is missing and cannot be regenerated because no reusable cache/prewarped_frames frames are present. Resume from PREWARP or an earlier in-place phase first.",
                                 409, {{"from_phase", from_phase},
                                       {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
                                       {"reason", "aqmh_raw_and_prewarped_cache_missing"},
                                       {"missing_files", nlohmann::json::array({"outputs/aqmh_reconstructed_raw.fit"})},
-                                      {"cache_dir", (run_dir / ".prewarped_cache").string()}});
+                                      {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}});
                         }
                     } else if (!has_synthetic_outputs(run_dir)) {
                         return err_resp("RESUME_PHASE_NOT_FEASIBLE",

@@ -100,6 +100,27 @@ TEST_CASE("aqmh_weighted_mad_quickselect_is_deterministic") {
     REQUIRE(a.retained[i].frame_index == b.retained[i].frame_index);
 }
 
+TEST_CASE("aqmh_symmetric_clipping_preserves_background_location") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  samples.reserve(401);
+  for (size_t i = 0; i < 200; ++i) {
+    const float deviation = 0.01f * static_cast<float>(i + 1);
+    samples.push_back({100.0f - deviation, 1.0f, 1.0f, 2 * i});
+    samples.push_back({100.0f + deviation, 1.0f, 1.0f, 2 * i + 1});
+  }
+  samples.push_back({100.0f, 1.0f, 1.0f, 400});
+
+  const auto result =
+      recon::aqmh_sigma_clip(samples, 2.0f, 2.0f, 4, 0.4f, 2.0f);
+
+  REQUIRE(result.denominator_ok);
+  REQUIRE(result.retained.size() > 300);
+  double weighted_sum = 0.0;
+  for (const auto &sample : result.retained)
+    weighted_sum += sample.weight * sample.value;
+  REQUIRE(weighted_sum / result.weight_sum == Catch::Approx(100.0).margin(1e-5));
+}
+
 // §9.1 — Map range: Q_map ∈ [0,1] for all finite source-valid pixels
 TEST_CASE("aqmh_validation_01_map_range") {
   const int W = 32, H = 32;
@@ -331,6 +352,55 @@ TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
       recon::compare_aqmh_to_uniform_control(smaller_candidate, control));
 }
 
+TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
+  constexpr int W = 256;
+  constexpr int H = 192;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float noise =
+          0.2f * std::sin(0.71f * static_cast<float>(x) +
+                          1.13f * static_cast<float>(y));
+      const float dx = (static_cast<float>(x) - 0.55f * W) / (0.28f * W);
+      const float dy = (static_cast<float>(y) - 0.45f * H) / (0.32f * H);
+      const float diffuse_signal =
+          20.0f * std::exp(-0.5f * (dx * dx + dy * dy));
+      control(y, x) = 100.0f + noise;
+      candidate(y, x) = control(y, x) + diffuse_signal;
+    }
+  }
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.background_rms_applicable);
+  REQUIRE(std::abs(cmp.background_rms_regression) < 0.05f);
+}
+
+TEST_CASE("aqmh_background_rms_detects_added_pixel_scale_noise") {
+  constexpr int W = 192;
+  constexpr int H = 160;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float base_noise =
+          0.2f * std::sin(0.83f * static_cast<float>(x) +
+                          1.07f * static_cast<float>(y));
+      const float added_noise =
+          0.3f * std::sin(1.91f * static_cast<float>(x) -
+                          2.17f * static_cast<float>(y));
+      control(y, x) = 100.0f + base_noise;
+      candidate(y, x) = control(y, x) + added_noise;
+    }
+  }
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.background_rms_applicable);
+  REQUIRE(cmp.background_rms_regression > 0.05f);
+}
+
 // §9.14 — Global quality: identical inputs → identical G
 TEST_CASE("aqmh_validation_14_global_quality_determinism") {
   std::vector<float> sharp = {0.5f, 0.6f, 0.4f};
@@ -375,7 +445,7 @@ TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
   tc::config::AqmhReconstructionConfig reconstruction;
   REQUIRE(reconstruction.clip_sigma == Catch::Approx(2.0f));
   REQUIRE(reconstruction.clip_sigma_low == Catch::Approx(2.0f));
-  REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(1.5f));
+  REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(2.0f));
   REQUIRE(reconstruction.clip_iterations == 4);
   REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
   REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
@@ -402,7 +472,7 @@ TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
   const auto &reconstruction = aqmh.at("reconstruction").at("properties");
   REQUIRE(reconstruction.at("clip_sigma").at("default") == 2.0);
   REQUIRE(reconstruction.at("clip_sigma_low").at("default") == 2.0);
-  REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 1.5);
+  REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 2.0);
   REQUIRE(reconstruction.at("clip_iterations").at("default") == 4);
   REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
   REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);

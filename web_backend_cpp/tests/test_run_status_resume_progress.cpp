@@ -383,11 +383,11 @@ int main(int argc, char** argv) {
                      "aqmh in-place rerun phase dry-run status");
         expect_true(aqmh_rerun_dry_run["dry_run"].get<bool>(), "aqmh in-place rerun dry-run flag");
 
-        // Legacy AQMH runs can regenerate the missing immutable CFA artifact
-        // from their reusable prewarp cache before entering STACKING.
+        // AQMH runs can regenerate the missing immutable CFA artifact from
+        // their reusable prewarp cache before entering STACKING.
         {
             const std::filesystem::path cache_dir =
-                aqmh_resume_overlay_run_dir / ".prewarped_cache";
+                aqmh_resume_overlay_run_dir / "cache" / "prewarped_frames";
             std::filesystem::create_directories(cache_dir);
             std::ofstream(cache_dir / "frame_0.fixture") << "fixture";
         }

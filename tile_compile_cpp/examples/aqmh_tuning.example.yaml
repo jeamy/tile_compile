@@ -6,7 +6,6 @@ method: aqmh
 
 pipeline:
   mode: production
-  abort_on_fail: true
 
 output:
   registered_dir: registered
@@ -135,8 +134,8 @@ aqmh:
   # Reconstruction parameters
   reconstruction:
     clip_sigma: 2.0
-    clip_sigma_low: 2.0
-    clip_sigma_high: 1.5
+    clip_sigma_low: 2.0       # Symmetric clipping preserves diffuse background level
+    clip_sigma_high: 2.0
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0
@@ -230,7 +229,7 @@ tile_denoise:
     max_iterations: 10
 
 chroma_denoise:
-  enabled: false
+  enabled: true
   color_space: ycbcr_linear
   apply_stage: post_stack_linear
   protect_luma: true
@@ -285,7 +284,7 @@ stacking:
   method: rej
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
-  output_stretch: true
+  output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true

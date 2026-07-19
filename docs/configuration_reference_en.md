@@ -69,20 +69,6 @@ Basic pipeline control.
 - **`production`**: Complete processing with all quality checks and phases
 - **`test`**: Reduced processing for testing purposes (may skip some validations)
 
-### `pipeline.abort_on_fail`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Stop immediately when a critical phase fails.
-
-- **`true`**: production-safe behavior (recommended)
-- **`false`**: continue for diagnostics/debug runs
-
----
-
 ## 2. Output
 
 Output file and directory configuration.
@@ -1552,9 +1538,9 @@ Per-pixel weighted reconstruction parameters.
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 1.5` |
+| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 2.0` |
 
-**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. The stricter upper threshold rejects positive outliers more aggressively. When only `clip_sigma` is set, it is copied to both limits for compatibility; the current baseline uses the explicit low/high defaults.
+**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. The symmetric `2.0/2.0` baseline avoids a negative location bias when diffuse backgrounds are clipped repeatedly. Asymmetric values are reserved for intentionally one-sided rejection. When only `clip_sigma` is set, it is copied to both limits for compatibility.
 
 ----
 
@@ -1621,7 +1607,7 @@ Per-pixel weighted reconstruction parameters.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Controls whether the disk-backed `.prewarped_cache` is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
+**Purpose:** Controls whether the disk-backed `cache/prewarped_frames` directory is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
 
 ----
 
@@ -1632,7 +1618,7 @@ Per-pixel weighted reconstruction parameters.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable the registration-confidence guard. When enabled, each frame's global AQMH weight is multiplied by a factor derived from `artifacts/global_registration.json` (`cc`, `source`, `chain_depth`) before reconstruction.
+**Purpose:** Enable the registration-confidence guard. Direct and reference registrations receive factor `1.0` at or above `registration_cc_floor`; only direct solutions below that floor and sequential, predicted, interpolated, or unknown solutions are damped. `chain_depth` applies only to non-direct solutions.
 
 ----
 
@@ -1668,7 +1654,7 @@ Per-pixel weighted reconstruction parameters.
 | **Range** | 0 – 1 |
 | **Default** | `0.80` |
 
-**Purpose:** Cross-correlation value mapped to a factor of `1.0`. Must be greater than `registration_cc_floor`.
+**Purpose:** Cross-correlation value mapped to factor `1.0` for non-direct registrations. It must exceed `registration_cc_floor`. Direct and reference solutions reach factor `1.0` at the floor.
 
 ----
 
@@ -1777,7 +1763,11 @@ Regression thresholds comparing every post-processing candidate against both the
 | **Type** | number |
 | **Default** | `0.05` |
 
-**Purpose:** Maximum allowed background-RMS regression.
+**Purpose:** Maximum relative regression of robust local background noise
+against uniform control. The measurement uses the MAD of neighbouring pixel
+differences, so large-scale astronomical structure is not counted as background
+noise. If exceeded, an optional post-processing candidate is rejected and raw
+AQMH is preserved. Range: `>= 0`.
 
 ----
 
@@ -3006,7 +2996,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 ### A.1 Pipeline / Output / Data
 
 - `pipeline.mode`: selects production vs test control flow (same core phases, different strictness/debug posture).
-- `pipeline.abort_on_fail`: controls whether `phase_end(error)` aborts run immediately.
 - `output.registered_dir`: target folder name for registered frame outputs.
 - `output.write_registered_frames`: writes per-frame registered FITS; increases IO and disk usage significantly.
 - `output.crop_to_nonzero_bbox`: crops the final stack to its non-empty bounding box.

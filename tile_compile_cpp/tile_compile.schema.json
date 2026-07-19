@@ -23,11 +23,6 @@
           ],
           "description": "Pipeline execution mode. production = full pipeline with all stages. test = reduced pipeline for quick validation runs.",
           "default": "production"
-        },
-        "abort_on_fail": {
-          "type": "boolean",
-          "description": "When true, the pipeline aborts on the first stage failure. When false, non-critical failures are logged and the pipeline continues with best-effort recovery.",
-          "default": true
         }
       }
     },
@@ -1087,8 +1082,8 @@
             "clip_sigma_high": {
               "type": "number",
               "exclusiveMinimum": 0,
-              "default": 1.5,
-              "description": "Upper-side AQMH sigma clipping threshold."
+              "default": 2.0,
+              "description": "Upper-side AQMH sigma clipping threshold. The symmetric 2.0 default avoids a negative location bias in diffuse backgrounds."
             },
             "clip_iterations": {
               "type": "integer",
@@ -1121,7 +1116,7 @@
             "delete_prewarped_cache_after_run": {
               "type": "boolean",
               "default": true,
-              "description": "Delete the disk-backed prewarp cache after the run. Set false to retain it for AQMH resume."
+              "description": "Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."
             },
             "registration_weight_guard": {
               "type": "boolean",
@@ -1208,7 +1203,8 @@
             "max_background_rms_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.05
+              "default": 0.05,
+              "description": "Maximum relative regression of robust local background noise, measured from neighbouring pixel differences. Diffuse astronomical structure is excluded; exceeding the limit rejects optional post-processing and preserves raw AQMH."
             },
             "max_tail11_abs_regression": {
               "type": "number",

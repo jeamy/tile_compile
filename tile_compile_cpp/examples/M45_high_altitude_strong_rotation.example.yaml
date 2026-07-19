@@ -195,7 +195,6 @@ pcc:
   siril_catalog_dir: ""
   source: siril
 pipeline:
-  abort_on_fail: false
   mode: production
 registration:
   allow_rotation: true
@@ -314,7 +313,7 @@ aqmh:
   reconstruction:
     clip_sigma: 2.0
     clip_sigma_low: 2.0
-    clip_sigma_high: 1.5
+    clip_sigma_high: 2.0
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0

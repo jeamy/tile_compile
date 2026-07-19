@@ -154,7 +154,7 @@ bool run_phase_channel_split_normalization_global_metrics(
       (void)cache_naxis;
       if (cache_width > 0 && cache_height > 0) {
         out.frame_cache = std::make_shared<RunnerFrameCache>(
-            run_dir / ".normalized_frame_cache", frames.size(), cache_height,
+            run_dir / "cache" / "normalized_frames", frames.size(), cache_height,
             cache_width);
       }
     } catch (const std::exception &e) {

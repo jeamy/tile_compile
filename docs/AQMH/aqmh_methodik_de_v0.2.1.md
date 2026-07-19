@@ -359,7 +359,7 @@ Artefakt bei einem älteren Run, muss der Runner `AQMH_RECONSTRUCTION` aus den
 Map- und Prewarp-Caches erneut ausführen. Eine bereits gestackte Luminanz darf
 nie erneut als CFA debayert werden.
 Mit `aqmh.reconstruction.delete_prewarped_cache_after_run: false` kann der
-Prewarp-Cache gezielt für spätere Resumes erhalten bleiben; der Default `true`
+Cache `cache/prewarped_frames` gezielt für spätere Resumes erhalten bleiben; der Default `true`
 löscht ihn weiterhin zur Speicherplatzfreigabe.
 
 ### 4.2 Global-Quality-Stufe (v0.2.1-Aktualisierung)
@@ -387,7 +387,14 @@ Vor der Rekonstruktion kann der Runner optional einen
 
 Für jeden Frame `f`:
 
-1. **Kreuzkorrelations-Abbildung.**
+1. **Kreuzkorrelations-Abbildung.** Direkte und Referenz-Lösungen erhalten
+   oberhalb des Floors keine kontinuierliche Dämpfung:
+
+   ```
+   r_cc = cc_f >= cc_floor ? 1.0 : r_floor
+   ```
+
+   Für sequenzielle, vorhergesagte, interpolierte oder unbekannte Lösungen gilt:
 
    ```
    t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
@@ -403,7 +410,7 @@ Für jeden Frame `f`:
    - Falls `source` den String `"predicted"`, `"interpolated"` enthält oder
      `"unknown"` ist: `r_f *= predicted_factor` (Vorgabe `0.50`).
 
-3. **Kettentiefen-Dämpfung.**
+3. **Kettentiefen-Dämpfung für nicht-direkte Lösungen.**
 
    ```
    depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
@@ -498,7 +505,7 @@ werden.
 ### 5.2 Sigma-Clipping und effektive Sample-Suffizienz
 
 Iteratives asymmetrisches Sigma-Clipping verwendet standardmäßig
-`clip_sigma_low = 2.0`, `clip_sigma_high = 1.5` und `clip_iterations = 4`.
+`clip_sigma_low = 2.0`, `clip_sigma_high = 2.0` und `clip_iterations = 4`.
 Die strengere Oberseite unterdrückt positive Ausreißer wie Satellitenspuren,
 Hotpixel und nicht vollständig maskierte Sterne, ohne die Unterseite gleich
 stark abzuschneiden. Es gelten außerdem `min_n_eff = 2.0` und
@@ -540,6 +547,11 @@ dieselben Metriken wie die v0.2.0-Validierung:
 - `background_rms_regression`
 - `tail11_abs_regression`
 - `elongation_regression`
+
+`background_rms` bezeichnet dabei nicht die globale Helligkeitsstreuung des
+Bildes. Es wird robust aus horizontalen und vertikalen Pixel-Differenzen
+bestimmt (`1,4826 * MAD(diff / sqrt(2))`). Dadurch werden langsam veränderliche
+Nebel-, Galaxien- und IFN-Strukturen nicht als Hintergrundrauschen klassifiziert.
 
 Für Tail- und Elongationsmetriken werden Sterne genau einmal in der jeweiligen
 Referenz erkannt und anschließend in Kandidat und Referenz an denselben
@@ -630,30 +642,21 @@ FWHM oder Seam-Score gegenüber `U` verbessert, wird ausgewählt. Gibt es kein
 `alpha > 0`, das beide Vergleiche besteht, bleibt die bereits validierte Basis
 `B(p)` erhalten.
 
-### 6.5 Finale Rückfalloption auf Uniformes Kontrollmittel
+### 6.5 Finales Schutzgate
 
 Nach der gesamten Nachverarbeitung wird das ausgewählte Ausgabebild `O(p)`
-nochmals gegen `U(p)` validiert. Falls gilt:
+nochmals gegen `U(p)` und die unveränderliche Raw-AQMH-Baseline `A(p)`
+validiert. Falls gilt:
 
 ```
 background_rms_regression(O, U) > max_background_rms_regression
 ```
 
-oder eine andere konfigurierte Schwelle überschritten wird, kann der Runner
-auf ein Blend mit dem uniformen Kontrollmittel zurückfallen:
-
-```
-O_blend(p) = beta * O(p) + (1 - beta) * U(p)
-```
-
-wobei `beta` durch binäre Suche über `[0, 1]` als größtes `beta` bestimmt
-wird, das `gate(O_blend, U)` und `gate(O_blend, A)` erfüllt. Die Operation wird in
-`aqmh_reconstruction.json` als `fallback_to_uniform_control` und
-`uniform_control_blend_alpha` protokolliert. Lässt sich kein `beta > 0`
-finden, das beide Referenzen erfüllt, wird `A(p)` ausgegeben. Ein vollständiger
-Rückfall auf `U(p)` ist nicht zulässig, wenn `U` die AQMH-Baseline regressiert.
-Unmittelbar vor dem Schreiben des Ergebnisses erzwingt ein finaler Vergleich
-`gate(O_final, A)` diese Invariante unabhängig vom zuvor gewählten Pfad.
+oder eine andere konfigurierte Schwelle überschritten wird, verwirft der
+Runner den nachverarbeiteten Kandidaten und gibt `A(p)` aus. `U(p)` bleibt
+ausschließlich eine diagnostische Referenz. Ein Blend in Richtung `U(p)` ist
+unzulässig, weil ein solcher Blend schwache diffuse Signale entfernen kann,
+während einseitige Rauschmetriken scheinbar besser werden.
 
 ### 6.6 Reporting-Anforderungen
 
@@ -666,9 +669,7 @@ Unmittelbar vor dem Schreiben des Ergebnisses erzwingt ein finaler Vergleich
 - `structure_masked_detail_alpha` (finale Blend-Alpha, falls Attenuierung
   verwendet wurde)
 - `structure_masked_detail_validation`
-- `fallback_to_uniform_control` (`true`/`false`)
-- `uniform_control_blend_accepted` (`true`/`false`)
-- `uniform_control_blend_alpha`
+- `uniform_control_gate_triggered` (`true`/`false`)
 - `raw_aqmh_validation`
 - `final_vs_raw_aqmh_validation`
 - `raw_aqmh_preserved_by_guard` (`true`/`false`)

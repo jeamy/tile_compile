@@ -3156,7 +3156,7 @@ bool run_phase_registration_prewarp(
   // Disk-backed: frames are written as raw float binaries and mmap'd on
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
-      run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
+      run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *

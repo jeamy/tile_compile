@@ -256,21 +256,33 @@ RegistrationWeightGuardResult apply_registration_weight_guard(
       cc = cc_arr[static_cast<size_t>(i)].get<float>();
     }
     if (!std::isfinite(cc)) cc = 0.0f;
-    const float t = std::clamp(
-        (cc - cfg.registration_cc_floor) /
-            std::max(cfg.registration_cc_full - cfg.registration_cc_floor,
-                     std::numeric_limits<float>::epsilon()),
-        0.0f, 1.0f);
-    float factor =
-        cfg.registration_weight_floor +
-        (1.0f - cfg.registration_weight_floor) * t;
-
     std::string source = "unknown";
     if (static_cast<size_t>(i) < source_arr.size() &&
         source_arr[static_cast<size_t>(i)].is_string()) {
       source = source_arr[static_cast<size_t>(i)].get<std::string>();
     }
     result.source_counts[source]++;
+
+    const bool direct_source =
+        source == "direct_global" || source == "reference";
+    float factor = 1.0f;
+    if (direct_source) {
+      // Registration already accepted direct solutions geometrically. Do not
+      // continuously suppress their signal for ordinary CC variation; retain
+      // the hard floor only for genuinely low-confidence direct matches.
+      factor = cc >= cfg.registration_cc_floor
+                   ? 1.0f
+                   : cfg.registration_weight_floor;
+    } else {
+      const float t = std::clamp(
+          (cc - cfg.registration_cc_floor) /
+              std::max(cfg.registration_cc_full - cfg.registration_cc_floor,
+                       std::numeric_limits<float>::epsilon()),
+          0.0f, 1.0f);
+      factor = cfg.registration_weight_floor +
+               (1.0f - cfg.registration_weight_floor) * t;
+    }
+
     if (source == "sequential_refined") {
       factor *= cfg.registration_sequential_factor;
     } else if (source.find("predicted") != std::string::npos ||
@@ -279,7 +291,7 @@ RegistrationWeightGuardResult apply_registration_weight_guard(
       factor *= cfg.registration_predicted_factor;
     }
 
-    if (cfg.registration_chain_depth_penalty > 0.0f &&
+    if (!direct_source && cfg.registration_chain_depth_penalty > 0.0f &&
         static_cast<size_t>(i) < depth_arr.size() &&
         !depth_arr[static_cast<size_t>(i)].is_null()) {
       const int depth = depth_arr[static_cast<size_t>(i)].get<int>();
@@ -679,83 +691,13 @@ bool run_phase_aqmh_reconstruction(
       aqmh_recon.uniform_control_output.cols() == aqmh_recon.output.cols() &&
       (!aqmh_background_ok || !aqmh_fwhm_ok || !aqmh_seam_ok ||
        !aqmh_tail_gate_ok);
-  bool aqmh_blend_accepted = false;
-  float aqmh_control_blend_alpha = 0.0f;
-  reconstruction::AqmhValidationComparison blend_validation;
   if (aqmh_control_fallback) {
-    const Matrix2Df aqmh_candidate = aqmh_recon.output;
-    const Matrix2Df &control_candidate = aqmh_recon.uniform_control_output;
-    float lo = 0.0f;
-    float hi = 1.0f;
-    for (int iter = 0; iter < 10; ++iter) {
-      const float alpha = 0.5f * (lo + hi);
-      Matrix2Df blended =
-          control_candidate + alpha * (aqmh_candidate - control_candidate);
-      const auto candidate_validation =
-          reconstruction::compare_aqmh_to_uniform_control(blended,
-                                                          control_candidate);
-      const auto baseline_validation =
-          reconstruction::compare_aqmh_to_uniform_control(blended,
-                                                          raw_aqmh_output);
-      const bool candidate_ok =
-          validation_gate_ok(candidate_validation, cfg.aqmh.validation) &&
-          validation_gate_ok(baseline_validation, cfg.aqmh.validation);
-      if (candidate_ok) {
-        lo = alpha;
-        blend_validation = candidate_validation;
-      } else {
-        hi = alpha;
-      }
-    }
-    if (lo > 0.0f) {
-      Matrix2Df blended =
-          control_candidate + lo * (aqmh_candidate - control_candidate);
-      blend_validation =
-          reconstruction::compare_aqmh_to_uniform_control(blended,
-                                                          control_candidate);
-      const auto blend_vs_raw =
-          reconstruction::compare_aqmh_to_uniform_control(blended,
-                                                          raw_aqmh_output);
-      const bool improves_fwhm =
-          blend_validation.fwhm_applicable &&
-          blend_validation.aqmh.fwhm > 0.0f &&
-          pre_fallback_control_validation.control.fwhm > 0.0f &&
-          blend_validation.aqmh.fwhm <
-              pre_fallback_control_validation.control.fwhm;
-      const bool improves_seam =
-          blend_validation.seam_applicable &&
-          blend_validation.aqmh.seam_score <
-          pre_fallback_control_validation.control.seam_score;
-      const bool blend_ok =
-          validation_gate_ok(blend_validation, cfg.aqmh.validation) &&
-          validation_gate_ok(blend_vs_raw, cfg.aqmh.validation) &&
-          (improves_fwhm || improves_seam);
-      if (blend_ok) {
-        aqmh_recon.output = std::move(blended);
-        aqmh_recon.weight_sum.setConstant(1.0f);
-        out.control_validation = blend_validation;
-        aqmh_control_blend_alpha = lo;
-        aqmh_blend_accepted = true;
-        emitter.warning(
-            run_id,
-            "AQMH attenuated by uniform-control quality gate: alpha=" +
-                std::to_string(aqmh_control_blend_alpha) +
-                " background_rms=" +
-                std::to_string(blend_validation.aqmh.background_rms) +
-                " control_background_rms=" +
-                std::to_string(blend_validation.control.background_rms) +
-                " fwhm=" + std::to_string(blend_validation.aqmh.fwhm) +
-                " control_fwhm=" +
-                std::to_string(blend_validation.control.fwhm) +
-                " seam_score=" +
-                std::to_string(blend_validation.aqmh.seam_score) +
-                " control_seam_score=" +
-                std::to_string(blend_validation.control.seam_score),
-            log_file);
-      }
-    }
-  }
-  if (aqmh_control_fallback && !aqmh_blend_accepted) {
+    // Uniform control is a validation reference, not a reconstruction
+    // candidate. Blending toward it can erase diffuse signal while appearing
+    // to improve one-sided noise metrics. Preserve the immutable raw AQMH
+    // baseline whenever no AQMH-derived post-processing candidate passes.
+    aqmh_recon.output = raw_aqmh_output;
+    aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     emitter.warning(
         run_id,
         "AQMH postprocessing rejected by quality gate: background_rms=" +
@@ -770,6 +712,7 @@ bool run_phase_aqmh_reconstruction(
             "validated AQMH baseline",
         log_file);
     aqmh_recon.output = raw_aqmh_output;
+    aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     raw_aqmh_preserved_by_guard = true;
     out.control_validation =
         reconstruction::compare_aqmh_to_uniform_control(
@@ -788,8 +731,6 @@ bool run_phase_aqmh_reconstruction(
     aqmh_recon.output = raw_aqmh_output;
     aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     raw_aqmh_preserved_by_guard = true;
-    aqmh_blend_accepted = false;
-    aqmh_control_blend_alpha = 0.0f;
     out.control_validation =
         reconstruction::compare_aqmh_to_uniform_control(
             aqmh_recon.output, aqmh_recon.uniform_control_output);
@@ -935,20 +876,15 @@ bool run_phase_aqmh_reconstruction(
       {"control_seam_score",
        structure_masked_detail_validation.control.seam_score}});
   artifact["uniform_control_gate_triggered"] = aqmh_control_fallback;
-  artifact["fallback_to_uniform_control"] = aqmh_blend_accepted;
-  artifact["uniform_control_blend_accepted"] = aqmh_blend_accepted;
-  artifact["uniform_control_blend_alpha"] = aqmh_control_blend_alpha;
   artifact["raw_aqmh_preserved_by_guard"] = raw_aqmh_preserved_by_guard;
   artifact["selected_candidate"] =
       raw_aqmh_preserved_by_guard
           ? "raw_aqmh"
-          : (aqmh_blend_accepted
-                 ? "uniform_control_blend"
-                 : (structure_masked_detail_applied
-                        ? "structure_masked_detail"
-                        : (low_frequency_neutralization_applied
-                               ? "low_frequency_neutralized"
-                               : "raw_aqmh")));
+          : (structure_masked_detail_applied
+                 ? "structure_masked_detail"
+                 : (low_frequency_neutralization_applied
+                        ? "low_frequency_neutralized"
+                        : "raw_aqmh"));
   artifact["uniform_control_gate"] = {
       {"background_rms_ok", aqmh_background_ok},
       {"fwhm_ok", aqmh_fwhm_ok},
@@ -1042,10 +978,6 @@ bool run_phase_aqmh_reconstruction(
       {"tail_applicable", pre_fallback_control_validation.tail_applicable},
       {"elongation_applicable", pre_fallback_control_validation.elongation_applicable},
       {"fwhm_applicable", pre_fallback_control_validation.fwhm_applicable}};
-  if (aqmh_blend_accepted) {
-    artifact["uniform_control_blend_validation"] =
-        validation_comparison_json(blend_validation);
-  }
   // Cherry-pick diagnostics
   artifact["cherry_pick_enabled"] = cfg.aqmh.cherry_pick.enabled;
   if (cfg.aqmh.cherry_pick.enabled) {
@@ -1123,11 +1055,8 @@ bool run_phase_aqmh_reconstruction(
           {"execution_backend", execution_backend_str},
           {"acceleration_used", acceleration_used},
           {"acceleration_fallback", acceleration_fallback},
-          {"fallback_to_uniform_control", aqmh_blend_accepted},
           {"uniform_control_gate_triggered", aqmh_control_fallback},
           {"raw_aqmh_preserved_by_guard", raw_aqmh_preserved_by_guard},
-          {"uniform_control_blend_accepted", aqmh_blend_accepted},
-          {"uniform_control_blend_alpha", aqmh_control_blend_alpha},
           {"classic_tile_weights_used", false},
           {"cherry_pick_enabled", cfg.aqmh.cherry_pick.enabled},
           {"cherry_pick_active_frac", aqmh_recon.cherry_pick_active_frac},

@@ -1025,8 +1025,6 @@
   "param.pcc.siril_catalog_dir.label": "Siril Catalog Ordner",
   "param.pcc.siril_catalog_dir.short_help": "Lokaler Siril-Katalogpfad; leer = Standardpfad. Default: .",
   "param.pcc.source.short_help": "Zulässige Werte: auto, siril, vizier_gaia, vizier_apass. Default: siril.",
-  "param.pipeline.abort_on_fail.label": "Abort On Fail",
-  "param.pipeline.abort_on_fail.short_help": "Bestimmt, ob die Pipeline bei kritischen Fehlern sofort abbricht. true: Pipeline stoppt bei phase_end(error) — empfohlen für Produktion. false: Pipeline versucht fortzufahren (nützlich für Debugging, um alle Phasen-Outputs zu erhalten). Default: false.",
   "param.pipeline.mode.label": "Modus",
   "param.pipeline.mode.short_help": "Bestimmt den Ausführungsmodus der Pipeline. production: Vollständige Verarbeitung mit allen Qualitätsprüfungen und Phasen. test: Reduzierte Verarbeitung für schnelle Tests (weniger Iterationen, reduzierte Validierung). Zulässige Werte: production, test. Default: production.",
   "param.registration.enable_star_pair_fallback.label": "Enable Star Pair Fallback",

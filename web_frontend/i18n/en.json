@@ -1027,8 +1027,6 @@
   "param.pcc.siril_catalog_dir.label": "Siril Catalog Dir",
   "param.pcc.siril_catalog_dir.short_help": "Optional local Siril catalog path. Default: .",
   "param.pcc.source.short_help": "Source catalog/provider for PCC. Allowed values: auto, siril, vizier_gaia, vizier_apass. Default: siril.",
-  "param.pipeline.abort_on_fail.label": "Abort On Fail",
-  "param.pipeline.abort_on_fail.short_help": "Stop immediately when a critical phase fails. true: production-safe behavior (recommended). false: continue for diagnostics/debug runs. Default: false.",
   "param.pipeline.mode.label": "Mode",
   "param.pipeline.mode.short_help": "Determines the execution mode of the pipeline. production: Complete processing with all quality checks and phases. test: Reduced processing for testing purposes (may skip some validations). Allowed values: production, test. Default: production.",
   "param.registration.enable_star_pair_fallback.label": "Enable Star Pair Fallback",

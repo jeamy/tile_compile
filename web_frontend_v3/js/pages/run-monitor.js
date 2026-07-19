@@ -199,14 +199,25 @@ function resumeErrorPayload(error) {
   };
 }
 
+function currentResumeCachePath(value) {
+  const path = String(value || "");
+  const legacySuffix = "/.prewarped_cache";
+  if (!path.endsWith(legacySuffix)) return path;
+  return `${path.slice(0, -legacySuffix.length)}/cache/prewarped_frames`;
+}
+
+function currentResumeMessage(value) {
+  return String(value || "").replace(/\.prewarped_cache\b/g, "cache/prewarped_frames");
+}
+
 function formatResumeError(error, phase) {
   const parsed = resumeErrorPayload(error);
   const details = parsed.details || {};
-  let title = parsed.message || error?.message || t("ui.error.unknown", "Unbekannter Fehler");
+  let title = currentResumeMessage(parsed.message || error?.message || t("ui.error.unknown", "Unbekannter Fehler"));
   let body = "";
   if (parsed.code === "RESUME_PHASE_NOT_FEASIBLE") {
     title = t("ui.error.resume_not_feasible", "Resume ab {phase} nicht möglich", { phase });
-    body = parsed.message || "";
+    body = currentResumeMessage(parsed.message || "");
     if (details.reason) {
       body += `\nGrund: ${details.reason}`;
     }
@@ -214,7 +225,7 @@ function formatResumeError(error, phase) {
       body += `\nRunner-Phase: ${details.effective_runner_phase}`;
     }
     if (details.cache_dir) {
-      body += `\nCache: ${details.cache_dir}`;
+      body += `\nCache: ${currentResumeCachePath(details.cache_dir)}`;
     }
     if (Array.isArray(details.missing_files) && details.missing_files.length) {
       body += "\n" + t("ui.error.missing_files", "Fehlende Dateien: {files}", {
@@ -1276,7 +1287,7 @@ function startLogTailPolling(runId, runDir = "") {
   if (!runId || !activeLogViewer) return;
   const refresh = () => loadInitialLogs(runId, activeLogViewer, null, runDir || getRunState().currentRunDir || "");
   refresh();
-  logTailTimer = setInterval(refresh, 2000);
+  logTailTimer = setInterval(refresh, 5000);
 }
 
 function stopLogTailPolling() {
@@ -1332,10 +1343,10 @@ async function refreshRunStatus(runId) {
     const status = await api.get(API_ENDPOINTS.runs.status(runId));
     if (!status) return;
 
-    // During resumePending or resumeActive, skip status/phase updates —
-    // the REST endpoint still returns the old completed/failed status
-    // until the resume job's events overwrite the run status
-    if (getResumePending() || getResumeActive()) {
+    // While a resume is only queued, the REST endpoint may still expose the
+    // old terminal status. Once it reports running, its phase state is the
+    // authoritative source and must restore the UI after a page refresh.
+    if ((getResumePending() || getResumeActive()) && status.status !== "running") {
       if (status.run_dir) setRunState({ currentRunDir: status.run_dir });
       return;
     }

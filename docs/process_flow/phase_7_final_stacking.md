@@ -1,7 +1,7 @@
 # COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC + HMS — Finales Stacking und Output
 
 > **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.3 Stand)
-> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `BGE` (15, optional), `PCC` (16), `HYPERMETRIC_STRETCH` (17, optional), `DONE` (18)
+> **Phase-Enums:** `COMMON_OVERLAP` (7), `AQMH_DIAGNOSTICS` (22, AQMH), `SYNTHETIC_FRAMES` (11, Classic), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `BGE` (15, optional), `PCC` (16), `HYPERMETRIC_STRETCH` (17, optional), `DONE` (18)
 
 ## Übersicht
 
@@ -26,11 +26,16 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
+│  AQMH_DIAGNOSTICS (Phase 22)                         │
+│  • Q-map-Statistik und Heatmaps                      │
+│  • aqmh_metrics.json                                 │
+│  (nur AQMH)                                          │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
 │  SYNTHETIC_FRAMES (Phase 11)                         │
-│  • Pro Cluster: gewichtetes Mittel → synth Frame     │
-│  • Cluster-Masse M_k bleibt relevant                 │
-│  • N Original-Frames → K synthetische Frames         │
-│  (übersprungen im Reduced Mode)                      │
+│  • Nur Classic: Cluster-Mittelwerte                  │
+│  • AQMH: skipped, independent reconstruction         │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
@@ -104,11 +109,13 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
 
 ---
 
-## Phase 11: SYNTHETIC_FRAMES
+## Phase 11: SYNTHETIC_FRAMES (nur Classic)
 
 ### Funktionsweise
 
-Pro Cluster wird ein **global-gewichtetes Mittel** aller zugehörigen Frames berechnet:
+Im Classic-Zweig wird pro Cluster ein **global-gewichtetes Mittel** aller
+zugehörigen Frames berechnet. Im AQMH-Zweig gibt es keine synthetischen Frames;
+die Phase wird mit `reason: aqmh_independent_reconstruction` übersprungen.
 
 ```cpp
 auto reconstruct_subset = [&](const std::vector<char> &frame_mask) -> Matrix2Df {
@@ -180,8 +187,8 @@ for (int c = 0; c < n_clusters; ++c) {
 OpenCL aus. Im OSC-Pfad laufen R, G und B gleichzeitig; CUDA verwendet drei
 getrennte Streams. Der artifact-basierte Resume-Pfad ab `STACKING` nutzt
 dieselbe Backend-Auswahl. Im AQMH-Pfad ist Phase 12 normalerweise ein
-Pass-through, weil Phase 9 bereits das finale lineare Rekonstruktionsergebnis
-erzeugt hat.
+Pass-through, weil `AQMH_RECONSTRUCTION` (Phase 21) bereits das finale lineare
+Rekonstruktionsergebnis erzeugt hat.
 
 ### Sigma-Clipping Rejection Stacking
 
@@ -217,9 +224,12 @@ if (use_synthetic_frames) {
 | `stacking.sigma_clip.max_iters` | Maximale Iterationen | 5 |
 | `stacking.sigma_clip.min_fraction` | Mindestanteil beibehaltener Pixel | 0.5 |
 
-### Reduced Mode
+### AQMH- und Reduced-Mode-Verhalten
 
-Wenn `use_synthetic_frames = false`, wird das Rekonstruktionsergebnis aus Phase 9 direkt als finales Bild übernommen — kein erneutes Stacking.
+Wenn `method: aqmh` verwendet wird, wird das Rekonstruktionsergebnis aus
+`AQMH_RECONSTRUCTION` direkt übernommen — kein erneutes synthetisches
+Frame-Stacking. Bei `use_synthetic_frames = false` gilt dasselbe im Classic-
+Reduced-Mode für das Ergebnis aus `TILE_RECONSTRUCTION`.
 
 Wenn `use_synthetic_frames = true`, ist die `v3.3.9`-Semantik der Cluster-Aggregation:
 

@@ -6,7 +6,6 @@ method: classic_tile_compile
 
 pipeline:
   mode: production
-  abort_on_fail: true
 
 output:
   registered_dir: registered

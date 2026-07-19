@@ -27,7 +27,7 @@ Das primäre Ergebnis ist ein lineares Summenbild. Je nach Konfiguration entsteh
 - **Run**
   - Ein vollständiger Pipeline-Durchlauf mit eigenem Run-Verzeichnis unter `runs/<run_id>/`.
 - **Phase**
-  - Ein klar abgegrenzter Verarbeitungsschritt wie `REGISTRATION`, `AQMH_QUALITY_MAPS` oder `PCC`.
+  - Ein klar abgegrenzter Verarbeitungsschritt wie `REGISTRATION`, `AQMH_MAPS` oder `PCC`.
 - **Artifact**
   - Persistierte Diagnose- oder Zwischeninformation, typischerweise als JSON oder Report-Datei unter `artifacts/`.
 - **Event-Timeline**
@@ -51,9 +51,11 @@ Input frames (FITS)
    -> GLOBAL_METRICS
    -> TILE_GRID (Hilfsgeometrie; Rekonstruktionsraster für Classic)
    -> COMMON_OVERLAP
-   -> AQMH_QUALITY_MAPS (Phasen-Enum: LOCAL_METRICS)
-      oder [Classic] LOCAL_METRICS
-   -> TILE_RECONSTRUCTION (AQMH-Standard oder Classic)
+   -> AQMH_MAPS (Enum 19)
+   -> AQMH_GLOBAL_QUALITY (Enum 20)
+   -> AQMH_RECONSTRUCTION (Enum 21)
+   -> AQMH_DIAGNOSTICS (Enum 22)
+      oder [Classic] LOCAL_METRICS -> TILE_RECONSTRUCTION
    -> [nur Classic, optional] STATE_CLUSTERING
    -> [nur Classic, optional] SYNTHETIC_FRAMES
    -> STACKING
@@ -246,7 +248,7 @@ Standard.
 
 ---
 
-## 8) AQMH-Quality-Maps (`AQMH_QUALITY_MAPS`, Standard)
+## 8) AQMH-Quality-Maps (`AQMH_MAPS`, Enum 19)
 
 **Ziel**
 
@@ -263,13 +265,13 @@ Standard.
 
 - gecachte AQMH-Quality-Maps und AQMH-Diagnostik
 
-Mit `method: classic_tile_compile` wird dasselbe Phasen-Enum als
-`LOCAL_METRICS` angezeigt und berechnet stattdessen lokale Tile-Metriken und
-Gewichte `L_f,t`.
+Danach folgt `AQMH_GLOBAL_QUALITY` (Enum 20) für die globalen Frame-Gewichte.
+Mit `method: classic_tile_compile` wird stattdessen `LOCAL_METRICS` (Enum 8)
+ausgeführt und lokale Tile-Metriken und Gewichte `L_f,t` berechnet.
 
 ---
 
-## 9) Rekonstruktion (`TILE_RECONSTRUCTION`)
+## 9) Rekonstruktion (`AQMH_RECONSTRUCTION`, Enum 21)
 
 **Ziel**
 
@@ -278,7 +280,8 @@ Gewichte `L_f,t`.
 **Verarbeitung**
 
 - AQMH: jeden Pixel aus globalen Frame-Gewichten und Quality-Maps kombinieren und gewichtet sigma-clippen
-- Classic: gewichtete Tile-Beiträge fusionieren und benachbarte Überlappungsbereiche weich zusammenführen
+- Classic: `TILE_RECONSTRUCTION` (Enum 9) fusioniert gewichtete Tile-Beiträge
+  und benachbarte Überlappungsbereiche.
 - Streaming-CUDA für AQMH-Rekonstruktion verwenden, wenn Cherry-Pick deaktiviert ist
 - CUDA/OpenCL für klassisches Sigma-Clipping und Overlap-Add verwenden; sonst CPU-Fallback
 
@@ -332,7 +335,8 @@ Gewichte `L_f,t`.
 
 **Verarbeitung**
 
-- AQMH: finales Rekonstruktionsergebnis aus Phase 9 unverändert übernehmen
+- AQMH: finales Rekonstruktionsergebnis aus `AQMH_RECONSTRUCTION` (Phase 21)
+  unverändert übernehmen
 - Classic: rekonstruierte oder synthetische Zwischenstufen robust aggregieren
 - Classic: Hotpixel, Satellitenspuren oder sporadische Artefakte unterdrücken
 - Classic: Daten anhand der zuvor berechneten Qualitätsmodelle gewichtet fusionieren
@@ -473,7 +477,14 @@ Wichtig ist weniger der exakte Dateiname als die Semantik: Ausgaben, Artefakte, 
 
 ## Resume von Post-Run-Phasen
 
-Wenn ein Run bereits existiert, können Post-Processing-Phasen erneut auf Basis des vorhandenen Run-Zustands ausgeführt werden:
+Die vollständige Resume-Matrix mit den tatsächlich implementierten Einstiegen
+und Mindestabhängigkeiten steht in
+[resume_dependencies_de.md](resume_dependencies_de.md). Die dortige
+Unterscheidung zwischen direktem Resume und In-Place-Vollständigkeitslauf ist
+verbindlich.
+
+Wenn ein Run bereits existiert, können unterstützte Post-Processing-Phasen auf
+Basis des vorhandenen Run-Zustands ausgeführt werden:
 
 ```text
 ./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
@@ -486,7 +497,10 @@ Dabei werden insbesondere verwendet:
 - vorhandene Outputs und Artefakte der früheren Phasen
 - das Run-Verzeichnis als maßgeblicher Arbeitskontext
 
-Resume ist damit kein „teilweise neuer Run“, sondern eine kontrollierte Fortsetzung auf Basis bereits persistierter Laufdaten.
+Für direkte Post-Processing-Resumes ist dies eine kontrollierte Fortsetzung auf
+Basis persistierter Laufdaten. Die in der Resume-Matrix als In-Place-
+Vollständigkeitslauf markierten frühen Phasen starten dagegen die komplette
+Pipeline im selben Run-Verzeichnis.
 
 ---
 

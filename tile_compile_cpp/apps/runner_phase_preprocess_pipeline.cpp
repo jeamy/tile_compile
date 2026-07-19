@@ -878,7 +878,7 @@ bool run_preprocess_pipeline(
     out.canvas_width  = image_width;
     out.canvas_height = image_height;
     out.prewarped_frames = DiskCacheFrameStore(
-        run_dir / ".prewarped_cache", n_frames, image_height, image_width);
+        run_dir / "cache" / "prewarped_frames", n_frames, image_height, image_width);
 
     const core::AccelerationContext acceleration(
         cfg.runtime_limits.acceleration_backend);

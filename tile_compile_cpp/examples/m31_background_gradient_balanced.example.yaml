@@ -16,7 +16,6 @@ scenario_profile:
   priority: balanced_quality
 pipeline:
   mode: production
-  abort_on_fail: false
 output:
   registered_dir: registered
   write_registered_frames: true
@@ -333,7 +332,7 @@ aqmh:
   reconstruction:
     clip_sigma: 2.0
     clip_sigma_low: 2.0
-    clip_sigma_high: 1.5
+    clip_sigma_high: 2.0
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0

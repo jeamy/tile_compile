@@ -858,7 +858,7 @@ werden:
 - ungueltige AQMH-Metadaten,
 - fehlende oder dimensionsfalsche `outputs/canvas_mask.fits`,
 - fehlende `cache/aqmh_masks` beim Rebuild der Full-Canvas-Maske,
-- fehlende `.prewarped_cache` Frames,
+- fehlende `cache/prewarped_frames` Frames,
 - Fehler beim Persistieren von `reconstructed_L.fit` oder `synthetic_0.fit`,
 - Fehler in `AQMH_DIAGNOSTICS`.
 

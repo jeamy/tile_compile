@@ -277,4 +277,5 @@ VectorXf global_weights = metrics::calculate_global_weights(
 
 ## Nächste Phase
 
-→ **Phase 6: TILE_GRID — Seeing-adaptive Tile-Erzeugung**
+→ **Phase 6: TILE_GRID — Seeing-adaptive Tile-Erzeugung**; danach
+`COMMON_OVERLAP` und der methodenabhängige Qualitätsblock.

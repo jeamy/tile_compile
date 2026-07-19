@@ -37,7 +37,8 @@ reference implementation after the `v0.2.0` baseline:
    difference between the AQMH output and a uniform-control (unweighted) mean.
    Detail is then selectively reintroduced in high-structure regions. A
    validation gate decides whether the neutralised/blended result is kept; if
-   not, the raw AQMH output or a safe uniform-control blend is used.
+   not, the raw AQMH output is preserved. Uniform control must never silently
+   replace or attenuate raw AQMH.
 
 The goal of these additions is to preserve the v0.2.0 pixel-quality model
 while reducing three practical failure modes:
@@ -125,8 +126,8 @@ signals:
 - **Uniform-control mean** for neutralisation validation (§6.3).  
   The unweighted mean of the registered frames is computed as a side product
   of AQMH reconstruction (`compute_uniform_control = true`). It is used only
-  for post-reconstruction validation and optional blending, not as a primary
-  quality input.
+  for post-reconstruction validation, not as a primary quality input or an
+  output candidate.
 
 ---
 
@@ -331,9 +332,11 @@ Identical to v0.2.0 §2.5.
 
 ## 3. Quality Map Storage and Memory Model
 
-Identical to v0.2.0. Normative default remains full-resolution `float32` with
-`resolution_divisor = 1`. Optional approximate modes (`uint16`, `uint8`, divisor
-`> 1`) are supported with the same reporting requirements.
+The productive, object-agnostic default is `uint16` with `resolution_divisor = 2`.
+The strict reference and fidelity mode remains full-resolution `float32` with
+`resolution_divisor = 1`. Cherry-pick requires the reference mode because a
+reduced or quantised map can change the per-pixel ranking. Each run must report
+resolution and data type.
 
 The background-penalty signal does not affect quality-map storage; it is a
 per-frame scalar computed during or after map computation and stored in
@@ -363,7 +366,7 @@ scaled luminance output. If an older run lacks the raw artifact, the runner must
 rerun `AQMH_RECONSTRUCTION` from the map and prewarp caches. Already stacked
 luminance must never be debayered again as CFA data.
 Set `aqmh.reconstruction.delete_prewarped_cache_after_run: false` to retain the
-prewarp cache for later resumes; the default `true` continues to reclaim the
+`cache/prewarped_frames` directory for later resumes; the default `true` continues to reclaim the
 disk space after the run.
 
 ### 4.2 Global Quality Stage (v0.2.1 update)
@@ -391,23 +394,30 @@ optionally `chain_depth`.
 
 For each frame `f`:
 
-1. **Cross-correlation mapping.**
+1. **Cross-correlation mapping.** Direct and reference solutions are not
+   continuously damped above the floor:
+
+   ```
+   r_cc = cc_f >= cc_floor ? 1.0 : r_floor
+   ```
+
+   Sequential, predicted, interpolated, and unknown solutions use:
 
    ```
    t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
    r_cc = r_floor + (1 - r_floor) * t
    ```
 
-   with defaults `r_floor = 0.35`, `cc_floor = 0.35`, `cc_full = 0.80`.
+   with defaults `r_floor = 0.30`, `cc_floor = 0.35`, `cc_full = 0.80`.
 
 2. **Registration-source damping.**
 
    - If `source == "sequential_refined"`: `r_f *= sequential_factor`
-     (default `0.85`).
+     (default `0.92`).
    - If `source` contains `"predicted"`, `"interpolated"`, or is `"unknown"`:
-     `r_f *= predicted_factor` (default `0.35`).
+     `r_f *= predicted_factor` (default `0.50`).
 
-3. **Chain-depth damping.**
+3. **Chain-depth damping for non-direct solutions.**
 
    ```
    depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
@@ -532,6 +542,11 @@ to `U(p)` using the same metrics as v0.2.0 validation:
 - `tail11_abs_regression`
 - `elongation_regression`
 
+Here, `background_rms` is not the global intensity spread of the image. It is
+estimated robustly from horizontal and vertical pixel differences
+(`1.4826 * MAD(diff / sqrt(2))`). Slowly varying nebula, galaxy, and IFN signal
+is therefore not classified as background noise.
+
 These comparisons are recorded in `aqmh_reconstruction.json`. Each metric must
 also record an applicability state:
 
@@ -629,27 +644,19 @@ The largest `alpha` that satisfies the applicable validation thresholds and impr
 FWHM or seam score is selected. If no `alpha > 0` passes, the base `B(p)` is
 kept.
 
-### 6.5 Final Fallback to Uniform Control
+### 6.5 Final Protection Gate
 
 After all post-processing, the selected output `O(p)` is validated one more
-time against `U(p)`. If:
+time against `U(p)` and the immutable raw AQMH baseline `A(p)`. If:
 
 ```
 background_rms_regression(O, U) > max_background_rms_regression
 ```
 
-or any other applicable configured threshold is exceeded, the runner may fall
-back to a uniform-control blend:
-
-```
-O_blend(p) = beta * O(p) + (1 - beta) * U(p)
-```
-
-with `beta` chosen by a binary search over `[0, 1]` for the largest `beta`
-that satisfies all applicable thresholds. The operation is recorded in
-`aqmh_reconstruction.json` as `fallback_to_uniform_control` and
-`uniform_control_blend_alpha`. If no `beta > 0` satisfies the thresholds, the
-run falls back entirely to `U(p)`.
+or any other applicable configured threshold is exceeded, the runner rejects
+the post-processed candidate and emits `A(p)`. `U(p)` remains a diagnostic
+reference only. Blending toward `U(p)` is forbidden because it can erase faint
+diffuse signal while one-sided noise metrics appear to improve.
 
 ### 6.6 Reporting Requirements
 
@@ -660,9 +667,11 @@ run falls back entirely to `U(p)`.
 - `structure_masked_detail_applied` (`true`/`false`)
 - `structure_masked_detail_alpha` (final blend alpha if attenuation was used)
 - `structure_masked_detail_validation`
-- `fallback_to_uniform_control` (`true`/`false`)
-- `uniform_control_blend_accepted` (`true`/`false`)
-- `uniform_control_blend_alpha`
+- `uniform_control_gate_triggered` (`true`/`false`)
+- `raw_aqmh_validation`
+- `final_vs_raw_aqmh_validation`
+- `raw_aqmh_preserved_by_guard` (`true`/`false`)
+- `selected_candidate`
 
 ---
 

@@ -11,6 +11,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
+#include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
@@ -103,6 +104,60 @@ bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
       "AQMH_DIAGNOSTICS", "STACKING"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
+}
+
+struct ResumeOutputScaling {
+  float scale_mono = 1.0f;
+  float scale_r = 1.0f;
+  float scale_g = 1.0f;
+  float scale_b = 1.0f;
+  float bg_mono = 0.0f;
+  float bg_r = 0.0f;
+  float bg_g = 0.0f;
+  float bg_b = 0.0f;
+};
+
+bool load_resume_output_scaling(const fs::path &run_dir,
+                                ResumeOutputScaling &out,
+                                std::string &error_out) {
+  const fs::path path = run_dir / "artifacts" / "normalization.json";
+  tile_compile::core::json artifact;
+  try {
+    artifact = tile_compile::core::json::parse(
+        tile_compile::core::read_text(path));
+  } catch (const std::exception &e) {
+    error_out = "cannot read normalization artifact " + path.string() + ": " +
+                e.what();
+    return false;
+  }
+  const auto values = [&](const char *key, bool positive,
+                          std::vector<float> &result) {
+    const auto it = artifact.find(key);
+    if (it == artifact.end() || !it->is_array()) return false;
+    for (const auto &value : *it) {
+      if (!value.is_number()) continue;
+      const float v = value.get<float>();
+      if (std::isfinite(v) && (!positive || v > 0.0f)) result.push_back(v);
+    }
+    return !result.empty();
+  };
+  std::vector<float> p_mono, p_r, p_g, p_b, b_mono, b_r, b_g, b_b;
+  if (!values("P_mono", true, p_mono) || !values("P_r", true, p_r) ||
+      !values("P_g", true, p_g) || !values("P_b", true, p_b) ||
+      !values("B_mono", false, b_mono) || !values("B_r", false, b_r) ||
+      !values("B_g", false, b_g) || !values("B_b", false, b_b)) {
+    error_out = "normalization artifact is missing usable scale or background values";
+    return false;
+  }
+  out.scale_mono = tile_compile::core::median_finite_positive(p_mono, 1.0f);
+  out.scale_r = tile_compile::core::median_finite_positive(p_r, 1.0f);
+  out.scale_g = tile_compile::core::median_finite_positive(p_g, 1.0f);
+  out.scale_b = tile_compile::core::median_finite_positive(p_b, 1.0f);
+  out.bg_mono = tile_compile::core::median_finite(b_mono, 0.0f);
+  out.bg_r = tile_compile::core::median_finite(b_r, 0.0f);
+  out.bg_g = tile_compile::core::median_finite(b_g, 0.0f);
+  out.bg_b = tile_compile::core::median_finite(b_b, 0.0f);
+  return true;
 }
 
 /// @brief Writes canvas mask fits.
@@ -232,6 +287,34 @@ std::optional<std::string> read_latest_run_start_input_dir(
     }
   }
   return input_dir;
+}
+
+std::optional<runner::CropBox> read_latest_stacking_crop(
+    const fs::path &run_events_path) {
+  if (!fs::exists(run_events_path)) return std::nullopt;
+  std::ifstream in(run_events_path);
+  if (!in) return std::nullopt;
+
+  std::optional<runner::CropBox> crop;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty()) continue;
+    try {
+      const auto ev = tile_compile::core::json::parse(line);
+      if (ev.value("type", std::string()) != "phase_end" ||
+          ev.value("phase_name", std::string()) != "STACKING" ||
+          ev.value("status", std::string()) != "ok" ||
+          !ev.value("crop_applied", false)) {
+        continue;
+      }
+      runner::CropBox candidate{
+          ev.value("crop_x", 0), ev.value("crop_y", 0),
+          ev.value("crop_width", 0), ev.value("crop_height", 0)};
+      if (candidate.valid()) crop = candidate;
+    } catch (const std::exception &) {
+    }
+  }
+  return crop;
 }
 
 /// @brief Implements current executable path.
@@ -1012,7 +1095,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     runner::DiskCacheFrameStore prewarped_frames(
-        run_dir / ".prewarped_cache", frame_count, canvas_height,
+        run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
         canvas_width, true);
     std::vector<uint8_t> frame_has_data(frame_count, 0u);
     size_t available_frames = 0;
@@ -1025,9 +1108,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {{"success", false},
                         {"status", "prewarped_cache_missing"},
                         {"reason", "no_reusable_prewarped_cache_frames"},
-                        {"cache_dir", (run_dir / ".prewarped_cache").string()}},
+                        {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}},
                        log_file);
-      std::cerr << "Error: no reusable .prewarped_cache frames found"
+      std::cerr << "Error: no reusable cache/prewarped_frames frames found"
                 << std::endl;
       return 1;
     }
@@ -1087,6 +1170,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
+    emitter.phase_progress(run_id, Phase::STACKING, 0.0f,
+                           "preparing cached reconstruction", log_file);
 
     std::vector<std::pair<int, fs::path>> synthetic_entries;
     const fs::path outputs_dir = run_dir / "outputs";
@@ -1166,6 +1251,25 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const ColorMode detected_mode = io::detect_color_mode(first_hdr, 2);
     const BayerPattern detected_bayer = io::detect_bayer_pattern(first_hdr);
     const std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+    ResumeOutputScaling aqmh_output_scaling;
+    const bool restore_aqmh_output_scaling =
+        cfg.aqmh.enabled && detected_mode == ColorMode::OSC;
+    if (restore_aqmh_output_scaling) {
+      std::string scaling_error;
+      if (!load_resume_output_scaling(run_dir, aqmh_output_scaling,
+                                      scaling_error)) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "normalization_artifact_invalid"},
+                           {"error", scaling_error}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false},
+                          {"status", "normalization_artifact_invalid"}},
+                         log_file);
+        std::cerr << "Error: " << scaling_error << std::endl;
+        return 1;
+      }
+    }
     std::vector<float> synthetic_cluster_quality;
     std::vector<float> synthetic_cluster_mass;
     const fs::path synthetic_artifact_path =
@@ -1189,15 +1293,38 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    const auto resume_crop = cfg.aqmh.enabled
+        ? read_latest_stacking_crop(run_dir / "logs" / "run_events.jsonl")
+        : std::optional<runner::CropBox>{};
+    if (resume_crop.has_value()) {
+      const auto &crop = *resume_crop;
+      if (crop.x < 0 || crop.y < 0 || crop.x + crop.width > first_synth.cols() ||
+          crop.y + crop.height > first_synth.rows()) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "invalid_stored_crop"},
+                           {"crop_x", crop.x}, {"crop_y", crop.y},
+                           {"crop_width", crop.width},
+                           {"crop_height", crop.height}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "invalid_stored_crop"}},
+                         log_file);
+        return 1;
+      }
+      first_synth = first_synth.block(crop.y, crop.x, crop.height, crop.width).eval();
+    }
+
+    const fs::path common_overlap_mask_path =
+        run_dir / "outputs" / "common_overlap_mask.fits";
+    const fs::path output_mask_path = run_dir / "outputs" / "canvas_mask.fits";
     std::vector<uint8_t> common_valid_mask;
     std::string canvas_mask_error;
     if (!tile_compile::runner::load_canvas_mask_fits(
-            run_dir / "outputs" / "canvas_mask.fits", first_synth.rows(),
-            first_synth.cols(), common_valid_mask, canvas_mask_error)) {
+            output_mask_path, first_synth.rows(), first_synth.cols(),
+            common_valid_mask, canvas_mask_error)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "canvas_mask_invalid"},
-                         {"canvas_mask",
-                          (run_dir / "outputs" / "canvas_mask.fits").string()},
+                         {"canvas_mask", output_mask_path.string()},
                          {"error", canvas_mask_error}},
                         log_file);
       core::emit_event("resume_end", run_id,
@@ -1206,8 +1333,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
     std::vector<uint8_t> analysis_valid_mask = common_valid_mask;
-    const fs::path analysis_mask_path =
-        run_dir / "outputs" / "common_overlap_mask.fits";
+    const fs::path analysis_mask_path = common_overlap_mask_path;
     if (fs::exists(analysis_mask_path)) {
       std::string analysis_mask_error;
       std::vector<uint8_t> loaded_analysis_mask;
@@ -1262,6 +1388,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           }
         }
       }
+    }
+    if (resume_crop.has_value()) {
+      debayer_tile_offset_x -= resume_crop->x;
+      debayer_tile_offset_y -= resume_crop->y;
     }
 
     core::AccelerationContext acceleration(
@@ -1322,6 +1452,22 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       if (syn.size() <= 0) {
         continue;
       }
+      if (resume_crop.has_value()) {
+        const auto &crop = *resume_crop;
+        if (crop.x + crop.width > syn.cols() ||
+            crop.y + crop.height > syn.rows()) {
+          emitter.phase_end(run_id, Phase::STACKING, "error",
+                            {{"reason", "synthetic_crop_out_of_bounds"},
+                             {"file", path.string()}},
+                            log_file);
+          core::emit_event("resume_end", run_id,
+                           {{"success", false},
+                            {"status", "synthetic_crop_out_of_bounds"}},
+                           log_file);
+          return 1;
+        }
+        syn = syn.block(crop.y, crop.x, crop.height, crop.width).eval();
+      }
       if (detected_mode == ColorMode::OSC) {
         auto deb = image::debayer_nearest_neighbor(
             syn, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
@@ -1345,6 +1491,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    emitter.phase_progress(
+        run_id, Phase::STACKING, 0.2f,
+        "loaded reconstruction inputs " + std::to_string(valid_synth.size()) +
+            "/" + std::to_string(synthetic_entries.size()),
+        log_file);
     if (valid_synth.empty()) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "no_valid_synthetic_frames"}},
@@ -1463,6 +1614,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    emitter.phase_progress(run_id, Phase::STACKING, 0.55f,
+                           "stacked cached reconstruction", log_file);
     if (cfg.stacking.cosmetic_correction) {
       const float cosmetic_sigma = cfg.stacking.cosmetic_correction_sigma;
       recon = image::cosmetic_correction(recon, cosmetic_sigma, true);
@@ -1481,6 +1634,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
+    emitter.phase_progress(run_id, Phase::STACKING, 0.75f,
+                           "applied post-stack processing", log_file);
     auto stretch_luma_for_output = [&](Matrix2Df &luma) {
       if (!cfg.stacking.output_stretch) {
         return;
@@ -1617,6 +1772,27 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    if (restore_aqmh_output_scaling) {
+      image::apply_output_scaling_inplace(
+          recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
+          detected_mode, detected_bayer_str, aqmh_output_scaling.scale_mono,
+          aqmh_output_scaling.scale_r, aqmh_output_scaling.scale_g,
+          aqmh_output_scaling.scale_b, aqmh_output_scaling.bg_mono,
+          aqmh_output_scaling.bg_r, aqmh_output_scaling.bg_g,
+          aqmh_output_scaling.bg_b, 0.0f);
+      if (recon_R.size() == recon.size() && recon_G.size() == recon.size() &&
+          recon_B.size() == recon.size()) {
+        recon_R.array() = recon_R.array() * aqmh_output_scaling.scale_r +
+                          aqmh_output_scaling.bg_r;
+        recon_G.array() = recon_G.array() * aqmh_output_scaling.scale_g +
+                          aqmh_output_scaling.bg_g;
+        recon_B.array() = recon_B.array() * aqmh_output_scaling.scale_b +
+                          aqmh_output_scaling.bg_b;
+      }
+    }
+
+    emitter.phase_progress(run_id, Phase::STACKING, 0.9f,
+                           "writing stacked output", log_file);
     Matrix2Df recon_out = recon;
     stretch_luma_for_output(recon_out);
     try {

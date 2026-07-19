@@ -182,6 +182,7 @@ Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles im Tile-Pfad (ab P
 
 ## Nächste Phase
 
-→ **Phase 7: COMMON_OVERLAP — Gemeinsamer Datenbereich**, danach **Phase 8: LOCAL_METRICS — Lokale Metriken**
+→ **Phase 7: COMMON_OVERLAP — Gemeinsamer Datenbereich**, danach je nach Methode
+`AQMH_MAPS` (Phase 19) oder `LOCAL_METRICS` (Phase 8).
 
 (Hinweis: Das Tile-Grid selbst bleibt in `v3.3.9` geometrisch regulär; geändert hat sich vor allem die spätere lokale Score-Semantik, die nicht mehr hart zwischen STAR und STRUCTURE umschaltet.)
