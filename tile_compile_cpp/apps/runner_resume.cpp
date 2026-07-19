@@ -95,8 +95,8 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
 
 // AQMH phases that can reuse cached quality maps and skip directly to
 // reconstruction without a full pipeline rerun (§ Resume spec).
-// STACKING is included because AQMH does not persist synthetic_*.fit files;
-// resuming STACKING therefore needs synthetic_0.fit to be produced first.
+// STACKING is included so legacy runs without the immutable raw
+// reconstruction can regenerate it before entering the shared stacking path.
 bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
   static const std::vector<std::string> kPhases = {
       "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION",
@@ -710,17 +710,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
   }
 
-  bool aqmh_stacking_from_reconstructed = false;
+  const fs::path aqmh_raw_reconstruction =
+      run_dir / "outputs" / "aqmh_reconstructed_raw.fit";
   if (cfg.aqmh.enabled && phase_upper == "STACKING" &&
-      fs::is_regular_file(run_dir / "outputs" / "reconstructed_L.fit")) {
-    aqmh_stacking_from_reconstructed = true;
+      fs::is_regular_file(aqmh_raw_reconstruction)) {
     phase_l = "stacking";
   } else
   // All AQMH phases that have cached quality maps can resume directly at
   // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
   // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
-  // For STACKING it also provides the synthetic_0.fit file that the shared
-  // STACKING resume path expects but AQMH never writes during a normal run.
+  // For STACKING it also regenerates the immutable raw reconstruction when a
+  // legacy run does not contain that resume artifact.
   if (cfg.aqmh.enabled && is_aqmh_cache_resume_phase(phase_upper)) {
     phase_l = "aqmh_reconstruction";
     phase_upper = "AQMH_RECONSTRUCTION";
@@ -763,31 +763,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
               << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
     return true;
   };
-
-  if (aqmh_stacking_from_reconstructed) {
-    const fs::path outputs_dir = run_dir / "outputs";
-    const fs::path reconstructed_l = outputs_dir / "reconstructed_L.fit";
-    const fs::path synthetic_0 = outputs_dir / "synthetic_0.fit";
-    try {
-      fs::create_directories(outputs_dir);
-      fs::copy_file(reconstructed_l, synthetic_0,
-                    fs::copy_options::overwrite_existing);
-    } catch (const std::exception &e) {
-      core::emit_event("resume_end", run_id,
-                       {{"success", false},
-                        {"status", "prepare_stacking_failed"},
-                        {"reason", "copy_reconstructed_l_failed"},
-                        {"source", reconstructed_l.string()},
-                        {"target", synthetic_0.string()},
-                        {"error", e.what()}},
-                       log_file);
-      std::cerr << "Error: cannot prepare AQMH STACKING resume from "
-                << reconstructed_l << ": " << e.what() << std::endl;
-      return 1;
-    }
-    std::cout << "[STACKING][resume] Prepared synthetic_0.fit from "
-              << reconstructed_l << std::endl;
-  }
 
   if (phase_l == "hypermetric_stretch" || phase_l == "hms") {
     namespace image = tile_compile::image;
@@ -1089,11 +1064,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
     try {
+      io::write_fits_float(aqmh_raw_reconstruction, phase_result.output,
+                           resume_header);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
-                           phase_result.output, resume_header);
-      // Feed the existing shared STACKING/DEBAYER resume path without
-      // recomputing registration, maps, or global quality.
-      io::write_fits_float(run_dir / "outputs" / "synthetic_0.fit",
                            phase_result.output, resume_header);
     } catch (const std::exception &e) {
       std::cerr << "Error: cannot persist AQMH resume output: " << e.what()
@@ -1117,7 +1090,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     std::vector<std::pair<int, fs::path>> synthetic_entries;
     const fs::path outputs_dir = run_dir / "outputs";
-    if (fs::exists(outputs_dir) && fs::is_directory(outputs_dir)) {
+    if (cfg.aqmh.enabled && fs::is_regular_file(aqmh_raw_reconstruction)) {
+      synthetic_entries.emplace_back(0, aqmh_raw_reconstruction);
+    } else if (!cfg.aqmh.enabled && fs::exists(outputs_dir) &&
+               fs::is_directory(outputs_dir)) {
       for (const auto &entry : fs::directory_iterator(outputs_dir)) {
         if (!entry.is_regular_file()) {
           continue;
@@ -1140,23 +1116,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     std::sort(synthetic_entries.begin(), synthetic_entries.end(),
               [](const auto &a, const auto &b) { return a.first < b.first; });
-    if (cfg.aqmh.enabled) {
-      synthetic_entries.erase(
-          std::remove_if(synthetic_entries.begin(), synthetic_entries.end(),
-                         [](const auto &entry) { return entry.first != 0; }),
-          synthetic_entries.end());
-    }
-
     if (synthetic_entries.empty()) {
-      const std::string msg = "missing synthetic_*.fit outputs for STACKING resume";
+      const std::string reason = cfg.aqmh.enabled
+          ? "missing_aqmh_raw_reconstruction"
+          : "missing_synthetic_outputs";
+      const std::string msg = cfg.aqmh.enabled
+          ? "AQMH STACKING resume requires outputs/aqmh_reconstructed_raw.fit; "
+            "resume from AQMH_RECONSTRUCTION to regenerate the immutable CFA "
+            "source"
+          : "missing synthetic_*.fit outputs for STACKING resume";
       emitter.phase_end(run_id, Phase::STACKING, "error",
-                        {{"reason", "missing_synthetic_outputs"},
+                        {{"reason", reason},
                          {"outputs_dir", outputs_dir.string()},
                          {"error", msg}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "missing_synthetic"}},
+                       {{"success", false}, {"status", reason}},
                        log_file);
+      std::cerr << "Error: " << msg << std::endl;
       return 1;
     }
 
@@ -2268,7 +2245,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_end(run_id, Phase::BGE, bge_diag.success ? "ok" : "skipped",
                       phase_extra, log_file);
-    return bge_diag.success || !bge_diag.attempted;
+    // A rejected BGE candidate is a guarded no-op, not a resume failure. The
+    // normal pipeline continues from the unchanged linear RGB in this case.
+    // Hard failures (invalid dimensions or masks) return false above.
+    return true;
   };
 
   if (phase_l == "astrometry") {

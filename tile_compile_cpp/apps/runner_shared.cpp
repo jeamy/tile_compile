@@ -1618,6 +1618,10 @@ void DiskCacheFrameStore::cleanup() {
   frame_bytes_ = 0;
 }
 
+void DiskCacheFrameStore::set_preserve_files(bool preserve) {
+  preserve_files_ = preserve;
+}
+
 /// @brief Implements frame path.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,

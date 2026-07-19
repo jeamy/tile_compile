@@ -350,6 +350,18 @@ AQMH_DIAGNOSTICS
 AQMH_NATIVE_BGE_INPUTS
 ```
 
+Die Ausgabe von `AQMH_RECONSTRUCTION` wird zusätzlich unverändert als
+`outputs/aqmh_reconstructed_raw.fit` gespeichert. Dieses Artefakt enthält bei
+OSC-Daten weiterhin das CFA-Muster und ist die einzige zulässige Eingabe für
+ein Resume ab `STACKING`. `reconstructed_L.fit` ist kein Resume-Artefakt: Es
+wird in `STACKING` durch die skalierte Luminanzausgabe ersetzt. Fehlt das rohe
+Artefakt bei einem älteren Run, muss der Runner `AQMH_RECONSTRUCTION` aus den
+Map- und Prewarp-Caches erneut ausführen. Eine bereits gestackte Luminanz darf
+nie erneut als CFA debayert werden.
+Mit `aqmh.reconstruction.delete_prewarped_cache_after_run: false` kann der
+Prewarp-Cache gezielt für spätere Resumes erhalten bleiben; der Default `true`
+löscht ihn weiterhin zur Speicherplatzfreigabe.
+
 ### 4.2 Global-Quality-Stufe (v0.2.1-Aktualisierung)
 
 Die Stufe berechnet nun pro Frame die drei Zusammenfassungsvektoren

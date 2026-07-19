@@ -268,6 +268,7 @@ struct AqmhReconstructionConfig {
   float min_n_eff = 2.0f;
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
+  bool delete_prewarped_cache_after_run = true;
   bool registration_weight_guard = true;
   float registration_weight_floor = 0.30f;
   float registration_cc_floor = 0.35f;

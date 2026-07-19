@@ -909,6 +909,10 @@ properties:
             minimum: 0
             default: 0
             description: VRAM/RAM budget for reconstruction in MB. 0 = automatic.
+          delete_prewarped_cache_after_run:
+            type: boolean
+            default: true
+            description: Delete the disk-backed prewarp cache after the run. Set false to retain it for AQMH resume.
           registration_weight_guard:
             type: boolean
             default: true

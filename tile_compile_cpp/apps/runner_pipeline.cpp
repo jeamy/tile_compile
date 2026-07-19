@@ -1812,6 +1812,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
+  prewarped_frames.set_preserve_files(
+      !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
@@ -2306,6 +2308,25 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon = aqmh_recon_result.output;
       weight_sum = aqmh_recon_result.weight_sum;
       aqmh_control_validation = aqmh_recon_result.control_validation;
+      try {
+        io::write_fits_float(
+            run_dir / "outputs" / "aqmh_reconstructed_raw.fit", recon,
+            first_hdr);
+      } catch (const std::exception &e) {
+        core::emit_event(
+            "artifact_write_failed", run_id,
+            {{"phase_name", "AQMH_RECONSTRUCTION"},
+             {"reason", "persist_raw_reconstruction_failed"},
+             {"output",
+              (run_dir / "outputs" / "aqmh_reconstructed_raw.fit").string()},
+             {"error", e.what()}},
+            log_file);
+        emitter.run_end(run_id, false, "persist_raw_reconstruction_failed",
+                        log_file);
+        std::cerr << "Error: cannot persist immutable AQMH reconstruction: "
+                  << e.what() << std::endl;
+        return 1;
+      }
       if (aqmh_recon_result.osc_rgb_cleared) {
         recon_R.resize(0, 0);
         recon_G.resize(0, 0);
@@ -4588,8 +4609,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // --- Memory release: prewarped_frames disk cache no longer needed ---
-    // Deletes all temp .raw files from the disk cache directory.
-    prewarped_frames.cleanup();
+    // The configured cleanup policy controls whether files remain available
+    // for an AQMH reconstruction resume after the run ends.
+    if (cfg.aqmh.reconstruction.delete_prewarped_cache_after_run) {
+      prewarped_frames.cleanup();
+    } else {
+      prewarped_frames.clear_mappings();
+    }
     { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)

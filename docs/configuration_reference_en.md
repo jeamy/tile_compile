@@ -1614,6 +1614,17 @@ Per-pixel weighted reconstruction parameters.
 
 ----
 
+#### `aqmh.reconstruction.delete_prewarped_cache_after_run`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Controls whether the disk-backed `.prewarped_cache` is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
+
+----
+
 #### `aqmh.reconstruction.registration_weight_guard`
 
 | Property | Value |

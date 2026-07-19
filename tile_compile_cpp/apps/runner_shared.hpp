@@ -625,6 +625,8 @@ public:
 
   /// Remove cached files and release all mappings.
   void cleanup();
+  /// Keep or remove cached files when the store is destroyed.
+  void set_preserve_files(bool preserve);
 
 private:
   const float *mapped_frame_ptr(size_t fi) const;

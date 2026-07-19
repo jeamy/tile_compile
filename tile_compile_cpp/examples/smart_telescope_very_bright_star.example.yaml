@@ -350,6 +350,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
@@ -375,7 +376,7 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 10.0 # konservativer als Default
-  output_stretch: false # optionales Display-Stretch (Post)
+  output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma
   per_frame_cosmetic_correction: true # fixe Sensordefekte frueh entfernen

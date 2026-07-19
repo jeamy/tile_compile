@@ -1368,7 +1368,8 @@ void register_runs_routes(CrowApp& app,
         // Validate that the requested resume phase is feasible given the
         // artifacts that actually exist in the run directory. This must mirror
         // the runner's resume path. AQMH map/reconstruction phases need the
-        // prewarp cache; AQMH STACKING can use persisted reconstructed_L.fit.
+        // prewarp cache; AQMH STACKING uses the immutable raw CFA artifact or
+        // regenerates it from the cache for legacy runs.
         {
             static const std::set<std::string> inplace_rerun_phases = {
                 "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS",
@@ -1445,11 +1446,17 @@ void register_runs_routes(CrowApp& app,
             } else {
                 if (from_phase == "STACKING") {
                     if (method == "aqmh") {
-                        if (!fs::is_regular_file(run_dir / "outputs" / "reconstructed_L.fit", ec)) {
+                        const fs::path raw_reconstruction =
+                            run_dir / "outputs" / "aqmh_reconstructed_raw.fit";
+                        if (!fs::is_regular_file(raw_reconstruction, ec) &&
+                            !has_nonempty_prewarped_cache(run_dir)) {
                             return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                                "Cannot resume from phase 'STACKING': outputs/reconstructed_L.fit is missing.",
-                                409, {{"from_phase", from_phase}, {"reason", "artifacts_missing"},
-                                      {"missing_files", nlohmann::json::array({"outputs/reconstructed_L.fit"})}});
+                                "Cannot resume from phase 'STACKING': outputs/aqmh_reconstructed_raw.fit is missing and cannot be regenerated because no reusable .prewarped_cache frames are present. Resume from PREWARP or an earlier in-place phase first.",
+                                409, {{"from_phase", from_phase},
+                                      {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
+                                      {"reason", "aqmh_raw_and_prewarped_cache_missing"},
+                                      {"missing_files", nlohmann::json::array({"outputs/aqmh_reconstructed_raw.fit"})},
+                                      {"cache_dir", (run_dir / ".prewarped_cache").string()}});
                         }
                     } else if (!has_synthetic_outputs(run_dir)) {
                         return err_resp("RESUME_PHASE_NOT_FEASIBLE",

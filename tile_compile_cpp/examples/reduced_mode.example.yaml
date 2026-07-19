@@ -354,6 +354,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
@@ -379,7 +380,7 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  output_stretch: false # optionales Display-Stretch (Post)
+  output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # Post-Stack Hotpixel-Kosmetik
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)
   per_frame_cosmetic_correction: true # Per-Frame Hotpixel-Korrektur (CFA-aware) vor dem Warp

@@ -1821,6 +1821,17 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.delete_prewarped_cache_after_run`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Steuert, ob der diskbasierte `.prewarped_cache` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
+
+----
+
 #### `aqmh.reconstruction.registration_weight_guard`
 
 | Eigenschaft | Wert |
@@ -3599,7 +3610,7 @@ stacking:
     kappa_cluster: 1.0
     cap_enabled: false
     cap_ratio: 20.0
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: false
 
 # Validation

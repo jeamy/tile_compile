@@ -339,6 +339,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
@@ -364,7 +365,7 @@ stacking:
     kappa_cluster: 1
     cap_enabled: false
     cap_ratio: 20
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true

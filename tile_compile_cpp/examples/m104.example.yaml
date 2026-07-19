@@ -350,6 +350,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35

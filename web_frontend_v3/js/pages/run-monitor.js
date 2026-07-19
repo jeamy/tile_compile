@@ -1315,6 +1315,18 @@ function formatEventMessage(ev) {
   return type || JSON.stringify(ev).slice(0, 200);
 }
 
+function getEventPhaseName(data, payload) {
+  const candidates = [
+    data?.phase_name,
+    payload?.phase_name,
+    data?.phase,
+    payload?.phase,
+  ];
+  return candidates.find((value) =>
+    typeof value === "string" && value.length > 0 && value !== "null"
+  ) || "";
+}
+
 async function refreshRunStatus(runId) {
   try {
     const status = await api.get(API_ENDPOINTS.runs.status(runId));
@@ -1726,9 +1738,10 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   }
 
   // Phase events: phase_start, phase_progress, phase_end
-  // Backend sends phase at top level (data.phase), not phase_name
+  // Backend sends both a numeric phase id and a readable phase_name. Prefer
+  // the readable name so it can address the phase-list entry directly.
   if (type === "phase_start" || type === "phase_progress" || type === "phase_end") {
-    const phaseName = data.phase || payload.phase_name || payload.phase || data.phase_name || "";
+    const phaseName = getEventPhaseName(data, payload);
     if (!phaseName || phaseName === "null") return;
     if (getResumePending() && !getResumeActive()) return;
     const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;

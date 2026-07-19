@@ -355,6 +355,17 @@ AQMH_DIAGNOSTICS
 AQMH_NATIVE_BGE_INPUTS
 ```
 
+The output of `AQMH_RECONSTRUCTION` is additionally persisted unchanged as
+`outputs/aqmh_reconstructed_raw.fit`. For OSC data this artifact still contains
+the CFA pattern and is the only valid input for a resume from `STACKING`.
+`reconstructed_L.fit` is not a resume artifact: `STACKING` replaces it with the
+scaled luminance output. If an older run lacks the raw artifact, the runner must
+rerun `AQMH_RECONSTRUCTION` from the map and prewarp caches. Already stacked
+luminance must never be debayered again as CFA data.
+Set `aqmh.reconstruction.delete_prewarped_cache_after_run: false` to retain the
+prewarp cache for later resumes; the default `true` continues to reclaim the
+disk space after the run.
+
 ### 4.2 Global Quality Stage (v0.2.1 update)
 
 The stage now computes, for each frame, the three summary vectors

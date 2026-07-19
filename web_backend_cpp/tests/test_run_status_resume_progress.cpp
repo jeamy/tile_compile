@@ -383,12 +383,30 @@ int main(int argc, char** argv) {
                      "aqmh in-place rerun phase dry-run status");
         expect_true(aqmh_rerun_dry_run["dry_run"].get<bool>(), "aqmh in-place rerun dry-run flag");
 
-        // AQMH STACKING can resume directly from reconstructed_L.fit; the
-        // runner prepares synthetic_0.fit from that persisted artifact.
+        // Legacy AQMH runs can regenerate the missing immutable CFA artifact
+        // from their reusable prewarp cache before entering STACKING.
+        {
+            const std::filesystem::path cache_dir =
+                aqmh_resume_overlay_run_dir / ".prewarped_cache";
+            std::filesystem::create_directories(cache_dir);
+            std::ofstream(cache_dir / "frame_0.fixture") << "fixture";
+        }
+        const auto aqmh_legacy_stacking_dry_run = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
+            {"from_phase", "STACKING"},
+            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
+            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"},
+            {"dry_run", true}
+        });
+        expect_equal(aqmh_legacy_stacking_dry_run["_http_status"].get<long>(), 200L,
+                     "legacy aqmh STACKING regenerates raw artifact from prewarp cache");
+
+        // AQMH STACKING resumes from the immutable raw CFA reconstruction.
+        // reconstructed_L.fit is a downstream luminance output and must not be
+        // debayered again.
         {
             const std::filesystem::path outputs_dir = aqmh_resume_overlay_run_dir / "outputs";
             std::filesystem::create_directories(outputs_dir);
-            std::ofstream(outputs_dir / "reconstructed_L.fit") << "fixture";
+            std::ofstream(outputs_dir / "aqmh_reconstructed_raw.fit") << "fixture";
         }
         const auto aqmh_stacking_dry_run = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
             {"from_phase", "STACKING"},

@@ -307,6 +307,7 @@ aqmh:
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
@@ -329,7 +330,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
-  output_stretch: false
+  output_stretch: true
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.0
   sigma_clip:
