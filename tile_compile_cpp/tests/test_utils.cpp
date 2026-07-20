@@ -23,7 +23,7 @@
      REQUIRE(med == Catch::Approx(10.0f).epsilon(1e-5));
  }
 
- TEST_CASE("quantile_rgb_stretch_ignores_extreme_outlier_pixels") {
+ TEST_CASE("quantile_rgb_stretch_maps_to_full_uint32_range") {
      tile_compile::Matrix2Df R(100, 100);
      tile_compile::Matrix2Df G(100, 100);
      tile_compile::Matrix2Df B(100, 100);
@@ -39,15 +39,15 @@
      G(0, 0) = 60000.0f;
      B(0, 0) = 60000.0f;
 
-     const auto stretch = tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
+     const auto stretch = tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
          R, G, B);
 
      REQUIRE(stretch.applied);
      REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
      REQUIRE(stretch.high == Catch::Approx(60000.0f).margin(1e-3));
      REQUIRE(R(50, 50) > 0.0f);
-     REQUIRE(R(50, 50) < 65535.0f);
-     REQUIRE(R(0, 0) == Catch::Approx(65535.0f).margin(1e-3));
+     REQUIRE(R(50, 50) < 4294967295.0f);
+     REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
  }
 
  TEST_CASE("linear_grayscale_stretch_scales_zero_to_max_into_full_u16_range") {

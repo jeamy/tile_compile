@@ -11,9 +11,9 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  dark_master: ""
-  darks_dir: ""
-  use_bias: false
+  flats_dir: ""
+  bias_master: ""
+  flat_master: ""
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -25,13 +25,10 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
-  flats_dir: ""
-  flat_master: ""
-assumptions:
-  frames_min: 50
   frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
+  use_bias: false
 normalization:
   enabled: true
   mode: background

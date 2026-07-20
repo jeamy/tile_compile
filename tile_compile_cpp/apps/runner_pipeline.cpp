@@ -5445,14 +5445,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                      Matrix2Df& B_ch,
                                      const char* stage_tag) -> bool {
       const auto stretch =
-          core::stretch_rgb_to_u16_linear_from_zero_inplace(
+          core::stretch_rgb_to_u32_linear_from_zero_inplace(
               R_ch, G_ch, B_ch);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
                 << "] RGB output "
                 << "linear"
                 << " stretch ["
-                << stretch.low << ".." << stretch.high << "] -> [0..65535]"
+                << stretch.low << ".." << stretch.high << "] -> [0..4294967295]"
                 << " samples=" << stretch.sample_count << std::endl;
       return true;
     };
@@ -5466,14 +5466,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       Matrix2Df R_disk = R_src;
       Matrix2Df G_disk = G_src;
       Matrix2Df B_disk = B_src;
-      if (cfg.stacking.output_stretch) {
+      const bool stretched = cfg.stacking.output_stretch;
+      if (stretched) {
         stretch_rgb_for_output(R_disk, G_disk, B_disk, stage_tag);
       }
       image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk,
                                         reconstruction_valid_mask);
       std::error_code ec;
       fs::remove(path, ec);
-      io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+      if (stretched) {
+        io::write_fits_rgb_u32(path, R_disk, G_disk, B_disk, hdr);
+      } else {
+        io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+      }
     };
 
     bool have_successful_bge = false;

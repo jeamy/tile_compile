@@ -566,7 +566,7 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
     Matrix2Df& b) {
@@ -592,12 +592,12 @@ StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
     result.high = max_value;
     if (!(max_value > 1.0e-6f)) return result;
 
-    const float scale = 65535.0f / max_value;
+    const float scale = 4294967295.0f / max_value;
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
             const float v = ch->data()[i];
             if (std::isfinite(v) && v >= 0.0f) {
-                ch->data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+                ch->data()[i] = std::clamp(v * scale, 0.0f, 4294967295.0f);
             } else {
                 ch->data()[i] = 0.0f;
             }

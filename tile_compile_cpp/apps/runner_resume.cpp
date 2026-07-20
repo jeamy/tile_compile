@@ -1872,7 +1872,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           }
           const float range = vmax - vmin;
           if (range > 1.0e-6f) {
-            const float scale = 65535.0f / range;
+            const float scale = 4294967295.0f / range;
             for (auto *ch : {&R_stack_disk, &G_stack_disk, &B_stack_disk}) {
               for (Eigen::Index k = 0; k < ch->size(); ++k) {
                 const float v = ch->data()[k];
@@ -1884,11 +1884,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
               }
             }
             std::cout << "[STACKING][resume] RGB output stretch: [" << vmin
-                      << ".." << vmax << "] -> [0..65535]" << std::endl;
+                      << ".." << vmax << "] -> [0..4294967295]" << std::endl;
           }
         }
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
-                           R_stack_disk, G_stack_disk, B_stack_disk, first_hdr);
+        if (cfg.stacking.output_stretch) {
+          io::write_fits_rgb_u32(run_dir / "outputs" / "stacked_rgb.fits",
+                                 R_stack_disk, G_stack_disk, B_stack_disk,
+                                 first_hdr);
+        } else {
+          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
+                             R_stack_disk, G_stack_disk, B_stack_disk, first_hdr);
+        }
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits", R_out,
                            G_out, B_out, first_hdr);
       } catch (const std::exception &e) {
@@ -2188,20 +2194,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	    }
 	    if (apply_stretch) {
 	      const auto stretch =
-	          tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
+	          tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
 	              R_disk, G_disk, B_disk);
       if (stretch.applied) {
         std::cout << "[" << stage_tag
                   << "][resume] RGB output "
                   << "linear"
                   << " stretch ["
-                  << stretch.low << ".." << stretch.high << "] -> [0..65535]"
+                  << stretch.low << ".." << stretch.high << "] -> [0..4294967295]"
                   << " samples=" << stretch.sample_count << std::endl;
       }
     }
     std::error_code ec;
     fs::remove(path, ec);
-    io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+    if (apply_stretch) {
+      io::write_fits_rgb_u32(path, R_disk, G_disk, B_disk, hdr);
+    } else {
+      io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+    }
   };
 
   auto write_linear_rgb_snapshot = [&](const fs::path &path,

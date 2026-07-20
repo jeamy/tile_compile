@@ -57,7 +57,7 @@ struct StretchResult {
 StretchResult stretch_to_u16_linear_from_zero_inplace(
     Matrix2Df& img);
 
-StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
     Matrix2Df& b);
