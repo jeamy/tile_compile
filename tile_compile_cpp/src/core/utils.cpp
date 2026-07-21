@@ -528,27 +528,33 @@ float median_finite(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
-/// @brief Implements stretch to u16 linear from zero inplace.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @brief Implements stretch to u16 linear from zero inplace using robust
+/// maximum (p99.9). Pixels above the robust max are clamped to 65535.
 StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     StretchResult result;
-    float max_value = 0.0f;
-    size_t sample_count = 0;
+    std::vector<float> finite_positive;
+    finite_positive.reserve(static_cast<size_t>(img.size()) / 2);
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (!std::isfinite(v) || v < 0.0f) continue;
-        max_value = std::max(max_value, v);
-        ++sample_count;
+        if (std::isfinite(v) && v > 0.0f)
+            finite_positive.push_back(v);
     }
 
-    result.sample_count = sample_count;
-    result.low = 0.0f;
-    result.high = max_value;
-    if (!(max_value > 1.0e-6f)) return result;
+    result.sample_count = finite_positive.size();
+    if (finite_positive.empty()) return result;
 
-    const float scale = 65535.0f / max_value;
+    const size_t idx_999 = static_cast<size_t>(
+        0.999 * static_cast<double>(finite_positive.size() - 1));
+    std::nth_element(finite_positive.begin(),
+                     finite_positive.begin() + idx_999,
+                     finite_positive.end());
+    const float robust_max = finite_positive[idx_999];
+
+    result.low = 0.0f;
+    result.high = robust_max;
+    if (!(robust_max > 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / robust_max;
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
         if (std::isfinite(v) && v >= 0.0f) {
@@ -562,10 +568,10 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     return result;
 }
 
-/// @brief Implements stretch rgb to u16 linear from zero inplace.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @brief Implements stretch rgb to u32 linear from zero inplace using a robust
+/// maximum (p99.9 across all channels). Pixels above the robust max are clamped
+/// to the target ceiling. This prevents a single bright star core from
+/// compressing the entire nebula signal into <1% of the output range.
 StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
@@ -576,28 +582,40 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
         return result;
     }
 
-    float max_value = 0.0f;
-    size_t sample_count = 0;
+    // Collect all finite positive values to compute a robust maximum.
+    // Using p99.9 ensures that star cores (typically <0.1% of pixels) don't
+    // define the scale, while all diffuse structure is faithfully represented.
+    std::vector<float> all_values;
+    all_values.reserve(static_cast<size_t>(r.size()) * 3 / 4);
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
             const float v = ch->data()[i];
-            if (!std::isfinite(v) || v < 0.0f) continue;
-            max_value = std::max(max_value, v);
-            ++sample_count;
+            if (std::isfinite(v) && v > 0.0f)
+                all_values.push_back(v);
         }
     }
 
-    result.sample_count = sample_count;
-    result.low = 0.0f;
-    result.high = max_value;
-    if (!(max_value > 1.0e-6f)) return result;
+    result.sample_count = all_values.size();
+    if (all_values.empty()) return result;
 
-    const float scale = 4294967295.0f / max_value;
+    // Compute p99.9 as robust maximum
+    const size_t idx_999 = static_cast<size_t>(
+        std::clamp(0.999, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
+    std::nth_element(all_values.begin(), all_values.begin() + idx_999,
+                     all_values.end());
+    const float robust_max = all_values[idx_999];
+
+    result.low = 0.0f;
+    result.high = robust_max;
+    if (!(robust_max > 1.0e-6f)) return result;
+
+    constexpr float target = 4294967295.0f;
+    const float scale = target / robust_max;
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
             const float v = ch->data()[i];
             if (std::isfinite(v) && v >= 0.0f) {
-                ch->data()[i] = std::clamp(v * scale, 0.0f, 4294967295.0f);
+                ch->data()[i] = std::clamp(v * scale, 0.0f, target);
             } else {
                 ch->data()[i] = 0.0f;
             }

@@ -19,6 +19,7 @@
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
 #include "runner_shared.hpp"
+#include "runner_phase_post_stack_output.hpp"
 #include "runner_phase_aqmh_reconstruction.hpp"
 #include "runner_phase_aqmh_diagnostics.hpp"
 
@@ -1793,18 +1794,38 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_progress(run_id, Phase::STACKING, 0.9f,
                            "writing stacked output", log_file);
-    Matrix2Df recon_out = recon;
-    stretch_luma_for_output(recon_out);
-    try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
-                           first_hdr);
-    } catch (const std::exception &e) {
+    // Use the shared post-stack output writer for consistent behavior between
+    // pipeline and resume paths (stretch, crop, scaling, format).
+    runner::OutputScaling resume_scaling;
+    if (restore_aqmh_output_scaling) {
+      resume_scaling.scale_r = aqmh_output_scaling.scale_r;
+      resume_scaling.scale_g = aqmh_output_scaling.scale_g;
+      resume_scaling.scale_b = aqmh_output_scaling.scale_b;
+      resume_scaling.scale_mono = aqmh_output_scaling.scale_mono;
+      resume_scaling.bg_r = aqmh_output_scaling.bg_r;
+      resume_scaling.bg_g = aqmh_output_scaling.bg_g;
+      resume_scaling.bg_b = aqmh_output_scaling.bg_b;
+      resume_scaling.bg_mono = aqmh_output_scaling.bg_mono;
+      resume_scaling.pedestal = 0.0f;
+    }
+    runner::PostStackOutputConfig post_cfg;
+    post_cfg.output_stretch = cfg.stacking.output_stretch;
+    post_cfg.crop_to_nonzero_bbox = false;  // crop already handled above
+    post_cfg.aqmh_enabled = cfg.aqmh.enabled;
+    runner::PostStackOutputResult post_result;
+    if (!runner::write_post_stack_outputs(
+            recon, recon_R, recon_G, recon_B,
+            common_valid_mask, analysis_valid_mask,
+            resume_scaling, detected_mode, detected_bayer_str,
+            debayer_tile_offset_x, debayer_tile_offset_y,
+            first_hdr, post_cfg, run_dir, run_id,
+            emitter, log_file, post_result)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
-                        {{"reason", "write_failed"}, {"error", e.what()}},
+                        {{"reason", "output_write_failed"},
+                         {"error", post_result.error}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "stack_write_failed"}},
+                       {{"success", false}, {"status", "output_write_failed"}},
                        log_file);
       return 1;
     }
@@ -1834,78 +1855,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
     if (detected_mode == ColorMode::OSC) {
-      Matrix2Df R_out;
-      Matrix2Df G_out;
-      Matrix2Df B_out;
-      if (recon_R.size() == recon.size() && recon_R.size() > 0) {
-        R_out = recon_R;
-        G_out = recon_G;
-        B_out = recon_B;
-      } else {
-        auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
-        R_out = std::move(debayer.R);
-        G_out = std::move(debayer.G);
-        B_out = std::move(debayer.B);
-      }
-      try {
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
-                             first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,
-                             first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
-                             first_hdr);
-        Matrix2Df R_stack_disk = R_out;
-        Matrix2Df G_stack_disk = G_out;
-        Matrix2Df B_stack_disk = B_out;
-        if (cfg.stacking.output_stretch) {
-          float vmin = std::numeric_limits<float>::max();
-          float vmax = std::numeric_limits<float>::lowest();
-          for (auto *ch : {&R_stack_disk, &G_stack_disk, &B_stack_disk}) {
-            for (Eigen::Index k = 0; k < ch->size(); ++k) {
-              const float v = ch->data()[k];
-              if (std::isfinite(v) && v > 0.0f) {
-                vmin = std::min(vmin, v);
-                vmax = std::max(vmax, v);
-              }
-            }
-          }
-          const float range = vmax - vmin;
-          if (range > 1.0e-6f) {
-            const float scale = 4294967295.0f / range;
-            for (auto *ch : {&R_stack_disk, &G_stack_disk, &B_stack_disk}) {
-              for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                const float v = ch->data()[k];
-                if (std::isfinite(v) && v > 0.0f) {
-                  ch->data()[k] = (v - vmin) * scale;
-                } else {
-                  ch->data()[k] = 0.0f;
-                }
-              }
-            }
-            std::cout << "[STACKING][resume] RGB output stretch: [" << vmin
-                      << ".." << vmax << "] -> [0..4294967295]" << std::endl;
-          }
-        }
-        if (cfg.stacking.output_stretch) {
-          io::write_fits_rgb_u32(run_dir / "outputs" / "stacked_rgb.fits",
-                                 R_stack_disk, G_stack_disk, B_stack_disk,
-                                 first_hdr);
-        } else {
-          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
-                             R_stack_disk, G_stack_disk, B_stack_disk, first_hdr);
-        }
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits", R_out,
-                           G_out, B_out, first_hdr);
-      } catch (const std::exception &e) {
-        emitter.phase_end(run_id, Phase::DEBAYER, "error",
-                          {{"reason", "write_failed"}, {"error", e.what()}},
-                          log_file);
-        core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "debayer_write_failed"}},
-                         log_file);
-        return 1;
-      }
       emitter.phase_end(
           run_id, Phase::DEBAYER, "ok",
           {{"mode", "OSC"},
@@ -2180,38 +2129,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	                                          const io::FitsHeader &hdr,
 	                                          bool apply_stretch,
 	                                          const char* stage_tag) {
-	    Matrix2Df R_disk = R_src;
-	    Matrix2Df G_disk = G_src;
-	    Matrix2Df B_disk = B_src;
 	    std::vector<uint8_t> canvas_mask;
 	    std::string canvas_mask_error;
 	    int canvas_rows = 0;
 	    int canvas_cols = 0;
-	    if (tile_compile::runner::load_canvas_mask_for_rgb(
-	            run_dir / "outputs" / "canvas_mask.fits", R_disk, G_disk, B_disk,
-	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error)) {
-	      image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk, canvas_mask);
-	    }
-	    if (apply_stretch) {
-	      const auto stretch =
-	          tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
-	              R_disk, G_disk, B_disk);
-      if (stretch.applied) {
-        std::cout << "[" << stage_tag
-                  << "][resume] RGB output "
-                  << "linear"
-                  << " stretch ["
-                  << stretch.low << ".." << stretch.high << "] -> [0..4294967295]"
-                  << " samples=" << stretch.sample_count << std::endl;
-      }
-    }
-    std::error_code ec;
-    fs::remove(path, ec);
-    if (apply_stretch) {
-      io::write_fits_rgb_u32(path, R_disk, G_disk, B_disk, hdr);
-    } else {
-      io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
-    }
+	    tile_compile::runner::load_canvas_mask_for_rgb(
+	            run_dir / "outputs" / "canvas_mask.fits", R_src, G_src, B_src,
+	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error);
+	    runner::write_stretched_rgb_snapshot(
+	        path, R_src, G_src, B_src, canvas_mask, canvas_rows, canvas_cols,
+	        hdr, apply_stretch, stage_tag);
   };
 
   auto write_linear_rgb_snapshot = [&](const fs::path &path,
@@ -2694,9 +2621,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     io::write_fits_float(pcc_r_path, rgb.R, out_hdr);
     io::write_fits_float(pcc_g_path, rgb.G, out_hdr);
     io::write_fits_float(pcc_b_path, rgb.B, out_hdr);
-    write_stretched_rgb_snapshot(
-        pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr,
-        cfg.stacking.output_stretch, "PCC");
+    // stacked_rgb_pcc.fits must remain LINEAR float32 — it is the HMS input.
+    // Never apply output_stretch here; HMS needs the original linear data.
+    io::write_fits_rgb(pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr);
 
     core::json matrix_json = core::json::array();
     for (int r = 0; r < 3; ++r) {

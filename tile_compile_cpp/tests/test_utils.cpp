@@ -35,6 +35,7 @@
              B(y, x) = base;
          }
      }
+     // Single bright star pixel — should NOT define the scale
      R(0, 0) = 60000.0f;
      G(0, 0) = 60000.0f;
      B(0, 0) = 60000.0f;
@@ -44,26 +45,36 @@
 
      REQUIRE(stretch.applied);
      REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(stretch.high == Catch::Approx(60000.0f).margin(1e-3));
-     REQUIRE(R(50, 50) > 0.0f);
-     REQUIRE(R(50, 50) < 4294967295.0f);
+     // robust_max = p99.9 of all pixels, which is ~299 (not 60000)
+     REQUIRE(stretch.high < 1000.0f);  // robust max from the bulk pixels
+     REQUIRE(stretch.high > 100.0f);   // should be in the [200,300] range
+     // Normal pixel should be stretched to a significant fraction of uint32 max
+     REQUIRE(R(50, 50) > 2000000000.0f);  // ~250/300 * 4294967295 ≈ 3.6B
+     // Star pixel should be clamped to uint32 max
      REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
  }
 
  TEST_CASE("linear_grayscale_stretch_scales_zero_to_max_into_full_u16_range") {
-     tile_compile::Matrix2Df img(2, 3);
-     img << 0.0f, 100.0f, 200.0f,
-            300.0f, 400.0f, 800.0f;
+     // 100 pixels: 99 normal pixels at 100..199, one bright outlier at 8000.
+     // With robust p99.9 stretch, the outlier should be clamped and not define
+     // the scale; the normal pixels should fill the output range.
+     tile_compile::Matrix2Df img(10, 10);
+     for (int i = 0; i < 100; ++i)
+         img.data()[i] = 100.0f + static_cast<float>(i);  // 100..199
+     img(0, 0) = 8000.0f;  // bright outlier (like a star)
 
      const auto stretch =
          tile_compile::core::stretch_to_u16_linear_from_zero_inplace(img);
 
      REQUIRE(stretch.applied);
      REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(stretch.high == Catch::Approx(800.0f).margin(1e-6));
-     REQUIRE(img(0, 0) == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(img(1, 2) == Catch::Approx(65535.0f).margin(1e-3));
-     REQUIRE(img(0, 2) == Catch::Approx(65535.0f * 0.25f).margin(1.0f));
+     // robust_max = p99.9 of the 99 positive values (excluding outlier effect)
+     REQUIRE(stretch.high < 1000.0f);   // should be in the ~199 range
+     REQUIRE(stretch.high > 50.0f);
+     // Outlier should be clamped to 65535
+     REQUIRE(img(0, 0) == Catch::Approx(65535.0f).margin(1.0f));
+     // A normal pixel (e.g. value=150) should occupy a significant fraction
+     REQUIRE(img(5, 0) > 30000.0f);  // 150/~199 * 65535 ≈ 49000
  }
 
  TEST_CASE("suppress_isolated_chroma_speckles_fixes_single_channel_outlier") {

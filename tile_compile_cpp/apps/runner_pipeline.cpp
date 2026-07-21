@@ -6230,8 +6230,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                G_out, first_hdr);
           io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
                                B_out, first_hdr);
-          write_output_rgb_snapshot(stacked_rgb_pcc_path, R_out, G_out, B_out,
-                                    first_hdr, "PCC");
+          // stacked_rgb_pcc.fits must remain LINEAR float32 — it is the HMS input.
+          // Never apply output_stretch here; HMS needs the original linear data.
+          io::write_fits_rgb(stacked_rgb_pcc_path, R_out, G_out, B_out, first_hdr);
 
           core::json matrix_json = core::json::array();
           for (int r = 0; r < 3; ++r) {

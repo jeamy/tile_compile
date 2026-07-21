@@ -535,6 +535,7 @@ add_executable(tile_compile_runner
     apps/runner_preprocess.cpp
     apps/runner_shared.cpp
     apps/runner_resume.cpp
+    apps/runner_phase_post_stack_output.cpp
 )
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 

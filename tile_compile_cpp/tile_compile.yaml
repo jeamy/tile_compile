@@ -25,13 +25,11 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
-  frames_reduced_threshold: 150
-  reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
   use_bias: false
 normalization:
   enabled: true
-  mode: background
+  mode: median
   per_channel: true
 dithering:
   enabled: true
@@ -220,7 +218,7 @@ stacking:
   method: rej
   common_overlap_required_fraction: 1
   tile_common_valid_min_fraction: 1
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true
