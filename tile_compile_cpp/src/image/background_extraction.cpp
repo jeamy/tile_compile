@@ -59,16 +59,7 @@ float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 float robust_median_inplace(std::vector<float> &values) {
-  if (values.empty())
-    return 0.0f;
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + mid, values.end());
-  float med = values[mid];
-  if ((values.size() & 1U) == 0U) {
-    std::nth_element(values.begin(), values.begin() + (mid - 1), values.end());
-    med = 0.5f * (med + values[mid - 1]);
-  }
-  return med;
+  return tile_compile::core::median_of(values);
 }
 
 /// @brief Implements robust median.
@@ -169,13 +160,7 @@ float sorted_quantile(const std::vector<float> &sorted_values, float q) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 float robust_mad(const std::vector<float> &values, float center) {
-  if (values.empty())
-    return 0.0f;
-  std::vector<float> abs_dev;
-  abs_dev.reserve(values.size());
-  for (float v : values)
-    abs_dev.push_back(std::abs(v - center));
-  return robust_median_inplace(abs_dev);
+  return tile_compile::core::mad_of(std::vector<float>(values), center);
 }
 
 float robust_mean(const std::vector<float> &values) {

@@ -358,7 +358,7 @@ std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern) {
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-float median_of(std::vector<float>& v) {
+float median_of(std::vector<float> v) {
     if (v.empty()) return 0.0f;
     const size_t n = v.size();
     const size_t mid = n / 2;
@@ -370,13 +370,10 @@ float median_of(std::vector<float>& v) {
     return 0.5f * (lo + hi);
 }
 
-/// @brief Implements mad of.
-/// @details Part of robust statistics helpers; computes the median absolute deviation
-/// given a pre-computed median. Modifies the input vector in place.
-float mad_of(std::vector<float>& v, float median) {
+float mad_of(std::vector<float> v, float median) {
     if (v.empty()) return 0.0f;
     for (float& x : v) x = std::fabs(x - median);
-    return median_of(v);
+    return median_of(std::move(v));
 }
 
 /// @brief Implements stddev of.
@@ -405,7 +402,7 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     if (pixels.empty()) return 0.0f;
     float med = median_of(pixels);
     for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
+    float mad = median_of(std::move(pixels));
     return 1.4826f * mad;
 }
 

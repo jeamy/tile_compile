@@ -1,4 +1,5 @@
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <Eigen/Dense>
 
@@ -47,7 +48,9 @@ BGEValueStats stats_from_values_local(const std::vector<float>& values) {
   std::sort(finite.begin(), finite.end());
   stats.min = finite.front();
   stats.max = finite.back();
-  stats.median = finite[finite.size() / 2];
+  stats.median = (finite.size() % 2 != 0)
+      ? finite[finite.size() / 2]
+      : 0.5f * (finite[finite.size() / 2 - 1] + finite[finite.size() / 2]);
   stats.mean = static_cast<float>(sum / static_cast<double>(finite.size()));
   double var = 0.0;
   for (float v : finite) {
@@ -81,8 +84,7 @@ constexpr int kAutoBGEMinStage2Points = 16;
 
 float percentile_of_valid(const std::vector<float>& sorted_vals, float pct) {
   if (sorted_vals.empty()) return 0.0f;
-  const size_t idx = static_cast<size_t>(pct * (sorted_vals.size() - 1));
-  return sorted_vals[idx];
+  return tile_compile::core::percentile_from_sorted(sorted_vals, pct * 100.0f);
 }
 
 std::vector<float> collect_patch_values(const Matrix2Df& img, int cx, int cy,
@@ -103,9 +105,7 @@ std::vector<float> collect_patch_values(const Matrix2Df& img, int cx, int cy,
 }
 
 float median_from_values(std::vector<float> vals) {
-  if (vals.empty()) return 0.0f;
-  std::sort(vals.begin(), vals.end());
-  return vals[vals.size() / 2];
+  return tile_compile::core::median_of(std::move(vals));
 }
 
 float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,

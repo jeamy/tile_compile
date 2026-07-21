@@ -1,5 +1,6 @@
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/tile_grid_key.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/opencv.hpp>
 
@@ -33,22 +34,7 @@ inline bool is_valid_sample(float v) {
     return std::isfinite(v);
 }
 
-/// @brief Implements median inplace.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float median_inplace(std::vector<float>& v) {
-    if (v.empty()) return 0.0f;
-    const size_t mid = v.size() / 2;
-    std::nth_element(v.begin(), v.begin() + static_cast<long>(mid), v.end());
-    return v[mid];
-}
-
-/// @brief Implements robust sigma mad from mat.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float robust_sigma_mad_from_mat(const cv::Mat& m) {
+static float robust_sigma_mad_from_mat(const cv::Mat& m) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
     vals.reserve(m.total());
@@ -56,17 +42,10 @@ float robust_sigma_mad_from_mat(const cv::Mat& m) {
         const float* row = m.ptr<float>(y);
         vals.insert(vals.end(), row, row + m.cols);
     }
-    float med = median_inplace(vals);
-    for (float& v : vals) v = std::fabs(v - med);
-    float mad = median_inplace(vals);
-    return 1.4826f * mad;
+    return tile_compile::core::robust_sigma_mad(vals);
 }
 
-/// @brief Implements percentile from mat.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float percentile_from_mat(const cv::Mat& m, float p) {
+static float percentile_from_mat(const cv::Mat& m, float p) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
     vals.reserve(m.total());
@@ -75,10 +54,7 @@ float percentile_from_mat(const cv::Mat& m, float p) {
         vals.insert(vals.end(), row, row + m.cols);
     }
     if (vals.empty()) return 0.0f;
-    p = std::clamp(p, 0.0f, 100.0f);
-    const size_t idx = static_cast<size_t>(std::round((p / 100.0f) * static_cast<float>(vals.size() - 1)));
-    std::nth_element(vals.begin(), vals.begin() + static_cast<long>(idx), vals.end());
-    return vals[idx];
+    return tile_compile::core::percentile_of(vals, p);
 }
 
 /// @brief Implements quantize to step.
@@ -533,13 +509,8 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
         }
     }
     if (rv.empty()) return tile;
-    size_t mid = rv.size() / 2;
-    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
-    float med_r = rv[mid];
-    for (size_t i = 0; i < rv.size(); ++i)
-        rv[i] = std::fabs(rv[i] - med_r);
-    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
-    float mad = rv[mid];
+    float med_r = tile_compile::core::median_of(rv);
+    float mad = tile_compile::core::mad_of(rv, med_r);
     float sigma = 1.4826f * mad;
 
     if (!(sigma > 1e-12f)) return tile; // no noise to remove

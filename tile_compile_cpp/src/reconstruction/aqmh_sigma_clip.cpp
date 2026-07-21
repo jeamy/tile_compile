@@ -1,6 +1,7 @@
 #include "tile_compile/reconstruction/aqmh_sigma_clip.hpp"
 
 #include "tile_compile/metrics/aqmh_eps.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -55,24 +56,14 @@ float weighted_median_select(std::vector<AqmhWeightedSample> &samples,
   return sample_key(samples[first], deviations, center);
 }
 
-float median_select(std::vector<float> &values) {
-  if (values.empty()) return 0.0f;
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + mid, values.end());
-  const float hi = values[mid];
-  if (values.size() % 2 != 0) return hi;
-  const float lo = *std::max_element(values.begin(), values.begin() + mid);
-  return 0.5f * (lo + hi);
-}
-
 float noise_floor(const std::vector<AqmhWeightedSample> &samples,
                   std::vector<float> &values) {
   values.clear();
   values.reserve(samples.size());
   for (const auto &sample : samples) values.push_back(sample.value);
-  const float center = median_select(values);
+  const float center = tile_compile::core::median_of(values);
   for (float &value : values) value = std::abs(value - center);
-  const float mad = median_select(values);
+  const float mad = tile_compile::core::median_of(values);
   return std::max(std::nextafter(0.0f, 1.0f),
                   metrics::aqmh_eps_rel * mad);
 }

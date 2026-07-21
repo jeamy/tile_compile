@@ -37,8 +37,8 @@ void copy_config(const fs::path& src, const fs::path& dst);
 fs::path resolve_project_root(const fs::path& config_path);
 
 // Statistical utilities (canonical implementations — do NOT duplicate)
-float median_of(std::vector<float>& v);
-float mad_of(std::vector<float>& v, float median);
+float median_of(std::vector<float> v);
+float mad_of(std::vector<float> v, float median);
 float stddev_of(const std::vector<float>& v);
 float robust_sigma_mad(std::vector<float>& pixels);
 float percentile_from_sorted(const std::vector<float>& sorted, float pct);

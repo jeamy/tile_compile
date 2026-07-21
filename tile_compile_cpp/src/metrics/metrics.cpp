@@ -100,8 +100,7 @@ float masked_median(const Matrix2Df& frame, const cv::Mat1b& mask) {
 float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float center) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
-    for (float& x : px) x = std::fabs(x - center);
-    float mad = core::median_of(px);
+    float mad = core::mad_of(px, center);
     return 1.4826f * mad;
 }
 
@@ -115,8 +114,7 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     vals.reserve(static_cast<size_t>(v.size()));
     for (int i = 0; i < v.size(); ++i) vals.push_back(v[i]);
     float med = core::median_of(vals);
-    for (float& x : vals) x = std::fabs(x - med);
-    float mad = core::median_of(vals);
+    float mad = core::mad_of(vals, med);
     float sigma_robust = 1.4826f * mad;
     if (!(sigma_robust > 0.0f)) {
         return VectorXf::Zero(v.size());
@@ -469,8 +467,7 @@ static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& va
 
     std::vector<float> tmp = values;
     const float med = core::median_of(tmp);
-    for (float& v : tmp) v = std::fabs(v - med);
-    const float mad = core::median_of(tmp);
+    const float mad = core::mad_of(tmp, med);
     const float sigma = 1.4826f * mad;
 
     keep.reserve(values.size());
