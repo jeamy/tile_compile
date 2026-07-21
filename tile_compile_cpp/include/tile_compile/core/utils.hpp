@@ -109,6 +109,5 @@ std::string join(const std::vector<std::string>& parts, const std::string& delim
 
 // Glob pattern matching
 bool glob_match(const std::string& pattern, const std::string& str);
-std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern);
 
 } // namespace tile_compile::core

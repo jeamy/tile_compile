@@ -344,14 +344,6 @@ bool glob_match(const std::string& pattern, const std::string& str) {
     return std::regex_match(str, re);
 }
 
-/// @brief Matches or expands glob patterns for.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern) {
-    return discover_frames(dir, pattern);
-}
-
 // --- Statistical utilities (canonical, single implementation) ---
 
 /// @brief Implements median of.
