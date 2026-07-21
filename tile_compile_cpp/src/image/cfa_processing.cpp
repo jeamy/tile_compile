@@ -1,4 +1,5 @@
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/core/cfa_warp.hpp"
 
 #include <opencv2/opencv.hpp>
 #include <cstdint>
@@ -451,93 +452,34 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     const std::string& border_mode,
     const std::string& interpolation
 ) {
-    int h = mosaic.rows();
-    int w = mosaic.cols();
-    int h2 = h - (h % 2);
-    int w2 = w - (w % 2);
-    
-    int out_h = (out_height > 0) ? out_height : h;
-    int out_w = (out_width > 0) ? out_width : w;
-    int out_h2 = out_h - (out_h % 2);
-    int out_w2 = out_w - (out_w % 2);
-    
-    // Extract 4 Bayer subplanes
-    int sub_h = h2 / 2;
-    int sub_w = w2 / 2;
-    
-    Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
-    
-    for (int y = 0; y < sub_h; ++y) {
-        for (int x = 0; x < sub_w; ++x) {
-            a(y, x) = mosaic(y * 2, x * 2);
-            b(y, x) = mosaic(y * 2, x * 2 + 1);
-            c(y, x) = mosaic(y * 2 + 1, x * 2);
-            d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
-        }
-    }
-    
-    // Convert to OpenCV
-    cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
-    cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
-    cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
-    cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
-    
-    // Warp matrix components — rotation/scale stay the same,
-    // but translation must be halved because subplanes are half-resolution.
-    float a2_00 = warp(0, 0), a2_01 = warp(0, 1);
-    float a2_10 = warp(1, 0), a2_11 = warp(1, 1);
-    float t_x = warp(0, 2) * 0.5f;
-    float t_y = warp(1, 2) * 0.5f;
-    
-    // Compute delta shifts for each subplane
-    // delta_a = [-0.25, -0.25], delta_b = [0.25, -0.25], etc.
-    auto make_warp = [&](float dx, float dy) -> cv::Mat {
-        float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
-        float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
-        cv::Mat w = (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11, new_ty);
-        return w;
-    };
-    
-    cv::Mat warp_a = make_warp(-0.25f, -0.25f);
-    cv::Mat warp_b = make_warp(0.25f, -0.25f);
-    cv::Mat warp_c = make_warp(-0.25f, 0.25f);
-    cv::Mat warp_d = make_warp(0.25f, 0.25f);
-    
-    // Interpolation and border flags
+    const int h = mosaic.rows();
+    const int w = mosaic.cols();
+    const auto dims = tile_compile::core::compute_cfa_warp_dims(h, w, out_height, out_width);
+    auto sub = tile_compile::core::extract_cfa_subplanes(mosaic, dims);
+    const auto warps = tile_compile::core::make_all_cfa_subplane_warps(warp);
+
+    cv::Mat a_cv(dims.sub_h, dims.sub_w, CV_32F, sub.a.data());
+    cv::Mat b_cv(dims.sub_h, dims.sub_w, CV_32F, sub.b.data());
+    cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
+    cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
+
     int interp_flag = (interpolation == "nearest") ? cv::INTER_NEAREST : cv::INTER_LINEAR;
     int flags = interp_flag | cv::WARP_INVERSE_MAP;
-    
+
     int border_flag = cv::BORDER_CONSTANT;
     if (border_mode == "replicate") {
         border_flag = cv::BORDER_REPLICATE;
     } else if (border_mode == "reflect") {
         border_flag = cv::BORDER_REFLECT_101;
     }
-    
-    int out_w_sub = std::max(1, out_w2 / 2);
-    int out_h_sub = std::max(1, out_h2 / 2);
-    
+
     cv::Mat a_w, b_w, c_w, d_w;
-    cv::warpAffine(a_cv, a_w, warp_a, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
-    cv::warpAffine(b_cv, b_w, warp_b, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
-    cv::warpAffine(c_cv, c_w, warp_c, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
-    cv::warpAffine(d_cv, d_w, warp_d, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
-    
-    // Reassemble into exactly out_height x out_width to match DiskCacheFrameStore expectations.
-    // out_h2/out_w2 may be smaller than out_h/out_w if out_h/out_w are odd —
-    // but canvas is always rounded to even, so this is a safety guard only.
-    Matrix2Df out = Matrix2Df::Zero(out_h, out_w);
-    
-    for (int y = 0; y < out_h_sub; ++y) {
-        for (int x = 0; x < out_w_sub; ++x) {
-            out(y * 2, x * 2) = a_w.at<float>(y, x);
-            out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
-            out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
-            out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
-        }
-    }
-    
-    return out;
+    cv::warpAffine(a_cv, a_w, warps.a, cv::Size(dims.out_w_sub, dims.out_h_sub), flags, border_flag);
+    cv::warpAffine(b_cv, b_w, warps.b, cv::Size(dims.out_w_sub, dims.out_h_sub), flags, border_flag);
+    cv::warpAffine(c_cv, c_w, warps.c, cv::Size(dims.out_w_sub, dims.out_h_sub), flags, border_flag);
+    cv::warpAffine(d_cv, d_w, warps.d, cv::Size(dims.out_w_sub, dims.out_h_sub), flags, border_flag);
+
+    return tile_compile::core::reassemble_cfa_subplanes(a_w, b_w, c_w, d_w, dims);
 }
 
 /// @brief Splits cfa channels.

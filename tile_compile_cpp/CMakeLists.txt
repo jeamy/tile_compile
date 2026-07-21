@@ -436,6 +436,7 @@ set(LIB_SOURCES
     src/core/utils.cpp
     src/core/events.cpp
     src/core/acceleration.cpp
+    src/core/cfa_warp.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
     src/image/processing.cpp

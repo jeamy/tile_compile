@@ -1,4 +1,5 @@
 #include "tile_compile/core/acceleration.hpp"
+#include "tile_compile/core/cfa_warp.hpp"
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
@@ -348,46 +349,16 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                           cv::cuda::Stream *stream) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
-  const int h2 = h - (h % 2);
-  const int w2 = w - (w % 2);
-  const int out_h = (out_height > 0) ? out_height : h;
-  const int out_w = (out_width > 0) ? out_width : w;
-  const int out_h2 = out_h - (out_h % 2);
-  const int out_w2 = out_w - (out_w % 2);
-  const int sub_h = h2 / 2;
-  const int sub_w = w2 / 2;
-  const int out_h_sub = std::max(1, out_h2 / 2);
-  const int out_w_sub = std::max(1, out_w2 / 2);
+  const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
+  auto sub = extract_cfa_subplanes(mosaic, dims);
+  const auto warps = make_all_cfa_subplane_warps(warp);
 
-  Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
-  for (int y = 0; y < sub_h; ++y) {
-    for (int x = 0; x < sub_w; ++x) {
-      a(y, x) = mosaic(y * 2, x * 2);
-      b(y, x) = mosaic(y * 2, x * 2 + 1);
-      c(y, x) = mosaic(y * 2 + 1, x * 2);
-      d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
-    }
-  }
-
-  const float a2_00 = warp(0, 0);
-  const float a2_01 = warp(0, 1);
-  const float a2_10 = warp(1, 0);
-  const float a2_11 = warp(1, 1);
-  const float t_x = warp(0, 2) * 0.5f;
-  const float t_y = warp(1, 2) * 0.5f;
-  auto make_warp = [&](float dx, float dy) -> cv::Mat {
-    const float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
-    const float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
-    return (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11,
-            new_ty);
-  };
-
-  cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
-  cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
-  cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
-  cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
+  cv::Mat a_cv(dims.sub_h, dims.sub_w, CV_32F, sub.a.data());
+  cv::Mat b_cv(dims.sub_h, dims.sub_w, CV_32F, sub.b.data());
+  cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
+  cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
   cv::Mat a_w, b_w, c_w, d_w;
-  const cv::Size out_size(out_w_sub, out_h_sub);
+  const cv::Size out_size(dims.out_w_sub, dims.out_h_sub);
   if (stream) {
     // Keep all four CFA planes in one stream and synchronize once. Calling the
     // single-plane wrapper here would force four upload/warp/download barriers.
@@ -396,12 +367,10 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
       std::array<cv::cuda::GpuMat, 4> d_dst;
       const std::array<cv::Mat, 4> src = {a_cv, b_cv, c_cv, d_cv};
       std::array<cv::Mat *, 4> dst = {&a_w, &b_w, &c_w, &d_w};
-      const std::array<cv::Mat, 4> warps = {
-          make_warp(-0.25f, -0.25f), make_warp(0.25f, -0.25f),
-          make_warp(-0.25f, 0.25f), make_warp(0.25f, 0.25f)};
+      const std::array<cv::Mat, 4> warp_arr = {warps.a, warps.b, warps.c, warps.d};
       for (size_t i = 0; i < src.size(); ++i) {
         d_src[i].upload(src[i], *stream);
-        cv::cuda::warpAffine(d_src[i], d_dst[i], warps[i], out_size,
+        cv::cuda::warpAffine(d_src[i], d_dst[i], warp_arr[i], out_size,
                              cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
                              cv::BORDER_CONSTANT, cv::Scalar(0), *stream);
         d_dst[i].download(*dst[i], *stream);
@@ -410,26 +379,14 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
     } catch (...) {
       return false;
     }
-  } else if (!cuda_warp_affine_impl(a_cv, make_warp(-0.25f, -0.25f), out_size,
-                                     a_w, nullptr) ||
-             !cuda_warp_affine_impl(b_cv, make_warp(0.25f, -0.25f), out_size,
-                                     b_w, nullptr) ||
-             !cuda_warp_affine_impl(c_cv, make_warp(-0.25f, 0.25f), out_size,
-                                     c_w, nullptr) ||
-             !cuda_warp_affine_impl(d_cv, make_warp(0.25f, 0.25f), out_size,
-                                     d_w, nullptr)) {
+  } else if (!cuda_warp_affine_impl(a_cv, warps.a, out_size, a_w, nullptr) ||
+             !cuda_warp_affine_impl(b_cv, warps.b, out_size, b_w, nullptr) ||
+             !cuda_warp_affine_impl(c_cv, warps.c, out_size, c_w, nullptr) ||
+             !cuda_warp_affine_impl(d_cv, warps.d, out_size, d_w, nullptr)) {
     return false;
   }
 
-  out = Matrix2Df::Zero(out_h, out_w);
-  for (int y = 0; y < out_h_sub; ++y) {
-    for (int x = 0; x < out_w_sub; ++x) {
-      out(y * 2, x * 2) = a_w.at<float>(y, x);
-      out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
-    }
-  }
+  out = reassemble_cfa_subplanes(a_w, b_w, c_w, d_w, dims);
   return out.size() > 0;
 }
 #endif
@@ -476,69 +433,28 @@ bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                              int out_height, int out_width, Matrix2Df &out) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
-  const int h2 = h - (h % 2);
-  const int w2 = w - (w % 2);
-  const int out_h = (out_height > 0) ? out_height : h;
-  const int out_w = (out_width > 0) ? out_width : w;
-  const int out_h2 = out_h - (out_h % 2);
-  const int out_w2 = out_w - (out_w % 2);
-  const int sub_h = h2 / 2;
-  const int sub_w = w2 / 2;
-  const int out_h_sub = std::max(1, out_h2 / 2);
-  const int out_w_sub = std::max(1, out_w2 / 2);
+  const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
+  auto sub = extract_cfa_subplanes(mosaic, dims);
+  const auto warps = make_all_cfa_subplane_warps(warp);
 
-  Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
-  for (int y = 0; y < sub_h; ++y) {
-    for (int x = 0; x < sub_w; ++x) {
-      a(y, x) = mosaic(y * 2, x * 2);
-      b(y, x) = mosaic(y * 2, x * 2 + 1);
-      c(y, x) = mosaic(y * 2 + 1, x * 2);
-      d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
-    }
-  }
-
-  const float a2_00 = warp(0, 0);
-  const float a2_01 = warp(0, 1);
-  const float a2_10 = warp(1, 0);
-  const float a2_11 = warp(1, 1);
-  const float t_x = warp(0, 2) * 0.5f;
-  const float t_y = warp(1, 2) * 0.5f;
-  auto make_warp = [&](float dx, float dy) -> cv::Mat {
-    const float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
-    const float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
-    return (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11, new_ty);
-  };
-
-  cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
-  cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
-  cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
-  cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
+  cv::Mat a_cv(dims.sub_h, dims.sub_w, CV_32F, sub.a.data());
+  cv::Mat b_cv(dims.sub_h, dims.sub_w, CV_32F, sub.b.data());
+  cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
+  cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
   cv::Mat a_w, b_w, c_w, d_w;
-  const cv::Size out_size(out_w_sub, out_h_sub);
+  const cv::Size out_size(dims.out_w_sub, dims.out_h_sub);
   try {
-    if (!opencl_warp_affine_impl_locked(a_cv, make_warp(-0.25f, -0.25f),
-                                        out_size, a_w) ||
-        !opencl_warp_affine_impl_locked(b_cv, make_warp(0.25f, -0.25f),
-                                        out_size, b_w) ||
-        !opencl_warp_affine_impl_locked(c_cv, make_warp(-0.25f, 0.25f),
-                                        out_size, c_w) ||
-        !opencl_warp_affine_impl_locked(d_cv, make_warp(0.25f, 0.25f),
-                                        out_size, d_w)) {
+    if (!opencl_warp_affine_impl_locked(a_cv, warps.a, out_size, a_w) ||
+        !opencl_warp_affine_impl_locked(b_cv, warps.b, out_size, b_w) ||
+        !opencl_warp_affine_impl_locked(c_cv, warps.c, out_size, c_w) ||
+        !opencl_warp_affine_impl_locked(d_cv, warps.d, out_size, d_w)) {
       return false;
     }
   } catch (...) {
     return false;
   }
 
-  out = Matrix2Df::Zero(out_h, out_w);
-  for (int y = 0; y < out_h_sub; ++y) {
-    for (int x = 0; x < out_w_sub; ++x) {
-      out(y * 2, x * 2) = a_w.at<float>(y, x);
-      out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
-    }
-  }
+  out = reassemble_cfa_subplanes(a_w, b_w, c_w, d_w, dims);
   return out.size() > 0;
 }
 
