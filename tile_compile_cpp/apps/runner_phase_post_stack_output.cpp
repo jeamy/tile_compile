@@ -133,20 +133,30 @@ bool write_post_stack_outputs(
     out.crop_box = crop;
   }
 
-  // --- Apply output scaling (restore background) ---
+  // --- Apply output scaling ---
+  // When output_stretch is enabled, skip the background re-addition entirely.
+  // The stretch maps [0, p99.9] to the full output range — adding the pedestal
+  // back would waste >50% of the range on a constant offset that the stretch
+  // then compresses out anyway. Without stretch, we restore the original ADU
+  // context for downstream tools that expect absolute values.
   const bool have_rgb = (recon_R.size() == recon.size() && recon_R.size() > 0);
   if (detected_mode == ColorMode::OSC && have_rgb) {
-    recon_R.array() = recon_R.array() * scaling.scale_r + scaling.bg_r;
-    recon_G.array() = recon_G.array() * scaling.scale_g + scaling.bg_g;
-    recon_B.array() = recon_B.array() * scaling.scale_b + scaling.bg_b;
-    // Luma from scaled RGB
+    if (!cfg.output_stretch) {
+      // Restore photometric scale and background for absolute-ADU output
+      recon_R.array() = recon_R.array() * scaling.scale_r + scaling.bg_r;
+      recon_G.array() = recon_G.array() * scaling.scale_g + scaling.bg_g;
+      recon_B.array() = recon_B.array() * scaling.scale_b + scaling.bg_b;
+    }
+    // Luma for stacked.fits
     const float scale_luma = 0.25f * scaling.scale_r + 0.5f * scaling.scale_g +
                              0.25f * scaling.scale_b;
-    const float bg_luma = 0.25f * scaling.bg_r + 0.5f * scaling.bg_g +
-                          0.25f * scaling.bg_b;
     Matrix2Df recon_luma = recon;
     recon_luma *= scale_luma;
-    recon_luma.array() += (bg_luma + scaling.pedestal);
+    if (!cfg.output_stretch) {
+      const float bg_luma = 0.25f * scaling.bg_r + 0.5f * scaling.bg_g +
+                            0.25f * scaling.bg_b;
+      recon_luma.array() += (bg_luma + scaling.pedestal);
+    }
 
     // Enforce canvas mask on luma
     for (Eigen::Index k = 0; k < recon_luma.size(); ++k) {
@@ -193,8 +203,12 @@ bool write_post_stack_outputs(
     Matrix2Df G_disk = recon_G;
     Matrix2Df B_disk = recon_B;
     if (cfg.output_stretch) {
-      const auto stretch =
-          core::stretch_rgb_to_u32_linear_from_zero_inplace(R_disk, G_disk, B_disk);
+      const std::vector<uint8_t>& statistics_mask =
+          analysis_valid_mask.size() == static_cast<size_t>(R_disk.size())
+              ? analysis_valid_mask
+              : common_valid_mask;
+      const auto stretch = core::stretch_rgb_to_u32_linear_from_zero_inplace(
+          R_disk, G_disk, B_disk, statistics_mask);
       if (stretch.applied) {
         std::cout << "[STACKING] RGB output stretch ["
                   << stretch.low << ".." << stretch.high
@@ -211,9 +225,23 @@ bool write_post_stack_outputs(
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
                            recon_R, recon_G, recon_B, first_hdr);
       }
-      // Linear (unscaled) version for plate solving
-      io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
-                         recon_R, recon_G, recon_B, first_hdr);
+      // Linear version for plate solving — always includes background for
+      // absolute ADU context that astrometry tools expect.
+      if (cfg.output_stretch) {
+        // With stretch: recon_R/G/B are unscaled signal-only; add bg for solve
+        Matrix2Df R_solve = recon_R * scaling.scale_r;
+        R_solve.array() += scaling.bg_r;
+        Matrix2Df G_solve = recon_G * scaling.scale_g;
+        G_solve.array() += scaling.bg_g;
+        Matrix2Df B_solve = recon_B * scaling.scale_b;
+        B_solve.array() += scaling.bg_b;
+        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
+                           R_solve, G_solve, B_solve, first_hdr);
+      } else {
+        // Without stretch: recon_R/G/B already have bg restored
+        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
+                           recon_R, recon_G, recon_B, first_hdr);
+      }
     } catch (const std::exception &e) {
       out.error = std::string("stacked_rgb write failed: ") + e.what();
       return false;
@@ -221,12 +249,14 @@ bool write_post_stack_outputs(
 
   } else {
     // MONO path
-    image::apply_output_scaling_inplace(
-        recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
-        detected_mode, detected_bayer_str,
-        scaling.scale_mono, scaling.scale_r, scaling.scale_g, scaling.scale_b,
-        scaling.bg_mono, scaling.bg_r, scaling.bg_g, scaling.bg_b,
-        scaling.pedestal);
+    if (!cfg.output_stretch) {
+      image::apply_output_scaling_inplace(
+          recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
+          detected_mode, detected_bayer_str,
+          scaling.scale_mono, scaling.scale_r, scaling.scale_g, scaling.scale_b,
+          scaling.bg_mono, scaling.bg_r, scaling.bg_g, scaling.bg_b,
+          scaling.pedestal);
+    }
 
     // Enforce canvas mask
     for (Eigen::Index k = 0; k < recon.size(); ++k) {
@@ -265,6 +295,7 @@ void write_stretched_rgb_snapshot(
     const Matrix2Df &G_src,
     const Matrix2Df &B_src,
     const std::vector<uint8_t> &canvas_mask,
+    const std::vector<uint8_t> &statistics_mask,
     int canvas_rows,
     int canvas_cols,
     const io::FitsHeader &hdr,
@@ -280,8 +311,8 @@ void write_stretched_rgb_snapshot(
   }
 
   if (apply_stretch) {
-    const auto stretch =
-        core::stretch_rgb_to_u32_linear_from_zero_inplace(R_disk, G_disk, B_disk);
+    const auto stretch = core::stretch_rgb_to_u32_linear_from_zero_inplace(
+        R_disk, G_disk, B_disk, statistics_mask);
     if (stretch.applied) {
       std::cout << "[" << stage_tag << "] RGB output stretch ["
                 << stretch.low << ".." << stretch.high

@@ -110,6 +110,7 @@ void write_stretched_rgb_snapshot(
     const Matrix2Df &G_src,
     const Matrix2Df &B_src,
     const std::vector<uint8_t> &canvas_mask,
+    const std::vector<uint8_t> &statistics_mask,
     int canvas_rows,
     int canvas_cols,
     const io::FitsHeader &hdr,

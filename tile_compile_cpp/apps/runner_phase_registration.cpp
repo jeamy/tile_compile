@@ -954,6 +954,11 @@ bool run_phase_registration_prewarp(
         int current_reg_pass_workers = reg_workers;
         std::string current_reg_pass_label = "direct";
         auto reg_worker = [&]() {
+          const int cv_threads_per_worker = std::max(1,
+              static_cast<int>(std::thread::hardware_concurrency()) /
+              std::max(1, current_reg_pass_workers));
+          cv::setNumThreads(cv_threads_per_worker);
+
           while (true) {
             const size_t job = reg_next.fetch_add(1);
             const size_t job_count =
@@ -3185,6 +3190,11 @@ bool run_phase_registration_prewarp(
       static_cast<size_t>(prewarp_workers));
 
   auto prewarp_worker = [&](int worker_index) {
+    const int cv_threads_per_worker = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) /
+        std::max(1, prewarp_workers));
+    cv::setNumThreads(cv_threads_per_worker);
+
     std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
     while (true) {
       const size_t fi = prewarp_next.fetch_add(1);

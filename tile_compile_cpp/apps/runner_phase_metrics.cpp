@@ -198,6 +198,13 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::string norm_error;
 
   auto normalization_worker = [&]() {
+    // Limit OpenCV's internal thread pool to avoid N_workers × N_cores
+    // oversubscription. Each worker gets an equal share of hardware threads.
+    const int cv_threads_per_worker = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) /
+        std::max(1, normalization_workers));
+    cv::setNumThreads(cv_threads_per_worker);
+
     std::vector<float> r_samples;
     std::vector<float> g_samples;
     std::vector<float> b_samples;
@@ -560,6 +567,11 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::string gm_error;
 
   auto global_metrics_worker = [&]() {
+    const int cv_threads_per_worker = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) /
+        std::max(1, global_metrics_workers));
+    cv::setNumThreads(cv_threads_per_worker);
+
     while (true) {
       const size_t i = gm_next.fetch_add(1);
       if (i >= frames.size()) {

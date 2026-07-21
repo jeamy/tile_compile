@@ -9,6 +9,11 @@
 #include <random>
 #include <regex>
 #include <sstream>
+#include <thread>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 #ifdef _WIN32
 #include <time.h>
@@ -568,6 +573,14 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     return result;
 }
 
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b) {
+    static const std::vector<uint8_t> empty_mask;
+    return stretch_rgb_to_u32_linear_from_zero_inplace(r, g, b, empty_mask);
+}
+
 /// @brief Implements stretch rgb to u32 linear from zero inplace using a robust
 /// maximum (p99.9 across all channels). Pixels above the robust max are clamped
 /// to the target ceiling. This prevents a single bright star core from
@@ -575,10 +588,13 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
 StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
-    Matrix2Df& b) {
+    Matrix2Df& b,
+    const std::vector<uint8_t>& statistics_mask) {
     StretchResult result;
     if (r.rows() != g.rows() || r.rows() != b.rows() ||
-        r.cols() != g.cols() || r.cols() != b.cols()) {
+        r.cols() != g.cols() || r.cols() != b.cols() ||
+        (!statistics_mask.empty() &&
+         statistics_mask.size() != static_cast<size_t>(r.size()))) {
         return result;
     }
 
@@ -589,6 +605,10 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     all_values.reserve(static_cast<size_t>(r.size()) * 3 / 4);
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            if (!statistics_mask.empty() &&
+                statistics_mask[static_cast<size_t>(i)] == 0) {
+                continue;
+            }
             const float v = ch->data()[i];
             if (std::isfinite(v) && v > 0.0f)
                 all_values.push_back(v);

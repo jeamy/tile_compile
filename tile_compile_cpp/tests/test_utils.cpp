@@ -54,6 +54,26 @@
      REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
  }
 
+ TEST_CASE("masked_rgb_stretch_excludes_partial_canvas_outliers") {
+     tile_compile::Matrix2Df R = tile_compile::Matrix2Df::Constant(10, 10, 100.0f);
+     tile_compile::Matrix2Df G = R;
+     tile_compile::Matrix2Df B = R;
+     std::vector<uint8_t> common_mask(100, 1);
+     R(0, 0) = 1000000.0f;
+     G(0, 0) = 1000000.0f;
+     B(0, 0) = 1000000.0f;
+     common_mask[0] = 0;
+
+     const auto stretch = tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
+         R, G, B, common_mask);
+
+     REQUIRE(stretch.applied);
+     REQUIRE(stretch.sample_count == 297);
+     REQUIRE(stretch.high == Catch::Approx(100.0f));
+     REQUIRE(R(1, 1) == Catch::Approx(4294967295.0f).margin(1024.0f));
+     REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
+ }
+
  TEST_CASE("linear_grayscale_stretch_scales_zero_to_max_into_full_u16_range") {
      // 100 pixels: 99 normal pixels at 100..199, one bright outlier at 8000.
      // With robust p99.9 stretch, the outlier should be clamped and not define

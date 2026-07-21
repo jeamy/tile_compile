@@ -5441,12 +5441,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
     fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
-    auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
-                                     Matrix2Df& B_ch,
-                                     const char* stage_tag) -> bool {
+    auto stretch_rgb_for_output = [&](Matrix2Df& R_ch, Matrix2Df& G_ch,
+                                      Matrix2Df& B_ch,
+                                      const char* stage_tag) -> bool {
+      const std::vector<uint8_t>& statistics_mask =
+          common_valid_mask.size() == static_cast<size_t>(R_ch.size())
+              ? common_valid_mask
+              : reconstruction_valid_mask;
       const auto stretch =
           core::stretch_rgb_to_u32_linear_from_zero_inplace(
-              R_ch, G_ch, B_ch);
+              R_ch, G_ch, B_ch, statistics_mask);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
                 << "] RGB output "
@@ -6320,9 +6324,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         const int hms_rows = static_cast<int>(R_out.rows());
         const int hms_cols = static_cast<int>(R_out.cols());
         const std::vector<uint8_t> *hms_mask = nullptr;
-        if (output_valid_mask.size() ==
+        if (common_valid_mask.size() ==
             static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols)) {
-          hms_mask = &output_valid_mask;
+          hms_mask = &common_valid_mask;
         }
 
         auto hms_diag = image::run_hypermetric_stretch_rgb(

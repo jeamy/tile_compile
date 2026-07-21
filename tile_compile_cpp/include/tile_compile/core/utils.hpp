@@ -1,10 +1,16 @@
 #pragma once
 
 #include "types.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 namespace tile_compile::core {
 
@@ -61,6 +67,38 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
     Matrix2Df& b);
+
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    const std::vector<uint8_t>& statistics_mask);
+
+/// Compute the effective OMP thread count for a parallel region, respecting
+/// the configured worker limit. Call this instead of using bare `#pragma omp`
+/// without `num_threads`. The result accounts for:
+///   - max_configured_workers (from runtime_limits.parallel_workers)
+///   - hardware_concurrency as upper bound
+///   - already being inside a parallel region (returns 1)
+///   - work_items: never use more threads than items to process
+///
+/// Usage:
+///   const int nt = core::omp_effective_threads(cfg_workers, work_items);
+///   #pragma omp parallel for num_threads(nt) schedule(static)
+inline int omp_effective_threads(int max_configured_workers, int work_items = 0) {
+#if defined(_OPENMP)
+    if (omp_in_parallel()) return 1;
+    int threads = std::max(1, max_configured_workers);
+    const int hw = static_cast<int>(std::thread::hardware_concurrency());
+    if (hw > 0) threads = std::min(threads, hw);
+    if (work_items > 0) threads = std::min(threads, work_items);
+    return std::max(1, threads);
+#else
+    (void)max_configured_workers;
+    (void)work_items;
+    return 1;
+#endif
+}
 
 // String utilities
 std::string to_lower(const std::string& s);

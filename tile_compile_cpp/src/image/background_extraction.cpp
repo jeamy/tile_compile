@@ -1,4 +1,5 @@
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <queue>
 #include <random>
+#include <thread>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
@@ -39,27 +41,11 @@ double elapsed_seconds_since(const SteadyClock::time_point &start) {
 static int g_bge_max_workers = 0;
 
 int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
-  if (work_items <= 0) {
-    return 1;
-  }
-#if defined(_OPENMP)
-  if (omp_in_parallel()) {
-    return 1;
-  }
-  int max_threads = std::max(1, omp_get_max_threads());
-  if (g_bge_max_workers > 0) {
-    max_threads = std::min(max_threads, g_bge_max_workers);
-  }
-  if (max_threads <= 1) {
-    return 1;
-  }
-  const int min_items = std::max(1, min_items_per_worker);
-  const int wanted = std::max(1, (work_items + min_items - 1) / min_items);
-  return std::max(1, std::min(max_threads, wanted));
-#else
-  (void)min_items_per_worker;
-  return 1;
-#endif
+  // Delegate to the central omp_effective_threads helper for consistent
+  // behavior across the entire project.
+  const int limit = (g_bge_max_workers > 0) ? g_bge_max_workers
+                                            : static_cast<int>(std::thread::hardware_concurrency());
+  return tile_compile::core::omp_effective_threads(limit, work_items);
 }
 
 /// @brief Implements clamp01.

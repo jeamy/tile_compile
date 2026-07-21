@@ -4,6 +4,10 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/metrics/aqmh_global_quality.hpp"
@@ -448,6 +452,15 @@ bool run_phase_local_metrics(
           static_cast<size_t>(aqmh_effective_workers));
 
       auto aqmh_worker = [&](int worker_idx) {
+        // Limit OpenMP thread usage within this worker via the central
+        // omp_effective_threads helper. The outer parallelism is via std::thread
+        // workers; inner OMP loops must not fan out to all cores.
+#if defined(_OPENMP)
+        const int omp_per_worker = std::max(1,
+            static_cast<int>(std::thread::hardware_concurrency()) /
+            std::max(1, aqmh_effective_workers));
+        omp_set_num_threads(omp_per_worker);
+#endif
         while (true) {
           const size_t fi = aqmh_next.fetch_add(1);
           if (fi >= frames.size())

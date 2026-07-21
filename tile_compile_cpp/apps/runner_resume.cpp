@@ -927,11 +927,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     int mask_cols = static_cast<int>(R.cols());
     std::string mask_error;
     if (tile_compile::runner::load_canvas_mask_for_rgb(
-            outputs_dir / "canvas_mask.fits", R, G, B, mask, mask_rows,
-            mask_cols, mask_error)) {
+            outputs_dir / "common_overlap_mask.fits", R, G, B, mask,
+            mask_rows, mask_cols, mask_error)) {
       mask_ptr = &mask;
     } else {
-      std::cout << "[HMS][resume] Warning: canvas mask unavailable: "
+      std::cout << "[HMS][resume] Warning: common-overlap mask unavailable: "
                 << mask_error << "; using full image" << std::endl;
       mask_rows = static_cast<int>(R.rows());
       mask_cols = static_cast<int>(R.cols());
@@ -2130,15 +2130,25 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	                                          bool apply_stretch,
 	                                          const char* stage_tag) {
 	    std::vector<uint8_t> canvas_mask;
+	    std::vector<uint8_t> statistics_mask;
 	    std::string canvas_mask_error;
+	    std::string statistics_mask_error;
 	    int canvas_rows = 0;
 	    int canvas_cols = 0;
+	    int statistics_rows = 0;
+	    int statistics_cols = 0;
 	    tile_compile::runner::load_canvas_mask_for_rgb(
 	            run_dir / "outputs" / "canvas_mask.fits", R_src, G_src, B_src,
 	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error);
+	    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+	            run_dir / "outputs" / "common_overlap_mask.fits", R_src, G_src,
+	            B_src, statistics_mask, statistics_rows, statistics_cols,
+	            statistics_mask_error)) {
+	      statistics_mask = canvas_mask;
+	    }
 	    runner::write_stretched_rgb_snapshot(
-	        path, R_src, G_src, B_src, canvas_mask, canvas_rows, canvas_cols,
-	        hdr, apply_stretch, stage_tag);
+	        path, R_src, G_src, B_src, canvas_mask, statistics_mask, canvas_rows,
+	        canvas_cols, hdr, apply_stretch, stage_tag);
   };
 
   auto write_linear_rgb_snapshot = [&](const fs::path &path,
