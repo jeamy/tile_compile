@@ -208,4 +208,51 @@ TEST_CASE("hypermetric_scientific_mode_applies_linear_expansion") {
   REQUIRE(std::abs(G1(8, 8) - G0(8, 8)) > 1e-4f);
   REQUIRE(std::abs(B1(8, 8) - B0(8, 8)) > 1e-4f);
 }
+
+TEST_CASE("hypermetric_uses_common_overlap_statistics_without_cropping_output") {
+  constexpr int kSize = 16;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float base = 0.02f + 0.001f * static_cast<float>(x + y);
+      R(y, x) = base * 1.1f;
+      G(y, x) = base;
+      B(y, x) = base * 0.9f;
+    }
+  }
+  auto R_common_only = R;
+  auto G_common_only = G;
+  auto B_common_only = B;
+
+  std::vector<uint8_t> common_mask(kSize * kSize, 0u);
+  std::vector<uint8_t> output_mask(kSize * kSize, 1u);
+  for (int y = 4; y < 12; ++y) {
+    for (int x = 4; x < 12; ++x) {
+      common_mask[static_cast<size_t>(y) * kSize + x] = 1u;
+    }
+  }
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.adaptive_anchor = true;
+  cfg.log_d_mode = "auto";
+
+  const auto full_diag = tile_compile::image::run_hypermetric_stretch_rgb(
+      R, G, B, cfg, &common_mask, kSize, kSize, &output_mask);
+  const auto common_diag = tile_compile::image::run_hypermetric_stretch_rgb(
+      R_common_only, G_common_only, B_common_only, cfg, &common_mask, kSize,
+      kSize, &common_mask);
+
+  REQUIRE(full_diag.success);
+  REQUIRE(common_diag.success);
+  REQUIRE(R(0, 0) > 0.0f);
+  REQUIRE(G(0, 0) > 0.0f);
+  REQUIRE(B(0, 0) > 0.0f);
+  REQUIRE(R(8, 8) == Catch::Approx(R_common_only(8, 8)).margin(1e-6f));
+  REQUIRE(G(8, 8) == Catch::Approx(G_common_only(8, 8)).margin(1e-6f));
+  REQUIRE(B(8, 8) == Catch::Approx(B_common_only(8, 8)).margin(1e-6f));
+}
 #endif

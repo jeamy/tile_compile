@@ -6323,14 +6323,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             to_image_hms_config(cfg.hypermetric_stretch);
         const int hms_rows = static_cast<int>(R_out.rows());
         const int hms_cols = static_cast<int>(R_out.cols());
-        const std::vector<uint8_t> *hms_mask = nullptr;
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols)) {
-          hms_mask = &common_valid_mask;
+        const size_t hms_pixels =
+            static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols);
+        const std::vector<uint8_t> *hms_statistics_mask = nullptr;
+        const std::vector<uint8_t> *hms_output_mask = nullptr;
+        if (common_valid_mask.size() == hms_pixels) {
+          hms_statistics_mask = &common_valid_mask;
+        }
+        if (output_valid_mask.size() == hms_pixels) {
+          hms_output_mask = &output_valid_mask;
         }
 
         auto hms_diag = image::run_hypermetric_stretch_rgb(
-            R_out, G_out, B_out, hms_cfg, hms_mask, hms_rows, hms_cols);
+            R_out, G_out, B_out, hms_cfg, hms_statistics_mask, hms_rows,
+            hms_cols, hms_output_mask);
         if (!hms_diag.success) {
           emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                             {{"reason", "stretch_failed"},

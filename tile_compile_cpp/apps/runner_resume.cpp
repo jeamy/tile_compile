@@ -921,27 +921,43 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
 
-    std::vector<uint8_t> mask;
-    std::vector<uint8_t> *mask_ptr = nullptr;
+    std::vector<uint8_t> statistics_mask;
+    std::vector<uint8_t> output_mask;
+    std::vector<uint8_t> *statistics_mask_ptr = nullptr;
+    std::vector<uint8_t> *output_mask_ptr = nullptr;
     int mask_rows = static_cast<int>(R.rows());
     int mask_cols = static_cast<int>(R.cols());
-    std::string mask_error;
+    std::string statistics_mask_error;
     if (tile_compile::runner::load_canvas_mask_for_rgb(
-            outputs_dir / "common_overlap_mask.fits", R, G, B, mask,
-            mask_rows, mask_cols, mask_error)) {
-      mask_ptr = &mask;
+            outputs_dir / "common_overlap_mask.fits", R, G, B,
+            statistics_mask, mask_rows, mask_cols, statistics_mask_error)) {
+      statistics_mask_ptr = &statistics_mask;
     } else {
       std::cout << "[HMS][resume] Warning: common-overlap mask unavailable: "
-                << mask_error << "; using full image" << std::endl;
+                << statistics_mask_error << "; using full image statistics"
+                << std::endl;
       mask_rows = static_cast<int>(R.rows());
       mask_cols = static_cast<int>(R.cols());
+    }
+
+    std::string output_mask_error;
+    int output_mask_rows = mask_rows;
+    int output_mask_cols = mask_cols;
+    if (tile_compile::runner::load_canvas_mask_for_rgb(
+            outputs_dir / "canvas_mask.fits", R, G, B, output_mask,
+            output_mask_rows, output_mask_cols, output_mask_error)) {
+      output_mask_ptr = &output_mask;
+    } else {
+      std::cout << "[HMS][resume] Warning: output canvas mask unavailable: "
+                << output_mask_error << "; using full image output" << std::endl;
     }
 
     image::HyperMetricStretchConfig hms_cfg =
         to_image_hms_config(cfg.hypermetric_stretch);
     hms_cfg.enabled = true;
     auto hms_diag = image::run_hypermetric_stretch_rgb(
-        R, G, B, hms_cfg, mask_ptr, mask_rows, mask_cols);
+        R, G, B, hms_cfg, statistics_mask_ptr, mask_rows, mask_cols,
+        output_mask_ptr);
     if (!hms_diag.success) {
       emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                         {{"reason", "stretch_failed"},
@@ -2674,8 +2690,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       image::HyperMetricStretchConfig hms_cfg =
           to_image_hms_config(cfg.hypermetric_stretch);
       auto hms_diag = image::run_hypermetric_stretch_rgb(
-          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.output_valid_mask,
-          pcc_cfg.output_mask_rows, pcc_cfg.output_mask_cols);
+          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
+          pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
+          &pcc_cfg.output_valid_mask);
       if (!hms_diag.success) {
         emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                           {{"reason", "stretch_failed"},

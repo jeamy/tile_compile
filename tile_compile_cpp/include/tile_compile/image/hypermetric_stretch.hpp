@@ -66,7 +66,8 @@ float hypermetric_solve_log_d(std::vector<float> luma_sample,
 HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const HyperMetricStretchConfig &cfg,
-    const std::vector<uint8_t> *valid_mask = nullptr, int mask_rows = 0,
-    int mask_cols = 0);
+    const std::vector<uint8_t> *statistics_mask = nullptr, int mask_rows = 0,
+    int mask_cols = 0,
+    const std::vector<uint8_t> *output_mask = nullptr);
 
 } // namespace tile_compile::image

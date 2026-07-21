@@ -11,10 +11,9 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  flat_master: ""
-  dark_master: ""
-  darks_dir: ""
   flats_dir: ""
+  bias_master: ""
+  flat_master: ""
   use_dark: false
   use_flat: false
   bias_use_master: false
@@ -26,7 +25,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
-  use_bias: false
 normalization:
   enabled: true
   mode: median
@@ -318,11 +316,11 @@ hypermetric_stretch:
   sensor_profile: rec709
   fallback_profile: rec709
   adaptive_anchor: true
-  target_bg: 0.15
+  target_bg: 0.11
   protect_b: 6
-  convergence_power: 3.5
-  log_d_mode: auto
-  fixed_log_d: 2
+  convergence_power: 4
+  log_d_mode: fixed
+  fixed_log_d: 3.5
   color_strategy: fixed
   fixed_color_strategy: 0
   color_grip: 1

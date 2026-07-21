@@ -83,15 +83,16 @@ float sanitize01(float v) {
   return std::clamp(v, 0.0f, 1.0f);
 }
 
-void normalize_rgb_input_inplace(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                                 const std::vector<uint8_t> *mask,
-                                 int mask_rows, int mask_cols) {
+void normalize_rgb_input_inplace(
+    Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+    const std::vector<uint8_t> *statistics_mask,
+    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
   float max_v = 0.0f;
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         continue;
       }
       const float vals[3] = {R(y, x), G(y, x), B(y, x)};
@@ -112,7 +113,7 @@ void normalize_rgb_input_inplace(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
@@ -434,17 +435,18 @@ float mtf_value(float data, float m) {
   return std::clamp(res, 0.0f, 1.0f);
 }
 
-void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                             const std::array<float, 3> &w, float target_bg,
-                             const std::vector<uint8_t> *mask, int mask_rows,
-                             int mask_cols) {
+void adaptive_output_scaling(
+    Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+    const std::array<float, 3> &w, float target_bg,
+    const std::vector<uint8_t> *statistics_mask,
+    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
   std::vector<float> luma;
   luma.reserve(static_cast<size_t>(rows) * static_cast<size_t>(cols));
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         continue;
       }
       luma.push_back(w[0] * sanitize01(R(y, x)) +
@@ -466,7 +468,7 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   int max_x = 0;
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         continue;
       }
       const float l = w[0] * sanitize01(R(y, x)) +
@@ -488,7 +490,8 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
          ++yy) {
       for (int xx = std::max(0, max_x - 1); xx <= std::min(cols - 1, max_x + 1);
            ++xx) {
-        if (yy == max_y && xx == max_x) {
+        if ((yy == max_y && xx == max_x) ||
+            !mask_valid(statistics_mask, mask_rows, mask_cols, yy, xx)) {
           continue;
         }
         const float l = w[0] * sanitize01(R(yy, xx)) +
@@ -512,7 +515,7 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x, ++linear) {
       if (linear % stride != 0 ||
-          !mask_valid(mask, mask_rows, mask_cols, y, x)) {
+          !mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         continue;
       }
       sr.push_back(sanitize01(R(y, x)));
@@ -541,7 +544,7 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   };
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
@@ -551,8 +554,8 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     }
   }
 
-  std::vector<float> scaled_luma =
-      sample_luminance(R, G, B, w, mask, mask_rows, mask_cols, 500000u);
+  const std::vector<float> scaled_luma = sample_luminance(
+      R, G, B, w, statistics_mask, mask_rows, mask_cols, 500000u);
   const float current_bg = median(scaled_luma);
   if (current_bg > 0.0f && current_bg < 1.0f &&
       std::abs(current_bg - target_bg) > 1e-3f) {
@@ -562,7 +565,7 @@ void adaptive_output_scaling(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       const float m = (current_bg * (target_bg - 1.0f)) / denom;
       for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
-          if (!mask_valid(mask, mask_rows, mask_cols, y, x)) {
+          if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
             continue;
           }
           R(y, x) = mtf_value(R(y, x), m);
@@ -750,8 +753,9 @@ float hypermetric_solve_log_d(std::vector<float> luma_sample,
 
 HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-    const HyperMetricStretchConfig &cfg, const std::vector<uint8_t> *valid_mask,
-    int mask_rows, int mask_cols) {
+    const HyperMetricStretchConfig &cfg,
+    const std::vector<uint8_t> *statistics_mask, int mask_rows, int mask_cols,
+    const std::vector<uint8_t> *output_mask) {
   HyperMetricStretchDiagnostics diag;
   diag.target_bg = cfg.target_bg;
   diag.protect_b = cfg.protect_b;
@@ -764,16 +768,28 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     diag.error_message = "RGB dimensions mismatch";
     return diag;
   }
-  if (valid_mask != nullptr &&
+  const size_t mask_size =
+      static_cast<size_t>(R.rows()) * static_cast<size_t>(R.cols());
+  if (statistics_mask != nullptr &&
       (mask_rows != R.rows() || mask_cols != R.cols() ||
-       valid_mask->size() != static_cast<size_t>(mask_rows) *
-                                 static_cast<size_t>(mask_cols))) {
+       statistics_mask->size() != mask_size)) {
     diag.status = "error";
-    diag.error_message = "valid mask dimensions mismatch";
+    diag.error_message = "statistics mask dimensions mismatch";
     return diag;
   }
+  if (output_mask != nullptr &&
+      (mask_rows != R.rows() || mask_cols != R.cols() ||
+       output_mask->size() != mask_size)) {
+    diag.status = "error";
+    diag.error_message = "output mask dimensions mismatch";
+    return diag;
+  }
+  if (output_mask == nullptr) {
+    output_mask = statistics_mask;
+  }
 
-  normalize_rgb_input_inplace(R, G, B, valid_mask, mask_rows, mask_cols);
+  normalize_rgb_input_inplace(R, G, B, statistics_mask, output_mask,
+                              mask_rows, mask_cols);
 
   std::string resolved_profile;
   std::string profile_source;
@@ -785,9 +801,12 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   diag.weights_g = w[1];
   diag.weights_b = w[2];
 
-  diag.anchor = cfg.adaptive_anchor
-                    ? calculate_anchor_adaptive(R, G, B, w, valid_mask, mask_rows, mask_cols)
-                    : calculate_anchor_statistical(R, G, B, valid_mask, mask_rows, mask_cols);
+  diag.anchor =
+      cfg.adaptive_anchor
+          ? calculate_anchor_adaptive(R, G, B, w, statistics_mask, mask_rows,
+                                      mask_cols)
+          : calculate_anchor_statistical(R, G, B, statistics_mask, mask_rows,
+                                         mask_cols);
 
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
@@ -801,7 +820,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   size_t linear = 0;
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x, ++linear) {
-      if (!mask_valid(valid_mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
         L(y, x) = 0.0f;
         continue;
       }
@@ -810,7 +829,8 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
       const float ba = std::max(sanitize01(B(y, x)) - diag.anchor, 0.0f);
       const float l = w[0] * ra + w[1] * ga + w[2] * ba;
       L(y, x) = l;
-      if (linear % stride == 0 && l > 1e-7f) {
+      if (linear % stride == 0 && l > 1e-7f &&
+          mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         valid_luma.push_back(l);
       }
     }
@@ -824,7 +844,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   std::vector<float> auto_luma;
   if (cfg.log_d_mode != "fixed") {
     auto_luma = build_auto_luma_sample(R, G, B, w, cfg.adaptive_anchor,
-                                       valid_mask, mask_rows, mask_cols);
+                                       statistics_mask, mask_rows, mask_cols);
   }
   diag.log_d = cfg.log_d_mode == "fixed"
                    ? std::clamp(cfg.fixed_log_d, 0.0f, 7.0f)
@@ -864,13 +884,13 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     }
   }
   if (cfg.mode != "ready_to_use" && cfg.linear_expansion > 0.001f) {
-    apply_linear_expansion(Ls, cfg.linear_expansion, valid_mask, mask_rows,
+    apply_linear_expansion(Ls, cfg.linear_expansion, output_mask, mask_rows,
                            mask_cols);
   }
 
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(valid_mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
@@ -909,7 +929,8 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   }
 
   if (cfg.mode == "ready_to_use") {
-    adaptive_output_scaling(R, G, B, w, target_bg, valid_mask, mask_rows, mask_cols);
+    adaptive_output_scaling(R, G, B, w, target_bg, statistics_mask,
+                            output_mask, mask_rows, mask_cols);
     soft_clip(R, 0.98f, 2.0f);
     soft_clip(G, 0.98f, 2.0f);
     soft_clip(B, 0.98f, 2.0f);
@@ -920,7 +941,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   size_t white = 0;
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(valid_mask, mask_rows, mask_cols, y, x)) {
+      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
         continue;
       }
       ++valid_px;
