@@ -104,24 +104,20 @@ std::vector<float> collect_patch_values(const Matrix2Df& img, int cx, int cy,
   return vals;
 }
 
-float median_from_values(std::vector<float> vals) {
-  return tile_compile::core::median_of(std::move(vals));
-}
-
 float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,
                      const std::string& estimator) {
   std::vector<float> vals = collect_patch_values(img, cx, cy, patch_size);
   if (vals.empty())
     return 0.0f;
   if (estimator != "sigma_clipped_median")
-    return median_from_values(std::move(vals));
+    return tile_compile::core::median_of(std::move(vals));
 
-  const float med = median_from_values(vals);
+  const float med = tile_compile::core::median_of(vals);
   std::vector<float> dev;
   dev.reserve(vals.size());
   for (float v : vals)
     dev.push_back(std::fabs(v - med));
-  const float mad = median_from_values(std::move(dev));
+  const float mad = tile_compile::core::median_of(std::move(dev));
   const float sigma = 1.4826f * mad;
   if (!(sigma > kTiny))
     return med;
@@ -134,7 +130,7 @@ float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,
     if (v >= lo && v <= hi)
       clipped.push_back(v);
   }
-  return clipped.empty() ? med : median_from_values(std::move(clipped));
+  return clipped.empty() ? med : tile_compile::core::median_of(std::move(clipped));
 }
 
 float patch_median(const Matrix2Df& img, int cx, int cy, int patch_size) {
@@ -144,7 +140,7 @@ float patch_median(const Matrix2Df& img, int cx, int cy, int patch_size) {
 float patch_sigma(const Matrix2Df& img, int cx, int cy, int patch_size) {
   std::vector<float> vals = collect_patch_values(img, cx, cy, patch_size);
   if (vals.size() < 2) return 0.0f;
-  const float med = median_from_values(vals);
+  const float med = tile_compile::core::median_of(vals);
   double sum_sq = 0.0;
   for (float v : vals) {
     const double d = static_cast<double>(v) - med;
@@ -166,11 +162,11 @@ std::vector<SamplePoint> filter_sample_points_by_variance(
   sigmas.reserve(points.size());
   for (const auto& p : points)
     sigmas.push_back(patch_sigma(image_downsampled, p.x, p.y, patch_size));
-  const float med_sigma = median_from_values(sigmas);
+  const float med_sigma = tile_compile::core::median_of(sigmas);
   std::vector<float> dev;
   dev.reserve(sigmas.size());
   for (float s : sigmas) dev.push_back(std::fabs(s - med_sigma));
-  const float mad = median_from_values(std::move(dev));
+  const float mad = tile_compile::core::median_of(std::move(dev));
   const float sigma_mad = 1.4826f * mad;
   if (!(sigma_mad > kTiny)) return points;
   const float threshold = med_sigma + sigma_clip_factor * sigma_mad;
@@ -1038,8 +1034,8 @@ AutoBGEResult build_autobge_models(
                                                config.autobge.patch_size,
                                                config.autobge.patch_estimator));
       }
-      const float source_med = median_from_values(std::move(source_vals));
-      const float residual_med = median_from_values(std::move(residual_vals));
+      const float source_med = tile_compile::core::median_of(std::move(source_vals));
+      const float residual_med = tile_compile::core::median_of(std::move(residual_vals));
       residual_down.array() += (source_med - residual_med);
     }
 

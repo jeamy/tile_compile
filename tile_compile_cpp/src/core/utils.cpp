@@ -140,9 +140,12 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
     }
     
     auto size = file.tellg();
+    if (size <= 0) {
+        throw IOError("Empty or unreadable file: " + path.string());
+    }
     file.seekg(0, std::ios::beg);
     
-    std::vector<uint8_t> buffer(size);
+    std::vector<uint8_t> buffer(static_cast<size_t>(size));
     if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
         throw IOError("Cannot read file: " + path.string());
     }
