@@ -132,7 +132,7 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     }
     size_t keep_count = 0;
     if (mad <= floor_val) {
-      for (const auto &s : samples) keep_count += s.value == center;
+      for (const auto &s : samples) keep_count += std::abs(s.value - center) <= std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f);
     } else {
       const float sigma = 1.4826f * mad;
       for (const auto &s : samples)
@@ -156,7 +156,7 @@ AqmhSigmaClipResult aqmh_sigma_clip(
       const float sigma = 1.4826f * mad;
       samples.erase(std::remove_if(samples.begin(), samples.end(),
           [&](const auto &s) {
-            return mad <= floor_val ? s.value != center
+            return mad <= floor_val ? std::abs(s.value - center) > std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f)
                                    : ((s.value >= center)
                                           ? (s.value - center >
                                              clip_sigma_high * sigma)

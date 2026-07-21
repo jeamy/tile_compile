@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <atomic>
 #include <bit>
 #include <cstdint>
@@ -159,6 +160,16 @@ Matrix2Df source_masked_frame(const Matrix2Df &frame,
                     canvas_mask.size() == static_cast<size_t>(frame.size()));
   const bool frame_mask_shape_valid =
       !use_frame_mask || frame_mask.size() == static_cast<size_t>(frame.size());
+  if (use_mask && !mask_shape_valid) {
+    std::cerr << "[AQMH-QM] Warning: canvas mask shape mismatch — mask "
+              << mask_w << "x" << mask_h << " (" << canvas_mask.size()
+              << ") vs frame " << frame.cols() << "x" << frame.rows()
+              << " (" << frame.size() << ")\n";
+  }
+  if (use_frame_mask && !frame_mask_shape_valid) {
+    std::cerr << "[AQMH-QM] Warning: frame mask size mismatch — mask "
+              << frame_mask.size() << " vs frame " << frame.size() << "\n";
+  }
   const auto n = static_cast<std::ptrdiff_t>(frame.size());
   const float *src = frame.data();
   float *dst = out.data();
