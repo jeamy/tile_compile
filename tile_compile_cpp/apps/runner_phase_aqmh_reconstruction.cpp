@@ -195,8 +195,9 @@ nlohmann::json validation_metrics_json(
 }
 
 nlohmann::json validation_comparison_json(
-    const reconstruction::AqmhValidationComparison &v) {
-  return {{"aqmh", validation_metrics_json(v.aqmh)},
+    const reconstruction::AqmhValidationComparison &v,
+    const config::AqmhValidationConfig *cfg = nullptr) {
+  nlohmann::json j = {{"aqmh", validation_metrics_json(v.aqmh)},
           {"control", validation_metrics_json(v.control)},
           {"seam_score_regression", v.seam_score_regression},
           {"fwhm_regression", v.fwhm_regression},
@@ -208,6 +209,47 @@ nlohmann::json validation_comparison_json(
           {"fwhm_applicable", v.fwhm_applicable},
           {"tail_applicable", v.tail_applicable},
           {"elongation_applicable", v.elongation_applicable}};
+  if (cfg) {
+    j["metrics"] = {
+        {"background_rms",
+         gate_metric_json(v.background_rms_applicable,
+                          background_gate_ok(v, cfg->max_background_rms_regression),
+                          v.aqmh.background_rms, v.control.background_rms,
+                          v.background_rms_regression,
+                          cfg->max_background_rms_regression,
+                          "control_background_rms_degenerate")},
+        {"fwhm",
+         gate_metric_json(v.fwhm_applicable,
+                          fwhm_gate_ok(v, cfg->max_fwhm_regression),
+                          v.aqmh.fwhm, v.control.fwhm,
+                          v.fwhm_regression,
+                          cfg->max_fwhm_regression,
+                          "fwhm_not_measurable")},
+        {"seam_score",
+         gate_metric_json(v.seam_applicable,
+                          seam_gate_ok(v, cfg->max_seam_score_regression),
+                          v.aqmh.seam_score, v.control.seam_score,
+                          v.seam_score_regression,
+                          cfg->max_seam_score_regression,
+                          "control_seam_score_degenerate")},
+        {"tail11_abs",
+         gate_metric_json(v.tail_applicable,
+                          tail_gate_ok(v, cfg->max_tail11_abs_regression,
+                                       cfg->max_elongation_regression),
+                          v.aqmh.tail11_abs_median, v.control.tail11_abs_median,
+                          v.tail11_abs_regression,
+                          cfg->max_tail11_abs_regression,
+                          "insufficient_comparable_star_samples")},
+        {"elongation",
+         gate_metric_json(v.elongation_applicable,
+                          tail_gate_ok(v, cfg->max_tail11_abs_regression,
+                                       cfg->max_elongation_regression),
+                          v.aqmh.elongation_median, v.control.elongation_median,
+                          v.elongation_regression,
+                          cfg->max_elongation_regression,
+                          "insufficient_comparable_star_samples")}};
+  }
+  return j;
 }
 
 RegistrationWeightGuardResult apply_registration_weight_guard(
@@ -877,9 +919,9 @@ bool run_phase_aqmh_reconstruction(
   artifact["registration_weight_guard"]["source_counts"] =
       registration_guard.source_counts;
   artifact["raw_aqmh_validation"] =
-      validation_comparison_json(raw_control_validation);
+      validation_comparison_json(raw_control_validation, &cfg.aqmh.validation);
   artifact["final_vs_raw_aqmh_validation"] =
-      validation_comparison_json(final_vs_raw_validation);
+      validation_comparison_json(final_vs_raw_validation, &cfg.aqmh.validation);
   artifact["low_frequency_neutralization_evaluated"] =
       low_frequency_neutralization_evaluated;
   artifact["low_frequency_neutralization_applied"] =
@@ -889,11 +931,11 @@ bool run_phase_aqmh_reconstruction(
   artifact["structure_masked_detail_alpha"] = structure_masked_detail_alpha;
   if (low_frequency_neutralization_evaluated) {
     artifact["low_frequency_neutralization"] =
-        validation_comparison_json(low_frequency_neutralization_validation);
+        validation_comparison_json(low_frequency_neutralization_validation, &cfg.aqmh.validation);
     artifact["low_frequency_neutralization"]["sigma_px"] = 96.0f;
   }
   artifact["structure_masked_detail"] =
-      validation_comparison_json(structure_masked_detail_validation);
+      validation_comparison_json(structure_masked_detail_validation, &cfg.aqmh.validation);
   artifact["structure_masked_detail"].update({
       {"low_q", cfg.aqmh.reconstruction.structure_mask_low_q},
       {"high_q", cfg.aqmh.reconstruction.structure_mask_high_q},
