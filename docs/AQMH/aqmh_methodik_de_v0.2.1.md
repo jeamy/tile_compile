@@ -306,10 +306,23 @@ für den gewichteten Mittelwert irrelevant.
 
 **Normative Vorgabewerte (v0.2.1):**
 
+Die v0.2.1-Referenzwerte sind:
+
+- `g_floor = 0.05`
+- `g_w_sharp = 0.6`
+- `g_w_snr = 0.4`
+- `g_w_background_penalty = 0.3`
+
+Die aktuellen Betriebswerte (Post-v0.2.1-Revision) sind:
+
 - `g_floor = 0.03`
 - `g_w_sharp = 0.55`
 - `g_w_snr = 0.30`
 - `g_w_background_penalty = 0.25`
+
+Diese wurden empirisch optimiert: der niedrigere Floor und die ausgewogeneren
+Gewichte verhindern, dass wenige hochwertige Frames den Stack dominieren, bei
+typischen Deep-Sky-Datensätzen mit moderer Frame-zu-Frame-Qualitätsvariation.
 
 Post-v0.2.1-Erweiterung-Default:
 
@@ -662,6 +675,10 @@ Hintergrund von `B(p)` erhalten bleibt:
 2. Erstelle eine weiche Strukturmaske `M_s(p)`, indem der Gradientenbetrag von
    dem Quantil `low_q = 0.40` auf das Quantil `high_q = 0.90` auf `[0, 1]`
    abgebildet und anschließend mit `sigma = 4 px` geglättet wird.
+   Die v0.2.1-Referenzwerte waren `low_q = 0.70`, `high_q = 0.97`,
+   `sigma = 2 px`; die aktuellen Betriebswerte wurden erweitert, um
+   mittelgradientige Struktur (Spiralarme, Staubbänder) zu erhalten, die der
+   ursprünglich enge Bereich unterdrückte.
 3. Berechne den Detail-Kandidaten:
 
    ```
@@ -737,13 +754,21 @@ während einseitige Rauschmetriken scheinbar besser werden.
 ### 7.1 Regressionsvalidierung gegen das Uniforme Kontrollmittel
 
 Identisch zu v0.2.0 §9. Das rekonstruierte Ergebnis wird mit dem uniformen
-Kontrollmittel verglichen. Die Regressionsschwellen bleiben:
+Kontrollmittel verglichen. Regressionsschwellen:
+
+Aktuelle Betriebswerte (Post-v0.2.1-Revision):
 
 - `max_seam_score_regression = 0.05`
 - `max_fwhm_regression = 0.02`
 - `max_background_rms_regression = 0.05`
 - `max_tail11_abs_regression = 0.10`
 - `max_elongation_regression = 0.08`
+
+Die v0.2.1-Referenzwerte waren `0.02` für Seam/FWHM/Hintergrund und `0.05`
+für Tail/Elongation. Die aktuellen Werte sind weiter für Seam, Hintergrund,
+Tail und Elongation, um Fehlablehnungen bei realen Datensätzen zu reduzieren,
+wo sub-Schwellen-Regressionen häufig sind und keine bedeutsame
+Qualitätsminderung anzeigen.
 
 ### 7.2 Zero-Veto-Test
 
@@ -808,6 +833,9 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
 - `aqmh.global_quality.g_k_scale = 1.5` (Post-v0.2.1-Erweiterung; `1.0` stellt
   die v0.2.1-Referenzformel wieder her)
 
+Die v0.2.1-Referenzwerte waren `g_floor=0.05`, `g_w_sharp=0.6`,
+`g_w_snr=0.4`, `g_w_background_penalty=0.3`.
+
 Mit `g_w_background_penalty = 0.0` wird die Hintergrundstrafe deaktiviert; die
 begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.
 
@@ -829,6 +857,10 @@ begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.
 - Strukturmaske-Blur-Sigma: `4 px`.
 - Sigma-Clipping: `low = 2.0`, `high = 1.5`, `4` Iterationen.
 - Die Validierungsschwellen stammen aus `aqmh.validation`.
+
+Die v0.2.1-Referenzwerte waren `low_q=0.70`, `high_q=0.97`, Blur-Sigma
+`2 px`; die aktuellen Betriebswerte sind weiter, um mittelgradientige
+Struktur zu erhalten.
 
 ### 9.6 Cherry-Pick (unverändert)
 

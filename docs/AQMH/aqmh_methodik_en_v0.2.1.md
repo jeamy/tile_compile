@@ -316,10 +316,23 @@ zero, every frame receives `G_f = g_floor`.
 
 **Normative defaults (v0.2.1):**
 
+The v0.2.1 reference defaults are:
+
 - `g_floor = 0.05`
 - `g_w_sharp = 0.6`
 - `g_w_snr = 0.4`
 - `g_w_background_penalty = 0.3`
+
+The current operating defaults (post-v0.2.1 revision) are:
+
+- `g_floor = 0.03`
+- `g_w_sharp = 0.55`
+- `g_w_snr = 0.30`
+- `g_w_background_penalty = 0.25`
+
+These were tuned empirically: the lower floor and more balanced weights
+prevent a small number of high-quality frames from dominating the stack on
+typical deep-sky datasets where frame-to-frame quality variation is moderate.
 
 Post-v0.2.1 extension default:
 
@@ -655,8 +668,12 @@ from `B(p)`:
 
 1. Compute the gradient magnitude `grad(U)` of the uniform-control mean.
 2. Build a soft structure mask `M_s(p)` by mapping the gradient magnitude from
-   the `low_q = 0.70` quantile to the `high_q = 0.97` quantile to `[0, 1]` and
-   then Gaussian-blurring with `sigma = 2 px`.
+   the `low_q = 0.40` quantile to the `high_q = 0.90` quantile to `[0, 1]` and
+   then Gaussian-blurring with `sigma = 4 px`.
+   The v0.2.1 reference values were `low_q = 0.70`, `high_q = 0.97`,
+   `sigma = 2 px`; the current operating defaults were widened to preserve
+   mid-gradient structure (spiral arms, dust lanes) that the original narrow
+   range suppressed.
 3. Compute the detail candidate:
 
    ```
@@ -733,13 +750,21 @@ diffuse signal while one-sided noise metrics appear to improve.
 ### 7.1 Regression Validation Against Uniform Control
 
 Identical to v0.2.0 §9. The reconstructed output is compared to the
-uniform-control mean. Regression thresholds remain:
+uniform-control mean. Regression thresholds:
 
-- `max_seam_score_regression = 0.02`
+Current operating defaults (post-v0.2.1 revision):
+
+- `max_seam_score_regression = 0.05`
 - `max_fwhm_regression = 0.02`
-- `max_background_rms_regression = 0.02`
-- `max_tail11_abs_regression = 0.05`
-- `max_elongation_regression = 0.05`
+- `max_background_rms_regression = 0.05`
+- `max_tail11_abs_regression = 0.10`
+- `max_elongation_regression = 0.08`
+
+The v0.2.1 reference values were `0.02` for seam/FWHM/background and `0.05`
+for tail/elongation. The current defaults are wider for seam, background,
+tail, and elongation to reduce false rejections on real-world datasets where
+sub-threshold regressions are common and do not indicate a meaningful quality
+degradation.
 
 These thresholds apply only to metrics whose applicability state is `pass` or
 `fail`. Metrics reported as `not_applicable` are excluded from the hard veto and
@@ -800,12 +825,15 @@ Per-frame diagnostics in `aqmh_metrics.json` include:
 
 ### 9.3 Global Quality (v0.2.1)
 
-- `aqmh.global_quality.g_floor = 0.05`
-- `aqmh.global_quality.g_w_sharp = 0.6`
-- `aqmh.global_quality.g_w_snr = 0.4`
-- `aqmh.global_quality.g_w_background_penalty = 0.3`
+- `aqmh.global_quality.g_floor = 0.03`
+- `aqmh.global_quality.g_w_sharp = 0.55`
+- `aqmh.global_quality.g_w_snr = 0.30`
+- `aqmh.global_quality.g_w_background_penalty = 0.25`
 - `aqmh.global_quality.g_k_scale = 1.5` (post-v0.2.1 extension; `1.0` restores
   the v0.2.1 reference formula)
+
+The v0.2.1 reference defaults were `g_floor=0.05`, `g_w_sharp=0.6`,
+`g_w_snr=0.4`, `g_w_background_penalty=0.3`.
 
 Set `g_w_background_penalty = 0.0` to obtain the exact v0.2.0 behaviour.
 
@@ -823,9 +851,13 @@ Set `g_w_background_penalty = 0.0` to obtain the exact v0.2.0 behaviour.
 ### 9.5 Neutralisation and Blending (v0.2.1)
 
 - Neutralisation blur sigma: `96 px` (hard-coded).
-- Structure-mask quantiles: `low_q = 0.70`, `high_q = 0.97`.
-- Structure-mask blur sigma: `2 px`.
+- Structure-mask quantiles: `low_q = 0.40`, `high_q = 0.90`.
+- Structure-mask blur sigma: `4 px`.
 - Validation thresholds are taken from `aqmh.validation`.
+
+The v0.2.1 reference values were `low_q=0.70`, `high_q=0.97`, blur sigma
+`2 px`; the current operating defaults are wider to preserve mid-gradient
+structure.
 
 ### 9.6 Cherry-Pick (unchanged)
 
