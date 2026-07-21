@@ -34,7 +34,7 @@ static std::string sanitize_yaml_windows_paths(const std::string& yaml) {
             if (c == '\\' && i + 1 < yaml.size()) {
                 char next = yaml[i + 1];
                 // Keep valid YAML escape sequences (e.g. \n \t \\ \" \/ \uXXXX)
-                static const char valid[] = "\"\\0abtnvfrNLP_e \t/x u U";
+                static const char valid[] = "\"\\0abtnvfrNLP_e/xuU";
                 bool valid_esc = false;
                 for (char v : valid) { if (next == v) { valid_esc = true; break; } }
                 if (!valid_esc) {
