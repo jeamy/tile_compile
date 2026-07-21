@@ -11,7 +11,8 @@ bool run_phase_aqmh_maps(
     const std::vector<std::filesystem::path> &frames,
     const std::filesystem::path &run_dir,
     const std::vector<uint8_t> &frame_has_data,
-    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const std::vector<uint8_t> &reconstruction_valid_mask,
+    const std::vector<uint8_t> &analysis_common_mask, int width, int height,
     const DiskCacheFrameStore &prewarped_frames,
     const std::vector<image::NormalizationScales> &norm_scales,
     ColorMode detected_mode, const std::string &detected_bayer_str,
@@ -28,12 +29,14 @@ bool run_phase_aqmh_maps(
   const std::vector<Tile> no_tiles;
   const std::vector<uint8_t> no_tile_mask;
   return run_phase_local_metrics(
-      run_id, cfg, frames, run_dir, frame_has_data, no_tiles, canvas_mask,
-      width, height, no_tile_mask, prewarped_frames, norm_scales,
+      run_id, cfg, frames, run_dir, frame_has_data, no_tiles,
+      reconstruction_valid_mask, width, height, no_tile_mask,
+      prewarped_frames, norm_scales,
       detected_mode, detected_bayer_str, apply_normalization, acceleration,
       emitter, log_file, unused_metrics, unused_weights, unused_quality,
       unused_star, unused_fwhm, out_cache, out_global_weights, 0, 0,
-      frame_star_metrics, &out_prefetch_coordinator);
+      frame_star_metrics, &out_prefetch_coordinator, nullptr,
+      analysis_common_mask);
 }
 
 } // namespace tile_compile::runner

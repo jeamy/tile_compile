@@ -328,7 +328,8 @@ bool run_phase_aqmh_reconstruction(
     const std::filesystem::path &run_dir,
     const std::vector<std::filesystem::path> &frames,
     const std::vector<uint8_t> &frame_has_data,
-    const std::vector<uint8_t> &common_valid_mask,
+    const std::vector<uint8_t> &reconstruction_valid_mask,
+    const std::vector<uint8_t> &validation_common_mask,
     int canvas_width, int canvas_height,
     bool osc_mode,
     const DiskCacheFrameStore &prewarped_frames,
@@ -453,7 +454,7 @@ bool run_phase_aqmh_reconstruction(
   aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
       frames.size(), aqmh_frame_loader, aqmh_cache.get(),
       effective_aqmh_global_weights,
-      common_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+      reconstruction_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
       nullptr, aqmh_mask_loader, aqmh_frame_region_loader,
       aqmh_mask_region_loader, progress_callback);
   const bool acceleration_used = aqmh_recon.acceleration_used;
@@ -472,7 +473,8 @@ bool run_phase_aqmh_reconstruction(
   const Matrix2Df raw_aqmh_weight_sum = aqmh_recon.weight_sum;
   const auto raw_control_validation =
       reconstruction::compare_aqmh_to_uniform_control(
-          raw_aqmh_output, aqmh_recon.uniform_control_output);
+          raw_aqmh_output, aqmh_recon.uniform_control_output,
+          validation_common_mask);
   if (aqmh_recon.uniform_control_output.rows() == aqmh_recon.output.rows() &&
       aqmh_recon.uniform_control_output.cols() == aqmh_recon.output.cols()) {
     constexpr float neutralization_sigma_px = 96.0f;
@@ -481,12 +483,14 @@ bool run_phase_aqmh_reconstruction(
         neutralization_sigma_px);
     low_frequency_neutralization_validation =
         reconstruction::compare_aqmh_to_uniform_control(
-            neutralized, aqmh_recon.uniform_control_output);
+            neutralized, aqmh_recon.uniform_control_output,
+            validation_common_mask);
     low_frequency_neutralization_evaluated = true;
     const auto &raw_validation = raw_control_validation;
     const auto neutralized_vs_raw =
         reconstruction::compare_aqmh_to_uniform_control(neutralized,
-                                                        raw_aqmh_output);
+                                                        raw_aqmh_output,
+                                                        validation_common_mask);
     const bool neutralized_background_improved =
         raw_validation.background_rms_applicable &&
         low_frequency_neutralization_validation.background_rms_applicable &&
@@ -530,10 +534,11 @@ bool run_phase_aqmh_reconstruction(
           structure_low_q, structure_high_q, structure_mask_blur_sigma_px);
       structure_masked_detail_validation =
           reconstruction::compare_aqmh_to_uniform_control(
-              structure_masked, aqmh_recon.uniform_control_output);
+              structure_masked, aqmh_recon.uniform_control_output,
+              validation_common_mask);
       const auto structure_masked_vs_raw =
           reconstruction::compare_aqmh_to_uniform_control(
-              structure_masked, raw_aqmh_output);
+              structure_masked, raw_aqmh_output, validation_common_mask);
       const bool candidate_background_ok =
           background_gate_ok(structure_masked_detail_validation,
                              cfg.aqmh.validation.max_background_rms_regression);
@@ -591,10 +596,11 @@ bool run_phase_aqmh_reconstruction(
               alpha * (structure_masked - aqmh_recon.uniform_control_output);
           const auto validation =
               reconstruction::compare_aqmh_to_uniform_control(
-                  attenuated, aqmh_recon.uniform_control_output);
+                  attenuated, aqmh_recon.uniform_control_output,
+                  validation_common_mask);
           const auto baseline_validation =
               reconstruction::compare_aqmh_to_uniform_control(
-                  attenuated, raw_aqmh_output);
+                  attenuated, raw_aqmh_output, validation_common_mask);
           const bool ok = validation_gate_ok(validation, cfg.aqmh.validation) &&
                           validation_gate_ok(baseline_validation,
                                              cfg.aqmh.validation);
@@ -611,10 +617,11 @@ bool run_phase_aqmh_reconstruction(
               lo * (structure_masked - aqmh_recon.uniform_control_output);
           attenuated_validation =
               reconstruction::compare_aqmh_to_uniform_control(
-                  attenuated, aqmh_recon.uniform_control_output);
+                  attenuated, aqmh_recon.uniform_control_output,
+                  validation_common_mask);
           const auto attenuated_vs_raw =
               reconstruction::compare_aqmh_to_uniform_control(
-                  attenuated, raw_aqmh_output);
+                  attenuated, raw_aqmh_output, validation_common_mask);
           const bool attenuated_improves_fwhm =
               attenuated_validation.fwhm_applicable &&
               attenuated_validation.aqmh.fwhm > 0.0f &&
@@ -656,7 +663,8 @@ bool run_phase_aqmh_reconstruction(
 
   out.control_validation =
       reconstruction::compare_aqmh_to_uniform_control(
-          aqmh_recon.output, aqmh_recon.uniform_control_output);
+          aqmh_recon.output, aqmh_recon.uniform_control_output,
+          validation_common_mask);
   const auto pre_fallback_control_validation = out.control_validation;
   // A sharpness improvement is diagnostic, not permission to relax unrelated
   // quality limits. Candidate selection must remain within every applicable
@@ -716,12 +724,14 @@ bool run_phase_aqmh_reconstruction(
     raw_aqmh_preserved_by_guard = true;
     out.control_validation =
         reconstruction::compare_aqmh_to_uniform_control(
-            aqmh_recon.output, aqmh_recon.uniform_control_output);
+            aqmh_recon.output, aqmh_recon.uniform_control_output,
+            validation_common_mask);
   }
 
   auto final_vs_raw_validation =
       reconstruction::compare_aqmh_to_uniform_control(aqmh_recon.output,
-                                                      raw_aqmh_output);
+                                                      raw_aqmh_output,
+                                                      validation_common_mask);
   if (!validation_gate_ok(final_vs_raw_validation, cfg.aqmh.validation)) {
     emitter.warning(
         run_id,
@@ -733,10 +743,12 @@ bool run_phase_aqmh_reconstruction(
     raw_aqmh_preserved_by_guard = true;
     out.control_validation =
         reconstruction::compare_aqmh_to_uniform_control(
-            aqmh_recon.output, aqmh_recon.uniform_control_output);
+            aqmh_recon.output, aqmh_recon.uniform_control_output,
+            validation_common_mask);
     final_vs_raw_validation =
         reconstruction::compare_aqmh_to_uniform_control(aqmh_recon.output,
-                                                        raw_aqmh_output);
+                                                        raw_aqmh_output,
+                                                        validation_common_mask);
   }
 
   if (aqmh_recon.cherry_pick_forced_disabled) {
@@ -770,6 +782,7 @@ bool run_phase_aqmh_reconstruction(
   }
 
   out.recon = aqmh_recon;
+  out.raw_output = raw_aqmh_output;
   out.output = aqmh_recon.output;
   out.weight_sum = aqmh_recon.weight_sum;
   out.osc_rgb_cleared = osc_mode;

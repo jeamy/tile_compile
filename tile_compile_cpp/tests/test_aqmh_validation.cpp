@@ -377,6 +377,39 @@ TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
   REQUIRE(std::abs(cmp.background_rms_regression) < 0.05f);
 }
 
+TEST_CASE("aqmh_validation_mask_excludes_partial_coverage_edge_noise") {
+  constexpr int W = 192;
+  constexpr int H = 160;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  std::vector<uint8_t> common_mask(static_cast<size_t>(W) * H, 0u);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float base_noise =
+          0.2f * std::sin(0.83f * static_cast<float>(x) +
+                          1.07f * static_cast<float>(y));
+      control(y, x) = 100.0f + base_noise;
+      candidate(y, x) = control(y, x);
+      if (x < W / 2) {
+        common_mask[static_cast<size_t>(y) * W + x] = 1u;
+      } else {
+        candidate(y, x) +=
+            0.3f * std::sin(1.91f * static_cast<float>(x) -
+                            2.17f * static_cast<float>(y));
+      }
+    }
+  }
+
+  const auto unmasked = recon::compare_aqmh_to_uniform_control(candidate, control);
+  const auto masked =
+      recon::compare_aqmh_to_uniform_control(candidate, control, common_mask);
+
+  REQUIRE(unmasked.background_rms_applicable);
+  REQUIRE(unmasked.background_rms_regression > 0.05f);
+  REQUIRE(masked.background_rms_applicable);
+  REQUIRE(std::abs(masked.background_rms_regression) < 0.01f);
+}
+
 TEST_CASE("aqmh_background_rms_detects_added_pixel_scale_noise") {
   constexpr int W = 192;
   constexpr int H = 160;

@@ -20,7 +20,7 @@ bool run_phase_aqmh_diagnostics(
     const std::filesystem::path &run_dir,
     const reconstruction::AqmhReconstructionResult &reconstruction,
     metrics::QualityMapCache *q_map_cache,
-    const std::vector<uint8_t> &canvas_mask,
+    const std::vector<uint8_t> &analysis_common_mask,
     const std::vector<uint8_t> &frame_has_data,
     int canvas_width, int canvas_height,
     core::EventEmitter &emitter, std::ostream &log_file);

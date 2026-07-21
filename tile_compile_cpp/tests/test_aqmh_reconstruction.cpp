@@ -3,6 +3,7 @@
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
 #include "tile_compile/reconstruction/aqmh_validation.hpp"
+#include "../apps/runner_phase_aqmh_reconstruction.hpp"
 
 #if TILE_COMPILE_WITH_CUDA
 #include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
@@ -469,5 +470,15 @@ TEST_CASE("aqmh_native_opencl_reconstruction_matches_cpu_reference") {
     }
   }
   std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("aqmh_phase_result_preserves_raw_output_separately") {
+  tile_compile::runner::AqmhReconstructionPhaseResult result;
+  result.raw_output = tile_compile::Matrix2Df::Constant(2, 2, 1.0f);
+  result.output = result.raw_output;
+  result.output(0, 0) = 2.0f;
+
+  REQUIRE(result.raw_output(0, 0) == Catch::Approx(1.0f));
+  REQUIRE(result.output(0, 0) == Catch::Approx(2.0f));
 }
 #endif

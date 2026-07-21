@@ -2171,7 +2171,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const bool metrics_ok = cfg.aqmh.enabled
         ? runner::run_phase_aqmh_maps(
               run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
-              canvas_width, canvas_height, prewarped_frames, norm_scales,
+              common_valid_mask, canvas_width, canvas_height, prewarped_frames,
+              norm_scales,
               detected_mode, detected_bayer_str, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
               aqmh_prefetch_coordinator,
@@ -2298,7 +2299,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       runner::AqmhReconstructionPhaseResult aqmh_recon_result;
       if (!runner::run_phase_aqmh_reconstruction(
               run_id, cfg, run_dir, frames, frame_has_data,
-              aqmh_canvas_valid_mask, canvas_width, canvas_height, osc_mode,
+              aqmh_canvas_valid_mask, common_valid_mask, canvas_width,
+              canvas_height, osc_mode,
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
@@ -2310,8 +2312,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       aqmh_control_validation = aqmh_recon_result.control_validation;
       try {
         io::write_fits_float(
-            run_dir / "outputs" / "aqmh_reconstructed_raw.fit", recon,
-            first_hdr);
+            run_dir / "outputs" / "aqmh_reconstructed_raw.fit",
+            aqmh_recon_result.raw_output, first_hdr);
       } catch (const std::exception &e) {
         core::emit_event(
             "artifact_write_failed", run_id,
@@ -2340,7 +2342,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Phase: AQMH_DIAGNOSTICS — block-level Q-map statistics and heatmaps
       if (!runner::run_phase_aqmh_diagnostics(
               run_id, cfg, run_dir, aqmh_recon_result.recon,
-              aqmh_cache.get(), aqmh_canvas_valid_mask, frame_has_data,
+              aqmh_cache.get(), common_valid_mask, frame_has_data,
               canvas_width, canvas_height, emitter, log_file)) {
         return 1;
       }

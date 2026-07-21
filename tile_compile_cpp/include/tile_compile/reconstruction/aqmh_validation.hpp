@@ -2,6 +2,8 @@
 
 #include "tile_compile/core/types.hpp"
 
+#include <vector>
+
 namespace tile_compile::reconstruction {
 
 struct AqmhValidationMetrics {
@@ -31,8 +33,10 @@ struct AqmhValidationComparison {
   bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
-AqmhValidationMetrics measure_aqmh_validation_metrics(const Matrix2Df &image);
+AqmhValidationMetrics measure_aqmh_validation_metrics(
+    const Matrix2Df &image, const std::vector<uint8_t> &validation_mask = {});
 AqmhValidationComparison compare_aqmh_to_uniform_control(
-    const Matrix2Df &aqmh, const Matrix2Df &control);
+    const Matrix2Df &aqmh, const Matrix2Df &control,
+    const std::vector<uint8_t> &validation_mask = {});
 
 } // namespace tile_compile::reconstruction

@@ -1074,28 +1074,26 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                 << std::endl;
       return 1;
     }
-    std::vector<uint8_t> common_valid_mask(
+    std::vector<uint8_t> reconstruction_valid_mask(
         static_cast<size_t>(canvas_width) * canvas_height, 0u);
     if (canvas_mask_image.rows() == canvas_height &&
         canvas_mask_image.cols() == canvas_width) {
-      for (size_t i = 0; i < common_valid_mask.size(); ++i)
-        common_valid_mask[i] = canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
+      for (size_t i = 0; i < reconstruction_valid_mask.size(); ++i)
+        reconstruction_valid_mask[i] =
+            canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
     } else {
-      // Completed runs may contain the cropped output mask at outputs/canvas_mask.fits.
-      // Rebuild the full AQMH common mask from the persisted per-frame masks.
       tile_compile::metrics::FrameValidMaskStore mask_store(
           run_dir / "cache" / "aqmh_masks", canvas_width, canvas_height);
-      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 0u);
       bool rebuilt_mask = false;
       for (size_t fi = 0; fi < frame_count; ++fi) {
         std::vector<uint8_t> frame_mask = mask_store.read(fi);
-        if (frame_mask.size() != common_valid_mask.size()) {
-          continue;
-        }
+        if (frame_mask.size() != reconstruction_valid_mask.size()) continue;
         rebuilt_mask = true;
-        for (size_t i = 0; i < common_valid_mask.size(); ++i) {
-          common_valid_mask[i] =
-              (common_valid_mask[i] != 0u || frame_mask[i] != 0u) ? 1u : 0u;
+        for (size_t i = 0; i < reconstruction_valid_mask.size(); ++i) {
+          reconstruction_valid_mask[i] =
+              (reconstruction_valid_mask[i] != 0u || frame_mask[i] != 0u)
+                  ? 1u
+                  : 0u;
         }
       }
       if (!rebuilt_mask) {
@@ -1104,12 +1102,29 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                   << std::endl;
         return 1;
       }
-      std::cout << "[AQMH][resume] Rebuilt full canvas mask from cache/aqmh_masks "
-                << "because outputs/canvas_mask.fits is cropped ("
-                << canvas_mask_image.cols() << "x" << canvas_mask_image.rows()
-                << " vs " << canvas_width << "x" << canvas_height << ")"
-                << std::endl;
     }
+
+    Matrix2Df common_overlap_mask_image;
+    try {
+      std::tie(common_overlap_mask_image, std::ignore) = io::read_fits_float(
+          run_dir / "outputs" / "common_overlap_mask.fits");
+    } catch (const std::exception &e) {
+      std::cerr << "Error: AQMH resume requires common_overlap_mask.fits: "
+                << e.what() << std::endl;
+      return 1;
+    }
+    if (common_overlap_mask_image.rows() != canvas_height ||
+        common_overlap_mask_image.cols() != canvas_width) {
+      std::cerr << "Error: AQMH common-overlap mask dimensions differ from "
+                   "the reconstruction cache"
+                << std::endl;
+      return 1;
+    }
+    std::vector<uint8_t> common_valid_mask(
+        static_cast<size_t>(canvas_width) * canvas_height, 0u);
+    for (size_t i = 0; i < common_valid_mask.size(); ++i)
+      common_valid_mask[i] =
+          common_overlap_mask_image.data()[i] > 0.0f ? 1u : 0u;
 
     runner::DiskCacheFrameStore prewarped_frames(
         run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
@@ -1141,7 +1156,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     const std::string mask_hash =
         tile_compile::metrics::compute_aqmh_canvas_mask_hash(
-            common_valid_mask, canvas_width, canvas_height);
+            reconstruction_valid_mask, canvas_width, canvas_height);
     auto aqmh_cache = std::make_unique<tile_compile::metrics::QualityMapCache>(
         run_dir / "cache" / "aqmh",
         cache_meta.value("map_stream_id", std::string("luma")),
@@ -1156,7 +1171,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const auto phase_started = std::chrono::steady_clock::now();
     if (!runner::run_phase_aqmh_reconstruction(
             run_id, cfg, run_dir, frame_slots, frame_has_data,
-            common_valid_mask, canvas_width, canvas_height,
+            reconstruction_valid_mask, common_valid_mask, canvas_width,
+            canvas_height,
             io::detect_color_mode(resume_header, 2) == ColorMode::OSC,
             prewarped_frames, aqmh_cache,
             global_weights, acceleration, emitter, log_file, phase_started,
@@ -1164,7 +1180,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
     try {
-      io::write_fits_float(aqmh_raw_reconstruction, phase_result.output,
+      io::write_fits_float(aqmh_raw_reconstruction, phase_result.raw_output,
                            resume_header);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
                            phase_result.output, resume_header);

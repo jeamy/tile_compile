@@ -168,12 +168,16 @@ bool run_phase_local_metrics(
     int tile_offset_y,
     const std::vector<metrics::FrameStarMetrics> &frame_star_metrics,
     std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator,
+    const std::vector<uint8_t> &aqmh_analysis_common_mask) {
   (void)tile_offset_x;
   (void)tile_offset_y;
   out_aqmh_cache.reset();
   out_aqmh_global_weights.resize(0);
   const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
+  const std::vector<uint8_t> &aqmh_summary_mask =
+      aqmh_analysis_common_mask.empty() ? common_valid_mask
+                                        : aqmh_analysis_common_mask;
   const Phase phase_id = compute_classic_local_metrics ? Phase::LOCAL_METRICS
                                                         : Phase::AQMH_MAPS;
 
@@ -500,7 +504,7 @@ bool run_phase_local_metrics(
                   prefetch_coordinator->publish_frame(fi);
                 }
                 diag = summarize_aqmh_map(
-                    fi, aqmh_result.q_map, common_valid_mask,
+                    fi, aqmh_result.q_map, aqmh_summary_mask,
                     common_mask_width, common_mask_height,
                     cfg.aqmh.diagnostics.tau_artifact);
                 diag.written = true;
