@@ -185,7 +185,7 @@ TEST_CASE("aqmh_cherry_pick_enforces_positive_sample_floor") {
   std::filesystem::remove_all(dir);
 }
 
-TEST_CASE("aqmh_uniform_control_uses_unit_weights_without_reviving_vetoes") {
+TEST_CASE("aqmh_uniform_control_includes_samples_excluded_by_aqmh_weights") {
   const auto dir = unique_recon_cache_dir("aqmh_uniform_control");
   constexpr int W = 3, H = 2;
   std::vector<tile_compile::Matrix2Df> frames(
@@ -203,13 +203,26 @@ TEST_CASE("aqmh_uniform_control_uses_unit_weights_without_reviving_vetoes") {
   std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
   cfg.uniform_weights = true;
+  cfg.compute_uniform_control = true;
   cfg.clip_iterations = 0;
   cfg.min_n_eff = 1.0f;
-  const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+  const auto zero_q = tile_compile::reconstruction::reconstruct_aqmh_weighted(
       frames.size(), loader_for(frames), &cache, global, mask, W, H, cfg);
-  REQUIRE(out.output(0, 0) == 0.0f);
-  REQUIRE(out.zero_veto_pixels == 1);
-  REQUIRE(out.output(1, 1) == Catch::Approx(15.0f));
+  REQUIRE(zero_q.output(0, 0) == 0.0f);
+  REQUIRE(zero_q.zero_veto_pixels == 1);
+  REQUIRE(zero_q.uniform_control_output(0, 0) == Catch::Approx(15.0f));
+  REQUIRE(zero_q.uniform_control_valid_mask[0] == 1u);
+
+  q0.setConstant(0.1f);
+  q1.setConstant(0.9f);
+  cache.write(0, q0);
+  cache.write(1, q1);
+  global[1] = 0.0f;
+  const auto zero_global = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global, mask, W, H, cfg);
+  REQUIRE(zero_global.output(1, 1) == Catch::Approx(10.0f));
+  REQUIRE(zero_global.uniform_control_output(1, 1) == Catch::Approx(15.0f));
+  REQUIRE(zero_global.uniform_control_valid_mask[static_cast<size_t>(W + 1)] == 1u);
   std::filesystem::remove_all(dir);
 }
 

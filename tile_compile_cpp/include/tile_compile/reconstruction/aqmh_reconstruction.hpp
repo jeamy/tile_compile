@@ -30,10 +30,16 @@ struct AqmhReconstructionConfig {
   int chunk_rows = 0;           // 0 = auto
 };
 
+struct AqmhUniformControlResult {
+  Matrix2Df output;
+  std::vector<uint8_t> valid_mask;
+};
+
 struct AqmhReconstructionResult {
   Matrix2Df output;
   Matrix2Df weight_sum;
   Matrix2Df uniform_control_output;
+  std::vector<uint8_t> uniform_control_valid_mask;
   bool acceleration_used = false;
   bool acceleration_fallback = false;
   uint64_t unsupported_pixels = 0;
@@ -73,6 +79,13 @@ using AqmhFrameRegionLoader =
 using AqmhMaskRegionLoader =
     std::function<bool(size_t, int, int, std::vector<uint8_t>&)>;
 using AqmhProgressCallback = std::function<void(int, int)>;
+
+AqmhUniformControlResult compute_aqmh_uniform_control(
+    size_t frame_count, const AqmhFrameLoader &load_frame,
+    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const AqmhMaskLoader &load_frame_valid_mask = {},
+    const AqmhFrameRegionLoader &load_frame_region = {},
+    const AqmhMaskRegionLoader &load_frame_valid_mask_region = {});
 
 AqmhReconstructionResult reconstruct_aqmh_weighted(
     size_t frame_count, const AqmhFrameLoader &load_frame,

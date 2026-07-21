@@ -43,6 +43,79 @@ float quantile(std::vector<float> values, float q) {
 
 } // namespace
 
+AqmhUniformControlResult compute_aqmh_uniform_control(
+    size_t frame_count, const AqmhFrameLoader &load_frame,
+    const std::vector<uint8_t> &canvas_mask, int width, int height,
+    const AqmhMaskLoader &load_frame_valid_mask,
+    const AqmhFrameRegionLoader &load_frame_region,
+    const AqmhMaskRegionLoader &load_frame_valid_mask_region) {
+  AqmhUniformControlResult result;
+  result.output = Matrix2Df::Zero(height, width);
+  result.valid_mask.assign(static_cast<size_t>(std::max(0, width)) *
+                               static_cast<size_t>(std::max(0, height)),
+                           0u);
+  if (!load_frame || frame_count == 0 || width <= 0 || height <= 0) {
+    return result;
+  }
+
+  constexpr int control_chunk_rows = 128;
+  for (int y0 = 0; y0 < height; y0 += control_chunk_rows) {
+    const int rows = std::min(control_chunk_rows, height - y0);
+    const size_t pixel_count = static_cast<size_t>(rows) * width;
+    std::vector<double> sums(pixel_count, 0.0);
+    std::vector<uint32_t> counts(pixel_count, 0u);
+    for (size_t fi = 0; fi < frame_count; ++fi) {
+      Matrix2Df frame;
+      const bool frame_ok = load_frame_region
+          ? load_frame_region(fi, y0, rows, frame)
+          : load_frame(fi, frame);
+      if (!frame_ok || frame.cols() != width ||
+          frame.rows() != (load_frame_region ? rows : height)) {
+        continue;
+      }
+      std::vector<uint8_t> frame_mask;
+      const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
+      const bool mask_ok = use_region_mask
+          ? load_frame_valid_mask_region(fi, y0, rows, frame_mask)
+          : (!load_frame_valid_mask || load_frame_valid_mask(fi, frame_mask));
+      const size_t expected_mask = static_cast<size_t>(width) *
+                                   (use_region_mask ? rows : height);
+      if ((load_frame_valid_mask || use_region_mask) &&
+          (!mask_ok || frame_mask.size() != expected_mask)) {
+        continue;
+      }
+      for (int yy = 0; yy < rows; ++yy) {
+        const int y = y0 + yy;
+        for (int x = 0; x < width; ++x) {
+          const size_t local_i = static_cast<size_t>(yy * width + x);
+          const size_t mask_i = use_region_mask
+              ? local_i : static_cast<size_t>(y * width + x);
+          const int source_y = load_frame_region ? yy : y;
+          const float value = frame(source_y, x);
+          if (!canvas_valid(canvas_mask, width, height, x, y) ||
+              (!frame_mask.empty() && frame_mask[mask_i] == 0u) ||
+              !std::isfinite(value)) {
+            continue;
+          }
+          sums[local_i] += value;
+          ++counts[local_i];
+        }
+      }
+    }
+    for (int yy = 0; yy < rows; ++yy) {
+      for (int x = 0; x < width; ++x) {
+        const size_t local_i = static_cast<size_t>(yy * width + x);
+        if (counts[local_i] == 0u) continue;
+        const int y = y0 + yy;
+        result.output(y, x) = static_cast<float>(
+            sums[local_i] / static_cast<double>(counts[local_i]));
+        result.valid_mask[static_cast<size_t>(y * width + x)] = 1u;
+      }
+    }
+  }
+  return result;
+}
+
 AqmhReconstructionResult reconstruct_aqmh_weighted(
     size_t frame_count, const AqmhFrameLoader &load_frame,
     metrics::QualityMapCache *q_map_cache, const VectorXf &global_weights,
@@ -388,6 +461,14 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
     result.cherry_pick_k_max_observed = static_cast<int>(*std::max_element(effective_k.begin(), effective_k.end()));
   }
   if (!margins.empty()) result.low_rank_separation = quantile(margins, 0.5f) < cfg.cherry_pick_margin_min;
+  if (cfg.compute_uniform_control) {
+    auto control = compute_aqmh_uniform_control(
+        frame_count, load_frame, canvas_mask, width, height,
+        load_frame_valid_mask, load_frame_region,
+        load_frame_valid_mask_region);
+    result.uniform_control_output = std::move(control.output);
+    result.uniform_control_valid_mask = std::move(control.valid_mask);
+  }
   return result;
 }
 
