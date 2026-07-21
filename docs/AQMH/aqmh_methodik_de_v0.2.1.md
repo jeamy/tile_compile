@@ -263,10 +263,23 @@ z_n,f = robust_zscore(g_snr)
 z_b,f = robust_zscore(g_background)
 
 score_f = w_sharp * z_s,f + w_snr * z_n,f - w_background * z_b,f
-G_f     = g_floor + (1 - g_floor) * sigmoid(g_k_scale * score_f)
+G_f     = g_floor + (1 - g_floor) * sigmoid(clamp(g_k_scale * score_f, -8, 8))
 ```
 
 mit `sigmoid(v) = 1 / (1 + exp(-v))`.
+
+**Post-v0.2.1-Erweiterung — Sigmoid-Temperatur und Score-Clipping.** Die
+Implementierung multipliziert `score_f` mit einem konfigurierbaren
+Temperaturfaktor `g_k_scale` (Default `1.5`) vor der Sigmoid-Anwendung und
+clippt den skalierten Score auf `[-8, 8]` zur numerischen Stabilität. Die
+v0.2.1-Referenzformel verwendet eine implizite Skalierung von `1.0` und kein
+Clipping. Der Temperaturfaktor ist notwendig, weil `robust_zscore` (MAD-basiert)
+typischerweise kleinere Absolutwerte liefert als Standard-z-Scores; ohne
+Skalierung clustern alle `G_f`-Werte nahe `g_floor + 0.5 * (1 - g_floor)`, was
+den gewichteten Stack fast ungewichtet macht. Das Clipping ist ein
+Sicherheitsnetz, das in der Praxis nie aktiv wird, da einzelne z-Scores bereits
+auf `[-5, 5]` begrenzt sind, aber `exp`-Überlauf bei extremen Eingaben
+verhindert.
 
 Die Gewichte `w_sharp`, `w_snr`, `w_background` werden direkt als
 `g_w_sharp`, `g_w_snr`, `g_w_background_penalty` konfiguriert. Zur Laufzeit
@@ -297,7 +310,11 @@ für den gewichteten Mittelwert irrelevant.
 - `g_w_sharp = 0.55`
 - `g_w_snr = 0.30`
 - `g_w_background_penalty = 0.25`
-- `g_k_scale = 1.5`
+
+Post-v0.2.1-Erweiterung-Default:
+
+- `g_k_scale = 1.5` (Sigmoid-Temperatur; `1.0` stellt die v0.2.1-Referenzformel
+  wieder her)
 
 Die Sigmoid-Abbildung begrenzt `G_f` auf `[g_floor, 1]`. Dadurch kann kein
 einzelner Frame durch ein exponentiell wachsendes globales Gewicht die lokalen
@@ -788,7 +805,8 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
 - `aqmh.global_quality.g_w_sharp = 0.55`
 - `aqmh.global_quality.g_w_snr = 0.30`
 - `aqmh.global_quality.g_w_background_penalty = 0.25`
-- `aqmh.global_quality.g_k_scale = 1.5`
+- `aqmh.global_quality.g_k_scale = 1.5` (Post-v0.2.1-Erweiterung; `1.0` stellt
+  die v0.2.1-Referenzformel wieder her)
 
 Mit `g_w_background_penalty = 0.0` wird die Hintergrundstrafe deaktiviert; die
 begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.

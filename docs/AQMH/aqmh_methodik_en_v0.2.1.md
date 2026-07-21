@@ -276,10 +276,22 @@ z_n,f = robust_zscore(g_snr)
 z_b,f = robust_zscore(g_background)
 
 score_f = w_sharp * z_s,f + w_snr * z_n,f - w_background * z_b,f
-G_f     = g_floor + (1 - g_floor) * sigmoid(score_f)
+G_f     = g_floor + (1 - g_floor) * sigmoid(clamp(g_k_scale * score_f, -8, 8))
 ```
 
 with `sigmoid(v) = 1 / (1 + exp(-v))`.
+
+**Post-v0.2.1 extension — Sigmoid temperature and score clipping.** The
+implementation multiplies `score_f` by a configurable temperature factor
+`g_k_scale` (default `1.5`) before applying the sigmoid, and clips the scaled
+score to `[-8, 8]` for numerical stability.  The v0.2.1 reference formula uses
+an implicit scale of `1.0` and no clipping.  The temperature factor is
+necessary because `robust_zscore` (MAD-based) typically produces smaller
+absolute values than standard z-scores; without scaling, all `G_f` values
+cluster near `g_floor + 0.5 * (1 - g_floor)`, making the weighted stack
+nearly unweighted.  The clipping is a safety net that is never active in
+practice because individual z-scores are already clamped to `[-5, 5]`, but it
+prevents `exp` overflow on extreme inputs.
 
 The weights `w_sharp`, `w_snr`, `w_background` are configured directly as
 `g_w_sharp`, `g_w_snr`, `g_w_background_penalty`. At runtime they are converted
@@ -308,6 +320,11 @@ zero, every frame receives `G_f = g_floor`.
 - `g_w_sharp = 0.6`
 - `g_w_snr = 0.4`
 - `g_w_background_penalty = 0.3`
+
+Post-v0.2.1 extension default:
+
+- `g_k_scale = 1.5` (sigmoid temperature; `1.0` restores the v0.2.1 reference
+  formula)
 
 Setting `g_w_background_penalty = 0.0` restores the exact v0.2.0 global
 quality definition.
@@ -787,6 +804,8 @@ Per-frame diagnostics in `aqmh_metrics.json` include:
 - `aqmh.global_quality.g_w_sharp = 0.6`
 - `aqmh.global_quality.g_w_snr = 0.4`
 - `aqmh.global_quality.g_w_background_penalty = 0.3`
+- `aqmh.global_quality.g_k_scale = 1.5` (post-v0.2.1 extension; `1.0` restores
+  the v0.2.1 reference formula)
 
 Set `g_w_background_penalty = 0.0` to obtain the exact v0.2.0 behaviour.
 
