@@ -526,7 +526,7 @@ bool run_phase_local_metrics(
                   diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
                 }
                 diag.g_snr_summary = aqmh_result.diagnostics.g_snr_summary;
-                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame);
+                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame, &frame_valid_mask);
                 diag.g_background_penalty_summary =
                     frame_global_metrics.sky_gradient;
                 diag.g_summary_invalid =
@@ -534,7 +534,8 @@ bool run_phase_local_metrics(
                      !(frame_star_metrics[fi].wfwhm > 0.0f &&
                        std::isfinite(frame_star_metrics[fi].wfwhm)))
                         ? aqmh_result.diagnostics.g_summary_invalid
-                        : (!std::isfinite(diag.g_snr_summary));
+                        : (!std::isfinite(diag.g_snr_summary) ||
+                           !std::isfinite(diag.g_background_penalty_summary));
                 diag.regions = metrics::extract_aqmh_regions(
                     aqmh_result.q_map, frame_valid_mask,
                     cfg.aqmh.diagnostics.q_region,

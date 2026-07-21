@@ -150,7 +150,8 @@ float positive_pearson_correlation(const VectorXf& a, const VectorXf& b) {
 /// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
+FrameMetrics calculate_frame_metrics(const Matrix2Df& frame,
+                                     const std::vector<uint8_t>* frame_valid_mask) {
     FrameMetrics m;
 
     // Avoid large transient allocations (Sobel + gradients) on full-res frames.
@@ -189,10 +190,15 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     // Large-scale sky gradient: compare background medians of four quadrants.
     // This captures the additive sky gradient (e.g. light pollution, moon glow)
     // separately from gradient_energy which measures local pixel-scale structure.
+    // When frame_valid_mask is provided, quadrant medians only consider pixels
+    // that are both background (bg_mask) and frame-valid.  A quadrant with no
+    // valid pixels is marked NaN.  When background <= 0 or fewer than four
+    // valid quadrants exist, sky_gradient is NaN (invalid) per §1.5.
     {
         const int h2 = metrics_frame->rows() / 2;
         const int w2 = metrics_frame->cols() / 2;
         float q[4] = {0, 0, 0, 0};
+        int valid_quadrants = 0;
         for (int qi = 0; qi < 4; ++qi) {
             const int y0 = (qi / 2) * h2;
             const int x0 = (qi % 2) * w2;
@@ -204,19 +210,36 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
                 const float* row = metrics_frame->data() + static_cast<size_t>(y) * static_cast<size_t>(metrics_frame->cols());
                 const uint8_t* mrow = bg_mask.ptr<uint8_t>(y);
                 for (int x = x0; x < x1; ++x) {
-                    if (mrow[x] != 0) qvals.push_back(row[x]);
+                    if (mrow[x] == 0)
+                        continue;
+                    if (frame_valid_mask) {
+                        const size_t fvm_idx = static_cast<size_t>(y) *
+                            static_cast<size_t>(metrics_frame->cols()) +
+                            static_cast<size_t>(x);
+                        if (fvm_idx >= frame_valid_mask->size() ||
+                            (*frame_valid_mask)[fvm_idx] == 0)
+                            continue;
+                    }
+                    qvals.push_back(row[x]);
                 }
             }
-            q[qi] = qvals.empty() ? 0.0f : core::median_of(qvals);
+            if (qvals.empty()) {
+                q[qi] = std::numeric_limits<float>::quiet_NaN();
+            } else {
+                q[qi] = core::median_of(qvals);
+                ++valid_quadrants;
+            }
         }
-        float qmin = q[0], qmax = q[0];
-        for (int qi = 1; qi < 4; ++qi) {
-            qmin = std::min(qmin, q[qi]);
-            qmax = std::max(qmax, q[qi]);
+        if (m.background > 1e-6f && valid_quadrants >= 4) {
+            float qmin = q[0], qmax = q[0];
+            for (int qi = 1; qi < 4; ++qi) {
+                qmin = std::min(qmin, q[qi]);
+                qmax = std::max(qmax, q[qi]);
+            }
+            m.sky_gradient = (qmax - qmin) / m.background;
+        } else {
+            m.sky_gradient = std::numeric_limits<float>::quiet_NaN();
         }
-        m.sky_gradient = (m.background > 1e-6f)
-            ? (qmax - qmin) / m.background
-            : 0.0f;
     }
 
     cv::Mat grad_x, grad_y;

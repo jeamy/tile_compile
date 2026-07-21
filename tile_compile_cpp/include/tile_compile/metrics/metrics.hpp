@@ -6,7 +6,8 @@
 
 namespace tile_compile::metrics {
 
-FrameMetrics calculate_frame_metrics(const Matrix2Df& frame);
+FrameMetrics calculate_frame_metrics(const Matrix2Df& frame,
+                                     const std::vector<uint8_t>* frame_valid_mask = nullptr);
 
 // Per-frame star metrics (Siril-style diagnostics)
 struct FrameStarMetrics {
