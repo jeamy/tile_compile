@@ -388,10 +388,11 @@ Identisch zu v0.2.0 §2.5.
 
 ## 3. Quality-Map-Speicher und Speichermodell
 
-Der produktive, objektklassenunabhängige Standard ist `uint16` mit
-`resolution_divisor = 2`. Der strikte Referenz- und Fidelity-Modus bleibt
-Full-Resolution `float32` mit `resolution_divisor = 1`. Cherry-Pick erfordert
-den Referenzmodus, weil eine reduzierte oder quantisierte Map die per-Pixel-
+Der Standard-Speichermodus ist Full-Resolution `float32` mit
+`resolution_divisor = 1`. Ein optionaler Performance-Modus verwendet `uint16`
+mit `resolution_divisor = 2` für reduzierten Speicherbedarf; dies ist nicht
+der Standard und muss explizit berichtet werden. Cherry-Pick erfordert den
+Referenzmodus, weil eine reduzierte oder quantisierte Map die per-Pixel-
 Rangfolge verändern kann. Jeder Run muss Auflösung und Datentyp berichten.
 
 Das Hintergrundstrafe-Signal beeinflusst den Quality-Map-Speicher nicht; es ist
@@ -821,8 +822,8 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
 - `aqmh.pyramid.w_snr = 0.4`
 - `aqmh.pyramid.k_artifact = 3.0`
 - `aqmh.pyramid.frac_artifact_max = 0.25`
-- `aqmh.storage.resolution_divisor = 2`
-- `aqmh.storage.dtype = "uint16"`
+- `aqmh.storage.resolution_divisor = 1`
+- `aqmh.storage.dtype = "float32"`
 
 ### 9.3 Globale Qualität (v0.2.1)
 

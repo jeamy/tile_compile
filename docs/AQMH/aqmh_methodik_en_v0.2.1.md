@@ -394,11 +394,12 @@ Identical to v0.2.0 §2.5.
 
 ## 3. Quality Map Storage and Memory Model
 
-The productive, object-agnostic default is `uint16` with `resolution_divisor = 2`.
-The strict reference and fidelity mode remains full-resolution `float32` with
-`resolution_divisor = 1`. Cherry-pick requires the reference mode because a
-reduced or quantised map can change the per-pixel ranking. Each run must report
-resolution and data type.
+The default storage mode is full-resolution `float32` with
+`resolution_divisor = 1`. An optional performance mode uses `uint16` with
+`resolution_divisor = 2` for reduced memory footprint; this is not the
+default and must be explicitly reported. Cherry-pick requires the reference
+mode because a reduced or quantised map can change the per-pixel ranking.
+Each run must report resolution and data type.
 
 The background-penalty signal does not affect quality-map storage; it is a
 per-frame scalar computed during or after map computation and stored in
@@ -840,11 +841,11 @@ Set `g_w_background_penalty = 0.0` to obtain the exact v0.2.0 behaviour.
 ### 9.4 Registration-Weight Guard (v0.2.1)
 
 - `aqmh.reconstruction.registration_weight_guard = true`
-- `aqmh.reconstruction.registration_weight_floor = 0.35`
+- `aqmh.reconstruction.registration_weight_floor = 0.30`
 - `aqmh.reconstruction.registration_cc_floor = 0.35`
 - `aqmh.reconstruction.registration_cc_full = 0.80`
-- `aqmh.reconstruction.registration_sequential_factor = 0.85`
-- `aqmh.reconstruction.registration_predicted_factor = 0.35`
+- `aqmh.reconstruction.registration_sequential_factor = 0.92`
+- `aqmh.reconstruction.registration_predicted_factor = 0.50`
 - `aqmh.reconstruction.registration_chain_depth_penalty = 0.03`
 - `aqmh.reconstruction.registration_chain_depth_max_penalty = 0.15`
 
