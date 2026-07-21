@@ -548,6 +548,18 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     result.sample_count = finite_positive.size();
     if (finite_positive.empty()) return result;
 
+    // Compute p1 as floor and p99.9 as robust maximum.
+    // The stretch maps [floor, robust_max] -> [0, 65535].  Using p1 (not p10
+    // or the background itself) as the floor keeps below-background pixels
+    // visible: the sky background lands at a small positive value instead of
+    // consuming >60% of the range, and only the darkest 1% of noise clips to 0.
+    const size_t idx_1 = static_cast<size_t>(
+        std::clamp(0.01, 0.0, 1.0) * static_cast<double>(finite_positive.size() - 1));
+    std::nth_element(finite_positive.begin(),
+                     finite_positive.begin() + idx_1,
+                     finite_positive.end());
+    const float floor_level = finite_positive[idx_1];
+
     const size_t idx_999 = static_cast<size_t>(
         0.999 * static_cast<double>(finite_positive.size() - 1));
     std::nth_element(finite_positive.begin(),
@@ -555,15 +567,17 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
                      finite_positive.end());
     const float robust_max = finite_positive[idx_999];
 
-    result.low = 0.0f;
+    result.low = floor_level;
     result.high = robust_max;
-    if (!(robust_max > 1.0e-6f)) return result;
+    const float range = robust_max - floor_level;
+    if (!(range > 1.0e-6f)) return result;
 
-    const float scale = 65535.0f / robust_max;
+    const float scale = 65535.0f / range;
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (std::isfinite(v) && v >= 0.0f) {
-            img.data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+        if (std::isfinite(v)) {
+            const float stretched = (v - floor_level) * scale;
+            img.data()[i] = std::clamp(stretched, 0.0f, 65535.0f);
         } else {
             img.data()[i] = 0.0f;
         }
@@ -618,24 +632,36 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     result.sample_count = all_values.size();
     if (all_values.empty()) return result;
 
-    // Compute p99.9 as robust maximum
+    // Compute p1 as floor and p99.9 as robust maximum.
+    // The stretch maps [floor, robust_max] -> [0, target].  Using p1 (not p10
+    // or the background itself) as the floor keeps below-background pixels
+    // visible: the sky background lands at a small positive value instead of
+    // consuming >60% of the range, and only the darkest 1% of noise clips to 0.
+    const size_t idx_1 = static_cast<size_t>(
+        std::clamp(0.01, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
+    std::nth_element(all_values.begin(), all_values.begin() + idx_1,
+                     all_values.end());
+    const float floor_level = all_values[idx_1];
+
     const size_t idx_999 = static_cast<size_t>(
         std::clamp(0.999, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
     std::nth_element(all_values.begin(), all_values.begin() + idx_999,
                      all_values.end());
     const float robust_max = all_values[idx_999];
 
-    result.low = 0.0f;
+    result.low = floor_level;
     result.high = robust_max;
-    if (!(robust_max > 1.0e-6f)) return result;
+    const float range = robust_max - floor_level;
+    if (!(range > 1.0e-6f)) return result;
 
     constexpr float target = 4294967295.0f;
-    const float scale = target / robust_max;
+    const float scale = target / range;
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
             const float v = ch->data()[i];
-            if (std::isfinite(v) && v >= 0.0f) {
-                ch->data()[i] = std::clamp(v * scale, 0.0f, target);
+            if (std::isfinite(v)) {
+                const float stretched = (v - floor_level) * scale;
+                ch->data()[i] = std::clamp(stretched, 0.0f, target);
             } else {
                 ch->data()[i] = 0.0f;
             }
