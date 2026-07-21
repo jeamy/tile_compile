@@ -173,6 +173,7 @@ set(BACKEND_SOURCES
     ../tile_compile_cpp/src/image/hypermetric_stretch.cpp
     ../tile_compile_cpp/src/image/autobge.cpp
     ../tile_compile_cpp/src/image/background_extraction.cpp
+    ../tile_compile_cpp/src/core/utils.cpp
 )
 
 add_executable(tile_compile_web_backend ${BACKEND_SOURCES})
