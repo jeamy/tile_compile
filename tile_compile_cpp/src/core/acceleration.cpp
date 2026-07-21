@@ -458,6 +458,65 @@ bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
   return out.size() > 0;
 }
 
+cv::Mat compute_min_keep_host(const cv::Mat &valid_count_host, int rows,
+                              int cols, float min_fraction) {
+  cv::Mat min_keep_host(rows, cols, CV_32F);
+  for (int y = 0; y < rows; ++y) {
+    const float *count_row = valid_count_host.ptr<float>(y);
+    float *min_keep_row = min_keep_host.ptr<float>(y);
+    for (int x = 0; x < cols; ++x) {
+      const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
+      min_keep_row[x] = static_cast<float>(
+          std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
+    }
+  }
+  return min_keep_host;
+}
+
+cv::UMat opencl_clip_update_keep_masks(
+    const std::vector<cv::UMat> &gpu_mats,
+    std::vector<cv::UMat> &keep_masks, const cv::UMat &lo, const cv::UMat &hi,
+    const cv::UMat &active_mask, const cv::UMat &can_continue,
+    const cv::UMat &min_keep, int rows, int cols) {
+  std::vector<cv::UMat> new_keep_masks;
+  new_keep_masks.reserve(keep_masks.size());
+  cv::UMat new_count(rows, cols, CV_32F);
+  new_count.setTo(cv::Scalar(0.0f));
+  for (size_t i = 0; i < gpu_mats.size(); ++i) {
+    cv::UMat ge_lo, le_hi, in_range;
+    cv::compare(gpu_mats[i], lo, ge_lo, cv::CMP_GE);
+    cv::compare(gpu_mats[i], hi, le_hi, cv::CMP_LE);
+    cv::bitwise_and(ge_lo, le_hi, in_range);
+
+    cv::UMat new_keep;
+    cv::bitwise_and(keep_masks[i], in_range, new_keep);
+    new_keep_masks.push_back(new_keep);
+
+    cv::UMat new_keep_f32;
+    new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
+    cv::add(new_count, new_keep_f32, new_count);
+  }
+
+  cv::UMat meets_min;
+  cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
+  cv::UMat update_mask;
+  cv::bitwise_and(active_mask, can_continue, update_mask);
+  cv::UMat apply_new_keep;
+  cv::bitwise_and(update_mask, meets_min, apply_new_keep);
+  cv::UMat next_active;
+  apply_new_keep.copyTo(next_active);
+
+  cv::UMat apply_new_keep_inv;
+  cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
+  for (size_t i = 0; i < keep_masks.size(); ++i) {
+    cv::UMat old_region, new_region;
+    cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+    cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
+    cv::bitwise_or(old_region, new_region, keep_masks[i]);
+  }
+  return next_active;
+}
+
 /// @brief Implements opencl sigma clip weighted tile impl.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -545,15 +604,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
     }
 
     valid_count.copyTo(valid_count_host);
-    for (int y = 0; y < rows; ++y) {
-      const float *count_row = valid_count_host.ptr<float>(y);
-      float *min_keep_row = min_keep_host.ptr<float>(y);
-      for (int x = 0; x < cols; ++x) {
-        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
-        min_keep_row[x] = static_cast<float>(
-            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
-      }
-    }
+    min_keep_host = compute_min_keep_host(valid_count_host, rows, cols, min_fraction);
 
     const bool enable_clipping =
         static_cast<int>(gpu_tiles.size()) > 2 && max_iters > 0;
@@ -650,46 +701,9 @@ bool opencl_sigma_clip_weighted_tile_impl(
         cv::subtract(mean, sigma_low_sd, lo);
         cv::add(mean, sigma_high_sd, hi);
 
-        std::vector<cv::UMat> new_keep_masks;
-        new_keep_masks.reserve(keep_masks.size());
-        cv::UMat new_valid_count(rows, cols, CV_32F);
-        new_valid_count.setTo(cv::Scalar(0.0f));
-        for (size_t i = 0; i < gpu_tiles.size(); ++i) {
-          cv::UMat ge_lo;
-          cv::UMat le_hi;
-          cv::UMat in_range;
-          cv::compare(gpu_tiles[i], lo, ge_lo, cv::CMP_GE);
-          cv::compare(gpu_tiles[i], hi, le_hi, cv::CMP_LE);
-          cv::bitwise_and(ge_lo, le_hi, in_range);
-
-          cv::UMat new_keep;
-          cv::bitwise_and(keep_masks[i], in_range, new_keep);
-          new_keep_masks.push_back(new_keep);
-
-          cv::UMat new_keep_f32;
-          new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
-          cv::add(new_valid_count, new_keep_f32, new_valid_count);
-        }
-
-        cv::UMat meets_min;
-        cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
-        cv::UMat update_mask;
-        cv::bitwise_and(active_mask, can_continue, update_mask);
-        cv::UMat apply_new_keep;
-        cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-        cv::UMat next_active;
-        apply_new_keep.copyTo(next_active);
-
-        cv::UMat apply_new_keep_inv;
-        cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-        for (size_t i = 0; i < keep_masks.size(); ++i) {
-          cv::UMat old_region;
-          cv::UMat new_region;
-          cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
-          cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
-          cv::bitwise_or(old_region, new_region, keep_masks[i]);
-        }
-        active_mask = next_active;
+        active_mask = opencl_clip_update_keep_masks(
+            gpu_tiles, keep_masks, lo, hi, active_mask, can_continue,
+            min_keep, rows, cols);
       }
     }
 
@@ -808,15 +822,7 @@ bool opencl_sigma_clip_stack_impl(
     }
 
     initial_count.copyTo(initial_count_host);
-    for (int y = 0; y < rows; ++y) {
-      const float *count_row = initial_count_host.ptr<float>(y);
-      float *min_keep_row = min_keep_host.ptr<float>(y);
-      for (int x = 0; x < cols; ++x) {
-        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
-        min_keep_row[x] = static_cast<float>(
-            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
-      }
-    }
+    min_keep_host = compute_min_keep_host(initial_count_host, rows, cols, min_fraction);
 
     // OpenCV UMat operations are thread-safe - no global mutex needed
     cv::UMat min_keep;
@@ -897,47 +903,9 @@ bool opencl_sigma_clip_stack_impl(
       cv::subtract(mean, sigma_low_sd, lo);
       cv::add(mean, sigma_high_sd, hi);
 
-      std::vector<cv::UMat> new_keep_masks;
-      new_keep_masks.reserve(keep_masks.size());
-      cv::UMat new_count(rows, cols, CV_32F);
-      new_count.setTo(cv::Scalar(0.0f));
-
-      for (size_t i = 0; i < gpu_frames.size(); ++i) {
-        cv::UMat ge_lo;
-        cv::UMat le_hi;
-        cv::UMat in_range;
-        cv::compare(gpu_frames[i], lo, ge_lo, cv::CMP_GE);
-        cv::compare(gpu_frames[i], hi, le_hi, cv::CMP_LE);
-        cv::bitwise_and(ge_lo, le_hi, in_range);
-
-        cv::UMat new_keep;
-        cv::bitwise_and(keep_masks[i], in_range, new_keep);
-        new_keep_masks.push_back(new_keep);
-
-        cv::UMat new_keep_f32;
-        new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
-        cv::add(new_count, new_keep_f32, new_count);
-      }
-
-      cv::UMat meets_min;
-      cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
-      cv::UMat update_mask;
-      cv::bitwise_and(active_mask, can_continue, update_mask);
-      cv::UMat apply_new_keep;
-      cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-      cv::UMat next_active;
-      apply_new_keep.copyTo(next_active);
-
-      cv::UMat apply_new_keep_inv;
-      cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-      for (size_t i = 0; i < keep_masks.size(); ++i) {
-        cv::UMat old_region;
-        cv::UMat new_region;
-        cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
-        cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
-        cv::bitwise_or(old_region, new_region, keep_masks[i]);
-      }
-      active_mask = next_active;
+      active_mask = opencl_clip_update_keep_masks(
+          gpu_frames, keep_masks, lo, hi, active_mask, can_continue,
+          min_keep, rows, cols);
     }
 
     cv::UMat final_sum(rows, cols, CV_32F);
