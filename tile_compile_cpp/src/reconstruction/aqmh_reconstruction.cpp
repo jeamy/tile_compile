@@ -326,6 +326,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
     {
       std::vector<AqmhWeightedSample> samples;
       std::vector<AqmhWeightedSample> control_samples;
+      std::vector<float> local_effective_k;
+      std::vector<float> local_margins;
       samples.reserve(frame_count);
       if (cfg.compute_uniform_control) control_samples.reserve(frame_count);
 #if defined(_OPENMP)
@@ -379,13 +381,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
 #pragma omp atomic
 #endif
               ++cherry_active_pixels;
-#if defined(_OPENMP)
-#pragma omp critical
-#endif
-              {
-                effective_k.push_back(static_cast<float>(selected.size()));
-                if (margin >= 0.0f) margins.push_back(margin);
-              }
+              local_effective_k.push_back(static_cast<float>(selected.size()));
+              if (margin >= 0.0f) local_margins.push_back(margin);
             }
             samples = std::move(selected);
           }
@@ -441,6 +438,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         if (cfg.compute_uniform_control && reuse_control_result)
           result.uniform_control_output(y, x) = result.output(y, x);
         samples = std::move(clipped.retained);
+      }
+#if defined(_OPENMP)
+#pragma omp critical
+#endif
+      {
+        effective_k.insert(effective_k.end(), local_effective_k.begin(), local_effective_k.end());
+        margins.insert(margins.end(), local_margins.begin(), local_margins.end());
       }
     }
     if (progress) progress(y0 + rows, height);
