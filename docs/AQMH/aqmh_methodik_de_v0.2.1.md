@@ -105,6 +105,30 @@ AQMH-eigenen Signale ersetzen:
   wird nur für die Validierung und optionales Blending nach der Rekonstruktion
   verwendet, nicht als primärer Qualitätseingang.
 
+- **PSF-FWHM-Schärfeproxy** für die globale Schärfezusammenfassung `g_sharp`
+  (§1.1, §4.2).  
+  Wenn pro-Frame-Sternmetriken aus der gemeinsamen Metrik-Phase verfügbar
+  sind, kann der Runner `1 / wfwhm` (gewichteter FWHM, invertiert, so dass
+  kleinerer FWHM einen höheren Schärfeewert ergibt) anstelle der
+  AQMH-Map-`g_sharp`-Zusammenfassung verwenden. Dies ist ein Skalar pro Frame,
+  abgeleitet aus der PSF-Sternentdeckung auf dem registrierten Frame. Er wird
+  nur innerhalb des globalen Qualitäts-Sigmoid verwendet und bleibt orthogonal
+  zur within-frame-`Q_map`-Berechnung. Die AQMH-Map-`g_sharp` dient als
+  Fallback, wenn Sternmetriken nicht verfügbar oder ungültig sind. Die
+  ausgewählte Quelle wird pro Frame als `global_sharpness_source`
+  (`"laplacian_variance"` oder `"psf_wfwhm_inverted"`) in
+  `aqmh_metrics.json` dokumentiert.
+
+  **Begründung.** Das AQMH-Map-Schärfesignal `Phi_sharp_0` basiert auf
+  `local_variance(laplacian)`, welches die lokale Hochfrequenzvarianz misst.
+  Bei stern-dominierten Feldern ist dies ein ausgezeichneter Schärfeproxy. Bei
+  Extended-Emission-Objekten (Galaxien, Nebel) wird dasselbe Signal jedoch von
+  der Nebeltextur dominiert statt von der stellaren PSF-Breite, und kann
+  *positiv* mit dem Seeing-FWHM korrelieren — was zu einer Inversion führt,
+  bei der schlechtere Frames ein höheres `g_sharp` und damit höhere Gewichte
+  erhalten. Der PSF-FWHM-Proxy ist immun gegen diese Inversion, da er die
+  Sternbildbreite direkt misst, unabhängig vom Extended-Emission-Inhalt.
+
 ---
 
 ## 1. Prinzipien und Definitionen
@@ -129,6 +153,16 @@ g_snr_{f,c}    = median_{p source-valid}(Phi_snr_1(p))
 
 wobei der feinste verfügbare Skala verwendet wird, falls Skala 1 ausgelassen
 wird.
+
+**Post-v0.2.1-Erweiterung — PSF-FWHM-Schärfeproxy.** Wenn pro-Frame-
+Sternmetriken verfügbar sind, kann der Runner `g_sharp` durch `1 / wfwhm`
+(invertierten gewichteten FWHM) aus der gemeinsamen PSF-Sternentdeckungs-
+Phase ersetzen. Dies vermeidet eine bekannte Inversion von
+`local_variance(laplacian)` bei Extended-Emission-Objekten (§0.3). Die
+AQMH-Map-`g_sharp` wird als Fallback verwendet, wenn Sternmetriken nicht
+verfügbar sind. Die ausgewählte Quelle wird pro Frame als
+`global_sharpness_source` (`"laplacian_variance"` oder
+`"psf_wfwhm_inverted"`) in `aqmh_metrics.json` dokumentiert.
 
 ### 1.2 Effektives Pixelgewicht
 
@@ -371,11 +405,15 @@ Die Stufe berechnet nun pro Frame die drei Zusammenfassungsvektoren
 Alle drei Eingaben werden pro Frame in `aqmh_metrics.json` erfasst:
 
 - `global_sharpness_input`
+- `global_sharpness_source: "laplacian_variance"` oder `"psf_wfwhm_inverted"` (Post-v0.2.1-Erweiterung)
 - `global_snr_input`
 - `global_background_penalty_input`
 - `global_background_penalty_source: "sky_gradient"`
 - `global_quality_input_invalid`
 - `global_quality` (der finale `G_f`)
+
+Wenn der PSF-FWHM-Schärfeproxy verwendet wird, enthält `global_sharpness_input`
+bereits den `1 / wfwhm`-Wert.
 
 ### 4.3 Registrierungs-Gewichtsschutz (v0.2.1-Ergänzung)
 
@@ -715,6 +753,7 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
 - `n_regions`
 - `global_quality`
 - `global_sharpness_input`, `global_snr_input`
+- `global_sharpness_source: "laplacian_variance"` oder `"psf_wfwhm_inverted"` (Post-v0.2.1-Erweiterung)
 - `global_background_penalty_input` und
   `global_background_penalty_source: "sky_gradient"` (v0.2.1)
 - `global_quality_input_invalid`
