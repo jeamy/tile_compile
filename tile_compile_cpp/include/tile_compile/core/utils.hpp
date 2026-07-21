@@ -37,13 +37,19 @@ void copy_config(const fs::path& src, const fs::path& dst);
 fs::path resolve_project_root(const fs::path& config_path);
 
 // Statistical utilities (canonical implementations — do NOT duplicate)
-float median_of(std::vector<float> v);
-float mad_of(std::vector<float> v, float median);
-float stddev_of(const std::vector<float>& v);
-float robust_sigma_mad(std::vector<float>& pixels);
-float percentile_from_sorted(const std::vector<float>& sorted, float pct);
-float percentile_of(std::vector<float>& values, float pct);
-float estimate_background_sigma_clip(std::vector<float> pixels);
+// Empty-input convention: functions in this group return 0.0f on empty input.
+// This is intentional — 0.0f is a neutral element for addition and does not
+// propagate through arithmetic. Callers that need "no data" signalling should
+// check emptiness before calling, or use the metrics::aqmh_* variants which
+// return NaN on empty/degenerate input.
+constexpr float kMadToSigma = 1.4826f;
+float median_of(std::vector<float> v);              // returns 0.0f if empty
+float mad_of(std::vector<float> v, float median);   // returns 0.0f if empty
+float stddev_of(const std::vector<float>& v);       // returns 0.0f if < 2 elements
+float robust_sigma_mad(std::vector<float>& pixels); // returns 0.0f if empty
+float percentile_from_sorted(const std::vector<float>& sorted, float pct); // returns 0.0f if empty
+float percentile_of(std::vector<float>& values, float pct);               // returns 0.0f if empty
+float estimate_background_sigma_clip(std::vector<float> pixels);          // returns 0.0f if empty
 std::vector<size_t> sample_indices(size_t count, int max_samples);
 
 // Robust z-score normalization: (x - median) / (1.4826 * MAD)

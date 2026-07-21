@@ -82,7 +82,7 @@ float robust_local_noise_sigma(const Matrix2Df &image,
   }
   if (differences.empty()) return 0.0f;
   const float median = metrics::aqmh_median(differences);
-  return 1.4826f * metrics::aqmh_mad(differences, median);
+  return tile_compile::core::kMadToSigma * metrics::aqmh_mad(differences, median);
 }
 
 std::vector<StarSample> detect_validation_stars(
@@ -102,7 +102,7 @@ std::vector<StarSample> detect_validation_stars(
         finite.push_back(image(y, x));
   if (finite.empty()) return stars;
   const float med = metrics::aqmh_median(finite);
-  const float sigma = std::max(1.4826f * metrics::aqmh_mad(finite, med),
+  const float sigma = std::max(tile_compile::core::kMadToSigma * metrics::aqmh_mad(finite, med),
                                metrics::eps_scale(finite));
   const float threshold = std::max(med + 8.0f * sigma,
                                    percentile(finite, 0.999f));
@@ -291,7 +291,7 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
   }
   if (finite.empty()) return out;
   const float med = metrics::aqmh_median(finite);
-  const float sigma = 1.4826f * metrics::aqmh_mad(finite, med);
+  const float sigma = tile_compile::core::kMadToSigma * metrics::aqmh_mad(finite, med);
   Matrix2Df fwhm_image = image;
   if (!validation_mask.empty()) {
     for (int y = 0; y < image.rows(); ++y)

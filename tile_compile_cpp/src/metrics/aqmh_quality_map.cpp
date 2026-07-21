@@ -1,5 +1,6 @@
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
 #include "tile_compile/metrics/aqmh_eps.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -521,7 +522,7 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
 
       if (!finite(mu(y, x)) || !finite(noise_map(y, x)))
         continue;
-      const float sigma = std::max(1.4826f * noise_map(y, x), global_eps_noise);
+      const float sigma = std::max(core::kMadToSigma * noise_map(y, x), global_eps_noise);
       out(y, x) = mu(y, x) / sigma;
     }
   }
@@ -573,7 +574,7 @@ Matrix2Df phi_artifact(const Matrix2Df &img, const Matrix2Df &blur, int r,
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < n; ++i) {
     const bool valid = finite(hp_data[i]) && finite(mean_abs_data[i]);
-    const float tau = std::max(1.4826f * mean_abs_data[i], global_eps_scale);
+    const float tau = std::max(core::kMadToSigma * mean_abs_data[i], global_eps_scale);
     outlier_data[i] = valid ? ((std::abs(hp_data[i]) > k_artifact * tau)
                                    ? 1.0f
                                    : 0.0f)

@@ -398,7 +398,7 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     float med = median_of(pixels);
     for (float& x : pixels) x = std::fabs(x - med);
     float mad = median_of(std::move(pixels));
-    return 1.4826f * mad;
+    return kMadToSigma * mad;
 }
 
 /// @brief Implements percentile from sorted.
@@ -483,7 +483,7 @@ void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
     for (float& x : tmp)
         x = std::fabs(x - med);
     float mad = median_of(tmp);
-    float sigma = 1.4826f * mad;
+    float sigma = kMadToSigma * mad;
     if (!(sigma > 0.0f)) {
         std::fill(out.begin(), out.end(), 0.0f);
         return;

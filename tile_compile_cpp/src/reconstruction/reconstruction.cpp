@@ -511,7 +511,7 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     if (rv.empty()) return tile;
     float med_r = tile_compile::core::median_of(rv);
     float mad = tile_compile::core::mad_of(rv, med_r);
-    float sigma = 1.4826f * mad;
+    float sigma = tile_compile::core::kMadToSigma * mad;
 
     if (!(sigma > 1e-12f)) return tile; // no noise to remove
 

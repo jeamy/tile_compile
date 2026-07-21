@@ -134,7 +134,7 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     if (mad <= floor_val) {
       for (const auto &s : samples) keep_count += std::abs(s.value - center) <= std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f);
     } else {
-      const float sigma = 1.4826f * mad;
+      const float sigma = tile_compile::core::kMadToSigma * mad;
       for (const auto &s : samples)
         keep_count += (s.value >= center)
                           ? (s.value - center <= clip_sigma_high * sigma)
@@ -147,13 +147,13 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     }
     if (keep_count < keep_floor) {
       std::sort(samples.begin(), samples.end(), [&](const auto &a, const auto &b) {
-        const float ar = std::abs(a.value - center) / std::max(1.4826f * mad, floor_val);
-        const float br = std::abs(b.value - center) / std::max(1.4826f * mad, floor_val);
+        const float ar = std::abs(a.value - center) / std::max(tile_compile::core::kMadToSigma * mad, floor_val);
+        const float br = std::abs(b.value - center) / std::max(tile_compile::core::kMadToSigma * mad, floor_val);
         return ar != br ? ar < br : a.frame_index < b.frame_index;
       });
       samples.resize(keep_floor);
     } else if (keep_count < samples.size()) {
-      const float sigma = 1.4826f * mad;
+      const float sigma = tile_compile::core::kMadToSigma * mad;
       samples.erase(std::remove_if(samples.begin(), samples.end(),
           [&](const auto &s) {
             return mad <= floor_val ? std::abs(s.value - center) > std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f)

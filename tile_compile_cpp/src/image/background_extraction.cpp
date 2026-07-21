@@ -181,7 +181,7 @@ std::vector<float> sigma_clipped_values(std::vector<float> values,
   for (int iter = 0; iter < max_iters && values.size() >= 8; ++iter) {
     std::vector<float> work = values;
     const float center = robust_median_inplace(work);
-    const float scale = 1.4826f * robust_mad(values, center);
+    const float scale = core::kMadToSigma * robust_mad(values, center);
     if (!(std::isfinite(scale) && scale > kTiny))
       break;
     const float limit = sigma * scale;
@@ -403,7 +403,7 @@ float estimate_structure_noise_scale(const TileMetrics &tm,
   if (!bg_pixels.empty()) {
     std::vector<float> tmp = bg_pixels;
     const float med = robust_median_inplace(tmp);
-    const float sigma = 1.4826f * robust_mad(bg_pixels, med);
+    const float sigma = core::kMadToSigma * robust_mad(bg_pixels, med);
     if (std::isfinite(sigma) && sigma > kTiny) {
       return sigma;
     }
@@ -1063,7 +1063,7 @@ build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
     return out_mask;
 
   const float med = robust_median_inplace(sample_vals);
-  const float sigma = std::max(1.0e-6f, 1.4826f * robust_mad(sample_vals, med));
+  const float sigma = std::max(1.0e-6f, core::kMadToSigma * robust_mad(sample_vals, med));
   const float thresh = med + 0.8f * sigma;
   if (out_threshold)
     *out_threshold = thresh;
@@ -1117,7 +1117,7 @@ float robust_mesh_background_estimate(std::vector<float> values) {
     return std::numeric_limits<float>::quiet_NaN();
   for (int iter = 0; iter < 4; ++iter) {
     const float med = robust_median_inplace(values);
-    const float sigma = 1.4826f * robust_mad(values, med);
+    const float sigma = core::kMadToSigma * robust_mad(values, med);
     if (!(std::isfinite(sigma) && sigma > 1.0e-6f))
       break;
     const float clip = 2.5f * sigma;
@@ -1890,7 +1890,7 @@ extract_autotune_prepared_tile_samples(
     const float dog_med = robust_median_inplace(scratch.dog_vals);
     const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
     const float dog_thresh =
-        dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
+        dog_med + 3.0f * std::max(core::kMadToSigma * dog_mad, 1.0e-6f);
     const float bright_thresh =
         robust_quantile_inplace(scratch.finite_values, 0.80f);
     for (int yy = 0; yy < th; ++yy) {
@@ -2060,7 +2060,7 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   if (valid_bg_values.size() >= 16) {
     bg_med = robust_median_inplace(valid_bg_values);
     const float mad = robust_mad(valid_bg_values, bg_med);
-    bg_sigma = 1.4826f * mad;
+    bg_sigma = core::kMadToSigma * mad;
     have_bg_guard = std::isfinite(bg_sigma) && bg_sigma > kTiny;
   }
 
@@ -2516,7 +2516,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   // Dynamic lambda adaptation: test/adjust/test and prefer the smoothest
   // (highest lambda) model that still fits grid samples well enough.
   const float bg_med = robust_median_inplace(bg_values);
-  const float bg_sigma = 1.4826f * robust_mad(bg_values, bg_med);
+  const float bg_sigma = core::kMadToSigma * robust_mad(bg_values, bg_med);
   const float residual_limit =
       std::max(0.15f, 0.20f * std::max(bg_sigma, kTiny));
 

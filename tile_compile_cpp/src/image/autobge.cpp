@@ -118,7 +118,7 @@ float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,
   for (float v : vals)
     dev.push_back(std::fabs(v - med));
   const float mad = tile_compile::core::median_of(std::move(dev));
-  const float sigma = 1.4826f * mad;
+  const float sigma = tile_compile::core::kMadToSigma * mad;
   if (!(sigma > kTiny))
     return med;
 
@@ -167,7 +167,7 @@ std::vector<SamplePoint> filter_sample_points_by_variance(
   dev.reserve(sigmas.size());
   for (float s : sigmas) dev.push_back(std::fabs(s - med_sigma));
   const float mad = tile_compile::core::median_of(std::move(dev));
-  const float sigma_mad = 1.4826f * mad;
+  const float sigma_mad = tile_compile::core::kMadToSigma * mad;
   if (!(sigma_mad > kTiny)) return points;
   const float threshold = med_sigma + sigma_clip_factor * sigma_mad;
   std::vector<SamplePoint> filtered;
