@@ -457,6 +457,7 @@ set(LIB_SOURCES
     src/metrics/aqmh_global_quality.cpp
     src/metrics/aqmh_frame_valid_mask.cpp
     src/metrics/aqmh_regions.cpp
+    src/metrics/psf_fit.cpp
     src/reconstruction/reconstruction.cpp
     src/reconstruction/aqmh_reconstruction.cpp
     src/reconstruction/aqmh_pipeline_overlap.cpp
