@@ -643,16 +643,14 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
   const viewButtons = {};
   const updateViewButtons = () => {
     for (const [v, btn] of Object.entries(viewButtons)) {
-      if (v === view) {
-        btn.classList.add("tc-btn-active");
-      } else {
-        btn.classList.remove("tc-btn-active");
-      }
+      const active = v === view;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
     }
   };
   const views = el(
     "div",
-    { class: "tc-flex tc-gap-2 tc-mb-2" },
+    { class: "tc-tabs tc-mb-2", role: "tablist" },
     ...[
       ["original", "ui.button.bge_original", "Original"],
       ["corrected", "ui.button.bge_corrected", "Corrected"],
@@ -660,7 +658,12 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
     ].map(([v, k, f]) => {
       const btn = el(
         "button",
-        { class: "tc-btn tc-btn-sm", onclick: () => switchView(v) },
+        {
+          class: `tc-tab${v === view ? " active" : ""}`,
+          role: "tab",
+          "aria-selected": v === view ? "true" : "false",
+          onclick: () => switchView(v),
+        },
         t(k, f),
       );
       viewButtons[v] = btn;

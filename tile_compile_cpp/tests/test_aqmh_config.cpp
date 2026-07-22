@@ -117,6 +117,27 @@ aqmh:
   REQUIRE_THROWS(cfg.validate());
 }
 
+TEST_CASE("aqmh_reconstruction_prewarp_cache_cleanup_policy_parses") {
+  YAML::Node defaults = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+)");
+  auto cfg_default = tile_compile::config::Config::from_yaml(defaults);
+  REQUIRE(cfg_default.aqmh.reconstruction.delete_prewarped_cache_after_run);
+
+  YAML::Node retained = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    delete_prewarped_cache_after_run: false
+)");
+  auto cfg_retained = tile_compile::config::Config::from_yaml(retained);
+  REQUIRE_FALSE(cfg_retained.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  REQUIRE_NOTHROW(cfg_retained.validate());
+}
+
 TEST_CASE("aqmh_reconstruction_clip_sigma_drives_symmetric_thresholds") {
   YAML::Node node = YAML::Load(R"(
 method: aqmh

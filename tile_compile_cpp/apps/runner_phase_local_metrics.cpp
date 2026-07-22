@@ -4,6 +4,10 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/metrics/aqmh_global_quality.hpp"
@@ -164,12 +168,16 @@ bool run_phase_local_metrics(
     int tile_offset_y,
     const std::vector<metrics::FrameStarMetrics> &frame_star_metrics,
     std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator,
+    const std::vector<uint8_t> &aqmh_analysis_common_mask) {
   (void)tile_offset_x;
   (void)tile_offset_y;
   out_aqmh_cache.reset();
   out_aqmh_global_weights.resize(0);
   const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
+  const std::vector<uint8_t> &aqmh_summary_mask =
+      aqmh_analysis_common_mask.empty() ? common_valid_mask
+                                        : aqmh_analysis_common_mask;
   const Phase phase_id = compute_classic_local_metrics ? Phase::LOCAL_METRICS
                                                         : Phase::AQMH_MAPS;
 
@@ -323,7 +331,8 @@ bool run_phase_local_metrics(
       emitter.phase_end(run_id, phase_id, "error",
                         {{"error", lm_error.empty() ? "unknown_error" : lm_error}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during LOCAL_METRICS: ") + (lm_error.empty() ? "unknown_error" : lm_error)}});
       std::cerr << "Error during LOCAL_METRICS: "
                 << (lm_error.empty() ? "unknown_error" : lm_error)
                 << std::endl;
@@ -359,7 +368,8 @@ bool run_phase_local_metrics(
         const std::string error = "AQMH requires a valid full-canvas common mask";
         emitter.phase_end(run_id, phase_id, "error",
                           {{"error", error}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during AQMH map computation: ") + error}});
         std::cerr << "Error during AQMH map computation: " << error
                   << std::endl;
         return false;
@@ -396,9 +406,23 @@ bool run_phase_local_metrics(
         }
       }
 
-      const int aqmh_workers = compute_adaptive_worker_count(
-          cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
-      const int aqmh_effective_workers = aqmh_workers;
+      const auto aqmh_worker_plan = compute_aqmh_map_worker_plan(
+          cfg, frames.size(), frames, common_mask_width, common_mask_height);
+      const int aqmh_effective_workers = aqmh_worker_plan.effective_workers;
+      log_file << "[AQMH] memory worker cap: requested="
+               << aqmh_worker_plan.requested_workers
+               << " effective=" << aqmh_worker_plan.effective_workers
+               << " budget_mb="
+               << (aqmh_worker_plan.memory_budget_bytes / (1024ull * 1024ull))
+               << " available_mb="
+               << (aqmh_worker_plan.available_memory_bytes /
+                   (1024ull * 1024ull))
+               << " estimated_per_worker_mb="
+               << (aqmh_worker_plan.estimated_bytes_per_worker /
+                   (1024ull * 1024ull))
+               << " capped="
+               << (aqmh_worker_plan.memory_capped ? "true" : "false")
+               << std::endl;
       std::cout << "[AQMH] Using " << aqmh_effective_workers
                 << " parallel workers for quality-map computation"
                 << " cpu_workers=" << aqmh_effective_workers
@@ -434,6 +458,15 @@ bool run_phase_local_metrics(
           static_cast<size_t>(aqmh_effective_workers));
 
       auto aqmh_worker = [&](int worker_idx) {
+        // Limit OpenMP thread usage within this worker via the central
+        // omp_effective_threads helper. The outer parallelism is via std::thread
+        // workers; inner OMP loops must not fan out to all cores.
+#if defined(_OPENMP)
+        const int omp_per_worker = std::max(1,
+            static_cast<int>(std::thread::hardware_concurrency()) /
+            std::max(1, aqmh_effective_workers));
+        omp_set_num_threads(omp_per_worker);
+#endif
         while (true) {
           const size_t fi = aqmh_next.fetch_add(1);
           if (fi >= frames.size())
@@ -473,7 +506,7 @@ bool run_phase_local_metrics(
                   prefetch_coordinator->publish_frame(fi);
                 }
                 diag = summarize_aqmh_map(
-                    fi, aqmh_result.q_map, common_valid_mask,
+                    fi, aqmh_result.q_map, aqmh_summary_mask,
                     common_mask_width, common_mask_height,
                     cfg.aqmh.diagnostics.tau_artifact);
                 diag.written = true;
@@ -495,7 +528,7 @@ bool run_phase_local_metrics(
                   diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
                 }
                 diag.g_snr_summary = aqmh_result.diagnostics.g_snr_summary;
-                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame);
+                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame, &frame_valid_mask);
                 diag.g_background_penalty_summary =
                     frame_global_metrics.sky_gradient;
                 diag.g_summary_invalid =
@@ -503,7 +536,8 @@ bool run_phase_local_metrics(
                      !(frame_star_metrics[fi].wfwhm > 0.0f &&
                        std::isfinite(frame_star_metrics[fi].wfwhm)))
                         ? aqmh_result.diagnostics.g_summary_invalid
-                        : (!std::isfinite(diag.g_snr_summary));
+                        : (!std::isfinite(diag.g_snr_summary) ||
+                           !std::isfinite(diag.g_background_penalty_summary));
                 diag.regions = metrics::extract_aqmh_regions(
                     aqmh_result.q_map, frame_valid_mask,
                     cfg.aqmh.diagnostics.q_region,
@@ -572,7 +606,8 @@ bool run_phase_local_metrics(
             run_id, phase_id, "error",
             {{"error", aqmh_error.empty() ? "unknown_error" : aqmh_error}},
             log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during AQMH map computation: ") + (aqmh_error.empty() ? "unknown_error" : aqmh_error)}});
         std::cerr << "Error during AQMH map computation: "
                   << (aqmh_error.empty() ? "unknown_error" : aqmh_error)
                   << std::endl;
@@ -629,6 +664,14 @@ bool run_phase_local_metrics(
       aqmh_artifact["global_sharpness_method"] =
           !frame_star_metrics.empty() ? "psf_wfwhm_inverted" : "laplacian_variance";
       aqmh_artifact["frames_total"] = static_cast<uint64_t>(frames.size());
+      aqmh_artifact["worker_plan"] = {
+          {"requested_workers", aqmh_worker_plan.requested_workers},
+          {"effective_workers", aqmh_worker_plan.effective_workers},
+          {"memory_budget_bytes", aqmh_worker_plan.memory_budget_bytes},
+          {"available_memory_bytes", aqmh_worker_plan.available_memory_bytes},
+          {"estimated_bytes_per_worker",
+           aqmh_worker_plan.estimated_bytes_per_worker},
+          {"memory_capped", aqmh_worker_plan.memory_capped}};
       aqmh_artifact["frames_written"] =
           static_cast<uint64_t>(aqmh_written.load(std::memory_order_relaxed));
       aqmh_artifact["diagnostics"] = core::json::array();

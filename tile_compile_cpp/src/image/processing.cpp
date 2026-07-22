@@ -130,7 +130,7 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
         }
         s.median = core::median_of(vals);
         s.mad = core::mad_of(vals, s.median);
-        s.sigma = 1.4826f * s.mad;
+        s.sigma = core::kMadToSigma * s.mad;
         s.threshold = s.median + sigma_threshold * s.sigma;
         s.cold_threshold = s.median - sigma_threshold * s.sigma;
         s.neighbor_threshold = s.threshold;
@@ -192,7 +192,7 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             if (same_color_neighbors.size() >= 4u) {
                 const float local_median = core::median_of(same_color_neighbors);
                 const float local_sigma =
-                    1.4826f * core::mad_of(same_color_neighbors, local_median);
+                    core::kMadToSigma * core::mad_of(same_color_neighbors, local_median);
                 const float local_floor = std::max(
                     {2.0f * local_sigma,
                      0.35f * sigma_threshold * s.sigma,
@@ -260,7 +260,7 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     const float median = core::median_of(frame_values);
     const float mad = core::mad_of(frame_values, median);
 
-    float sigma = 1.4826f * mad;
+    float sigma = core::kMadToSigma * mad;
     float threshold = median + sigma_threshold * sigma;
     float neighbor_threshold = median + (0.5f * sigma_threshold) * sigma;
     
@@ -384,7 +384,7 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
                 const float medL = core::median_of(neighL);
                 if (!(std::isfinite(medL) && medL > 0.0f)) continue;
 
-                const float madL = 1.4826f * core::mad_of(neighL, medL);
+                const float madL = core::kMadToSigma * core::mad_of(neighL, medL);
                 const float curR = srcR(y, x);
                 const float curG = srcG(y, x);
                 const float curB = srcB(y, x);
@@ -404,11 +404,11 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
 
                 const float thrFloor = 0.010f * medL + 1.0e-3f;
                 const float thrR =
-                    std::max(4.5f * 1.4826f * core::mad_of(neighR, medR), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighR, medR), thrFloor);
                 const float thrG =
-                    std::max(4.5f * 1.4826f * core::mad_of(neighG, medG), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighG, medG), thrFloor);
                 const float thrB =
-                    std::max(4.5f * 1.4826f * core::mad_of(neighB, medB), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighB, medB), thrFloor);
 
                 const bool badR = resR > thrR;
                 const bool badG = resG > thrG;

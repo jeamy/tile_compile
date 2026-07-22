@@ -1,5 +1,7 @@
 #include "subprocess_manager.hpp"
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <array>
@@ -23,12 +25,52 @@ constexpr size_t MAX_JSON_STRING_BYTES = 8 * 1024;
 constexpr size_t MAX_JSON_ARRAY_ITEMS = 256;
 constexpr size_t MAX_JSON_OBJECT_ITEMS = 256;
 constexpr int MAX_JSON_DEPTH = 8;
+namespace fs = std::filesystem;
 
 struct CapturedText {
     std::string text;
     size_t total_bytes{0};
     bool truncated{false};
 };
+
+std::string fnv1a_hex(const std::string& value) {
+    uint64_t hash = 1469598103934665603ull;
+    for (unsigned char ch : value) {
+        hash ^= ch;
+        hash *= 1099511628211ull;
+    }
+    std::ostringstream out;
+    out << std::hex << hash;
+    return out.str();
+}
+
+void write_scan_metrics_cache(const std::string& cwd,
+                              const std::string& job_id,
+                              const json& data,
+                              const json& result) {
+    if (!data.contains("cache_key") || !data["cache_key"].is_string()) return;
+    if (!result.is_object() || !result.value("ok", false)) return;
+    const std::string cache_key = data["cache_key"].get<std::string>();
+    if (cache_key.empty()) return;
+    try {
+        fs::path cache_dir = fs::path(cwd) / "runs" / ".pi_memory" / "scan_metrics_cache";
+        fs::create_directories(cache_dir);
+        json payload = {
+            {"schema_version", "tile_compile.scan_metrics_cache.v1"},
+            {"cache_key", cache_key},
+            {"job_id", job_id},
+            {"created_at", data.value("ended_at", data.value("updated_at", std::string()))},
+            {"input_path", data.value("input_path", std::string())},
+            {"object_name", data.value("object_name", std::string())},
+            {"frame_count", data.value("frame_count", 0)},
+            {"result", result}
+        };
+        std::ofstream out(cache_dir / (fnv1a_hex(cache_key) + ".json"));
+        out << payload.dump(2);
+    } catch (...) {
+        // Cache write failures must not fail the scan-metrics job.
+    }
+}
 
 /// @brief Implements truncate text.
 /// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
@@ -544,6 +586,9 @@ std::string SubprocessManager::launch(const std::string& type,
                         data[it.key()] = it.value();
                     }
                 }
+            }
+            if (type == "scan-metrics") {
+                write_scan_metrics_cache(cwd, job_id, data, compact);
             }
         }
         if (proc->cancelled.load()) {

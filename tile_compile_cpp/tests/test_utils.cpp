@@ -23,7 +23,7 @@
      REQUIRE(med == Catch::Approx(10.0f).epsilon(1e-5));
  }
 
- TEST_CASE("quantile_rgb_stretch_ignores_extreme_outlier_pixels") {
+ TEST_CASE("quantile_rgb_stretch_maps_to_full_uint32_range") {
      tile_compile::Matrix2Df R(100, 100);
      tile_compile::Matrix2Df G(100, 100);
      tile_compile::Matrix2Df B(100, 100);
@@ -35,35 +35,136 @@
              B(y, x) = base;
          }
      }
+     // Single bright star pixel — should NOT define the scale
      R(0, 0) = 60000.0f;
      G(0, 0) = 60000.0f;
      B(0, 0) = 60000.0f;
 
-     const auto stretch = tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
+     const auto stretch = tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
          R, G, B);
 
      REQUIRE(stretch.applied);
-     REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(stretch.high == Catch::Approx(60000.0f).margin(1e-3));
-     REQUIRE(R(50, 50) > 0.0f);
-     REQUIRE(R(50, 50) < 65535.0f);
-     REQUIRE(R(0, 0) == Catch::Approx(65535.0f).margin(1e-3));
+     // p1 floor: lowest 1% of values (200 in this uniform data)
+     REQUIRE(stretch.low >= 199.0f);
+     REQUIRE(stretch.low <= 201.0f);
+     // robust_max = p99.9 of all pixels, which is ~299 (not 60000)
+     REQUIRE(stretch.high < 1000.0f);  // robust max from the bulk pixels
+     REQUIRE(stretch.high > 100.0f);   // should be in the [200,300] range
+     // Background pixel (x=0, value=200) is at the floor -> maps to 0
+     REQUIRE(R(50, 0) < 1000000.0f);
+     // Bright signal pixel (x=90, value=290) should fill most of the range
+     REQUIRE(R(50, 90) > 3000000000.0f);
+     // Star pixel should be clamped to uint32 max
+     REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
+ }
+
+ TEST_CASE("masked_rgb_stretch_excludes_partial_canvas_outliers") {
+     tile_compile::Matrix2Df R(10, 10);
+     tile_compile::Matrix2Df G(10, 10);
+     tile_compile::Matrix2Df B(10, 10);
+     std::vector<uint8_t> common_mask(100, 1);
+     for (int row = 0; row < 10; ++row) {
+         for (int col = 0; col < 10; ++col) {
+             const float val = 100.0f + static_cast<float>(col) * 10.0f;
+             R(row, col) = val;
+             G(row, col) = val;
+             B(row, col) = val;
+         }
+     }
+     R(0, 0) = 1000000.0f;
+     G(0, 0) = 1000000.0f;
+     B(0, 0) = 1000000.0f;
+     common_mask[0] = 0;
+
+     const auto stretch = tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
+         R, G, B, common_mask);
+
+     REQUIRE(stretch.applied);
+     REQUIRE(stretch.sample_count == 297);
+     // p99.9 of the 99 valid pixels per channel (values 100..190)
+     REQUIRE(stretch.high == Catch::Approx(190.0f));
+     // p1 floor = 100 (lowest value in valid data)
+     REQUIRE(stretch.low == Catch::Approx(100.0f));
+     // Background-level pixel (col=0, value=100) is at floor -> maps to 0
+     REQUIRE(R(5, 0) < 1000000.0f);
+     // Bright pixel (col=9, value=190) maps to full range
+     REQUIRE(R(5, 9) == Catch::Approx(4294967295.0f).margin(1024.0f));
+     // Masked outlier is still clamped to max
+     REQUIRE(R(0, 0) == Catch::Approx(4294967295.0f).margin(1024.0f));
  }
 
  TEST_CASE("linear_grayscale_stretch_scales_zero_to_max_into_full_u16_range") {
-     tile_compile::Matrix2Df img(2, 3);
-     img << 0.0f, 100.0f, 200.0f,
-            300.0f, 400.0f, 800.0f;
+     // 100 pixels: 99 normal pixels at 100..199, one bright outlier at 8000.
+     // With background-subtracted p99.9 stretch, the outlier should be clamped
+     // and not define the scale; the normal pixels should fill the output range.
+     tile_compile::Matrix2Df img(10, 10);
+     for (int i = 0; i < 100; ++i)
+         img.data()[i] = 100.0f + static_cast<float>(i);  // 100..199
+     img(0, 0) = 8000.0f;  // bright outlier (like a star)
 
      const auto stretch =
          tile_compile::core::stretch_to_u16_linear_from_zero_inplace(img);
 
      REQUIRE(stretch.applied);
-     REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(stretch.high == Catch::Approx(800.0f).margin(1e-6));
-     REQUIRE(img(0, 0) == Catch::Approx(0.0f).margin(1e-6));
-     REQUIRE(img(1, 2) == Catch::Approx(65535.0f).margin(1e-3));
-     REQUIRE(img(0, 2) == Catch::Approx(65535.0f * 0.25f).margin(1.0f));
+     // p1 floor: ~101 (minimum non-outlier value)
+     REQUIRE(stretch.low >= 100.0f);
+     REQUIRE(stretch.low <= 102.0f);
+     // robust_max = p99.9 of the 99 positive values (excluding outlier effect)
+     REQUIRE(stretch.high < 1000.0f);   // should be in the ~199 range
+     REQUIRE(stretch.high > 50.0f);
+     // Outlier should be clamped to 65535
+     REQUIRE(img(0, 0) == Catch::Approx(65535.0f).margin(1.0f));
+     // A bright normal pixel (value=180) should occupy a significant fraction
+     REQUIRE(img(8, 0) > 30000.0f);
+     // A near-floor pixel (value=105) should be small but positive (lifted, not clamped)
+     REQUIRE(img(0, 5) > 1000.0f);
+     REQUIRE(img(0, 5) < 10000.0f);
+ }
+
+ TEST_CASE("rgb_stretch_lifts_below_background_pixels_above_zero") {
+     // Simulate sky background at ~200 with noise dipping below to ~180.
+     // The p1 floor should sit below the background so that below-bg pixels
+     // are lifted to a positive value, not clamped to 0.
+     tile_compile::Matrix2Df R(100, 100);
+     tile_compile::Matrix2Df G(100, 100);
+     tile_compile::Matrix2Df B(100, 100);
+     for (int y = 0; y < 100; ++y) {
+         for (int x = 0; x < 100; ++x) {
+             // Background ~200 with per-pixel noise spread
+             const float noise = static_cast<float>((x * 7 + y * 13) % 40) - 20.0f;
+             const float val = 200.0f + noise;  // range ~180..219
+             R(y, x) = val;
+             G(y, x) = val;
+             B(y, x) = val;
+         }
+     }
+     // A few bright signal pixels
+     R(50, 50) = 400.0f;
+     G(50, 50) = 400.0f;
+     B(50, 50) = 400.0f;
+
+     const auto stretch = tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace(
+         R, G, B);
+
+     REQUIRE(stretch.applied);
+     // Floor (p1) should be well below the background (~180)
+     REQUIRE(stretch.low < 190.0f);
+     REQUIRE(stretch.low > 170.0f);
+     // A below-background pixel (value ~185) should map to a positive value
+     // (it is above the p1 floor, so it must not be clamped to 0)
+     bool found_positive_below_bg = false;
+     for (int y = 0; y < 100; ++y) {
+         for (int x = 0; x < 100; ++x) {
+             if (R(y, x) > 0.0f && R(y, x) < 500000000.0f) {
+                 found_positive_below_bg = true;
+                 break;
+             }
+         }
+         if (found_positive_below_bg) break;
+     }
+     REQUIRE(found_positive_below_bg);
+     // Bright signal pixel should fill most of the range
+     REQUIRE(R(50, 50) > 3000000000.0f);
  }
 
  TEST_CASE("suppress_isolated_chroma_speckles_fixes_single_channel_outlier") {

@@ -11,6 +11,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
+#include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
@@ -18,6 +19,7 @@
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 
 #include "runner_shared.hpp"
+#include "runner_phase_post_stack_output.hpp"
 #include "runner_phase_aqmh_reconstruction.hpp"
 #include "runner_phase_aqmh_diagnostics.hpp"
 
@@ -95,14 +97,68 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
 
 // AQMH phases that can reuse cached quality maps and skip directly to
 // reconstruction without a full pipeline rerun (§ Resume spec).
-// STACKING is included because AQMH does not persist synthetic_*.fit files;
-// resuming STACKING therefore needs synthetic_0.fit to be produced first.
+// STACKING is included so legacy runs without the immutable raw
+// reconstruction can regenerate it before entering the shared stacking path.
 bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
   static const std::vector<std::string> kPhases = {
       "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_RECONSTRUCTION",
       "AQMH_DIAGNOSTICS", "STACKING"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
+}
+
+struct ResumeOutputScaling {
+  float scale_mono = 1.0f;
+  float scale_r = 1.0f;
+  float scale_g = 1.0f;
+  float scale_b = 1.0f;
+  float bg_mono = 0.0f;
+  float bg_r = 0.0f;
+  float bg_g = 0.0f;
+  float bg_b = 0.0f;
+};
+
+bool load_resume_output_scaling(const fs::path &run_dir,
+                                ResumeOutputScaling &out,
+                                std::string &error_out) {
+  const fs::path path = run_dir / "artifacts" / "normalization.json";
+  tile_compile::core::json artifact;
+  try {
+    artifact = tile_compile::core::json::parse(
+        tile_compile::core::read_text(path));
+  } catch (const std::exception &e) {
+    error_out = "cannot read normalization artifact " + path.string() + ": " +
+                e.what();
+    return false;
+  }
+  const auto values = [&](const char *key, bool positive,
+                          std::vector<float> &result) {
+    const auto it = artifact.find(key);
+    if (it == artifact.end() || !it->is_array()) return false;
+    for (const auto &value : *it) {
+      if (!value.is_number()) continue;
+      const float v = value.get<float>();
+      if (std::isfinite(v) && (!positive || v > 0.0f)) result.push_back(v);
+    }
+    return !result.empty();
+  };
+  std::vector<float> p_mono, p_r, p_g, p_b, b_mono, b_r, b_g, b_b;
+  if (!values("P_mono", true, p_mono) || !values("P_r", true, p_r) ||
+      !values("P_g", true, p_g) || !values("P_b", true, p_b) ||
+      !values("B_mono", false, b_mono) || !values("B_r", false, b_r) ||
+      !values("B_g", false, b_g) || !values("B_b", false, b_b)) {
+    error_out = "normalization artifact is missing usable scale or background values";
+    return false;
+  }
+  out.scale_mono = tile_compile::core::median_finite_positive(p_mono, 1.0f);
+  out.scale_r = tile_compile::core::median_finite_positive(p_r, 1.0f);
+  out.scale_g = tile_compile::core::median_finite_positive(p_g, 1.0f);
+  out.scale_b = tile_compile::core::median_finite_positive(p_b, 1.0f);
+  out.bg_mono = tile_compile::core::median_finite(b_mono, 0.0f);
+  out.bg_r = tile_compile::core::median_finite(b_r, 0.0f);
+  out.bg_g = tile_compile::core::median_finite(b_g, 0.0f);
+  out.bg_b = tile_compile::core::median_finite(b_b, 0.0f);
+  return true;
 }
 
 /// @brief Writes canvas mask fits.
@@ -232,6 +288,34 @@ std::optional<std::string> read_latest_run_start_input_dir(
     }
   }
   return input_dir;
+}
+
+std::optional<runner::CropBox> read_latest_stacking_crop(
+    const fs::path &run_events_path) {
+  if (!fs::exists(run_events_path)) return std::nullopt;
+  std::ifstream in(run_events_path);
+  if (!in) return std::nullopt;
+
+  std::optional<runner::CropBox> crop;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty()) continue;
+    try {
+      const auto ev = tile_compile::core::json::parse(line);
+      if (ev.value("type", std::string()) != "phase_end" ||
+          ev.value("phase_name", std::string()) != "STACKING" ||
+          ev.value("status", std::string()) != "ok" ||
+          !ev.value("crop_applied", false)) {
+        continue;
+      }
+      runner::CropBox candidate{
+          ev.value("crop_x", 0), ev.value("crop_y", 0),
+          ev.value("crop_width", 0), ev.value("crop_height", 0)};
+      if (candidate.valid()) crop = candidate;
+    } catch (const std::exception &) {
+    }
+  }
+  return crop;
 }
 
 /// @brief Implements current executable path.
@@ -710,11 +794,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
   }
 
+  const fs::path aqmh_raw_reconstruction =
+      run_dir / "outputs" / "aqmh_reconstructed_raw.fit";
+  if (cfg.aqmh.enabled && phase_upper == "STACKING" &&
+      fs::is_regular_file(aqmh_raw_reconstruction)) {
+    phase_l = "stacking";
+  } else
   // All AQMH phases that have cached quality maps can resume directly at
   // AQMH_RECONSTRUCTION, reusing the existing prewarp cache + map cache.
   // This avoids a full pipeline rerun for AQMH_MAPS/GLOBAL_QUALITY/DIAGNOSTICS.
-  // For STACKING it also provides the synthetic_0.fit file that the shared
-  // STACKING resume path expects but AQMH never writes during a normal run.
+  // For STACKING it also regenerates the immutable raw reconstruction when a
+  // legacy run does not contain that resume artifact.
   if (cfg.aqmh.enabled && is_aqmh_cache_resume_phase(phase_upper)) {
     phase_l = "aqmh_reconstruction";
     phase_upper = "AQMH_RECONSTRUCTION";
@@ -831,27 +921,43 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
 
-    std::vector<uint8_t> mask;
-    std::vector<uint8_t> *mask_ptr = nullptr;
+    std::vector<uint8_t> statistics_mask;
+    std::vector<uint8_t> output_mask;
+    std::vector<uint8_t> *statistics_mask_ptr = nullptr;
+    std::vector<uint8_t> *output_mask_ptr = nullptr;
     int mask_rows = static_cast<int>(R.rows());
     int mask_cols = static_cast<int>(R.cols());
-    std::string mask_error;
+    std::string statistics_mask_error;
     if (tile_compile::runner::load_canvas_mask_for_rgb(
-            outputs_dir / "canvas_mask.fits", R, G, B, mask, mask_rows,
-            mask_cols, mask_error)) {
-      mask_ptr = &mask;
+            outputs_dir / "common_overlap_mask.fits", R, G, B,
+            statistics_mask, mask_rows, mask_cols, statistics_mask_error)) {
+      statistics_mask_ptr = &statistics_mask;
     } else {
-      std::cout << "[HMS][resume] Warning: canvas mask unavailable: "
-                << mask_error << "; using full image" << std::endl;
+      std::cout << "[HMS][resume] Warning: common-overlap mask unavailable: "
+                << statistics_mask_error << "; using full image statistics"
+                << std::endl;
       mask_rows = static_cast<int>(R.rows());
       mask_cols = static_cast<int>(R.cols());
+    }
+
+    std::string output_mask_error;
+    int output_mask_rows = mask_rows;
+    int output_mask_cols = mask_cols;
+    if (tile_compile::runner::load_canvas_mask_for_rgb(
+            outputs_dir / "canvas_mask.fits", R, G, B, output_mask,
+            output_mask_rows, output_mask_cols, output_mask_error)) {
+      output_mask_ptr = &output_mask;
+    } else {
+      std::cout << "[HMS][resume] Warning: output canvas mask unavailable: "
+                << output_mask_error << "; using full image output" << std::endl;
     }
 
     image::HyperMetricStretchConfig hms_cfg =
         to_image_hms_config(cfg.hypermetric_stretch);
     hms_cfg.enabled = true;
     auto hms_diag = image::run_hypermetric_stretch_rgb(
-        R, G, B, hms_cfg, mask_ptr, mask_rows, mask_cols);
+        R, G, B, hms_cfg, statistics_mask_ptr, mask_rows, mask_cols,
+        output_mask_ptr);
     if (!hms_diag.success) {
       emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                         {{"reason", "stretch_failed"},
@@ -968,28 +1074,26 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                 << std::endl;
       return 1;
     }
-    std::vector<uint8_t> common_valid_mask(
+    std::vector<uint8_t> reconstruction_valid_mask(
         static_cast<size_t>(canvas_width) * canvas_height, 0u);
     if (canvas_mask_image.rows() == canvas_height &&
         canvas_mask_image.cols() == canvas_width) {
-      for (size_t i = 0; i < common_valid_mask.size(); ++i)
-        common_valid_mask[i] = canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
+      for (size_t i = 0; i < reconstruction_valid_mask.size(); ++i)
+        reconstruction_valid_mask[i] =
+            canvas_mask_image.data()[i] > 0.0f ? 1u : 0u;
     } else {
-      // Completed runs may contain the cropped output mask at outputs/canvas_mask.fits.
-      // Rebuild the full AQMH common mask from the persisted per-frame masks.
       tile_compile::metrics::FrameValidMaskStore mask_store(
           run_dir / "cache" / "aqmh_masks", canvas_width, canvas_height);
-      std::fill(common_valid_mask.begin(), common_valid_mask.end(), 1u);
       bool rebuilt_mask = false;
       for (size_t fi = 0; fi < frame_count; ++fi) {
         std::vector<uint8_t> frame_mask = mask_store.read(fi);
-        if (frame_mask.size() != common_valid_mask.size()) {
-          continue;
-        }
+        if (frame_mask.size() != reconstruction_valid_mask.size()) continue;
         rebuilt_mask = true;
-        for (size_t i = 0; i < common_valid_mask.size(); ++i) {
-          common_valid_mask[i] =
-              (common_valid_mask[i] != 0u && frame_mask[i] != 0u) ? 1u : 0u;
+        for (size_t i = 0; i < reconstruction_valid_mask.size(); ++i) {
+          reconstruction_valid_mask[i] =
+              (reconstruction_valid_mask[i] != 0u || frame_mask[i] != 0u)
+                  ? 1u
+                  : 0u;
         }
       }
       if (!rebuilt_mask) {
@@ -998,15 +1102,32 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                   << std::endl;
         return 1;
       }
-      std::cout << "[AQMH][resume] Rebuilt full canvas mask from cache/aqmh_masks "
-                << "because outputs/canvas_mask.fits is cropped ("
-                << canvas_mask_image.cols() << "x" << canvas_mask_image.rows()
-                << " vs " << canvas_width << "x" << canvas_height << ")"
-                << std::endl;
     }
 
+    Matrix2Df common_overlap_mask_image;
+    try {
+      std::tie(common_overlap_mask_image, std::ignore) = io::read_fits_float(
+          run_dir / "outputs" / "common_overlap_mask.fits");
+    } catch (const std::exception &e) {
+      std::cerr << "Error: AQMH resume requires common_overlap_mask.fits: "
+                << e.what() << std::endl;
+      return 1;
+    }
+    if (common_overlap_mask_image.rows() != canvas_height ||
+        common_overlap_mask_image.cols() != canvas_width) {
+      std::cerr << "Error: AQMH common-overlap mask dimensions differ from "
+                   "the reconstruction cache"
+                << std::endl;
+      return 1;
+    }
+    std::vector<uint8_t> common_valid_mask(
+        static_cast<size_t>(canvas_width) * canvas_height, 0u);
+    for (size_t i = 0; i < common_valid_mask.size(); ++i)
+      common_valid_mask[i] =
+          common_overlap_mask_image.data()[i] > 0.0f ? 1u : 0u;
+
     runner::DiskCacheFrameStore prewarped_frames(
-        run_dir / ".prewarped_cache", frame_count, canvas_height,
+        run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
         canvas_width, true);
     std::vector<uint8_t> frame_has_data(frame_count, 0u);
     size_t available_frames = 0;
@@ -1015,7 +1136,13 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       available_frames += frame_has_data[fi] != 0u;
     }
     if (available_frames == 0) {
-      std::cerr << "Error: no reusable .prewarped_cache frames found"
+      core::emit_event("resume_end", run_id,
+                       {{"success", false},
+                        {"status", "prewarped_cache_missing"},
+                        {"reason", "no_reusable_prewarped_cache_frames"},
+                        {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}},
+                       log_file);
+      std::cerr << "Error: no reusable cache/prewarped_frames frames found"
                 << std::endl;
       return 1;
     }
@@ -1029,7 +1156,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     const std::string mask_hash =
         tile_compile::metrics::compute_aqmh_canvas_mask_hash(
-            common_valid_mask, canvas_width, canvas_height);
+            reconstruction_valid_mask, canvas_width, canvas_height);
     auto aqmh_cache = std::make_unique<tile_compile::metrics::QualityMapCache>(
         run_dir / "cache" / "aqmh",
         cache_meta.value("map_stream_id", std::string("luma")),
@@ -1044,7 +1171,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const auto phase_started = std::chrono::steady_clock::now();
     if (!runner::run_phase_aqmh_reconstruction(
             run_id, cfg, run_dir, frame_slots, frame_has_data,
-            common_valid_mask, canvas_width, canvas_height,
+            reconstruction_valid_mask, common_valid_mask, canvas_width,
+            canvas_height,
             io::detect_color_mode(resume_header, 2) == ColorMode::OSC,
             prewarped_frames, aqmh_cache,
             global_weights, acceleration, emitter, log_file, phase_started,
@@ -1052,11 +1180,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
     try {
+      io::write_fits_float(aqmh_raw_reconstruction, phase_result.raw_output,
+                           resume_header);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
-                           phase_result.output, resume_header);
-      // Feed the existing shared STACKING/DEBAYER resume path without
-      // recomputing registration, maps, or global quality.
-      io::write_fits_float(run_dir / "outputs" / "synthetic_0.fit",
                            phase_result.output, resume_header);
     } catch (const std::exception &e) {
       std::cerr << "Error: cannot persist AQMH resume output: " << e.what()
@@ -1077,10 +1203,15 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
+    emitter.phase_progress(run_id, Phase::STACKING, 0.0f,
+                           "preparing cached reconstruction", log_file);
 
     std::vector<std::pair<int, fs::path>> synthetic_entries;
     const fs::path outputs_dir = run_dir / "outputs";
-    if (fs::exists(outputs_dir) && fs::is_directory(outputs_dir)) {
+    if (cfg.aqmh.enabled && fs::is_regular_file(aqmh_raw_reconstruction)) {
+      synthetic_entries.emplace_back(0, aqmh_raw_reconstruction);
+    } else if (!cfg.aqmh.enabled && fs::exists(outputs_dir) &&
+               fs::is_directory(outputs_dir)) {
       for (const auto &entry : fs::directory_iterator(outputs_dir)) {
         if (!entry.is_regular_file()) {
           continue;
@@ -1103,23 +1234,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     std::sort(synthetic_entries.begin(), synthetic_entries.end(),
               [](const auto &a, const auto &b) { return a.first < b.first; });
-    if (cfg.aqmh.enabled) {
-      synthetic_entries.erase(
-          std::remove_if(synthetic_entries.begin(), synthetic_entries.end(),
-                         [](const auto &entry) { return entry.first != 0; }),
-          synthetic_entries.end());
-    }
-
     if (synthetic_entries.empty()) {
-      const std::string msg = "missing synthetic_*.fit outputs for STACKING resume";
+      const std::string reason = cfg.aqmh.enabled
+          ? "missing_aqmh_raw_reconstruction"
+          : "missing_synthetic_outputs";
+      const std::string msg = cfg.aqmh.enabled
+          ? "AQMH STACKING resume requires outputs/aqmh_reconstructed_raw.fit; "
+            "resume from AQMH_RECONSTRUCTION to regenerate the immutable CFA "
+            "source"
+          : "missing synthetic_*.fit outputs for STACKING resume";
       emitter.phase_end(run_id, Phase::STACKING, "error",
-                        {{"reason", "missing_synthetic_outputs"},
+                        {{"reason", reason},
                          {"outputs_dir", outputs_dir.string()},
                          {"error", msg}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "missing_synthetic"}},
+                       {{"success", false}, {"status", reason}},
                        log_file);
+      std::cerr << "Error: " << msg << std::endl;
       return 1;
     }
 
@@ -1152,6 +1284,25 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const ColorMode detected_mode = io::detect_color_mode(first_hdr, 2);
     const BayerPattern detected_bayer = io::detect_bayer_pattern(first_hdr);
     const std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+    ResumeOutputScaling aqmh_output_scaling;
+    const bool restore_aqmh_output_scaling =
+        cfg.aqmh.enabled && detected_mode == ColorMode::OSC;
+    if (restore_aqmh_output_scaling) {
+      std::string scaling_error;
+      if (!load_resume_output_scaling(run_dir, aqmh_output_scaling,
+                                      scaling_error)) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "normalization_artifact_invalid"},
+                           {"error", scaling_error}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false},
+                          {"status", "normalization_artifact_invalid"}},
+                         log_file);
+        std::cerr << "Error: " << scaling_error << std::endl;
+        return 1;
+      }
+    }
     std::vector<float> synthetic_cluster_quality;
     std::vector<float> synthetic_cluster_mass;
     const fs::path synthetic_artifact_path =
@@ -1175,21 +1326,65 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    const auto resume_crop = cfg.aqmh.enabled
+        ? read_latest_stacking_crop(run_dir / "logs" / "run_events.jsonl")
+        : std::optional<runner::CropBox>{};
+    if (resume_crop.has_value()) {
+      const auto &crop = *resume_crop;
+      if (crop.x < 0 || crop.y < 0 || crop.x + crop.width > first_synth.cols() ||
+          crop.y + crop.height > first_synth.rows()) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "invalid_stored_crop"},
+                           {"crop_x", crop.x}, {"crop_y", crop.y},
+                           {"crop_width", crop.width},
+                           {"crop_height", crop.height}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "invalid_stored_crop"}},
+                         log_file);
+        return 1;
+      }
+      first_synth = first_synth.block(crop.y, crop.x, crop.height, crop.width).eval();
+    }
+
+    const fs::path common_overlap_mask_path =
+        run_dir / "outputs" / "common_overlap_mask.fits";
+    const fs::path output_mask_path = run_dir / "outputs" / "canvas_mask.fits";
     std::vector<uint8_t> common_valid_mask;
     std::string canvas_mask_error;
     if (!tile_compile::runner::load_canvas_mask_fits(
-            run_dir / "outputs" / "canvas_mask.fits", first_synth.rows(),
-            first_synth.cols(), common_valid_mask, canvas_mask_error)) {
+            output_mask_path, first_synth.rows(), first_synth.cols(),
+            common_valid_mask, canvas_mask_error)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "canvas_mask_invalid"},
-                         {"canvas_mask",
-                          (run_dir / "outputs" / "canvas_mask.fits").string()},
+                         {"canvas_mask", output_mask_path.string()},
                          {"error", canvas_mask_error}},
                         log_file);
       core::emit_event("resume_end", run_id,
                        {{"success", false}, {"status", "canvas_mask_invalid"}},
                        log_file);
       return 1;
+    }
+    std::vector<uint8_t> analysis_valid_mask = common_valid_mask;
+    const fs::path analysis_mask_path = common_overlap_mask_path;
+    if (fs::exists(analysis_mask_path)) {
+      std::string analysis_mask_error;
+      std::vector<uint8_t> loaded_analysis_mask;
+      if (!tile_compile::runner::load_canvas_mask_fits(
+              analysis_mask_path, first_synth.rows(), first_synth.cols(),
+              loaded_analysis_mask, analysis_mask_error)) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "analysis_mask_invalid"},
+                           {"analysis_mask", analysis_mask_path.string()},
+                           {"error", analysis_mask_error}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "analysis_mask_invalid"}},
+            log_file);
+        return 1;
+      }
+      analysis_valid_mask = std::move(loaded_analysis_mask);
     }
 
     int debayer_tile_offset_x = 0;
@@ -1226,6 +1421,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           }
         }
       }
+    }
+    if (resume_crop.has_value()) {
+      debayer_tile_offset_x -= resume_crop->x;
+      debayer_tile_offset_y -= resume_crop->y;
     }
 
     core::AccelerationContext acceleration(
@@ -1286,6 +1485,22 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       if (syn.size() <= 0) {
         continue;
       }
+      if (resume_crop.has_value()) {
+        const auto &crop = *resume_crop;
+        if (crop.x + crop.width > syn.cols() ||
+            crop.y + crop.height > syn.rows()) {
+          emitter.phase_end(run_id, Phase::STACKING, "error",
+                            {{"reason", "synthetic_crop_out_of_bounds"},
+                             {"file", path.string()}},
+                            log_file);
+          core::emit_event("resume_end", run_id,
+                           {{"success", false},
+                            {"status", "synthetic_crop_out_of_bounds"}},
+                           log_file);
+          return 1;
+        }
+        syn = syn.block(crop.y, crop.x, crop.height, crop.width).eval();
+      }
       if (detected_mode == ColorMode::OSC) {
         auto deb = image::debayer_nearest_neighbor(
             syn, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
@@ -1309,6 +1524,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    emitter.phase_progress(
+        run_id, Phase::STACKING, 0.2f,
+        "loaded reconstruction inputs " + std::to_string(valid_synth.size()) +
+            "/" + std::to_string(synthetic_entries.size()),
+        log_file);
     if (valid_synth.empty()) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "no_valid_synthetic_frames"}},
@@ -1427,6 +1647,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    emitter.phase_progress(run_id, Phase::STACKING, 0.55f,
+                           "stacked cached reconstruction", log_file);
     if (cfg.stacking.cosmetic_correction) {
       const float cosmetic_sigma = cfg.stacking.cosmetic_correction_sigma;
       recon = image::cosmetic_correction(recon, cosmetic_sigma, true);
@@ -1445,6 +1667,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
+    emitter.phase_progress(run_id, Phase::STACKING, 0.75f,
+                           "applied post-stack processing", log_file);
     auto stretch_luma_for_output = [&](Matrix2Df &luma) {
       if (!cfg.stacking.output_stretch) {
         return;
@@ -1488,11 +1712,28 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          log_file);
         return 1;
       }
+      if (analysis_valid_mask.size() != full_mask_px) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "analysis_mask_size_mismatch"},
+                           {"mask_pixels", static_cast<uint64_t>(
+                                               analysis_valid_mask.size())},
+                           {"expected_mask_pixels",
+                            static_cast<uint64_t>(full_mask_px)}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "analysis_mask_size_mismatch"}},
+            log_file);
+        return 1;
+      }
 
-      stacking_crop_box = tile_compile::runner::compute_nonzero_data_bbox(
-          recon, have_rgb_full ? &recon_R : nullptr,
-          have_rgb_full ? &recon_G : nullptr,
-          have_rgb_full ? &recon_B : nullptr);
+      stacking_crop_box = cfg.aqmh.enabled
+          ? tile_compile::runner::compute_support_mask_bbox(
+                common_valid_mask, full_rows, full_cols)
+          : tile_compile::runner::compute_nonzero_data_bbox(
+                recon, have_rgb_full ? &recon_R : nullptr,
+                have_rgb_full ? &recon_G : nullptr,
+                have_rgb_full ? &recon_B : nullptr);
       if (!stacking_crop_box.valid()) {
         emitter.phase_end(run_id, Phase::STACKING, "error",
                           {{"reason", "empty_valid_crop"},
@@ -1524,6 +1765,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
         std::vector<uint8_t> cropped_mask(
             static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+        std::vector<uint8_t> cropped_analysis_mask(
+            static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
         for (int y = 0; y < crop_h; ++y) {
           const int sy = crop_y + y;
           const size_t src_row_off =
@@ -1534,14 +1777,21 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             const int sx = crop_x + x;
             cropped_mask[dst_row_off + static_cast<size_t>(x)] =
                 common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            cropped_analysis_mask[dst_row_off + static_cast<size_t>(x)] =
+                analysis_valid_mask[src_row_off + static_cast<size_t>(sx)];
           }
         }
         common_valid_mask.swap(cropped_mask);
+        analysis_valid_mask.swap(cropped_analysis_mask);
 
         std::string mask_write_error;
         if (!write_canvas_mask_fits(run_dir / "outputs" / "canvas_mask.fits",
                                     common_valid_mask, crop_h, crop_w, first_hdr,
-                                    mask_write_error)) {
+                                    mask_write_error) ||
+            !write_canvas_mask_fits(
+                run_dir / "outputs" / "common_overlap_mask.fits",
+                analysis_valid_mask, crop_h, crop_w, first_hdr,
+                mask_write_error)) {
           emitter.phase_end(run_id, Phase::STACKING, "error",
                             {{"reason", "canvas_mask_write_failed"},
                              {"error", mask_write_error}},
@@ -1555,18 +1805,59 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
-    Matrix2Df recon_out = recon;
-    stretch_luma_for_output(recon_out);
-    try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
-                           first_hdr);
-    } catch (const std::exception &e) {
+    if (restore_aqmh_output_scaling) {
+      image::apply_output_scaling_inplace(
+          recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
+          detected_mode, detected_bayer_str, aqmh_output_scaling.scale_mono,
+          aqmh_output_scaling.scale_r, aqmh_output_scaling.scale_g,
+          aqmh_output_scaling.scale_b, aqmh_output_scaling.bg_mono,
+          aqmh_output_scaling.bg_r, aqmh_output_scaling.bg_g,
+          aqmh_output_scaling.bg_b, 0.0f);
+      if (recon_R.size() == recon.size() && recon_G.size() == recon.size() &&
+          recon_B.size() == recon.size()) {
+        recon_R.array() = recon_R.array() * aqmh_output_scaling.scale_r +
+                          aqmh_output_scaling.bg_r;
+        recon_G.array() = recon_G.array() * aqmh_output_scaling.scale_g +
+                          aqmh_output_scaling.bg_g;
+        recon_B.array() = recon_B.array() * aqmh_output_scaling.scale_b +
+                          aqmh_output_scaling.bg_b;
+      }
+    }
+
+    emitter.phase_progress(run_id, Phase::STACKING, 0.9f,
+                           "writing stacked output", log_file);
+    // Use the shared post-stack output writer for consistent behavior between
+    // pipeline and resume paths (stretch, crop, scaling, format).
+    runner::OutputScaling resume_scaling;
+    if (restore_aqmh_output_scaling) {
+      resume_scaling.scale_r = aqmh_output_scaling.scale_r;
+      resume_scaling.scale_g = aqmh_output_scaling.scale_g;
+      resume_scaling.scale_b = aqmh_output_scaling.scale_b;
+      resume_scaling.scale_mono = aqmh_output_scaling.scale_mono;
+      resume_scaling.bg_r = aqmh_output_scaling.bg_r;
+      resume_scaling.bg_g = aqmh_output_scaling.bg_g;
+      resume_scaling.bg_b = aqmh_output_scaling.bg_b;
+      resume_scaling.bg_mono = aqmh_output_scaling.bg_mono;
+      resume_scaling.pedestal = 0.0f;
+    }
+    runner::PostStackOutputConfig post_cfg;
+    post_cfg.output_stretch = cfg.stacking.output_stretch;
+    post_cfg.crop_to_nonzero_bbox = false;  // crop already handled above
+    post_cfg.aqmh_enabled = cfg.aqmh.enabled;
+    runner::PostStackOutputResult post_result;
+    if (!runner::write_post_stack_outputs(
+            recon, recon_R, recon_G, recon_B,
+            common_valid_mask, analysis_valid_mask,
+            resume_scaling, detected_mode, detected_bayer_str,
+            debayer_tile_offset_x, debayer_tile_offset_y,
+            first_hdr, post_cfg, run_dir, run_id,
+            emitter, log_file, post_result)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
-                        {{"reason", "write_failed"}, {"error", e.what()}},
+                        {{"reason", "output_write_failed"},
+                         {"error", post_result.error}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "stack_write_failed"}},
+                       {{"success", false}, {"status", "output_write_failed"}},
                        log_file);
       return 1;
     }
@@ -1582,6 +1873,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           core::device_frame_batch_to_json(stacking_input_batch)},
          {"input_frames", static_cast<int>(valid_synth.size())},
          {"crop_applied", stacking_crop_applied},
+         {"crop_source", cfg.aqmh.enabled ? "reconstruction_support_mask"
+                                           : "nonzero_data_bbox"},
          {"crop_x", stacking_crop_box.x},
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},
@@ -1594,72 +1887,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
     if (detected_mode == ColorMode::OSC) {
-      Matrix2Df R_out;
-      Matrix2Df G_out;
-      Matrix2Df B_out;
-      if (recon_R.size() == recon.size() && recon_R.size() > 0) {
-        R_out = recon_R;
-        G_out = recon_G;
-        B_out = recon_B;
-      } else {
-        auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
-        R_out = std::move(debayer.R);
-        G_out = std::move(debayer.G);
-        B_out = std::move(debayer.B);
-      }
-      try {
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
-                             first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,
-                             first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
-                             first_hdr);
-        Matrix2Df R_stack_disk = R_out;
-        Matrix2Df G_stack_disk = G_out;
-        Matrix2Df B_stack_disk = B_out;
-        if (cfg.stacking.output_stretch) {
-          float vmin = std::numeric_limits<float>::max();
-          float vmax = std::numeric_limits<float>::lowest();
-          for (auto *ch : {&R_stack_disk, &G_stack_disk, &B_stack_disk}) {
-            for (Eigen::Index k = 0; k < ch->size(); ++k) {
-              const float v = ch->data()[k];
-              if (std::isfinite(v) && v > 0.0f) {
-                vmin = std::min(vmin, v);
-                vmax = std::max(vmax, v);
-              }
-            }
-          }
-          const float range = vmax - vmin;
-          if (range > 1.0e-6f) {
-            const float scale = 65535.0f / range;
-            for (auto *ch : {&R_stack_disk, &G_stack_disk, &B_stack_disk}) {
-              for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                const float v = ch->data()[k];
-                if (std::isfinite(v) && v > 0.0f) {
-                  ch->data()[k] = (v - vmin) * scale;
-                } else {
-                  ch->data()[k] = 0.0f;
-                }
-              }
-            }
-            std::cout << "[STACKING][resume] RGB output stretch: [" << vmin
-                      << ".." << vmax << "] -> [0..65535]" << std::endl;
-          }
-        }
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
-                           R_stack_disk, G_stack_disk, B_stack_disk, first_hdr);
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits", R_out,
-                           G_out, B_out, first_hdr);
-      } catch (const std::exception &e) {
-        emitter.phase_end(run_id, Phase::DEBAYER, "error",
-                          {{"reason", "write_failed"}, {"error", e.what()}},
-                          log_file);
-        core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "debayer_write_failed"}},
-                         log_file);
-        return 1;
-      }
       emitter.phase_end(
           run_id, Phase::DEBAYER, "ok",
           {{"mode", "OSC"},
@@ -1934,34 +2161,26 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	                                          const io::FitsHeader &hdr,
 	                                          bool apply_stretch,
 	                                          const char* stage_tag) {
-	    Matrix2Df R_disk = R_src;
-	    Matrix2Df G_disk = G_src;
-	    Matrix2Df B_disk = B_src;
 	    std::vector<uint8_t> canvas_mask;
+	    std::vector<uint8_t> statistics_mask;
 	    std::string canvas_mask_error;
+	    std::string statistics_mask_error;
 	    int canvas_rows = 0;
 	    int canvas_cols = 0;
-	    if (tile_compile::runner::load_canvas_mask_for_rgb(
-	            run_dir / "outputs" / "canvas_mask.fits", R_disk, G_disk, B_disk,
-	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error)) {
-	      image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk, canvas_mask);
+	    int statistics_rows = 0;
+	    int statistics_cols = 0;
+	    tile_compile::runner::load_canvas_mask_for_rgb(
+	            run_dir / "outputs" / "canvas_mask.fits", R_src, G_src, B_src,
+	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error);
+	    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+	            run_dir / "outputs" / "common_overlap_mask.fits", R_src, G_src,
+	            B_src, statistics_mask, statistics_rows, statistics_cols,
+	            statistics_mask_error)) {
+	      statistics_mask = canvas_mask;
 	    }
-	    if (apply_stretch) {
-	      const auto stretch =
-	          tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
-	              R_disk, G_disk, B_disk);
-      if (stretch.applied) {
-        std::cout << "[" << stage_tag
-                  << "][resume] RGB output "
-                  << "linear"
-                  << " stretch ["
-                  << stretch.low << ".." << stretch.high << "] -> [0..65535]"
-                  << " samples=" << stretch.sample_count << std::endl;
-      }
-    }
-    std::error_code ec;
-    fs::remove(path, ec);
-    io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+	    runner::write_stretched_rgb_snapshot(
+	        path, R_src, G_src, B_src, canvas_mask, statistics_mask, canvas_rows,
+	        canvas_cols, hdr, apply_stretch, stage_tag);
   };
 
   auto write_linear_rgb_snapshot = [&](const fs::path &path,
@@ -2181,7 +2400,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     emitter.phase_end(run_id, Phase::BGE, bge_diag.success ? "ok" : "skipped",
                       phase_extra, log_file);
-    return bge_diag.success || !bge_diag.attempted;
+    // A rejected BGE candidate is a guarded no-op, not a resume failure. The
+    // normal pipeline continues from the unchanged linear RGB in this case.
+    // Hard failures (invalid dimensions or masks) return false above.
+    return true;
   };
 
   if (phase_l == "astrometry") {
@@ -2334,9 +2556,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       std::string analysis_mask_error;
       int analysis_rows = 0;
       int analysis_cols = 0;
+      fs::path analysis_mask_path =
+          run_dir / "outputs" / "common_overlap_mask.fits";
+      if (!fs::exists(analysis_mask_path)) {
+        analysis_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+      }
       if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-              analysis_mask, analysis_rows, analysis_cols, analysis_mask_error)) {
+              analysis_mask_path, rgb.R, rgb.G, rgb.B, analysis_mask,
+              analysis_rows, analysis_cols, analysis_mask_error)) {
         emitter.phase_end(run_id, Phase::PCC, "error",
                           {{"reason", "analysis_mask_invalid"},
                            {"error", analysis_mask_error}},
@@ -2436,9 +2663,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     io::write_fits_float(pcc_r_path, rgb.R, out_hdr);
     io::write_fits_float(pcc_g_path, rgb.G, out_hdr);
     io::write_fits_float(pcc_b_path, rgb.B, out_hdr);
-    write_stretched_rgb_snapshot(
-        pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr,
-        cfg.stacking.output_stretch, "PCC");
+    // stacked_rgb_pcc.fits must remain LINEAR float32 — it is the HMS input.
+    // Never apply output_stretch here; HMS needs the original linear data.
+    io::write_fits_rgb(pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr);
 
     core::json matrix_json = core::json::array();
     for (int r = 0; r < 3; ++r) {
@@ -2479,8 +2706,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       image::HyperMetricStretchConfig hms_cfg =
           to_image_hms_config(cfg.hypermetric_stretch);
       auto hms_diag = image::run_hypermetric_stretch_rgb(
-          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.output_valid_mask,
-          pcc_cfg.output_mask_rows, pcc_cfg.output_mask_cols);
+          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
+          pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
+          &pcc_cfg.output_valid_mask);
       if (!hms_diag.success) {
         emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                           {{"reason", "stretch_failed"},

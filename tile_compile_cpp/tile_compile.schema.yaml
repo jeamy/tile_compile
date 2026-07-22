@@ -19,10 +19,6 @@ properties:
         - test
         description: Pipeline execution mode. production = full pipeline with all stages. test = reduced pipeline for quick validation runs.
         default: production
-      abort_on_fail:
-        type: boolean
-        description: When true, the pipeline aborts on the first stage failure. When false, non-critical failures are logged and the pipeline continues with best-effort recovery.
-        default: true
   output:
     type: object
     properties:
@@ -851,45 +847,50 @@ properties:
             type: number
             exclusiveMinimum: 0
             exclusiveMaximum: 1
-            default: 0.05
+            default: 0.03
           g_w_sharp:
             type: number
             minimum: 0
-            default: 0.6
+            default: 0.55
           g_w_snr:
             type: number
             minimum: 0
-            default: 0.4
+            default: 0.3
           g_w_background_penalty:
             type: number
             minimum: 0
-            default: 0.3
+            default: 0.25
+          g_k_scale:
+            type: number
+            exclusiveMinimum: 0
+            default: 1.5
+            description: Sigmoid temperature for global AQMH quality. The resulting frame weight remains bounded to [g_floor, 1].
       reconstruction:
         type: object
         properties:
           clip_sigma:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
+            default: 2.0
           clip_sigma_low:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
-            description: Lower-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value.
+            default: 2.0
+            description: Lower-side AQMH sigma clipping threshold.
           clip_sigma_high:
             type: number
             exclusiveMinimum: 0
-            default: 3.0
-            description: Upper-side AQMH sigma clipping threshold. Defaults to the symmetric v0.2.0 clip_sigma value.
+            default: 2.0
+            description: Upper-side AQMH sigma clipping threshold. The symmetric 2.0 default avoids a negative location bias in diffuse backgrounds.
           clip_iterations:
             type: integer
             minimum: 0
-            default: 3
+            default: 4
           min_fraction:
             type: number
             exclusiveMinimum: 0
             maximum: 1
-            default: 0.5
+            default: 0.4
           min_n_eff:
             type: number
             minimum: 1
@@ -904,6 +905,10 @@ properties:
             minimum: 0
             default: 0
             description: VRAM/RAM budget for reconstruction in MB. 0 = automatic.
+          delete_prewarped_cache_after_run:
+            type: boolean
+            default: true
+            description: Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes.
           registration_weight_guard:
             type: boolean
             default: true
@@ -912,7 +917,7 @@ properties:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.35
+            default: 0.30
           registration_cc_floor:
             type: number
             minimum: 0
@@ -927,12 +932,12 @@ properties:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.85
+            default: 0.92
           registration_predicted_factor:
             type: number
             minimum: 0
             maximum: 1
-            default: 0.35
+            default: 0.50
           registration_chain_depth_penalty:
             type: number
             minimum: 0
@@ -943,13 +948,30 @@ properties:
             minimum: 0
             maximum: 1
             default: 0.15
+          structure_mask_low_q:
+            type: number
+            minimum: 0
+            maximum: 1
+            default: 0.40
+            description: Gradient quantile mapped to structure mask = 0 (background).
+          structure_mask_high_q:
+            type: number
+            minimum: 0
+            maximum: 1
+            default: 0.90
+            description: Gradient quantile mapped to structure mask = 1 (full AQMH detail).
+          structure_mask_blur_sigma_px:
+            type: number
+            exclusiveMinimum: 0
+            default: 4.0
+            description: Gaussian blur sigma for soft structure mask transition.
       validation:
         type: object
         properties:
           max_seam_score_regression:
             type: number
             minimum: 0
-            default: 0.02
+            default: 0.05
           max_fwhm_regression:
             type: number
             minimum: 0
@@ -957,15 +979,16 @@ properties:
           max_background_rms_regression:
             type: number
             minimum: 0
-            default: 0.02
+            default: 0.05
+            description: Maximum relative regression of robust local background noise, measured from neighbouring pixel differences. Diffuse astronomical structure is excluded; exceeding the limit rejects optional post-processing and preserves raw AQMH.
           max_tail11_abs_regression:
             type: number
             minimum: 0
-            default: 0.05
+            default: 0.10
           max_elongation_regression:
             type: number
             minimum: 0
-            default: 0.05
+            default: 0.08
       diagnostics:
         type: object
         properties:

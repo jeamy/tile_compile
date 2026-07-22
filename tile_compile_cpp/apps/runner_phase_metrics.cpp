@@ -93,7 +93,8 @@ bool run_phase_channel_split_normalization_global_metrics(
     emitter.phase_end(
         run_id, Phase::NORMALIZATION, "error",
         {{"error", "NORMALIZATION: disabled but required"}}, log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", "NORMALIZATION: disabled but required"}});
     return false;
   }
 
@@ -154,7 +155,7 @@ bool run_phase_channel_split_normalization_global_metrics(
       (void)cache_naxis;
       if (cache_width > 0 && cache_height > 0) {
         out.frame_cache = std::make_shared<RunnerFrameCache>(
-            run_dir / ".normalized_frame_cache", frames.size(), cache_height,
+            run_dir / "cache" / "normalized_frames", frames.size(), cache_height,
             cache_width);
       }
     } catch (const std::exception &e) {
@@ -198,6 +199,13 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::string norm_error;
 
   auto normalization_worker = [&]() {
+    // Limit OpenCV's internal thread pool to avoid N_workers × N_cores
+    // oversubscription. Each worker gets an equal share of hardware threads.
+    const int cv_threads_per_worker = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) /
+        std::max(1, normalization_workers));
+    cv::setNumThreads(cv_threads_per_worker);
+
     std::vector<float> r_samples;
     std::vector<float> g_samples;
     std::vector<float> b_samples;
@@ -472,7 +480,8 @@ bool run_phase_channel_split_normalization_global_metrics(
                       {{"error", norm_error.empty() ? "unknown_error"
                                                      : norm_error}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during NORMALIZATION: ") + (norm_error.empty() ? "unknown_error" : norm_error)}});
     std::cerr << "Error during NORMALIZATION: "
               << (norm_error.empty() ? "unknown_error" : norm_error)
               << std::endl;
@@ -560,6 +569,11 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::string gm_error;
 
   auto global_metrics_worker = [&]() {
+    const int cv_threads_per_worker = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) /
+        std::max(1, global_metrics_workers));
+    cv::setNumThreads(cv_threads_per_worker);
+
     while (true) {
       const size_t i = gm_next.fetch_add(1);
       if (i >= frames.size()) {
@@ -655,7 +669,8 @@ bool run_phase_channel_split_normalization_global_metrics(
                                                      : gm_error}},
                         log_file);
     }
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during GLOBAL_METRICS: ") + (gm_error.empty() ? "unknown_error" : gm_error)}});
     std::cerr << "Error during GLOBAL_METRICS: "
               << (gm_error.empty() ? "unknown_error" : gm_error) << std::endl;
     return false;

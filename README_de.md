@@ -45,13 +45,13 @@ Rekonstruktion (pro canvas-gültigem Pixel p):
 | `aqmh.pyramid.k_artifact` | `3.0` | MAD-Multiplikator für Artefakt-Erkennung (höher = toleranter) |
 | `aqmh.pyramid.frac_artifact_max` | `0.25` | Max. Artefaktanteil pro Fenster vor Verwerfen |
 | `aqmh.storage.resolution_divisor` | `2` | Auflösung Qualitätskarten-Cache (1/2/4) |
-| `aqmh.storage.dtype` | `float32` | Cache-Datentyp (`float32` oder `uint8`) |
+| `aqmh.storage.dtype` | `uint16` | Cache-Datentyp (`float32`, `uint16` oder `uint8`) |
 | `aqmh.storage.max_resident_maps` | `2` | Max. gleichzeitig im RAM gehaltene Qualitätskarten |
 | `aqmh.cherry_pick.enabled` | `false` | Nur beste Frames stacken |
 | `aqmh.cherry_pick.k_frac` | `0.30` | Anteil bester Frames (0.30 = beste 30%) |
-| `aqmh.cherry_pick.k_min` | `3` | Mindestanzahl immer einbezogener Frames |
+| `aqmh.cherry_pick.k_min_required` | `20` | Run-Gate und Mindestanzahl einbehaltener Samples pro Pixel |
 | `aqmh.diagnostics.enabled` | `true` | AQMH-Diagnosephase aktivieren |
-| `aqmh.diagnostics.level` | `summary` | Detaillierungsgrad: `none`, `summary` oder `full` |
+| `aqmh.diagnostics.level` | `full` | Detaillierungsgrad: `none`, `summary` oder `full` |
 | `aqmh.diagnostics.format` | `json` | Ausgabeformat: `json` oder `binary` |
 | `aqmh.diagnostics.regions` | `true` | `aqmh_regions.json` mit Regionsliste pro Frame schreiben |
 | `aqmh.diagnostics.binary_block_size_px` | `64` | Blockgröße für Binärdiagnostik (AQDB) |

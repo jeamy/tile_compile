@@ -6,7 +6,6 @@ method: classic_tile_compile
 
 pipeline:
   mode: production
-  abort_on_fail: true
 
 output:
   registered_dir: registered
@@ -115,7 +114,7 @@ stacking:
   method: rej
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: false
   cosmetic_correction_sigma: 4.0
   per_frame_cosmetic_correction: false

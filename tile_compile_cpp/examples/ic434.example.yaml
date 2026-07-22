@@ -14,7 +14,6 @@ log_level: info
 
 pipeline:
   mode: production
-  abort_on_fail: false
 
 output:
   registered_dir: registered
@@ -330,14 +329,15 @@ aqmh:
 
   # Globale Qualitaetsgewichtung (v0.2.0)
   global_quality:
-    g_floor: 0.05          # Untergrenze fuer globale Frame-Qualitaet G_f
-    g_w_sharp: 0.6        # Gewicht Schaerfe in globaler Qualitaet
-    g_w_snr: 0.4          # Gewicht SNR in globaler Qualitaet
-    g_w_background_penalty: 0.3
+    g_floor: 0.03          # Untergrenze fuer globale Frame-Qualitaet G_f
+    g_w_sharp: 0.55        # Gewicht Schaerfe in globaler Qualitaet
+    g_w_snr: 0.30          # Gewicht SNR in globaler Qualitaet
+    g_w_background_penalty: 0.25
+    g_k_scale: 1.5
 
   storage:
-    resolution_divisor: 1
-    dtype: float32
+    resolution_divisor: 2
+    dtype: uint16
     max_resident_maps: 2
   cherry_pick:
     enabled: false
@@ -348,9 +348,11 @@ aqmh:
 
   # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
   validation:
-    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
+    max_seam_score_regression: 0.05   # Max. erlaubte Seam-Score-Regression
     max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
-    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
+    max_background_rms_regression: 0.05  # Max. erlaubte Hintergrund-RMS-Regression
+    max_tail11_abs_regression: 0.10
+    max_elongation_regression: 0.08
   diagnostics:
     enabled: true
     level: full
@@ -363,12 +365,26 @@ aqmh:
     q_region: 0.75
     r_morph_canvas_px: 6
   reconstruction:
-    clip_sigma: 3.0
-    clip_iterations: 3
-    min_fraction: 0.5
+    clip_sigma: 2.0
+    clip_sigma_low: 2.0
+    clip_sigma_high: 2.0
+    clip_iterations: 4
+    min_fraction: 0.4
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: true
+    registration_weight_guard: true
+    registration_weight_floor: 0.30
+    registration_cc_floor: 0.35
+    registration_cc_full: 0.80
+    registration_sequential_factor: 0.92
+    registration_predicted_factor: 0.50
+    registration_chain_depth_penalty: 0.03
+    registration_chain_depth_max_penalty: 0.15
+    structure_mask_low_q: 0.40
+    structure_mask_high_q: 0.90
+    structure_mask_blur_sigma_px: 4.0
 stacking:
   method: rej
   common_overlap_required_fraction: 1.0

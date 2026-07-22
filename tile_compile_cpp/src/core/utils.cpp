@@ -9,6 +9,11 @@
 #include <random>
 #include <regex>
 #include <sstream>
+#include <thread>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 #ifdef _WIN32
 #include <time.h>
@@ -135,9 +140,12 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
     }
     
     auto size = file.tellg();
+    if (size <= 0) {
+        throw IOError("Empty or unreadable file: " + path.string());
+    }
     file.seekg(0, std::ios::beg);
     
-    std::vector<uint8_t> buffer(size);
+    std::vector<uint8_t> buffer(static_cast<size_t>(size));
     if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
         throw IOError("Cannot read file: " + path.string());
     }
@@ -339,21 +347,13 @@ bool glob_match(const std::string& pattern, const std::string& str) {
     return std::regex_match(str, re);
 }
 
-/// @brief Matches or expands glob patterns for.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern) {
-    return discover_frames(dir, pattern);
-}
-
 // --- Statistical utilities (canonical, single implementation) ---
 
 /// @brief Implements median of.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-float median_of(std::vector<float>& v) {
+float median_of(std::vector<float> v) {
     if (v.empty()) return 0.0f;
     const size_t n = v.size();
     const size_t mid = n / 2;
@@ -365,13 +365,10 @@ float median_of(std::vector<float>& v) {
     return 0.5f * (lo + hi);
 }
 
-/// @brief Implements mad of.
-/// @details Part of robust statistics helpers; computes the median absolute deviation
-/// given a pre-computed median. Modifies the input vector in place.
-float mad_of(std::vector<float>& v, float median) {
+float mad_of(std::vector<float> v, float median) {
     if (v.empty()) return 0.0f;
     for (float& x : v) x = std::fabs(x - median);
-    return median_of(v);
+    return median_of(std::move(v));
 }
 
 /// @brief Implements stddev of.
@@ -400,8 +397,8 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     if (pixels.empty()) return 0.0f;
     float med = median_of(pixels);
     for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
-    return 1.4826f * mad;
+    float mad = median_of(std::move(pixels));
+    return kMadToSigma * mad;
 }
 
 /// @brief Implements percentile from sorted.
@@ -486,7 +483,7 @@ void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
     for (float& x : tmp)
         x = std::fabs(x - med);
     float mad = median_of(tmp);
-    float sigma = 1.4826f * mad;
+    float sigma = kMadToSigma * mad;
     if (!(sigma > 0.0f)) {
         std::fill(out.begin(), out.end(), 0.0f);
         return;
@@ -528,31 +525,51 @@ float median_finite(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
-/// @brief Implements stretch to u16 linear from zero inplace.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @brief Implements stretch to u16 linear from zero inplace using robust
+/// maximum (p99.9). Pixels above the robust max are clamped to 65535.
 StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     StretchResult result;
-    float max_value = 0.0f;
-    size_t sample_count = 0;
+    std::vector<float> finite_positive;
+    finite_positive.reserve(static_cast<size_t>(img.size()) / 2);
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (!std::isfinite(v) || v < 0.0f) continue;
-        max_value = std::max(max_value, v);
-        ++sample_count;
+        if (std::isfinite(v) && v > 0.0f)
+            finite_positive.push_back(v);
     }
 
-    result.sample_count = sample_count;
-    result.low = 0.0f;
-    result.high = max_value;
-    if (!(max_value > 1.0e-6f)) return result;
+    result.sample_count = finite_positive.size();
+    if (finite_positive.empty()) return result;
 
-    const float scale = 65535.0f / max_value;
+    // Compute p1 as floor and p99.9 as robust maximum.
+    // The stretch maps [floor, robust_max] -> [0, 65535].  Using p1 (not p10
+    // or the background itself) as the floor keeps below-background pixels
+    // visible: the sky background lands at a small positive value instead of
+    // consuming >60% of the range, and only the darkest 1% of noise clips to 0.
+    const size_t idx_1 = static_cast<size_t>(
+        std::clamp(0.01, 0.0, 1.0) * static_cast<double>(finite_positive.size() - 1));
+    std::nth_element(finite_positive.begin(),
+                     finite_positive.begin() + idx_1,
+                     finite_positive.end());
+    const float floor_level = finite_positive[idx_1];
+
+    const size_t idx_999 = static_cast<size_t>(
+        0.999 * static_cast<double>(finite_positive.size() - 1));
+    std::nth_element(finite_positive.begin(),
+                     finite_positive.begin() + idx_999,
+                     finite_positive.end());
+    const float robust_max = finite_positive[idx_999];
+
+    result.low = floor_level;
+    result.high = robust_max;
+    const float range = robust_max - floor_level;
+    if (!(range > 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / range;
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (std::isfinite(v) && v >= 0.0f) {
-            img.data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+        if (std::isfinite(v)) {
+            const float stretched = (v - floor_level) * scale;
+            img.data()[i] = std::clamp(stretched, 0.0f, 65535.0f);
         } else {
             img.data()[i] = 0.0f;
         }
@@ -562,42 +579,81 @@ StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
     return result;
 }
 
-/// @brief Implements stretch rgb to u16 linear from zero inplace.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
     Matrix2Df& b) {
+    static const std::vector<uint8_t> empty_mask;
+    return stretch_rgb_to_u32_linear_from_zero_inplace(r, g, b, empty_mask);
+}
+
+/// @brief Implements stretch rgb to u32 linear from zero inplace using a robust
+/// maximum (p99.9 across all channels). Pixels above the robust max are clamped
+/// to the target ceiling. This prevents a single bright star core from
+/// compressing the entire nebula signal into <1% of the output range.
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    const std::vector<uint8_t>& statistics_mask) {
     StretchResult result;
     if (r.rows() != g.rows() || r.rows() != b.rows() ||
-        r.cols() != g.cols() || r.cols() != b.cols()) {
+        r.cols() != g.cols() || r.cols() != b.cols() ||
+        (!statistics_mask.empty() &&
+         statistics_mask.size() != static_cast<size_t>(r.size()))) {
         return result;
     }
 
-    float max_value = 0.0f;
-    size_t sample_count = 0;
+    // Collect all finite positive values to compute a robust maximum.
+    // Using p99.9 ensures that star cores (typically <0.1% of pixels) don't
+    // define the scale, while all diffuse structure is faithfully represented.
+    std::vector<float> all_values;
+    all_values.reserve(static_cast<size_t>(r.size()) * 3 / 4);
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            if (!statistics_mask.empty() &&
+                statistics_mask[static_cast<size_t>(i)] == 0) {
+                continue;
+            }
             const float v = ch->data()[i];
-            if (!std::isfinite(v) || v < 0.0f) continue;
-            max_value = std::max(max_value, v);
-            ++sample_count;
+            if (std::isfinite(v) && v > 0.0f)
+                all_values.push_back(v);
         }
     }
 
-    result.sample_count = sample_count;
-    result.low = 0.0f;
-    result.high = max_value;
-    if (!(max_value > 1.0e-6f)) return result;
+    result.sample_count = all_values.size();
+    if (all_values.empty()) return result;
 
-    const float scale = 65535.0f / max_value;
+    // Compute p1 as floor and p99.9 as robust maximum.
+    // The stretch maps [floor, robust_max] -> [0, target].  Using p1 (not p10
+    // or the background itself) as the floor keeps below-background pixels
+    // visible: the sky background lands at a small positive value instead of
+    // consuming >60% of the range, and only the darkest 1% of noise clips to 0.
+    const size_t idx_1 = static_cast<size_t>(
+        std::clamp(0.01, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
+    std::nth_element(all_values.begin(), all_values.begin() + idx_1,
+                     all_values.end());
+    const float floor_level = all_values[idx_1];
+
+    const size_t idx_999 = static_cast<size_t>(
+        std::clamp(0.999, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
+    std::nth_element(all_values.begin(), all_values.begin() + idx_999,
+                     all_values.end());
+    const float robust_max = all_values[idx_999];
+
+    result.low = floor_level;
+    result.high = robust_max;
+    const float range = robust_max - floor_level;
+    if (!(range > 1.0e-6f)) return result;
+
+    constexpr float target = 4294967295.0f;
+    const float scale = target / range;
     for (Matrix2Df* ch : {&r, &g, &b}) {
         for (Eigen::Index i = 0; i < ch->size(); ++i) {
             const float v = ch->data()[i];
-            if (std::isfinite(v) && v >= 0.0f) {
-                ch->data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+            if (std::isfinite(v)) {
+                const float stretched = (v - floor_level) * scale;
+                ch->data()[i] = std::clamp(stretched, 0.0f, target);
             } else {
                 ch->data()[i] = 0.0f;
             }

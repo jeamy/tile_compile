@@ -4,8 +4,10 @@
 
 #include <fitsio.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <sstream>
+#include <vector>
 
 namespace tile_compile::io {
 
@@ -689,16 +691,16 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
 
     fitsfile* fptr = nullptr;
     int status = 0;
-    
+
     std::string filepath = "!" + path.string();
-    
+
     if (fits_create_file(&fptr, filepath.c_str(), &status)) {
         throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
-    
+
     // Create 3D image cube: NAXIS1=width, NAXIS2=height, NAXIS3=3 (RGB planes)
     long naxes[3] = {static_cast<long>(R.cols()), static_cast<long>(R.rows()), 3};
-    
+
     fits_create_img(fptr, FLOAT_IMG, 3, naxes, &status);
     if (status) {
         const int write_status = status;
@@ -719,7 +721,7 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
                         "Row order: row 0 is top of image", &status);
         if (status) status = 0; // non-fatal: proceed even if key cannot be written
     }
-    
+
     // Write each RGB plane row by row to avoid cfitsio internal buffer issues
     // with very large single-write calls.
     const long nrows_rgb = static_cast<long>(R.rows());
@@ -735,14 +737,80 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
         }
         if (status) break;
     }
-    
+
     if (status) {
         const int write_status = status;
         int close_status = 0;
         fits_close_file(fptr, &close_status);
         throw FitsError(fits_write_error_message("write FITS RGB pixel data", path, write_status));
     }
-    
+
+    fits_close_file(fptr, &status);
+    if (status) {
+        throw FitsError(fits_write_error_message("close FITS file", path, status));
+    }
+}
+
+void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G,
+                       const Matrix2Df& B, const FitsHeader& header) {
+    if (R.rows() != G.rows() || R.rows() != B.rows() || R.cols() != G.cols() ||
+        R.cols() != B.cols()) {
+        throw FitsError("RGB channel dimensions must match");
+    }
+
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    const std::string filepath = "!" + path.string();
+    if (fits_create_file(&fptr, filepath.c_str(), &status)) {
+        throw FitsError(fits_write_error_message("create FITS file", path, status));
+    }
+
+    long naxes[3] = {static_cast<long>(R.cols()), static_cast<long>(R.rows()), 3};
+    fits_create_img(fptr, LONG_IMG, 3, naxes, &status);
+    if (status) {
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("create FITS RGB uint32 image", path, write_status));
+    }
+
+    double bscale = 1.0;
+    double bzero = 2147483648.0;
+    fits_update_key(fptr, TDOUBLE, "BSCALE", &bscale, nullptr, &status);
+    fits_update_key(fptr, TDOUBLE, "BZERO", &bzero, nullptr, &status);
+    write_header_keywords(fptr, header, true, status);
+
+    char roworder[] = "TOP-DOWN";
+    fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
+                    "Row order: row 0 is top of image", &status);
+    if (status) status = 0;
+
+    const long nrows = static_cast<long>(R.rows());
+    const long ncols = static_cast<long>(R.cols());
+    const Matrix2Df* planes[3] = {&R, &G, &B};
+    for (int p = 0; p < 3 && !status; ++p) {
+        for (long row = 0; row < nrows && !status; ++row) {
+            long fpixel[3] = {1, row + 1, p + 1};
+            const float* row_ptr = planes[p]->data() + row * ncols;
+            std::vector<unsigned int> values(static_cast<size_t>(ncols));
+            for (long col = 0; col < ncols; ++col) {
+                const float value = row_ptr[col];
+                const double rounded = std::isfinite(value)
+                    ? std::round(static_cast<double>(value)) : 0.0;
+                values[static_cast<size_t>(col)] = static_cast<unsigned int>(
+                    std::clamp(rounded, 0.0, 4294967295.0));
+            }
+            fits_write_pix(fptr, TUINT, fpixel, ncols, values.data(), &status);
+        }
+    }
+
+    if (status) {
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("write FITS RGB uint32 pixel data", path, write_status));
+    }
+
     fits_close_file(fptr, &status);
     if (status) {
         throw FitsError(fits_write_error_message("close FITS file", path, status));

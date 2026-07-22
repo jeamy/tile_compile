@@ -1,4 +1,5 @@
 #include "tile_compile/core/acceleration.hpp"
+#include "tile_compile/core/cfa_warp.hpp"
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
@@ -275,6 +276,23 @@ void write_valid_outputs_from_mask(const cv::Mat &mask,
   }
 }
 
+void invalidate_matrix_outside_support(Matrix2Df &matrix,
+                                       const cv::Mat &support_mask) {
+  if (matrix.rows() != support_mask.rows ||
+      matrix.cols() != support_mask.cols || support_mask.type() != CV_8U) {
+    return;
+  }
+  const float invalid = std::numeric_limits<float>::quiet_NaN();
+  for (int y = 0; y < support_mask.rows; ++y) {
+    const uchar *mask_row = support_mask.ptr<uchar>(y);
+    for (int x = 0; x < support_mask.cols; ++x) {
+      if (mask_row[x] == 0) {
+        matrix(y, x) = invalid;
+      }
+    }
+  }
+}
+
 /// @brief Builds warped support mask.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -331,46 +349,16 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                           cv::cuda::Stream *stream) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
-  const int h2 = h - (h % 2);
-  const int w2 = w - (w % 2);
-  const int out_h = (out_height > 0) ? out_height : h;
-  const int out_w = (out_width > 0) ? out_width : w;
-  const int out_h2 = out_h - (out_h % 2);
-  const int out_w2 = out_w - (out_w % 2);
-  const int sub_h = h2 / 2;
-  const int sub_w = w2 / 2;
-  const int out_h_sub = std::max(1, out_h2 / 2);
-  const int out_w_sub = std::max(1, out_w2 / 2);
+  const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
+  auto sub = extract_cfa_subplanes(mosaic, dims);
+  const auto warps = make_all_cfa_subplane_warps(warp);
 
-  Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
-  for (int y = 0; y < sub_h; ++y) {
-    for (int x = 0; x < sub_w; ++x) {
-      a(y, x) = mosaic(y * 2, x * 2);
-      b(y, x) = mosaic(y * 2, x * 2 + 1);
-      c(y, x) = mosaic(y * 2 + 1, x * 2);
-      d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
-    }
-  }
-
-  const float a2_00 = warp(0, 0);
-  const float a2_01 = warp(0, 1);
-  const float a2_10 = warp(1, 0);
-  const float a2_11 = warp(1, 1);
-  const float t_x = warp(0, 2) * 0.5f;
-  const float t_y = warp(1, 2) * 0.5f;
-  auto make_warp = [&](float dx, float dy) -> cv::Mat {
-    const float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
-    const float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
-    return (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11,
-            new_ty);
-  };
-
-  cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
-  cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
-  cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
-  cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
+  cv::Mat a_cv(dims.sub_h, dims.sub_w, CV_32F, sub.a.data());
+  cv::Mat b_cv(dims.sub_h, dims.sub_w, CV_32F, sub.b.data());
+  cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
+  cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
   cv::Mat a_w, b_w, c_w, d_w;
-  const cv::Size out_size(out_w_sub, out_h_sub);
+  const cv::Size out_size(dims.out_w_sub, dims.out_h_sub);
   if (stream) {
     // Keep all four CFA planes in one stream and synchronize once. Calling the
     // single-plane wrapper here would force four upload/warp/download barriers.
@@ -379,12 +367,10 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
       std::array<cv::cuda::GpuMat, 4> d_dst;
       const std::array<cv::Mat, 4> src = {a_cv, b_cv, c_cv, d_cv};
       std::array<cv::Mat *, 4> dst = {&a_w, &b_w, &c_w, &d_w};
-      const std::array<cv::Mat, 4> warps = {
-          make_warp(-0.25f, -0.25f), make_warp(0.25f, -0.25f),
-          make_warp(-0.25f, 0.25f), make_warp(0.25f, 0.25f)};
+      const std::array<cv::Mat, 4> warp_arr = {warps.a, warps.b, warps.c, warps.d};
       for (size_t i = 0; i < src.size(); ++i) {
         d_src[i].upload(src[i], *stream);
-        cv::cuda::warpAffine(d_src[i], d_dst[i], warps[i], out_size,
+        cv::cuda::warpAffine(d_src[i], d_dst[i], warp_arr[i], out_size,
                              cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
                              cv::BORDER_CONSTANT, cv::Scalar(0), *stream);
         d_dst[i].download(*dst[i], *stream);
@@ -393,26 +379,14 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
     } catch (...) {
       return false;
     }
-  } else if (!cuda_warp_affine_impl(a_cv, make_warp(-0.25f, -0.25f), out_size,
-                                     a_w, nullptr) ||
-             !cuda_warp_affine_impl(b_cv, make_warp(0.25f, -0.25f), out_size,
-                                     b_w, nullptr) ||
-             !cuda_warp_affine_impl(c_cv, make_warp(-0.25f, 0.25f), out_size,
-                                     c_w, nullptr) ||
-             !cuda_warp_affine_impl(d_cv, make_warp(0.25f, 0.25f), out_size,
-                                     d_w, nullptr)) {
+  } else if (!cuda_warp_affine_impl(a_cv, warps.a, out_size, a_w, nullptr) ||
+             !cuda_warp_affine_impl(b_cv, warps.b, out_size, b_w, nullptr) ||
+             !cuda_warp_affine_impl(c_cv, warps.c, out_size, c_w, nullptr) ||
+             !cuda_warp_affine_impl(d_cv, warps.d, out_size, d_w, nullptr)) {
     return false;
   }
 
-  out = Matrix2Df::Zero(out_h, out_w);
-  for (int y = 0; y < out_h_sub; ++y) {
-    for (int x = 0; x < out_w_sub; ++x) {
-      out(y * 2, x * 2) = a_w.at<float>(y, x);
-      out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
-    }
-  }
+  out = reassemble_cfa_subplanes(a_w, b_w, c_w, d_w, dims);
   return out.size() > 0;
 }
 #endif
@@ -459,70 +433,88 @@ bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                              int out_height, int out_width, Matrix2Df &out) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
-  const int h2 = h - (h % 2);
-  const int w2 = w - (w % 2);
-  const int out_h = (out_height > 0) ? out_height : h;
-  const int out_w = (out_width > 0) ? out_width : w;
-  const int out_h2 = out_h - (out_h % 2);
-  const int out_w2 = out_w - (out_w % 2);
-  const int sub_h = h2 / 2;
-  const int sub_w = w2 / 2;
-  const int out_h_sub = std::max(1, out_h2 / 2);
-  const int out_w_sub = std::max(1, out_w2 / 2);
+  const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
+  auto sub = extract_cfa_subplanes(mosaic, dims);
+  const auto warps = make_all_cfa_subplane_warps(warp);
 
-  Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
-  for (int y = 0; y < sub_h; ++y) {
-    for (int x = 0; x < sub_w; ++x) {
-      a(y, x) = mosaic(y * 2, x * 2);
-      b(y, x) = mosaic(y * 2, x * 2 + 1);
-      c(y, x) = mosaic(y * 2 + 1, x * 2);
-      d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
-    }
-  }
-
-  const float a2_00 = warp(0, 0);
-  const float a2_01 = warp(0, 1);
-  const float a2_10 = warp(1, 0);
-  const float a2_11 = warp(1, 1);
-  const float t_x = warp(0, 2) * 0.5f;
-  const float t_y = warp(1, 2) * 0.5f;
-  auto make_warp = [&](float dx, float dy) -> cv::Mat {
-    const float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
-    const float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
-    return (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11, new_ty);
-  };
-
-  cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
-  cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
-  cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
-  cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
+  cv::Mat a_cv(dims.sub_h, dims.sub_w, CV_32F, sub.a.data());
+  cv::Mat b_cv(dims.sub_h, dims.sub_w, CV_32F, sub.b.data());
+  cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
+  cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
   cv::Mat a_w, b_w, c_w, d_w;
-  const cv::Size out_size(out_w_sub, out_h_sub);
+  const cv::Size out_size(dims.out_w_sub, dims.out_h_sub);
   try {
-    if (!opencl_warp_affine_impl_locked(a_cv, make_warp(-0.25f, -0.25f),
-                                        out_size, a_w) ||
-        !opencl_warp_affine_impl_locked(b_cv, make_warp(0.25f, -0.25f),
-                                        out_size, b_w) ||
-        !opencl_warp_affine_impl_locked(c_cv, make_warp(-0.25f, 0.25f),
-                                        out_size, c_w) ||
-        !opencl_warp_affine_impl_locked(d_cv, make_warp(0.25f, 0.25f),
-                                        out_size, d_w)) {
+    if (!opencl_warp_affine_impl_locked(a_cv, warps.a, out_size, a_w) ||
+        !opencl_warp_affine_impl_locked(b_cv, warps.b, out_size, b_w) ||
+        !opencl_warp_affine_impl_locked(c_cv, warps.c, out_size, c_w) ||
+        !opencl_warp_affine_impl_locked(d_cv, warps.d, out_size, d_w)) {
       return false;
     }
   } catch (...) {
     return false;
   }
 
-  out = Matrix2Df::Zero(out_h, out_w);
-  for (int y = 0; y < out_h_sub; ++y) {
-    for (int x = 0; x < out_w_sub; ++x) {
-      out(y * 2, x * 2) = a_w.at<float>(y, x);
-      out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
-      out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
+  out = reassemble_cfa_subplanes(a_w, b_w, c_w, d_w, dims);
+  return out.size() > 0;
+}
+
+cv::Mat compute_min_keep_host(const cv::Mat &valid_count_host, int rows,
+                              int cols, float min_fraction) {
+  cv::Mat min_keep_host(rows, cols, CV_32F);
+  for (int y = 0; y < rows; ++y) {
+    const float *count_row = valid_count_host.ptr<float>(y);
+    float *min_keep_row = min_keep_host.ptr<float>(y);
+    for (int x = 0; x < cols; ++x) {
+      const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
+      min_keep_row[x] = static_cast<float>(
+          std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
     }
   }
-  return out.size() > 0;
+  return min_keep_host;
+}
+
+cv::UMat opencl_clip_update_keep_masks(
+    const std::vector<cv::UMat> &gpu_mats,
+    std::vector<cv::UMat> &keep_masks, const cv::UMat &lo, const cv::UMat &hi,
+    const cv::UMat &active_mask, const cv::UMat &can_continue,
+    const cv::UMat &min_keep, int rows, int cols) {
+  std::vector<cv::UMat> new_keep_masks;
+  new_keep_masks.reserve(keep_masks.size());
+  cv::UMat new_count(rows, cols, CV_32F);
+  new_count.setTo(cv::Scalar(0.0f));
+  for (size_t i = 0; i < gpu_mats.size(); ++i) {
+    cv::UMat ge_lo, le_hi, in_range;
+    cv::compare(gpu_mats[i], lo, ge_lo, cv::CMP_GE);
+    cv::compare(gpu_mats[i], hi, le_hi, cv::CMP_LE);
+    cv::bitwise_and(ge_lo, le_hi, in_range);
+
+    cv::UMat new_keep;
+    cv::bitwise_and(keep_masks[i], in_range, new_keep);
+    new_keep_masks.push_back(new_keep);
+
+    cv::UMat new_keep_f32;
+    new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
+    cv::add(new_count, new_keep_f32, new_count);
+  }
+
+  cv::UMat meets_min;
+  cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
+  cv::UMat update_mask;
+  cv::bitwise_and(active_mask, can_continue, update_mask);
+  cv::UMat apply_new_keep;
+  cv::bitwise_and(update_mask, meets_min, apply_new_keep);
+  cv::UMat next_active;
+  apply_new_keep.copyTo(next_active);
+
+  cv::UMat apply_new_keep_inv;
+  cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
+  for (size_t i = 0; i < keep_masks.size(); ++i) {
+    cv::UMat old_region, new_region;
+    cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+    cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
+    cv::bitwise_or(old_region, new_region, keep_masks[i]);
+  }
+  return next_active;
 }
 
 /// @brief Implements opencl sigma clip weighted tile impl.
@@ -612,15 +604,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
     }
 
     valid_count.copyTo(valid_count_host);
-    for (int y = 0; y < rows; ++y) {
-      const float *count_row = valid_count_host.ptr<float>(y);
-      float *min_keep_row = min_keep_host.ptr<float>(y);
-      for (int x = 0; x < cols; ++x) {
-        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
-        min_keep_row[x] = static_cast<float>(
-            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
-      }
-    }
+    min_keep_host = compute_min_keep_host(valid_count_host, rows, cols, min_fraction);
 
     const bool enable_clipping =
         static_cast<int>(gpu_tiles.size()) > 2 && max_iters > 0;
@@ -717,46 +701,9 @@ bool opencl_sigma_clip_weighted_tile_impl(
         cv::subtract(mean, sigma_low_sd, lo);
         cv::add(mean, sigma_high_sd, hi);
 
-        std::vector<cv::UMat> new_keep_masks;
-        new_keep_masks.reserve(keep_masks.size());
-        cv::UMat new_valid_count(rows, cols, CV_32F);
-        new_valid_count.setTo(cv::Scalar(0.0f));
-        for (size_t i = 0; i < gpu_tiles.size(); ++i) {
-          cv::UMat ge_lo;
-          cv::UMat le_hi;
-          cv::UMat in_range;
-          cv::compare(gpu_tiles[i], lo, ge_lo, cv::CMP_GE);
-          cv::compare(gpu_tiles[i], hi, le_hi, cv::CMP_LE);
-          cv::bitwise_and(ge_lo, le_hi, in_range);
-
-          cv::UMat new_keep;
-          cv::bitwise_and(keep_masks[i], in_range, new_keep);
-          new_keep_masks.push_back(new_keep);
-
-          cv::UMat new_keep_f32;
-          new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
-          cv::add(new_valid_count, new_keep_f32, new_valid_count);
-        }
-
-        cv::UMat meets_min;
-        cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
-        cv::UMat update_mask;
-        cv::bitwise_and(active_mask, can_continue, update_mask);
-        cv::UMat apply_new_keep;
-        cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-        cv::UMat next_active;
-        apply_new_keep.copyTo(next_active);
-
-        cv::UMat apply_new_keep_inv;
-        cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-        for (size_t i = 0; i < keep_masks.size(); ++i) {
-          cv::UMat old_region;
-          cv::UMat new_region;
-          cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
-          cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
-          cv::bitwise_or(old_region, new_region, keep_masks[i]);
-        }
-        active_mask = next_active;
+        active_mask = opencl_clip_update_keep_masks(
+            gpu_tiles, keep_masks, lo, hi, active_mask, can_continue,
+            min_keep, rows, cols);
       }
     }
 
@@ -875,15 +822,7 @@ bool opencl_sigma_clip_stack_impl(
     }
 
     initial_count.copyTo(initial_count_host);
-    for (int y = 0; y < rows; ++y) {
-      const float *count_row = initial_count_host.ptr<float>(y);
-      float *min_keep_row = min_keep_host.ptr<float>(y);
-      for (int x = 0; x < cols; ++x) {
-        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
-        min_keep_row[x] = static_cast<float>(
-            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
-      }
-    }
+    min_keep_host = compute_min_keep_host(initial_count_host, rows, cols, min_fraction);
 
     // OpenCV UMat operations are thread-safe - no global mutex needed
     cv::UMat min_keep;
@@ -964,47 +903,9 @@ bool opencl_sigma_clip_stack_impl(
       cv::subtract(mean, sigma_low_sd, lo);
       cv::add(mean, sigma_high_sd, hi);
 
-      std::vector<cv::UMat> new_keep_masks;
-      new_keep_masks.reserve(keep_masks.size());
-      cv::UMat new_count(rows, cols, CV_32F);
-      new_count.setTo(cv::Scalar(0.0f));
-
-      for (size_t i = 0; i < gpu_frames.size(); ++i) {
-        cv::UMat ge_lo;
-        cv::UMat le_hi;
-        cv::UMat in_range;
-        cv::compare(gpu_frames[i], lo, ge_lo, cv::CMP_GE);
-        cv::compare(gpu_frames[i], hi, le_hi, cv::CMP_LE);
-        cv::bitwise_and(ge_lo, le_hi, in_range);
-
-        cv::UMat new_keep;
-        cv::bitwise_and(keep_masks[i], in_range, new_keep);
-        new_keep_masks.push_back(new_keep);
-
-        cv::UMat new_keep_f32;
-        new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
-        cv::add(new_count, new_keep_f32, new_count);
-      }
-
-      cv::UMat meets_min;
-      cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
-      cv::UMat update_mask;
-      cv::bitwise_and(active_mask, can_continue, update_mask);
-      cv::UMat apply_new_keep;
-      cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-      cv::UMat next_active;
-      apply_new_keep.copyTo(next_active);
-
-      cv::UMat apply_new_keep_inv;
-      cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-      for (size_t i = 0; i < keep_masks.size(); ++i) {
-        cv::UMat old_region;
-        cv::UMat new_region;
-        cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
-        cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
-        cv::bitwise_or(old_region, new_region, keep_masks[i]);
-      }
-      active_mask = next_active;
+      active_mask = opencl_clip_update_keep_masks(
+          gpu_frames, keep_masks, lo, hi, active_mask, can_continue,
+          min_keep, rows, cols);
     }
 
     cv::UMat final_sum(rows, cols, CV_32F);
@@ -2365,6 +2266,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
         (dst_x + copy_w) <= canvas_width) {
       mask(cv::Rect(dst_x, dst_y, copy_w, copy_h)).setTo(cv::Scalar(255));
     }
+    invalidate_matrix_outside_support(warped_out, mask);
     write_valid_outputs_from_mask(mask, valid_mask_out, has_data_out);
   };
 
@@ -2378,6 +2280,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       support_mask = cv::Mat(canvas_height, canvas_width, CV_8U,
                              cv::Scalar(0));
     }
+    invalidate_matrix_outside_support(warped_out, support_mask);
     write_valid_outputs_from_mask(support_mask, valid_mask_out, has_data_out);
   };
 

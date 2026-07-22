@@ -285,8 +285,27 @@ BackendRuntime BackendRuntime::from_env() {
     rt.ui_events_path = rt.runtime_dir / "ui_events.jsonl";
 
     rt.host = env_string("TILE_COMPILE_HOST", env_string("HOST", "127.0.0.1").c_str());
-    rt.cli_exe    = resolve_executable_path(env_string("TILE_COMPILE_CLI",    "tile_compile_cli")).string();
-    rt.runner_exe = resolve_executable_path(env_string("TILE_COMPILE_RUNNER", "tile_compile_runner")).string();
+
+    // Prefer the repository build artifacts when no explicit executable was
+    // configured. This prevents a stale PATH binary from handling resumes.
+    auto resolve_project_executable = [&](const char* env_name,
+                                          const char* executable_name) {
+        const std::string configured = env_string(env_name, "");
+        if (!configured.empty()) {
+            return resolve_executable_path(fs::path(configured)).string();
+        }
+        for (const auto& candidate : {
+                 rt.project_root / "tile_compile_cpp" / "build" / executable_name,
+                 rt.project_root / "build" / executable_name,
+             }) {
+            std::error_code ec;
+            if (fs::is_regular_file(candidate, ec)) return candidate.string();
+        }
+        return resolve_executable_path(fs::path(executable_name)).string();
+    };
+
+    rt.cli_exe = resolve_project_executable("TILE_COMPILE_CLI", "tile_compile_cli");
+    rt.runner_exe = resolve_project_executable("TILE_COMPILE_RUNNER", "tile_compile_runner");
 
     std::string port_str = env_string("TILE_COMPILE_PORT", "8000");
     try { rt.port = std::stoi(port_str); } catch (...) { rt.port = 8000; }

@@ -7,8 +7,10 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
+import { setRunState } from "../state/run-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
+import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 const store = getStore("run-history", {
   selectedRunId: null,
@@ -130,15 +132,19 @@ async function selectRun(runId) {
   updateCompareDropdown();
   const body = document.getElementById("run-detail-body");
   if (!body) return;
+  body.classList.remove("tc-hidden");
+  const arrow = document.getElementById("run-detail-toggle");
+  if (arrow) arrow.textContent = "\u25bc";
   clear(body);
 
   body.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mb-2" }, runId));
 
   try {
-    const [status, stats, artifacts] = await Promise.all([
-      api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null),
+    const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
+    const runDir = status?.run_dir || "";
+    const [stats, artifacts] = await Promise.all([
       api.get(API_ENDPOINTS.runs.stats(runId)).catch(() => null),
-      api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => null),
+      api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
     ]);
 
     if (status) {
@@ -175,6 +181,9 @@ async function selectRun(runId) {
       }
       body.appendChild(artList);
     }
+
+    body.appendChild(createRunImagePreviewPanel("run-history-image-preview"));
+    loadRunImagePreview(runId, status?.run_dir || "", artifacts, "run-history-image-preview");
 
     const actions = document.getElementById("run-actions");
     if (actions) {
@@ -218,6 +227,14 @@ async function setRunCurrent(runId) {
     const cached = getRunsCache().find(r => (r.run_id || r.id) === runId);
     const runDir = cached?.path || cached?.run_dir || "";
     await api.post(API_ENDPOINTS.runs.setCurrent(runId), runDir ? { run_dir: runDir } : {});
+    setRunState({
+      currentRunId: runId,
+      currentRunDir: runDir || null,
+      status: cached?.status || cached?.state || null,
+      resumeActive: false,
+      resumePending: false,
+      resumeFromPhase: "",
+    });
     toastSuccess(t("ui.toast.set_current", "Als aktuell gesetzt"));
     const ui = getUiState();
     setUiState({ activeTab: "processing", activeSubTab: { ...ui.activeSubTab, processing: "run-monitor" } });
@@ -276,7 +293,7 @@ async function loadRunSnapshot(runId) {
 
     const [statsStatus, artifactsResult, logs] = await Promise.all([
       api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => null),
-      api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => null),
+      api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
       api.get(API_ENDPOINTS.runs.logs(runId, 99999)).catch(() => null),
     ]);
     const artifacts = artifactsResult?.items || artifactsResult || [];
@@ -427,4 +444,3 @@ async function generateStatsForRun(runId) {
     toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), e.message);
   }
 }
-

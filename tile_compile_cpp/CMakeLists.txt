@@ -436,6 +436,7 @@ set(LIB_SOURCES
     src/core/utils.cpp
     src/core/events.cpp
     src/core/acceleration.cpp
+    src/core/cfa_warp.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
     src/image/processing.cpp
@@ -457,6 +458,7 @@ set(LIB_SOURCES
     src/metrics/aqmh_global_quality.cpp
     src/metrics/aqmh_frame_valid_mask.cpp
     src/metrics/aqmh_regions.cpp
+    src/metrics/psf_fit.cpp
     src/reconstruction/reconstruction.cpp
     src/reconstruction/aqmh_reconstruction.cpp
     src/reconstruction/aqmh_pipeline_overlap.cpp
@@ -535,6 +537,7 @@ add_executable(tile_compile_runner
     apps/runner_preprocess.cpp
     apps/runner_shared.cpp
     apps/runner_resume.cpp
+    apps/runner_phase_post_stack_output.cpp
 )
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 
@@ -587,6 +590,7 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            apps/runner_shared.cpp
             tests/test_background_extraction.cpp
             tests/test_autobge.cpp
             tests/test_utils.cpp

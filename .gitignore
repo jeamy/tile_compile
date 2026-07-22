@@ -86,6 +86,7 @@ Thumbs.db
 .claude
 .devin
 .ai_analyses
+.kiro
 
 *.tar.gz
 

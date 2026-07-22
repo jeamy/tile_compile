@@ -6,28 +6,19 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
-import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent } from "../types.js";
+import type { AgentConfig, ScanAnalysisRequest, ScanAnalysisResponse, ProgressCallback, AnalysisProgressEvent, SessionContext } from "../types.js";
 import type { ModelService } from "./modelService.js";
+import { promptWithTimeout } from "./agentPrompt.js";
+import { sidecarExtensionPaths } from "./piExtensions.js";
+import { sanitizeProviderPayloadForModel } from "./providerPayload.js";
+import { recordProviderResponseHeaders, rememberProviderRateLimitError, waitForProviderSlot } from "./providerRateLimit.js";
+import { appendTrafficLog } from "./trafficLog.js";
 
-const trafficLogPath = path.resolve(process.env.TILE_COMPILE_PROJECT_ROOT || path.resolve(process.cwd(), ".."), "runs", "pi_agent_traffic.log");
-
-function envBool(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
-}
-
-function appendTrafficLog(message: string) {
-  if (!envBool("AI_TRAFFIC_LOG", false)) return;
-  try {
-    fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
-    fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${message}\n`);
-  } catch {
-    // Ignore logging errors.
-  }
-}
+const MAX_PROMPT_CHARS = 120_000;
+const MAX_AI_REQUEST_JSON_CHARS = 18_000;
+const MAX_SCAN_METRICS_JSON_CHARS = 35_000;
+const MAX_MEMORY_ITEMS = 4;
 
 function stableNormalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableNormalize);
@@ -47,7 +38,103 @@ function sha256Json(value: unknown): string {
   return sha256Text(JSON.stringify(stableNormalize(value)));
 }
 
-function createProviderOptionsExtension(config: AgentConfig) {
+function boundedJson(value: unknown, maxChars: number): string {
+  const text = JSON.stringify(value, null, 2);
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+}
+
+function compactLargeJson(value: unknown, depth = 0): unknown {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [];
+    if (depth >= 4 || value.length > 24) {
+      return {
+        _truncated_array: true,
+        original_length: value.length,
+        sample: value.slice(0, 5).map((item) => compactLargeJson(item, depth + 1)),
+      };
+    }
+    return value.map((item) => compactLargeJson(item, depth + 1));
+  }
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "frames" && Array.isArray(child)) {
+      out.frames = { _omitted_array: true, original_length: child.length };
+      continue;
+    }
+    if ((key === "scan_result" || key === "scan_metrics" || key === "base_config" || key === "config_schema") && depth <= 2) {
+      out[key] = { _omitted_duplicate_section: true };
+      continue;
+    }
+    out[key] = compactLargeJson(child, depth + 1);
+  }
+  return out;
+}
+
+function compactAiRequestForPrompt(aiRequest: Record<string, any>): unknown {
+  const sessionContext = aiRequest.session_context && typeof aiRequest.session_context === "object"
+    ? compactLargeJson(aiRequest.session_context)
+    : undefined;
+  const compact: Record<string, unknown> = {
+    schema_version: aiRequest.schema_version,
+    task: aiRequest.task,
+    user_message: aiRequest.user_message,
+    context_signature: compactLargeJson(aiRequest.context_signature),
+    run_context: compactLargeJson(aiRequest.run_context),
+    image_context: compactLargeJson(aiRequest.image_context),
+    artifacts: compactLargeJson(aiRequest.artifacts),
+    session_context: sessionContext,
+    allowed_config_paths_count: Array.isArray(aiRequest.allowed_config_paths) ? aiRequest.allowed_config_paths.length : undefined,
+    expected_response: aiRequest.expected_response,
+  };
+  if (Array.isArray(aiRequest.conversation)) {
+    compact.conversation = aiRequest.conversation.slice(-6).map((item: unknown) => compactLargeJson(item));
+    compact.conversation_truncated_from = aiRequest.conversation.length;
+  }
+  if (Array.isArray(aiRequest.positive_memories)) {
+    compact.positive_memories = aiRequest.positive_memories.slice(0, MAX_MEMORY_ITEMS).map((item: unknown) => compactLargeJson(item));
+    compact.positive_memories_truncated_from = aiRequest.positive_memories.length;
+  }
+  if (Array.isArray(aiRequest.negative_memories)) {
+    compact.negative_memories = aiRequest.negative_memories.slice(0, MAX_MEMORY_ITEMS).map((item: unknown) => compactLargeJson(item));
+    compact.negative_memories_truncated_from = aiRequest.negative_memories.length;
+  }
+  return compact;
+}
+
+function compactScanMetricsForPrompt(scanMetrics: any): unknown {
+  if (!scanMetrics || typeof scanMetrics !== "object" || Array.isArray(scanMetrics)) return scanMetrics;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    "schema_version",
+    "frames_total",
+    "frame_count",
+    "sample_count",
+    "aggregate",
+    "session_geometry",
+    "diagnostics",
+    "warnings",
+    "quality_spread",
+    "registration",
+  ]) {
+    if (scanMetrics[key] !== undefined) out[key] = compactLargeJson(scanMetrics[key]);
+  }
+  for (const [key, value] of Object.entries(scanMetrics)) {
+    if (out[key] !== undefined || key === "frames") continue;
+    if (Array.isArray(value) && value.length > 24) {
+      out[key] = { _omitted_array: true, original_length: value.length };
+    } else if (typeof value !== "object" || value === null) {
+      out[key] = value;
+    }
+  }
+  if (Array.isArray(scanMetrics.frames)) {
+    out.frames = { _omitted_array: true, original_length: scanMetrics.frames.length };
+  }
+  return out;
+}
+
+function createProviderOptionsExtension(config: AgentConfig, model: any) {
   return (pi: ExtensionAPI) => {
     pi.on("before_provider_request", (event) => {
       if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) {
@@ -60,12 +147,14 @@ function createProviderOptionsExtension(config: AgentConfig) {
       if (Number.isFinite(config.temperature) && (!hasThinking || config.temperature === 1)) {
         payload.temperature = config.temperature;
       }
+      let effectiveMaxTokens = config.maxTokens;
       if (Number.isFinite(config.maxTokens) && config.maxTokens > 0) {
-        // When extended thinking is active the model consumes a large portion of
-        // max_tokens for its reasoning trace before emitting any text. Apply a
-        // minimum of 32000 so the JSON response is not truncated mid-object.
+        // When extended thinking is active, non-Kiro models can consume a large
+        // portion of max_tokens before emitting text. Kiro's API-key bridge is
+        // more sensitive to large output budgets, so use the configured value.
         // (Claude Sonnet 4.x thinking traces alone can use 8-12k tokens.)
-        const effectiveMaxTokens = hasThinking ? Math.max(config.maxTokens, 32000) : config.maxTokens;
+        const isKiro = String(model?.provider || "") === "kiro-api-key" || String(model?.api || "") === "kiro-api";
+        effectiveMaxTokens = hasThinking && !isKiro ? Math.max(config.maxTokens, 32000) : config.maxTokens;
         if (Object.prototype.hasOwnProperty.call(payload, "max_tokens")) {
           payload.max_tokens = effectiveMaxTokens;
         }
@@ -73,8 +162,12 @@ function createProviderOptionsExtension(config: AgentConfig) {
           payload.max_output_tokens = effectiveMaxTokens;
         }
       }
-      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(payload.temperature ?? "")} max_tokens=${String(payload.max_tokens ?? payload.max_output_tokens ?? "")} effective_max_tokens=${String(hasThinking ? Math.max(config.maxTokens, 32000) : config.maxTokens)}`);
-      return payload;
+      const sanitized = sanitizeProviderPayloadForModel(payload, model, "scan_analysis");
+      appendTrafficLog(`provider_options thinking=${hasThinking ? "yes" : "no"} temperature=${String(sanitized.temperature ?? "")} max_tokens=${String(sanitized.max_tokens ?? sanitized.max_output_tokens ?? "")} effective_max_tokens=${String(effectiveMaxTokens)}`);
+      return sanitized;
+    });
+    pi.on("after_provider_response", (event) => {
+      recordProviderResponseHeaders(model, event.headers || {}, "scan_analysis");
     });
   };
 }
@@ -125,7 +218,7 @@ export class FrameAnalysisService {
     }
 
     const modelRef = request.model || this.config.model;
-    const model = this.modelService.findModel(modelRef);
+    const model = await this.modelService.findModel(modelRef);
     if (!model) throw new Error(`Model ${modelRef || "(empty)"} not found in PI registry`);
 
     this.emitProgress(onProgress, { phase: "initializing", message: "Creating AI session...", progress: 5 });
@@ -136,15 +229,15 @@ export class FrameAnalysisService {
     const resourceLoader = new DefaultResourceLoader({
       cwd: agentCwd,
       agentDir: getAgentDir(),
-      extensionFactories: [createProviderOptionsExtension(this.config)],
+      additionalExtensionPaths: sidecarExtensionPaths(),
+      extensionFactories: [createProviderOptionsExtension(this.config, model)],
     });
     await resourceLoader.reload();
 
     const { session } = await createAgentSession({
       cwd: agentCwd,
       model,
-      authStorage: this.modelService.getAuthStorage(),
-      modelRegistry: this.modelService.getModelRegistry(),
+      modelRuntime: await this.modelService.getModelRuntime(),
       sessionManager: SessionManager.inMemory(),
       resourceLoader,
       tools: [],
@@ -154,6 +247,7 @@ export class FrameAnalysisService {
     const prompt = this.buildPrompt(request);
     const requestAuditPayload = {
       schema_version: request.schema_version,
+      ai_request: request.ai_request,
       scan_result: request.scan_result,
       base_config: request.base_config,
       config_schema: request.config_schema,
@@ -164,7 +258,7 @@ export class FrameAnalysisService {
       force: request.force,
     };
     appendTrafficLog(`prompt_length ${prompt.length} sections=${[
-      'IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
+      'AI REQUEST V2','IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
     ].map(s => s + ':' + (prompt.includes(s) ? 'YES' : 'NO')).join(' ')}`);
     appendTrafficLog(`prompt ${prompt.substring(0, 50000)}`);
 
@@ -175,6 +269,7 @@ export class FrameAnalysisService {
     let lastProgressEmit = startTime;
 
     this.emitProgress(onProgress, { phase: "ai_thinking", message: "Waiting for AI response...", progress: 15 });
+    await waitForProviderSlot(model, prompt, this.config, "scan_analysis");
 
     const unsubscribe = session.subscribe((event: any) => {
       if (["agent_start", "message_start", "message_update", "message_end", "agent_end"].includes(String(event.type))) {
@@ -238,7 +333,12 @@ export class FrameAnalysisService {
     });
 
     try {
-      await session.prompt(prompt);
+      await promptWithTimeout(
+        session,
+        prompt,
+        this.config.timeoutMs,
+        `PI scan-analysis request (model=${model.id}, provider=${model.provider || "unknown"})`,
+      );
     } finally {
       unsubscribe();
       session.dispose();
@@ -250,7 +350,18 @@ export class FrameAnalysisService {
     console.log(`[AI Analysis] Completed: ${textDeltaCount} deltas, ${responseText.length} chars, ${duration}ms`);
     appendTrafficLog(`raw_response ${responseText.substring(0, 20000)}`);
     if (!responseText.trim() && assistantError) {
+      rememberProviderRateLimitError(model, assistantError, "scan_analysis");
       throw new Error(`PI agent provider error: ${assistantError}`);
+    }
+    if (!responseText.trim()) {
+      const timeoutNote = duration >= (this.config.timeoutMs || 180000) * 0.9
+        ? " (likely timeout — provider did not respond within the configured timeout)"
+        : "";
+      throw new Error(
+        `PI agent returned empty response after ${Math.round(duration / 1000)}s` +
+        ` (model=${model.id}, provider=${model.provider || "unknown"})${timeoutNote}.` +
+        ` Check that the API key is valid and the provider is reachable.`
+      );
     }
 
     const allowedPaths = new Set<string>(
@@ -292,8 +403,20 @@ export class FrameAnalysisService {
   }
 
   private buildPrompt(request: ScanAnalysisRequest): string {
+    const aiRequest = request.ai_request && typeof request.ai_request === "object" && !Array.isArray(request.ai_request)
+      ? request.ai_request as Record<string, any>
+      : {};
+    const scanContext = aiRequest.scan_context && typeof aiRequest.scan_context === "object" && !Array.isArray(aiRequest.scan_context)
+      ? aiRequest.scan_context as Record<string, any>
+      : {};
+    const configContext = aiRequest.config && typeof aiRequest.config === "object" && !Array.isArray(aiRequest.config)
+      ? aiRequest.config as Record<string, any>
+      : {};
+    const sessionContextFromAiRequest = aiRequest.session_context && typeof aiRequest.session_context === "object" && !Array.isArray(aiRequest.session_context)
+      ? aiRequest.session_context as SessionContext
+      : undefined;
     // Build compact schema reference: only leaf paths (non-object types)
-    const configSchema = request.config_schema || {};
+    const configSchema = request.config_schema || configContext.config_schema || {};
     const schemaLines: string[] = [];
     for (const [path, info] of Object.entries<any>(configSchema)) {
       if (path.startsWith("aqmh.cherry_pick.")) continue;
@@ -311,7 +434,7 @@ export class FrameAnalysisService {
     }
 
     // Build compact scan summary (no frame list, just counts and metadata)
-    const scan = (request as any).scan_result || {};
+    const scan = (request as any).scan_result || scanContext.scan_result || {};
     const frames = Array.isArray(scan.frames) ? scan.frames : [];
     const frameCount = scan.frames_detected ?? scan.frames_total ?? frames.length;
 
@@ -369,7 +492,7 @@ export class FrameAnalysisService {
     }
 
     // Build compact current config (only leaf values, flatten dotted paths)
-    const baseConfig = (request.base_config as any) || {};
+    const baseConfig = (request.base_config as any) || configContext.base_config || {};
     const configLines: string[] = [];
     const flattenConfig = (obj: any, prefix: string) => {
       if (obj == null) return;
@@ -384,7 +507,7 @@ export class FrameAnalysisService {
     flattenConfig(baseConfig, "");
 
     // Use scan_metrics (from scan-metrics CLI) if provided — authoritative quality data
-    const scanMetrics = (request.scan_metrics as any) || null;
+    const scanMetrics = (request.scan_metrics as any) || scanContext.scan_metrics || null;
     const metricsLines: string[] = [];
     if (scanMetrics && scanMetrics.aggregate) {
       const agg = scanMetrics.aggregate;
@@ -404,8 +527,8 @@ export class FrameAnalysisService {
         }
       }
       metricsLines.push("");
-      metricsLines.push("Full measured scan_metrics JSON:");
-      metricsLines.push(JSON.stringify(scanMetrics, null, 2));
+      metricsLines.push("Compact measured scan_metrics JSON (large per-frame arrays omitted):");
+      metricsLines.push(boundedJson(compactScanMetricsForPrompt(scanMetrics), MAX_SCAN_METRICS_JSON_CHARS));
     }
 
     // Aggregate frame statistics if available (frames[] may be truncated by backend)
@@ -434,7 +557,7 @@ export class FrameAnalysisService {
       }
     }
 
-    return [
+    const sections = [
       "You are an expert in astronomical image stacking and tile_compile configuration.",
       "Analyze the scan result, measured image-quality statistics, and current configuration below. Create a suitable tile_compile configuration by returning a precise patch of recommended config changes.",
       "Separate measured facts, configured values, and astrophotography assumptions rigorously.",
@@ -552,6 +675,15 @@ export class FrameAnalysisService {
       "- Never recommend a single weight from a group without recommending all others in the same group.",
       "- Double-check that all weights in a group sum to exactly 1.0 before including them.",
       "",
+      ...((() => {
+        if (!request.ai_request) return [];
+        return [
+          "=== AI REQUEST V2 SUMMARY (large duplicate scan/config payload omitted) ===",
+          "Prefer this structured container for task intent, context signature, memory evidence and conversation state. Detailed scan/config facts are in the validation sections below.",
+          boundedJson(compactAiRequestForPrompt(aiRequest), MAX_AI_REQUEST_JSON_CHARS),
+          "",
+        ];
+      })()),
       "=== CONFIG SCHEMA (path  type  [enum]  [description]) ===",
       ...schemaLines,
       "",
@@ -571,9 +703,10 @@ export class FrameAnalysisService {
         "",
       ] : []),
       ...((() => {
-        const ctx = request.session_context || {};
+        const ctx = request.session_context || sessionContextFromAiRequest || {};
         const lines: string[] = [];
         if (ctx.mount_type) lines.push(`mount_type: ${ctx.mount_type}  (eq=equatorial tracker, altaz=alt/az unguided)`);
+        if (ctx.target_name) lines.push(`target_name: ${ctx.target_name}`);
         if (ctx.target_angular_size) lines.push(`target_angular_size: ${ctx.target_angular_size}  (compact=<5% frame, extended=>10% frame, full_frame=fills frame)`);
         if (ctx.camera_type) lines.push(`camera_type: ${ctx.camera_type}`);
         if (ctx.calibration_darks !== undefined) lines.push(`calibration_darks_available: ${ctx.calibration_darks}`);
@@ -596,8 +729,43 @@ export class FrameAnalysisService {
         if (ctx.notes) lines.push(`notes: ${ctx.notes}`);
         return lines.length > 0 ? ["=== SESSION CONTEXT (mount, target, system, geometry) ===", ...lines, ""] : [];
       })()),
+      ...((() => {
+        const memories = Array.isArray(aiRequest.positive_memories)
+          ? aiRequest.positive_memories
+          : Array.isArray(request.session_context?.accepted_pi_memories)
+          ? request.session_context.accepted_pi_memories
+          : [];
+        if (memories.length === 0) return [];
+        const lines = [
+          "Use these as reviewed historical experience only. Do not copy values blindly; every recommendation still must match CONFIG SCHEMA and current evidence.",
+          JSON.stringify(memories.slice(0, 8), null, 2),
+        ];
+        return ["=== ACCEPTED PI MEMORIES (reviewed historical optimizations) ===", ...lines, ""];
+      })()),
+      ...((() => {
+        const memories = Array.isArray(aiRequest.negative_memories)
+          ? aiRequest.negative_memories
+          : Array.isArray(request.session_context?.negative_pi_memories)
+          ? request.session_context.negative_pi_memories
+          : [];
+        if (memories.length === 0) return [];
+        const lines = [
+          "Avoid repeating these reviewed rejected or deprecated optimizations unless current evidence is materially different and review_required=true.",
+          JSON.stringify(memories.slice(0, 8), null, 2),
+        ];
+        return ["=== NEGATIVE PI MEMORIES (reviewed rejected/deprecated optimizations) ===", ...lines, ""];
+      })()),
       "=== SCAN RESULT ===",
       JSON.stringify(scanCompact, null, 2),
+    ];
+    const prompt = sections.join("\n");
+    if (prompt.length <= MAX_PROMPT_CHARS) return prompt;
+    appendTrafficLog(`prompt_budget_truncate original_chars=${prompt.length} max_chars=${MAX_PROMPT_CHARS}`);
+    return [
+      prompt.slice(0, MAX_PROMPT_CHARS),
+      "",
+      `... [PROMPT TRUNCATED from ${prompt.length} to ${MAX_PROMPT_CHARS} chars by tile_compile budget guard]`,
+      "Return the required JSON object using only the complete facts visible above. Do not invent missing measurements.",
     ].join("\n");
   }
 
@@ -607,8 +775,13 @@ export class FrameAnalysisService {
 
     const match = responseText.match(/\{[\s\S]*\}/);
     if (!match) {
-      console.error("[AI Analysis] No JSON object found in response");
-      throw new Error("No JSON object found in PI agent response");
+      const preview = responseText.substring(0, 300).replace(/\n/g, "\\n");
+      console.error("[AI Analysis] No JSON object found in response. Preview:", preview);
+      throw new Error(
+        `No JSON object found in PI agent response (${responseText.length} chars received).` +
+        ` Response starts with: "${preview.substring(0, 120)}..."` +
+        ` — the model may not have produced structured JSON output.`
+      );
     }
 
     let parsed: any;

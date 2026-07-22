@@ -2,10 +2,12 @@
 #include "../apps/runner_shared.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/acceleration.hpp"
+#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <thread>
 
 TEST_CASE("runtime_limits_acceleration_backend_parses_and_validates") {
@@ -90,6 +92,78 @@ TEST_CASE("acceleration_backend_selection_keeps_cpu_requests") {
   REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
           "cpu");
   REQUIRE_FALSE(selection.using_gpu);
+}
+
+TEST_CASE("aqmh_map_workers_are_not_capped_with_sufficient_memory") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+  reconstruction:
+    memory_budget_mb: 0
+  storage:
+    resolution_divisor: 2
+    max_resident_maps: 2
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382, 64ull * 1024ull * 1024ull * 1024ull);
+
+  REQUIRE(plan.requested_workers == 8);
+  REQUIRE(plan.effective_workers == plan.requested_workers);
+  REQUIRE_FALSE(plan.memory_capped);
+  REQUIRE(plan.estimated_bytes_per_worker > 0);
+}
+
+TEST_CASE("aqmh_map_workers_are_capped_only_when_available_memory_is_low") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382, 2ull * 1024ull * 1024ull * 1024ull);
+
+  REQUIRE(plan.requested_workers == 8);
+  REQUIRE(plan.effective_workers < plan.requested_workers);
+  REQUIRE(plan.effective_workers >= 1);
+  REQUIRE(plan.memory_capped);
+}
+
+TEST_CASE("aqmh_map_worker_cap_uses_explicit_reconstruction_budget") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 4096
+aqmh:
+  enabled: true
+  reconstruction:
+    memory_budget_mb: 8192
+)");
+
+  const auto cfg = tile_compile::config::Config::from_yaml(node);
+  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
+      cfg, 610, {}, 4530, 3382);
+
+  REQUIRE(plan.memory_budget_bytes == 8192ull * 1024ull * 1024ull);
+  REQUIRE(plan.effective_workers >= 1);
+  REQUIRE(plan.effective_workers <= plan.requested_workers);
 }
 
 TEST_CASE("acceleration_backend_selection_auto_chooses_supported_stacking_backend") {
@@ -285,6 +359,79 @@ TEST_CASE("warp_affine_frame_preserves_support_for_negative_samples") {
   REQUIRE(valid_mask == std::vector<uint8_t>({1u, 1u, 1u, 1u}));
   REQUIRE(warped(0, 0) == Catch::Approx(-1.0f));
   REQUIRE(warped(1, 1) == Catch::Approx(-4.0f));
+}
+
+TEST_CASE("warp_affine_frame_marks_expanded_canvas_outside_support_nonfinite") {
+  tile_compile::core::AccelerationSelection selection;
+  selection.phase = tile_compile::core::AccelerationPhase::prewarp;
+  selection.requested = tile_compile::core::AccelerationBackend::cpu;
+  selection.selected = tile_compile::core::AccelerationBackend::cpu;
+  selection.requested_name = "cpu";
+
+  tile_compile::core::AccelerationOps ops(selection);
+  tile_compile::Matrix2Df frame(2, 2);
+  frame << 0.0f, -2.0f, 3.0f, 4.0f;
+
+  tile_compile::WarpMatrix warp = tile_compile::WarpMatrix::Identity();
+  tile_compile::Matrix2Df warped;
+  std::vector<uint8_t> valid_mask;
+  bool has_data = false;
+
+  REQUIRE(ops.warp_affine_frame(frame, warp, tile_compile::ColorMode::MONO, 4,
+                                5, 2, 1, warped, &valid_mask, &has_data));
+  REQUIRE(has_data);
+  REQUIRE(warped.rows() == 4);
+  REQUIRE(warped.cols() == 5);
+  REQUIRE(std::isfinite(warped(1, 2)));
+  REQUIRE(warped(1, 2) == Catch::Approx(0.0f));
+  REQUIRE(warped(1, 3) == Catch::Approx(-2.0f));
+  REQUIRE_FALSE(std::isfinite(warped(0, 0)));
+  REQUIRE_FALSE(std::isfinite(warped(3, 4)));
+
+  const auto derived = tile_compile::metrics::compute_aqmh_frame_valid_mask(
+      warped, {}, 5, 4);
+  REQUIRE(derived == valid_mask);
+  REQUIRE(std::count(derived.begin(), derived.end(), uint8_t{1}) == 4);
+}
+
+TEST_CASE("warp_affine_frame_mask_matches_non_identity_warp_support") {
+  tile_compile::core::AccelerationSelection selection;
+  selection.phase = tile_compile::core::AccelerationPhase::prewarp;
+  selection.requested = tile_compile::core::AccelerationBackend::cpu;
+  selection.selected = tile_compile::core::AccelerationBackend::cpu;
+  selection.requested_name = "cpu";
+
+  tile_compile::core::AccelerationOps ops(selection);
+  tile_compile::Matrix2Df frame = tile_compile::Matrix2Df::Constant(3, 3, 7.0f);
+  frame(1, 1) = 0.0f;
+  tile_compile::WarpMatrix warp = tile_compile::WarpMatrix::Identity();
+  warp(0, 2) = 1.0f;
+  warp(1, 2) = -1.0f;
+
+  tile_compile::Matrix2Df warped;
+  std::vector<uint8_t> valid_mask;
+  bool has_data = false;
+  REQUIRE(ops.warp_affine_frame(frame, warp, tile_compile::ColorMode::MONO, 5,
+                                5, 0, 0, warped, &valid_mask, &has_data));
+  REQUIRE(has_data);
+
+  const auto derived = tile_compile::metrics::compute_aqmh_frame_valid_mask(
+      warped, {}, 5, 5);
+  REQUIRE(derived == valid_mask);
+  REQUIRE(std::count(derived.begin(), derived.end(), uint8_t{1}) == 6);
+  REQUIRE(std::count_if(warped.data(), warped.data() + warped.size(),
+                        [](float v) { return !std::isfinite(v); }) == 19);
+}
+
+TEST_CASE("aqmh_overlap_masks_preserve_low_coverage_output_support") {
+  const std::vector<uint16_t> coverage = {0u, 1u, 2u, 12u, 13u, 610u};
+  const auto masks =
+      tile_compile::runner::compute_overlap_masks(coverage, 13);
+
+  REQUIRE(masks.analysis_common ==
+          std::vector<uint8_t>({0u, 0u, 0u, 0u, 1u, 1u}));
+  REQUIRE(masks.reconstruction_support ==
+          std::vector<uint8_t>({0u, 1u, 1u, 1u, 1u, 1u}));
 }
 
 TEST_CASE("common_overlap_tile_gate_keeps_negative_finite_samples") {

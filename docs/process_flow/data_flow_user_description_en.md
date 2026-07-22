@@ -27,7 +27,7 @@ The primary product is a linear stacked image. Depending on configuration and da
 - **Run**
   - One full pipeline execution with its own run directory under `runs/<run_id>/`.
 - **Phase**
-  - One well-defined processing stage such as `REGISTRATION`, `AQMH_QUALITY_MAPS`, or `PCC`.
+  - One well-defined processing stage such as `REGISTRATION`, `AQMH_MAPS`, or `PCC`.
 - **Artifact**
   - Persisted diagnostic or intermediate data, typically written under `artifacts/`.
 - **Event timeline**
@@ -51,9 +51,11 @@ Input frames (FITS)
    -> GLOBAL_METRICS
    -> TILE_GRID (auxiliary geometry; reconstruction grid for Classic)
    -> COMMON_OVERLAP
-   -> AQMH_QUALITY_MAPS (phase enum: LOCAL_METRICS)
-      or [Classic] LOCAL_METRICS
-   -> TILE_RECONSTRUCTION (AQMH default or Classic)
+   -> AQMH_MAPS (enum 19)
+   -> AQMH_GLOBAL_QUALITY (enum 20)
+   -> AQMH_RECONSTRUCTION (enum 21)
+   -> AQMH_DIAGNOSTICS (enum 22)
+      or [Classic] LOCAL_METRICS -> TILE_RECONSTRUCTION
    -> [Classic only, optional] STATE_CLUSTERING
    -> [Classic only, optional] SYNTHETIC_FRAMES
    -> STACKING
@@ -244,7 +246,7 @@ tiles and is no longer the default.
 
 ---
 
-## 8) AQMH quality maps (`AQMH_QUALITY_MAPS`, default)
+## 8) AQMH quality maps (`AQMH_MAPS`, enum 19)
 
 **Goal**
 
@@ -261,12 +263,13 @@ tiles and is no longer the default.
 
 - cached AQMH quality maps and AQMH diagnostics
 
-With `method: classic_tile_compile`, the same phase enum is displayed as
-`LOCAL_METRICS` and instead computes local tile metrics and weights `L_f,t`.
+This is followed by `AQMH_GLOBAL_QUALITY` (enum 20), which computes the global
+frame weights. With `method: classic_tile_compile`, `LOCAL_METRICS` (enum 8)
+is executed instead and computes local tile metrics and weights `L_f,t`.
 
 ---
 
-## 9) Reconstruction (`TILE_RECONSTRUCTION`)
+## 9) Reconstruction (`AQMH_RECONSTRUCTION`, enum 21)
 
 **Goal**
 
@@ -275,7 +278,8 @@ With `method: classic_tile_compile`, the same phase enum is displayed as
 **Processing**
 
 - AQMH: combine each pixel with global frame weights and per-frame quality maps, then apply weighted sigma clipping
-- Classic: fuse weighted tile contributions and blend neighboring overlap regions
+- Classic: `TILE_RECONSTRUCTION` (enum 9) fuses weighted tile contributions and
+  blends neighboring overlap regions
 - use streaming CUDA for AQMH reconstruction when Cherry-Pick is disabled
 - use CUDA/OpenCL for classic sigma clipping and overlap-add; fall back to CPU when unavailable
 
@@ -329,7 +333,8 @@ With `method: classic_tile_compile`, the same phase enum is displayed as
 
 **Processing**
 
-- AQMH: pass through the final reconstruction produced in phase 9
+- AQMH: pass through the final reconstruction produced in
+  `AQMH_RECONSTRUCTION` (phase 21)
 - Classic: robustly aggregate reconstructed or synthetic intermediate data
 - Classic: suppress outliers such as hot pixels, satellite trails or sporadic defects
 - Classic: combine data using the previously derived quality models
@@ -470,7 +475,13 @@ The exact filenames may vary by configuration. The stable part is the semantic s
 
 ## Resume of post-run phases
 
-If a run already exists, post-processing phases can be re-executed from the persisted run state:
+The complete resume matrix with the implemented entry points and minimum
+dependencies is in
+[resume_dependencies_en.md](resume_dependencies_en.md). Its distinction
+between direct resume and in-place full rerun is authoritative.
+
+If a run already exists, supported post-processing phases can be re-executed
+from the persisted run state:
 
 ```text
 ./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
@@ -483,7 +494,9 @@ The resume path reuses in particular:
 - outputs and artifacts from earlier phases
 - the run directory as the authoritative working context
 
-Resume is therefore not a partially new run, but a controlled continuation based on persisted run data.
+For direct post-processing resumes this is a controlled continuation based on
+persisted run data. Early phases marked as in-place full reruns instead start
+the complete pipeline in the same run directory.
 
 ---
 

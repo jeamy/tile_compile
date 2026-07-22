@@ -20,6 +20,8 @@ nlohmann::json summarize_scan_job(const std::optional<Job>& job,
             {"job_state", "pending"},
             {"input_path", fallback_input_path},
             {"input_dirs", nlohmann::json::array()},
+            {"object_name", ""},
+            {"target", ""},
             {"ok", false},
             {"frames_detected", 0},
             {"image_width", 0},
@@ -64,6 +66,7 @@ nlohmann::json summarize_scan_job(const std::optional<Job>& job,
         : nlohmann::json::array();
 
     std::string input_path = result.value("input_path", data.value("input_path", fallback_input_path));
+    std::string object_name = result.value("object_name", data.value("object_name", std::string()));
     bool ok = result.contains("ok") && result["ok"].is_boolean()
         ? result["ok"].get<bool>()
         : errors.empty();
@@ -74,6 +77,8 @@ nlohmann::json summarize_scan_job(const std::optional<Job>& job,
         {"job_state", job_state_str(job->state)},
         {"input_path", input_path},
         {"input_dirs", input_dirs},
+        {"object_name", object_name},
+        {"target", result.value("target", data.value("target", object_name))},
         {"ok", ok},
         {"frames_detected", result.value("frames_detected", 0)},
         {"image_width", result.value("image_width", 0)},

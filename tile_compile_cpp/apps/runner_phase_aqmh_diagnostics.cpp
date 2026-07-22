@@ -230,7 +230,7 @@ bool run_phase_aqmh_diagnostics(
     const std::filesystem::path &run_dir,
     const reconstruction::AqmhReconstructionResult &reconstruction,
     metrics::QualityMapCache *q_map_cache,
-    const std::vector<uint8_t> &canvas_mask,
+    const std::vector<uint8_t> &analysis_common_mask,
     const std::vector<uint8_t> &frame_has_data,
     int canvas_width, int canvas_height,
     core::EventEmitter &emitter, std::ostream &log_file) {
@@ -314,14 +314,14 @@ bool run_phase_aqmh_diagnostics(
           continue;
 
         const core::json blk = compute_block_diagnostics(
-            q_map, canvas_mask, canvas_width, canvas_height,
+            q_map, analysis_common_mask, canvas_width, canvas_height,
             tau_artifact, block_size_px);
         block_grid_width = blk.value("block_grid_width", 0);
         block_grid_height = blk.value("block_grid_height", 0);
 
         if (emit_heatmaps) {
           auto [q_hm, art_hm] = compute_block_heatmaps(
-              q_map, canvas_mask, canvas_width, canvas_height,
+              q_map, analysis_common_mask, canvas_width, canvas_height,
               tau_artifact, block_size_px);
           heatmap_frames.emplace_back(
               static_cast<uint32_t>(fi),

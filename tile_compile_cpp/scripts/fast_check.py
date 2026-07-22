@@ -1,7 +1,7 @@
 import os, re
 
 words = [
-    "abort_on_fail", "acceleration_backend", "adaptive_weights", "allow_emergency_mode", "allow_rotation",
+    "acceleration_backend", "adaptive_weights", "allow_emergency_mode", "allow_rotation",
     "alpha", "alpha_flatness", "amount", "annulus_inner_fwhm_mult", "annulus_inner_px",
     "annulus_outer_fwhm_mult", "annulus_outer_px", "aperture_fwhm_mult", "aperture_radius_px", "apply_attenuation",
     "apply_stage", "astap_bin", "astap_data_dir", "astrometry", "autotune",

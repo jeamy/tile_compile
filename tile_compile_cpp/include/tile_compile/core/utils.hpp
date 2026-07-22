@@ -1,10 +1,16 @@
 #pragma once
 
 #include "types.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 namespace tile_compile::core {
 
@@ -31,13 +37,19 @@ void copy_config(const fs::path& src, const fs::path& dst);
 fs::path resolve_project_root(const fs::path& config_path);
 
 // Statistical utilities (canonical implementations — do NOT duplicate)
-float median_of(std::vector<float>& v);
-float mad_of(std::vector<float>& v, float median);
-float stddev_of(const std::vector<float>& v);
-float robust_sigma_mad(std::vector<float>& pixels);
-float percentile_from_sorted(const std::vector<float>& sorted, float pct);
-float percentile_of(std::vector<float>& values, float pct);
-float estimate_background_sigma_clip(std::vector<float> pixels);
+// Empty-input convention: functions in this group return 0.0f on empty input.
+// This is intentional — 0.0f is a neutral element for addition and does not
+// propagate through arithmetic. Callers that need "no data" signalling should
+// check emptiness before calling, or use the metrics::aqmh_* variants which
+// return NaN on empty/degenerate input.
+constexpr float kMadToSigma = 1.4826f;
+float median_of(std::vector<float> v);              // returns 0.0f if empty
+float mad_of(std::vector<float> v, float median);   // returns 0.0f if empty
+float stddev_of(const std::vector<float>& v);       // returns 0.0f if < 2 elements
+float robust_sigma_mad(std::vector<float>& pixels); // returns 0.0f if empty
+float percentile_from_sorted(const std::vector<float>& sorted, float pct); // returns 0.0f if empty
+float percentile_of(std::vector<float>& values, float pct);               // returns 0.0f if empty
+float estimate_background_sigma_clip(std::vector<float> pixels);          // returns 0.0f if empty
 std::vector<size_t> sample_indices(size_t count, int max_samples);
 
 // Robust z-score normalization: (x - median) / (1.4826 * MAD)
@@ -57,10 +69,42 @@ struct StretchResult {
 StretchResult stretch_to_u16_linear_from_zero_inplace(
     Matrix2Df& img);
 
-StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
     Matrix2Df& b);
+
+StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    const std::vector<uint8_t>& statistics_mask);
+
+/// Compute the effective OMP thread count for a parallel region, respecting
+/// the configured worker limit. Call this instead of using bare `#pragma omp`
+/// without `num_threads`. The result accounts for:
+///   - max_configured_workers (from runtime_limits.parallel_workers)
+///   - hardware_concurrency as upper bound
+///   - already being inside a parallel region (returns 1)
+///   - work_items: never use more threads than items to process
+///
+/// Usage:
+///   const int nt = core::omp_effective_threads(cfg_workers, work_items);
+///   #pragma omp parallel for num_threads(nt) schedule(static)
+inline int omp_effective_threads(int max_configured_workers, int work_items = 0) {
+#if defined(_OPENMP)
+    if (omp_in_parallel()) return 1;
+    int threads = std::max(1, max_configured_workers);
+    const int hw = static_cast<int>(std::thread::hardware_concurrency());
+    if (hw > 0) threads = std::min(threads, hw);
+    if (work_items > 0) threads = std::min(threads, work_items);
+    return std::max(1, threads);
+#else
+    (void)max_configured_workers;
+    (void)work_items;
+    return 1;
+#endif
+}
 
 // String utilities
 std::string to_lower(const std::string& s);
@@ -71,6 +115,5 @@ std::string join(const std::vector<std::string>& parts, const std::string& delim
 
 // Glob pattern matching
 bool glob_match(const std::string& pattern, const std::string& str);
-std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern);
 
 } // namespace tile_compile::core

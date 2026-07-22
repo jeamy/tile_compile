@@ -9,6 +9,9 @@
 #include "services/bge_preview_service.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
+#include <fitsio.h>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -48,6 +51,75 @@ static crow::response err_resp(const std::string& code,
                                int status,
                                const nlohmann::json& details) {
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
+}
+
+static std::string read_method_from_yaml_text_local(const std::string& yaml_text) {
+    if (yaml_text.empty()) return "";
+    try {
+        YAML::Node root = YAML::Load(yaml_text);
+        if (root["method"] && root["method"].IsScalar()) {
+            return root["method"].as<std::string>();
+        }
+    } catch (...) {}
+    return "";
+}
+
+static std::string read_run_method_local(const fs::path& run_dir, const std::string& yaml_override = "") {
+    std::string method = read_method_from_yaml_text_local(yaml_override);
+    if (!method.empty()) return method;
+    std::ifstream f(run_dir / "config.yaml");
+    if (f) {
+        try {
+            YAML::Node root = YAML::Load(f);
+            if (root["method"] && root["method"].IsScalar()) {
+                return root["method"].as<std::string>();
+            }
+        } catch (...) {}
+    }
+    return "";
+}
+
+static bool has_nonempty_prewarped_cache(const fs::path& run_dir) {
+    std::error_code ec;
+    const fs::path cache_dir = run_dir / "cache" / "prewarped_frames";
+    if (!fs::is_directory(cache_dir, ec)) return false;
+    return !fs::is_empty(cache_dir, ec);
+}
+
+static std::string read_resume_input_dir_from_events(const fs::path& run_dir) {
+    std::ifstream f(run_dir / "logs" / "run_events.jsonl");
+    if (!f) return "";
+    std::string line;
+    std::string last_input_dir;
+    while (std::getline(f, line)) {
+        if (line.find("input_dir") == std::string::npos) continue;
+        try {
+            auto ev = nlohmann::json::parse(line);
+            if (ev.contains("input_dir") && ev["input_dir"].is_string()) {
+                last_input_dir = ev["input_dir"].get<std::string>();
+            } else if (ev.contains("payload") && ev["payload"].is_object() &&
+                       ev["payload"].contains("input_dir") && ev["payload"]["input_dir"].is_string()) {
+                last_input_dir = ev["payload"]["input_dir"].get<std::string>();
+            }
+        } catch (...) {}
+    }
+    return last_input_dir;
+}
+
+static bool has_synthetic_outputs(const fs::path& run_dir) {
+    std::error_code ec;
+    const fs::path outputs_dir = run_dir / "outputs";
+    if (!fs::is_directory(outputs_dir, ec)) return false;
+    for (const auto& entry : fs::directory_iterator(outputs_dir, ec)) {
+        if (ec || !entry.is_regular_file(ec)) continue;
+        const fs::path path = entry.path();
+        const std::string stem = path.stem().string();
+        const std::string ext = path.extension().string();
+        if (stem.rfind("synthetic_", 0) == 0 && (ext == ".fit" || ext == ".fits")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// @brief Implements sanitize run id.
@@ -302,6 +374,143 @@ static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, co
         }
     }
     return candidate;
+}
+
+static size_t count_run_event_lines_for_resume(const fs::path& run_dir) {
+    const std::vector<fs::path> candidates = {
+        run_dir / "logs" / "run_events.jsonl",
+        run_dir / "events.jsonl",
+        run_dir / "logs" / "events.jsonl"
+    };
+    for (const auto& path : candidates) {
+        if (!fs::exists(path)) continue;
+        std::ifstream in(path);
+        size_t count = 0;
+        std::string line;
+        while (std::getline(in, line)) ++count;
+        return count;
+    }
+    return 0;
+}
+
+static std::string fits_status_text(int status) {
+    char text[FLEN_STATUS]{};
+    fits_get_errstatus(status, text);
+    return text;
+}
+
+static std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
+                                                  long& width, long& height, long& planes) {
+    fitsfile* file = nullptr;
+    int status = 0;
+    if (fits_open_file(&file, path.string().c_str(), READONLY, &status))
+        throw std::runtime_error("Cannot open FITS: " + fits_status_text(status));
+    int naxis = 0;
+    long axes[3]{1, 1, 1};
+    if (fits_get_img_dim(file, &naxis, &status) ||
+        fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Invalid FITS image");
+    }
+    width = axes[0];
+    height = axes[1];
+    planes = naxis >= 3 ? axes[2] : 1;
+    if (plane < 1 || plane > planes) {
+        fits_close_file(file, &status);
+        throw std::runtime_error("Missing FITS plane");
+    }
+    std::vector<float> pixels(static_cast<size_t>(width * height));
+    long first[3]{1, 1, plane};
+    int any_null = 0;
+    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr, pixels.data(), &any_null, &status)) {
+        const auto message = fits_status_text(status);
+        fits_close_file(file, &status);
+        throw std::runtime_error("Cannot read FITS: " + message);
+    }
+    fits_close_file(file, &status);
+    return pixels;
+}
+
+static cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) {
+    cv::Mat mat(static_cast<int>(height), static_cast<int>(width), CV_32F);
+    for (long y = 0; y < height; ++y)
+        for (long x = 0; x < width; ++x)
+            mat.at<float>(static_cast<int>(y), static_cast<int>(x)) = values[static_cast<size_t>(y * width + x)];
+    return mat;
+}
+
+static std::pair<float, float> robust_range(const std::vector<cv::Mat>& planes) {
+    std::vector<float> sample;
+    for (const auto& mat : planes) {
+        const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(mat.rows * mat.cols) / 250000.0)));
+        for (int y = 0; y < mat.rows; y += stride) {
+            for (int x = 0; x < mat.cols; x += stride) {
+                const float v = mat.at<float>(y, x);
+                if (std::isfinite(v)) sample.push_back(v);
+            }
+        }
+    }
+    if (sample.empty()) return {0.0f, 1.0f};
+    std::sort(sample.begin(), sample.end());
+    auto at = [&](double q) {
+        const size_t idx = std::min(sample.size() - 1, static_cast<size_t>(std::llround(q * static_cast<double>(sample.size() - 1))));
+        return sample[idx];
+    };
+    float lo = at(0.01);
+    float hi = at(0.995);
+    if (!std::isfinite(lo) || !std::isfinite(hi) || hi <= lo) {
+        lo = sample.front();
+        hi = sample.back();
+    }
+    if (hi <= lo) hi = lo + 1.0f;
+    return {lo, hi};
+}
+
+static std::vector<unsigned char> render_fits_preview_png(const fs::path& path, int max_edge = 1400) {
+    long w = 0, h = 0, p = 0;
+    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    cv::Mat r = plane_to_mat(rv, w, h);
+    cv::Mat g = r;
+    cv::Mat b = r;
+    if (p >= 3) {
+        long wg = 0, hg = 0, pg = 0;
+        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        g = plane_to_mat(gv, wg, hg);
+        long wb = 0, hb = 0, pb = 0;
+        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        b = plane_to_mat(bv, wb, hb);
+        if (g.cols != r.cols || g.rows != r.rows || b.cols != r.cols || b.rows != r.rows)
+            throw std::runtime_error("RGB FITS planes have different dimensions");
+    }
+    const int edge = std::max(r.rows, r.cols);
+    if (edge > max_edge) {
+        const double scale = static_cast<double>(max_edge) / static_cast<double>(edge);
+        const cv::Size size(std::max(1, static_cast<int>(std::lround(r.cols * scale))),
+                            std::max(1, static_cast<int>(std::lround(r.rows * scale))));
+        cv::resize(r, r, size, 0, 0, cv::INTER_AREA);
+        cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
+        cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
+    }
+    const auto [lo, hi] = robust_range({r, g, b});
+    const float denom = std::max(hi - lo, 1e-9f);
+    cv::Mat out(r.rows, r.cols, CV_8UC3);
+    for (int y = 0; y < r.rows; ++y) {
+        for (int x = 0; x < r.cols; ++x) {
+            auto convert = [&](float v) -> unsigned char {
+                if (!std::isfinite(v)) v = lo;
+                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
+                n = std::pow(n, 0.6f);
+                return cv::saturate_cast<unsigned char>(n * 255.0f);
+            };
+            auto& px = out.at<cv::Vec3b>(y, x);
+            px[2] = convert(r.at<float>(y, x));
+            px[1] = convert(g.at<float>(y, x));
+            px[0] = convert(b.at<float>(y, x));
+        }
+    }
+    std::vector<unsigned char> png;
+    if (!cv::imencode(".png", out, png)) throw std::runtime_error("PNG encoding failed");
+    return png;
 }
 
 /// @brief Applies color mode to yaml.
@@ -1141,6 +1350,7 @@ void register_runs_routes(CrowApp& app,
         std::string rev_id       = body.value("config_revision_id", "");
         std::string config_yaml  = body.value("config_yaml",  "");
         std::string filter_ctx   = body.value("filter_context", "");
+        const bool dry_run       = body.value("dry_run", false);
 
         if (from_phase.empty()) return err_resp("RESUME_PHASE_REQUIRED", "from_phase is required for resume", 409, nlohmann::json::object());
 
@@ -1153,6 +1363,146 @@ void register_runs_routes(CrowApp& app,
             auto rev = resolve_config_revision(state, run_dir, rev_id);
             if (!rev) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404, nlohmann::json::object());
             requested_yaml = rev->yaml_text;
+        }
+
+        // Validate that the requested resume phase is feasible given the
+        // artifacts that actually exist in the run directory. This must mirror
+        // the runner's resume path. AQMH map/reconstruction phases need the
+        // prewarp cache; AQMH STACKING uses the immutable raw CFA artifact or
+        // regenerates it from the cache for legacy runs.
+        {
+            static const std::set<std::string> inplace_rerun_phases = {
+                "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS",
+                "TILE_GRID", "REGISTRATION", "PREWARP", "COMMON_OVERLAP",
+                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
+                "SYNTHETIC_FRAMES", "DEBAYER"
+            };
+            static const std::set<std::string> aqmh_cache_resume_phases = {
+                "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_METRICS",
+                "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"
+            };
+            static const std::map<std::string, std::vector<std::string>> phase_required_files = {
+                {"DEBAYER",            {"outputs/stacked.fits"}},
+                {"ASTROMETRY",         {"outputs/stacked_rgb.fits"}},
+                {"BGE",                {"outputs/stacked_rgb_solve.fits"}},
+                {"PCC",                {"outputs/stacked_rgb_solve.fits"}},
+                {"HYPERMETRIC_STRETCH",{"outputs/pcc_R.fit", "outputs/pcc_G.fit", "outputs/pcc_B.fit"}},
+            };
+            static const std::set<std::string> supported_resume_phases = {
+                "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT",
+                "NORMALIZATION", "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP",
+                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
+                "SYNTHETIC_FRAMES", "AQMH_MAPS", "AQMH_GLOBAL_QUALITY",
+                "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
+                "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC",
+                "HYPERMETRIC_STRETCH"
+            };
+            if (!supported_resume_phases.count(from_phase)) {
+                return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                    "Cannot resume from phase '" + from_phase + "': this phase is not a supported resume start point.",
+                    409, {{"from_phase", from_phase}, {"reason", "unsupported_resume_phase"}});
+            }
+            const std::string method = read_run_method_local(run_dir, requested_yaml);
+
+            std::error_code ec;
+            if (inplace_rerun_phases.count(from_phase)) {
+                const fs::path config_path = run_dir / "config.yaml";
+                if (!fs::is_regular_file(config_path, ec) || tile_compile::routes::read_file_str(config_path).empty()) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': config.yaml is missing or empty, so the runner cannot replay the run in place.",
+                        409, {{"from_phase", from_phase}, {"reason", "config_missing"}});
+                }
+                const std::string input_dir = read_resume_input_dir_from_events(run_dir);
+                if (input_dir.empty()) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': the original input_dir is missing from logs/run_events.jsonl, so the runner cannot replay the run in place.",
+                        409, {{"from_phase", from_phase}, {"reason", "input_dir_missing"}});
+                }
+            } else if (method == "aqmh" && aqmh_cache_resume_phases.count(from_phase)) {
+                bool cache_exists = has_nonempty_prewarped_cache(run_dir);
+                if (!cache_exists) {
+                    nlohmann::json feasible_phases = nlohmann::json::array(
+                        {"SCAN_INPUT", "REGISTRATION", "PREWARP", "STACKING", "DEBAYER",
+                         "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"});
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase + "': runner would resume at '" +
+                        "AQMH_RECONSTRUCTION' and requires cache/prewarped_frames frames, but no reusable "
+                        "cache/prewarped_frames frames are present in the run directory. "
+                        "Use an in-place rerun phase such as SCAN_INPUT/REGISTRATION/PREWARP, or resume from a persisted downstream artifact. "
+                        "Feasible resume phases for this run: " +
+                        [&feasible_phases]() {
+                            std::string out;
+                            for (const auto& phase : feasible_phases) {
+                                if (!out.empty()) out += ", ";
+                                out += phase.get<std::string>();
+                            }
+                            return out;
+                        }() + ".",
+                        409, {{"from_phase", from_phase}, {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
+                              {"reason", "prewarped_cache_missing"},
+                              {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()},
+                              {"feasible_phases", feasible_phases}});
+                }
+            } else {
+                if (from_phase == "STACKING") {
+                    if (method == "aqmh") {
+                        const fs::path raw_reconstruction =
+                            run_dir / "outputs" / "aqmh_reconstructed_raw.fit";
+                        if (!fs::is_regular_file(raw_reconstruction, ec) &&
+                            !has_nonempty_prewarped_cache(run_dir)) {
+                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                                "Cannot resume from phase 'STACKING': outputs/aqmh_reconstructed_raw.fit is missing and cannot be regenerated because no reusable cache/prewarped_frames frames are present. Resume from PREWARP or an earlier in-place phase first.",
+                                409, {{"from_phase", from_phase},
+                                      {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
+                                      {"reason", "aqmh_raw_and_prewarped_cache_missing"},
+                                      {"missing_files", nlohmann::json::array({"outputs/aqmh_reconstructed_raw.fit"})},
+                                      {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}});
+                        }
+                    } else if (!has_synthetic_outputs(run_dir)) {
+                        return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                            "Cannot resume from phase 'STACKING': synthetic_*.fit outputs are missing.",
+                            409, {{"from_phase", from_phase}, {"reason", "missing_synthetic_outputs"}});
+                    }
+                }
+                auto it = phase_required_files.find(from_phase);
+                if (it != phase_required_files.end()) {
+                    std::vector<std::string> missing;
+                    for (const auto& rel_path : it->second) {
+                        if (!fs::is_regular_file(run_dir / rel_path, ec)) {
+                            missing.push_back(rel_path);
+                        }
+                    }
+                    if (!missing.empty()) {
+                        // Special case: HYPERMETRIC_STRETCH can also work from stacked_rgb_pcc.fits
+                        bool fallback_ok = false;
+                        if (from_phase == "HYPERMETRIC_STRETCH") {
+                            fallback_ok = fs::is_regular_file(run_dir / "outputs" / "stacked_rgb_pcc.fits", ec);
+                        }
+                        if (!fallback_ok) {
+                            nlohmann::json missing_arr = nlohmann::json::array();
+                            for (const auto& m : missing) missing_arr.push_back(m);
+                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                                "Cannot resume from phase '" + from_phase + "': required artifacts missing: " +
+                                missing_arr.dump(),
+                                409, {{"from_phase", from_phase}, {"reason", "artifacts_missing"},
+                                      {"missing_files", missing_arr}});
+                        }
+                    }
+                }
+            }
+        }
+
+        const size_t event_cursor_before_resume = count_run_event_lines_for_resume(run_dir);
+
+        if (dry_run) {
+            return json_resp({
+                {"run_id", run_id},
+                {"run_dir", run_dir.string()},
+                {"from_phase", from_phase},
+                {"feasible", true},
+                {"dry_run", true},
+                {"message", "Resume from phase '" + from_phase + "' is feasible."}
+            });
         }
 
         if (!requested_yaml.empty()) {
@@ -1181,6 +1531,7 @@ void register_runs_routes(CrowApp& app,
             {"run_dir", run_dir.string()},
             {"runs_dir", run_dir.parent_path().string()},
             {"from_phase", from_phase},
+            {"event_cursor_before_resume", event_cursor_before_resume},
             {"config_revision_id", rev_id},
             {"filter_context", filter_ctx.empty() ? nlohmann::json(nullptr) : nlohmann::json(filter_ctx)},
             {"command", args}
@@ -1209,25 +1560,29 @@ void register_runs_routes(CrowApp& app,
         if (req.url_params.get("tail"))
             try { tail = std::stoi(req.url_params.get("tail")); } catch (...) {}
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             std::string text = read_run_logs(run_dir, tail);
             nlohmann::json lines = nlohmann::json::array();
             std::istringstream iss(text);
             std::string line;
             while (std::getline(iss, line)) lines.push_back(line);
-            return json_resp({{"lines", lines}, {"cursor", nullptr}});
+            return json_resp({{"lines", lines}, {"cursor", nullptr}, {"run_dir", run_dir.string()}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
         }
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts").methods("GET"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             auto items   = list_run_artifacts(run_dir);
-            return json_resp({{"items", items}, {"run_id", run_id}});
+            return json_resp({{"items", items}, {"run_id", run_id}, {"run_dir", run_dir.string()}});
         } catch (const std::exception& e) {
             if (pending_run_status(state, run_id)) {
                 return json_resp({{"items", nlohmann::json::array()}, {"run_id", run_id}});
@@ -1267,6 +1622,35 @@ void register_runs_routes(CrowApp& app,
             return json_resp({{"text", content}, {"is_json", false}, {"filename", full->filename().string()}, {"path", full->string()}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/image-preview").methods("GET"_method)
+    ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
+        std::string rel_path = req.url_params.get("path") ? req.url_params.get("path") : "";
+        if (rel_path.empty()) {
+            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+        }
+        try {
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
+            auto full = resolve_artifact_path(run_dir, rel_path);
+            if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
+            if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
+            const std::string ext = full->extension().string();
+            if (ext != ".fits" && ext != ".fit" && ext != ".fts") {
+                return err_resp("UNSUPPORTED_PREVIEW_FORMAT", "image-preview currently supports FITS files", 415, nlohmann::json::object());
+            }
+            const auto png = render_fits_preview_png(*full);
+            crow::response res(200);
+            res.set_header("Content-Type", "image/png");
+            res.set_header("Cache-Control", "no-store");
+            res.body.assign(reinterpret_cast<const char*>(png.data()), png.size());
+            return res;
+        } catch (const std::exception& e) {
+            return err_resp("PREVIEW_RENDER_FAILED", e.what(), 422, nlohmann::json::object());
         }
     });
 

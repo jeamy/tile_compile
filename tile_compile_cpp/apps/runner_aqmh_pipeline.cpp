@@ -29,7 +29,8 @@ bool run_aqmh_phases(
   // at end of maps phase, before returning, so both complete before Stage 2).
   if (!run_phase_aqmh_maps(
           run_id, cfg, frames, run_dir, frame_has_data, common_valid_mask,
-          canvas_width, canvas_height, prewarped_frames, norm_scales,
+          common_valid_mask, canvas_width, canvas_height, prewarped_frames,
+          norm_scales,
           detected_mode, detected_bayer_str, false, acceleration, emitter,
           log_file, out.aqmh_cache, out.aqmh_global_weights,
           out.prefetch_coordinator)) {
@@ -44,7 +45,8 @@ bool run_aqmh_phases(
   AqmhReconstructionPhaseResult recon_phase_result;
   if (!run_phase_aqmh_reconstruction(
           run_id, cfg, run_dir, frames, frame_has_data,
-          common_valid_mask, canvas_width, canvas_height, osc_mode,
+          common_valid_mask, common_valid_mask, canvas_width, canvas_height,
+          osc_mode,
           prewarped_frames, out.aqmh_cache, out.aqmh_global_weights,
           acceleration, emitter, log_file,
           recon_started_at, prev_cv_threads, recon_phase_result,

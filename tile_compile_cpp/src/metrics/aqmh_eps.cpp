@@ -1,4 +1,5 @@
 #include "tile_compile/metrics/aqmh_eps.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -70,7 +71,7 @@ std::vector<float> robust_zscore_eps_scale(const std::vector<float> &values) {
     return out;
   }
   const float eps = std::max(positive_floor(), aqmh_eps_rel * std::max(std::abs(med), mad));
-  const float scale = std::max(1.4826f * mad, eps);
+  const float scale = std::max(core::kMadToSigma * mad, eps);
   for (size_t i = 0; i < values.size(); ++i)
     if (std::isfinite(values[i])) out[i] = (values[i] - med) / scale;
   return out;

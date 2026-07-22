@@ -15,6 +15,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cmath>
 #include <filesystem>
@@ -46,6 +47,33 @@ tc::Matrix2Df make_gradient_frame(int w, int h) {
   return f;
 }
 
+tc::Matrix2Df make_validation_star_field(int w, int h, int extra_stars = 0) {
+  tc::Matrix2Df image(h, w);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      image(y, x) = 100.0f + 0.01f * static_cast<float>((x + 3 * y) % 17);
+
+  int star_index = 0;
+  for (int y = 24; y < h - 24; y += 20) {
+    for (int x = 24; x < w - 24; x += 20) {
+      const float peak = 20.0f + static_cast<float>(star_index % 9);
+      for (int dy = -3; dy <= 3; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+          const float r2 = static_cast<float>(dx * dx + dy * dy);
+          image(y + dy, x + dx) += peak * std::exp(-0.5f * r2 / 1.4f);
+        }
+      }
+      ++star_index;
+    }
+  }
+  for (int i = 0; i < extra_stars; ++i) {
+    const int x = 30 + 17 * i;
+    const int y = h - 30;
+    image(y, x) += 60.0f + static_cast<float>(i);
+  }
+  return image;
+}
+
 std::vector<uint8_t> full_mask(int w, int h) {
   return std::vector<uint8_t>(static_cast<size_t>(w * h), 1u);
 }
@@ -70,6 +98,27 @@ TEST_CASE("aqmh_weighted_mad_quickselect_is_deterministic") {
   REQUIRE(a.retained.size() == b.retained.size());
   for (size_t i = 0; i < a.retained.size(); ++i)
     REQUIRE(a.retained[i].frame_index == b.retained[i].frame_index);
+}
+
+TEST_CASE("aqmh_symmetric_clipping_preserves_background_location") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  samples.reserve(401);
+  for (size_t i = 0; i < 200; ++i) {
+    const float deviation = 0.01f * static_cast<float>(i + 1);
+    samples.push_back({100.0f - deviation, 1.0f, 1.0f, 2 * i});
+    samples.push_back({100.0f + deviation, 1.0f, 1.0f, 2 * i + 1});
+  }
+  samples.push_back({100.0f, 1.0f, 1.0f, 400});
+
+  const auto result =
+      recon::aqmh_sigma_clip(samples, 2.0f, 2.0f, 4, 0.4f, 2.0f);
+
+  REQUIRE(result.denominator_ok);
+  REQUIRE(result.retained.size() > 300);
+  double weighted_sum = 0.0;
+  for (const auto &sample : result.retained)
+    weighted_sum += sample.weight * sample.value;
+  REQUIRE(weighted_sum / result.weight_sum == Catch::Approx(100.0).margin(1e-5));
 }
 
 // §9.1 — Map range: Q_map ∈ [0,1] for all finite source-valid pixels
@@ -280,9 +329,109 @@ TEST_CASE("aqmh_validation_14_global_quality_bounded") {
   auto result = metrics::compute_aqmh_global_quality(sharp, snr, background, cfg);
   for (size_t i = 0; i < result.weights.size(); ++i) {
     REQUIRE(std::isfinite(result.weights[i]));
-    REQUIRE(result.weights[i] > cfg.g_floor);
-    REQUIRE(result.weights[i] < 1.0f);
+    REQUIRE(result.weights[i] >= cfg.g_floor);
+    REQUIRE(result.weights[i] <= 1.0f);
   }
+}
+
+TEST_CASE("aqmh_validation_comparison_uses_common_control_stars") {
+  const auto control = make_validation_star_field(160, 160);
+  const auto candidate = make_validation_star_field(160, 160, 4);
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.control.star_count >= 12);
+  REQUIRE(cmp.aqmh.star_count == cmp.control.star_count);
+}
+
+TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
+  const auto control = make_validation_star_field(160, 160);
+  const auto smaller_candidate = make_validation_star_field(96, 96);
+
+  REQUIRE_NOTHROW(
+      recon::compare_aqmh_to_uniform_control(smaller_candidate, control));
+}
+
+TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
+  constexpr int W = 256;
+  constexpr int H = 192;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float noise =
+          0.2f * std::sin(0.71f * static_cast<float>(x) +
+                          1.13f * static_cast<float>(y));
+      const float dx = (static_cast<float>(x) - 0.55f * W) / (0.28f * W);
+      const float dy = (static_cast<float>(y) - 0.45f * H) / (0.32f * H);
+      const float diffuse_signal =
+          20.0f * std::exp(-0.5f * (dx * dx + dy * dy));
+      control(y, x) = 100.0f + noise;
+      candidate(y, x) = control(y, x) + diffuse_signal;
+    }
+  }
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.background_rms_applicable);
+  REQUIRE(std::abs(cmp.background_rms_regression) < 0.05f);
+}
+
+TEST_CASE("aqmh_validation_mask_excludes_partial_coverage_edge_noise") {
+  constexpr int W = 192;
+  constexpr int H = 160;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  std::vector<uint8_t> common_mask(static_cast<size_t>(W) * H, 0u);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float base_noise =
+          0.2f * std::sin(0.83f * static_cast<float>(x) +
+                          1.07f * static_cast<float>(y));
+      control(y, x) = 100.0f + base_noise;
+      candidate(y, x) = control(y, x);
+      if (x < W / 2) {
+        common_mask[static_cast<size_t>(y) * W + x] = 1u;
+      } else {
+        candidate(y, x) +=
+            0.3f * std::sin(1.91f * static_cast<float>(x) -
+                            2.17f * static_cast<float>(y));
+      }
+    }
+  }
+
+  const auto unmasked = recon::compare_aqmh_to_uniform_control(candidate, control);
+  const auto masked =
+      recon::compare_aqmh_to_uniform_control(candidate, control, common_mask);
+
+  REQUIRE(unmasked.background_rms_applicable);
+  REQUIRE(unmasked.background_rms_regression > 0.05f);
+  REQUIRE(masked.background_rms_applicable);
+  REQUIRE(std::abs(masked.background_rms_regression) < 0.01f);
+}
+
+TEST_CASE("aqmh_background_rms_detects_added_pixel_scale_noise") {
+  constexpr int W = 192;
+  constexpr int H = 160;
+  tc::Matrix2Df control(H, W);
+  tc::Matrix2Df candidate(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float base_noise =
+          0.2f * std::sin(0.83f * static_cast<float>(x) +
+                          1.07f * static_cast<float>(y));
+      const float added_noise =
+          0.3f * std::sin(1.91f * static_cast<float>(x) -
+                          2.17f * static_cast<float>(y));
+      control(y, x) = 100.0f + base_noise;
+      candidate(y, x) = control(y, x) + added_noise;
+    }
+  }
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(candidate, control);
+
+  REQUIRE(cmp.background_rms_applicable);
+  REQUIRE(cmp.background_rms_regression > 0.05f);
 }
 
 // §9.14 — Global quality: identical inputs → identical G
@@ -297,6 +446,78 @@ TEST_CASE("aqmh_validation_14_global_quality_determinism") {
     REQUIRE(r1.weights[i] == r2.weights[i]);
 }
 
+TEST_CASE("aqmh_validation_degenerate_control_metrics_are_not_applicable") {
+  const int W = 32, H = 32;
+  const auto aqmh = make_gradient_frame(W, H);
+  const auto control = make_uniform_frame(W, H, 10.0f);
+
+  const auto cmp = recon::compare_aqmh_to_uniform_control(aqmh, control);
+
+  REQUIRE_FALSE(cmp.background_rms_applicable);
+  REQUIRE_FALSE(cmp.seam_applicable);
+  REQUIRE_FALSE(cmp.tail_applicable);
+  REQUIRE_FALSE(cmp.elongation_applicable);
+  REQUIRE(cmp.background_rms_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.seam_score_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.tail11_abs_regression == Catch::Approx(0.0f));
+  REQUIRE(cmp.elongation_regression == Catch::Approx(0.0f));
+}
+
+TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
+  tc::config::AqmhStorageConfig storage;
+  REQUIRE(storage.resolution_divisor == 2);
+  REQUIRE(storage.dtype == "uint16");
+
+  tc::config::AqmhGlobalQualityConfig global;
+  REQUIRE(global.g_floor == Catch::Approx(0.03f));
+  REQUIRE(global.g_w_sharp == Catch::Approx(0.55f));
+  REQUIRE(global.g_w_snr == Catch::Approx(0.30f));
+  REQUIRE(global.g_w_background_penalty == Catch::Approx(0.25f));
+  REQUIRE(global.g_k_scale == Catch::Approx(1.5f));
+
+  tc::config::AqmhReconstructionConfig reconstruction;
+  REQUIRE(reconstruction.clip_sigma == Catch::Approx(2.0f));
+  REQUIRE(reconstruction.clip_sigma_low == Catch::Approx(2.0f));
+  REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(2.0f));
+  REQUIRE(reconstruction.clip_iterations == 4);
+  REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
+  REQUIRE(reconstruction.registration_sequential_factor == Catch::Approx(0.92f));
+  REQUIRE(reconstruction.registration_predicted_factor == Catch::Approx(0.50f));
+  REQUIRE(reconstruction.structure_mask_low_q == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.structure_mask_high_q == Catch::Approx(0.90f));
+  REQUIRE(reconstruction.structure_mask_blur_sigma_px == Catch::Approx(4.0f));
+
+  tc::config::AqmhValidationConfig validation;
+  REQUIRE(validation.max_fwhm_regression == Catch::Approx(0.02f));
+  REQUIRE(validation.max_background_rms_regression == Catch::Approx(0.05f));
+  REQUIRE(validation.max_seam_score_regression == Catch::Approx(0.05f));
+  REQUIRE(validation.max_tail11_abs_regression == Catch::Approx(0.10f));
+  REQUIRE(validation.max_elongation_regression == Catch::Approx(0.08f));
+}
+
+TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
+  const auto schema = nlohmann::json::parse(tc::config::get_schema_json());
+  const auto &aqmh = schema.at("properties").at("aqmh").at("properties");
+  REQUIRE(aqmh.at("storage").at("properties").at("resolution_divisor").at("default") == 2);
+  REQUIRE(aqmh.at("storage").at("properties").at("dtype").at("default") == "uint16");
+  REQUIRE(aqmh.at("global_quality").at("properties").at("g_k_scale").at("default") == 1.5);
+  const auto &reconstruction = aqmh.at("reconstruction").at("properties");
+  REQUIRE(reconstruction.at("clip_sigma").at("default") == 2.0);
+  REQUIRE(reconstruction.at("clip_sigma_low").at("default") == 2.0);
+  REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 2.0);
+  REQUIRE(reconstruction.at("clip_iterations").at("default") == 4);
+  REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
+  REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);
+  REQUIRE(reconstruction.at("registration_predicted_factor").at("default") == 0.50);
+  REQUIRE(reconstruction.contains("structure_mask_low_q"));
+  REQUIRE(reconstruction.contains("structure_mask_high_q"));
+  REQUIRE(reconstruction.contains("structure_mask_blur_sigma_px"));
+  const auto &validation = aqmh.at("validation").at("properties");
+  REQUIRE(validation.at("max_tail11_abs_regression").at("default") == 0.10);
+  REQUIRE(validation.at("max_elongation_regression").at("default") == 0.08);
+}
+
 // §9.15 — Storage fidelity: full-resolution cache reproduces Q_map exactly
 TEST_CASE("aqmh_validation_15_storage_fidelity") {
   const int W = 16, H = 16;
@@ -306,6 +527,7 @@ TEST_CASE("aqmh_validation_15_storage_fidelity") {
   tc::config::AqmhPyramidConfig pyramid;
   tc::config::AqmhStorageConfig storage;
   storage.resolution_divisor = 1;
+  storage.dtype = "float32";
   auto dir = unique_validation_dir("fidelity");
   std::string mask_hash = metrics::compute_aqmh_canvas_mask_hash(canvas, W, H);
   metrics::QualityMapCache cache(dir, "luma", W, H, pyramid, storage, mask_hash, "cpu");

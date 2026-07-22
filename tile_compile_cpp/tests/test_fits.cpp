@@ -1,9 +1,11 @@
  #if __has_include(<catch2/catch_test_macros.hpp>)
  #include "tile_compile/metrics/metrics.hpp"
  #include "tile_compile/core/types.hpp"
+ #include "tile_compile/io/fits_io.hpp"
 
  #include <algorithm>
  #include <cmath>
+ #include <filesystem>
  #include <vector>
 
  #include <catch2/catch_approx.hpp>
@@ -18,6 +20,32 @@
 
      REQUIRE(m.background == Catch::Approx(2.5f).epsilon(1e-5));
  }
+
+TEST_CASE("write_fits_rgb_u32_preserves_full_range_presentation_values") {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "tile_compile_fits_rgb_u32_test.fits";
+    std::filesystem::remove(path);
+
+    tile_compile::Matrix2Df R(1, 3);
+    R << 0.0f, 2147483648.0f, 4294967295.0f;
+    const auto G = R;
+    const auto B = R;
+    tile_compile::io::FitsHeader header;
+
+    tile_compile::io::write_fits_rgb_u32(path, R, G, B, header);
+    const auto written_header = tile_compile::io::read_fits_header(path);
+    const auto written = tile_compile::io::read_fits_rgb(path);
+
+    REQUIRE(written_header.get_int("BITPIX") == 32);
+    REQUIRE(written_header.get_double("BZERO").value_or(
+                static_cast<double>(written_header.get_int("BZERO").value_or(0))) ==
+            Catch::Approx(2147483648.0));
+    REQUIRE(written.R(0, 0) == Catch::Approx(0.0f));
+    REQUIRE(written.R(0, 1) == Catch::Approx(2147483648.0f).margin(1024.0f));
+    REQUIRE(written.R(0, 2) == Catch::Approx(4294967295.0f).margin(1024.0f));
+
+    std::filesystem::remove(path);
+}
 
 TEST_CASE("calculate_global_weights_are_positive_and_not_normalized") {
     std::vector<tile_compile::FrameMetrics> ms(3);

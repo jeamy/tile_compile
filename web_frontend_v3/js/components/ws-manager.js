@@ -7,20 +7,26 @@ let ws = null;
 let reconnectTimer = null;
 let listeners = new Set();
 let currentRunId = null;
+let currentRunDir = "";
+let wsGeneration = 0;
 
-export function connectWebSocket(runId, force = false) {
-  if (ws && currentRunId === runId && !force) return;
+export function connectWebSocket(runId, force = false, runDir = "") {
+  if (ws && currentRunId === runId && currentRunDir === String(runDir || "") && !force) return;
   if (force) disconnectWebSocket();
   currentRunId = runId;
+  currentRunDir = String(runDir || "");
+  const generation = ++wsGeneration;
 
-  const url = api._toWsUrl(API_ENDPOINTS.ws.run(runId));
+  const url = api._toWsUrl(API_ENDPOINTS.ws.run(runId, currentRunDir));
   ws = new WebSocket(url);
 
   ws.onopen = () => {
+    if (generation !== wsGeneration) return;
     notify({ type: "ws:open" });
   };
 
   ws.onmessage = (event) => {
+    if (generation !== wsGeneration) return;
     try {
       const data = JSON.parse(event.data);
       notify({ type: "ws:message", data });
@@ -30,19 +36,23 @@ export function connectWebSocket(runId, force = false) {
   };
 
   ws.onerror = (err) => {
+    if (generation !== wsGeneration) return;
     notify({ type: "ws:error", error: err });
   };
 
   ws.onclose = () => {
+    if (generation !== wsGeneration) return;
     notify({ type: "ws:close" });
     if (currentRunId) {
-      reconnectTimer = setTimeout(() => connectWebSocket(currentRunId), 3000);
+      reconnectTimer = setTimeout(() => connectWebSocket(currentRunId, false, currentRunDir), 3000);
     }
   };
 }
 
 export function disconnectWebSocket() {
+  wsGeneration++;
   currentRunId = null;
+  currentRunDir = "";
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -61,4 +71,3 @@ export function onWebSocketMessage(fn) {
 function notify(event) {
   listeners.forEach(fn => fn(event));
 }
-

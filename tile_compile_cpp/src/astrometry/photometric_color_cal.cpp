@@ -1769,7 +1769,7 @@ static float robust_sigma_from_samples(std::vector<float> values) {
     for (float &v : values) v = std::abs(v - median);
     std::sort(values.begin(), values.end());
     const float mad = core::percentile_from_sorted(values, 50.0f);
-    return 1.4826f * mad;
+    return core::kMadToSigma * mad;
 }
 
 /// @brief Estimates channel background median.

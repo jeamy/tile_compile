@@ -89,20 +89,6 @@ Grundlegende Pipeline-Steuerung.
 
 ---
 
-### `pipeline.abort_on_fail`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** Bestimmt, ob die Pipeline bei kritischen Fehlern sofort abbricht.
-
-- **`true`**: Pipeline stoppt bei `phase_end(error)` — empfohlen für Produktion
-- **`false`**: Pipeline versucht fortzufahren (nützlich für Debugging, um alle Phasen-Outputs zu erhalten)
-
----
-
 ## 2. Output
 
 Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben werden.
@@ -1502,9 +1488,9 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 |-------------|------|
 | **Typ** | integer |
 | **Werte** | `1`, `2`, `4` |
-| **Default** | `1` |
+| **Default** | `2` |
 
-**Zweck:** Auflösungsfaktor für die gespeicherten Qualitätskarten. `1` = volle Auflösung (Default, erhält das Exact-Zero-Veto). `2` oder `4` reduzieren den Speicherbedarf, geben aber räumliche Genauigkeit auf.
+**Zweck:** Auflösungsfaktor für die gespeicherten Qualitätskarten. `2` ist der speichereffiziente, objektklassenunabhängige Standard. `1` ist der Full-Resolution-Referenzmodus und für Cherry-Pick erforderlich; `4` spart mehr Speicher, reduziert aber die räumliche Genauigkeit.
 
 ---
 
@@ -1514,9 +1500,9 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 |-------------|------|
 | **Typ** | string (enum) |
 | **Werte** | `float32`, `uint16`, `uint8` |
-| **Default** | `"float32"` |
+| **Default** | `"uint16"` |
 
-**Zweck:** Datentyp für gecachte Qualitätskarten. `float32` ist präzise, `uint16` ist ein kompakter Kompromiss, `uint8` spart am meisten Speicherplatz (8-bit Quantisierung der Qualitätswerte).
+**Zweck:** Datentyp für gecachte Qualitätskarten. `uint16` ist der kompakte Standard. `float32` ist der exakte Referenzmodus und für Cherry-Pick erforderlich; `uint8` spart am meisten Speicherplatz, quantisiert die Qualitätswerte aber deutlich gröber.
 
 ---
 
@@ -1696,7 +1682,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.05` |
+| **Default** | `0.03` |
 
 **Zweck:** Minimales globales Gewicht, das jeder Frame erhält. Verhindert, dass ein Frame von der AQMH-Rekonstruktion vollständig ignoriert wird.
 
@@ -1708,7 +1694,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.6` |
+| **Default** | `0.55` |
 
 **Zweck:** Gewicht der Schärfe-Zusammenfassung im globalen Qualitätsscore. Höhere Werte lassen Seeing/FWHM-Unterschiede stärker zwischen den Frames wirken.
 
@@ -1720,7 +1706,7 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.4` |
+| **Default** | `0.30` |
 
 **Zweck:** Gewicht der SNR-Zusammenfassung im globalen Qualitätsscore.
 
@@ -1732,9 +1718,21 @@ Globale AQMH-Frame-Gewichtung. Kombiniert pro Frame Schärfe- und SNR-Zusammenfa
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | >= 0 |
-| **Default** | `0.3` |
+| **Default** | `0.25` |
 
-**Zweck:** Gewicht der Hintergrundgradienten-Strafe. Bestraft Frames mit starkem großskaligem Hintergrundgradienten (z. B. Mondglühen, Lichtverschmutzung). Mit `0.0` wird die Strafe deaktiviert und das exakte v0.2.0-Verhalten der Globalqualität wiederhergestellt.
+**Zweck:** Gewicht der Hintergrundgradienten-Strafe. Bestraft Frames mit starkem großskaligem Hintergrundgradienten (z. B. Mondglühen, Lichtverschmutzung). Mit `0.0` wird nur diese Strafe deaktiviert; die begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.
+
+----
+
+#### `aqmh.global_quality.g_k_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | > 0 |
+| **Default** | `1.5` |
+
+**Zweck:** Temperatur der Sigmoid-Abbildung für den globalen Qualitätsscore. Größere Werte trennen gute und schwache Frames stärker, das Ergebnis bleibt jedoch immer auf `[g_floor, 1]` begrenzt.
 
 ----
 
@@ -1747,9 +1745,9 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `3.0` |
+| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 2.0` |
 
-**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Samples mit Residuen unter `clip_sigma_low` oder über `clip_sigma_high` werden verworfen. Wird nur `clip_sigma` gesetzt, wird es auf beide Grenzen übertragen.
+**Zweck:** Sigma-Schwellen für das iterative Ausreißer-Clipping beim gewichteten Mittel. Die symmetrische Baseline `2.0/2.0` verhindert einen negativen Helligkeitsbias bei wiederholtem Clipping diffuser Hintergründe. Asymmetrische Werte sind nur für bewusst einseitige Ausreißerunterdrückung vorgesehen. Wird nur `clip_sigma` gesetzt, wird es aus Kompatibilitätsgründen auf beide Grenzen übertragen.
 
 ----
 
@@ -1758,7 +1756,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Default** | `3` |
+| **Default** | `4` |
 
 **Zweck:** Anzahl der Sigma-Clipping-Iterationen.
 
@@ -1770,7 +1768,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.5` |
+| **Default** | `0.4` |
 
 **Zweck:** Mindestanteil gültiger Pixel im Output-Canvas, der genügend Samples haben muss, um ein nicht-null Ergebnis zu erzeugen.
 
@@ -1809,6 +1807,17 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.delete_prewarped_cache_after_run`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Steuert, ob der diskbasierte Cache `cache/prewarped_frames` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
+
+----
+
 #### `aqmh.reconstruction.registration_weight_guard`
 
 | Eigenschaft | Wert |
@@ -1816,7 +1825,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Aktiviert den Registrierungs-Konfidenz-Schutz. Wenn aktiviert, wird das globale AQMH-Gewicht jedes Frames vor der Rekonstruktion mit einem Faktor aus `artifacts/global_registration.json` (`cc`, `source`, `chain_depth`) multipliziert.
+**Zweck:** Aktiviert den Registrierungs-Konfidenz-Schutz. Direkte oder Referenz-Registrierungen erhalten oberhalb von `registration_cc_floor` den Faktor `1.0`; nur direkte Lösungen unterhalb dieses Floors sowie sequenzielle, vorhergesagte, interpolierte oder unbekannte Lösungen werden gedämpft. `chain_depth` wirkt nur auf nicht-direkte Lösungen.
 
 ----
 
@@ -1826,7 +1835,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.30` |
 
 **Zweck:** Untere Grenze für den pro-Frame Registrierungs-Konfidenz-Faktor.
 
@@ -1852,7 +1861,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Bereich** | 0 – 1 |
 | **Default** | `0.80` |
 
-**Zweck:** Kreuzkorrelations-Wert, der auf einen Faktor von `1.0` abgebildet wird. Muss größer als `registration_cc_floor` sein.
+**Zweck:** Kreuzkorrelations-Wert, der bei nicht-direkten Registrierungen auf einen Faktor von `1.0` abgebildet wird. Muss größer als `registration_cc_floor` sein. Direkte und Referenz-Lösungen erreichen bereits am Floor den Faktor `1.0`.
 
 ----
 
@@ -1862,7 +1871,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.85` |
+| **Default** | `0.92` |
 
 **Zweck:** Zusätzliche Dämpfung für Frames mit der Registrierungsquelle `sequential_refined`.
 
@@ -1874,7 +1883,7 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.50` |
 
 **Zweck:** Zusätzliche Dämpfung für vorhergesagte, interpolierte oder unbekannte Registrierungsquellen.
 
@@ -1904,16 +1913,40 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.structure_mask_low_q` / `structure_mask_high_q`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1, `low_q < high_q` |
+| **Defaults** | `0.40` / `0.90` |
+
+**Zweck:** Unteres und oberes Gradientenquantil der weichen Strukturmaske. Unterhalb `low_q` folgt ein Kandidat stärker der Uniformkontrolle, oberhalb `high_q` bleibt das AQMH-Detail vollständig erhalten.
+
+----
+
+#### `aqmh.reconstruction.structure_mask_blur_sigma_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | > 0 |
+| **Default** | `4.0` |
+
+**Zweck:** Gauß-Sigma für den weichen Übergang der Strukturmaske.
+
+----
+
 ### `aqmh.validation.*` — Output-Validierung
 
-Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen Kontrollmittel (ungewichteter Mittelwert).
+Regressions-Schwellen für Vergleiche eines Nachverarbeitungskandidaten sowohl mit dem uniformen Kontrollmittel als auch mit der unveränderten rohen AQMH-Baseline. Tail- und Elongationswerte werden an denselben, in der jeweiligen Referenz erkannten Sternpositionen gemessen.
 
 #### `aqmh.validation.max_seam_score_regression`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
 **Zweck:** Maximal erlaubte Seam-Score-Regression gegenüber dem uniformen Kontrollmittel.
 
@@ -1935,9 +1968,13 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.02` |
+| **Default** | `0.05` |
 
-**Zweck:** Maximal erlaubte Hintergrund-RMS-Regression.
+**Zweck:** Maximal erlaubte relative Regression des robusten lokalen
+Hintergrundrauschens gegenüber Uniform Control. Die Messung verwendet die MAD
+benachbarter Pixel-Differenzen; großflächige astronomische Struktur geht nicht
+als Hintergrundrauschen ein. Bei Überschreitung wird ein optionaler
+Nachbearbeitungskandidat verworfen und Raw AQMH erhalten. Wertebereich `>= 0`.
 
 ----
 
@@ -1946,7 +1983,7 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.05` |
+| **Default** | `0.10` |
 
 **Zweck:** Maximal erlaubte Tail-11-Absolut-Regression.
 
@@ -1957,7 +1994,7 @@ Regressions-Schwellen für den Vergleich des AQMH-Ergebnisses mit dem uniformen 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `0.05` |
+| **Default** | `0.08` |
 
 **Zweck:** Maximal erlaubte Elongation-Regression.
 
@@ -3379,7 +3416,6 @@ Phasengrenzen geprüft. Bei Überschreitung endet der Lauf mit
 # Pipeline
 pipeline:
   mode: production
-  abort_on_fail: true
 
 # Output
 output:
@@ -3563,7 +3599,7 @@ stacking:
     kappa_cluster: 1.0
     cap_enabled: false
     cap_ratio: 20.0
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: false
 
 # Validation
@@ -3592,7 +3628,6 @@ Die Datei `tile_compile.yaml` im Repository enthält eine **Beispiel-/Szenario-K
 
 | Key | `tile_compile.yaml` | C++ Default | Bemerkung |
 |-----|---------------------|-------------|-----------|
-| `pipeline.abort_on_fail` | `false` | `true` | Debug-freundlich |
 | `output.write_registered_frames` | `true` | `false` | Speicherintensiv |
 | `global_metrics.weights.background` | `0.40` | `0.4` | Praktisch identisch |
 | `global_metrics.weights.noise` | `0.35` | `0.3` | Abweichende Gewichtung |
@@ -3741,7 +3776,6 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 ### A.1 Pipeline / Output / Data
 
 - `pipeline.mode`: wählt Produktions- vs. Testpfad (gleiche Kernphasen, anderes Striktheits-/Debug-Profil).
-- `pipeline.abort_on_fail`: steuert, ob bei `phase_end(error)` sofort abgebrochen wird.
 - `output.registered_dir`: Ziel-Unterordner für registrierte Frame-Ausgaben.
 - `output.write_registered_frames`: schreibt pro Frame registrierte FITS; erhöht IO- und Speicherbedarf stark.
 - `output.crop_to_nonzero_bbox`: schneidet den finalen Stack auf die nichtleere Bounding Box zu.

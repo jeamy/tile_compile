@@ -90,8 +90,14 @@ AqmhGlobalQualityResult compute_aqmh_global_quality(
     zb = std::clamp(zb, -5.0f, 5.0f);
     const float score =
         w_sharp_norm * zs + w_snr_norm * zn - w_background_norm * zb;
-    const float sigmoid = 1.0f / (1.0f + std::exp(-score));
-    result.weights[i] = cfg.g_floor + (1.0f - cfg.g_floor) * sigmoid;
+    // Bounded global weighting prevents a small set of frames from dominating
+    // every local quality map. g_k_scale controls sigmoid temperature without
+    // changing the normative [g_floor, 1] range.
+    const float scaled_score =
+        std::clamp(cfg.g_k_scale * score, -8.0f, 8.0f);
+    const float sigmoid = 1.0f / (1.0f + std::exp(-scaled_score));
+    result.weights[i] =
+        cfg.g_floor + (1.0f - cfg.g_floor) * sigmoid;
   }
   return result;
 }

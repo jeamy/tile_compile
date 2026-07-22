@@ -56,6 +56,7 @@ bool run_phase_local_metrics(
     int tile_offset_x = 0, int tile_offset_y = 0,
     const std::vector<metrics::FrameStarMetrics> &frame_star_metrics = {},
     std::unique_ptr<reconstruction::AqmhPrefetchCoordinator>* out_prefetch_coordinator = nullptr,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr,
+    const std::vector<uint8_t> &aqmh_analysis_common_mask = {});
 
 } // namespace tile_compile::runner

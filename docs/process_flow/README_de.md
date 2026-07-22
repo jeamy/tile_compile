@@ -1,10 +1,10 @@
-# Process Flow Documentation — C++ Pipeline (tile_compile_cpp)
+# Process Flow Documentation — AQMH-Pipeline (tile_compile_cpp)
 
 ## Übersicht
 
-Diese Dokumentation beschreibt den **tatsächlichen Ablauf der C++-Implementierung** (`tile_compile_cpp/apps/runner_pipeline.cpp`) für AQMH (Standard) und die klassische Tile-Compile-Rekonstruktion.
+Diese Dokumentation beschreibt primär den **tatsächlichen AQMH-Ablauf** der C++-Implementierung (`tile_compile_cpp/apps/runner_pipeline.cpp`). Die klassische Tile-Compile-Rekonstruktion ist am Ende als separate Alternative abgegrenzt.
 
-Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt entweder eine pixelweise AQMH-Rekonstruktion oder optional die klassische Tile-/Cluster-Rekonstruktion.
+Die aktuelle Standardpipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt eine pixelweise AQMH-Rekonstruktion. Sie verwendet keine klassischen lokalen Tile-Qualitätsmetriken, kein Clustering und keine synthetischen Frames.
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
@@ -12,7 +12,12 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt entwede
 
 > **Standardmethode AQMH:** AQMH ersetzt die klassischen lokalen Tile-Metriken und die Tile-Rekonstruktion durch Quality-Maps und eine unabhängige pixelweise Rekonstruktion. Clustering und synthetische Frames werden im AQMH-Pfad übersprungen.
 
-## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.3)
+Die verbindlichen Resume-Einstiege, Artefakt- und Cache-Abhängigkeiten stehen
+in [Resume-Abhängigkeiten](resume_dependencies_de.md). Besonders wichtig:
+frühe Resume-Phasen lösen einen In-Place-Vollständigkeitslauf aus; sie sind
+keine Fortsetzung ab der genannten Phase.
+
+## Aktuelle AQMH-Phasen (C++ Implementierung)
 
 Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.
 
@@ -26,10 +31,10 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 5 | `GLOBAL_METRICS` | Globale Frame-Metriken und Gewichte `G_f` |
 | 6 | `TILE_GRID` | Adaptive Tile-Geometrie (Seeing/FWHM-basiert) |
 | 7 | `COMMON_OVERLAP` | Gemeinsamer datentragender Bereich (global/tile-lokal) |
-| 8 | `LOCAL_METRICS` | Lokale Tile-Metriken, weiches STAR/STRUCTURE-Blending und lokale Gewichte `L_f,t` |
-| 9 | `TILE_RECONSTRUCTION` | Pixelweise AQMH-Rekonstruktion (Standard) oder klassische gewichtete Tile-Rekonstruktion |
-| 10 | `STATE_CLUSTERING` | Zustandsvektor-Clustering (optional, mode-abhängig, per Frame-Anzahl gegatet) |
-| 11 | `SYNTHETIC_FRAMES` | Erzeugung synthetischer Frames (optional, mode-abhängig) |
+| 19 | `AQMH_MAPS` | Pyramidale, pixelweise Quality-Maps pro Frame; schreibt Maps und Frame-Diagnostik in `cache/aqmh/` und `artifacts/aqmh_metrics.json` |
+| 20 | `AQMH_GLOBAL_QUALITY` | Globale Frame-Gewichte `G_f` aus Schärfe, SNR und Hintergrundstrafe |
+| 21 | `AQMH_RECONSTRUCTION` | Pixelweise gewichtete Rekonstruktion mit Support-Maske, robustem Clipping und unverändertem Raw-CFA-Artefakt |
+| 22 | `AQMH_DIAGNOSTICS` | Blockdiagnostik, Heatmaps und Rekonstruktionsmetriken |
 | 12 | `STACKING` | Finales lineares Stacking (inkl. robuster Pixel-Ausreißerbehandlung) |
 | 13 | `DEBAYER` | OSC-Debayering und RGB-Ausgabe (bei MONO: pass-through) |
 | 14 | `ASTROMETRY` | Plate Solving / WCS |
@@ -38,19 +43,33 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 17 | `HYPERMETRIC_STRETCH` | VeraLux HyperMetric Stretch nach PCC |
 | 18 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
 
+`STATE_CLUSTERING` und `SYNTHETIC_FRAMES` werden im AQMH-Pfad als
+`skipped` markiert bzw. nicht als ausführende AQMH-Stufen verwendet.
+`AQMH_BGE_INPUTS` ist aktuell nur als Enum-Wert definiert und wird im normalen
+Runner nicht als eigene ausführende Phase emittiert.
+
 Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Enum-Phase.
 Hinweis: **BGE** ist eine optionale **eigene Phase** zwischen `ASTROMETRY` und `PCC`.
 
 ## Dokumenten-Struktur
 
-Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..18).
+Die Details der AQMH-spezifischen Erweiterungsphasen stehen in
+[AQMH-Erweiterungen](phase_8_aqmh_extensions.md).
+
+Die **verbindliche AQMH-Ausführungsreihenfolge** ist die oben stehende Liste:
+gemeinsame Vorverarbeitung, `AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`,
+`AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS` und danach die gemeinsame
+Finalisierung. Die numerischen Enum-Werte 19–22 sind AQMH-spezifische
+Phasenwerte und keine Fortsetzung der alten Classic-Phase 8/9.
 
 Kurzzuordnung:
 
 - Input + Modus + Linearität + Disk-Precheck → `SCAN_INPUT`
 - Registrierung/Prewarp → `REGISTRATION`, `PREWARP`
-- Normalisierung + globale/lokale Gewichte + Rekonstruktion → `NORMALIZATION` bis `TILE_RECONSTRUCTION` (inkl. `COMMON_OVERLAP`)
-- Optionaler Full-Mode-Block → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
+- Normalisierung + Canvas-Masken → `NORMALIZATION` bis `COMMON_OVERLAP`
+- AQMH-Analyse → `AQMH_MAPS` → `AQMH_GLOBAL_QUALITY`
+- AQMH-Rekonstruktion → `AQMH_RECONSTRUCTION` → `AQMH_DIAGNOSTICS`
+- Nicht verwendete Classic-Stufen → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES` (`skipped`)
 - Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional ausführend, aber eigene Phase), `PCC`, `HYPERMETRIC_STRETCH`, `DONE`
 
 ---
@@ -117,32 +136,31 @@ Kurzzuordnung:
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 8: LOCAL_METRICS      │
-              │  • Per (frame,tile) metrics  │
-              │  • Weiches STAR/STRUCT-Blending│
-              │  • Konfidenzbewusstes Q_local│
-              │  • L_f,t = exp(k_local·Q)    │
+              │  PHASE 19: AQMH_MAPS          │
+              │  • Pyramidale Quality-Maps    │
+              │  • Pixelweise Frame-Diagnostik│
+              │  • cache/aqmh/                │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 9: TILE_RECONSTRUCTION│
-              │  • W_f,t = G_f × L_f,t       │
-              │  • Gewichtete Summe / Sigma-Clip│
-              │  • Support-aware OLA         │
-              │  • Keine Tile-Renorm vor OLA │
+              │  PHASE 20: AQMH_GLOBAL_QUALITY│
+              │  • Schärfe-/SNR-Zusammenfassung│
+              │  • Hintergrundstrafe          │
+              │  • Globales Frame-Gewicht G_f │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 10: STATE_CLUSTERING  │
-              │  • 6D state vector per frame │
-              │  • Aktiv falls N>=max(Nred,50)│
-              │  • Deterministische Clusterung│
+              │  PHASE 21: AQMH_RECONSTRUCTION│
+              │  • Pixelweise Gewichtung      │
+              │  • Support-/Valid-Masken      │
+              │  • Robust Welford/Sigma-Clip  │
+              │  • Raw-CFA-Artefakt speichern  │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 11: SYNTHETIC_FRAMES  │
-              │  • Weighted mean per cluster │
-              │  • N → K frame reduction     │
+              │  PHASE 22: AQMH_DIAGNOSTICS   │
+              │  • Blockdiagnostik            │
+              │  • Heatmaps / Map-Statistik    │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
@@ -210,67 +228,56 @@ Kurzzuordnung:
 ## Kernprinzipien (C++ Implementierung)
 
 1. **Linearität im Kern**: Bis einschließlich PCC bleiben die Core-Phasen linear; HMS ist eine explizite finale Stretch-Phase nach PCC.
-2. **Keine Frame-Selektion**: Alle Frames werden verwendet. Fehlgeschlagene Registrierung → Identity-Warp mit CC=0
+2. **Pixelweise Qualitätsauswahl**: AQMH berechnet pro Frame und Pixel Quality-Maps und verwendet globale Frame-Gewichte; es gibt keine Classic-Tile-Gewichte.
 3. **Mono + OSC**: Beide Modi in einer einzigen Pipeline, CFA-aware bei OSC
 4. **Streng sequentiell**: Keine Rückkopplungen, deterministische Abfolge
-5. **Tile-basiert**: Lokale Qualitätsbewertung, Seeing-adaptive Tile-Größe
-6. **Global × Lokal**: Effektives Gewicht W_f,t = G_f × L_f,t
-7. **Pre-Warping**: Alle Frames werden vor Tile-Extraktion vollständig gewarpt (vermeidet CFA-Artefakte)
+5. **AQMH statt Classic-Tiles**: Die Rekonstruktion arbeitet pixelweise auf Quality-Maps, nicht mit `L_f,t`-Tile-Gewichten.
+6. **Global × Pixel**: Das globale Frame-Gewicht wird mit der pixelweisen AQMH-Qualität kombiniert.
+7. **Pre-Warping**: Alle Frames werden vor der Quality-Map-Berechnung vollständig auf den gemeinsamen Canvas gewarpt.
 8. **Robuste Statistik**: Median, MAD, Sigma-Clipping durchgehend
 
 ## Modi
 
-### Full/Normal Mode (N ≥ frames_reduced_threshold)
-- Alle Enum-Phasen 0..18 werden durchlaufen
-- State-Clustering aktiv
-- Synthetische Frames werden erzeugt
-- Sigma-Clipping Rejection Stacking
-- Optimale Rauschreduktion
+### AQMH in jedem Modus
+- `AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION` und `AQMH_DIAGNOSTICS` bilden den AQMH-Analyse- und Rekonstruktionspfad.
+- `STATE_CLUSTERING` und `SYNTHETIC_FRAMES` werden im AQMH-Modus nicht als Classic-Verarbeitung verwendet.
+- `STACKING` übernimmt die AQMH-Rekonstruktion; danach folgen `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC` und HMS.
+- Die Frame-Anzahl steuert weiterhin Reduced-/Emergency-Gates und Ressourcen, ändert aber nicht die AQMH-Qualitätslogik in Classic-Clustering.
 
-### Reduced Mode (N < frames_reduced_threshold)
-- Phase 10 (`STATE_CLUSTERING`) wird **übersprungen**
-- Phase 11 (`SYNTHETIC_FRAMES`) wird **übersprungen**
-- Phase 9 (`TILE_RECONSTRUCTION`) erzeugt das finale Bild direkt
-- Phase 12 (`STACKING`) übernimmt das rekonstruierte Bild unverändert
-- Validierung wird trotzdem durchgeführt
+### Classic-Alternative
+Nur bei `method: classic_tile_compile` werden `LOCAL_METRICS`,
+`TILE_RECONSTRUCTION`, `STATE_CLUSTERING` und `SYNTHETIC_FRAMES` ausgeführt.
 
 ## Qualitätsmetriken
 
-### Globale Metriken (Phase 5: GLOBAL_METRICS)
+### AQMH globale Frame-Qualität (`AQMH_GLOBAL_QUALITY`)
 - **B_f**: Hintergrundniveau des normalisierten Frames (niedriger = besser)
 - **σ_f**: Rauschen (niedriger = besser)
 - **E_f**: Gradientenergie / Sobel-basiert (höher = besser)
 - **Q_f**: Gewichteter Score = α·(-B̃) + β·(-σ̃) + γ·Ẽ (MAD-normalisiert)
-- **G_f**: Globales Gewicht = exp(Q_f) mit Clamping [-3, +3]
+- **G_f**: globales Frame-Gewicht aus den AQMH-Zusammenfassungen, begrenzt auf den konfigurierten Gewichtsbereich
 
-### Lokale Metriken (Phase 8: LOCAL_METRICS)
-- **FWHM**: Full Width Half Maximum (Seeing-Qualität)
-- **Roundness**: Sternrundheit (Tracking-Qualität)
-- **Contrast**: Lokaler Kontrast (Signal-Stärke)
-- **Sharpness**: Schärfe-Metrik
-- **Star Count**: Anzahl erkannter Sterne pro Tile
-- **Tile Type**: STAR (genug Sterne) vs. STRUCTURE (zu wenige Sterne)
-- **L_f,t**: Lokales Gewicht = exp(clip(Q_local))
+### AQMH Quality-Maps (`AQMH_MAPS`)
+- Pyramidale lokale Varianz-/Schärfeinformationen pro Frame und Pixel
+- SNR- und Hintergrundstrafe pro Frame
+- Artefakt- und Support-Masken
+- Persistenz der Maps unter `cache/aqmh/`
 
-### Effektives Gewicht
-- **W_f,t = G_f × L_f,t**
-- Kombiniert Frame-Qualität mit lokaler Tile-Qualität
-- Verwendet in Phase 9 für Tile-Rekonstruktion
+### AQMH-Rekonstruktion (`AQMH_RECONSTRUCTION`)
+- Pixelweise Kombination der gültigen Frames mit AQMH-Map und `G_f`
+- Robuste Welford-/Sigma-Clipping-Statistik
+- Support-aware Ausgabe ohne nachträgliche Classic-Tile-Renormierung
 
 ## Mathematische Notation
 
 ```
 Indizes:
   f - Frame-Index (0..N-1)
-  t - Tile-Index (0..T-1)
-  k - Cluster-Index (0..K-1)
+  p - Pixel-Index auf dem gemeinsamen Canvas
 
 Dimensionen:
-  N  - Anzahl Frames (nach Linearitäts-Rejection)
-  K  - Anzahl Cluster / synthetische Frames
-  T  - Anzahl Tiles im Grid
-  W,H - Bildbreite/-höhe in Pixel
-  F  - Seeing-FWHM in Pixel
+  N  - Anzahl Frames
+  W,H - Canvas-Breite/-höhe in Pixel
 
 Normalisierung:
   I_f      - Original-Frame
@@ -282,49 +289,46 @@ Normalisierung:
   J_f      - hintergrundsubtrahierter Frame = I_f^raw - B_f
   I_f      - normierter Frame = J_f / P_f
 
-Globale Gewichte:
-  B̃_f, σ̃_f, Ẽ_f - MAD-normalisierte Metriken
-  Q_f = α·(-B̃_f) + β·(-σ̃_f) + γ·Ẽ_f
-  G_f = exp(clip(Q_f, -3, +3))
+AQMH globale Eingaben:
+  g_sharp_f       - zusammengefasste Schärfe-/PSF-Qualität
+  g_snr_f         - zusammengefasste Signal-Rausch-Qualität
+  g_background_f  - Hintergrundstrafe
 
-Lokale Gewichte:
-  eta_t      - weicher STAR-Support-Faktor in [0,1]
-  Q_star     = 0.6·(-FWHM̃) + 0.2·R̃ + 0.2·C̃
-  Q_struct   = 0.7·(Ẽ/σ̃) + 0.3·(-B̃)
-  Q_blend    = eta_t·Q_star + (1-eta_t)·Q_struct
-  L_f,t      = exp(k_local·clip(Q_blend))
+Globales Frame-Gewicht:
+  G_f = compute_aqmh_global_quality(g_sharp_f, g_snr_f, g_background_f)
 
-Effektives Gewicht:
-  W_f,t = G_f × L_f,t
+Pixelweise Rekonstruktion:
+  q_f,p = QualityMap(f, p)
+  w_f,p = G_f × q_f,p × valid_f,p
+  recon_p = robust_weighted_reduce({I_f,p}, {w_f,p})
 
-Tile-Rekonstruktion:
-  tile_t = Σ_f W_f,t · tile_f,t / Σ_f W_f,t
-  recon  = support_aware_overlap_add(tile_t)
-
-Zustandsvektor (Clustering):
-  v_f = [G_f, ⟨Q_local⟩_f, Var(Q_local)_f, CC̄_tiles, WarpVar̄, invalid_frac]
-
-Synthetische Frames:
-  synth_k = Σ_{f∈cluster_k} G_f · warp(I'_f) / Σ G_f
+Die genaue robuste Reduktion berücksichtigt Mindest-Support, effektive
+Stichprobengröße, Sigma-Clipping und die konfigurierten AQMH-Gates. Die
+Classic-Größen `L_f,t`, Tile-Overlap-Add, Clustering und synthetische Frames
+gehören nicht zum AQMH-Rechenpfad.
 ```
 
 ## Artifact-Dateien
 
-Jeder Run erzeugt 11 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
+Ein AQMH-Run erzeugt die folgenden zentralen Artefakte in
+`<run_dir>/artifacts/`; optionale Diagnoseartefakte können hinzukommen:
 
 | Datei | Phase | Inhalt |
 |-------|-------|--------|
 | `normalization.json` | 4 | Mode, Bayer, B_mono/B_r/B_g/B_b pro Frame |
-| `global_metrics.json` | 5 | Background, Noise, Gradient, Quality, G_f pro Frame |
+| `global_metrics.json` | 5 | Globale Normalisierungs-/Inputmetriken pro Frame |
 | `tile_grid.json` | 6 | Image-Dimensionen, Tile-Liste (x,y,w,h), FWHM, Overlap |
 | `global_registration.json` | 1 | Warp-Matrizen (a00,a01,tx,a10,a11,ty) + CC pro Frame |
 | `common_overlap.json` | 7 | Globaler/Tile-weiser gemeinsamer Datenbereich |
-| `local_metrics.json` | 8 | Tile-Metriken pro Frame×Tile, Tile-Typ, Quality, L_f,t |
-| `tile_reconstruction.json` | 9 | Valid-Counts, Mean-CC, Post-Contrast/BG/SNR pro Tile |
-| `state_clustering.json` | 10 | Cluster-Labels, Cluster-Sizes, Methode |
-| `synthetic_frames.json` | 11 | Anzahl synthetische Frames, frames_min/max |
+| `aqmh_metrics.json` | 8/9 | Quality-Map-Metadaten, Frame-Diagnostik und globale AQMH-Gewichte |
+| `aqmh_reconstruction.json` | 10 | AQMH-Rekonstruktionsmetriken und Support-/Clipping-Diagnostik |
+| `aqmh_regions.json` / `cache/aqmh_block_diagnostics.jsonl` | 11 | AQMH-Regionen-, Block- und Heatmap-Diagnostik |
 | `bge.json` | 15 | Kanalweise BGE-Diagnostik (Samples, Grid-Zellen, Residuen) |
-| `validation.json` | 12 | FWHM-Improvement, Tile-Weight-Var, Pattern-Ratio |
+| `validation.json` | 12 | Methodenspezifische Qualitäts- und Supportvalidierung |
+
+`local_metrics.json`, `state_clustering.json` und `synthetic_frames.json`
+gehören ausschließlich zur Classic-Alternative und werden bei AQMH nicht als
+Qualitätsgrundlage verwendet.
 
 ### Report-Generierung und auswertbare Daten
 
@@ -343,18 +347,19 @@ Erzeugte Ausgaben:
 
 Verwendete Eingabedaten:
 - Artifact-JSONs: `normalization.json`, `global_metrics.json`, `tile_grid.json`,
-  `global_registration.json`, `common_overlap.json`, `local_metrics.json`, `tile_reconstruction.json`,
-  `state_clustering.json`, `synthetic_frames.json`, `bge.json`, `validation.json`
+  `global_registration.json`, `common_overlap.json`, `aqmh_metrics.json`,
+  `aqmh_reconstruction.json`, `aqmh_regions.json`, AQMH-Blockdiagnostik,
+  `bge.json`, `validation.json`
 - Lauf-Events: `logs/run_events.jsonl`
 - Run-Konfiguration: `config.yaml` (wird im Report eingebettet)
 
 Typisch auslesbare Inhalte:
 - Normalisierungs- und Hintergrundverläufe (Mono/RGB)
-- Globale Qualitätsmetriken und Gewichtsverteilungen
+- AQMH Quality-Map-Statistiken und globale Frame-Gewichte
 - Sternmetriken (u. a. FWHM, wFWHM, Rundheit, Sternanzahl)
 - Registrierungsauswertung (Shift/Rotation/Korrelation)
-- Tile-/Rekonstruktions-Heatmaps und lokale Qualitätsindikatoren
-- Clustering- und Synthetic-Frame-Übersichten
+- AQMH-Rekonstruktions- und Support-Heatmaps
+- Classic-Clustering- und Synthetic-Frame-Übersichten nur bei `classic_tile_compile`
 - BGE-Diagnostik (kanalweise Background-Modelle, Grid-Zellen, Residuenhistogramme)
 - Validation-Ergebnisse (inkl. Tile-Pattern-Indikatoren)
 - Pipeline-Timeline und Frame-Usage-Funnel
@@ -372,14 +377,19 @@ runs/<run_id>/
 │   ├── tile_grid.json
 │   ├── global_registration.json
 │   ├── common_overlap.json
-│   ├── local_metrics.json
-│   ├── tile_reconstruction.json
-│   ├── state_clustering.json
-│   ├── synthetic_frames.json
+│   ├── aqmh_metrics.json
+│   ├── aqmh_reconstruction.json
+│   ├── aqmh_regions.json
 │   ├── bge.json
 │   ├── validation.json
 │   ├── report.html       # erzeugt über CLI-/Backend-Reportpfad
-│   └── *.png             # Chart-Bilder
+│   ├── *.png             # Chart-Bilder
+├── cache/
+│   ├── normalized_frames/      # Normalisierungs-Cache
+│   ├── prewarped_frames/       # Resume-relevanter Prewarp-Cache
+│   ├── aqmh/                   # AQMH Quality-Maps und Metadaten
+│   ├── aqmh_masks/             # AQMH Frame-Masken
+│   └── aqmh_block_diagnostics.jsonl
 └── outputs/
     ├── stacked.fits
     ├── reconstructed_L.fit
@@ -387,14 +397,14 @@ runs/<run_id>/
     ├── reconstructed_R.fit    # (nur OSC)
     ├── reconstructed_G.fit    # (nur OSC)
     ├── reconstructed_B.fit    # (nur OSC)
-    └── synthetic_*.fit        # (Normal Mode)
+    └── synthetic_*.fit        # (nur Classic-Modus)
 ```
 
 ## Performance-Optimierungen (C++)
 
 - **Eigen-Matrizen**: Vektorisierte Pixel-Operationen (SIMD)
 - **OpenCV**: Optimierte Bildverarbeitung (Sobel, Laplacian, warpAffine)
-- **Thread-Parallelismus**: TILE_RECONSTRUCTION mit std::thread Workerpool
+- **Thread-Parallelismus**: AQMH-Map-/Rekonstruktions-Worker; Classic zusätzlich `TILE_RECONSTRUCTION` mit Workerpool
 - **Pre-Warping**: Einmaliges Warping aller Frames statt pro-Tile
 - **2× Downsample**: Registrierung auf halber Auflösung (Speedup ~4×)
 - **Memory-effizient**: Frames werden per-Phase von Disk geladen

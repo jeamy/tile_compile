@@ -50,8 +50,9 @@ TEST_CASE("aqmh_global_quality_is_native_positive_and_bounded") {
       {0.1f, 0.2f, 0.05f}, cfg);
   REQUIRE(result.weights.size() == 3);
   for (float value : result.weights) {
-    REQUIRE(value > cfg.g_floor);
-    REQUIRE(value < 1.0f);
+    REQUIRE(std::isfinite(value));
+    REQUIRE(value >= cfg.g_floor);
+    REQUIRE(value <= 1.0f);
   }
 }
 

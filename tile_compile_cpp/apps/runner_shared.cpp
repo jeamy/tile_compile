@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -24,6 +25,13 @@
 #include <sys/stat.h>
 #include <windows.h>
 #include <fileapi.h>
+#elif defined(__APPLE__)
+#include <fcntl.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -356,6 +364,127 @@ int compute_adaptive_worker_count(
   return std::max(1, std::min(workers, io_cap));
 }
 
+uint64_t query_available_memory_bytes() {
+#ifdef _WIN32
+  MEMORYSTATUSEX status{};
+  status.dwLength = sizeof(status);
+  return GlobalMemoryStatusEx(&status) ? status.ullAvailPhys : 0ull;
+#elif defined(__APPLE__)
+  mach_port_t host = mach_host_self();
+  vm_size_t page_size = 0;
+  if (host_page_size(host, &page_size) != KERN_SUCCESS || page_size == 0) {
+    mach_port_deallocate(mach_task_self(), host);
+    return 0ull;
+  }
+
+  vm_statistics64_data_t vm_stat{};
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  const kern_return_t result = host_statistics64(
+      host, HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vm_stat),
+      &count);
+  mach_port_deallocate(mach_task_self(), host);
+  if (result != KERN_SUCCESS) {
+    return 0ull;
+  }
+
+  // Include reclaimable inactive, speculative, and purgeable pages. This is
+  // the closest portable equivalent to Linux MemAvailable for worker sizing.
+  const uint64_t available_pages =
+      static_cast<uint64_t>(vm_stat.free_count) +
+      static_cast<uint64_t>(vm_stat.inactive_count) +
+      static_cast<uint64_t>(vm_stat.speculative_count) +
+      static_cast<uint64_t>(vm_stat.purgeable_count);
+  return available_pages * static_cast<uint64_t>(page_size);
+#else
+  std::ifstream meminfo("/proc/meminfo");
+  std::string key;
+  uint64_t value_kib = 0;
+  std::string unit;
+  while (meminfo >> key >> value_kib >> unit) {
+    if (key == "MemAvailable:") {
+      return value_kib * 1024ull;
+    }
+  }
+  return 0ull;
+#endif
+}
+
+AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
+    const config::Config &cfg, size_t task_count,
+    const std::vector<std::filesystem::path> &frames, int width, int height,
+    uint64_t available_memory_bytes) {
+  constexpr uint64_t MiB = 1024ull * 1024ull;
+  constexpr uint64_t safety_overhead_bytes = 256ull * MiB;
+  // One worker holds the source/mask, Q-map and several per-scale float
+  // intermediates plus a full-canvas double accumulator. The estimate is
+  // deliberately conservative because OpenCV allocations and temporary
+  // matrices overlap only partially during map construction.
+  constexpr uint64_t float_intermediate_count = 16;
+
+  AqmhMapWorkerPlan plan;
+  plan.requested_workers = compute_adaptive_worker_count(
+      cfg, task_count, frames, WorkerParallelProfile::CpuBound);
+  plan.effective_workers = std::max(1, plan.requested_workers);
+
+  const uint64_t pixels =
+      (width > 0 && height > 0)
+          ? static_cast<uint64_t>(width) * static_cast<uint64_t>(height)
+          : 0ull;
+  const size_t configured_budget_mb =
+      cfg.aqmh.reconstruction.memory_budget_mb != 0
+          ? cfg.aqmh.reconstruction.memory_budget_mb
+          : static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget));
+  plan.memory_budget_bytes =
+      static_cast<uint64_t>(configured_budget_mb) * MiB;
+  plan.available_memory_bytes = available_memory_bytes != 0
+                                    ? available_memory_bytes
+                                    : query_available_memory_bytes();
+  if (pixels == 0 || plan.available_memory_bytes == 0) {
+    return plan;
+  }
+
+  plan.estimated_bytes_per_worker =
+      pixels * (sizeof(double) + float_intermediate_count * sizeof(float) +
+                sizeof(uint8_t)) +
+      safety_overhead_bytes;
+  // Do not treat the configured budget as a hard worker limit. It is only a
+  // planning value; reduce concurrency when the live system memory cannot
+  // accommodate the requested workers with a 30% headroom.
+  if (plan.available_memory_bytes > 0) {
+    const uint64_t usable_memory =
+        (plan.available_memory_bytes * 70ull) / 100ull;
+    const uint64_t required_memory =
+        plan.estimated_bytes_per_worker *
+        static_cast<uint64_t>(plan.requested_workers);
+    if (required_memory > usable_memory) {
+      const uint64_t memory_workers =
+          usable_memory /
+          std::max<uint64_t>(1, plan.estimated_bytes_per_worker);
+      plan.effective_workers = std::max(
+          1, std::min(plan.requested_workers,
+                      static_cast<int>(std::min<uint64_t>(
+                          memory_workers,
+                          static_cast<uint64_t>(std::numeric_limits<int>::max())))));
+      plan.memory_capped = plan.effective_workers < plan.requested_workers;
+    }
+  }
+  return plan;
+}
+
+OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
+                                   int required_common_frames) {
+  OverlapMasks masks;
+  masks.analysis_common.assign(coverage.size(), 0u);
+  masks.reconstruction_support.assign(coverage.size(), 0u);
+  const int common_floor = std::max(1, required_common_frames);
+  for (size_t i = 0; i < coverage.size(); ++i) {
+    const int count = static_cast<int>(coverage[i]);
+    masks.reconstruction_support[i] = count > 0 ? 1u : 0u;
+    masks.analysis_common[i] = count >= common_floor ? 1u : 0u;
+  }
+  return masks;
+}
+
 FrameSubBatchPlan compute_memory_capped_frame_sub_batch(
     size_t frame_count,
     size_t pixels_per_worker,
@@ -523,6 +652,32 @@ CropBox compute_nonzero_data_bbox(const Matrix2Df &luma, const Matrix2Df *r,
   if (max_x < min_x || max_y < min_y) {
     return {};
   }
+  return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
+}
+
+CropBox compute_support_mask_bbox(const std::vector<uint8_t> &support_mask,
+                                  int mask_rows, int mask_cols) {
+  if (mask_rows <= 0 || mask_cols <= 0 ||
+      support_mask.size() != static_cast<size_t>(mask_rows) *
+                                  static_cast<size_t>(mask_cols)) {
+    return {};
+  }
+
+  int min_x = mask_cols;
+  int min_y = mask_rows;
+  int max_x = -1;
+  int max_y = -1;
+  for (int y = 0; y < mask_rows; ++y) {
+    const size_t row = static_cast<size_t>(y) * static_cast<size_t>(mask_cols);
+    for (int x = 0; x < mask_cols; ++x) {
+      if (support_mask[row + static_cast<size_t>(x)] == 0u) continue;
+      min_x = std::min(min_x, x);
+      min_y = std::min(min_y, y);
+      max_x = std::max(max_x, x);
+      max_y = std::max(max_y, y);
+    }
+  }
+  if (max_x < min_x || max_y < min_y) return {};
   return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
 }
 
@@ -1461,6 +1616,10 @@ void DiskCacheFrameStore::cleanup() {
   rows_ = 0;
   cols_ = 0;
   frame_bytes_ = 0;
+}
+
+void DiskCacheFrameStore::set_preserve_files(bool preserve) {
+  preserve_files_ = preserve;
 }
 
 /// @brief Implements frame path.

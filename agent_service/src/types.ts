@@ -15,6 +15,7 @@ export interface RuntimeConfig {
 
 export interface SessionContext {
   mount_type?: "eq" | "altaz" | "unknown";
+  target_name?: string;
   target_angular_size?: "compact" | "extended" | "full_frame";
   camera_type?: "consumer_osc" | "astronomy_camera" | "unknown";
   calibration_darks?: boolean;
@@ -23,10 +24,13 @@ export interface SessionContext {
   system_ram_mb?: number;
   cpu_cores?: number;
   notes?: string;
+  accepted_pi_memories?: unknown[];
+  negative_pi_memories?: unknown[];
 }
 
 export interface ScanAnalysisRequest {
   schema_version?: string;
+  ai_request?: unknown;
   scan_result?: unknown;
   base_config?: unknown;
   config_schema?: Record<string, unknown>;

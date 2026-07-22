@@ -1180,10 +1180,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                       {"hard_abort_hours",
                        cfg.runtime_limits.hard_abort_hours}},
                      log_file);
-    emitter.run_end(run_id, false, "runtime_limit_exceeded", log_file);
-    std::cerr << "Error: runtime limit exceeded at " << checkpoint << " ("
-              << elapsed_hours << " h > "
-              << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
+    {
+      std::ostringstream oss;
+      oss << "runtime limit exceeded at " << checkpoint << " ("
+          << elapsed_hours << " h > "
+          << cfg.runtime_limits.hard_abort_hours << " h)";
+      emitter.run_end(run_id, false, "runtime_limit_exceeded", log_file,
+                      {{"message", oss.str()}});
+      std::cerr << "Error: " << oss.str() << std::endl;
+    }
     return true;
   };
 
@@ -1228,7 +1233,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
                       {{"error", e.what()}, {"input_dir", input_dir}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during SCAN_INPUT: ") + e.what()}});
     std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
     return 1;
   }
@@ -1301,7 +1307,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                        {"input_dir", input_dir},
                        {"bayer_pattern", "UNKNOWN"}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during SCAN_INPUT: ") + msg}});
     std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
     return 1;
   }
@@ -1346,7 +1353,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"frame_width", frame_width},
                            {"frame_height", frame_height}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during SCAN_INPUT: ") + msg}});
         std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
         return 1;
       }
@@ -1356,7 +1364,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                          {"input_dir", input_dir},
                          {"frame", frames[idx].filename().string()}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during SCAN_INPUT: ") + e.what()}});
       std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
       return 1;
     }
@@ -1472,7 +1481,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                          {"input_dir", input_dir},
                          {"substep", "calibration"}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during SCAN_INPUT: ") + calibration_error}});
       std::cerr << "Error during SCAN_INPUT: " << calibration_error
                 << std::endl;
       return 1;
@@ -1530,7 +1540,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"required_min_bytes_scandir_x4", required_min_bytes},
                            {"runs_dir", runs.string()}},
                           log_file);
-        emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+        emitter.run_end(run_id, false, "insufficient_disk_space", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
         return 1;
       }
@@ -1812,6 +1823,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
+  prewarped_frames.set_preserve_files(
+      !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
@@ -1889,11 +1902,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              cfg.stacking.common_overlap_required_fraction *
              static_cast<float>(std::max(1, n_usable_frames)))));
   std::vector<uint16_t> overlap_coverage_count_fallback;
-  std::vector<uint8_t> common_valid_mask_fallback;
   std::vector<uint16_t> *overlap_coverage_count_ptr =
       &phase_registration_ctx.overlap_coverage_count;
-  std::vector<uint8_t> *common_valid_mask_ptr =
-      &phase_registration_ctx.common_valid_mask;
   std::vector<uint8_t> reconstruction_valid_mask;
   std::vector<float> tile_common_overlap_ratio(tiles_phase56.size(), 0.0f);
   std::vector<uint8_t> tile_common_valid(tiles_phase56.size(), 0);
@@ -1905,9 +1915,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   if (phase_registration_ctx.overlap_coverage_count.size() != canvas_px ||
       phase_registration_ctx.common_valid_mask.size() != canvas_px) {
     overlap_coverage_count_fallback.assign(canvas_px, 0);
-    common_valid_mask_fallback.assign(canvas_px, 0);
     overlap_coverage_count_ptr = &overlap_coverage_count_fallback;
-    common_valid_mask_ptr = &common_valid_mask_fallback;
     loaded_frames = 0;
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (!frame_has_data[fi]) {
@@ -1938,31 +1946,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    for (size_t i = 0; i < canvas_px; ++i) {
-      if (static_cast<int>(overlap_coverage_count_fallback[i]) >=
-          required_common_frames) {
-        common_valid_mask_fallback[i] = static_cast<uint8_t>(1);
-      }
-    }
   }
 
   auto &overlap_coverage_count = *overlap_coverage_count_ptr;
-  auto &common_valid_mask = *common_valid_mask_ptr;
+  std::vector<uint8_t> common_valid_mask;
   if (overlap_coverage_count.size() == canvas_px) {
-    reconstruction_valid_mask.assign(canvas_px, 0u);
-    for (size_t i = 0; i < canvas_px; ++i) {
-      if (overlap_coverage_count[i] > 0) {
-        reconstruction_valid_mask[i] = 1u;
-      }
-    }
+    auto masks = runner::compute_overlap_masks(overlap_coverage_count,
+                                               required_common_frames);
+    common_valid_mask = std::move(masks.analysis_common);
+    reconstruction_valid_mask = std::move(masks.reconstruction_support);
   } else {
-    reconstruction_valid_mask = common_valid_mask;
+    common_valid_mask.assign(canvas_px, 0u);
+    reconstruction_valid_mask.assign(canvas_px, 0u);
   }
   const bool aqmh_uses_reconstruction_canvas =
       cfg.aqmh.enabled && reconstruction_valid_mask.size() == canvas_px;
   const std::vector<uint8_t> &aqmh_canvas_valid_mask =
       aqmh_uses_reconstruction_canvas ? reconstruction_valid_mask
                                       : common_valid_mask;
+  const std::vector<uint8_t> &output_valid_mask =
+      cfg.aqmh.enabled ? reconstruction_valid_mask : common_valid_mask;
 
   {
     size_t common_pixels = 0;
@@ -2043,6 +2046,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         static_cast<uint64_t>(aqmh_uses_reconstruction_canvas
                                   ? reconstruction_pixels
                                   : common_pixels);
+    overlap_artifact["analysis_mask"] =
+        (run_dir / "outputs" / "common_overlap_mask.fits").string();
+    overlap_artifact["output_mask"] =
+        (run_dir / "outputs" / "canvas_mask.fits").string();
+    overlap_artifact["output_mask_source"] =
+        cfg.aqmh.enabled ? "reconstruction_support" : "common_overlap";
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
             ? (static_cast<double>(common_pixels) /
@@ -2071,22 +2080,33 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                      overlap_artifact.dump(2));
 
     {
+      const fs::path common_mask_path =
+          run_dir / "outputs" / "common_overlap_mask.fits";
       const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_write_error;
-      if (!write_canvas_mask_fits(mask_path, common_valid_mask, canvas_height,
+      if (!write_canvas_mask_fits(common_mask_path, common_valid_mask,
+                                  canvas_height, canvas_width, first_hdr,
+                                  mask_write_error) ||
+          !write_canvas_mask_fits(mask_path, output_valid_mask, canvas_height,
                                   canvas_width, first_hdr, mask_write_error)) {
         emitter.phase_end(run_id, Phase::COMMON_OVERLAP, "error",
                           {{"reason", "canvas_mask_write_failed"},
                            {"error", mask_write_error},
                            {"canvas_mask", mask_path.string()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", mask_write_error}});
         std::cerr << "Error: " << mask_write_error << std::endl;
         return 1;
       }
-      std::cout << "[COMMON_OVERLAP] Canvas mask saved: " << mask_path << " ("
-                << canvas_width << "x" << canvas_height << ", valid="
-                << common_pixels << "/" << canvas_px << ")" << std::endl;
+      std::cout << "[COMMON_OVERLAP] Analysis mask saved: "
+                << common_mask_path << " (" << canvas_width << "x"
+                << canvas_height << ", valid=" << common_pixels << "/"
+                << canvas_px << ")" << std::endl;
+      std::cout << "[COMMON_OVERLAP] Output canvas mask saved: " << mask_path
+                << " (valid="
+                << (cfg.aqmh.enabled ? reconstruction_pixels : common_pixels)
+                << "/" << canvas_px << ")" << std::endl;
       if (aqmh_uses_reconstruction_canvas) {
         std::cout << "[COMMON_OVERLAP] AQMH canvas uses reconstruction support "
                   << "(" << reconstruction_pixels << "/" << canvas_px
@@ -2137,7 +2157,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         << n_usable_frames << " (<" << kReducedModeMinFrames
         << "). Set runtime_limits.allow_emergency_mode=true to force "
            "emergency reduced mode.";
-    emitter.run_end(run_id, false, "insufficient_frames", log_file);
+    emitter.run_end(run_id, false, "insufficient_frames", log_file,
+                    {{"message", oss.str()},
+                     {"usable_frames", n_usable_frames},
+                     {"frames_min", kReducedModeMinFrames}});
     std::cerr << "Error: " << oss.str() << std::endl;
     return 1;
   }
@@ -2163,7 +2186,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const bool metrics_ok = cfg.aqmh.enabled
         ? runner::run_phase_aqmh_maps(
               run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
-              canvas_width, canvas_height, prewarped_frames, norm_scales,
+              common_valid_mask, canvas_width, canvas_height, prewarped_frames,
+              norm_scales,
               detected_mode, detected_bayer_str, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
               aqmh_prefetch_coordinator,
@@ -2290,7 +2314,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       runner::AqmhReconstructionPhaseResult aqmh_recon_result;
       if (!runner::run_phase_aqmh_reconstruction(
               run_id, cfg, run_dir, frames, frame_has_data,
-              aqmh_canvas_valid_mask, canvas_width, canvas_height, osc_mode,
+              aqmh_canvas_valid_mask, common_valid_mask, canvas_width,
+              canvas_height, osc_mode,
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
@@ -2300,6 +2325,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon = aqmh_recon_result.output;
       weight_sum = aqmh_recon_result.weight_sum;
       aqmh_control_validation = aqmh_recon_result.control_validation;
+      try {
+        io::write_fits_float(
+            run_dir / "outputs" / "aqmh_reconstructed_raw.fit",
+            aqmh_recon_result.raw_output, first_hdr);
+      } catch (const std::exception &e) {
+        core::emit_event(
+            "artifact_write_failed", run_id,
+            {{"phase_name", "AQMH_RECONSTRUCTION"},
+             {"reason", "persist_raw_reconstruction_failed"},
+             {"output",
+              (run_dir / "outputs" / "aqmh_reconstructed_raw.fit").string()},
+             {"error", e.what()}},
+            log_file);
+        emitter.run_end(run_id, false, "persist_raw_reconstruction_failed",
+                        log_file,
+                        {{"message", std::string("cannot persist immutable AQMH reconstruction: ") + e.what()}});
+        std::cerr << "Error: cannot persist immutable AQMH reconstruction: "
+                  << e.what() << std::endl;
+        return 1;
+      }
       if (aqmh_recon_result.osc_rgb_cleared) {
         recon_R.resize(0, 0);
         recon_G.resize(0, 0);
@@ -2313,7 +2358,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Phase: AQMH_DIAGNOSTICS — block-level Q-map statistics and heatmaps
       if (!runner::run_phase_aqmh_diagnostics(
               run_id, cfg, run_dir, aqmh_recon_result.recon,
-              aqmh_cache.get(), aqmh_canvas_valid_mask, frame_has_data,
+              aqmh_cache.get(), common_valid_mask, frame_has_data,
               canvas_width, canvas_height, emitter, log_file)) {
         return 1;
       }
@@ -2563,7 +2608,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             rgb_error.empty() ? "phase6_osc_rgb_cache_unknown_error" : rgb_error;
         emitter.phase_end(run_id, reconstruction_phase, "error",
                           {{"error", err}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Phase 6 OSC RGB cache build: ") + err}});
         std::cerr << "Error during Phase 6 OSC RGB cache build: " << err
                   << std::endl;
         return 1;
@@ -4489,10 +4535,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           emitter.phase_end(
               run_id, Phase::SYNTHETIC_FRAMES, "error",
               {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}}, log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", "SYNTHETIC_FRAMES: no synthetic frames"}});
           return 1;
         }
       }
+
     }
 
     if (use_synthetic_frames) {
@@ -4582,8 +4630,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     // --- Memory release: prewarped_frames disk cache no longer needed ---
-    // Deletes all temp .raw files from the disk cache directory.
-    prewarped_frames.cleanup();
+    // The configured cleanup policy controls whether files remain available
+    // for an AQMH reconstruction resume after the run ends.
+    if (cfg.aqmh.reconstruction.delete_prewarped_cache_after_run) {
+      prewarped_frames.cleanup();
+    } else {
+      prewarped_frames.clear_mappings();
+    }
     { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
@@ -4826,8 +4879,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	            output_bg_g, output_bg_b, output_pedestal);
 	      }
 	      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
-	        if (static_cast<size_t>(k) >= common_valid_mask.size() ||
-	            common_valid_mask[static_cast<size_t>(k)] == 0) {
+	        if (static_cast<size_t>(k) >= output_valid_mask.size() ||
+	            output_valid_mask[static_cast<size_t>(k)] == 0) {
 	          recon_out.data()[k] = 0.0f;
 	        }
 	      }
@@ -4863,7 +4916,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                {"required_estimate_bytes", required_stack_bytes},
                                {"outputs_dir", (run_dir / "outputs").string()}},
                               log_file);
-            emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+            emitter.run_end(run_id, false, "insufficient_disk_space", log_file,
+                            {{"message", msg}});
             std::cerr << "Error during STACKING: " << msg << std::endl;
             return false;
           }
@@ -4886,7 +4940,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           log_file);
         emitter.run_end(run_id, false,
                         disk_full ? "insufficient_disk_space" : "error",
-                        log_file);
+                        log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return false;
       }
@@ -5232,15 +5287,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"expected_mask_pixels",
                             static_cast<uint64_t>(full_mask_px)}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return 1;
       }
 
-      stacking_crop_box = runner::compute_nonzero_data_bbox(
-          recon, have_rgb_full ? &recon_R : nullptr,
-          have_rgb_full ? &recon_G : nullptr,
-          have_rgb_full ? &recon_B : nullptr);
+      stacking_crop_box = cfg.aqmh.enabled
+          ? runner::compute_support_mask_bbox(reconstruction_valid_mask,
+                                               full_rows, full_cols)
+          : runner::compute_nonzero_data_bbox(
+                recon, have_rgb_full ? &recon_R : nullptr,
+                have_rgb_full ? &recon_G : nullptr,
+                have_rgb_full ? &recon_B : nullptr);
       if (!stacking_crop_box.valid()) {
         const std::string msg =
             "crop_to_nonzero_bbox produced empty valid canvas";
@@ -5250,7 +5309,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"full_width", full_cols},
                            {"full_height", full_rows}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return 1;
       }
@@ -5304,23 +5364,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           reconstruction_valid_mask.swap(cropped_recon_mask);
         }
 
+        const fs::path common_mask_path =
+            run_dir / "outputs" / "common_overlap_mask.fits";
         const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
         std::string mask_write_error;
-        if (!write_canvas_mask_fits(mask_path, common_valid_mask, crop_h, crop_w,
-                                    first_hdr, mask_write_error)) {
+        if (!write_canvas_mask_fits(common_mask_path, common_valid_mask, crop_h,
+                                    crop_w, first_hdr, mask_write_error) ||
+            !write_canvas_mask_fits(mask_path, output_valid_mask, crop_h,
+                                    crop_w, first_hdr, mask_write_error)) {
           emitter.phase_end(run_id, Phase::STACKING, "error",
                             {{"reason", "canvas_mask_write_failed"},
                              {"error", mask_write_error},
                              {"canvas_mask", mask_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", mask_write_error}});
           std::cerr << "Error during STACKING: " << mask_write_error
                     << std::endl;
           return 1;
         }
-        std::cout << "[COMMON_OVERLAP] Canvas mask updated after crop: "
-                  << mask_path << " (" << crop_w << "x" << crop_h << ")"
-                  << std::endl;
+        std::cout << "[COMMON_OVERLAP] Analysis and output masks updated after "
+                     "crop: "
+                  << crop_w << "x" << crop_h << std::endl;
       }
     }
 
@@ -5336,6 +5401,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           core::device_frame_batch_to_json(stacking_input_batch)},
          {"input_frames", static_cast<int>(stacking_input_count)},
          {"crop_applied", stacking_crop_applied},
+         {"crop_source", cfg.aqmh.enabled ? "reconstruction_support_mask"
+                                           : "nonzero_data_bbox"},
          {"crop_x", stacking_crop_box.x},
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},
@@ -5400,18 +5467,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
     fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
-    auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
-                                     Matrix2Df& B_ch,
-                                     const char* stage_tag) -> bool {
+    auto stretch_rgb_for_output = [&](Matrix2Df& R_ch, Matrix2Df& G_ch,
+                                      Matrix2Df& B_ch,
+                                      const char* stage_tag) -> bool {
+      const std::vector<uint8_t>& statistics_mask =
+          common_valid_mask.size() == static_cast<size_t>(R_ch.size())
+              ? common_valid_mask
+              : reconstruction_valid_mask;
       const auto stretch =
-          core::stretch_rgb_to_u16_linear_from_zero_inplace(
-              R_ch, G_ch, B_ch);
+          core::stretch_rgb_to_u32_linear_from_zero_inplace(
+              R_ch, G_ch, B_ch, statistics_mask);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
                 << "] RGB output "
                 << "linear"
                 << " stretch ["
-                << stretch.low << ".." << stretch.high << "] -> [0..65535]"
+                << stretch.low << ".." << stretch.high << "] -> [0..4294967295]"
                 << " samples=" << stretch.sample_count << std::endl;
       return true;
     };
@@ -5425,14 +5496,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       Matrix2Df R_disk = R_src;
       Matrix2Df G_disk = G_src;
       Matrix2Df B_disk = B_src;
-      if (cfg.stacking.output_stretch) {
+      const bool stretched = cfg.stacking.output_stretch;
+      if (stretched) {
         stretch_rgb_for_output(R_disk, G_disk, B_disk, stage_tag);
       }
       image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk,
                                         reconstruction_valid_mask);
       std::error_code ec;
       fs::remove(path, ec);
-      io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+      if (stretched) {
+        io::write_fits_rgb_u32(path, R_disk, G_disk, B_disk, hdr);
+      } else {
+        io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+      }
     };
 
     bool have_successful_bge = false;
@@ -5829,7 +5905,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           {{"reason", "output_canvas_mask_invalid"},
                            {"error", mask_error}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", mask_error}});
         std::cerr << "Error: " << mask_error << std::endl;
         return 1;
       }
@@ -6106,7 +6183,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"error", mask_error},
                              {"input_rgb_bge", pcc_input_rgb_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", mask_error}});
           std::cerr << "Error: " << mask_error << std::endl;
           return 1;
         }
@@ -6122,7 +6200,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                               static_cast<uint64_t>(expected_size)},
                              {"input_rgb_bge", pcc_input_rgb_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", "common_valid_mask size mismatch for PCC analysis"}});
           std::cerr << "Error: common_valid_mask size mismatch for PCC analysis"
                     << std::endl;
           return 1;
@@ -6184,8 +6263,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                G_out, first_hdr);
           io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
                                B_out, first_hdr);
-          write_output_rgb_snapshot(stacked_rgb_pcc_path, R_out, G_out, B_out,
-                                    first_hdr, "PCC");
+          // stacked_rgb_pcc.fits must remain LINEAR float32 — it is the HMS input.
+          // Never apply output_stretch here; HMS needs the original linear data.
+          io::write_fits_rgb(stacked_rgb_pcc_path, R_out, G_out, B_out, first_hdr);
 
           core::json matrix_json = core::json::array();
           for (int r = 0; r < 3; ++r) {
@@ -6272,20 +6352,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             to_image_hms_config(cfg.hypermetric_stretch);
         const int hms_rows = static_cast<int>(R_out.rows());
         const int hms_cols = static_cast<int>(R_out.cols());
-        const std::vector<uint8_t> *hms_mask = nullptr;
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols)) {
-          hms_mask = &common_valid_mask;
+        const size_t hms_pixels =
+            static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols);
+        const std::vector<uint8_t> *hms_statistics_mask = nullptr;
+        const std::vector<uint8_t> *hms_output_mask = nullptr;
+        if (common_valid_mask.size() == hms_pixels) {
+          hms_statistics_mask = &common_valid_mask;
+        }
+        if (output_valid_mask.size() == hms_pixels) {
+          hms_output_mask = &output_valid_mask;
         }
 
         auto hms_diag = image::run_hypermetric_stretch_rgb(
-            R_out, G_out, B_out, hms_cfg, hms_mask, hms_rows, hms_cols);
+            R_out, G_out, B_out, hms_cfg, hms_statistics_mask, hms_rows,
+            hms_cols, hms_output_mask);
         if (!hms_diag.success) {
           emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                             {{"reason", "stretch_failed"},
                              {"error", hms_diag.error_message}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", hms_diag.error_message}});
           return 1;
         }
 
@@ -6347,7 +6434,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                           {{"reason", "exception"}, {"error", e.what()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("HYPERMETRIC_STRETCH exception: ") + e.what()}});
         return 1;
       }
     }
@@ -6372,7 +6460,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 
     if (run_validation_failed) {
-      emitter.run_end(run_id, false, "validation_failed", log_file);
+      emitter.run_end(run_id, false, "validation_failed", log_file,
+                      {{"message", "Pipeline completed but validation failed"}});
 
       std::cout << "Pipeline completed with validation_failed" << std::endl;
       return 1;

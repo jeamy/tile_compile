@@ -6,7 +6,6 @@ method: aqmh
 
 pipeline:
   mode: production
-  abort_on_fail: true
 
 output:
   registered_dir: registered
@@ -86,14 +85,20 @@ registration:
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
 
-# AQMH Configuration with tuning parameters
+# AQMH Configuration with tuning parameters.
+# Future baseline target:
+# - conservative, object-agnostic AQMH defaults for nebulae, galaxies,
+#   clusters, IFN, and sparse star fields
+# - cherry-pick stays opt-in; enable it only for high-frame-count datasets
+# - the validation gate must treat degenerate or unavailable metrics as
+#   not_applicable in code, not as hard failures
 aqmh:
   enabled: true
   
   # Storage configuration for quality maps
   storage:
-    resolution_divisor: 1      # Full-resolution maps are the v0.2.0 normative default
-    dtype: float32             # Storage format: float32 (exact), uint16 (compact), uint8 (compact)
+    resolution_divisor: 2      # Robust default; use 1 for cherry-pick/high-precision diagnostics
+    dtype: uint16              # Compact default; use float32 for exact diagnostic runs
     max_resident_maps: 2       # Maximum maps kept in memory simultaneously
   
   # Pyramid parameters for multi-scale quality analysis
@@ -107,10 +112,11 @@ aqmh:
 
   # Global quality weighting (v0.2.0)
   global_quality:
-    g_floor: 0.05          # Floor for global frame quality G_f
-    g_w_sharp: 0.6        # Weight for sharpness in global quality
-    g_w_snr: 0.4          # Weight for SNR in global quality
-    g_w_background_penalty: 0.3  # Penalty for large-scale sky gradients
+    g_floor: 0.03          # Floor for global frame quality G_f
+    g_w_sharp: 0.55        # Weight for sharpness in global quality
+    g_w_snr: 0.30          # Weight for SNR in global quality
+    g_w_background_penalty: 0.25  # Penalty for large-scale sky gradients
+    g_k_scale: 1.5         # Sigmoid temperature; G_f remains bounded to 1
 
   # Diagnostics parameters
   diagnostics:
@@ -127,36 +133,48 @@ aqmh:
   
   # Reconstruction parameters
   reconstruction:
-    clip_sigma: 3.0
-    clip_sigma_low: 3.0
-    clip_sigma_high: 3.0
-    clip_iterations: 3
-    min_fraction: 0.5
+    clip_sigma: 2.0
+    clip_sigma_low: 2.0       # Symmetric clipping preserves diffuse background level
+    clip_sigma_high: 2.0
+    clip_iterations: 4
+    min_fraction: 0.4
     min_n_eff: 2.0
     chunk_rows: 0
     memory_budget_mb: 0
+    delete_prewarped_cache_after_run: false  # fuer Resume ab AQMH_RECONSTRUCTION/STACKING erhalten
     registration_weight_guard: true
-    registration_weight_floor: 0.35
+    registration_weight_floor: 0.30
     registration_cc_floor: 0.35
     registration_cc_full: 0.80
-    registration_sequential_factor: 0.85
-    registration_predicted_factor: 0.35
+    registration_sequential_factor: 0.92
+    registration_predicted_factor: 0.50
     registration_chain_depth_penalty: 0.03
     registration_chain_depth_max_penalty: 0.15
+    structure_mask_low_q: 0.40
+    structure_mask_high_q: 0.90
+    structure_mask_blur_sigma_px: 4.0
   
-  # Cherry-pick parameters (pixel-level frame selection)
+  # Cherry-pick parameters (pixel-level frame selection).
+  # Keep disabled for the general baseline. If enabled for many-frame runs,
+  # set storage.resolution_divisor to 1 so the selection map has full detail.
   cherry_pick:
     enabled: false
-    k_frac: 0.3              # Fraction of best frames to use
-    k_min_required: 20       # Run-level gate and per-pixel retained-sample floor
+    k_frac: 0.50             # Fraction of best frames to use
+    k_min_required: 30       # Run-level gate and per-pixel retained-sample floor
     margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
     tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
 
-  # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
+  # Validierungsgrenzen fuer rekonstruierte Tiles.
+  # Gate thresholds apply only to applicable metrics and must pass against
+  # both the uniform control and the immutable raw AQMH baseline.
+  # Degenerate comparisons, empty star samples, and zero baselines must be
+  # not_applicable in code instead of causing false FAIL results.
   validation:
-    max_seam_score_regression: 0.02   # Max. erlaubte Seam-Score-Regression
     max_fwhm_regression: 0.02           # Max. erlaubte FWHM-Regression
-    max_background_rms_regression: 0.02  # Max. erlaubte Hintergrund-RMS-Regression
+    max_background_rms_regression: 0.05  # Max. erlaubte Hintergrund-RMS-Regression
+    max_seam_score_regression: 0.05   # Max. erlaubte Seam-Score-Regression
+    max_tail11_abs_regression: 0.10   # Max. erlaubte Tail11-Regression
+    max_elongation_regression: 0.08   # Max. erlaubte Elongation-Regression
 
 global_metrics:
   adaptive_weights: true
@@ -211,7 +229,7 @@ tile_denoise:
     max_iterations: 10
 
 chroma_denoise:
-  enabled: false
+  enabled: true
   color_space: ycbcr_linear
   apply_stage: post_stack_linear
   protect_luma: true
@@ -372,11 +390,11 @@ hypermetric_stretch:
   sensor_profile: rec709
   fallback_profile: rec709
   adaptive_anchor: true
-  target_bg: 0.15
+  target_bg: 0.11
   protect_b: 6
-  convergence_power: 3.5
-  log_d_mode: auto
-  fixed_log_d: 2
+  convergence_power: 4
+  log_d_mode: fixed
+  fixed_log_d: 3.5
   color_strategy: fixed
   fixed_color_strategy: 0
   color_grip: 1

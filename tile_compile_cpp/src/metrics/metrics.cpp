@@ -1,6 +1,7 @@
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/metrics/psf_fit.hpp"
 #include <opencv2/opencv.hpp>
 #include <array>
 #include <cmath>
@@ -99,9 +100,8 @@ float masked_median(const Matrix2Df& frame, const cv::Mat1b& mask) {
 float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float center) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
-    for (float& x : px) x = std::fabs(x - center);
-    float mad = core::median_of(px);
-    return 1.4826f * mad;
+    float mad = core::mad_of(px, center);
+    return core::kMadToSigma * mad;
 }
 
 /// @brief Implements robust normalize median mad.
@@ -114,9 +114,8 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     vals.reserve(static_cast<size_t>(v.size()));
     for (int i = 0; i < v.size(); ++i) vals.push_back(v[i]);
     float med = core::median_of(vals);
-    for (float& x : vals) x = std::fabs(x - med);
-    float mad = core::median_of(vals);
-    float sigma_robust = 1.4826f * mad;
+    float mad = core::mad_of(vals, med);
+    float sigma_robust = core::kMadToSigma * mad;
     if (!(sigma_robust > 0.0f)) {
         return VectorXf::Zero(v.size());
     }
@@ -150,7 +149,8 @@ float positive_pearson_correlation(const VectorXf& a, const VectorXf& b) {
 /// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
+FrameMetrics calculate_frame_metrics(const Matrix2Df& frame,
+                                     const std::vector<uint8_t>* frame_valid_mask) {
     FrameMetrics m;
 
     // Avoid large transient allocations (Sobel + gradients) on full-res frames.
@@ -189,10 +189,15 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
     // Large-scale sky gradient: compare background medians of four quadrants.
     // This captures the additive sky gradient (e.g. light pollution, moon glow)
     // separately from gradient_energy which measures local pixel-scale structure.
+    // When frame_valid_mask is provided, quadrant medians only consider pixels
+    // that are both background (bg_mask) and frame-valid.  A quadrant with no
+    // valid pixels is marked NaN.  When background <= 0 or fewer than four
+    // valid quadrants exist, sky_gradient is NaN (invalid) per §1.5.
     {
         const int h2 = metrics_frame->rows() / 2;
         const int w2 = metrics_frame->cols() / 2;
         float q[4] = {0, 0, 0, 0};
+        int valid_quadrants = 0;
         for (int qi = 0; qi < 4; ++qi) {
             const int y0 = (qi / 2) * h2;
             const int x0 = (qi % 2) * w2;
@@ -204,19 +209,36 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
                 const float* row = metrics_frame->data() + static_cast<size_t>(y) * static_cast<size_t>(metrics_frame->cols());
                 const uint8_t* mrow = bg_mask.ptr<uint8_t>(y);
                 for (int x = x0; x < x1; ++x) {
-                    if (mrow[x] != 0) qvals.push_back(row[x]);
+                    if (mrow[x] == 0)
+                        continue;
+                    if (frame_valid_mask) {
+                        const size_t fvm_idx = static_cast<size_t>(y) *
+                            static_cast<size_t>(metrics_frame->cols()) +
+                            static_cast<size_t>(x);
+                        if (fvm_idx >= frame_valid_mask->size() ||
+                            (*frame_valid_mask)[fvm_idx] == 0)
+                            continue;
+                    }
+                    qvals.push_back(row[x]);
                 }
             }
-            q[qi] = qvals.empty() ? 0.0f : core::median_of(qvals);
+            if (qvals.empty()) {
+                q[qi] = std::numeric_limits<float>::quiet_NaN();
+            } else {
+                q[qi] = core::median_of(qvals);
+                ++valid_quadrants;
+            }
         }
-        float qmin = q[0], qmax = q[0];
-        for (int qi = 1; qi < 4; ++qi) {
-            qmin = std::min(qmin, q[qi]);
-            qmax = std::max(qmax, q[qi]);
+        if (m.background > 1e-6f && valid_quadrants >= 4) {
+            float qmin = q[0], qmax = q[0];
+            for (int qi = 1; qi < 4; ++qi) {
+                qmin = std::min(qmin, q[qi]);
+                qmax = std::max(qmax, q[qi]);
+            }
+            m.sky_gradient = (qmax - qmin) / m.background;
+        } else {
+            m.sky_gradient = std::numeric_limits<float>::quiet_NaN();
         }
-        m.sky_gradient = (m.background > 1e-6f)
-            ? (qmax - qmin) / m.background
-            : 0.0f;
     }
 
     cv::Mat grad_x, grad_y;
@@ -434,82 +456,6 @@ VectorXf calculate_global_weights_with_stars(
         weight_exponent_scale);
 }
 
-struct PsfFit2D {
-    float fwhm_major = 0.0f;
-    float fwhm_minor = 0.0f;
-};
-
-// Fit an elliptical 2D Gaussian proxy using weighted second central moments.
-// The principal-axis sigmas come from the covariance eigenvalues.
-/// @brief Implements fit elliptical psf 2d.
-/// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static PsfFit2D fit_elliptical_psf_2d(const cv::Mat& patch, float bg) {
-    PsfFit2D out;
-    if (patch.empty()) return out;
-
-    constexpr double kFwhmScale = 2.3548200450309493;  // 2*sqrt(2*ln(2))
-
-    double sum_w = 0.0;
-    double mx = 0.0;
-    double my = 0.0;
-
-    for (int y = 0; y < patch.rows; ++y) {
-        const float* row = patch.ptr<float>(y);
-        for (int x = 0; x < patch.cols; ++x) {
-            const double w = std::max(0.0, static_cast<double>(row[x]) - static_cast<double>(bg));
-            sum_w += w;
-            mx += w * static_cast<double>(x);
-            my += w * static_cast<double>(y);
-        }
-    }
-    if (!(sum_w > 0.0)) return out;
-
-    mx /= sum_w;
-    my /= sum_w;
-
-    double cxx = 0.0;
-    double cyy = 0.0;
-    double cxy = 0.0;
-    for (int y = 0; y < patch.rows; ++y) {
-        const float* row = patch.ptr<float>(y);
-        for (int x = 0; x < patch.cols; ++x) {
-            const double w = std::max(0.0, static_cast<double>(row[x]) - static_cast<double>(bg));
-            if (!(w > 0.0)) continue;
-            const double dx = static_cast<double>(x) - mx;
-            const double dy = static_cast<double>(y) - my;
-            cxx += w * dx * dx;
-            cyy += w * dy * dy;
-            cxy += w * dx * dy;
-        }
-    }
-
-    cxx /= sum_w;
-    cyy /= sum_w;
-    cxy /= sum_w;
-
-    const double tr = cxx + cyy;
-    const double det = cxx * cyy - cxy * cxy;
-    const double disc = std::max(0.0, tr * tr - 4.0 * det);
-    const double root = std::sqrt(disc);
-    const double lambda_major = 0.5 * (tr + root);
-    const double lambda_minor = 0.5 * (tr - root);
-
-    if (!(lambda_major > 0.0) || !(lambda_minor > 0.0)) return out;
-
-    const double fwhm_major = kFwhmScale * std::sqrt(lambda_major);
-    const double fwhm_minor = kFwhmScale * std::sqrt(lambda_minor);
-    if (!(fwhm_major > 0.2 && fwhm_major < 50.0 &&
-          fwhm_minor > 0.2 && fwhm_minor < 50.0)) {
-        return out;
-    }
-
-    out.fwhm_major = static_cast<float>(fwhm_major);
-    out.fwhm_minor = static_cast<float>(fwhm_minor);
-    return out;
-}
-
 /// @brief Implements keep indices by mad clip.
 /// @details Part of global frame metric and star/PSF estimation helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -521,9 +467,8 @@ static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& va
 
     std::vector<float> tmp = values;
     const float med = core::median_of(tmp);
-    for (float& v : tmp) v = std::fabs(v - med);
-    const float mad = core::median_of(tmp);
-    const float sigma = 1.4826f * mad;
+    const float mad = core::mad_of(tmp, med);
+    const float sigma = core::kMadToSigma * mad;
 
     keep.reserve(values.size());
     if (!(sigma > 1.0e-8f)) {

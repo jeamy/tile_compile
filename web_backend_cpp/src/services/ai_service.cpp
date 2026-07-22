@@ -61,6 +61,17 @@ std::string join_url(const std::string& base, const std::string& endpoint) {
     return base + endpoint;
 }
 
+long sidecar_connect_timeout_ms() {
+    return static_cast<long>(env_int("AI_AGENT_CONNECT_TIMEOUT_MS", 10000, 1000, 120000));
+}
+
+long sidecar_request_timeout_ms(const AiConfig& config, const std::string& endpoint) {
+    const bool analysis_request = endpoint == "/analyze" || endpoint == "/analyze/stream";
+    if (!analysis_request) return static_cast<long>(config.timeout_ms);
+    const int configured = env_int("AI_AGENT_ANALYSIS_TIMEOUT_MS", 1200000, 60000, 3600000);
+    return static_cast<long>(std::max(config.timeout_ms, configured));
+}
+
 void set_if_present(nlohmann::json& target, const nlohmann::json& source, const char* key) {
     if (!source.contains(key)) return;
     const auto& next = source[key];
@@ -188,6 +199,9 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
                                     const nlohmann::json& patch,
                                     const BackendRuntime& runtime) {
     nlohmann::json merged = ai_config_to_json(ai_config_from_json(base, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (base.is_object() && base.contains(key)) merged[key] = base[key];
+    }
     if (!patch.is_object()) return merged;
     set_if_present(merged, patch, "enabled");
     set_if_present(merged, patch, "mode");
@@ -199,7 +213,14 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
     set_if_present(merged, patch, "send_paths");
     set_if_present(merged, patch, "persist_recommendations");
     set_if_present(merged, patch, "sidecar_url");
-    return ai_config_to_json(ai_config_from_json(merged, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (patch.contains(key)) merged[key] = patch[key];
+    }
+    nlohmann::json normalized = ai_config_to_json(ai_config_from_json(merged, runtime));
+    for (const char* key : {"ui", "vision_overrides"}) {
+        if (merged.contains(key)) normalized[key] = merged[key];
+    }
+    return normalized;
 }
 
 AiSidecarClient::AiSidecarClient(AiConfig config) : _config(std::move(config)) {}
@@ -232,7 +253,9 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(_config.timeout_ms));
+    const long request_timeout_ms = sidecar_request_timeout_ms(_config, endpoint);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, sidecar_connect_timeout_ms());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, request_timeout_ms);
 
     struct curl_slist* headers = nullptr;
     if (method == "POST") {
@@ -251,6 +274,12 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
     curl_easy_cleanup(curl);
 
     if (rc != CURLE_OK) {
+        if (rc == CURLE_OPERATION_TIMEDOUT) {
+            throw std::runtime_error(
+                "AI sidecar request timed out after " + std::to_string(request_timeout_ms) +
+                " ms while calling " + endpoint
+            );
+        }
         throw std::runtime_error(std::string("AI sidecar unavailable: ") + curl_easy_strerror(rc));
     }
 

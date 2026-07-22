@@ -22,6 +22,8 @@ namespace {
 
 struct Proxy {
     Matrix2Df r, g, b;
+    std::vector<uint8_t> statistics_mask;
+    std::vector<uint8_t> output_mask;
     std::string source;
     std::string signature;
 };
@@ -99,11 +101,38 @@ Matrix2Df resize_matrix(const Matrix2Df& input, int rows, int cols) {
     return result;
 }
 
+std::vector<uint8_t> resize_mask(const std::vector<uint8_t>& input, int input_rows,
+                                 int input_cols, int rows, int cols) {
+    cv::Mat source(input_rows, input_cols, CV_8U);
+    for (int y = 0; y < input_rows; ++y)
+        for (int x = 0; x < input_cols; ++x)
+            source.at<uint8_t>(y, x) = input[static_cast<size_t>(y) * input_cols + x];
+    cv::Mat resized;
+    cv::resize(source, resized, cv::Size(cols, rows), 0, 0, cv::INTER_NEAREST);
+    std::vector<uint8_t> result(static_cast<size_t>(rows) * cols);
+    for (int y = 0; y < rows; ++y)
+        for (int x = 0; x < cols; ++x)
+            result[static_cast<size_t>(y) * cols + x] = resized.at<uint8_t>(y, x);
+    return result;
+}
+
+std::vector<uint8_t> read_mask(const fs::path& path, long width, long height) {
+    long mask_width = 0, mask_height = 0, planes = 0;
+    const auto values = read_fits_plane(path, 1, mask_width, mask_height, planes);
+    if (mask_width != width || mask_height != height)
+        throw std::runtime_error("Mask dimensions do not match PCC RGB: " + path.string());
+    std::vector<uint8_t> result(values.size());
+    for (size_t i = 0; i < values.size(); ++i) result[i] = values[i] > 0.0f ? 1u : 0u;
+    return result;
+}
+
 Proxy load_proxy(const fs::path& run_dir) {
     const fs::path outputs = run_dir / "outputs";
     const std::vector<fs::path> channels = {
         outputs / "pcc_R.fit", outputs / "pcc_G.fit", outputs / "pcc_B.fit"};
     const fs::path cube = outputs / "stacked_rgb_pcc.fits";
+    const fs::path statistics_mask_path = outputs / "common_overlap_mask.fits";
+    const fs::path output_mask_path = outputs / "canvas_mask.fits";
     std::vector<fs::path> source_paths;
     Proxy proxy;
     long w = 0, h = 0, p = 0;
@@ -134,14 +163,32 @@ Proxy load_proxy(const fs::path& run_dir) {
         throw std::runtime_error("No PCC RGB artifact found");
     }
 
+    if (fs::exists(statistics_mask_path)) {
+        proxy.statistics_mask = read_mask(statistics_mask_path, w, h);
+        source_paths.push_back(statistics_mask_path);
+    }
+    if (fs::exists(output_mask_path)) {
+        proxy.output_mask = read_mask(output_mask_path, w, h);
+        source_paths.push_back(output_mask_path);
+    }
+    const size_t pixels = static_cast<size_t>(w) * h;
+    if (proxy.statistics_mask.empty()) proxy.statistics_mask.assign(pixels, 1u);
+    if (proxy.output_mask.empty()) proxy.output_mask.assign(pixels, 1u);
+
     const int max_edge = std::max(proxy.r.rows(), proxy.r.cols());
     if (max_edge > kMaxProxyEdge) {
+        const int input_rows = proxy.r.rows();
+        const int input_cols = proxy.r.cols();
         const double scale = static_cast<double>(kMaxProxyEdge) / max_edge;
-        const int rows = std::max(1, static_cast<int>(std::lround(proxy.r.rows() * scale)));
-        const int cols = std::max(1, static_cast<int>(std::lround(proxy.r.cols() * scale)));
+        const int rows = std::max(1, static_cast<int>(std::lround(input_rows * scale)));
+        const int cols = std::max(1, static_cast<int>(std::lround(input_cols * scale)));
         proxy.r = resize_matrix(proxy.r, rows, cols);
         proxy.g = resize_matrix(proxy.g, rows, cols);
         proxy.b = resize_matrix(proxy.b, rows, cols);
+        proxy.statistics_mask = resize_mask(proxy.statistics_mask, input_rows, input_cols,
+                                            rows, cols);
+        proxy.output_mask = resize_mask(proxy.output_mask, input_rows, input_cols,
+                                        rows, cols);
     }
     proxy.signature = file_signature(source_paths);
     return proxy;
@@ -158,6 +205,10 @@ Proxy get_proxy(const fs::path& run_dir) {
         sources = channels;
     else
         throw std::runtime_error("No PCC RGB artifact found");
+    for (const auto& mask : {outputs / "common_overlap_mask.fits",
+                             outputs / "canvas_mask.fits"}) {
+        if (fs::exists(mask)) sources.push_back(mask);
+    }
     const std::string signature = file_signature(sources);
     {
         std::lock_guard<std::mutex> lock(cache_mutex);
@@ -246,7 +297,9 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
                 " G=" + std::to_string(g.rows()) + "x" + std::to_string(g.cols()) +
                 " B=" + std::to_string(b.rows()) + "x" + std::to_string(b.cols()));
         }
-        auto diag = image::run_hypermetric_stretch_rgb(r, g, b, cfg);
+        auto diag = image::run_hypermetric_stretch_rgb(
+            r, g, b, cfg, &proxy.statistics_mask, r.rows(), r.cols(),
+            &proxy.output_mask);
         if (!diag.success) { result.status = 400; result.error = diag.error_message; return result; }
 
         cv::Mat rgb(r.rows(), r.cols(), CV_8UC3);

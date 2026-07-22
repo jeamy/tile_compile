@@ -12,7 +12,6 @@ namespace fs = std::filesystem;
 
 struct PipelineConfig {
   std::string mode = "production";
-  bool abort_on_fail = true;
 };
 
 struct OutputConfig {
@@ -246,43 +245,49 @@ struct AqmhPyramidConfig {
 };
 
 struct AqmhStorageConfig {
-  int resolution_divisor = 1;
-  std::string dtype = "float32";
+  int resolution_divisor = 2;
+  std::string dtype = "uint16";
   int max_resident_maps = 2;
 };
 
 struct AqmhGlobalQualityConfig {
-  float g_floor = 0.05f;
-  float g_w_sharp = 0.6f;
-  float g_w_snr = 0.4f;
-  float g_w_background_penalty = 0.3f;
+  float g_floor = 0.03f;
+  float g_w_sharp = 0.55f;
+  float g_w_snr = 0.3f;
+  float g_w_background_penalty = 0.25f;
+  float g_k_scale = 1.5f;            // sigmoid temperature; output remains in [g_floor, 1]
 };
 
 struct AqmhReconstructionConfig {
-  float clip_sigma = 3.0f;
-  float clip_sigma_low = 3.0f;
-  float clip_sigma_high = 3.0f;
-  int clip_iterations = 3;
-  float min_fraction = 0.5f;
+  float clip_sigma = 2.0f;
+  float clip_sigma_low = 2.0f;
+  float clip_sigma_high = 2.0f;
+  int clip_iterations = 4;
+  float min_fraction = 0.4f;
   float min_n_eff = 2.0f;
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
+  bool delete_prewarped_cache_after_run = true;
   bool registration_weight_guard = true;
-  float registration_weight_floor = 0.35f;
+  float registration_weight_floor = 0.30f;
   float registration_cc_floor = 0.35f;
   float registration_cc_full = 0.80f;
-  float registration_sequential_factor = 0.85f;
-  float registration_predicted_factor = 0.35f;
+  float registration_sequential_factor = 0.92f;
+  float registration_predicted_factor = 0.50f;
   float registration_chain_depth_penalty = 0.03f;
   float registration_chain_depth_max_penalty = 0.15f;
+  // Structure-masked detail blending parameters (v0.2.1 post-reconstruction)
+  float structure_mask_low_q = 0.40f;             // gradient quantile mapped to mask=0 (was 0.70)
+  float structure_mask_high_q = 0.90f;            // gradient quantile mapped to mask=1 (was 0.97)
+  float structure_mask_blur_sigma_px = 4.0f;      // soft mask blur sigma (was 2.0)
 };
 
 struct AqmhValidationConfig {
-  float max_seam_score_regression = 0.02f;
+  float max_seam_score_regression = 0.05f;
   float max_fwhm_regression = 0.02f;
-  float max_background_rms_regression = 0.02f;
-  float max_tail11_abs_regression = 0.05f;
-  float max_elongation_regression = 0.05f;
+  float max_background_rms_regression = 0.05f;
+  float max_tail11_abs_regression = 0.10f;
+  float max_elongation_regression = 0.08f;
 };
 
 struct AqmhDiagnosticsConfig {

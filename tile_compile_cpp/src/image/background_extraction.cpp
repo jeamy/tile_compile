@@ -1,4 +1,5 @@
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <queue>
 #include <random>
+#include <thread>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
@@ -39,27 +41,11 @@ double elapsed_seconds_since(const SteadyClock::time_point &start) {
 static int g_bge_max_workers = 0;
 
 int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
-  if (work_items <= 0) {
-    return 1;
-  }
-#if defined(_OPENMP)
-  if (omp_in_parallel()) {
-    return 1;
-  }
-  int max_threads = std::max(1, omp_get_max_threads());
-  if (g_bge_max_workers > 0) {
-    max_threads = std::min(max_threads, g_bge_max_workers);
-  }
-  if (max_threads <= 1) {
-    return 1;
-  }
-  const int min_items = std::max(1, min_items_per_worker);
-  const int wanted = std::max(1, (work_items + min_items - 1) / min_items);
-  return std::max(1, std::min(max_threads, wanted));
-#else
-  (void)min_items_per_worker;
-  return 1;
-#endif
+  // Delegate to the central omp_effective_threads helper for consistent
+  // behavior across the entire project.
+  const int limit = (g_bge_max_workers > 0) ? g_bge_max_workers
+                                            : static_cast<int>(std::thread::hardware_concurrency());
+  return tile_compile::core::omp_effective_threads(limit, work_items);
 }
 
 /// @brief Implements clamp01.
@@ -73,16 +59,7 @@ float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 float robust_median_inplace(std::vector<float> &values) {
-  if (values.empty())
-    return 0.0f;
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + mid, values.end());
-  float med = values[mid];
-  if ((values.size() & 1U) == 0U) {
-    std::nth_element(values.begin(), values.begin() + (mid - 1), values.end());
-    med = 0.5f * (med + values[mid - 1]);
-  }
-  return med;
+  return tile_compile::core::median_of(values);
 }
 
 /// @brief Implements robust median.
@@ -183,13 +160,7 @@ float sorted_quantile(const std::vector<float> &sorted_values, float q) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 float robust_mad(const std::vector<float> &values, float center) {
-  if (values.empty())
-    return 0.0f;
-  std::vector<float> abs_dev;
-  abs_dev.reserve(values.size());
-  for (float v : values)
-    abs_dev.push_back(std::abs(v - center));
-  return robust_median_inplace(abs_dev);
+  return tile_compile::core::mad_of(std::vector<float>(values), center);
 }
 
 float robust_mean(const std::vector<float> &values) {
@@ -210,7 +181,7 @@ std::vector<float> sigma_clipped_values(std::vector<float> values,
   for (int iter = 0; iter < max_iters && values.size() >= 8; ++iter) {
     std::vector<float> work = values;
     const float center = robust_median_inplace(work);
-    const float scale = 1.4826f * robust_mad(values, center);
+    const float scale = core::kMadToSigma * robust_mad(values, center);
     if (!(std::isfinite(scale) && scale > kTiny))
       break;
     const float limit = sigma * scale;
@@ -432,7 +403,7 @@ float estimate_structure_noise_scale(const TileMetrics &tm,
   if (!bg_pixels.empty()) {
     std::vector<float> tmp = bg_pixels;
     const float med = robust_median_inplace(tmp);
-    const float sigma = 1.4826f * robust_mad(bg_pixels, med);
+    const float sigma = core::kMadToSigma * robust_mad(bg_pixels, med);
     if (std::isfinite(sigma) && sigma > kTiny) {
       return sigma;
     }
@@ -1092,7 +1063,7 @@ build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
     return out_mask;
 
   const float med = robust_median_inplace(sample_vals);
-  const float sigma = std::max(1.0e-6f, 1.4826f * robust_mad(sample_vals, med));
+  const float sigma = std::max(1.0e-6f, core::kMadToSigma * robust_mad(sample_vals, med));
   const float thresh = med + 0.8f * sigma;
   if (out_threshold)
     *out_threshold = thresh;
@@ -1146,7 +1117,7 @@ float robust_mesh_background_estimate(std::vector<float> values) {
     return std::numeric_limits<float>::quiet_NaN();
   for (int iter = 0; iter < 4; ++iter) {
     const float med = robust_median_inplace(values);
-    const float sigma = 1.4826f * robust_mad(values, med);
+    const float sigma = core::kMadToSigma * robust_mad(values, med);
     if (!(std::isfinite(sigma) && sigma > 1.0e-6f))
       break;
     const float clip = 2.5f * sigma;
@@ -1919,7 +1890,7 @@ extract_autotune_prepared_tile_samples(
     const float dog_med = robust_median_inplace(scratch.dog_vals);
     const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
     const float dog_thresh =
-        dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
+        dog_med + 3.0f * std::max(core::kMadToSigma * dog_mad, 1.0e-6f);
     const float bright_thresh =
         robust_quantile_inplace(scratch.finite_values, 0.80f);
     for (int yy = 0; yy < th; ++yy) {
@@ -2089,7 +2060,7 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   if (valid_bg_values.size() >= 16) {
     bg_med = robust_median_inplace(valid_bg_values);
     const float mad = robust_mad(valid_bg_values, bg_med);
-    bg_sigma = 1.4826f * mad;
+    bg_sigma = core::kMadToSigma * mad;
     have_bg_guard = std::isfinite(bg_sigma) && bg_sigma > kTiny;
   }
 
@@ -2545,7 +2516,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   // Dynamic lambda adaptation: test/adjust/test and prefer the smoothest
   // (highest lambda) model that still fits grid samples well enough.
   const float bg_med = robust_median_inplace(bg_values);
-  const float bg_sigma = 1.4826f * robust_mad(bg_values, bg_med);
+  const float bg_sigma = core::kMadToSigma * robust_mad(bg_values, bg_med);
   const float residual_limit =
       std::max(0.15f, 0.20f * std::max(bg_sigma, kTiny));
 

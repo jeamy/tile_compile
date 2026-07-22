@@ -2,6 +2,7 @@
 
 #include "tile_compile/metrics/aqmh_eps.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/core/ocl.hpp>
@@ -308,7 +309,7 @@ int sigma_clip(
       if (keep_count < keep_floor) {
         for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
         bitonic_sort_by_norm_distance_asc(
-            sort_indices, n, values, center, fmax(1.4826f * mad, floor_val));
+            sort_indices, n, values, center, fmax(tile_compile::core::kMadToSigma * mad, floor_val));
         for (int i = 0; i < keep_floor; ++i) {
           int src = sort_indices[i];
           if (src != i) {
@@ -331,7 +332,7 @@ int sigma_clip(
       break;
     }
 
-    float sigma = 1.4826f * mad;
+    float sigma = tile_compile::core::kMadToSigma * mad;
     int keep_count = 0;
     for (int i = 0; i < n; ++i)
       if ((values[i] >= center && values[i] - center <= clip_sigma_high * sigma) ||

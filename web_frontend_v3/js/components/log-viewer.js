@@ -9,6 +9,7 @@ const RENDER_BATCH = 50;
 
 export function createLogViewer() {
   let lines = [];
+  let lineKeys = new Set();
   let paused = false;
   let filterLevels = new Set(["INFO", "WARN", "ERROR", "DEBUG", "TRACE"]);
   let searchText = "";
@@ -100,21 +101,34 @@ export function createLogViewer() {
   }
 
   function addLine(time, level, text) {
+    const key = `${time}|${level}|${text}`;
+    if (lineKeys.has(key)) return;
+    lineKeys.add(key);
     lines.push({ time, level, text });
-    if (lines.length > MAX_LINES * 2) lines = lines.slice(-MAX_LINES);
+    if (lines.length > MAX_LINES * 2) {
+      lines = lines.slice(-MAX_LINES);
+      lineKeys = new Set(lines.map(l => `${l.time}|${l.level}|${l.text}`));
+    }
     if (!paused) render();
   }
 
   function addLines(newLines) {
     for (const l of newLines) {
+      const key = `${l.time}|${l.level}|${l.text}`;
+      if (lineKeys.has(key)) continue;
+      lineKeys.add(key);
       lines.push(l);
     }
-    if (lines.length > MAX_LINES * 2) lines = lines.slice(-MAX_LINES);
+    if (lines.length > MAX_LINES * 2) {
+      lines = lines.slice(-MAX_LINES);
+      lineKeys = new Set(lines.map(l => `${l.time}|${l.level}|${l.text}`));
+    }
     if (!paused) render();
   }
 
   function clearLines() {
     lines = [];
+    lineKeys = new Set();
     render();
   }
 

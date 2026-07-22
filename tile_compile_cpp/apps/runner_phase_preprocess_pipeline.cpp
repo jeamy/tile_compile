@@ -502,7 +502,8 @@ bool run_preprocess_pipeline(
         emitter.phase_end(run_id, pname(preprocessing::Phase::INPUT_SCAN), "error",
                           {{"error", "lights_dir not found: " + lights_dir.string()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", "lights_dir not found: " + lights_dir.string()}});
         return false;
     }
 
@@ -514,7 +515,8 @@ bool run_preprocess_pipeline(
         emitter.phase_end(run_id, pname(preprocessing::Phase::INPUT_SCAN), "error",
                           {{"error", "no supported FITS frames found in lights_dir"}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", "no supported FITS frames found in lights_dir"}});
         return false;
     }
 
@@ -531,7 +533,8 @@ bool run_preprocess_pipeline(
         emitter.phase_end(run_id, pname(preprocessing::Phase::INPUT_SCAN), "error",
                           {{"error", std::string("failed to read first frame header: ") + e.what()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("failed to read first frame header: ") + e.what()}});
         return false;
     }
 
@@ -589,7 +592,8 @@ bool run_preprocess_pipeline(
                                  cal_masters, cal_artifact, cal_err)) {
             emitter.phase_end(run_id, pname(preprocessing::Phase::CALIBRATION), "error",
                               {{"error", cal_err}}, log_file);
-            emitter.run_end(run_id, false, "error", log_file);
+            emitter.run_end(run_id, false, "error", log_file,
+                            {{"message", cal_err}});
             return false;
         }
 
@@ -621,7 +625,8 @@ bool run_preprocess_pipeline(
                                       {{"error", dark_error},
                                        {"frame", frames[i].filename().string()}},
                                       log_file);
-                    emitter.run_end(run_id, false, "error", log_file);
+                    emitter.run_end(run_id, false, "error", log_file,
+                                    {{"message", dark_error}});
                     return false;
                 }
                 apply_calib_to_frame(img, cal_masters, selected_dark_ptr);
@@ -870,7 +875,8 @@ bool run_preprocess_pipeline(
     if (n_registered == 0) {
         emitter.phase_end(run_id, pname(preprocessing::Phase::REGISTRATION), "error",
                           {{"error", "no frames could be registered"}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", "no frames could be registered"}});
         return false;
     }
 
@@ -878,7 +884,7 @@ bool run_preprocess_pipeline(
     out.canvas_width  = image_width;
     out.canvas_height = image_height;
     out.prewarped_frames = DiskCacheFrameStore(
-        run_dir / ".prewarped_cache", n_frames, image_height, image_width);
+        run_dir / "cache" / "prewarped_frames", n_frames, image_height, image_width);
 
     const core::AccelerationContext acceleration(
         cfg.runtime_limits.acceleration_backend);

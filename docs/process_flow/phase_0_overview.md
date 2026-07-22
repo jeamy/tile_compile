@@ -20,7 +20,11 @@ if (config.method == "aqmh") config.aqmh.enabled = true;
 else if (config.method == "classic_tile_compile") config.aqmh.enabled = false;
 ```
 
-## Pipeline-Phasen (gesamt, 0–18)
+## Pipeline-Phasen
+
+Die Core-Phasen `0–18` bleiben methodenunabhängig. AQMH verwendet für die
+Rekonstruktion zusätzlich die eigenen Phasen `19–22`; diese sind keine bloße
+Umbenennung von `LOCAL_METRICS` und `TILE_RECONSTRUCTION`.
 
 | ID | Enum | AQMH-Verhalten | Classic-Verhalten |
 |----|------|---------------|-------------------|
@@ -32,11 +36,11 @@ else if (config.method == "classic_tile_compile") config.aqmh.enabled = false;
 | 5 | `GLOBAL_METRICS` | Identisch | Identisch |
 | 6 | `TILE_GRID` | Identisch | Identisch |
 | 7 | `COMMON_OVERLAP` | Identisch | Identisch |
-| 8 | `LOCAL_METRICS` | **AQMH_QUALITY_MAPS** — Pyramid-Qualitätskarten pro Frame werden berechnet und gecacht | **Classic LOCAL_METRICS** — Tile-Metriken (FWHM, Roundness, Contrast, Star Count) pro (frame, tile) |
-| 9 | `TILE_RECONSTRUCTION` | **Pixelweise AQMH-Rekonstruktion** über `AccelerationOps::reconstruct_aqmh()` — CUDA-Streaming oder CPU-Fallback, Cherry-Pick-Selektion, Sigma-Clip | **Tile-basierte Rekonstruktion** mit `W_f,t = G_f × L_f,t`, OLA |
-| 10 | `STATE_CLUSTERING` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv (wenn N ≥ Schwellwert) — 6D State-Vector Clustering |
-| 11 | `SYNTHETIC_FRAMES` | **Skipped** (`aqmh_independent_reconstruction`) | Aktiv — gewichtete Cluster-Mittelwerte |
-| 12 | `STACKING` | Durchlauf der AQMH-Rekonstruktion | Sigma-Clip-Stacking der synthetischen Frames |
+| 8 | `LOCAL_METRICS` | Nicht emittiert; AQMH verwendet `AQMH_MAPS` (Phase 19) | Tile-Metriken pro (Frame, Tile) |
+| 9 | `TILE_RECONSTRUCTION` | Nicht emittiert; AQMH verwendet `AQMH_RECONSTRUCTION` (Phase 21) | Tile-basierte Rekonstruktion mit `W_f,t = G_f × L_f,t`, OLA |
+| 10 | `STATE_CLUSTERING` | Nicht emittiert | Aktiv, sofern nicht Reduced Mode |
+| 11 | `SYNTHETIC_FRAMES` | `skipped`, Grund `aqmh_independent_reconstruction` | Aktiv, sofern nicht Reduced Mode |
+| 12 | `STACKING` | AQMH-Pass-through des Rekonstruktionsergebnisses | Sigma-Clip-/Mean-Stacking der synthetischen Frames |
 | 13 | `DEBAYER` | Identisch | Identisch |
 | 14 | `ASTROMETRY` | Identisch (optional) | Identisch (optional) |
 | 15 | `BGE` | Identisch (optional) | Identisch (optional) |
@@ -44,11 +48,16 @@ else if (config.method == "classic_tile_compile") config.aqmh.enabled = false;
 | 17 | `HYPERMETRIC_STRETCH` | Identisch (optional) | Identisch (optional) |
 | 18 | `DONE` | Identisch | Identisch |
 
+| 19 | `AQMH_MAPS` | Pyramid-Quality-Maps und Cache | Nicht verwendet |
+| 20 | `AQMH_GLOBAL_QUALITY` | Globale AQMH-Frame-Gewichte | Nicht verwendet |
+| 21 | `AQMH_RECONSTRUCTION` | Pixelweise AQMH-Rekonstruktion | Nicht verwendet |
+| 22 | `AQMH_DIAGNOSTICS` | Karten-/Qualitätsdiagnostik | Nicht verwendet |
+
 > **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Phase.
 
 ## AQMH-spezifische Phasen im Detail
 
-### Phase 8: AQMH_QUALITY_MAPS (ersetzt LOCAL_METRICS)
+### Phase 19: AQMH_MAPS (AQMH-Erweiterungsphase)
 
 Wenn `aqmh.enabled = true`:
 
@@ -57,7 +66,7 @@ Wenn `aqmh.enabled = true`:
   - Multi-Scale-Sharpness und SNR über Pyramid-Level
   - Artefakt-Detektion (`k_artifact`, `frac_artifact_max`)
   - Qualitätskarte `Q_map` pro Frame wird in `QualityMapCache` gespeichert (`runs/<id>/cache/aqmh/`)
-- Phase-Anzeige: `AQMH_QUALITY_MAPS` statt `LOCAL_METRICS`
+- Phase-Anzeige: `AQMH_MAPS` (Enum 19)
 - Artifact: `aqmh_metrics.json` (statt `local_metrics.json`)
 - CUDA verwendet pro Worker einen eigenen Stream und gecachte
   `cudafilters`-Boxfilter; OpenCL nutzt `UMat`. Bei fehlendem Backend erfolgt
@@ -67,7 +76,7 @@ Wenn `aqmh.enabled = true`:
 // runner_phase_local_metrics.cpp
 const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
 const std::string phase_display_name =
-    compute_classic_local_metrics ? "LOCAL_METRICS" : "AQMH_QUALITY_MAPS";
+    compute_classic_local_metrics ? "LOCAL_METRICS" : "AQMH_MAPS";
 ```
 
 #### AQMH-Konfiguration
@@ -75,19 +84,19 @@ const std::string phase_display_name =
 | Parameter | Beschreibung | Default |
 |-----------|-------------|---------|
 | `aqmh.pyramid.scales` | Anzahl Pyramid-Level (1–8) | 4 |
-| `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 16 |
+| `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 4 |
 | `aqmh.pyramid.w_sharp` | Gewicht Sharpness | 0.6 |
 | `aqmh.pyramid.w_snr` | Gewicht SNR | 0.4 |
-| `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 2.0 |
-| `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.1 |
+| `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 3.0 |
+| `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.25 |
 | `aqmh.storage.resolution_divisor` | Speicher-Auflösungsteiler (1/2/4) | 2 |
-| `aqmh.storage.dtype` | Speichertyp (float32/uint16/uint8) | float32 |
-| `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 4 |
+| `aqmh.storage.dtype` | Speichertyp (float32/uint16/uint8) | uint16 |
+| `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 2 |
 | `aqmh.cherry_pick.enabled` | Cherry-Pick-Frame-Selektion | false |
-| `aqmh.cherry_pick.k_min` | Min. Frames pro Pixel | 3 |
-| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.5 |
+| `aqmh.cherry_pick.k_min_required` | Run-Gate und Min. Samples pro Pixel | 20 |
+| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.30 |
 
-### Phase 9: AQMH-Rekonstruktion (ersetzt TILE_RECONSTRUCTION)
+### Phase 21: AQMH-Rekonstruktion (AQMH-Erweiterungsphase)
 
 Wenn `aqmh.enabled = true`:
 
@@ -96,7 +105,9 @@ Wenn `aqmh.enabled = true`:
   - Sigma-Clip-Rejection auf Pixel-Ebene
   - Optional Cherry-Pick: nur die `k` besten Frames pro Pixel werden verwendet
 - Kein Clustering, keine synthetischen Frames
-- Artifact: `tile_reconstruction.json` mit `"method": "aqmh"` und Cherry-Pick-Diagnostik
+- Artifact: `aqmh_reconstruction.json` und `outputs/aqmh_reconstructed_raw.fit`
+- Die globale Gewichtung wird anschließend als eigene Phase
+  `AQMH_GLOBAL_QUALITY` (Enum 20) protokolliert.
 - Ohne Cherry-Pick läuft die zweipassige Welford-/Sigma-Clip-Rekonstruktion bei
   `opencv_cuda` streaming auf der GPU. Akkumulatoren bleiben resident; jeweils
   nur ein Frame und eine Quality-Map werden übertragen. Cherry-Pick und
@@ -181,14 +192,14 @@ const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 8: AQMH_QUALITY_MAPS  │
+              │  PHASE 19: AQMH_MAPS         │
               │  • Pyramid quality maps      │
               │  • Multi-scale sharpness+SNR │
               │  • QualityMapCache (disk)    │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 9: TILE_RECONSTRUCTION│
+              │  PHASE 21: AQMH_RECONSTRUCTION│
               │  • Pixel-wise AQMH weighted  │
               │  • Sigma-clip rejection      │
               │  • Cherry-pick (optional)    │

@@ -1,10 +1,26 @@
-# Deep Analysis of Tile-based Quality Reconstruction for Astronomical Images
+# Deep Analysis of the Current AQMH/Classic Process Flow
 
 ## Executive Summary
 
-This analysis evaluates the `tile_compile_cpp` implementation of the tile-based quality reconstruction methodology for astronomical images. The current normative reference is `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`. The production pipeline processes astronomical images through the current v3.3 phase chain including registration, prewarp/canvas harmonization, normalization, global/local metrics, common-overlap masking, tile reconstruction, clustering/synthetic frames, stacking, debayer, astrometry, BGE, and PCC.
+This analysis evaluates the current `tile_compile_cpp` implementation for
+astronomical images. AQMH is the default reconstruction method; Classic Tile
+Compile remains a separate alternative. The shared flow includes registration,
+prewarp/canvas harmonization, normalization, global metrics, common-overlap
+masking, stacking, debayer, astrometry, BGE, PCC and HMS.
 
-Overall, the implementation follows the v3.3.9 methodology in production. The most relevant remaining risks are operational tuning (dataset-dependent thresholds), numerical robustness at edge cases, seam regression under aggressive local weighting, and throughput bottlenecks on slower storage.
+The authoritative AQMH execution path is:
+
+```text
+SCAN_INPUT -> REGISTRATION -> PREWARP -> CHANNEL_SPLIT
+-> NORMALIZATION -> GLOBAL_METRICS -> TILE_GRID -> COMMON_OVERLAP
+-> AQMH_MAPS(19) -> AQMH_GLOBAL_QUALITY(20)
+-> AQMH_RECONSTRUCTION(21) -> AQMH_DIAGNOSTICS(22)
+-> STACKING -> DEBAYER -> ASTROMETRY -> BGE -> PCC
+-> HYPERMETRIC_STRETCH -> DONE
+```
+
+The most relevant remaining risks are operational tuning, numerical edge
+cases, support handling at frame borders, and throughput on slower storage.
 
 ## 1. Core Architecture Analysis
 
@@ -24,9 +40,11 @@ src/
 
 The implementation follows a linear pipeline approach as required by the specification, with no feedback loops detected in the codebase.
 
-Current enum phase sequence (source of truth: `include/tile_compile/core/types.hpp`):
+The shared core enum sequence is defined in
+`include/tile_compile/core/types.hpp`. AQMH uses extension enum values 19–22;
+they are not replacements with the old enum values 8 and 9:
 
-`0 SCAN_INPUT -> 1 REGISTRATION -> 2 PREWARP -> 3 CHANNEL_SPLIT -> 4 NORMALIZATION -> 5 GLOBAL_METRICS -> 6 TILE_GRID -> 7 COMMON_OVERLAP -> 8 LOCAL_METRICS -> 9 TILE_RECONSTRUCTION -> 10 STATE_CLUSTERING -> 11 SYNTHETIC_FRAMES -> 12 STACKING -> 13 DEBAYER -> 14 ASTROMETRY -> 15 BGE -> 16 PCC -> 17 HYPERMETRIC_STRETCH -> 18 DONE`
+`0 SCAN_INPUT -> 1 REGISTRATION -> 2 PREWARP -> 3 CHANNEL_SPLIT -> 4 NORMALIZATION -> 5 GLOBAL_METRICS -> 6 TILE_GRID -> 7 COMMON_OVERLAP -> 19 AQMH_MAPS -> 20 AQMH_GLOBAL_QUALITY -> 21 AQMH_RECONSTRUCTION -> 22 AQMH_DIAGNOSTICS -> 12 STACKING -> 13 DEBAYER -> 14 ASTROMETRY -> 15 BGE -> 16 PCC -> 17 HYPERMETRIC_STRETCH -> 18 DONE`
 
 ## 2. Registration Analysis
 
@@ -131,7 +149,12 @@ The use of MAD-based normalization is state-of-the-art and superior to many exis
 
 ### 5.1 Observations
 
-The implementation follows the specification by:
+The `TILE_GRID` phase is shared infrastructure and is primarily consumed by
+Classic. AQMH still receives the common canvas and support masks, but its
+quality analysis is performed by `AQMH_MAPS`, not by tile metrics. The Classic
+branch follows the tile-specific behavior described below.
+
+The Classic implementation follows the specification by:
 - using adaptive tile sizes based on FWHM
 - using support-aware overlap-add semantics
 - blending star-based and structure-based local metrics
@@ -167,7 +190,9 @@ The tile-based approach is more sophisticated than common global selection metho
 
 ### 6.1 Observations
 
-The reconstruction process implements:
+In the AQMH branch, reconstruction is pixel-wise and occurs in
+`AQMH_RECONSTRUCTION` (21), followed by independent `AQMH_DIAGNOSTICS` (22).
+The Classic branch implements:
 - tile-wise weighted averaging
 - optional tile denoise (soft-threshold + optional Wiener)
 - support-aware overlap-add with explicit valid-support semantics
@@ -209,7 +234,9 @@ The implementation's approach to Wiener filtering is comparable to standard impl
 
 ### 7.1 Observations
 
-The pipeline implements state-based clustering and synthetic-frame generation in production code, with mode-dependent skipping in Reduced/Emergency mode.
+State-based clustering and synthetic-frame generation are Classic-only in the
+current flow. AQMH does not enter these phases because it has already produced
+the final pixel-wise reconstruction.
 
 ### 7.2 Issues Identified
 

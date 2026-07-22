@@ -44,6 +44,8 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
 
 void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header);
 
+void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header);
+
 void update_fits_header_in_place(const fs::path& path, const FitsHeader& header);
 
 BayerPattern detect_bayer_pattern(const FitsHeader& header);

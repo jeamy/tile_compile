@@ -12,7 +12,7 @@
 
 Version `v0.2.1` is a strict superset of `v0.2.0`. All mathematical definitions,
 invariants, normative defaults and diagnostic requirements of `v0.2.0` remain
-binding. `v0.2.1` formalises four additions that were introduced in the
+binding. `v0.2.1` formalises three main additions that were introduced in the
 reference implementation after the `v0.2.0` baseline:
 
 1. **Background-gradient penalty in global frame quality (§1.5, §4.2).**  
@@ -21,7 +21,7 @@ reference implementation after the `v0.2.0` baseline:
    derived from a quadrant-based sky-gradient estimator, not from the AQMH
    quality map itself. It is therefore documented as a permitted
    **cross-infrastructure extension** that remains compatible with the AQMH
-   independence principle (§0.3).
+   independence principle (§0.4).
 
 2. **Registration-weight guard (§4.3).**  
    Before the per-pixel weighted reconstruction, each frame's global AQMH
@@ -37,21 +37,53 @@ reference implementation after the `v0.2.0` baseline:
    difference between the AQMH output and a uniform-control (unweighted) mean.
    Detail is then selectively reintroduced in high-structure regions. A
    validation gate decides whether the neutralised/blended result is kept; if
-   not, the raw AQMH output or a safe uniform-control blend is used.
+   not, the raw AQMH output is preserved. Uniform control must never silently
+   replace or attenuate raw AQMH.
 
 The goal of these additions is to preserve the v0.2.0 pixel-quality model
-while reducing two practical failure modes:
+while reducing three practical failure modes:
 
 - Large-scale background gradients that would otherwise dominate the final
   stack because every frame shares a similar additive gradient.
 - Residual registration weakness (low correlation or deep chain-predicted frames)
-  being amplified by high AQHM quality scores.
+  being amplified by high AQMH quality scores.
 - Low-frequency "veil" or background non-linearity introduced by the
   weighted reconstruction itself.
 
+### 0.2 Gate Applicability Clarification (2026-07-18)
+
+The validation gates introduced by `v0.2.1` are only meaningful for metrics
+that are finite and comparable in both the AQMH candidate and the uniform
+control. A metric whose control value is non-finite, missing, or numerically
+degenerate must be reported as `not_applicable`; it must not be converted into
+an artificial hard failure.
+
+This clarification is object-agnostic. Implementations must not special-case
+individual targets or object names. The same applicability rules must work for
+bright emission nebulae, faint galaxies, large galaxy arms, star clusters,
+high-latitude dust/IFN fields and sparse star fields. Scene content may affect
+whether a metric is applicable; it must not change the mathematical meaning of
+the metric.
+
+In particular:
+
+- Relative regression must not be computed from a zero or near-zero control
+  denominator without an explicit absolute fallback threshold.
+- `null`/`NaN` seam scores are diagnostic values, not valid veto values.
+- Star-tail and elongation gates require enough comparable star samples in both
+  candidates.
+- Final selection may use asymmetric tradeoffs: a clear primary improvement
+  (e.g. FWHM or elongation) may tolerate bounded secondary regressions
+  (background, seam, tail) when those secondary metrics are applicable and
+  reported.
+- Structure preservation must be evaluated over more than the brightest
+  high-gradient pixels. Faint galaxy arms, dust lanes and diffuse nebula
+  structures are valid signal and must not be treated as background solely
+  because their gradients fall below a high global quantile.
+
 ---
 
-## 0.2 Independence and Shared Infrastructure
+## 0.3 Independence and Shared Infrastructure
 
 AQMH remains an **independent reconstruction method**. It may reuse shared
 pipeline infrastructure, but its quality model and reconstruction weights are
@@ -75,7 +107,7 @@ The AQMH algorithm itself consists of:
 Classic Tile Compile and AQMH must remain runnable independently. Enabling or
 disabling one method must not change the mathematical definition of the other.
 
-### 0.3 Cross-Infrastructure Extensions
+### 0.4 Cross-Infrastructure Extensions
 
 `v0.2.1` explicitly allows the following carefully scoped inputs from shared
 infrastructure, provided they are documented and do not replace AQMH-native
@@ -94,8 +126,31 @@ signals:
 - **Uniform-control mean** for neutralisation validation (§6.3).  
   The unweighted mean of the registered frames is computed as a side product
   of AQMH reconstruction (`compute_uniform_control = true`). It is used only
-  for post-reconstruction validation and optional blending, not as a primary
-  quality input.
+  for post-reconstruction validation, not as a primary quality input or an
+  output candidate.
+
+- **PSF-FWHM sharpness proxy** for the global sharpness summary `g_sharp`
+  (§1.1, §4.2).  
+  When per-frame star metrics are available from the shared metrics phase,
+  the runner may substitute `1 / wfwhm` (weighted FWHM, inverted so that
+  smaller FWHM yields a higher sharpness value) for the AQMH-map
+  `g_sharp` summary.  This is a scalar per frame, derived from PSF star
+  detection on the registered frame.  It is used only inside the
+  global-quality sigmoid and remains orthogonal to the within-frame `Q_map`
+  computation.  The AQMH-map `g_sharp` serves as fallback when star metrics
+  are unavailable or invalid.  The selected source is recorded per frame as
+  `global_sharpness_source` (`"laplacian_variance"` or `"psf_wfwhm_inverted"`)
+  in `aqmh_metrics.json`.
+
+  **Rationale.** The AQMH-map sharpness signal `Phi_sharp_0` is based on
+  `local_variance(laplacian)`, which measures local high-frequency variance.
+  On stellar-dominated fields this is an excellent sharpness proxy.  On
+  extended-emission targets (galaxies, nebulae) the same signal is dominated
+  by nebular texture rather than stellar PSF width, and can correlate
+  *positively* with seeing FWHM — causing an inversion where worse frames
+  receive higher `g_sharp` and thus higher weights.  The PSF-FWHM proxy is
+  immune to this inversion because it measures stellar image width directly,
+  independent of extended-scene content.
 
 ---
 
@@ -120,6 +175,15 @@ g_snr_{f,c}    = median_{p source-valid}(Phi_snr_1(p))
 ```
 
 using the finest available scale if scale 1 is omitted.
+
+**Post-v0.2.1 extension — PSF-FWHM sharpness proxy.** When per-frame star
+metrics are available, the runner may replace `g_sharp` with `1 / wfwhm`
+(inverted weighted FWHM) from the shared PSF star-detection phase.  This
+avoids a known inversion of `local_variance(laplacian)` on
+extended-emission targets (§0.4).  The AQMH-map `g_sharp` is used as
+fallback when star metrics are unavailable.  The selected source is recorded
+per frame as `global_sharpness_source` (`"laplacian_variance"` or
+`"psf_wfwhm_inverted"`) in `aqmh_metrics.json`.
 
 ### 1.2 Effective Pixel Weight
 
@@ -212,10 +276,22 @@ z_n,f = robust_zscore(g_snr)
 z_b,f = robust_zscore(g_background)
 
 score_f = w_sharp * z_s,f + w_snr * z_n,f - w_background * z_b,f
-G_f     = g_floor + (1 - g_floor) * sigmoid(score_f)
+G_f     = g_floor + (1 - g_floor) * sigmoid(clamp(g_k_scale * score_f, -8, 8))
 ```
 
 with `sigmoid(v) = 1 / (1 + exp(-v))`.
+
+**Post-v0.2.1 extension — Sigmoid temperature and score clipping.** The
+implementation multiplies `score_f` by a configurable temperature factor
+`g_k_scale` (default `1.5`) before applying the sigmoid, and clips the scaled
+score to `[-8, 8]` for numerical stability.  The v0.2.1 reference formula uses
+an implicit scale of `1.0` and no clipping.  The temperature factor is
+necessary because `robust_zscore` (MAD-based) typically produces smaller
+absolute values than standard z-scores; without scaling, all `G_f` values
+cluster near `g_floor + 0.5 * (1 - g_floor)`, making the weighted stack
+nearly unweighted.  The clipping is a safety net that is never active in
+practice because individual z-scores are already clamped to `[-5, 5]`, but it
+prevents `exp` overflow on extreme inputs.
 
 The weights `w_sharp`, `w_snr`, `w_background` are configured directly as
 `g_w_sharp`, `g_w_snr`, `g_w_background_penalty`. At runtime they are converted
@@ -240,10 +316,28 @@ zero, every frame receives `G_f = g_floor`.
 
 **Normative defaults (v0.2.1):**
 
+The v0.2.1 reference defaults are:
+
 - `g_floor = 0.05`
 - `g_w_sharp = 0.6`
 - `g_w_snr = 0.4`
 - `g_w_background_penalty = 0.3`
+
+The current operating defaults (post-v0.2.1 revision) are:
+
+- `g_floor = 0.03`
+- `g_w_sharp = 0.55`
+- `g_w_snr = 0.30`
+- `g_w_background_penalty = 0.25`
+
+These were tuned empirically: the lower floor and more balanced weights
+prevent a small number of high-quality frames from dominating the stack on
+typical deep-sky datasets where frame-to-frame quality variation is moderate.
+
+Post-v0.2.1 extension default:
+
+- `g_k_scale = 1.5` (sigmoid temperature; `1.0` restores the v0.2.1 reference
+  formula)
 
 Setting `g_w_background_penalty = 0.0` restores the exact v0.2.0 global
 quality definition.
@@ -300,9 +394,12 @@ Identical to v0.2.0 §2.5.
 
 ## 3. Quality Map Storage and Memory Model
 
-Identical to v0.2.0. Normative default remains full-resolution `float32` with
-`resolution_divisor = 1`. Optional approximate modes (`uint16`, `uint8`, divisor
-`> 1`) are supported with the same reporting requirements.
+The default storage mode is full-resolution `float32` with
+`resolution_divisor = 1`. An optional performance mode uses `uint16` with
+`resolution_divisor = 2` for reduced memory footprint; this is not the
+default and must be explicitly reported. Cherry-pick requires the reference
+mode because a reduced or quantised map can change the per-pixel ranking.
+Each run must report resolution and data type.
 
 The background-penalty signal does not affect quality-map storage; it is a
 per-frame scalar computed during or after map computation and stored in
@@ -324,6 +421,17 @@ AQMH_DIAGNOSTICS
 AQMH_NATIVE_BGE_INPUTS
 ```
 
+The output of `AQMH_RECONSTRUCTION` is additionally persisted unchanged as
+`outputs/aqmh_reconstructed_raw.fit`. For OSC data this artifact still contains
+the CFA pattern and is the only valid input for a resume from `STACKING`.
+`reconstructed_L.fit` is not a resume artifact: `STACKING` replaces it with the
+scaled luminance output. If an older run lacks the raw artifact, the runner must
+rerun `AQMH_RECONSTRUCTION` from the map and prewarp caches. Already stacked
+luminance must never be debayered again as CFA data.
+Set `aqmh.reconstruction.delete_prewarped_cache_after_run: false` to retain the
+`cache/prewarped_frames` directory for later resumes; the default `true` continues to reclaim the
+disk space after the run.
+
 ### 4.2 Global Quality Stage (v0.2.1 update)
 
 The stage now computes, for each frame, the three summary vectors
@@ -333,11 +441,15 @@ The stage now computes, for each frame, the three summary vectors
 All three inputs are recorded per frame in `aqmh_metrics.json`:
 
 - `global_sharpness_input`
+- `global_sharpness_source: "laplacian_variance"` or `"psf_wfwhm_inverted"` (post-v0.2.1 extension)
 - `global_snr_input`
 - `global_background_penalty_input`
 - `global_background_penalty_source: "sky_gradient"`
 - `global_quality_input_invalid`
 - `global_quality` (the final `G_f`)
+
+When the PSF-FWHM sharpness proxy is used, `global_sharpness_input` already
+contains the `1 / wfwhm` value.
 
 ### 4.3 Registration-Weight Guard (v0.2.1 addition)
 
@@ -349,23 +461,30 @@ optionally `chain_depth`.
 
 For each frame `f`:
 
-1. **Cross-correlation mapping.**
+1. **Cross-correlation mapping.** Direct and reference solutions are not
+   continuously damped above the floor:
+
+   ```
+   r_cc = cc_f >= cc_floor ? 1.0 : r_floor
+   ```
+
+   Sequential, predicted, interpolated, and unknown solutions use:
 
    ```
    t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
    r_cc = r_floor + (1 - r_floor) * t
    ```
 
-   with defaults `r_floor = 0.35`, `cc_floor = 0.35`, `cc_full = 0.80`.
+   with defaults `r_floor = 0.30`, `cc_floor = 0.35`, `cc_full = 0.80`.
 
 2. **Registration-source damping.**
 
    - If `source == "sequential_refined"`: `r_f *= sequential_factor`
-     (default `0.85`).
+     (default `0.92`).
    - If `source` contains `"predicted"`, `"interpolated"`, or is `"unknown"`:
-     `r_f *= predicted_factor` (default `0.35`).
+     `r_f *= predicted_factor` (default `0.50`).
 
-3. **Chain-depth damping.**
+3. **Chain-depth damping for non-direct solutions.**
 
    ```
    depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
@@ -435,6 +554,22 @@ R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
 where `w_f(p) = G_f^{eff} * Q_map_{f,c}(p)` and `V_c^I(p)` is the set of frames
 with finite intensity and finite quality-map value at pixel `p`.
 
+The geometric support of each registered frame is part of `V_c^I(p)`.
+Prewarp pixels outside that support must remain invalid (`NaN` plus the
+per-frame support mask); zero-filled warp borders must never enter AQMH as real
+intensity samples. Three mask roles remain separate:
+
+- The frame-support mask states which pixels are supplied by one frame.
+- The common-overlap mask is used only for analysis, validation, and
+  calibration at the configured minimum coverage.
+- The output mask is the union of all frame-support masks and preserves every
+  genuinely reconstructable edge structure.
+
+The common-overlap mask must not crop AQMH reconstruction or BGE, PCC, and HMS
+outputs to the common core. Pixels that do not satisfy `min_n_eff` remain
+diagnosable as insufficiently supported, but they must not cause valid nearby
+pixels from a few frames to be diluted by nonexistent zero samples.
+
 ### 5.2 Sigma Clipping and Effective-Sample Sufficiency
 
 Identical to v0.2.0. Iterative sigma clipping with `clip_sigma_low` and
@@ -474,7 +609,22 @@ to `U(p)` using the same metrics as v0.2.0 validation:
 - `tail11_abs_regression`
 - `elongation_regression`
 
-These comparisons are recorded in `aqmh_reconstruction.json`.
+Here, `background_rms` is not the global intensity spread of the image. It is
+estimated robustly from horizontal and vertical pixel differences
+(`1.4826 * MAD(diff / sqrt(2))`). Slowly varying nebula, galaxy, and IFN signal
+is therefore not classified as background noise.
+
+These comparisons are recorded in `aqmh_reconstruction.json`. Each metric must
+also record an applicability state:
+
+```
+status = pass | fail | not_applicable
+```
+
+`not_applicable` is required when either side of the comparison is missing,
+non-finite, has too few samples, or would require a relative regression against
+a zero/near-zero control denominator. A `not_applicable` metric is diagnostic
+only and must not by itself trigger fallback to uniform control.
 
 ### 6.3 Adaptive Low-Frequency Neutralisation
 
@@ -490,18 +640,21 @@ The blur uses a reflect-101 border mode. The sigma of 96 px was chosen
 empirically to target large-scale "veil" residuals without affecting
 structure on smaller scales.
 
-A validation comparison `compare(N, U)` is computed. `N(p)` is selected as the
-base over `A(p)` if and only if its background RMS regression is strictly
-smaller:
+A validation comparison `compare(N, U)` is computed. `N(p)` may be selected as
+the base over `A(p)` only when the background RMS metric is applicable and its
+regression is strictly smaller:
 
 ```
 background_rms_regression(N, U) < background_rms_regression(A, U)
 ```
 
-The configured background threshold is recorded as a diagnostic gate at this
-stage; the final structure candidate and final output are subject to the full
-validation gates in §6.4 and §6.5. The selected base image is called `B(p)`
-(either `A(p)` or `N(p)`).
+If the raw AQMH candidate already passes applicable background gates, the
+neutralised candidate must not replace it unless it also preserves the primary
+image-quality metrics used by the final selector. The configured background
+threshold is recorded as a diagnostic gate at this stage; the final structure
+candidate and final output are subject to the applicable validation gates in
+§6.4 and §6.5. The selected base image is called `B(p)` (either `A(p)` or
+`N(p)`).
 
 **Rationale.** The per-pixel weighted mean can, in rare cases, create a
 low-frequency residual that is smoother than the true background. Subtracting
@@ -516,8 +669,12 @@ from `B(p)`:
 
 1. Compute the gradient magnitude `grad(U)` of the uniform-control mean.
 2. Build a soft structure mask `M_s(p)` by mapping the gradient magnitude from
-   the `low_q = 0.70` quantile to the `high_q = 0.97` quantile to `[0, 1]` and
-   then Gaussian-blurring with `sigma = 2 px`.
+   the `low_q = 0.40` quantile to the `high_q = 0.90` quantile to `[0, 1]` and
+   then Gaussian-blurring with `sigma = 4 px`.
+   The v0.2.1 reference values were `low_q = 0.70`, `high_q = 0.97`,
+   `sigma = 2 px`; the current operating defaults were widened to preserve
+   mid-gradient structure (spiral arms, dust lanes) that the original narrow
+   range suppressed.
 3. Compute the detail candidate:
 
    ```
@@ -527,7 +684,15 @@ from `B(p)`:
    In high-structure regions (`M_s ≈ 1`) `D(p)` follows the AQMH base; in
    smooth regions (`M_s ≈ 0`) it follows the uniform control.
 
-`D(p)` is accepted if it passes all validation thresholds:
+The structure mask is a scene-independent signal-confidence estimate, not a
+nebula-specific heuristic. Implementations may extend it with additional
+deterministic multi-scale structure measures (for example DoG/Laplacian or
+background-mask-aware faint-structure confidence), provided that all components
+are reported and no object-specific rules are used. This is important for
+galaxies, where scientifically relevant spiral arms and dust lanes often occupy
+mid-gradient percentile ranges rather than only the top gradient quantiles.
+
+`D(p)` is accepted if it passes all applicable validation thresholds:
 
 ```
 background_rms_regression(D, U) <= max_background_rms_regression
@@ -546,31 +711,23 @@ If `D(p)` fails, an **alpha-blended attenuation** search is performed over
 D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
 ```
 
-The largest `alpha` that satisfies the validation thresholds and improves
+The largest `alpha` that satisfies the applicable validation thresholds and improves
 FWHM or seam score is selected. If no `alpha > 0` passes, the base `B(p)` is
 kept.
 
-### 6.5 Final Fallback to Uniform Control
+### 6.5 Final Protection Gate
 
 After all post-processing, the selected output `O(p)` is validated one more
-time against `U(p)`. If:
+time against `U(p)` and the immutable raw AQMH baseline `A(p)`. If:
 
 ```
 background_rms_regression(O, U) > max_background_rms_regression
 ```
 
-or any other configured threshold is exceeded, the runner may fall back to a
-uniform-control blend:
-
-```
-O_blend(p) = beta * O(p) + (1 - beta) * U(p)
-```
-
-with `beta` chosen by a binary search over `[0, 1]` for the largest `beta`
-that satisfies all thresholds. The operation is recorded in
-`aqmh_reconstruction.json` as `fallback_to_uniform_control` and
-`uniform_control_blend_alpha`. If no `beta > 0` satisfies the thresholds, the
-run falls back entirely to `U(p)`.
+or any other applicable configured threshold is exceeded, the runner rejects
+the post-processed candidate and emits `A(p)`. `U(p)` remains a diagnostic
+reference only. Blending toward `U(p)` is forbidden because it can erase faint
+diffuse signal while one-sided noise metrics appear to improve.
 
 ### 6.6 Reporting Requirements
 
@@ -581,9 +738,11 @@ run falls back entirely to `U(p)`.
 - `structure_masked_detail_applied` (`true`/`false`)
 - `structure_masked_detail_alpha` (final blend alpha if attenuation was used)
 - `structure_masked_detail_validation`
-- `fallback_to_uniform_control` (`true`/`false`)
-- `uniform_control_blend_accepted` (`true`/`false`)
-- `uniform_control_blend_alpha`
+- `uniform_control_gate_triggered` (`true`/`false`)
+- `raw_aqmh_validation`
+- `final_vs_raw_aqmh_validation`
+- `raw_aqmh_preserved_by_guard` (`true`/`false`)
+- `selected_candidate`
 
 ---
 
@@ -592,13 +751,25 @@ run falls back entirely to `U(p)`.
 ### 7.1 Regression Validation Against Uniform Control
 
 Identical to v0.2.0 §9. The reconstructed output is compared to the
-uniform-control mean. Regression thresholds remain:
+uniform-control mean. Regression thresholds:
 
-- `max_seam_score_regression = 0.02`
+Current operating defaults (post-v0.2.1 revision):
+
+- `max_seam_score_regression = 0.05`
 - `max_fwhm_regression = 0.02`
-- `max_background_rms_regression = 0.02`
-- `max_tail11_abs_regression = 0.05`
-- `max_elongation_regression = 0.05`
+- `max_background_rms_regression = 0.05`
+- `max_tail11_abs_regression = 0.10`
+- `max_elongation_regression = 0.08`
+
+The v0.2.1 reference values were `0.02` for seam/FWHM/background and `0.05`
+for tail/elongation. The current defaults are wider for seam, background,
+tail, and elongation to reduce false rejections on real-world datasets where
+sub-threshold regressions are common and do not indicate a meaningful quality
+degradation.
+
+These thresholds apply only to metrics whose applicability state is `pass` or
+`fail`. Metrics reported as `not_applicable` are excluded from the hard veto and
+must carry a reason string in the diagnostic artifact.
 
 ### 7.2 Zero-Veto Test
 
@@ -625,6 +796,7 @@ Per-frame diagnostics in `aqmh_metrics.json` include:
 - `n_regions`
 - `global_quality`
 - `global_sharpness_input`, `global_snr_input`
+- `global_sharpness_source: "laplacian_variance"` or `"psf_wfwhm_inverted"` (post-v0.2.1 extension)
 - `global_background_penalty_input` and
   `global_background_penalty_source: "sky_gradient"` (v0.2.1)
 - `global_quality_input_invalid`
@@ -654,30 +826,39 @@ Per-frame diagnostics in `aqmh_metrics.json` include:
 
 ### 9.3 Global Quality (v0.2.1)
 
-- `aqmh.global_quality.g_floor = 0.05`
-- `aqmh.global_quality.g_w_sharp = 0.6`
-- `aqmh.global_quality.g_w_snr = 0.4`
-- `aqmh.global_quality.g_w_background_penalty = 0.3`
+- `aqmh.global_quality.g_floor = 0.03`
+- `aqmh.global_quality.g_w_sharp = 0.55`
+- `aqmh.global_quality.g_w_snr = 0.30`
+- `aqmh.global_quality.g_w_background_penalty = 0.25`
+- `aqmh.global_quality.g_k_scale = 1.5` (post-v0.2.1 extension; `1.0` restores
+  the v0.2.1 reference formula)
+
+The v0.2.1 reference defaults were `g_floor=0.05`, `g_w_sharp=0.6`,
+`g_w_snr=0.4`, `g_w_background_penalty=0.3`.
 
 Set `g_w_background_penalty = 0.0` to obtain the exact v0.2.0 behaviour.
 
 ### 9.4 Registration-Weight Guard (v0.2.1)
 
 - `aqmh.reconstruction.registration_weight_guard = true`
-- `aqmh.reconstruction.registration_weight_floor = 0.35`
+- `aqmh.reconstruction.registration_weight_floor = 0.30`
 - `aqmh.reconstruction.registration_cc_floor = 0.35`
 - `aqmh.reconstruction.registration_cc_full = 0.80`
-- `aqmh.reconstruction.registration_sequential_factor = 0.85`
-- `aqmh.reconstruction.registration_predicted_factor = 0.35`
+- `aqmh.reconstruction.registration_sequential_factor = 0.92`
+- `aqmh.reconstruction.registration_predicted_factor = 0.50`
 - `aqmh.reconstruction.registration_chain_depth_penalty = 0.03`
 - `aqmh.reconstruction.registration_chain_depth_max_penalty = 0.15`
 
 ### 9.5 Neutralisation and Blending (v0.2.1)
 
 - Neutralisation blur sigma: `96 px` (hard-coded).
-- Structure-mask quantiles: `low_q = 0.70`, `high_q = 0.97`.
-- Structure-mask blur sigma: `2 px`.
+- Structure-mask quantiles: `low_q = 0.40`, `high_q = 0.90`.
+- Structure-mask blur sigma: `4 px`.
 - Validation thresholds are taken from `aqmh.validation`.
+
+The v0.2.1 reference values were `low_q=0.70`, `high_q=0.97`, blur sigma
+`2 px`; the current operating defaults are wider to preserve mid-gradient
+structure.
 
 ### 9.6 Cherry-Pick (unchanged)
 

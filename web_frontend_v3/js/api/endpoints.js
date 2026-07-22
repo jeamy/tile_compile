@@ -36,9 +36,30 @@ export const API_ENDPOINTS = {
   ai: {
     config: "/api/ai/config",
     models: "/api/ai/models",
+    account: (provider = "") => `/api/ai/account?provider=${encodeURIComponent(String(provider || ""))}`,
+    traffic: (limit = 500) => `/api/ai/traffic?limit=${encodeURIComponent(String(limit || 500))}`,
     auth: "/api/ai/auth",
     authProvider: (provider = "") => `/api/ai/auth/${encodeURIComponent(String(provider || ""))}`,
     test: "/api/ai/test",
+  },
+  pi: {
+    tools: "/api/pi/tools",
+    toolsCall: "/api/pi/tools/call",
+    context: "/api/pi/context",
+    ask: "/api/pi/assistant/ask",
+    runChat: "/api/pi/run-chat",
+    runChatHistory: (runId = "") => `/api/pi/run-chat/history?run_id=${encodeURIComponent(String(runId || ""))}`,
+    actionPlanValidate: "/api/pi/action-plans/validate",
+    actionPlanPreview: "/api/pi/action-plans/preview",
+    actionPlanApply: "/api/pi/action-plans/apply",
+    storage: "/api/pi/storage",
+    memories: "/api/pi/memories",
+    memoriesExport: "/api/pi/memories/export",
+    memoriesImport: "/api/pi/memories/import",
+    memoriesDedupe: "/api/pi/memories/dedupe",
+    memoryReview: (memoryId = "") => `/api/pi/memories/${encodeURIComponent(String(memoryId || ""))}/review`,
+    memoryRetrieve: "/api/pi/memories/retrieve",
+    audit: "/api/pi/audit",
   },
   config: {
     schema: "/api/config/schema",
@@ -63,7 +84,10 @@ export const API_ENDPOINTS = {
     config: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config`,
     configRevisions: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions`,
     configRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}`,
-    artifacts: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts`,
+    artifacts: (runId, runDir = "") => {
+      const query = String(runDir || "").trim() ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "";
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts${query}`;
+    },
     artifactView: (runId, path = "", runDir = "") => {
       const params = new URLSearchParams();
       params.set("path", String(path || ""));
@@ -74,6 +98,12 @@ export const API_ENDPOINTS = {
       const base = `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`;
       const query = String(runDir || "").trim() ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "";
       return `${base}${query}`;
+    },
+    imagePreview: (runId, path = "", runDir = "") => {
+      const params = new URLSearchParams();
+      params.set("path", String(path || ""));
+      if (String(runDir || "").trim()) params.set("run_dir", String(runDir || "").trim());
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/image-preview?${params.toString()}`;
     },
     delete: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/delete`,
     stop: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stop`,
@@ -87,12 +117,20 @@ export const API_ENDPOINTS = {
         : "";
       return `/api/runs/${encodeRunIdPathSegment(runId)}/stats/status${query}`;
     },
-    logs: (runId, tail = 250) => `/api/runs/${encodeRunIdPathSegment(runId)}/logs?tail=${encodeURIComponent(String(tail))}`,
+    logs: (runId, tail = 250, runDir = "") => {
+      const params = new URLSearchParams();
+      params.set("tail", String(tail));
+      if (String(runDir || "").trim()) params.set("run_dir", String(runDir || "").trim());
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/logs?${params.toString()}`;
+    },
     setCurrent: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/set-current`,
     restoreRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}/restore`,
   },
   ws: {
-    run: (runId) => `/api/ws/runs/${encodeRunIdPathSegment(runId)}`,
+    run: (runId, runDir = "") => {
+      const query = String(runDir || "").trim() ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "";
+      return `/api/ws/runs/${encodeRunIdPathSegment(runId)}${query}`;
+    },
   },
   astrometry: {
     detect: "/api/tools/astrometry/detect",

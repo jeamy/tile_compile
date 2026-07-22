@@ -1,32 +1,15 @@
 import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
 import { runtimeConfig } from "./config.js";
 import { AuthService } from "./services/authService.js";
 import { FrameAnalysisService } from "./services/frameAnalysisService.js";
 import { ModelService } from "./services/modelService.js";
+import { RunChatService } from "./services/runChatService.js";
+import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
 import type { AnalysisProgressEvent } from "./types.js";
 
 const config = runtimeConfig();
-const modelService = new ModelService();
+const modelService = new ModelService(config.projectRoot);
 const authService = new AuthService(modelService);
-const trafficLogPath = path.join(config.projectRoot, "runs", "pi_agent_traffic.log");
-
-function envBool(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
-}
-
-function appendTrafficLog(message: string) {
-  if (!envBool("AI_TRAFFIC_LOG", false)) return;
-  try {
-    fs.mkdirSync(path.dirname(trafficLogPath), { recursive: true });
-    fs.appendFileSync(trafficLogPath, `[${new Date().toISOString()}] ${message}\n`);
-  } catch {
-    // Ignore logging errors.
-  }
-}
 
 function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   const body = JSON.stringify(payload);
@@ -72,6 +55,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       sendJson(res, 200, await modelService.modelsJson());
       return;
     }
+    if (req.method === "GET" && url.pathname === "/account") {
+      sendJson(res, 200, await modelService.accountJson(url.searchParams.get("provider") || ""));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/traffic") {
+      sendJson(res, 200, {
+        schema_version: "pi.ai-traffic.v1",
+        privacy_class: "redacted",
+        ...readTrafficLog(Number(url.searchParams.get("limit") || 500)),
+      });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/auth") {
       const body = await readJson(req);
       sendJson(res, 200, await authService.storeKey(String(body.provider || ""), String(body.api_key || "")));
@@ -84,12 +79,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     }
     if (req.method === "POST" && url.pathname === "/test") {
       const body = await readJson(req);
-      const model = modelService.findModel(String(body.model || config.agent.model || ""));
-      sendJson(res, model ? 200 : 404, {
-        ok: Boolean(model),
-        model: body.model || config.agent.model || "",
-        error: model ? undefined : "model_not_found",
+      const modelRef = String(body.model || config.agent.model || "");
+      const overrideRaw = body.vision_override;
+      const visionOverride = overrideRaw === true ? true : overrideRaw === false ? false : overrideRaw === null ? null : undefined;
+      const result = await modelService.testModel(modelRef, {
+        visionProbe: Boolean(body.vision_probe),
+        visionOverride,
       });
+      sendJson(res, result.ok ? 200 : 404, result);
       return;
     }
     if (req.method === "POST" && url.pathname === "/analyze") {
@@ -105,6 +102,15 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const body = await readJson(req);
       appendTrafficLog(`POST /analyze/stream request ${JSON.stringify(body).substring(0, 10000)}`);
       await handleAnalyzeStream(req, res, body);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/run-chat") {
+      const body = await readJson(req);
+      appendTrafficLog(`POST /run-chat request ${JSON.stringify({ ...body, image_base64: body?.image_base64 ? "<image>" : undefined }).substring(0, 10000)}`);
+      const service = new RunChatService(config.agent, modelService);
+      const result = await service.ask(body);
+      appendTrafficLog(`POST /run-chat response ${JSON.stringify(result).substring(0, 10000)}`);
+      sendJson(res, 200, result);
       return;
     }
 
