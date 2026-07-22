@@ -3,6 +3,7 @@ import { runtimeConfig } from "./config.js";
 import { AuthService } from "./services/authService.js";
 import { FrameAnalysisService } from "./services/frameAnalysisService.js";
 import { ModelService } from "./services/modelService.js";
+import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
 import type { AnalysisProgressEvent } from "./types.js";
@@ -110,6 +111,15 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const service = new RunChatService(config.agent, modelService);
       const result = await service.ask(body);
       appendTrafficLog(`POST /run-chat response ${JSON.stringify(result).substring(0, 10000)}`);
+      sendJson(res, 200, result);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/live-image-chat") {
+      const body = await readJson(req);
+      appendTrafficLog(`POST /live-image-chat request ${JSON.stringify({ ...body, image_base64: body?.image_base64 ? "<image>" : undefined }).substring(0, 10000)}`);
+      const service = new LiveImageChatService(config.agent, modelService);
+      const result = await service.ask(body);
+      appendTrafficLog(`POST /live-image-chat response ${JSON.stringify(result).substring(0, 10000)}`);
       sendJson(res, 200, result);
       return;
     }

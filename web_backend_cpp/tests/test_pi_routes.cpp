@@ -1,8 +1,41 @@
 #include "backend_test_harness.hpp"
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <fitsio.h>
+
+static void create_minimal_fits(const std::filesystem::path& path, int width = 64, int height = 64) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    long naxes[2] = {width, height};
+    std::filesystem::create_directories(path.parent_path());
+    if (fits_create_file(&fptr, path.string().c_str(), &status)) {
+        fits_report_error(stderr, status);
+        throw std::runtime_error("fits_create_file failed");
+    }
+    if (fits_create_img(fptr, 16, 2, naxes, &status)) {
+        fits_report_error(stderr, status);
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("fits_create_img failed");
+    }
+    std::vector<short> pixels(static_cast<size_t>(width) * height, 0);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            pixels[y * width + x] = static_cast<short>(
+                ((x + y) * 32000) / (width + height - 2));
+        }
+    }
+    long first[2] = {1, 1};
+    if (fits_write_pix(fptr, TSHORT, first, pixels.size(), pixels.data(), &status)) {
+        fits_report_error(stderr, status);
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("fits_write_pix failed");
+    }
+    fits_close_file(fptr, &status);
+}
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
@@ -686,6 +719,161 @@ int main(int argc, char** argv) {
         });
         expect_equal(resume_fb_no_phase["_http_status"].get<long>(), 400L,
                      "resume-feedback: missing from_phase returns 400");
+
+        // ===== Live Image Chat Tests =====
+
+        // Create a run with a valid FITS output
+        const auto live_run_dir = harness.fixture_root() / "runs" / "live_image_test";
+        std::filesystem::create_directories(live_run_dir / "outputs");
+        std::filesystem::create_directories(live_run_dir / "artifacts");
+        create_minimal_fits(live_run_dir / "outputs" / "stacked_rgb_hms.fits", 64, 64);
+
+        // Write run_events.jsonl so the backend recognizes this as a run
+        {
+            std::ofstream events(live_run_dir / "artifacts" / "run_events.jsonl");
+            events << nlohmann::json({
+                {"ts", "2026-07-22T12:00:00Z"},
+                {"type", "run_start"},
+                {"run_id", "live_image_test"},
+                {"config", {{"general", {{"color_mode", "OSC"}}}}}
+            }).dump() << "\n";
+            events << nlohmann::json({
+                {"ts", "2026-07-22T12:05:00Z"},
+                {"type", "run_end"},
+                {"success", true}
+            }).dump() << "\n";
+        }
+
+        // 1. Create session
+        const auto create_resp = harness.post_json("/api/pi/live-image-chat/create", {
+            {"run_id", "live_image_test"}
+        });
+        expect_equal(create_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat create status");
+        expect_true(create_resp.contains("session_id"), "live-image-chat create has session_id");
+        expect_true(!create_resp["session_id"].get<std::string>().empty(),
+                     "live-image-chat create session_id not empty");
+        expect_true(create_resp.contains("image_base64"), "live-image-chat create has image_base64");
+        expect_true(!create_resp["image_base64"].get<std::string>().empty(),
+                     "live-image-chat create image_base64 not empty");
+        const std::string session_id = create_resp["session_id"].get<std::string>();
+
+        // 2. Create with invalid run_id
+        const auto create_bad = harness.post_json("/api/pi/live-image-chat/create", {
+            {"run_id", "nonexistent_run_12345"}
+        });
+        expect_equal(create_bad["_http_status"].get<long>(), 404L,
+                     "live-image-chat create invalid run_id returns 404");
+
+        // 3. Chat with valid session (local fallback - no sidecar)
+        const auto chat_resp = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", session_id},
+            {"message", "macher heller"}
+        });
+        expect_equal(chat_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat chat status");
+        expect_true(chat_resp.contains("summary"), "live-image-chat chat has summary");
+        expect_true(chat_resp.contains("operations"), "live-image-chat chat has operations");
+        expect_true(chat_resp.contains("image_base64"), "live-image-chat chat has image_base64");
+        expect_true(!chat_resp["image_base64"].get<std::string>().empty(),
+                     "live-image-chat chat image_base64 not empty");
+
+        // 4. Chat with invalid session
+        const auto chat_bad = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", "invalid_session_id"},
+            {"message", "test"}
+        });
+        expect_equal(chat_bad["_http_status"].get<long>(), 404L,
+                     "live-image-chat chat invalid session returns 404");
+
+        // 5. Adjust
+        const auto adjust_resp = harness.post_json("/api/pi/live-image-chat/adjust", {
+            {"session_id", session_id},
+            {"direction", "increase"}
+        });
+        expect_equal(adjust_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat adjust status");
+        expect_true(adjust_resp.contains("image_base64"), "live-image-chat adjust has image_base64");
+        expect_true(adjust_resp.contains("adjust_count"), "live-image-chat adjust has adjust_count");
+
+        // 6. Undo
+        const auto undo_resp = harness.post_json("/api/pi/live-image-chat/undo", {
+            {"session_id", session_id}
+        });
+        expect_equal(undo_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat undo status");
+        expect_true(undo_resp.contains("image_base64"), "live-image-chat undo has image_base64");
+        expect_true(undo_resp.contains("can_undo"), "live-image-chat undo has can_undo");
+        expect_true(undo_resp.contains("can_redo"), "live-image-chat undo has can_redo");
+
+        // 7. Redo
+        const auto redo_resp = harness.post_json("/api/pi/live-image-chat/redo", {
+            {"session_id", session_id}
+        });
+        expect_equal(redo_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat redo status");
+        expect_true(redo_resp.contains("image_base64"), "live-image-chat redo has image_base64");
+
+        // 8. Export PNG
+        const auto export_resp = harness.post_json("/api/pi/live-image-chat/export", {
+            {"session_id", session_id},
+            {"format", "png"}
+        });
+        expect_equal(export_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat export png status");
+        expect_true(export_resp["ok"].get<bool>(), "live-image-chat export png ok");
+        expect_true(export_resp.contains("path"), "live-image-chat export has path");
+        expect_true(std::filesystem::exists(export_resp["path"].get<std::string>()),
+                     "live-image-chat export file exists");
+
+        // 9. History endpoint
+        const auto history_resp = harness.get_json(
+            "/api/pi/live-image-chat/history?run_id=live_image_test");
+        expect_equal(history_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat history status");
+        expect_true(history_resp.contains("chat_history"), "live-image-chat history has chat_history");
+        expect_true(history_resp.contains("operation_history"),
+                     "live-image-chat history has operation_history");
+
+        // 10. Close session
+        const auto close_resp = harness.post_json("/api/pi/live-image-chat/close", {
+            {"session_id", session_id}
+        });
+        expect_equal(close_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat close status");
+        expect_true(close_resp["ok"].get<bool>(), "live-image-chat close ok");
+
+        // 11. Verify session is gone after close
+        const auto chat_after_close = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", session_id},
+            {"message", "test"}
+        });
+        expect_equal(chat_after_close["_http_status"].get<long>(), 404L,
+                     "live-image-chat chat after close returns 404");
+
+        // 12. Create again - should resume with history
+        const auto create_resume = harness.post_json("/api/pi/live-image-chat/create", {
+            {"run_id", "live_image_test"}
+        });
+        expect_equal(create_resume["_http_status"].get<long>(), 200L,
+                     "live-image-chat create resume status");
+        expect_true(create_resume.value("resumed", false),
+                     "live-image-chat create resume flag is true");
+        expect_true(create_resume.contains("chat_history"),
+                     "live-image-chat create resume has chat_history");
+        const std::string resumed_session_id = create_resume["session_id"].get<std::string>();
+
+        // 13. Reset on resumed session
+        const auto reset_resp = harness.post_json("/api/pi/live-image-chat/reset", {
+            {"session_id", resumed_session_id}
+        });
+        expect_equal(reset_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat reset status");
+        expect_true(reset_resp.contains("image_base64"), "live-image-chat reset has image_base64");
+        expect_equal(static_cast<long>(reset_resp["can_undo"].get<bool>()), 0L,
+                     "live-image-chat reset can_undo is false");
+        expect_equal(static_cast<long>(reset_resp["can_redo"].get<bool>()), 0L,
+                     "live-image-chat reset can_redo is false");
 
     } catch (const std::exception& e) {
         harness.stop();

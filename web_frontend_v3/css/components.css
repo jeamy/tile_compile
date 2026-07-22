@@ -855,3 +855,296 @@
 
 .tc-text-error { color: var(--error); }
 .tc-text-warning { color: var(--warning); }
+
+/* ===== Live Image Viewer ===== */
+
+.live-image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-image-viewer {
+  width: 95vw;
+  height: 95vh;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.live-image-viewer__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.live-image-viewer__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.live-image-viewer__toolbar-btns {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.live-image-viewer__btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.live-image-viewer__btn:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.live-image-viewer__btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.live-image-viewer__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.live-image-viewer__btn--close {
+  font-size: var(--text-xl);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+}
+
+.live-image-viewer__btn--export {
+  font-size: var(--text-xs);
+}
+
+.live-image-viewer__content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.live-image-viewer__image-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-image-viewer__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: opacity 150ms ease;
+  cursor: grab;
+  user-select: none;
+}
+
+.live-image-viewer__loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: #fff;
+  font-size: var(--text-sm);
+}
+
+.live-image-viewer__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: live-image-spin 0.8s linear infinite;
+}
+
+@keyframes live-image-spin {
+  to { transform: rotate(360deg); }
+}
+
+.live-image-viewer__chat {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  padding: var(--space-3);
+  gap: var(--space-2);
+  overflow: hidden;
+}
+
+.live-image-viewer__chat-history {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.live-image-viewer__chat-bubble {
+  max-width: 85%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  word-wrap: break-word;
+}
+
+.live-image-viewer__chat-bubble--user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+}
+
+.live-image-viewer__chat-bubble--assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--foreground);
+}
+
+.live-image-viewer__adjust {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.live-image-viewer__adjust-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.live-image-viewer__adjust-btn:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.live-image-viewer__adjust-label {
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  flex: 1;
+  text-align: center;
+}
+
+.live-image-viewer__help {
+  padding: var(--space-2) var(--space-3);
+  background: var(--info-bg);
+  color: var(--info);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.live-image-viewer__dropdown {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.live-image-viewer__input-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.live-image-viewer__input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+}
+
+.live-image-viewer__input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.live-image-viewer__send-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: #fff;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.live-image-viewer__send-btn:hover {
+  opacity: 0.9;
+}
+
+.live-image-viewer__export-row {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+/* Responsive: mobile → chat below image */
+@media (max-width: 768px) {
+  .live-image-viewer {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  .live-image-viewer__content {
+    flex-direction: column;
+  }
+
+  .live-image-viewer__image-wrap {
+    flex: 1;
+    min-height: 50%;
+  }
+
+  .live-image-viewer__chat {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 45%;
+  }
+}

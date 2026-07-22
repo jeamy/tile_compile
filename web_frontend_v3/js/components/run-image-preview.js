@@ -2,6 +2,7 @@ import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
+import { createLiveImageViewer } from "./live-image-viewer.js";
 
 function artifactItems(payload) {
   if (!payload) return [];
@@ -154,6 +155,12 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
         objectFit: "contain",
         background: "var(--bg)",
         borderRadius: "6px",
+        cursor: "pointer",
+      },
+      title: t("liveImage.clickToOpen", "Click to open Live Image Editor"),
+      onclick: () => {
+        const viewer = createLiveImageViewer(runId, runDir, null);
+        viewer.open();
       },
     }));
   } catch (e) {
