@@ -7,11 +7,6 @@
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/calib3d.hpp>
-#if CV_MAJOR_VERSION >= 5
-#include <opencv2/features.hpp>
-#else
-#include <opencv2/features2d.hpp>
-#endif
 
 #include <algorithm>
 #include <atomic>
@@ -233,11 +228,11 @@ RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
     return res;
   }
 
-  cv::Ptr<cv::AKAZE> akaze = cv::AKAZE::create();
+  cv::Ptr<cv::ORB> orb = cv::ORB::create();
   std::vector<cv::KeyPoint> kps_ref, kps_mov;
   cv::Mat desc_ref, desc_mov;
-  akaze->detectAndCompute(ref_cv, cv::noArray(), kps_ref, desc_ref);
-  akaze->detectAndCompute(mov_cv, cv::noArray(), kps_mov, desc_mov);
+  orb->detectAndCompute(ref_cv, cv::noArray(), kps_ref, desc_ref);
+  orb->detectAndCompute(mov_cv, cv::noArray(), kps_mov, desc_mov);
 
   if (desc_ref.empty() || desc_mov.empty()) {
     res.error_message = "no features";
