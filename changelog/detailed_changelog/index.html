@@ -777,14 +777,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1127,118 +1119,6 @@
     
   
     PI Workflow in GUI3
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    PI Architecture Plan (EN)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    PI Run-Chat Data Plan (EN)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    PI Scan-AI Implementation Plan (EN)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    PI Scan-AI Implementation Summary (EN)
   
 
     
@@ -3766,7 +3646,7 @@
 <li><strong>Backend PI service:</strong> New C++ PI service layer in <code>web_backend_cpp/</code> with <code>pi_routes.cpp</code> (2357 lines), <code>pi_memory_store.cpp</code> (947 lines), <code>pi_tool_registry.cpp</code> (373 lines), <code>pi_action_validator.cpp</code> (201 lines), <code>pi_context_builder.cpp</code> (99 lines), <code>pi_assistant.cpp</code> (98 lines), <code>pi_action_plan.cpp</code> (80 lines), <code>pi_ai_request_builder.cpp</code> (112 lines), and <code>pi_storage_paths.cpp</code> (134 lines). New tests: <code>test_pi_routes.cpp</code>, <code>test_pi_memory_store.cpp</code>, <code>test_pi_action_plan.cpp</code>.</li>
 <li><strong>AI sidecar extensions:</strong> <code>runChatService.ts</code> (162 lines) for run-specific chat, <code>providerRateLimit.ts</code> (106 lines) for rate limiting, <code>providerPayload.ts</code> (70 lines) for multi-provider payload formatting, <code>piExtensions.ts</code> (47 lines), <code>modelService.ts</code> expanded (+487 lines) for multi-model support, <code>frameAnalysisService.ts</code> expanded (+257 lines), <code>trafficLog.ts</code> expanded (+118 lines).</li>
 <li><strong>Frontend integration:</strong> <code>ai-empfehlung.js</code> expanded (+1142 lines) with run-chat UI, <code>run-monitor.js</code> expanded (+1191 lines) with chat panel and run-image preview, new <code>run-image-preview.js</code> component (164 lines), <code>input-scan.js</code> updated (+34 lines), <code>run-history.js</code> updated (+26 lines).</li>
-<li><strong>PI documentation:</strong> New <code>docs/PI/pi_run_chat_empfehlungs_chat_datenplan.md</code> (922 lines) — data and validation plan for run-chat recommendations, <code>docs/PI/pi_integration_architektur_tile_compile_plan.md</code> expanded (+624 lines), <code>docs/PI/pi_workflow_gui3.md</code> (53 lines), PI recommendations docs expanded (+45/+47 lines EN/DE).</li>
+<li><strong>PI documentation:</strong> New <code>docs/PI/pi_workflow_gui3.md</code> (53 lines), PI recommendations docs expanded (+45/+47 lines EN/DE). Implementation plans (<code>pi_run_chat_empfehlungs_chat_datenplan.md</code>, <code>pi_integration_architektur_tile_compile_plan.md</code>) moved to <code>docs/PI/attic/</code>.</li>
 <li><strong>Design principle:</strong> The PI AI may interpret and prioritise, but schema validity, action-plan validity, and resume-phase computation are deterministically validated in the backend. The AI receives config paths, schema constraints, artifact diagnostics, and pipeline phase context to prevent plausible-but-wrong recommendations (e.g. recommending <code>stretch.star_pressure</code> which is a diagnostic value, not a config parameter).</li>
 </ul>
 <p><strong>AQMH v0.2.0 → v0.2.1 conformance audit:</strong></p>
