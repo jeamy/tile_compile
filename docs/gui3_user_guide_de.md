@@ -67,6 +67,8 @@ MONO-Nutzer können mehrere Eingabeordner (L/R/G/B) über die Run-Queue hinzufü
 
 ## 3. Parameter einstellen (Parameter Studio)
 
+> **Hinweis:** Für die ersten Schritte und zum Kennenlernen der Umgebung können die Default-Einstellungen übernommen werden. Dieser Schritt kann übersprungen werden.
+
 Nach dem Scan wechseln Sie zum Sub-Tab **Parameter**.
 
 ### Konfiguration laden

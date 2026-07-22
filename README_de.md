@@ -10,7 +10,7 @@ Tile-Compile ist ein Toolkit für hochwertige astronomische Bildrekonstruktion a
 
 ### GUI3
 
-Pre-built Bundle von [GitHub Releases](https://github.com/jeamy/tile_compile/releases) herunterladen, oder aus dem Repository starten:
+Pre-built Bundle von [GitHub Releases](https://github.com/jeamy/tile_compile/releases) herunterladen, oder aus dem Quellcode bauen (siehe [Installation](docs/getting_started/installation_de.md)) und aus dem Repository starten:
 
 ```bash
 ./start_backend.sh

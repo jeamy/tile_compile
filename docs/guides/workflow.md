@@ -90,7 +90,7 @@ At runtime, GUI3 uses the local Crow/C++ backend as the process adapter for the 
 
 ### GUI3
 
-Development start from repository root:
+Development start from repository root (requires [building from source](../getting_started/installation.md)):
 
 ```bash
 ./start_backend.sh

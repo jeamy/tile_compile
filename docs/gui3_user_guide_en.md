@@ -67,6 +67,8 @@ MONO users can add multiple input folders (L/R/G/B) via the Run Queue. Each queu
 
 ## 3. Adjusting Parameters (Parameter Studio)
 
+> **Tip:** For your first steps and getting familiar with the interface, the default settings can be kept as-is. This step can be skipped.
+
 After scanning, switch to the **Parameter** sub-tab.
 
 ### Loading Configuration

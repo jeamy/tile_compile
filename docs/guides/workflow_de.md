@@ -90,7 +90,7 @@ Zur Laufzeit verwendet GUI3 das lokale Crow/C++-Backend als Prozess-Adapter für
 
 ### GUI3
 
-Entwicklungsstart vom Repository-Root:
+Entwicklungsstart vom Repository-Root (erfordert [Bau aus dem Quellcode](../getting_started/installation_de.md)):
 
 ```bash
 ./start_backend.sh
