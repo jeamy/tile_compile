@@ -7,6 +7,11 @@
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/calib3d.hpp>
+#if CV_MAJOR_VERSION >= 5
+#include <opencv2/features.hpp>
+#else
+#include <opencv2/features2d.hpp>
+#endif
 
 #include <algorithm>
 #include <atomic>

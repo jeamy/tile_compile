@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <opencv2/imgproc.hpp>
+#if CV_MAJOR_VERSION >= 5
+#include <opencv2/geometry.hpp>
+#endif
 
 namespace tile_compile::metrics {
 
