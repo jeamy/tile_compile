@@ -372,7 +372,7 @@ konfigurierte Quelle:
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string |
-| **Default** | `"*.fit*"` |
+| **Default** | `*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz` |
 
 **Zweck:** Glob-Pattern für Kalibrierungsdateien.
 

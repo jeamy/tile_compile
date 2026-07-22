@@ -53,10 +53,15 @@ static std::string sanitize_yaml_windows_paths(const std::string& yaml) {
 }
 
 /// @brief Checks between 0 1.
-/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
 bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
+
+/// @brief Returns true if a YAML node exists and is not null/empty.
+/// @details Prevents yaml-cpp "bad conversion" errors when a field is
+/// present in the YAML but has no value (e.g. "frames_min:" with nothing
+/// after the colon).
+bool yaml_has_value(const YAML::Node& node) {
+    return node && !node.IsNull();
+}
 
 /// @brief Normalizes acceleration backend.
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
@@ -240,101 +245,101 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["pipeline"]) {
     auto p = node["pipeline"];
-    if (p["mode"])
+    if (yaml_has_value(p["mode"]))
       cfg.pipeline.mode = p["mode"].as<std::string>();
   }
 
   if (node["output"]) {
     auto o = node["output"];
-    if (o["registered_dir"])
+    if (yaml_has_value(o["registered_dir"]))
       cfg.output.registered_dir = o["registered_dir"].as<std::string>();
-    if (o["write_registered_frames"])
+    if (yaml_has_value(o["write_registered_frames"]))
       cfg.output.write_registered_frames =
           o["write_registered_frames"].as<bool>();
-    if (o["crop_to_nonzero_bbox"])
+    if (yaml_has_value(o["crop_to_nonzero_bbox"]))
       cfg.output.crop_to_nonzero_bbox = o["crop_to_nonzero_bbox"].as<bool>();
   }
 
   if (node["data"]) {
     auto d = node["data"];
-    if (d["image_width"])
+    if (yaml_has_value(d["image_width"]))
       cfg.data.image_width = d["image_width"].as<int>();
-    if (d["image_height"])
+    if (yaml_has_value(d["image_height"]))
       cfg.data.image_height = d["image_height"].as<int>();
-    if (d["color_mode"])
+    if (yaml_has_value(d["color_mode"]))
       cfg.data.color_mode = d["color_mode"].as<std::string>();
-    if (d["bayer_pattern"])
+    if (yaml_has_value(d["bayer_pattern"]))
       cfg.data.bayer_pattern = d["bayer_pattern"].as<std::string>();
-    if (d["linear_required"])
+    if (yaml_has_value(d["linear_required"]))
       cfg.data.linear_required = d["linear_required"].as<bool>();
   }
 
   if (node["linearity"]) {
     auto l = node["linearity"];
-    if (l["enabled"])
+    if (yaml_has_value(l["enabled"]))
       cfg.linearity.enabled = l["enabled"].as<bool>();
-    if (l["max_frames"])
+    if (yaml_has_value(l["max_frames"]))
       cfg.linearity.max_frames = l["max_frames"].as<int>();
-    if (l["min_overall_linearity"])
+    if (yaml_has_value(l["min_overall_linearity"]))
       cfg.linearity.min_overall_linearity =
           l["min_overall_linearity"].as<float>();
-    if (l["strictness"])
+    if (yaml_has_value(l["strictness"]))
       cfg.linearity.strictness = l["strictness"].as<std::string>();
   }
 
   if (node["calibration"]) {
     auto c = node["calibration"];
-    if (c["use_bias"])
+    if (yaml_has_value(c["use_bias"]))
       cfg.calibration.use_bias = c["use_bias"].as<bool>();
-    if (c["use_dark"])
+    if (yaml_has_value(c["use_dark"]))
       cfg.calibration.use_dark = c["use_dark"].as<bool>();
-    if (c["use_flat"])
+    if (yaml_has_value(c["use_flat"]))
       cfg.calibration.use_flat = c["use_flat"].as<bool>();
-    if (c["bias_use_master"])
+    if (yaml_has_value(c["bias_use_master"]))
       cfg.calibration.bias_use_master = c["bias_use_master"].as<bool>();
-    if (c["dark_use_master"])
+    if (yaml_has_value(c["dark_use_master"]))
       cfg.calibration.dark_use_master = c["dark_use_master"].as<bool>();
-    if (c["dark_already_bias_corrected"]) {
+    if (yaml_has_value(c["dark_already_bias_corrected"])) {
       cfg.calibration.dark_already_bias_corrected =
           c["dark_already_bias_corrected"].as<bool>();
     }
-    if (c["flat_use_master"])
+    if (yaml_has_value(c["flat_use_master"]))
       cfg.calibration.flat_use_master = c["flat_use_master"].as<bool>();
-    if (c["dark_auto_select"])
+    if (yaml_has_value(c["dark_auto_select"]))
       cfg.calibration.dark_auto_select = c["dark_auto_select"].as<bool>();
-    if (c["dark_match_exposure_tolerance_percent"]) {
+    if (yaml_has_value(c["dark_match_exposure_tolerance_percent"])) {
       cfg.calibration.dark_match_exposure_tolerance_percent =
           c["dark_match_exposure_tolerance_percent"].as<float>();
     }
-    if (c["dark_match_use_temp"])
+    if (yaml_has_value(c["dark_match_use_temp"]))
       cfg.calibration.dark_match_use_temp = c["dark_match_use_temp"].as<bool>();
-    if (c["dark_match_temp_tolerance_c"])
+    if (yaml_has_value(c["dark_match_temp_tolerance_c"]))
       cfg.calibration.dark_match_temp_tolerance_c =
           c["dark_match_temp_tolerance_c"].as<float>();
-    if (c["bias_dir"])
+    if (yaml_has_value(c["bias_dir"]))
       cfg.calibration.bias_dir = c["bias_dir"].as<std::string>();
-    if (c["darks_dir"])
+    if (yaml_has_value(c["darks_dir"]))
       cfg.calibration.darks_dir = c["darks_dir"].as<std::string>();
-    if (c["flats_dir"])
+    if (yaml_has_value(c["flats_dir"]))
       cfg.calibration.flats_dir = c["flats_dir"].as<std::string>();
-    if (c["bias_master"])
+    if (yaml_has_value(c["bias_master"]))
       cfg.calibration.bias_master = c["bias_master"].as<std::string>();
-    if (c["dark_master"])
+    if (yaml_has_value(c["dark_master"]))
       cfg.calibration.dark_master = c["dark_master"].as<std::string>();
-    if (c["flat_master"])
+    if (yaml_has_value(c["flat_master"]))
       cfg.calibration.flat_master = c["flat_master"].as<std::string>();
-    if (c["pattern"])
+    if (yaml_has_value(c["pattern"]))
       cfg.calibration.pattern = c["pattern"].as<std::string>();
   }
 
   if (node["assumptions"]) {
     auto a = node["assumptions"];
-    if (a["frames_min"])
+    if (yaml_has_value(a["frames_min"]))
       cfg.assumptions.frames_min = a["frames_min"].as<int>();
-    if (a["frames_reduced_threshold"])
+    if (yaml_has_value(a["frames_reduced_threshold"]))
       cfg.assumptions.frames_reduced_threshold =
           a["frames_reduced_threshold"].as<int>();
-    if (a["reduced_mode_skip_clustering"]) {
+    if (yaml_has_value(a["reduced_mode_skip_clustering"])) {
       cfg.assumptions.reduced_mode_skip_clustering =
           a["reduced_mode_skip_clustering"].as<bool>();
     }
@@ -344,212 +349,212 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["normalization"]) {
     auto n = node["normalization"];
-    if (n["enabled"])
+    if (yaml_has_value(n["enabled"]))
       cfg.normalization.enabled = n["enabled"].as<bool>();
-    if (n["mode"])
+    if (yaml_has_value(n["mode"]))
       cfg.normalization.mode = n["mode"].as<std::string>();
-    if (n["per_channel"])
+    if (yaml_has_value(n["per_channel"]))
       cfg.normalization.per_channel = n["per_channel"].as<bool>();
   }
 
   if (node["registration"]) {
     auto r = node["registration"];
-    if (r["engine"])
+    if (yaml_has_value(r["engine"]))
       cfg.registration.engine = r["engine"].as<std::string>();
-    if (r["transform_model"])
+    if (yaml_has_value(r["transform_model"]))
       cfg.registration.transform_model = r["transform_model"].as<std::string>();
-    if (r["enable_star_pair_fallback"])
+    if (yaml_has_value(r["enable_star_pair_fallback"]))
       cfg.registration.enable_star_pair_fallback =
           r["enable_star_pair_fallback"].as<bool>();
-    if (r["allow_rotation"])
+    if (yaml_has_value(r["allow_rotation"]))
       cfg.registration.allow_rotation = r["allow_rotation"].as<bool>();
-    if (r["star_topk"])
+    if (yaml_has_value(r["star_topk"]))
       cfg.registration.star_topk = r["star_topk"].as<int>();
-    if (r["star_min_inliers"])
+    if (yaml_has_value(r["star_min_inliers"]))
       cfg.registration.star_min_inliers = r["star_min_inliers"].as<int>();
-    if (r["star_inlier_tol_px"])
+    if (yaml_has_value(r["star_inlier_tol_px"]))
       cfg.registration.star_inlier_tol_px = r["star_inlier_tol_px"].as<float>();
-    if (r["star_dist_bin_px"])
+    if (yaml_has_value(r["star_dist_bin_px"]))
       cfg.registration.star_dist_bin_px = r["star_dist_bin_px"].as<float>();
-    if (r["reject_outliers"])
+    if (yaml_has_value(r["reject_outliers"]))
       cfg.registration.reject_outliers = r["reject_outliers"].as<bool>();
-    if (r["reject_cc_min_abs"])
+    if (yaml_has_value(r["reject_cc_min_abs"]))
       cfg.registration.reject_cc_min_abs = r["reject_cc_min_abs"].as<float>();
-    if (r["reject_shift_px_min"])
+    if (yaml_has_value(r["reject_shift_px_min"]))
       cfg.registration.reject_shift_px_min = r["reject_shift_px_min"].as<float>();
-    if (r["reject_shift_median_multiplier"])
+    if (yaml_has_value(r["reject_shift_median_multiplier"]))
       cfg.registration.reject_shift_median_multiplier =
           r["reject_shift_median_multiplier"].as<float>();
-    if (r["reject_scale_min"])
+    if (yaml_has_value(r["reject_scale_min"]))
       cfg.registration.reject_scale_min = r["reject_scale_min"].as<float>();
-    if (r["reject_scale_max"])
+    if (yaml_has_value(r["reject_scale_max"]))
       cfg.registration.reject_scale_max = r["reject_scale_max"].as<float>();
-    if (r["auto_engine"])
+    if (yaml_has_value(r["auto_engine"]))
       cfg.registration.auto_engine = r["auto_engine"].as<bool>();
-    if (r["auto_engine_rotation_threshold_deg"])
+    if (yaml_has_value(r["auto_engine_rotation_threshold_deg"]))
       cfg.registration.auto_engine_rotation_threshold_deg =
           r["auto_engine_rotation_threshold_deg"].as<float>();
     // Neue Blind-Chain Parameter (§4.1, §8.B)
-    if (r["max_blind_chain_depth"])
+    if (yaml_has_value(r["max_blind_chain_depth"]))
       cfg.registration.max_blind_chain_depth = r["max_blind_chain_depth"].as<int>();
-    if (r["blind_chain_strong_anchor_cc"])
+    if (yaml_has_value(r["blind_chain_strong_anchor_cc"]))
       cfg.registration.blind_chain_strong_anchor_cc = r["blind_chain_strong_anchor_cc"].as<float>();
-    if (r["blind_chain_drift_threshold_px"])
+    if (yaml_has_value(r["blind_chain_drift_threshold_px"]))
       cfg.registration.blind_chain_drift_threshold_px = r["blind_chain_drift_threshold_px"].as<float>();
     // Astrometric rescue (§4.13)
-    if (r["use_astrometry"])
+    if (yaml_has_value(r["use_astrometry"]))
       cfg.registration.use_astrometry = r["use_astrometry"].as<bool>();
     // Local background subtraction (§4.4, §8.D)
-    if (r["enable_local_background_subtraction"])
+    if (yaml_has_value(r["enable_local_background_subtraction"]))
       cfg.registration.enable_local_background_subtraction = r["enable_local_background_subtraction"].as<bool>();
-    if (r["star_shift_radius_px"])
+    if (yaml_has_value(r["star_shift_radius_px"]))
       cfg.registration.star_shift_radius_px = r["star_shift_radius_px"].as<float>();
   }
 
   if (node["dithering"]) {
     auto d = node["dithering"];
-    if (d["enabled"])
+    if (yaml_has_value(d["enabled"]))
       cfg.dithering.enabled = d["enabled"].as<bool>();
-    if (d["min_shift_px"])
+    if (yaml_has_value(d["min_shift_px"]))
       cfg.dithering.min_shift_px = d["min_shift_px"].as<float>();
   }
 
   if (node["tile_denoise"]) {
     auto td = node["tile_denoise"];
-    if (td["soft_threshold"]) {
+    if (yaml_has_value(td["soft_threshold"])) {
       auto st = td["soft_threshold"];
-      if (st["enabled"])
+      if (yaml_has_value(st["enabled"]))
         cfg.tile_denoise.soft_threshold.enabled = st["enabled"].as<bool>();
-      if (st["blur_kernel"])
+      if (yaml_has_value(st["blur_kernel"]))
         cfg.tile_denoise.soft_threshold.blur_kernel = st["blur_kernel"].as<int>();
-      if (st["alpha"])
+      if (yaml_has_value(st["alpha"]))
         cfg.tile_denoise.soft_threshold.alpha = st["alpha"].as<float>();
-      if (st["skip_star_tiles"])
+      if (yaml_has_value(st["skip_star_tiles"]))
         cfg.tile_denoise.soft_threshold.skip_star_tiles = st["skip_star_tiles"].as<bool>();
     }
-    if (td["wiener"]) {
+    if (yaml_has_value(td["wiener"])) {
       auto w = td["wiener"];
-      if (w["enabled"])
+      if (yaml_has_value(w["enabled"]))
         cfg.tile_denoise.wiener.enabled = w["enabled"].as<bool>();
-      if (w["snr_threshold"])
+      if (yaml_has_value(w["snr_threshold"]))
         cfg.tile_denoise.wiener.snr_threshold = w["snr_threshold"].as<float>();
-      if (w["q_min"])
+      if (yaml_has_value(w["q_min"]))
         cfg.tile_denoise.wiener.q_min = w["q_min"].as<float>();
-      if (w["q_max"])
+      if (yaml_has_value(w["q_max"]))
         cfg.tile_denoise.wiener.q_max = w["q_max"].as<float>();
-      if (w["q_step"])
+      if (yaml_has_value(w["q_step"]))
         cfg.tile_denoise.wiener.q_step = w["q_step"].as<float>();
-      if (w["min_snr"])
+      if (yaml_has_value(w["min_snr"]))
         cfg.tile_denoise.wiener.min_snr = w["min_snr"].as<float>();
-      if (w["max_iterations"])
+      if (yaml_has_value(w["max_iterations"]))
         cfg.tile_denoise.wiener.max_iterations = w["max_iterations"].as<int>();
     }
   }
 
   if (node["chroma_denoise"]) {
     auto cd = node["chroma_denoise"];
-    if (cd["enabled"])
+    if (yaml_has_value(cd["enabled"]))
       cfg.chroma_denoise.enabled = cd["enabled"].as<bool>();
-    if (cd["color_space"])
+    if (yaml_has_value(cd["color_space"]))
       cfg.chroma_denoise.color_space = cd["color_space"].as<std::string>();
-    if (cd["apply_stage"])
+    if (yaml_has_value(cd["apply_stage"]))
       cfg.chroma_denoise.apply_stage = cd["apply_stage"].as<std::string>();
-    if (cd["protect_luma"])
+    if (yaml_has_value(cd["protect_luma"]))
       cfg.chroma_denoise.protect_luma = cd["protect_luma"].as<bool>();
-    if (cd["luma_guard_strength"])
+    if (yaml_has_value(cd["luma_guard_strength"]))
       cfg.chroma_denoise.luma_guard_strength = cd["luma_guard_strength"].as<float>();
 
-    if (cd["star_protection"]) {
+    if (yaml_has_value(cd["star_protection"])) {
       auto sp = cd["star_protection"];
-      if (sp["enabled"])
+      if (yaml_has_value(sp["enabled"]))
         cfg.chroma_denoise.star_protection.enabled = sp["enabled"].as<bool>();
-      if (sp["threshold_sigma"])
+      if (yaml_has_value(sp["threshold_sigma"]))
         cfg.chroma_denoise.star_protection.threshold_sigma =
             sp["threshold_sigma"].as<float>();
-      if (sp["dilate_px"])
+      if (yaml_has_value(sp["dilate_px"]))
         cfg.chroma_denoise.star_protection.dilate_px = sp["dilate_px"].as<int>();
     }
 
-    if (cd["structure_protection"]) {
+    if (yaml_has_value(cd["structure_protection"])) {
       auto st = cd["structure_protection"];
-      if (st["enabled"])
+      if (yaml_has_value(st["enabled"]))
         cfg.chroma_denoise.structure_protection.enabled = st["enabled"].as<bool>();
-      if (st["gradient_percentile"])
+      if (yaml_has_value(st["gradient_percentile"]))
         cfg.chroma_denoise.structure_protection.gradient_percentile =
             st["gradient_percentile"].as<float>();
     }
 
-    if (cd["chroma_wavelet"]) {
+    if (yaml_has_value(cd["chroma_wavelet"])) {
       auto cw = cd["chroma_wavelet"];
-      if (cw["enabled"])
+      if (yaml_has_value(cw["enabled"]))
         cfg.chroma_denoise.chroma_wavelet.enabled = cw["enabled"].as<bool>();
-      if (cw["levels"])
+      if (yaml_has_value(cw["levels"]))
         cfg.chroma_denoise.chroma_wavelet.levels = cw["levels"].as<int>();
-      if (cw["threshold_scale"])
+      if (yaml_has_value(cw["threshold_scale"]))
         cfg.chroma_denoise.chroma_wavelet.threshold_scale =
             cw["threshold_scale"].as<float>();
-      if (cw["soft_k"])
+      if (yaml_has_value(cw["soft_k"]))
         cfg.chroma_denoise.chroma_wavelet.soft_k = cw["soft_k"].as<float>();
     }
 
-    if (cd["chroma_bilateral"]) {
+    if (yaml_has_value(cd["chroma_bilateral"])) {
       auto cb = cd["chroma_bilateral"];
-      if (cb["enabled"])
+      if (yaml_has_value(cb["enabled"]))
         cfg.chroma_denoise.chroma_bilateral.enabled = cb["enabled"].as<bool>();
-      if (cb["sigma_spatial"])
+      if (yaml_has_value(cb["sigma_spatial"]))
         cfg.chroma_denoise.chroma_bilateral.sigma_spatial =
             cb["sigma_spatial"].as<float>();
-      if (cb["sigma_range"])
+      if (yaml_has_value(cb["sigma_range"]))
         cfg.chroma_denoise.chroma_bilateral.sigma_range =
             cb["sigma_range"].as<float>();
     }
 
-    if (cd["blend"]) {
+    if (yaml_has_value(cd["blend"])) {
       auto b = cd["blend"];
-      if (b["mode"])
+      if (yaml_has_value(b["mode"]))
         cfg.chroma_denoise.blend.mode = b["mode"].as<std::string>();
-      if (b["amount"])
+      if (yaml_has_value(b["amount"]))
         cfg.chroma_denoise.blend.amount = b["amount"].as<float>();
     }
   }
 
   if (node["global_metrics"]) {
     auto gm = node["global_metrics"];
-    if (gm["adaptive_weights"])
+    if (yaml_has_value(gm["adaptive_weights"]))
       cfg.global_metrics.adaptive_weights = gm["adaptive_weights"].as<bool>();
-    if (gm["weights"]) {
+    if (yaml_has_value(gm["weights"])) {
       auto w = gm["weights"];
-      if (w["background"])
+      if (yaml_has_value(w["background"]))
         cfg.global_metrics.weights.background = w["background"].as<float>();
-      if (w["noise"])
+      if (yaml_has_value(w["noise"]))
         cfg.global_metrics.weights.noise = w["noise"].as<float>();
-      if (w["gradient"])
+      if (yaml_has_value(w["gradient"]))
         cfg.global_metrics.weights.gradient = w["gradient"].as<float>();
-      if (w["fwhm"])
+      if (yaml_has_value(w["fwhm"]))
         cfg.global_metrics.weights.fwhm = w["fwhm"].as<float>();
-      if (w["roundness"])
+      if (yaml_has_value(w["roundness"]))
         cfg.global_metrics.weights.roundness = w["roundness"].as<float>();
-      if (w["star_count"])
+      if (yaml_has_value(w["star_count"]))
         cfg.global_metrics.weights.star_count = w["star_count"].as<float>();
     }
     read_float_pair(gm["clamp"], cfg.global_metrics.clamp);
-    if (gm["weight_exponent_scale"])
+    if (yaml_has_value(gm["weight_exponent_scale"]))
       cfg.global_metrics.weight_exponent_scale = gm["weight_exponent_scale"].as<float>();
   }
 
   if (node["tile"]) {
     auto t = node["tile"];
-    if (t["size_factor"])
+    if (yaml_has_value(t["size_factor"]))
       cfg.tile.size_factor = t["size_factor"].as<int>();
-    if (t["min_size"])
+    if (yaml_has_value(t["min_size"]))
       cfg.tile.min_size = t["min_size"].as<int>();
-    if (t["max_divisor"])
+    if (yaml_has_value(t["max_divisor"]))
       cfg.tile.max_divisor = t["max_divisor"].as<int>();
-    if (t["overlap_fraction"])
+    if (yaml_has_value(t["overlap_fraction"]))
       cfg.tile.overlap_fraction = t["overlap_fraction"].as<float>();
-    if (t["star_min_count"])
+    if (yaml_has_value(t["star_min_count"]))
       cfg.tile.star_min_count = t["star_min_count"].as<int>();
-    if (t["star_soft_count"])
+    if (yaml_has_value(t["star_soft_count"]))
       cfg.tile.star_soft_count = t["star_soft_count"].as<int>();
     else
       cfg.tile.star_soft_count = cfg.tile.star_min_count;
@@ -558,147 +563,147 @@ Config Config::from_yaml(const YAML::Node &node) {
   if (node["local_metrics"]) {
     auto lm = node["local_metrics"];
     read_float_pair(lm["clamp"], cfg.local_metrics.clamp);
-    if (lm["neighborhood_normalization"]) {
+    if (yaml_has_value(lm["neighborhood_normalization"])) {
       auto nn = lm["neighborhood_normalization"];
-      if (nn["enabled"])
+      if (yaml_has_value(nn["enabled"]))
         cfg.local_metrics.neighborhood_normalization.enabled =
             nn["enabled"].as<bool>();
-      if (nn["radius"])
+      if (yaml_has_value(nn["radius"]))
         cfg.local_metrics.neighborhood_normalization.radius =
             nn["radius"].as<int>();
-      if (nn["blend"])
+      if (yaml_has_value(nn["blend"]))
         cfg.local_metrics.neighborhood_normalization.blend =
             nn["blend"].as<float>();
     }
-    if (lm["spatial_regularization"]) {
+    if (yaml_has_value(lm["spatial_regularization"])) {
       auto sr = lm["spatial_regularization"];
-      if (sr["enabled"])
+      if (yaml_has_value(sr["enabled"]))
         cfg.local_metrics.spatial_regularization.enabled =
             sr["enabled"].as<bool>();
-      if (sr["lambda"])
+      if (yaml_has_value(sr["lambda"]))
         cfg.local_metrics.spatial_regularization.lambda =
             sr["lambda"].as<float>();
-      if (sr["passes"])
+      if (yaml_has_value(sr["passes"]))
         cfg.local_metrics.spatial_regularization.passes =
             sr["passes"].as<int>();
-      if (sr["tau_local"])
+      if (yaml_has_value(sr["tau_local"]))
         cfg.local_metrics.spatial_regularization.tau_local =
             sr["tau_local"].as<float>();
     }
     if (lm["star_mode"] && lm["star_mode"]["weights"]) {
       auto w = lm["star_mode"]["weights"];
-      if (w["fwhm"])
+      if (yaml_has_value(w["fwhm"]))
         cfg.local_metrics.star_mode.weights.fwhm = w["fwhm"].as<float>();
-      if (w["roundness"])
+      if (yaml_has_value(w["roundness"]))
         cfg.local_metrics.star_mode.weights.roundness =
             w["roundness"].as<float>();
-      if (w["contrast"])
+      if (yaml_has_value(w["contrast"]))
         cfg.local_metrics.star_mode.weights.contrast =
             w["contrast"].as<float>();
     }
-    if (lm["structure_mode"]) {
+    if (yaml_has_value(lm["structure_mode"])) {
       auto sm = lm["structure_mode"];
-      if (sm["background_weight"])
+      if (yaml_has_value(sm["background_weight"]))
         cfg.local_metrics.structure_mode.background_weight =
             sm["background_weight"].as<float>();
-      if (sm["metric_weight"])
+      if (yaml_has_value(sm["metric_weight"]))
         cfg.local_metrics.structure_mode.metric_weight =
             sm["metric_weight"].as<float>();
     }
-    if (lm["k_local"])
+    if (yaml_has_value(lm["k_local"]))
       cfg.local_metrics.k_local = lm["k_local"].as<float>();
   }
 
   if (node["aqmh"]) {
     auto a = node["aqmh"];
-    if (a["enabled"])
+    if (yaml_has_value(a["enabled"]))
       cfg.aqmh.enabled = a["enabled"].as<bool>();
-    if (a["pyramid"]) {
+    if (yaml_has_value(a["pyramid"])) {
       auto p = a["pyramid"];
-      if (p["scales"])
+      if (yaml_has_value(p["scales"]))
         cfg.aqmh.pyramid.scales = p["scales"].as<int>();
-      if (p["base_window_px"])
+      if (yaml_has_value(p["base_window_px"]))
         cfg.aqmh.pyramid.base_window_px = p["base_window_px"].as<int>();
-      if (p["w_sharp"])
+      if (yaml_has_value(p["w_sharp"]))
         cfg.aqmh.pyramid.w_sharp = p["w_sharp"].as<float>();
-      if (p["w_snr"])
+      if (yaml_has_value(p["w_snr"]))
         cfg.aqmh.pyramid.w_snr = p["w_snr"].as<float>();
-      if (p["k_artifact"])
+      if (yaml_has_value(p["k_artifact"]))
         cfg.aqmh.pyramid.k_artifact = p["k_artifact"].as<float>();
-      if (p["frac_artifact_max"])
+      if (yaml_has_value(p["frac_artifact_max"]))
         cfg.aqmh.pyramid.frac_artifact_max =
             p["frac_artifact_max"].as<float>();
     }
-    if (a["storage"]) {
+    if (yaml_has_value(a["storage"])) {
       auto s = a["storage"];
-      if (s["resolution_divisor"])
+      if (yaml_has_value(s["resolution_divisor"]))
         cfg.aqmh.storage.resolution_divisor =
             s["resolution_divisor"].as<int>();
-      if (s["dtype"])
+      if (yaml_has_value(s["dtype"]))
         cfg.aqmh.storage.dtype = s["dtype"].as<std::string>();
-      if (s["max_resident_maps"])
+      if (yaml_has_value(s["max_resident_maps"]))
         cfg.aqmh.storage.max_resident_maps =
             s["max_resident_maps"].as<int>();
     }
-    if (a["global_quality"]) {
+    if (yaml_has_value(a["global_quality"])) {
       auto g = a["global_quality"];
-      if (g["g_floor"]) cfg.aqmh.global_quality.g_floor = g["g_floor"].as<float>();
-      if (g["g_w_sharp"]) cfg.aqmh.global_quality.g_w_sharp = g["g_w_sharp"].as<float>();
-      if (g["g_w_snr"]) cfg.aqmh.global_quality.g_w_snr = g["g_w_snr"].as<float>();
-      if (g["g_w_background_penalty"])
+      if (yaml_has_value(g["g_floor"])) cfg.aqmh.global_quality.g_floor = g["g_floor"].as<float>();
+      if (yaml_has_value(g["g_w_sharp"])) cfg.aqmh.global_quality.g_w_sharp = g["g_w_sharp"].as<float>();
+      if (yaml_has_value(g["g_w_snr"])) cfg.aqmh.global_quality.g_w_snr = g["g_w_snr"].as<float>();
+      if (yaml_has_value(g["g_w_background_penalty"]))
         cfg.aqmh.global_quality.g_w_background_penalty =
             g["g_w_background_penalty"].as<float>();
-      if (g["g_k_scale"])
+      if (yaml_has_value(g["g_k_scale"]))
         cfg.aqmh.global_quality.g_k_scale = g["g_k_scale"].as<float>();
     }
-    if (a["cherry_pick"]) {
+    if (yaml_has_value(a["cherry_pick"])) {
       auto cp = a["cherry_pick"];
-      if (cp["enabled"])
+      if (yaml_has_value(cp["enabled"]))
         cfg.aqmh.cherry_pick.enabled = cp["enabled"].as<bool>();
-      if (cp["k_frac"])
+      if (yaml_has_value(cp["k_frac"]))
         cfg.aqmh.cherry_pick.k_frac = cp["k_frac"].as<float>();
-      if (cp["k_min_required"])
+      if (yaml_has_value(cp["k_min_required"]))
         cfg.aqmh.cherry_pick.k_min_required = cp["k_min_required"].as<int>();
-      if (cp["margin_min"])
+      if (yaml_has_value(cp["margin_min"]))
         cfg.aqmh.cherry_pick.margin_min = cp["margin_min"].as<float>();
-      if (cp["tiered_k_frac"]) {
+      if (yaml_has_value(cp["tiered_k_frac"])) {
         cfg.aqmh.cherry_pick.tiered_k_frac.clear();
         for (const auto &item : cp["tiered_k_frac"]) {
           AqmhCherryPickConfig::Tier tier;
-          if (item["min_n_rankable"])
+          if (yaml_has_value(item["min_n_rankable"]))
             tier.min_n_rankable = item["min_n_rankable"].as<int>();
-          if (item["k_frac"])
+          if (yaml_has_value(item["k_frac"]))
             tier.k_frac = item["k_frac"].as<float>();
           cfg.aqmh.cherry_pick.tiered_k_frac.push_back(tier);
         }
       }
     }
-    if (a["diagnostics"]) {
+    if (yaml_has_value(a["diagnostics"])) {
       auto d = a["diagnostics"];
-      if (d["tau_artifact"])
+      if (yaml_has_value(d["tau_artifact"]))
         cfg.aqmh.diagnostics.tau_artifact = d["tau_artifact"].as<float>();
-      if (d["q_region"])
+      if (yaml_has_value(d["q_region"]))
         cfg.aqmh.diagnostics.q_region = d["q_region"].as<float>();
-      if (d["r_morph_canvas_px"])
+      if (yaml_has_value(d["r_morph_canvas_px"]))
         cfg.aqmh.diagnostics.r_morph_canvas_px =
             d["r_morph_canvas_px"].as<int>();
       // NEW FIELDS:
-      if (d["enabled"])
+      if (yaml_has_value(d["enabled"]))
         cfg.aqmh.diagnostics.enabled = d["enabled"].as<bool>();
-      if (d["level"])
+      if (yaml_has_value(d["level"]))
         cfg.aqmh.diagnostics.level = d["level"].as<std::string>();
-      if (d["per_frame_blocks"])
+      if (yaml_has_value(d["per_frame_blocks"]))
         cfg.aqmh.diagnostics.per_frame_blocks = d["per_frame_blocks"].as<bool>();
-      if (d["heatmaps"])
+      if (yaml_has_value(d["heatmaps"]))
         cfg.aqmh.diagnostics.heatmaps = d["heatmaps"].as<bool>();
-      if (d["regions"])
+      if (yaml_has_value(d["regions"]))
         cfg.aqmh.diagnostics.regions = d["regions"].as<bool>();
-      if (d["format"])
+      if (yaml_has_value(d["format"]))
         cfg.aqmh.diagnostics.format = d["format"].as<std::string>();
-      if (d["binary_block_size_px"])
+      if (yaml_has_value(d["binary_block_size_px"]))
         cfg.aqmh.diagnostics.binary_block_size_px = d["binary_block_size_px"].as<int>();
     }
-    if (a["reconstruction"]) {
+    if (yaml_has_value(a["reconstruction"])) {
       auto r = a["reconstruction"];
       const bool has_clip_sigma = static_cast<bool>(r["clip_sigma"]);
       const bool has_clip_sigma_low = static_cast<bool>(r["clip_sigma_low"]);
@@ -712,78 +717,78 @@ Config Config::from_yaml(const YAML::Node &node) {
           cfg.aqmh.reconstruction.clip_sigma_high =
               cfg.aqmh.reconstruction.clip_sigma;
       }
-      if (r["clip_sigma_low"])
+      if (yaml_has_value(r["clip_sigma_low"]))
         cfg.aqmh.reconstruction.clip_sigma_low =
             r["clip_sigma_low"].as<float>();
-      if (r["clip_sigma_high"])
+      if (yaml_has_value(r["clip_sigma_high"]))
         cfg.aqmh.reconstruction.clip_sigma_high =
             r["clip_sigma_high"].as<float>();
-      if (r["clip_iterations"]) cfg.aqmh.reconstruction.clip_iterations = r["clip_iterations"].as<int>();
-      if (r["min_fraction"]) cfg.aqmh.reconstruction.min_fraction = r["min_fraction"].as<float>();
-      if (r["min_n_eff"]) cfg.aqmh.reconstruction.min_n_eff = r["min_n_eff"].as<float>();
+      if (yaml_has_value(r["clip_iterations"])) cfg.aqmh.reconstruction.clip_iterations = r["clip_iterations"].as<int>();
+      if (yaml_has_value(r["min_fraction"])) cfg.aqmh.reconstruction.min_fraction = r["min_fraction"].as<float>();
+      if (yaml_has_value(r["min_n_eff"])) cfg.aqmh.reconstruction.min_n_eff = r["min_n_eff"].as<float>();
       // NEW FIELDS:
-      if (r["chunk_rows"])
+      if (yaml_has_value(r["chunk_rows"]))
         cfg.aqmh.reconstruction.chunk_rows = r["chunk_rows"].as<int>();
-      if (r["memory_budget_mb"])
+      if (yaml_has_value(r["memory_budget_mb"]))
         cfg.aqmh.reconstruction.memory_budget_mb = r["memory_budget_mb"].as<size_t>();
-      if (r["delete_prewarped_cache_after_run"])
+      if (yaml_has_value(r["delete_prewarped_cache_after_run"]))
         cfg.aqmh.reconstruction.delete_prewarped_cache_after_run =
             r["delete_prewarped_cache_after_run"].as<bool>();
-      if (r["registration_weight_guard"])
+      if (yaml_has_value(r["registration_weight_guard"]))
         cfg.aqmh.reconstruction.registration_weight_guard =
             r["registration_weight_guard"].as<bool>();
-      if (r["registration_weight_floor"])
+      if (yaml_has_value(r["registration_weight_floor"]))
         cfg.aqmh.reconstruction.registration_weight_floor =
             r["registration_weight_floor"].as<float>();
-      if (r["registration_cc_floor"])
+      if (yaml_has_value(r["registration_cc_floor"]))
         cfg.aqmh.reconstruction.registration_cc_floor =
             r["registration_cc_floor"].as<float>();
-      if (r["registration_cc_full"])
+      if (yaml_has_value(r["registration_cc_full"]))
         cfg.aqmh.reconstruction.registration_cc_full =
             r["registration_cc_full"].as<float>();
-      if (r["registration_sequential_factor"])
+      if (yaml_has_value(r["registration_sequential_factor"]))
         cfg.aqmh.reconstruction.registration_sequential_factor =
             r["registration_sequential_factor"].as<float>();
-      if (r["registration_predicted_factor"])
+      if (yaml_has_value(r["registration_predicted_factor"]))
         cfg.aqmh.reconstruction.registration_predicted_factor =
             r["registration_predicted_factor"].as<float>();
-      if (r["registration_chain_depth_penalty"])
+      if (yaml_has_value(r["registration_chain_depth_penalty"]))
         cfg.aqmh.reconstruction.registration_chain_depth_penalty =
             r["registration_chain_depth_penalty"].as<float>();
-      if (r["registration_chain_depth_max_penalty"])
+      if (yaml_has_value(r["registration_chain_depth_max_penalty"]))
         cfg.aqmh.reconstruction.registration_chain_depth_max_penalty =
             r["registration_chain_depth_max_penalty"].as<float>();
-      if (r["structure_mask_low_q"])
+      if (yaml_has_value(r["structure_mask_low_q"]))
         cfg.aqmh.reconstruction.structure_mask_low_q =
             r["structure_mask_low_q"].as<float>();
-      if (r["structure_mask_high_q"])
+      if (yaml_has_value(r["structure_mask_high_q"]))
         cfg.aqmh.reconstruction.structure_mask_high_q =
             r["structure_mask_high_q"].as<float>();
-      if (r["structure_mask_blur_sigma_px"])
+      if (yaml_has_value(r["structure_mask_blur_sigma_px"]))
         cfg.aqmh.reconstruction.structure_mask_blur_sigma_px =
             r["structure_mask_blur_sigma_px"].as<float>();
     }
-    if (a["validation"]) {
+    if (yaml_has_value(a["validation"])) {
       auto v = a["validation"];
-      if (v["max_seam_score_regression"]) cfg.aqmh.validation.max_seam_score_regression = v["max_seam_score_regression"].as<float>();
-      if (v["max_fwhm_regression"]) cfg.aqmh.validation.max_fwhm_regression = v["max_fwhm_regression"].as<float>();
-      if (v["max_background_rms_regression"]) cfg.aqmh.validation.max_background_rms_regression = v["max_background_rms_regression"].as<float>();
-      if (v["max_tail11_abs_regression"]) cfg.aqmh.validation.max_tail11_abs_regression = v["max_tail11_abs_regression"].as<float>();
-      if (v["max_elongation_regression"]) cfg.aqmh.validation.max_elongation_regression = v["max_elongation_regression"].as<float>();
+      if (yaml_has_value(v["max_seam_score_regression"])) cfg.aqmh.validation.max_seam_score_regression = v["max_seam_score_regression"].as<float>();
+      if (yaml_has_value(v["max_fwhm_regression"])) cfg.aqmh.validation.max_fwhm_regression = v["max_fwhm_regression"].as<float>();
+      if (yaml_has_value(v["max_background_rms_regression"])) cfg.aqmh.validation.max_background_rms_regression = v["max_background_rms_regression"].as<float>();
+      if (yaml_has_value(v["max_tail11_abs_regression"])) cfg.aqmh.validation.max_tail11_abs_regression = v["max_tail11_abs_regression"].as<float>();
+      if (yaml_has_value(v["max_elongation_regression"])) cfg.aqmh.validation.max_elongation_regression = v["max_elongation_regression"].as<float>();
     }
   }
 
   if (node["synthetic"]) {
     auto s = node["synthetic"];
-    if (s["weighting"])
+    if (yaml_has_value(s["weighting"]))
       cfg.synthetic.weighting = s["weighting"].as<std::string>();
-    if (s["frames_min"])
+    if (yaml_has_value(s["frames_min"]))
       cfg.synthetic.frames_min = s["frames_min"].as<int>();
-    if (s["frames_max"])
+    if (yaml_has_value(s["frames_max"]))
       cfg.synthetic.frames_max = s["frames_max"].as<int>();
-    if (s["clustering"]) {
+    if (yaml_has_value(s["clustering"])) {
       auto cl = s["clustering"];
-      if (cl["mode"])
+      if (yaml_has_value(cl["mode"]))
         cfg.synthetic.clustering.mode = cl["mode"].as<std::string>();
       read_int_pair(cl["cluster_count_range"],
                     cfg.synthetic.clustering.cluster_count_range);
@@ -792,20 +797,20 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["astrometry"]) {
     auto a = node["astrometry"];
-    if (a["enabled"])
+    if (yaml_has_value(a["enabled"]))
       cfg.astrometry.enabled = a["enabled"].as<bool>();
     if (a["astap_bin"] && !a["astap_bin"].IsNull())
       cfg.astrometry.astap_bin = a["astap_bin"].as<std::string>();
     if (a["astap_data_dir"] && !a["astap_data_dir"].IsNull())
       cfg.astrometry.astap_data_dir = a["astap_data_dir"].as<std::string>();
-    if (a["search_radius"])
+    if (yaml_has_value(a["search_radius"]))
       cfg.astrometry.search_radius = a["search_radius"].as<int>();
   }
 
   if (node["bge"]) {
     auto b = node["bge"];
     const bool has_method = static_cast<bool>(b["method"]);
-    if (b["enabled"])
+    if (yaml_has_value(b["enabled"]))
       cfg.bge.enabled = b["enabled"].as<bool>();
     if (has_method) {
       cfg.bge.method = b["method"].as<std::string>();
@@ -813,41 +818,41 @@ Config Config::from_yaml(const YAML::Node &node) {
     } else {
       cfg.bge.method = cfg.bge.enabled ? "classic" : "none";
     }
-    if (b["autobge"]) {
+    if (yaml_has_value(b["autobge"])) {
       auto a = b["autobge"];
-      if (a["num_sample_points"])
+      if (yaml_has_value(a["num_sample_points"]))
         cfg.bge.autobge.num_sample_points = a["num_sample_points"].as<int>();
-      if (a["poly_degree"])
+      if (yaml_has_value(a["poly_degree"]))
         cfg.bge.autobge.poly_degree = a["poly_degree"].as<int>();
-      if (a["rbf_smooth"])
+      if (yaml_has_value(a["rbf_smooth"]))
         cfg.bge.autobge.rbf_smooth = a["rbf_smooth"].as<float>();
-      if (a["downsample_scale"])
+      if (yaml_has_value(a["downsample_scale"]))
         cfg.bge.autobge.downsample_scale = a["downsample_scale"].as<int>();
-      if (a["patch_size"])
+      if (yaml_has_value(a["patch_size"]))
         cfg.bge.autobge.patch_size = a["patch_size"].as<int>();
-      if (a["patch_estimator"])
+      if (yaml_has_value(a["patch_estimator"]))
         cfg.bge.autobge.patch_estimator = a["patch_estimator"].as<std::string>();
-      if (a["stretch_mode"])
+      if (yaml_has_value(a["stretch_mode"]))
         cfg.bge.autobge.stretch_mode = a["stretch_mode"].as<std::string>();
-      if (a["stretch_target_median"])
+      if (yaml_has_value(a["stretch_target_median"]))
         cfg.bge.autobge.stretch_target_median =
             a["stretch_target_median"].as<float>();
-      if (a["border_margin"])
+      if (yaml_has_value(a["border_margin"]))
         cfg.bge.autobge.border_margin = a["border_margin"].as<int>();
-      if (a["bright_exclusion_fraction"])
+      if (yaml_has_value(a["bright_exclusion_fraction"]))
         cfg.bge.autobge.bright_exclusion_fraction =
             a["bright_exclusion_fraction"].as<float>();
-      if (a["gradient_descent_max_iters"])
+      if (yaml_has_value(a["gradient_descent_max_iters"]))
         cfg.bge.autobge.gradient_descent_max_iters =
             a["gradient_descent_max_iters"].as<int>();
-      if (a["random_seed"])
+      if (yaml_has_value(a["random_seed"]))
         cfg.bge.autobge.random_seed = a["random_seed"].as<int>();
-      if (a["normalize_between_stages"])
+      if (yaml_has_value(a["normalize_between_stages"]))
         cfg.bge.autobge.normalize_between_stages =
             a["normalize_between_stages"].as<bool>();
-      if (a["apply_guards"])
+      if (yaml_has_value(a["apply_guards"]))
         cfg.bge.autobge.apply_guards = a["apply_guards"].as<bool>();
-      if (a["mono_mode"])
+      if (yaml_has_value(a["mono_mode"]))
         cfg.bge.autobge.mono_mode = a["mono_mode"].as<std::string>();
       auto read_autobge_point = [](const YAML::Node &point_node,
                                    const char *field_name)
@@ -870,7 +875,7 @@ Config Config::from_yaml(const YAML::Node &node) {
         }
         return {x, y};
       };
-      if (a["exclusion_polygons"]) {
+      if (yaml_has_value(a["exclusion_polygons"])) {
         cfg.bge.autobge.exclusion_polygons.clear();
         for (const auto &polygon_node : a["exclusion_polygons"]) {
           std::vector<std::array<float, 2>> polygon;
@@ -881,7 +886,7 @@ Config Config::from_yaml(const YAML::Node &node) {
           cfg.bge.autobge.exclusion_polygons.push_back(std::move(polygon));
         }
       }
-      if (a["user_sample_points"]) {
+      if (yaml_has_value(a["user_sample_points"])) {
         cfg.bge.autobge.user_sample_points.clear();
         for (const auto &point_node : a["user_sample_points"]) {
           cfg.bge.autobge.user_sample_points.push_back(read_autobge_point(
@@ -889,277 +894,277 @@ Config Config::from_yaml(const YAML::Node &node) {
         }
       }
     }
-    if (b["sample_quantile"])
+    if (yaml_has_value(b["sample_quantile"]))
       cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
-    if (b["sample_estimator"])
+    if (yaml_has_value(b["sample_estimator"]))
       cfg.bge.sample_estimator = b["sample_estimator"].as<std::string>();
-    if (b["min_sample_bg_value"])
+    if (yaml_has_value(b["min_sample_bg_value"]))
       cfg.bge.min_sample_bg_value = b["min_sample_bg_value"].as<float>();
-    if (b["structure_thresh_percentile"])
+    if (yaml_has_value(b["structure_thresh_percentile"]))
       cfg.bge.structure_thresh_percentile = b["structure_thresh_percentile"].as<float>();
-    if (b["min_tiles_per_cell"])
+    if (yaml_has_value(b["min_tiles_per_cell"]))
       cfg.bge.min_tiles_per_cell = b["min_tiles_per_cell"].as<int>();
-    if (b["min_valid_sample_fraction_for_apply"])
+    if (yaml_has_value(b["min_valid_sample_fraction_for_apply"]))
       cfg.bge.min_valid_sample_fraction_for_apply =
           b["min_valid_sample_fraction_for_apply"].as<float>();
-    if (b["min_valid_samples_for_apply"])
+    if (yaml_has_value(b["min_valid_samples_for_apply"]))
       cfg.bge.min_valid_samples_for_apply =
           b["min_valid_samples_for_apply"].as<int>();
     
-    if (b["mask"]) {
+    if (yaml_has_value(b["mask"])) {
       auto m = b["mask"];
-      if (m["star_dilate_px"])
+      if (yaml_has_value(m["star_dilate_px"]))
         cfg.bge.mask.star_dilate_px = m["star_dilate_px"].as<int>();
-      if (m["sat_dilate_px"])
+      if (yaml_has_value(m["sat_dilate_px"]))
         cfg.bge.mask.sat_dilate_px = m["sat_dilate_px"].as<int>();
     }
     
-    if (b["grid"]) {
+    if (yaml_has_value(b["grid"])) {
       auto g = b["grid"];
-      if (g["N_g"])
+      if (yaml_has_value(g["N_g"]))
         cfg.bge.grid.N_g = g["N_g"].as<int>();
-      if (g["G_min_px"])
+      if (yaml_has_value(g["G_min_px"]))
         cfg.bge.grid.G_min_px = g["G_min_px"].as<int>();
-      if (g["G_max_fraction"])
+      if (yaml_has_value(g["G_max_fraction"]))
         cfg.bge.grid.G_max_fraction = g["G_max_fraction"].as<float>();
-      if (g["insufficient_cell_strategy"])
+      if (yaml_has_value(g["insufficient_cell_strategy"]))
         cfg.bge.grid.insufficient_cell_strategy = g["insufficient_cell_strategy"].as<std::string>();
     }
     
-    if (b["fit"]) {
+    if (yaml_has_value(b["fit"])) {
       auto f = b["fit"];
-      if (f["method"])
+      if (yaml_has_value(f["method"]))
         cfg.bge.fit.method = f["method"].as<std::string>();
-      if (f["robust_loss"])
+      if (yaml_has_value(f["robust_loss"]))
         cfg.bge.fit.robust_loss = f["robust_loss"].as<std::string>();
-      if (f["huber_delta"])
+      if (yaml_has_value(f["huber_delta"]))
         cfg.bge.fit.huber_delta = f["huber_delta"].as<float>();
-      if (f["irls_max_iterations"])
+      if (yaml_has_value(f["irls_max_iterations"]))
         cfg.bge.fit.irls_max_iterations = f["irls_max_iterations"].as<int>();
-      if (f["irls_tolerance"])
+      if (yaml_has_value(f["irls_tolerance"]))
         cfg.bge.fit.irls_tolerance = f["irls_tolerance"].as<float>();
-      if (f["polynomial_order"])
+      if (yaml_has_value(f["polynomial_order"]))
         cfg.bge.fit.polynomial_order = f["polynomial_order"].as<int>();
-      if (f["rbf_phi"])
+      if (yaml_has_value(f["rbf_phi"]))
         cfg.bge.fit.rbf_phi = f["rbf_phi"].as<std::string>();
-      if (f["rbf_mu_factor"])
+      if (yaml_has_value(f["rbf_mu_factor"]))
         cfg.bge.fit.rbf_mu_factor = f["rbf_mu_factor"].as<float>();
-      if (f["rbf_lambda"])
+      if (yaml_has_value(f["rbf_lambda"]))
         cfg.bge.fit.rbf_lambda = f["rbf_lambda"].as<float>();
-      if (f["rbf_epsilon"])
+      if (yaml_has_value(f["rbf_epsilon"]))
         cfg.bge.fit.rbf_epsilon = f["rbf_epsilon"].as<float>();
     }
 
-    if (b["autotune"]) {
+    if (yaml_has_value(b["autotune"])) {
       auto a = b["autotune"];
-      if (a["enabled"])
+      if (yaml_has_value(a["enabled"]))
         cfg.bge.autotune.enabled = a["enabled"].as<bool>();
-      if (a["max_evals"])
+      if (yaml_has_value(a["max_evals"]))
         cfg.bge.autotune.max_evals = a["max_evals"].as<int>();
-      if (a["holdout_fraction"])
+      if (yaml_has_value(a["holdout_fraction"]))
         cfg.bge.autotune.holdout_fraction = a["holdout_fraction"].as<float>();
-      if (a["alpha_flatness"])
+      if (yaml_has_value(a["alpha_flatness"]))
         cfg.bge.autotune.alpha_flatness = a["alpha_flatness"].as<float>();
-      if (a["beta_roughness"])
+      if (yaml_has_value(a["beta_roughness"]))
         cfg.bge.autotune.beta_roughness = a["beta_roughness"].as<float>();
-      if (a["strategy"])
+      if (yaml_has_value(a["strategy"]))
         cfg.bge.autotune.strategy = a["strategy"].as<std::string>();
     }
-    if (b["tile_weight_lambda_structure"])
+    if (yaml_has_value(b["tile_weight_lambda_structure"]))
       cfg.bge.tile_weight_lambda_structure =
           b["tile_weight_lambda_structure"].as<float>();
   }
 
   if (node["pcc"]) {
     auto p = node["pcc"];
-    if (p["enabled"])
+    if (yaml_has_value(p["enabled"]))
       cfg.pcc.enabled = p["enabled"].as<bool>();
-    if (p["source"])
+    if (yaml_has_value(p["source"]))
       cfg.pcc.source = p["source"].as<std::string>();
-    if (p["mag_limit"])
+    if (yaml_has_value(p["mag_limit"]))
       cfg.pcc.mag_limit = p["mag_limit"].as<float>();
-    if (p["mag_bright_limit"])
+    if (yaml_has_value(p["mag_bright_limit"]))
       cfg.pcc.mag_bright_limit = p["mag_bright_limit"].as<float>();
-    if (p["aperture_radius_px"])
+    if (yaml_has_value(p["aperture_radius_px"]))
       cfg.pcc.aperture_radius_px = p["aperture_radius_px"].as<float>();
-    if (p["annulus_inner_px"])
+    if (yaml_has_value(p["annulus_inner_px"]))
       cfg.pcc.annulus_inner_px = p["annulus_inner_px"].as<float>();
-    if (p["annulus_outer_px"])
+    if (yaml_has_value(p["annulus_outer_px"]))
       cfg.pcc.annulus_outer_px = p["annulus_outer_px"].as<float>();
-    if (p["min_stars"])
+    if (yaml_has_value(p["min_stars"]))
       cfg.pcc.min_stars = p["min_stars"].as<int>();
-    if (p["sigma_clip"])
+    if (yaml_has_value(p["sigma_clip"]))
       cfg.pcc.sigma_clip = p["sigma_clip"].as<float>();
-    if (p["background_model"])
+    if (yaml_has_value(p["background_model"]))
       cfg.pcc.background_model = p["background_model"].as<std::string>();
-    if (p["max_condition_number"])
+    if (yaml_has_value(p["max_condition_number"]))
       cfg.pcc.max_condition_number = p["max_condition_number"].as<float>();
-    if (p["max_residual_rms"])
+    if (yaml_has_value(p["max_residual_rms"]))
       cfg.pcc.max_residual_rms = p["max_residual_rms"].as<float>();
-    if (p["radii_mode"])
+    if (yaml_has_value(p["radii_mode"]))
       cfg.pcc.radii_mode = p["radii_mode"].as<std::string>();
-    if (p["aperture_fwhm_mult"])
+    if (yaml_has_value(p["aperture_fwhm_mult"]))
       cfg.pcc.aperture_fwhm_mult = p["aperture_fwhm_mult"].as<float>();
-    if (p["annulus_inner_fwhm_mult"])
+    if (yaml_has_value(p["annulus_inner_fwhm_mult"]))
       cfg.pcc.annulus_inner_fwhm_mult = p["annulus_inner_fwhm_mult"].as<float>();
-    if (p["annulus_outer_fwhm_mult"])
+    if (yaml_has_value(p["annulus_outer_fwhm_mult"]))
       cfg.pcc.annulus_outer_fwhm_mult = p["annulus_outer_fwhm_mult"].as<float>();
-    if (p["min_aperture_px"])
+    if (yaml_has_value(p["min_aperture_px"]))
       cfg.pcc.min_aperture_px = p["min_aperture_px"].as<float>();
-    if (p["siril_catalog_dir"])
+    if (yaml_has_value(p["siril_catalog_dir"]))
       cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
 
-    if (p["apply_attenuation"])
+    if (yaml_has_value(p["apply_attenuation"]))
       cfg.pcc.apply_attenuation = p["apply_attenuation"].as<bool>();
-    if (p["chroma_strength"])
+    if (yaml_has_value(p["chroma_strength"]))
       cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
-    if (p["k_max"])
+    if (yaml_has_value(p["k_max"]))
       cfg.pcc.k_max = p["k_max"].as<float>();
-    if (p["background_neutralization_mode"])
+    if (yaml_has_value(p["background_neutralization_mode"]))
       cfg.pcc.background_neutralization_mode =
           p["background_neutralization_mode"].as<std::string>();
   }
 
   if (node["hypermetric_stretch"]) {
     auto h = node["hypermetric_stretch"];
-    if (h["enabled"])
+    if (yaml_has_value(h["enabled"]))
       cfg.hypermetric_stretch.enabled = h["enabled"].as<bool>();
-    if (h["require_successful_pcc"])
+    if (yaml_has_value(h["require_successful_pcc"]))
       cfg.hypermetric_stretch.require_successful_pcc =
           h["require_successful_pcc"].as<bool>();
-    if (h["mode"])
+    if (yaml_has_value(h["mode"]))
       cfg.hypermetric_stretch.mode = h["mode"].as<std::string>();
-    if (h["sensor_profile"])
+    if (yaml_has_value(h["sensor_profile"]))
       cfg.hypermetric_stretch.sensor_profile =
           h["sensor_profile"].as<std::string>();
-    if (h["fallback_profile"])
+    if (yaml_has_value(h["fallback_profile"]))
       cfg.hypermetric_stretch.fallback_profile =
           h["fallback_profile"].as<std::string>();
-    if (h["adaptive_anchor"])
+    if (yaml_has_value(h["adaptive_anchor"]))
       cfg.hypermetric_stretch.adaptive_anchor =
           h["adaptive_anchor"].as<bool>();
-    if (h["target_bg"])
+    if (yaml_has_value(h["target_bg"]))
       cfg.hypermetric_stretch.target_bg = h["target_bg"].as<float>();
-    if (h["protect_b"])
+    if (yaml_has_value(h["protect_b"]))
       cfg.hypermetric_stretch.protect_b = h["protect_b"].as<float>();
-    if (h["convergence_power"])
+    if (yaml_has_value(h["convergence_power"]))
       cfg.hypermetric_stretch.convergence_power =
           h["convergence_power"].as<float>();
-    if (h["log_d_mode"])
+    if (yaml_has_value(h["log_d_mode"]))
       cfg.hypermetric_stretch.log_d_mode = h["log_d_mode"].as<std::string>();
-    if (h["fixed_log_d"])
+    if (yaml_has_value(h["fixed_log_d"]))
       cfg.hypermetric_stretch.fixed_log_d = h["fixed_log_d"].as<float>();
-    if (h["color_strategy"])
+    if (yaml_has_value(h["color_strategy"]))
       cfg.hypermetric_stretch.color_strategy =
           h["color_strategy"].as<std::string>();
-    if (h["fixed_color_strategy"])
+    if (yaml_has_value(h["fixed_color_strategy"]))
       cfg.hypermetric_stretch.fixed_color_strategy =
           h["fixed_color_strategy"].as<float>();
-    if (h["color_grip"])
+    if (yaml_has_value(h["color_grip"]))
       cfg.hypermetric_stretch.color_grip = h["color_grip"].as<float>();
-    if (h["shadow_convergence"])
+    if (yaml_has_value(h["shadow_convergence"]))
       cfg.hypermetric_stretch.shadow_convergence =
           h["shadow_convergence"].as<float>();
-    if (h["linear_expansion"])
+    if (yaml_has_value(h["linear_expansion"]))
       cfg.hypermetric_stretch.linear_expansion =
           h["linear_expansion"].as<float>();
-    if (h["write_channels"])
+    if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
-    if (h["output_rgb"])
+    if (yaml_has_value(h["output_rgb"]))
       cfg.hypermetric_stretch.output_rgb = h["output_rgb"].as<std::string>();
   }
 
   if (node["stacking"]) {
     auto st = node["stacking"];
-    if (st["method"])
+    if (yaml_has_value(st["method"]))
       cfg.stacking.method = st["method"].as<std::string>();
-    if (st["common_overlap_required_fraction"])
+    if (yaml_has_value(st["common_overlap_required_fraction"]))
       cfg.stacking.common_overlap_required_fraction =
           st["common_overlap_required_fraction"].as<float>();
-    if (st["tile_common_valid_min_fraction"])
+    if (yaml_has_value(st["tile_common_valid_min_fraction"]))
       cfg.stacking.tile_common_valid_min_fraction =
           st["tile_common_valid_min_fraction"].as<float>();
-    if (st["sigma_clip"]) {
+    if (yaml_has_value(st["sigma_clip"])) {
       auto sc = st["sigma_clip"];
-      if (sc["sigma_low"])
+      if (yaml_has_value(sc["sigma_low"]))
         cfg.stacking.sigma_clip.sigma_low = sc["sigma_low"].as<float>();
-      if (sc["sigma_high"])
+      if (yaml_has_value(sc["sigma_high"]))
         cfg.stacking.sigma_clip.sigma_high = sc["sigma_high"].as<float>();
-      if (sc["max_iters"])
+      if (yaml_has_value(sc["max_iters"]))
         cfg.stacking.sigma_clip.max_iters = sc["max_iters"].as<int>();
-      if (sc["min_fraction"])
+      if (yaml_has_value(sc["min_fraction"]))
         cfg.stacking.sigma_clip.min_fraction = sc["min_fraction"].as<float>();
     }
-    if (st["cluster_quality_weighting"]) {
+    if (yaml_has_value(st["cluster_quality_weighting"])) {
       auto cqw = st["cluster_quality_weighting"];
-      if (cqw["enabled"])
+      if (yaml_has_value(cqw["enabled"]))
         cfg.stacking.cluster_quality_weighting.enabled =
             cqw["enabled"].as<bool>();
-      if (cqw["kappa_cluster"])
+      if (yaml_has_value(cqw["kappa_cluster"]))
         cfg.stacking.cluster_quality_weighting.kappa_cluster =
             cqw["kappa_cluster"].as<float>();
-      if (cqw["cap_enabled"])
+      if (yaml_has_value(cqw["cap_enabled"]))
         cfg.stacking.cluster_quality_weighting.cap_enabled =
             cqw["cap_enabled"].as<bool>();
-      if (cqw["cap_ratio"])
+      if (yaml_has_value(cqw["cap_ratio"]))
         cfg.stacking.cluster_quality_weighting.cap_ratio =
             cqw["cap_ratio"].as<float>();
     }
-    if (st["output_stretch"])
+    if (yaml_has_value(st["output_stretch"]))
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
-    if (st["cosmetic_correction"])
+    if (yaml_has_value(st["cosmetic_correction"]))
       cfg.stacking.cosmetic_correction = st["cosmetic_correction"].as<bool>();
-    if (st["cosmetic_correction_sigma"])
+    if (yaml_has_value(st["cosmetic_correction_sigma"]))
       cfg.stacking.cosmetic_correction_sigma = st["cosmetic_correction_sigma"].as<float>();
-    if (st["per_frame_cosmetic_correction"])
+    if (yaml_has_value(st["per_frame_cosmetic_correction"]))
       cfg.stacking.per_frame_cosmetic_correction = st["per_frame_cosmetic_correction"].as<bool>();
-    if (st["per_frame_cosmetic_correction_sigma"])
+    if (yaml_has_value(st["per_frame_cosmetic_correction_sigma"]))
       cfg.stacking.per_frame_cosmetic_correction_sigma = st["per_frame_cosmetic_correction_sigma"].as<float>();
   }
 
   if (node["validation"]) {
     auto v = node["validation"];
-    if (v["min_fwhm_improvement_percent"]) {
+    if (yaml_has_value(v["min_fwhm_improvement_percent"])) {
       cfg.validation.min_fwhm_improvement_percent =
           v["min_fwhm_improvement_percent"].as<float>();
     }
-    if (v["max_background_rms_increase_percent"]) {
+    if (yaml_has_value(v["max_background_rms_increase_percent"])) {
       cfg.validation.max_background_rms_increase_percent =
           v["max_background_rms_increase_percent"].as<float>();
     }
-    if (v["min_tile_weight_variance"])
+    if (yaml_has_value(v["min_tile_weight_variance"]))
       cfg.validation.min_tile_weight_variance =
           v["min_tile_weight_variance"].as<float>();
-    if (v["require_no_tile_pattern"])
+    if (yaml_has_value(v["require_no_tile_pattern"]))
       cfg.validation.require_no_tile_pattern =
           v["require_no_tile_pattern"].as<bool>();
   }
 
   if (node["runtime_limits"]) {
     auto rl = node["runtime_limits"];
-    if (rl["tile_analysis_max_factor_vs_stack"]) {
+    if (yaml_has_value(rl["tile_analysis_max_factor_vs_stack"])) {
       cfg.runtime_limits.tile_analysis_max_factor_vs_stack =
           rl["tile_analysis_max_factor_vs_stack"].as<float>();
     }
-    if (rl["hard_abort_hours"])
+    if (yaml_has_value(rl["hard_abort_hours"]))
       cfg.runtime_limits.hard_abort_hours = rl["hard_abort_hours"].as<float>();
-    if (rl["allow_emergency_mode"])
+    if (yaml_has_value(rl["allow_emergency_mode"]))
       cfg.runtime_limits.allow_emergency_mode =
           rl["allow_emergency_mode"].as<bool>();
-    if (rl["parallel_workers"])
+    if (yaml_has_value(rl["parallel_workers"]))
       cfg.runtime_limits.parallel_workers = rl["parallel_workers"].as<int>();
-    if (rl["memory_budget"])
+    if (yaml_has_value(rl["memory_budget"]))
       cfg.runtime_limits.memory_budget = rl["memory_budget"].as<int>();
-    if (rl["acceleration_backend"]) {
+    if (yaml_has_value(rl["acceleration_backend"])) {
       cfg.runtime_limits.acceleration_backend =
           normalize_acceleration_backend(
               rl["acceleration_backend"].as<std::string>());
     }
-    if (rl["tile_reconstruction_diagnostics"]) {
+    if (yaml_has_value(rl["tile_reconstruction_diagnostics"])) {
       cfg.runtime_limits.tile_reconstruction_diagnostics =
           rl["tile_reconstruction_diagnostics"].as<std::string>();
     }
-    if (rl["tile_boundary_diagnostics_enabled"]) {
+    if (yaml_has_value(rl["tile_boundary_diagnostics_enabled"])) {
       cfg.runtime_limits.tile_boundary_diagnostics_enabled =
           rl["tile_boundary_diagnostics_enabled"].as<bool>();
     } else {

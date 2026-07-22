@@ -365,13 +365,13 @@ Frame normalization settings.
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `background`, `none` |
+| **Values** | `background`, `median` |
 | **Default** | `"background"` |
 
 **Purpose:** Normalization method.
 
 - **`background`**: robust background matching (recommended)
-- **`none`**: disabled (not recommended for production)
+- **`median`**: median-based normalization (use for extended objects filling >10% of frame)
 
 ### `normalization.per_channel`
 
@@ -754,7 +754,7 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `true` |
+| **Default** | `false` |
 
 **Purpose:** Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Recommended for OSC data.
 

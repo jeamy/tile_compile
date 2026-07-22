@@ -44,7 +44,7 @@ The first step is scanning the FITS input data.
 4. **Output folder (Runs-Dir)**: Target directory for run outputs. A directory under `~/tilecompile/runs/` is suggested by default.
 5. **Run name**: Optional name for the run folder (e.g., `M31_altaz_test`).
 6. **Parameters**:
-   - **Frames Minimum**: Minimum number of frames, otherwise abort (default: 30).
+   - **Frames Minimum**: Minimum number of frames, otherwise abort (default: 50).
    - **Max. Frames**: 0 = use all frames.
    - **Sort order**: `numeric`, `alphabetic`, or `timestamp`.
    - **Color mode**: `OSC` (One-Shot-Color / Bayer) or `MONO`.
@@ -104,6 +104,38 @@ The Parameter Studio is organized into categories:
 
 > **Tip:** For initial attempts, the default configuration with `method: aqmh` works well. The most important adjustments are `registration.allow_rotation` (keep `true` for Alt/Az mounts) and `data.bayer_pattern` (cross-check with FITS headers).
 
+### Explain Panel
+
+Click on any parameter label to see a detailed explanation in the **Explain** panel on the right side of the grid. The panel shows the parameter's purpose, permitted range, default value, and interactions with other parameters.
+
+### Presets
+
+Use the **Preset** selector in the editor toolbar to load bundled example configurations. Click **Reload** to refresh the preset list and **Apply** to load the selected preset into the current draft.
+
+### AI Recommendations
+
+The Parameter page has a second tab: **AI Recommendations**. This provides AI-powered configuration recommendations based on scan data, equipment info, and imaging conditions.
+
+1. Switch to the **AI Recommendations** tab.
+2. Fill in the form: object name, camera type, mount type, telescope, conditions, and goals.
+3. Select a **Provider** and **Model**. PI supports many providers (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter, and more). The available models are loaded dynamically from the PI sidecar. The deciding factor is the **API Key** — enter the key for the chosen provider and click **Save Key** to store it in the PI AuthStorage. A key is required before analysis can run.
+4. Click **Create AI Analysis** to start the analysis. The request runs in the background — tab switching is safe.
+5. Review the recommendations: each suggestion shows the parameter path, new value, and a brief rationale.
+6. Select individual recommendations with checkboxes, or use **Apply All** to apply all.
+7. Use **PI Preview** to validate the planned changes as a YAML diff without saving.
+8. Use **Apply PI** to save the last valid PI Preview as a new config revision.
+
+> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. Use **Fetch status** to verify the provider key and model. Traffic logs show the raw request/response for debugging.
+
+### Situation Assistant
+
+Below the parameter grid, the **Situation-Assistent** panel offers scenario-based quick adjustments:
+
+1. Select one or more imaging scenarios (e.g., "Alt/Az mount", "Light pollution", "Short exposure").
+2. The assistant calculates parameter deltas for each selected scenario.
+3. Click **Apply** to merge the deltas into the current draft.
+4. The changes appear immediately in the parameter grid and YAML diff.
+
 ---
 
 ## 4. Starting and Monitoring a Run (Run Monitor)
@@ -120,9 +152,31 @@ The Run Monitor displays:
 
 - **Current phase**: Which pipeline phase is running (SCAN_INPUT → REGISTRATION → ... → PCC → DONE)
 - **Phase progress**: Status of each phase (pending, running, ok, skipped, error)
-- **Event timeline**: Live events from `run_events.jsonl`
 - **Warnings and errors**: Prominently displayed in the warning banner
 - **Run statistics**: Processed frames, estimated time remaining (if available)
+- **Image preview**: Shows the latest output image (stacked, BGE, PCC, or HMS) during and after the run
+
+Below the phase list, three tabs provide additional tools:
+
+#### Resume Tab
+
+The Resume tab contains the phase-based resume mechanism (see [Resume](#resume) below).
+
+#### Run-Chat Tab
+
+The Run-Chat tab provides AI-assisted diagnosis of the current run:
+
+1. Type a question or describe a problem (e.g., "stars are elongated" or "background is uneven").
+2. The AI analyzes run artifacts, event logs, and phase results.
+3. The response includes image observations, likely causes, checks to perform, and recommendations.
+4. If the AI suggests config changes, a PI Preview can be generated and applied directly to the Resume YAML.
+5. A resume recommendation may suggest continuing from a specific phase.
+
+> Run-Chat history is persisted per run and restored when switching back to the Run Monitor.
+
+#### Live Log Tab
+
+The Live Log tab shows real-time log output from the runner process, including phase events, warnings, and error messages.
 
 ### Aborting a Run
 

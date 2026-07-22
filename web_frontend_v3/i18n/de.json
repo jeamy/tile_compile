@@ -2094,5 +2094,17 @@
   "param.chroma_denoise.chroma_bilateral.sigma_spatial.explain": "räumliche bilaterale Stärke.",
   "param.chroma_denoise.chroma_bilateral.sigma_range.explain": "Farbdistanz-Selektivität bilateral.",
   "param.chroma_denoise.blend.mode.explain": "aktuell chroma-only Blending-Modus.",
-  "param.chroma_denoise.blend.amount.explain": "Mischanteil Original vs. denoised Chroma."
+  "param.chroma_denoise.blend.amount.explain": "Mischanteil Original vs. denoised Chroma.",
+  "ui.tab.processing": "Processing",
+  "ui.tab.tools": "Tools",
+  "ui.tab.history": "History",
+  "ui.tab.parameter": "Parameter",
+  "ui.tab.ai": "AI Empfehlung",
+  "ui.subtab.input_scan": "Input & Scan",
+  "ui.subtab.parameter": "Parameter",
+  "ui.subtab.run_monitor": "Run Monitor",
+  "ui.subtab.raw_stack": "Raw Stack",
+  "ui.subtab.astrometry": "Astrometry",
+  "ui.subtab.pcc": "PCC",
+  "ui.subtab.run_history": "Run History"
 }
