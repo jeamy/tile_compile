@@ -1,0 +1,638 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage{subcaption}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\captionsetup{hypcap=false}
+
+\sisetup{
+  round-mode=places,
+  round-precision=3,
+  detect-all
+}
+
+\title{\textbf{Adaptive Quality Map Hyperstacking for Pixel-Wise Quality-Weighted Deep-Sky Reconstruction}\\
+\large Method definition v0.2.0, implementation contract, post-reconstruction robustness extensions, and an M31 validation run}
+\author{Jeamy Lee$^{1}$ \\ \small $^{1}$Independent Researcher / tile\_compile project}
+\date{July 22, 2026}
+
+\begin{document}
+\raggedbottom
+\twocolumn[
+\maketitle
+
+\begin{center}
+\begin{minipage}{0.88\textwidth}
+\small
+\textbf{Abstract}\par
+\vspace{0.35em}
+Adaptive Quality Map Hyperstacking (AQMH) is a deterministic pixel-wise quality-weighted
+reconstruction method for short-exposure deep-sky imaging. It replaces block-constant local
+quality scores with dense per-frame quality maps and reconstructs each supported output pixel by
+a weighted mean whose AQMH weight is evaluated at that same pixel. The method is independent of
+Classic Tile Compile: registration, photometric normalization, common-overlap handling, reporting,
+and run management may be shared, but AQMH does not use classic local tile metrics, state
+clustering, or synthetic frames as reconstruction inputs or fallbacks.
+This paper consolidates the AQMH v0.2.0 definition, including the post-reconstruction robustness
+extensions formalised in the v0.2.1 methodology: a background-gradient penalty in global frame
+quality, a registration-weight guard, adaptive low-frequency neutralisation, and structure-masked
+detail blending. It states the implementation contract used by tile\_compile and evaluates a
+concrete M31 validation run. The run processed 645 frames on a $3924\times2310$ canvas, wrote 645
+dense luminance quality maps at half resolution, and reconstructed the image with
+\num{5.350e9} finite map samples, zero missing map samples, and no fallback to classic tile
+weights. The measured median FWHM changed from \num{12.329} px to \num{5.268} px, corresponding
+to a \num{57.273}\% reduction. The background RMS changed from \num{4.185} to \num{0.780},
+corresponding to an \num{81.351}\% decrease. The uniform-control validation gate triggered on
+the background-RMS regression (\num{0.168} $>$ \num{0.05} threshold); the raw AQMH output was
+preserved by the guard. These measurements demonstrate a single-run execution of the AQMH path
+with the full v0.2.0 extension suite active; they do not by themselves establish population-level
+performance across object classes, instruments, or atmospheric regimes.
+\end{minipage}
+\end{center}
+
+\vspace{0.35cm}
+\noindent \textbf{Keywords:} astronomical image reconstruction, deep-sky imaging,
+quality maps, pixel-wise weighted mean, short exposure stacking, deterministic reconstruction,
+sigma clipping, uniform control validation
+\vspace{0.6cm}
+]
+
+\section{Introduction}
+
+Short-exposure deep-sky imaging collects many noisy frames instead of a small number of long
+exposures. The data often contain useful signal even when individual frames suffer from local
+defects: cloud edges, satellite traces, registration remnants, small hot-pixel clusters, or
+spatially varying seeing. A single global frame score cannot describe these local variations.
+Coarse tile scores improve locality, but they still assign one scalar quality value to an
+extended region. This has two structural consequences. First, a small contaminated area can
+depress the weight of a much larger block. Second, neighboring blocks can receive different
+constant weights, creating a discontinuous weighting field that is unrelated to the optical
+image content.
+
+AQMH is documented here as an independent reconstruction path within the tile\_compile project.
+The reference method for Classic Tile Compile is
+\href{https://doi.org/10.5281/zenodo.19437794}{\emph{Tile-Based Quality Reconstruction for DSO},
+Version 3.3.9}.
+
+AQMH addresses the locality problem by computing a dense quality field
+$Q_{f,c}^{\mathrm{map}}(x,y)$ for each frame $f$ and channel or stream $c$. The reconstruction
+then uses the frame sample itself and the AQMH weight field at the same pixel:
+\begin{equation}
+  R_c(p) =
+  \frac{\sum_f W_{f,c}^{\mathrm{aqmh}}(p)\, I_{f,c}(p)}
+       {\sum_f W_{f,c}^{\mathrm{aqmh}}(p)} ,
+  \quad W_{f,c}^{\mathrm{aqmh}}(p) \ge 0 .
+\end{equation}
+After the weights have been computed, the reconstruction core is therefore a deterministic linear
+weighted mean. AQMH does not hallucinate pixel values, does not synthesize replacement frames, and
+does not rely on tile clustering. Its purpose is narrower: retain useful local regions from every
+registered frame while suppressing locally degraded regions through a dense, reproducible quality
+field.
+
+\section{Method overview}
+
+\subsection{Inputs and independence}
+
+AQMH reuses only shared preprocessing outputs:
+\begin{itemize}
+  \item calibrated, registered, prewarped, and normalized frames;
+  \item a canvas-valid/common-overlap mask;
+  \item global frame diagnostics used for a frame-level weight;
+  \item run management, artifacts, reports, and UI status.
+\end{itemize}
+AQMH is otherwise independent from Classic Tile Compile. In particular, the run studied here
+reports \texttt{classic\_tile\_weights\_used=false} and
+\texttt{fallback\_to\_classic=false}. The classic phases \texttt{STATE\_CLUSTERING} and
+\texttt{SYNTHETIC\_FRAMES} are not part of AQMH reconstruction.
+
+The distinction matters operationally. Shared preprocessing produces registered, normalized image
+samples and a valid canvas domain. AQMH then defines its own quality maps and reconstruction
+weights. Any classic tile grid that appears in reports is therefore a geometry or diagnostic
+artifact, not the AQMH weight lattice.
+
+\subsection{Binding invariants}
+
+The AQMH implementation follows eight practical invariants:
+\begin{enumerate}
+  \item No frame is discarded solely because of its AQMH quality map.
+  \item Canvas-invalid pixels are excluded from all map and reconstruction statistics.
+  \item Once weights are known, reconstruction is a linear weighted mean of finite samples.
+  \item Quality maps and diagnostics are deterministic for identical input data and parameters.
+  \item AQMH outputs weights, masks, and diagnostics only; it does not predict missing signal.
+  \item Cherry-pick and any per-pixel selection mode must enforce a documented minimum
+        retained-sample count, below which the mode is disabled automatically.
+  \item Cross-infrastructure extensions (registration-weight guard, background penalty) may only
+        multiply the global frame weight by a non-negative scalar. They must not alter
+        $Q^{\mathrm{map}}$, must not introduce pixel-dependent weights, and must be independently
+        disableable.
+  \item Any post-reconstruction neutralisation or detail blending must be validation-gated. The
+        run must record which candidate was selected and why. The final output must not be worse,
+        by the documented regression metrics, than the ordinary AQMH output.
+\end{enumerate}
+The M31 run uses \texttt{cherry\_pick\_enabled=false}; therefore no optional pixel-level
+frame subset mode is active.
+
+\subsection{Quality-map model}
+
+For a normalized registered input frame $I_{f,c}(x,y)$, AQMH computes a multi-scale quality
+field. The default pyramid uses downscale factors $D_s=4^s$ with a local radius of four
+pixels in scale space. Scales that are too coarse for the image dimensions are omitted and the
+geometric-mean exponent is computed from the actually available scale count. At each retained
+scale $s$, three local signals are evaluated over valid canvas support:
+\begin{itemize}
+  \item a sharpness signal based on local Laplacian-response variance;
+  \item a local SNR signal based on background-centered positive signal over robust scale;
+  \item an artifact anomaly gate based on high-pass outlier fraction.
+\end{itemize}
+The sharpness and SNR signals are normalized within a frame by robust z-scores and combined by a
+sigmoid:
+\begin{equation}
+\begin{split}
+  \Psi_s(x,y) &=
+  \sigma\!\left(
+    w_{\mathrm{sharp}}\, z(\Phi_{\mathrm{sharp},s})
+    + w_{\mathrm{snr}}\, z(\Phi_{\mathrm{snr},s})
+  \right) \\
+  &\quad \times \Phi_{\mathrm{artifact},s}(x,y).
+\end{split}
+\end{equation}
+Scale maps are upsampled with valid-support interpolation and fused by geometric mean:
+\begin{equation}
+  Q_{f,c}^{\mathrm{map}}(x,y) =
+  \left(\prod_{s \in S_{\mathrm{actual}}} \Psi_s^{\mathrm{up}}(x,y)\right)^{1/|S_{\mathrm{actual}}|}.
+\end{equation}
+The geometric mean is intentionally conservative: one poor scale suppresses the fused quality at
+that location, and a zero at any scale remains an exact veto after fusion. Canvas-invalid pixels
+are set to zero only as an output convention after they have already been excluded from all
+statistics.
+
+The z-score normalization also fixes the interpretation of $Q^{\mathrm{map}}$. The sigmoid
+component is a within-frame relative quality field; it indicates which regions of a frame are
+locally better or worse than other regions of the same frame. Whole-frame discrimination is
+carried by the global term $G_{f,c}$ and by absolute gates such as the artifact fraction.
+
+\subsection{Global quality with background penalty}
+
+The effective AQMH weight multiplies the frame-level quality term and the spatial quality map.
+The v0.2.0 global quality formula introduces an optional background-gradient penalty as a third
+signal:
+\begin{equation}
+\begin{split}
+  \mathrm{score}_f &= w_{\mathrm{sharp}}\, z_{s,f}
+    + w_{\mathrm{snr}}\, z_{n,f}
+    - w_{\mathrm{bg}}\, z_{b,f} \\[2pt]
+  G_{f,c} &= g_{\mathrm{floor}} + (1 - g_{\mathrm{floor}})\,
+    \sigma\!\left(\mathrm{clamp}(k_{\mathrm{scale}} \cdot \mathrm{score}_f,\, -8,\, 8)\right)
+\end{split}
+\end{equation}
+where $z_{b,f}$ is the robust z-score of the per-frame sky-gradient summary
+$g_{\mathrm{background},f} = (q_{\max} - q_{\min}) / \mathrm{background}_f$, computed from
+quadrant-based masked median backgrounds.
+
+A strong large-scale gradient means that the background model used by the SNR signal is a biased
+local estimate. Frames with very flat backgrounds tend to be cleaner and more linear; frames with
+a strong moon-glow or light-pollution gradient receive a lower global weight, reducing their
+influence on the final stack without removing them entirely.
+
+The weights are renormalised so that $w_{\mathrm{sharp}} + w_{\mathrm{snr}} + w_{\mathrm{bg}} = 1$
+when at least one effective weight is positive. If a configured weight is $\le 0$, if fewer than
+three finite positive summary values are available, or if the coefficient of variation
+$\mathrm{CV} = \mathrm{MAD}/\mathrm{median}$ is below $0.01$, the corresponding effective weight
+is set to zero. This prevents near-constant signals from amplifying noise.
+
+\subsection{Registration-weight guard}
+
+Before reconstruction, the runner may optionally apply a registration-weight guard to $G_{f,c}$.
+It reads the shared \texttt{global\_registration.json} artifact and damps the global weight of
+frames with low cross-correlation confidence, sequential or predicted registration sources, or
+deep chain-depth:
+\begin{equation}
+  G_{f,c}^{\mathrm{eff}} = G_{f,c} \cdot R_f, \quad R_f \in [r_{\mathrm{floor}},\, 1].
+\end{equation}
+The guard is a shared-infrastructure multiplier, not part of the AQMH quality model. It prevents
+high AQMH quality scores from amplifying registration errors.
+
+\subsection{Reconstruction}
+
+For each output pixel, the implementation accumulates finite, canvas-valid samples only. Missing
+quality maps are not replaced by unweighted mean contributions. A zero quality map is an
+explicit veto for that frame/pixel contribution. Iterative sigma clipping with
+$\sigma_{\mathrm{low}}$ and $\sigma_{\mathrm{high}}$ rejects outlier samples before the weighted
+mean is computed. A minimum effective sample count $n_{\mathrm{eff}}^{\min}$ and minimum fraction
+$f_{\min}$ are enforced.
+
+The studied M31 run stores one luminance quality map per frame at half canvas resolution
+(\texttt{resolution\_divisor=2}) and interpolates it for reconstruction. This is a storage and
+I/O choice, not a change to the mathematical definition of AQMH as a dense pixel-weighted
+reconstruction method.
+
+\section{Post-reconstruction robustness extensions}
+
+\subsection{Uniform control mean}
+
+When \texttt{compute\_uniform\_control} is enabled, the reconstruction routine also computes the
+unweighted mean of the registered frames over the same valid-pixel set:
+\begin{equation}
+  U(p) = \frac{1}{|V_c^I(p)|} \sum_{f \in V_c^I(p)} I_{f,c}(p).
+\end{equation}
+$U(p)$ is not a quality-weighted result; it is a diagnostic reference for the validation gates.
+
+\subsection{Validation metrics}
+
+Both the raw AQMH output $A(p)$ and any post-processed candidate are compared to $U(p)$ using:
+\begin{itemize}
+  \item FWHM regression: $\Delta_{\mathrm{FWHM}} = (\mathrm{FWHM}_{\mathrm{cand}} - \mathrm{FWHM}_{\mathrm{ctrl}}) / \mathrm{FWHM}_{\mathrm{ctrl}}$
+  \item Background RMS regression: $\Delta_{\mathrm{RMS}} = (\mathrm{RMS}_{\mathrm{cand}} - \mathrm{RMS}_{\mathrm{ctrl}}) / \mathrm{RMS}_{\mathrm{ctrl}}$
+  \item Seam score regression, tail$_{11}$ regression, elongation regression.
+\end{itemize}
+Each metric records an applicability state: \texttt{pass}, \texttt{fail}, or
+\texttt{not\_applicable}. A metric is \texttt{not\_applicable} when either side of the comparison
+is missing, non-finite, has too few samples, or would require a relative regression against a
+zero or near-zero control denominator. A \texttt{not\_applicable} metric is diagnostic only and
+must not by itself trigger fallback.
+
+\subsection{Adaptive low-frequency neutralisation}
+
+If $U(p)$ is available, an optional neutralised candidate $N(p)$ is computed:
+\begin{equation}
+\begin{split}
+  L(p) &= \mathrm{GaussianBlur}(A(p) - U(p),\, \sigma = 96\,\mathrm{px}) \\
+  N(p) &= A(p) - L(p).
+\end{split}
+\end{equation}
+The blur uses reflect-101 border mode. The sigma of \SI{96}{px} targets large-scale ``veil''
+residuals without affecting structure on smaller scales. $N(p)$ may be selected as the base over
+$A(p)$ only when the background RMS regression is strictly smaller.
+
+\subsection{Structure-masked detail blending}
+
+After selecting the base $B(p)$ (either $A(p)$ or $N(p)$), a second optional candidate preserves
+AQMH detail in high-structure regions while keeping the smoother background from $B(p)$:
+\begin{equation}
+  D(p) = U(p) + M_s(p) \cdot (B(p) - U(p))
+\end{equation}
+where $M_s(p)$ is a soft structure mask derived from the gradient magnitude of $U(p)$, mapped
+from the $q_{\mathrm{low}} = 0.40$ quantile to $q_{\mathrm{high}} = 0.90$ quantile to $[0, 1]$
+and Gaussian-blurred with $\sigma = \SI{4}{px}$. In high-structure regions ($M_s \approx 1$) the
+candidate follows the AQMH base; in smooth regions ($M_s \approx 0$) it follows the uniform
+control.
+
+If $D(p)$ fails the applicable validation thresholds, an alpha-blended attenuation search is
+performed over $\alpha \in [0, 1]$. The largest $\alpha$ that satisfies the thresholds is
+selected. If no $\alpha > 0$ passes, the base $B(p)$ is kept.
+
+\subsection{Final protection gate}
+
+After all post-processing, the selected output $O(p)$ is validated one more time against $U(p)$
+and the immutable raw AQMH baseline $A(p)$. If any applicable configured threshold is exceeded,
+the runner rejects the post-processed candidate and emits $A(p)$. Blending toward $U(p)$ is
+forbidden because it can erase faint diffuse signal while one-sided noise metrics appear to
+improve.
+
+\section{Implementation run}
+
+\subsection{Data and configuration}
+
+The evaluation data are taken from a tile\_compile AQMH run on an M31 dataset:
+\begin{center}
+\small
+\path{runs/M31-default-afix1_20260722_111345}
+\end{center}
+The paper bundle itself is archived under
+\href{https://github.com/jeamy/tile_compile/tree/master/docs/AQMH/zenodo-0.2.0}
+{\path{docs/AQMH/zenodo-0.2.0}} in the project repository. Run artifacts used for
+the measurements are local analysis outputs located in:
+\begin{center}
+\small
+\path{runs/M31-default-afix1_20260722_111345/artifacts}
+\end{center}
+The final preview shown in Figure~\ref{fig:preview} is derived from
+\path{outputs/stacked_rgb_hms.fits}.
+
+This paper treats the run as an implementation validation case. It verifies that the expected AQMH
+execution path is followed and reports the resulting diagnostics. It does not compare AQMH against
+a separately tuned Classic Tile Compile run on the same data, and it does not claim that the
+reported percentage changes generalize beyond this run.
+
+\begin{table}[t]
+\centering
+\caption{M31 run geometry and frame counts.}
+\begin{tabular}{lr}
+\toprule
+Quantity & Value \\
+\midrule
+Input frames loaded & 645 \\
+Usable frames & 645 \\
+Canvas size & $3924\times2310$ px \\
+Common-overlap fraction & \num{0.9748} \\
+Reconstruction fraction & \num{0.9823} \\
+Adaptive tiles in shared grid & 209 \\
+Tile size / stride & 296 px / 208 px \\
+\bottomrule
+\end{tabular}
+\label{tab:geometry}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{AQMH map storage and reconstruction support.}
+{\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Quantity & Value \\
+\midrule
+AQMH enabled & true \\
+Frames/maps & 645 / 645 \\
+Stored map size & $1962\times1155$ px \\
+Resolution divisor & 2 \\
+Map dtype & uint16 \\
+Finite samples & \num{5.350e9} \\
+Missing samples & 0 \\
+Unsupported output pixels & \num{18539} \\
+Zero-veto pixels & 0 \\
+Classic fallback & false \\
+Execution backend & cuda\_native\_v0\_2 \\
+\bottomrule
+\end{tabular}
+}
+\label{tab:support}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{v0.2.0 extension configuration.}
+{\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Parameter & Value \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Global quality}} \\
+$g_{\mathrm{floor}}$ & 0.03 \\
+$w_{\mathrm{sharp}}$ & 0.55 \\
+$w_{\mathrm{snr}}$ & 0.30 \\
+$w_{\mathrm{bg}}$ & 0.25 \\
+$k_{\mathrm{scale}}$ & 1.5 \\
+\multicolumn{2}{@{}l}{\emph{Registration-weight guard}} \\
+Enabled & true \\
+$r_{\mathrm{floor}}$ & 0.30 \\
+$\mathrm{cc}_{\mathrm{floor}}$ & 0.35 \\
+$\mathrm{cc}_{\mathrm{full}}$ & 0.80 \\
+Sequential factor & 0.92 \\
+Predicted factor & 0.50 \\
+\multicolumn{2}{@{}l}{\emph{Reconstruction}} \\
+Clip iterations & 4 \\
+$\sigma_{\mathrm{low}}$, $\sigma_{\mathrm{high}}$ & 2.0, 2.0 \\
+$f_{\min}$ & 0.40 \\
+$n_{\mathrm{eff}}^{\min}$ & 2.0 \\
+\multicolumn{2}{@{}l}{\emph{Neutralisation}} \\
+Blur $\sigma$ & \SI{96}{px} \\
+\multicolumn{2}{@{}l}{\emph{Structure mask}} \\
+$q_{\mathrm{low}}$, $q_{\mathrm{high}}$ & 0.40, 0.90 \\
+Blur $\sigma$ & \SI{4}{px} \\
+\bottomrule
+\end{tabular}
+}
+\label{tab:config}
+\end{table}
+
+\subsection{Quality-map diagnostics}
+
+The run wrote one luma quality map per frame. The average map mean was
+\num{0.498315} with standard deviation \num{0.002051}. The per-frame map mean ranged from
+\num{0.492467} to \num{0.503678}. The average p10 and p90 across frames were \num{0.376616}
+and \num{0.635871} respectively. The average artifact fraction was \num{1.92e-6}, with a
+range from \num{0} to \num{1.2e-5}. All 645 diagnostics reported the
+\texttt{scene\_dependent\_snr} flag, which marks use of the degraded local-SNR path when the
+background-centered support condition is not fully satisfied.
+
+The global sharpness source was \texttt{psf\_wfwhm\_inverted} for all frames, meaning the
+PSF-FWHM sharpness proxy was used instead of the Laplacian-variance signal. This avoids a known
+inversion of \texttt{local\_variance(laplacian)} on extended-emission targets such as M31, where
+nebular texture can correlate positively with seeing FWHM. The average global quality was
+\num{0.469662}, ranging from \num{0.030536} to \num{0.820488}. The background-penalty input
+averaged \num{25.636}, reflecting moderate sky-gradient variation across the frame sequence.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{m31_aqmh_quality_timeseries.png}
+\caption{Per-frame AQMH quality-map diagnostics. The shaded band shows the p10-p90 interval of
+the map values; mean and median remain stable across the 645-frame sequence. The artifact
+fraction stays near zero, with a higher early-frame tail.}
+\label{fig:timeseries}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{m31_aqmh_diagnostic_distributions.png}
+\caption{Distributions of AQMH per-frame diagnostic quantities. The narrow quality-map mean
+distribution reflects the within-frame relative normalization of the sigmoid factor; the
+artifact gate remains an absolute veto term.}
+\label{fig:distributions}
+\end{figure*}
+
+\subsection{Registration-weight guard}
+
+The registration-weight guard was enabled and active. Of the 645 frames, 638 were registered
+via \texttt{direct\_global}, 6 via \texttt{sequential\_refined}, and 1 was the reference frame.
+The guard damped 6 frames (the sequential and reference frames), with a mean factor of
+\num{0.9982} and a minimum factor of \num{0.7262}. The median factor was \num{1.0}, confirming
+that the vast majority of frames were unaffected.
+
+\subsection{Validation metrics}
+
+The validation artifact reports an AQMH method run. The median input seeing estimate was
+\num{12.329} px, while the median output FWHM was \num{5.268} px. This corresponds to a
+\num{57.273}\% reduction of the measured FWHM:
+\[
+  100 \left(1 - \frac{5.268}{12.329}\right) = 57.273 .
+\]
+Background RMS changed from \num{4.185} to \num{0.780}, an \num{81.351}\% decrease.
+
+The uniform-control gate compared the raw AQMH output against the unweighted mean. The results
+are summarised in Table~\ref{tab:ucg}. The FWHM, seam score, elongation, and tail$_{11}$
+regressions all passed their thresholds. The background-RMS regression (\num{0.168}) exceeded
+the configured threshold of \num{0.05}, triggering the gate. As a result, the raw AQMH output
+was preserved by the guard (\texttt{raw\_aqmh\_preserved\_by\_guard = true},
+\texttt{selected\_candidate = raw\_aqmh}).
+
+The low-frequency neutralisation candidate was evaluated but not applied: its background-RMS
+regression (\num{0.168}) was not strictly smaller than the raw AQMH regression. The
+structure-masked detail candidate was also evaluated but not applied: while its background-RMS
+regression (\num{0.016}) was smaller, it did not pass all applicable validation thresholds
+simultaneously. The alpha-blended attenuation search found no $\alpha > 0$ that satisfied all
+gates, so the base (raw AQMH) was retained.
+
+\begin{table}[t]
+\centering
+\caption{Uniform-control gate validation results.}
+{\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Metric & AQMH & Control & Regression \\
+\midrule
+FWHM (px) & 2.600 & 2.573 & $+0.010$ \\
+Background RMS & 0.850 & 0.728 & $+0.168$ \\
+Seam score & 1.736 & 1.830 & $-0.051$ \\
+Elongation & 1.098 & 1.100 & $-0.001$ \\
+Tail$_{11}$ abs & 0.492 & 0.494 & $-0.006$ \\
+\bottomrule
+\end{tabular}
+}
+\label{tab:ucg}
+\end{table}
+
+\begin{center}
+\centering
+\includegraphics[width=\columnwidth]{m31_aqmh_validation_summary.png}
+\captionof{figure}{Validation summary for the M31 AQMH run. FWHM improves while the
+background-RMS regression exceeds the gate threshold, causing the uniform-control gate to
+trigger. The raw AQMH output is preserved.}
+\label{fig:validation}
+\end{center}
+
+\begin{center}
+\centering
+\includegraphics[width=\columnwidth]{m31_aqmh_hms_preview.png}
+\captionof{figure}{Final RGB preview after AQMH reconstruction, PCC, and HMS. The preview is a
+visual run product derived from the FITS output, not a quantitative measurement.}
+\label{fig:preview}
+\end{center}
+
+\section{Discussion}
+
+\subsection{What the run demonstrates}
+
+The M31 run demonstrates the intended AQMH v0.2.0 execution path with all post-reconstruction
+extensions active:
+\begin{itemize}
+  \setlength{\itemsep}{0.05em}
+  \setlength{\parsep}{0pt}
+  \setlength{\parskip}{0pt}
+  \setlength{\topsep}{0.15em}
+  \item every usable frame produced a quality map;
+  \item the PSF-FWHM sharpness proxy was used for global quality, avoiding the
+        Laplacian-variance inversion on extended-emission targets;
+  \item the registration-weight guard damped weakly-registered frames without affecting the
+        majority;
+  \item reconstruction consumed AQMH maps without classic tile-weight fallback;
+  \item no quality map samples were missing during reconstruction;
+  \item the uniform-control gate correctly identified the background-RMS regression and
+        preserved the raw AQMH output;
+  \item low-frequency neutralisation and structure-masked detail blending were evaluated but
+        rejected by the validation gates, confirming that the guard mechanism works as designed;
+  \item the measured FWHM and background RMS validation metrics improved.
+\end{itemize}
+The support counters are particularly important for implementation validation. A successful
+AQMH-labeled run would be ambiguous if reconstruction silently fell back to missing-map behavior,
+unweighted means, or classic tile weights. The combination of 645 written maps, zero missing map
+samples, and \texttt{fallback\_to\_classic=false} makes the measured output attributable to the
+AQMH path rather than to a mixed or compatibility path.
+
+\subsection{Interpretation of the background-RMS gate}
+
+The uniform-control gate triggered on the background-RMS regression of \num{0.168}, well above
+the configured threshold of \num{0.05}. This means the AQMH-weighted output has a \num{16.8}\%
+higher robust background RMS than the unweighted mean. This is not necessarily a defect: the
+AQMH weighting preserves high-frequency structure that the unweighted mean smooths out, which can
+increase the pixel-difference-based RMS estimator. The gate's purpose is to detect cases where
+this increase is excessive; the threshold of \num{0.05} is conservative. The raw AQMH output was
+preserved because no post-processed candidate improved all applicable metrics simultaneously.
+
+\subsection{Interpretation of stable map means}
+
+The frame-to-frame mean of $Q^{\mathrm{map}}$ is deliberately stable. The sharpness and SNR terms
+are z-normalized inside each frame, so their sigmoid contribution is mostly a within-frame
+relative field. Cross-frame quality discrimination comes from the global frame weight $G_{f,c}$
+and from absolute veto terms such as the artifact gate. Therefore, a narrow distribution of map
+means is not a defect; it is a consequence of separating within-frame spatial quality from
+between-frame global quality.
+
+\subsection{Acceleration}
+
+The AQMH\_MAPS phase ran on the CPU with 8 parallel workers, while the AQMH\_RECONSTRUCTION phase
+used a native CUDA backend on an NVIDIA GeForce GTX 1660 Ti (\SI{6}{GB} VRAM). The reconstruction
+processed \num{23} chunks of \num{101} rows each, with a device memory budget of
+\SI{2.33}{GB}. The total data volume was approximately \SI{52.8}{GB}, requiring
+\num{4} sigma-clip iterations per chunk. The effective throughput was \SI{26.6}{MB/s}, indicating
+a memory-bandwidth-limited pipeline on this GPU class.
+
+\subsection{Limitations}
+
+This paper reports one M31 run and should not be read as a full statistical validation across
+object classes, sensors, exposure lengths, sky brightness levels, and seeing regimes. The
+diagnostic flag \texttt{scene\_dependent\_snr=true} appears for all frames and deserves further
+evaluation: the fallback is deterministic, but future work should quantify when
+background-centered local SNR support is sufficient without the degraded-path flag. The
+background-RMS gate triggered, which means the raw AQMH output has measurably higher
+pixel-difference RMS than the uniform control; while this is expected for a quality-weighted
+reconstruction that preserves high-frequency detail, the threshold calibration deserves
+sensitivity analysis. The validation metrics are pipeline diagnostics rather than an externally
+calibrated astronomical quality assessment. The final preview is not a scientific photometry
+product; it includes downstream PCC and HMS processing.
+
+Further validation should include repeated runs, independent datasets, explicit comparisons
+against Classic Tile Compile and conventional stackers, sensitivity tests for pyramid parameters
+and map resolution, and visual/quantitative checks around strong gradients, saturated stars,
+nebular structure, and low-overlap frame borders.
+
+\section{Conclusion}
+
+AQMH v0.2.0 provides a deterministic pixel-wise quality-weighted alternative to coarse local tile
+weighting for short-exposure deep-sky reconstruction. The M31 run confirms that the implementation
+can execute the complete AQMH path on a 645-frame dataset, write all dense quality maps, apply the
+registration-weight guard, evaluate the post-reconstruction extension suite (neutralisation,
+structure-masked blending), and produce improved run-level validation metrics. The observed FWHM
+reduction of \num{57.273}\%, the background RMS reduction of \num{81.351}\%, the absence of
+missing map samples, and the correct operation of the uniform-control gate support the practical
+viability of AQMH as an independent reconstruction method in tile\_compile.
+
+The post-reconstruction extensions (background penalty, registration-weight guard, low-frequency
+neutralisation, structure-masked detail blending) were all active and correctly evaluated. The
+validation gates rejected both the neutralised and the structure-masked candidates, preserving
+the raw AQMH output. This demonstrates that the guard mechanism works as designed: AQMH will not
+silently replace its output with a post-processed variant that fails the documented regression
+thresholds.
+
+\newpage
+\section*{Code and Data Availability}
+
+\textbf{Reference method.}
+Classic Tile Compile is described by
+\href{https://doi.org/10.5281/zenodo.19437794}{\emph{Tile-Based Quality Reconstruction for DSO},
+Version 3.3.9}. The corresponding repository source is the
+\href{https://github.com/jeamy/tile_compile/blob/master/docs/v3/zenodo-3.3.9/paper-tile_based_quality_reconstruction_methodology_v_3.3.9_en.tex}{v3.3.9
+paper source}.
+
+\textbf{Previous version.}
+The AQMH v0.1.0 paper bundle is archived in
+\href{https://github.com/jeamy/tile_compile/tree/master/docs/AQMH/zenodo-0.1.0}{docs/AQMH/zenodo-0.1.0}.
+
+\textbf{Methodology.}
+The AQMH v0.2.1 methodology document is
+\href{https://github.com/jeamy/tile_compile/blob/master/docs/AQMH/aqmh_methodik_en_v0.2.1.md}{aqmh\_methodik\_en\_v0.2.1.md}.
+
+\textbf{Code.}
+The public project repository is
+\href{https://github.com/jeamy/tile_compile}{github.com/jeamy/tile\_compile}.
+
+\textbf{This paper.}
+The AQMH v0.2.0 paper bundle is archived in
+\href{https://github.com/jeamy/tile_compile/tree/master/docs/AQMH/zenodo-0.2.0}{docs/AQMH/zenodo-0.2.0}.
+The compact values used for the tables and plots are stored in
+\href{https://github.com/jeamy/tile_compile/blob/master/docs/AQMH/zenodo-0.2.0/m31_aqmh_run_summary.json}{m31\_aqmh\_run\_summary.json}.
+
+\textbf{Run data.}
+The full source measurement artifacts are local outputs from an M31 analysis run and are not
+part of the public repository bundle.
+
+\end{document}
