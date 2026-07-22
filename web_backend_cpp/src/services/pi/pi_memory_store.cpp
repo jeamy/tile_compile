@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <algorithm>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -14,13 +15,22 @@
 namespace tile_compile::pi {
 namespace {
 
+std::tm gmtime_safe(const std::time_t& t) {
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    return tm;
+}
+
 std::string utc_timestamp_compact() {
     const auto now = std::chrono::system_clock::now();
     const auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
     const auto ticks = seconds.time_since_epoch().count();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-    gmtime_r(&t, &tm);
+    const std::tm tm = gmtime_safe(t);
     std::ostringstream out;
     out << std::put_time(&tm, "%Y%m%d_%H%M%S") << "_" << ticks;
     return out.str();
@@ -29,8 +39,7 @@ std::string utc_timestamp_compact() {
 std::string utc_timestamp_iso() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-    gmtime_r(&t, &tm);
+    const std::tm tm = gmtime_safe(t);
     std::ostringstream out;
     out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
     return out.str();

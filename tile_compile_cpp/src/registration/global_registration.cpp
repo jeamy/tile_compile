@@ -6,6 +6,12 @@
 
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
+#include <opencv2/calib3d.hpp>
+#if CV_MAJOR_VERSION >= 5
+#include <opencv2/features.hpp>
+#else
+#include <opencv2/features2d.hpp>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -104,8 +110,10 @@ float estimate_rotation_logpolar(const cv::Mat &ref, const cv::Mat &mov) {
   const cv::Point2f center(static_cast<float>(ref.cols) / 2.0f,
                            static_cast<float>(ref.rows) / 2.0f);
   const double M = ref.cols;
-  cv::logPolar(mag_ref, lp_ref, center, M, cv::WARP_FILL_OUTLIERS);
-  cv::logPolar(mag_mov, lp_mov, center, M, cv::WARP_FILL_OUTLIERS);
+  cv::warpPolar(mag_ref, lp_ref, mag_ref.size(), center, M,
+               static_cast<int>(cv::WARP_FILL_OUTLIERS) | cv::WARP_POLAR_LOG);
+  cv::warpPolar(mag_mov, lp_mov, mag_mov.size(), center, M,
+               static_cast<int>(cv::WARP_FILL_OUTLIERS) | cv::WARP_POLAR_LOG);
 
   cv::Point2d shift = cv::phaseCorrelate(lp_mov, lp_ref);
   double rotation_deg = -shift.y * 360.0 / static_cast<double>(lp_ref.rows);
