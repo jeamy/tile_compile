@@ -40,11 +40,23 @@ void EventEmitter::run_start(const std::string& run_id, const json& extra, std::
 /// @details Part of structured JSON event emission for runner logs; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-void EventEmitter::run_end(const std::string& run_id, bool success, 
+void EventEmitter::run_end(const std::string& run_id, bool success,
                            const std::string& status, std::ostream& out) {
     json event = base_event("run_end", run_id);
     event["success"] = success;
     event["status"] = status;
+    emit(event, out);
+}
+
+void EventEmitter::run_end(const std::string& run_id, bool success,
+                           const std::string& status, std::ostream& out,
+                           const json& extra) {
+    json event = base_event("run_end", run_id);
+    event["success"] = success;
+    event["status"] = status;
+    for (auto& [key, value] : extra.items()) {
+        event[key] = value;
+    }
     emit(event, out);
 }
 

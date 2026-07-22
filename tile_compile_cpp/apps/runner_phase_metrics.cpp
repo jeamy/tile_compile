@@ -93,7 +93,8 @@ bool run_phase_channel_split_normalization_global_metrics(
     emitter.phase_end(
         run_id, Phase::NORMALIZATION, "error",
         {{"error", "NORMALIZATION: disabled but required"}}, log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", "NORMALIZATION: disabled but required"}});
     return false;
   }
 
@@ -479,7 +480,8 @@ bool run_phase_channel_split_normalization_global_metrics(
                       {{"error", norm_error.empty() ? "unknown_error"
                                                      : norm_error}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during NORMALIZATION: ") + (norm_error.empty() ? "unknown_error" : norm_error)}});
     std::cerr << "Error during NORMALIZATION: "
               << (norm_error.empty() ? "unknown_error" : norm_error)
               << std::endl;
@@ -667,7 +669,8 @@ bool run_phase_channel_split_normalization_global_metrics(
                                                      : gm_error}},
                         log_file);
     }
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during GLOBAL_METRICS: ") + (gm_error.empty() ? "unknown_error" : gm_error)}});
     std::cerr << "Error during GLOBAL_METRICS: "
               << (gm_error.empty() ? "unknown_error" : gm_error) << std::endl;
     return false;

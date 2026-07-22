@@ -1180,10 +1180,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                       {"hard_abort_hours",
                        cfg.runtime_limits.hard_abort_hours}},
                      log_file);
-    emitter.run_end(run_id, false, "runtime_limit_exceeded", log_file);
-    std::cerr << "Error: runtime limit exceeded at " << checkpoint << " ("
-              << elapsed_hours << " h > "
-              << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
+    {
+      std::ostringstream oss;
+      oss << "runtime limit exceeded at " << checkpoint << " ("
+          << elapsed_hours << " h > "
+          << cfg.runtime_limits.hard_abort_hours << " h)";
+      emitter.run_end(run_id, false, "runtime_limit_exceeded", log_file,
+                      {{"message", oss.str()}});
+      std::cerr << "Error: " << oss.str() << std::endl;
+    }
     return true;
   };
 
@@ -1228,7 +1233,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
                       {{"error", e.what()}, {"input_dir", input_dir}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during SCAN_INPUT: ") + e.what()}});
     std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
     return 1;
   }
@@ -1301,7 +1307,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                        {"input_dir", input_dir},
                        {"bayer_pattern", "UNKNOWN"}},
                       log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during SCAN_INPUT: ") + msg}});
     std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
     return 1;
   }
@@ -1346,7 +1353,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"frame_width", frame_width},
                            {"frame_height", frame_height}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during SCAN_INPUT: ") + msg}});
         std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
         return 1;
       }
@@ -1356,7 +1364,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                          {"input_dir", input_dir},
                          {"frame", frames[idx].filename().string()}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during SCAN_INPUT: ") + e.what()}});
       std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
       return 1;
     }
@@ -1472,7 +1481,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                          {"input_dir", input_dir},
                          {"substep", "calibration"}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during SCAN_INPUT: ") + calibration_error}});
       std::cerr << "Error during SCAN_INPUT: " << calibration_error
                 << std::endl;
       return 1;
@@ -1530,7 +1540,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"required_min_bytes_scandir_x4", required_min_bytes},
                            {"runs_dir", runs.string()}},
                           log_file);
-        emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+        emitter.run_end(run_id, false, "insufficient_disk_space", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
         return 1;
       }
@@ -2083,7 +2094,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"error", mask_write_error},
                            {"canvas_mask", mask_path.string()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", mask_write_error}});
         std::cerr << "Error: " << mask_write_error << std::endl;
         return 1;
       }
@@ -2145,7 +2157,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         << n_usable_frames << " (<" << kReducedModeMinFrames
         << "). Set runtime_limits.allow_emergency_mode=true to force "
            "emergency reduced mode.";
-    emitter.run_end(run_id, false, "insufficient_frames", log_file);
+    emitter.run_end(run_id, false, "insufficient_frames", log_file,
+                    {{"message", oss.str()},
+                     {"usable_frames", n_usable_frames},
+                     {"frames_min", kReducedModeMinFrames}});
     std::cerr << "Error: " << oss.str() << std::endl;
     return 1;
   }
@@ -2324,7 +2339,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              {"error", e.what()}},
             log_file);
         emitter.run_end(run_id, false, "persist_raw_reconstruction_failed",
-                        log_file);
+                        log_file,
+                        {{"message", std::string("cannot persist immutable AQMH reconstruction: ") + e.what()}});
         std::cerr << "Error: cannot persist immutable AQMH reconstruction: "
                   << e.what() << std::endl;
         return 1;
@@ -2592,7 +2608,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             rgb_error.empty() ? "phase6_osc_rgb_cache_unknown_error" : rgb_error;
         emitter.phase_end(run_id, reconstruction_phase, "error",
                           {{"error", err}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Phase 6 OSC RGB cache build: ") + err}});
         std::cerr << "Error during Phase 6 OSC RGB cache build: " << err
                   << std::endl;
         return 1;
@@ -4518,10 +4535,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           emitter.phase_end(
               run_id, Phase::SYNTHETIC_FRAMES, "error",
               {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}}, log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", "SYNTHETIC_FRAMES: no synthetic frames"}});
           return 1;
         }
       }
+
     }
 
     if (use_synthetic_frames) {
@@ -4897,7 +4916,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                {"required_estimate_bytes", required_stack_bytes},
                                {"outputs_dir", (run_dir / "outputs").string()}},
                               log_file);
-            emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+            emitter.run_end(run_id, false, "insufficient_disk_space", log_file,
+                            {{"message", msg}});
             std::cerr << "Error during STACKING: " << msg << std::endl;
             return false;
           }
@@ -4920,7 +4940,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           log_file);
         emitter.run_end(run_id, false,
                         disk_full ? "insufficient_disk_space" : "error",
-                        log_file);
+                        log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return false;
       }
@@ -5266,7 +5287,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"expected_mask_pixels",
                             static_cast<uint64_t>(full_mask_px)}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return 1;
       }
@@ -5287,7 +5309,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            {"full_width", full_cols},
                            {"full_height", full_rows}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", msg}});
         std::cerr << "Error during STACKING: " << msg << std::endl;
         return 1;
       }
@@ -5354,7 +5377,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"error", mask_write_error},
                              {"canvas_mask", mask_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", mask_write_error}});
           std::cerr << "Error during STACKING: " << mask_write_error
                     << std::endl;
           return 1;
@@ -5881,7 +5905,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           {{"reason", "output_canvas_mask_invalid"},
                            {"error", mask_error}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", mask_error}});
         std::cerr << "Error: " << mask_error << std::endl;
         return 1;
       }
@@ -6158,7 +6183,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"error", mask_error},
                              {"input_rgb_bge", pcc_input_rgb_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", mask_error}});
           std::cerr << "Error: " << mask_error << std::endl;
           return 1;
         }
@@ -6174,7 +6200,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                               static_cast<uint64_t>(expected_size)},
                              {"input_rgb_bge", pcc_input_rgb_path.string()}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", "common_valid_mask size mismatch for PCC analysis"}});
           std::cerr << "Error: common_valid_mask size mismatch for PCC analysis"
                     << std::endl;
           return 1;
@@ -6344,7 +6371,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                             {{"reason", "stretch_failed"},
                              {"error", hms_diag.error_message}},
                             log_file);
-          emitter.run_end(run_id, false, "error", log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", hms_diag.error_message}});
           return 1;
         }
 
@@ -6406,7 +6434,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                           {{"reason", "exception"}, {"error", e.what()}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("HYPERMETRIC_STRETCH exception: ") + e.what()}});
         return 1;
       }
     }
@@ -6431,7 +6460,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 
     if (run_validation_failed) {
-      emitter.run_end(run_id, false, "validation_failed", log_file);
+      emitter.run_end(run_id, false, "validation_failed", log_file,
+                      {{"message", "Pipeline completed but validation failed"}});
 
       std::cout << "Pipeline completed with validation_failed" << std::endl;
       return 1;

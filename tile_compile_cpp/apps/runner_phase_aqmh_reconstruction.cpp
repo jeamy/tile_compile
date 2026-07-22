@@ -398,7 +398,8 @@ bool run_phase_aqmh_reconstruction(
     cv::setNumThreads(prev_cv_threads);
     emitter.phase_end(run_id, reconstruction_phase, "error",
                       {{"error", err}}, log_file);
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during AQMH TILE_RECONSTRUCTION: ") + err}});
     std::cerr << "Error during AQMH TILE_RECONSTRUCTION: " << err
               << std::endl;
     return false;

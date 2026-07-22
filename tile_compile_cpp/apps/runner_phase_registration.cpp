@@ -3321,7 +3321,8 @@ bool run_phase_registration_prewarp(
     std::cerr << "Error during PREWARP: "
               << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
               << std::endl;
-    emitter.run_end(run_id, false, "error", log_file);
+    emitter.run_end(run_id, false, "error", log_file,
+                    {{"message", std::string("Error during PREWARP: ") + (prewarp_error.empty() ? "unknown_error" : prewarp_error)}});
     return false;
   }
 

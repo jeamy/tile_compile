@@ -287,9 +287,6 @@ std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& stat
             job->data.contains("event_cursor_before_resume") &&
             job->data["event_cursor_before_resume"].is_number_unsigned()) {
             ctx->cursor = job->data["event_cursor_before_resume"].get<size_t>();
-        } else if (job && job->type == "resume" &&
-                   (job->state == JobState::pending || job->state == JobState::running)) {
-            ctx->cursor = ctx->cursor > 50 ? ctx->cursor - 50 : 0;
         }
     } catch (...) {
         ctx->cursor = 0;

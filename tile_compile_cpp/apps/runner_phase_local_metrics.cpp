@@ -331,7 +331,8 @@ bool run_phase_local_metrics(
       emitter.phase_end(run_id, phase_id, "error",
                         {{"error", lm_error.empty() ? "unknown_error" : lm_error}},
                         log_file);
-      emitter.run_end(run_id, false, "error", log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", std::string("Error during LOCAL_METRICS: ") + (lm_error.empty() ? "unknown_error" : lm_error)}});
       std::cerr << "Error during LOCAL_METRICS: "
                 << (lm_error.empty() ? "unknown_error" : lm_error)
                 << std::endl;
@@ -367,7 +368,8 @@ bool run_phase_local_metrics(
         const std::string error = "AQMH requires a valid full-canvas common mask";
         emitter.phase_end(run_id, phase_id, "error",
                           {{"error", error}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during AQMH map computation: ") + error}});
         std::cerr << "Error during AQMH map computation: " << error
                   << std::endl;
         return false;
@@ -604,7 +606,8 @@ bool run_phase_local_metrics(
             run_id, phase_id, "error",
             {{"error", aqmh_error.empty() ? "unknown_error" : aqmh_error}},
             log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", std::string("Error during AQMH map computation: ") + (aqmh_error.empty() ? "unknown_error" : aqmh_error)}});
         std::cerr << "Error during AQMH map computation: "
                   << (aqmh_error.empty() ? "unknown_error" : aqmh_error)
                   << std::endl;

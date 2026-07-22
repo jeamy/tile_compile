@@ -433,7 +433,8 @@ bool run_quality_analysis(
         emitter.phase_end(run_id, pname(preprocessing::Phase::FRAME_FILTERING), "error",
                           {{"error", "all frames were rejected by quality filter"}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
+        emitter.run_end(run_id, false, "error", log_file,
+                        {{"message", "all frames were rejected by quality filter"}});
         return false;
     }
 

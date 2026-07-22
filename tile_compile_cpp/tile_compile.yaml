@@ -341,3 +341,5 @@ runtime_limits:
   hard_abort_hours: 6
   tile_analysis_max_factor_vs_stack: 3
   tile_reconstruction_diagnostics: full
+assumptions:
+  frames_min: 10
