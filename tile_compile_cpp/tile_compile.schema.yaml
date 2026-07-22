@@ -161,19 +161,19 @@ properties:
       pattern:
         type: string
         description: 'Glob pattern for calibration frame file matching. Default: *.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz'
-        default: '"*.fit'
+        default: '*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz'
   assumptions:
     type: object
     properties:
       frames_min:
         type: integer
         minimum: 1
-        description: 'Minimum number of frames required for the pipeline to run. Below this, the run aborts. Default: 3.'
+        description: 'Minimum number of frames required for the pipeline to run. Below this, the run aborts. Default: 50.'
         default: 50
       frames_reduced_threshold:
         type: integer
         minimum: 1
-        description: 'Schwelle fuer Full Mode: frames_min..(threshold-1) = Reduced Mode, ab threshold = Full Mode. In Reduced Mode, clustering and synthetic frame generation may be skipped. Default: 50.'
+        description: 'Schwelle fuer Full Mode: frames_min..(threshold-1) = Reduced Mode, ab threshold = Full Mode. In Reduced Mode, clustering and synthetic frame generation may be skipped. Default: 200.'
         default: 200
       reduced_mode_skip_clustering:
         type: boolean
@@ -416,7 +416,7 @@ properties:
     properties:
       enabled:
         type: boolean
-        description: 'Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Default: true.'
+        description: 'Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Default: false.'
         default: false
       color_space:
         type: string

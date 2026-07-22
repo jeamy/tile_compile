@@ -113,9 +113,10 @@ export function stringifyYaml(obj, indent = 0) {
     }
   } else if (obj !== null && typeof obj === "object") {
     for (const [key, val] of Object.entries(obj)) {
+      if (val === null) continue;
       if (Array.isArray(val)) {
         lines.push(`${pad}${key}: ${formatScalar(val)}`);
-      } else if (val !== null && typeof val === "object") {
+      } else if (typeof val === "object") {
         lines.push(`${pad}${key}:`);
         lines.push(stringifyYaml(val, indent + 1));
       } else {

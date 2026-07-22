@@ -44,7 +44,7 @@ Der erste Schritt ist das Scannen der FITS-Eingabedaten.
 4. **Ausgabeordner (Runs-Dir)** wählen: Zielverzeichnis für Run-Outputs. Standardmäßig wird ein Verzeichnis unter `~/tilecompile/runs/` vorgeschlagen.
 5. **Run Name** vergeben: Optionaler Name für den Run-Ordner (z.B. `M31_altaz_test`).
 6. **Parameter einstellen**:
-   - **Frames Minimum**: Mindestanzahl Frames, sonst Abbruch (Standard: 30).
+   - **Frames Minimum**: Mindestanzahl Frames, sonst Abbruch (Standard: 50).
    - **Max. Frames**: 0 = alle Frames verwenden.
    - **Sortierung**: `numeric`, `alphabetic` oder `timestamp`.
    - **Farbmodus**: `OSC` (One-Shot-Color / Bayer) oder `MONO`.
@@ -104,6 +104,38 @@ Das Parameter Studio ist in Kategorien gegliedert:
 
 > **Tipp:** Für erste Versuche ist die Default-Konfiguration mit `method: aqmh` bereits gut brauchbar. Die wichtigsten Anpassungen sind `registration.allow_rotation` (bei Alt/Az-Montierung auf `true` belassen) und `data.bayer_pattern` (mit den FITS-Headern abgleichen).
 
+### Explain-Panel
+
+Klick auf einen Parameternamen zeigt im **Explain**-Panel rechts neben dem Grid eine detaillierte Erklärung: Zweck, zulässiger Bereich, Default-Wert und Zusammenhänge mit anderen Parametern.
+
+### Presets
+
+Über den **Preset**-Selector in der Editor-Symbolleiste können mitgelieferte Beispielkonfigurationen geladen werden. **Reload** aktualisiert die Preset-Liste, **Apply** lädt das ausgewählte Preset in den aktuellen Draft.
+
+### AI Empfehlung (KI-Empfehlungen)
+
+Die Parameter-Seite hat einen zweiten Tab: **AI Empfehlung**. Dieser bietet KI-gestützte Konfigurationsempfehlungen basierend auf Scan-Daten, Equipment-Info und Aufnahmebedingungen.
+
+1. Auf den Tab **AI Empfehlung** wechseln.
+2. Das Formular ausfüllen: Objektname, Kameratyp, Montierung, Teleskop, Bedingungen und Ziele.
+3. **Provider** und **Modell** wählen. PI unterstützt viele Anbieter (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter und weitere). Die verfügbaren Modelle werden dynamisch vom PI-Sidecar geladen. Entscheidend ist der **API-Key** — den Key für den gewählten Anbieter eintragen und **Key speichern** klicken, um ihn im PI-AuthStorage zu hinterlegen. Ein Key ist erforderlich, bevor eine Analyse gestartet werden kann.
+4. **KI-Analyse erstellen** klicken. Die Anfrage läuft im Hintergrund — Tab-Wechsel ist möglich.
+5. Empfehlungen prüfen: Jeder Vorschlag zeigt Parameter-Pfad, neuen Wert und eine Begründung.
+6. Einzelne Empfehlungen per Checkbox auswählen oder **Alle anwenden** für alle verwenden.
+7. **PI Preview** validiert die geplanten Änderungen als YAML-Diff ohne Speichern.
+8. **PI anwenden** speichert die letzte gültige PI-Preview als neue Config-Revision.
+
+> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Mit **Status abrufen** lassen sich Provider-Key und Modell verifizieren. Traffic-Logs zeigen Roh-Request/Response zum Debuggen.
+
+### Situation-Assistent
+
+Unter dem Parameter-Grid bietet das Panel **Situation-Assistent** szenariobasierte Schnellanpassungen:
+
+1. Ein oder mehrere Aufnahme-Szenarien auswählen (z.B. "Alt/Az-Montierung", "Lichtverschmutzung", "Kurzbelichtung").
+2. Der Assistent berechnet Parameter-Deltas für jedes gewählte Szenario.
+3. **Apply** übernimmt die Deltas in den aktuellen Draft.
+4. Die Änderungen erscheinen sofort im Parameter-Grid und im YAML-Diff.
+
 ---
 
 ## 4. Run starten und überwachen (Run Monitor)
@@ -120,9 +152,31 @@ Der Run Monitor zeigt:
 
 - **Aktuelle Phase**: Welche Pipeline-Phase gerade läuft (SCAN_INPUT → REGISTRATION → ... → PCC → DONE)
 - **Phasen-Fortschritt**: Status jeder Phase (pending, running, ok, skipped, error)
-- **Event-Timeline**: Live-Events aus `run_events.jsonl`
 - **Warnungen und Fehler**: Prominent angezeigt im Warnungs-Banner
 - **Run-Statistiken**: Verarbeitete Frames, verbleibende Zeit (falls verfügbar)
+- **Bildvorschau**: Zeigt das aktuellste Ausgabebild (Stack, BGE, PCC oder HMS) während und nach dem Run
+
+Unter der Phasenliste bieten drei Tabs weitere Werkzeuge:
+
+#### Resume-Tab
+
+Der Resume-Tab enthält die phasenbasierte Resume-Funktion (siehe [Resume](#resume) unten).
+
+#### Run-Chat-Tab
+
+Der Run-Chat-Tab bietet eine KI-gestützte Diagnose des aktuellen Runs:
+
+1. Frage eingeben oder Problem beschreiben (z.B. "Sterne sind elongiert" oder "Hintergrund uneben").
+2. Die KI analysiert Run-Artefakte, Event-Logs und Phasenergebnisse.
+3. Die Antwort enthält Bildbeobachtungen, wahrscheinliche Ursachen, Prüfungen und Empfehlungen.
+4. Wenn die KI Config-Änderungen vorschlägt, kann eine PI Preview generiert und direkt in die Resume-YAML übernommen werden.
+5. Eine Resume-Empfehlung kann vorschlagen, ab einer bestimmten Phase fortzusetzen.
+
+> Run-Chat-Verläufe werden pro Run gespeichert und beim Zurückkehren zum Run Monitor wiederhergestellt.
+
+#### Live-Log-Tab
+
+Der Live-Log-Tab zeigt Echtzeit-Logausgaben des Runner-Prozesses, inklusive Phasen-Events, Warnungen und Fehlermeldungen.
 
 ### Run abbrechen
 

@@ -2073,5 +2073,17 @@
   "param.hypermetric_stretch.enabled.explain": "enables VeraLux HyperMetric Stretch after PCC.",
   "param.hypermetric_stretch.require_successful_pcc.explain": "requires successful PCC artifacts before HMS.",
   "param.hypermetric_stretch.mode.explain": "`ready_to_use` final output mode or `scientific` controlled stretch mode.",
-  "param.hypermetric_stretch.linear_expansion.explain": "scientific-mode-only linear expansion."
+  "param.hypermetric_stretch.linear_expansion.explain": "scientific-mode-only linear expansion.",
+  "ui.tab.processing": "Processing",
+  "ui.tab.tools": "Tools",
+  "ui.tab.history": "History",
+  "ui.tab.parameter": "Parameter",
+  "ui.tab.ai": "AI Recommendations",
+  "ui.subtab.input_scan": "Input & Scan",
+  "ui.subtab.parameter": "Parameter",
+  "ui.subtab.run_monitor": "Run Monitor",
+  "ui.subtab.raw_stack": "Raw Stack",
+  "ui.subtab.astrometry": "Astrometry",
+  "ui.subtab.pcc": "PCC",
+  "ui.subtab.run_history": "Run History"
 }

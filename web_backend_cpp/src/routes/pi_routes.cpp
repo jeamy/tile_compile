@@ -1452,7 +1452,10 @@ nlohmann::json yaml_to_json(const YAML::Node& node) {
 YAML::Node json_to_yaml_node(const nlohmann::json& value) {
     if (value.is_object()) {
         YAML::Node node(YAML::NodeType::Map);
-        for (auto it = value.begin(); it != value.end(); ++it) node[it.key()] = json_to_yaml_node(it.value());
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            if (it.value().is_null()) continue;
+            node[it.key()] = json_to_yaml_node(it.value());
+        }
         return node;
     }
     if (value.is_array()) {
