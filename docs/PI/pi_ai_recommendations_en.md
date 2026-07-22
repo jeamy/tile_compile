@@ -211,8 +211,7 @@ Saved to `.ai_analyses/<Target>_<Date>.json`.
 
 ## Related Documents
 
-- [PI Scan-AI Implementation Plan](scan_ai_implementierungsplan.md)
 - [PI Parameter Studio](scan_ai_parameterstudio.md)
 - [Configuration Reference](../configuration_reference_en.md)
-- [AQMH Methodology](../AQMH/aqmh_methodik_en.md)
+- [AQMH Methodology](../AQMH/aqmh_methodik_en_v0.2.1.md)
 - 🇩🇪 [Deutsche Version](pi_ki_empfehlungen_de.md)

@@ -263,4 +263,4 @@ Secrets werden nie in Config, Revisions, JobStore, Logs oder UI-State geschriebe
 ---
 
 **Vollstaendiger Plan:** [`scan_ai_implementierungsplan.md`](./scan_ai_implementierungsplan.md)  
-**Grundlagen-Spezifikation:** [`scan_ai_parameterstudio.md`](./scan_ai_parameterstudio.md)
+**Grundlagen-Spezifikation:** [`scan_ai_parameterstudio.md`](../scan_ai_parameterstudio.md)

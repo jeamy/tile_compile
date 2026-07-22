@@ -1,23 +1,27 @@
-# tile_compile
+# Tile-Compile
 
-**Tile-based quality reconstruction for astrophotography**
+**High-quality astronomical image reconstruction from short-exposure deep-sky datasets.**
 
 ---
 
-## Overview
+## What is Tile-Compile?
 
-tile_compile is a scientific-grade image stacking pipeline designed for astrophotography. It reconstructs high-quality images from multiple light frames through:
+Tile-Compile is a scientific-grade image stacking pipeline designed for astrophotography. It reconstructs high-quality images from multiple light frames through:
 
-- **Advanced Registration** – Global + sequential alignment with astrometric fallback
-- **Tile-based Reconstruction** – Local quality-weighted stacking (AQMH)
-- **Background Gradient Extraction (BGE)** – Remove light pollution gradients
-- **Photometric Color Calibration (PCC)** – Accurate color using reference stars
-- **Quality-driven Clustering** – Separate frames by seeing conditions
-- **Modern GUI3** – Browser-based interface with full workflow support
+- **AQMH Reconstruction** — Per-pixel quality-map-driven weighted average (default method)
+- **Classic Tile-Compile (TBQR)** — Tile-based quality reconstruction with local metrics, clustering, and OLA stacking
+- **Advanced Registration** — Cascaded global + sequential alignment with astrometric fallback
+- **Background Gradient Extraction (BGE)** — Remove light pollution gradients
+- **Photometric Color Calibration (PCC)** — Accurate color using reference stars
+- **HyperMetric Stretch (HMS)** — VeraLux-based post-PCC stretch
+- **Modern GUI3** — Browser-based interface with full workflow support
+- **AI-Assisted Configuration** — Parameter Intelligence (PI) module for data-driven recommendations
+
+Designed for smart telescope data (DWARF, Seestar, ZWO SeeStar, etc.) but works with any FITS input.
 
 ## Quick Start
 
-### Download GUI3 (Recommended)
+### Download GUI3
 
 ```bash
 # Linux GUI3 (Browser Interface)
@@ -29,32 +33,58 @@ unzip tile_compile_gui3.zip && cd tile_compile_gui3-linux-v0.3.0
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/
 ```
 
-Also available: [macOS](getting_started/installation.md), [Windows](getting_started/installation.md), or [build from source](getting_started/installation.md).
+Also available: [macOS](getting_started/installation.md), [Windows](getting_started/installation.md), or [build from source](reference/build.md).
 
 ### Typical GUI3 Workflow
 
-1. **Scan Input** – Select FITS lights folder, optional calibration frames
-2. **Adjust Parameters** – Load example config or customize settings
-3. **Start & Monitor** – Run with real-time phase progress tracking
-4. **View Results** – Stacked images, diagnostic reports, quality metrics
+1. **Scan Input** — Select FITS lights folder, optional calibration frames
+2. **Adjust Parameters** — Load example config or customize settings
+3. **Start & Monitor** — Run with real-time phase progress tracking
+4. **View Results** — Stacked images, diagnostic reports, quality metrics
 
 ## Documentation
 
-- **[GUI3 User Guide (EN)](gui3_user_guide_en.md)** – Complete step-by-step guide
-- **[GUI3 Benutzerhandbuch (DE)](gui3_user_guide_de.md)** – Deutsche Schritt-für-Schritt-Anleitung
+### Getting Started
+
+- [Quick Start](getting_started/quickstart.md)
 - [Installation](getting_started/installation.md)
-- [Configuration Reference](configuration_reference.md)
-- [Raw Stack GUI (EN)](raw_stack_gui_en.md)
-- [Raw Stack GUI (DE)](raw_stack_gui_de.md)
+- [CLI Reference](reference/cli.md)
+- [Configuration](getting_started/configuration.md)
 
-## Features
+### User Guides
 
-- **Modern GUI3** – Browser-based interface with Processing, Tools, and History tabs
-- **AQMH Method** – Advanced tile-based quality reconstruction (default)
-- **Resume Capability** – Continue from any pipeline phase
-- **Smart Telescopes** – Optimized for Seestar, Dwarf II, etc.
-- **Astrometry & PCC** – Built-in plate solving and color calibration
-- **Docker Support** – Containerized execution
+- [GUI3 User Guide (EN)](gui3_user_guide_en.md)
+- [GUI3 Benutzerhandbuch (DE)](gui3_user_guide_de.md)
+- [Workflow & Pipeline Phases](guides/workflow.md)
+- [AQMH Overview](guides/aqmh_overview.md)
+- [Raw Stack GUI](guides/raw_stack_gui.md) — not optimized, retained for legacy reasons
+- [PI – AI-Assisted Recommendations](guides/pi_ai.md)
+
+### Configuration
+
+- [Configuration Reference (EN)](configuration_reference_en.md)
+- [Configuration Reference (DE)](configuration_reference.md)
+- [Practical Examples (EN)](configuration_examples_practical_en.md)
+- [Practical Examples (DE)](configuration_examples_practical_de.md)
+
+### Reference
+
+- [Build from Source](reference/build.md)
+- [Docker](reference/docker.md)
+- [Outputs & Artifacts](reference/outputs.md)
+- [Calibration & External Tools](reference/calibration.md)
+- [Project Structure](reference/project_structure.md)
+
+### Methodology
+
+- [AQMH Methodology v0.2.1](AQMH/aqmh_methodik_en_v0.2.1.md)
+- [TBQR Methodology v3.3.9 (EN)](v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
+- [Process Flow](process_flow/phase_0_overview.md)
+
+### Changelog
+
+- [Release Notes](changelog/releases.md)
+- [Detailed Changelog](changelog/detailed_changelog.md)
 
 ---
 
