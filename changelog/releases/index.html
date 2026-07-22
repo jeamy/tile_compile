@@ -1,0 +1,3990 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/changelog/releases/">
+      
+      
+        <link rel="prev" href="../../reference/project_structure/">
+      
+      
+        <link rel="next" href="../detailed_changelog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Release Notes - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#release-notes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Release Notes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v040-2026-07-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.0 (2026-07-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v03b-2026-07-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.B (2026-07-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v03a-2026-06-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.A (2026-06-28)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v039-2026-06-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.9 (2026-06-27)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v038-2026-06-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.8 (2026-06-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v037-2026-06-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.7 (2026-06-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v036-2026-06-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.6 (2026-06-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v035-2026-06-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.5 (2026-06-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v034-2026-06-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.4 (2026-06-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v033-2026-06-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.3 (2026-06-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v032-2026-06-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.2 (2026-06-13)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v030-2026-06-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.0 (2026-06-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v02a-2026-05-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.A (2026-05-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v029-2026-05-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.9 (2026-05-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v028-2026-05-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.8 (2026-05-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v027-2026-05-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.7 (2026-05-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v026-2026-05-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.6 (2026-05-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v025-2026-04-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.5 (2026-04-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v024-2026-04-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.4 (2026-04-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v023-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.3 (2026-04-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v022-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.2 (2026-04-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v021-2026-04-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.1 (2026-04-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v020-2026-04-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.0 (2026-04-14)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01f-2026-04-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.F (2026-04-07)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01e-2026-04-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.E (2026-04-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01d-2026-04-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.D (2026-04-04)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01c-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.C (2026-04-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01b-2026-03-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.B (2026-03-31)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01a-2026-03-29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.A (2026-03-29)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v019-2026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.9 (2026-03-28)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v018-2026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.8 (2026-03-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v017-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.7 (2026-03-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v016-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.6 (2026-03-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v015-2026-03-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.5 (2026-03-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v014-2026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.4 (2026-03-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v013-2026-03-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.3 (2026-03-21)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v012-2026-03-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.2 (2026-03-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v011-2026-03-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.1 (2026-03-19)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v010-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0 (2026-03-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00f-2026-03-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.F (2026-03-17)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00e-2026-03-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.E (2026-03-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00d-2026-03-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.D (2026-03-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00c-2026-03-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.C (2026-03-13)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00b-2026-03-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.B (2026-03-12)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00a-2026-03-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.A (2026-03-12)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v009-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.9 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v008-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.8 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v007-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.7 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v006-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.6 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v005-2026-03-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.5 (2026-03-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v004-2026-03-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.4 (2026-03-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v003-2026-03-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.3 (2026-03-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v002-2026-02-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.2 (2026-02-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v001-2026-02-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.1 (2026-02-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v040-2026-07-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.0 (2026-07-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v03b-2026-07-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.B (2026-07-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v03a-2026-06-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.A (2026-06-28)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v039-2026-06-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.9 (2026-06-27)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v038-2026-06-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.8 (2026-06-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v037-2026-06-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.7 (2026-06-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v036-2026-06-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.6 (2026-06-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v035-2026-06-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.5 (2026-06-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v034-2026-06-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.4 (2026-06-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v033-2026-06-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.3 (2026-06-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v032-2026-06-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.2 (2026-06-13)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v030-2026-06-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.0 (2026-06-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v02a-2026-05-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.A (2026-05-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v029-2026-05-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.9 (2026-05-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v028-2026-05-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.8 (2026-05-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v027-2026-05-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.7 (2026-05-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v026-2026-05-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.6 (2026-05-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v025-2026-04-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.5 (2026-04-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v024-2026-04-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.4 (2026-04-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v023-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.3 (2026-04-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v022-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.2 (2026-04-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v021-2026-04-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.1 (2026-04-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v020-2026-04-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.0 (2026-04-14)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01f-2026-04-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.F (2026-04-07)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01e-2026-04-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.E (2026-04-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01d-2026-04-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.D (2026-04-04)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01c-2026-04-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.C (2026-04-03)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01b-2026-03-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.B (2026-03-31)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v01a-2026-03-29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.A (2026-03-29)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v019-2026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.9 (2026-03-28)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v018-2026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.8 (2026-03-25)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v017-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.7 (2026-03-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v016-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.6 (2026-03-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v015-2026-03-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.5 (2026-03-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v014-2026-03-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.4 (2026-03-22)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v013-2026-03-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.3 (2026-03-21)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v012-2026-03-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.2 (2026-03-20)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v011-2026-03-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.1 (2026-03-19)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v010-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0 (2026-03-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00f-2026-03-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.F (2026-03-17)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00e-2026-03-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.E (2026-03-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00d-2026-03-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.D (2026-03-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00c-2026-03-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.C (2026-03-13)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00b-2026-03-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.B (2026-03-12)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v00a-2026-03-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.A (2026-03-12)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v009-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.9 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v008-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.8 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v007-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.7 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v006-2026-03-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.6 (2026-03-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v005-2026-03-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.5 (2026-03-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v004-2026-03-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.4 (2026-03-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v003-2026-03-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.3 (2026-03-05)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v002-2026-02-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.2 (2026-02-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v001-2026-02-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.1 (2026-02-15)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="release-notes">Release Notes<a class="headerlink" href="#release-notes" title="Permanent link">&para;</a></h1>
+<h2 id="v040-2026-07-22">v0.4.0 (2026-07-22)<a class="headerlink" href="#v040-2026-07-22" title="Permanent link">&para;</a></h2>
+<p><strong>PI Run-Chat, AQMH v0.2.1 conformance, documentation reorganisation:</strong></p>
+<ul>
+<li><strong>PI Run-Chat:</strong> New run-specific PI chat in Run Monitor and AI-Empfehlung page. The chat provides schema-validated, pipeline-aware recommendations with deterministic action-plan validation, resume-phase computation, and run-artifact context (config, diagnostics, validation, logs). Backend-side PI service with memory store, tool registry, action validator, and context builder. AI sidecar extended with run-chat service, provider rate limiting, and multi-model support.</li>
+<li><strong>AQMH v0.2.0 → v0.2.1:</strong> Background-gradient penalty in global quality, registration-weight guard, adaptive low-frequency neutralisation, structure-masked detail blending, uniform-control validation gate. Code conformance audit (F-01 through F-10) with all findings resolved: raw AQMH immutability, uniform-control semantics, PSF-FWHM sharpness proxy, common-overlap validation masking, background-penalty invalidity handling, per-metric validation status, default reconciliation, sigmoid temperature extension.</li>
+<li><strong>Documentation reorganisation:</strong> README shortened from 1560 to ~120 lines, content extracted into focused <code>docs/guides/</code>, <code>docs/reference/</code>, and <code>docs/changelog/</code> structures. MkDocs nav rebuilt with 8 top-level tabs. GitHub Pages landing page updated.</li>
+<li><strong>Post-stack output phase:</strong> New <code>runner_phase_post_stack_output</code> module for cleaner output handling after stacking.</li>
+<li><strong>Resume hardening:</strong> AQMH reconstruction resume now preserves raw vs. selected output separation. Common-overlap mask threaded through validation. Resume dependencies documented.</li>
+<li><strong>OpenCL sigma-clip:</strong> OpenCL implementations for median/MAD/percentile and sigma-clipping in reconstruction and stacking paths.</li>
+<li><strong>CFA mosaic warp:</strong> CFA-safe warp handling improved for OSC data.</li>
+</ul>
+<h2 id="v03b-2026-07-03">v0.3.B (2026-07-03)<a class="headerlink" href="#v03b-2026-07-03" title="Permanent link">&para;</a></h2>
+<ul>
+<li>AutoBGE preview: manual sample points with persistence, guard rejection reasons in UI, HMS preview resume support</li>
+<li>HyperMetric Stretch preview modal added alongside BGE preview, with live parameter editing and preview image rendering.</li>
+</ul>
+<h2 id="v03a-2026-06-28">v0.3.A (2026-06-28)<a class="headerlink" href="#v03a-2026-06-28" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bug fixes</li>
+</ul>
+<h2 id="v039-2026-06-27">v0.3.9 (2026-06-27)<a class="headerlink" href="#v039-2026-06-27" title="Permanent link">&para;</a></h2>
+<ul>
+<li>GPU processing was optimized across PREWARP, AQMH, tile reconstruction, synthetic reconstruction, and stacking with dedicated worker streams and parallel RGB execution.</li>
+</ul>
+<h2 id="v038-2026-06-26">v0.3.8 (2026-06-26)<a class="headerlink" href="#v038-2026-06-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>AutoBGE implementation: native C++ port of the AutoBGE Siril script (polynomial + RBF background model, smart sample point generation with gradient descent, two-stage fit). Based on the AutoBGE Siril script by Adrian Knagg-Baugh.</li>
+<li>AI update: <code>sky_gradient</code> metric added to scan-metrics for large-scale background gradient detection. BGE prompt rules updated with <code>sky_gradient</code>-based decision thresholds.</li>
+</ul>
+<h2 id="v037-2026-06-25">v0.3.7 (2026-06-25)<a class="headerlink" href="#v037-2026-06-25" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bug fixes.</li>
+</ul>
+<h2 id="v036-2026-06-24">v0.3.6 (2026-06-24)<a class="headerlink" href="#v036-2026-06-24" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bug fixes.</li>
+</ul>
+<h2 id="v035-2026-06-22">v0.3.5 (2026-06-22)<a class="headerlink" href="#v035-2026-06-22" title="Permanent link">&para;</a></h2>
+<p><strong>GUI v3 – New Web Frontend:</strong></p>
+<ul>
+<li>New web frontend (v3) with improved Parameter Studio, Run Monitor, and Input &amp; Scan tab.</li>
+<li>"Save As" dialog with directory browser: save file to selectable directory and filename via modal dialog.</li>
+<li>Warning banner in Run Monitor prominently displays warnings and errors during runs.</li>
+<li>Calibration gain mismatch: Dark/Flat calibration with mismatched gain now produces a warning instead of aborting.</li>
+</ul>
+<p><strong>Astrometry Fix:</strong></p>
+<ul>
+<li>YAML <code>~</code> (null) for <code>astap_bin</code> was incorrectly parsed as string "null", causing ASTAP not to be found. Fix: null values are correctly treated as empty string, allowing the default path to be used.</li>
+</ul>
+<h2 id="v034-2026-06-16">v0.3.4 (2026-06-16)<a class="headerlink" href="#v034-2026-06-16" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bug fixes</li>
+</ul>
+<h2 id="v033-2026-06-16">v0.3.3 (2026-06-16)<a class="headerlink" href="#v033-2026-06-16" title="Permanent link">&para;</a></h2>
+<p><strong>PI – AI-assisted configuration recommendations:</strong></p>
+<ul>
+<li>New PI (Parameter Intelligence) module: AI analyses scan results and generates validated parameter recommendations directly in Parameter Studio.</li>
+<li>Frame quality metrics (FWHM, noise, background, roundness, star count) from <code>scan-metrics</code> are passed to the AI as measured facts.</li>
+<li>See <a href="../../guides/pi_ai/">PI AI Recommendations</a> for full documentation.</li>
+</ul>
+<h2 id="v032-2026-06-13">v0.3.2 (2026-06-13)<a class="headerlink" href="#v032-2026-06-13" title="Permanent link">&para;</a></h2>
+<p><strong>AQMH-First as default:</strong></p>
+<ul>
+<li>Top-level <code>method</code> field as single source of truth for reconstruction method (AQMH or Classic Tile Compile).</li>
+<li>AQMH is now the default with no migration of existing runs. Missing <code>method</code> field automatically defaults to <code>aqmh</code>.</li>
+<li>Frontend shows AQMH as pre-selected method in Wizard, Dashboard, and Parameter Studio.</li>
+<li>Classic phases (LOCAL_METRICS, STATE_CLUSTERING, SYNTHETIC_FRAMES) are hidden for AQMH runs.</li>
+<li>Rollback mechanisms: <code>FORCE_CLASSIC=1</code> environment variable or <code>--force-classic</code> CLI flag.</li>
+</ul>
+<h2 id="v030-2026-06-09">v0.3.0 (2026-06-09)<a class="headerlink" href="#v030-2026-06-09" title="Permanent link">&para;</a></h2>
+<p><strong>AQMH as default reconstruction method:</strong></p>
+<ul>
+<li>AQMH (Adaptive Quality Map Harvesting) is now the default reconstruction path (<code>aqmh.enabled: true</code>).</li>
+<li>Classic TILE_RECONSTRUCTION is still available via <code>aqmh.enabled: false</code>.</li>
+<li>All example profiles updated with <code>aqmh:</code> block.</li>
+<li>Full AQMH parameter documentation added to configuration reference and practical examples.</li>
+<li><code>k_artifact</code> default changed to <code>3.0</code>, <code>frac_artifact_max</code> default changed to <code>0.25</code>.</li>
+</ul>
+<h2 id="v02a-2026-05-26">v0.2.A (2026-05-26)<a class="headerlink" href="#v02a-2026-05-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Calibration Bug fixes</li>
+</ul>
+<h2 id="v029-2026-05-25">v0.2.9 (2026-05-25)<a class="headerlink" href="#v029-2026-05-25" title="Permanent link">&para;</a></h2>
+<p><strong>Raw Stack preprocessing pipeline:</strong></p>
+<ul>
+<li>New standalone Raw Stack UI: preprocessing from FITS light frames to final stacked image, separate from the Tile-Compile run studio.</li>
+<li>Pipeline covers: Calibration, CFA/Mono Prep, Registration, Quality Filtering, Stacking, Astrometry, BGE, PCC, HyperMetric Stretch.</li>
+<li>All parameters (sigma-clip, rejection, weighting, BGE, PCC, Astrometry, HMS) are taken from the Parameter Studio config — nothing is hardcoded.</li>
+<li>See <a href="../../guides/raw_stack_gui/">Raw Stack GUI</a> for GUI documentation.</li>
+</ul>
+<h2 id="v028-2026-05-23">v0.2.8 (2026-05-23)<a class="headerlink" href="#v028-2026-05-23" title="Permanent link">&para;</a></h2>
+<ul>
+<li>HMS Bug fixes</li>
+</ul>
+<h2 id="v027-2026-05-22">v0.2.7 (2026-05-22)<a class="headerlink" href="#v027-2026-05-22" title="Permanent link">&para;</a></h2>
+<p><strong>HMS:</strong></p>
+<ul>
+<li>Added VeraLux HyperMetric Stretch (HMS) as a post-PCC pipeline phase.</li>
+</ul>
+<h2 id="v026-2026-05-20">v0.2.6 (2026-05-20)<a class="headerlink" href="#v026-2026-05-20" title="Permanent link">&para;</a></h2>
+<p><strong>Build hardening &amp; Frontend cleanup:</strong></p>
+<ul>
+<li>Hardened web_backend_cpp build with CUDA 13 + OpenCV 4.11 CUDA 13 configuration</li>
+<li>Frontend refactoring: centralized utilities in <code>src/utils.js</code></li>
+</ul>
+<h2 id="v025-2026-04-26">v0.2.5 (2026-04-26)<a class="headerlink" href="#v025-2026-04-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Documentation system with MkDocs Material + Doxygen</li>
+<li>Configurable BGE sample estimators: <code>quantile</code>, <code>sigma_clipped_median</code>, <code>sextractor_mode</code>, and <code>biweight</code></li>
+<li>BGE autotune now sweeps sample estimators and applies chroma/background-spread guards</li>
+</ul>
+<h2 id="v024-2026-04-25">v0.2.4 (2026-04-25)<a class="headerlink" href="#v024-2026-04-25" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Registration performance: anchor-promotion rounds now reuse the parallel worker pool and only retry unresolved frames whose nearest anchor changed after promotion.</li>
+</ul>
+<h2 id="v023-2026-04-24">v0.2.3 (2026-04-24)<a class="headerlink" href="#v023-2026-04-24" title="Permanent link">&para;</a></h2>
+<ul>
+<li>More robust registration: deep-chain outlier rejection, doubled anchor density for large-N sessions, "hopping" sequential rescue, ASTAP plate-solving as fallback.</li>
+</ul>
+<h2 id="v022-2026-04-24">v0.2.2 (2026-04-24)<a class="headerlink" href="#v022-2026-04-24" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Hot/dead-pixel correction fixed (<code>cosmetic_correction_cfa</code>): defective pixels inside star regions were not corrected because <code>neighbor_threshold</code> was set too low.</li>
+</ul>
+<h2 id="v021-2026-04-23">v0.2.1 (2026-04-23)<a class="headerlink" href="#v021-2026-04-23" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Registration phase: NCC computation made more robust against background subtraction and hot pixels.</li>
+</ul>
+<h2 id="v020-2026-04-14">v0.2.0 (2026-04-14)<a class="headerlink" href="#v020-2026-04-14" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Registration for long Alt/Az sessions was expanded substantially: N-scaled multi-anchor reference selection, N-scaled anchor promotion, astrometric registration/rescue.</li>
+</ul>
+<h2 id="v01f-2026-04-07">v0.1.F (2026-04-07)<a class="headerlink" href="#v01f-2026-04-07" title="Permanent link">&para;</a></h2>
+<ul>
+<li>TILE_RECONSTRUCTION performance: replaced the memory-driven worker reduction with frame sub-batching.</li>
+</ul>
+<h2 id="v01e-2026-04-06">v0.1.E (2026-04-06)<a class="headerlink" href="#v01e-2026-04-06" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Calibration/UI follow-up: dark+bias calibration now handles raw darks without double bias subtraction.</li>
+</ul>
+<h2 id="v01d-2026-04-04">v0.1.D (2026-04-04)<a class="headerlink" href="#v01d-2026-04-04" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added <code>registration.auto_engine</code> (default: <code>true</code>): automatically detects strong field rotation.</li>
+</ul>
+<h2 id="v01c-2026-04-03">v0.1.C (2026-04-03)<a class="headerlink" href="#v01c-2026-04-03" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Stabilized tile reconstruction after the recent performance optimization rollout.</li>
+</ul>
+<h2 id="v01b-2026-03-31">v0.1.B (2026-03-31)<a class="headerlink" href="#v01b-2026-03-31" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fixed the late PCC/output path semantics.</li>
+</ul>
+<h2 id="v01a-2026-03-29">v0.1.A (2026-03-29)<a class="headerlink" href="#v01a-2026-03-29" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Stabilized the late RGB/PCC output path after the <code>v3.3.9</code> rollout.</li>
+</ul>
+<h2 id="v019-2026-03-28">v0.1.9 (2026-03-28)<a class="headerlink" href="#v019-2026-03-28" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Promoted the <code>v3.3.9</code> methodology into the active reference state across code, frontend, and documentation.</li>
+</ul>
+<h2 id="v018-2026-03-25">v0.1.8 (2026-03-25)<a class="headerlink" href="#v018-2026-03-25" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Improved Linux packaging scripts to bundle all required shared libraries.</li>
+</ul>
+<h2 id="v017-2026-03-24">v0.1.7 (2026-03-24)<a class="headerlink" href="#v017-2026-03-24" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fixed Linux AppImage packaging to export <code>TILE_COMPILE_INPUT_SEARCH_ROOTS</code>.</li>
+</ul>
+<h2 id="v016-2026-03-24">v0.1.6 (2026-03-24)<a class="headerlink" href="#v016-2026-03-24" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Reworked GUI2 queue/batch handling and run monitoring.</li>
+</ul>
+<h2 id="v015-2026-03-23">v0.1.5 (2026-03-23)<a class="headerlink" href="#v015-2026-03-23" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Stabilized <code>PREWARP</code> for OpenCL and extended GPU acceleration with OpenCL equivalents.</li>
+</ul>
+<h2 id="v014-2026-03-22">v0.1.4 (2026-03-22)<a class="headerlink" href="#v014-2026-03-22" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added a real artifact-based <code>STACKING</code> resume path.</li>
+</ul>
+<h2 id="v013-2026-03-21">v0.1.3 (2026-03-21)<a class="headerlink" href="#v013-2026-03-21" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added per-frame registration provenance and chain-depth tracking.</li>
+</ul>
+<h2 id="v012-2026-03-20">v0.1.2 (2026-03-20)<a class="headerlink" href="#v012-2026-03-20" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fixed Alt/Az registration validation to score warps on the actual common overlap.</li>
+</ul>
+<h2 id="v011-2026-03-19">v0.1.1 (2026-03-19)<a class="headerlink" href="#v011-2026-03-19" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Improved GUI2 tool persistence and PCC save handling.</li>
+</ul>
+<h2 id="v010-2026-03-18">v0.1.0 (2026-03-18)<a class="headerlink" href="#v010-2026-03-18" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fixed Astrometry/PCC tool path inputs being overwritten by backend defaults.</li>
+</ul>
+<h2 id="v00f-2026-03-17">v0.0.F (2026-03-17)<a class="headerlink" href="#v00f-2026-03-17" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Promoted the DSO tile-reconstruction methodology to <code>v3.3.8</code>.</li>
+</ul>
+<h2 id="v00e-2026-03-15">v0.0.E (2026-03-15)<a class="headerlink" href="#v00e-2026-03-15" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>assumptions.frames_min</code> is now used by the active C++ runner mode gate.</li>
+</ul>
+<h2 id="v00d-2026-03-15">v0.0.D (2026-03-15)<a class="headerlink" href="#v00d-2026-03-15" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Expanded <code>TILE_RECONSTRUCTION</code> boundary diagnostics.</li>
+</ul>
+<h2 id="v00c-2026-03-13">v0.0.C (2026-03-13)<a class="headerlink" href="#v00c-2026-03-13" title="Permanent link">&para;</a></h2>
+<ul>
+<li>GUI2 parameter/config handling synchronized with the current C++ config schema.</li>
+</ul>
+<h2 id="v00b-2026-03-12">v0.0.B (2026-03-12)<a class="headerlink" href="#v00b-2026-03-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added server-side persistence for the GUI2 UI draft state.</li>
+</ul>
+<h2 id="v00a-2026-03-12">v0.0.A (2026-03-12)<a class="headerlink" href="#v00a-2026-03-12" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bugfixes</li>
+</ul>
+<h2 id="v009-2026-03-11">v0.0.9 (2026-03-11)<a class="headerlink" href="#v009-2026-03-11" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added Linux AppImage generation to the GitHub Actions release workflow.</li>
+</ul>
+<h2 id="v008-2026-03-11">v0.0.8 (2026-03-11)<a class="headerlink" href="#v008-2026-03-11" title="Permanent link">&para;</a></h2>
+<ul>
+<li>zero-copy COMMON_OVERLAP</li>
+<li>Scratch reuse in LOCAL_METRICS</li>
+<li>reduced lock contention in tile_weighted-OLA</li>
+<li>faster sigma-clip kernel</li>
+<li>parallel BGE autotune candidate evaluation</li>
+</ul>
+<h2 id="v007-2026-03-11">v0.0.7 (2026-03-11)<a class="headerlink" href="#v007-2026-03-11" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Supports: Linux x86_64 with <code>glibc &gt;= 2.39</code>, macOS 15, Windows 10 x64+</li>
+</ul>
+<h2 id="v006-2026-03-11">v0.0.6 (2026-03-11)<a class="headerlink" href="#v006-2026-03-11" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Completed the productive migration to the Crow/C++ backend.</li>
+</ul>
+<h2 id="v005-2026-03-09">v0.0.5 (2026-03-09)<a class="headerlink" href="#v005-2026-03-09" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Promoted GUI2 as the recommended interface.</li>
+</ul>
+<h2 id="v004-2026-03-06">v0.0.4 (2026-03-06)<a class="headerlink" href="#v004-2026-03-06" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fixed Alt/Az registration for datasets with large field rotation.</li>
+</ul>
+<h2 id="v003-2026-03-05">v0.0.3 (2026-03-05)<a class="headerlink" href="#v003-2026-03-05" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Improved BGE/PCC pipeline with clearer phase visibility, stronger guardrails.</li>
+</ul>
+<h2 id="v002-2026-02-16">v0.0.2 (2026-02-16)<a class="headerlink" href="#v002-2026-02-16" title="Permanent link">&para;</a></h2>
+<ul>
+<li>First release with pre-built packages for Windows, Linux, and macOS.</li>
+</ul>
+<h2 id="v001-2026-02-15">v0.0.1 (2026-02-15)<a class="headerlink" href="#v001-2026-02-15" title="Permanent link">&para;</a></h2>
+<ul>
+<li>First public release.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.5.27)  11 JUN 2026 22:26
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.5.27)  26 JUN 2026 11:01
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -547,37 +547,37 @@ Package hyperref Info: Link coloring ON on input line 29.
 \@outlinefile=\write3
 \openout3 = `paper-adaptive_quality_mask_harvesting_m31_run_20260611_en.out'.
 
-LaTeX Font Info:    Trying to load font information for OT1+lmr on input line 5
-9.
+LaTeX Font Info:    Trying to load font information for OT1+lmr on input line 6
+3.
 
 (/usr/share/texlive/texmf-dist/tex/latex/lm/ot1lmr.fd
 File: ot1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
-LaTeX Font Info:    Trying to load font information for OML+lmm on input line 5
-9.
+LaTeX Font Info:    Trying to load font information for OML+lmm on input line 6
+3.
 
 (/usr/share/texlive/texmf-dist/tex/latex/lm/omllmm.fd
 File: omllmm.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    Trying to load font information for OMS+lmsy on input line 
-59.
+63.
 
 (/usr/share/texlive/texmf-dist/tex/latex/lm/omslmsy.fd
 File: omslmsy.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    Trying to load font information for OMX+lmex on input line 
-59.
+63.
 
 (/usr/share/texlive/texmf-dist/tex/latex/lm/omxlmex.fd
 File: omxlmex.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <12> on input line 59.
+(Font)              <12> on input line 63.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <8> on input line 59.
+(Font)              <8> on input line 63.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <6> on input line 59.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 59.
+(Font)              <6> on input line 63.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 63.
 
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
@@ -586,7 +586,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 59.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 63.
 
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -596,32 +596,28 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <9> on input line 59.
+(Font)              <9> on input line 63.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <5> on input line 59.
-LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 5
-9.
+(Font)              <5> on input line 63.
+LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 6
+3.
 
 (/usr/share/texlive/texmf-dist/tex/latex/lm/ts1lmr.fd
 File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <10> on input line 59.
+(Font)              <10> on input line 63.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <7> on input line 59.
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
+(Font)              <7> on input line 63.
  [1{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texlive/texmf
 -dist/fonts/enc/dvips/lm/lm-ec.enc}{/usr/share/texlive/texmf-dist/fonts/enc/dvi
 ps/lm/lm-rm.enc}{/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-mathsy.enc
 }{/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-ts1.enc}
 
 
-{/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc}{/usr/share/tex
-live/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc}]
+{/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc}]
 LaTeX Font Info:    Trying to load font information for T1+lmtt on input line 1
-01.
+09.
  (/usr/share/texlive/texmf-dist/tex/latex/lm/t1lmtt.fd
 File: t1lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
@@ -630,63 +626,70 @@ Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
 
-Underfull \hbox (badness 2582) in paragraph at lines 100--104
-\T1/lmr/m/n/10 (+20) It is oth-er-wise in-de-pen-dent from Clas-sic Tile
+Underfull \hbox (badness 3108) in paragraph at lines 108--112
+\T1/lmr/m/n/10 (+20) AQMH is oth-er-wise in-de-pen-dent from Clas-sic
  []
 
 
-Underfull \hbox (badness 1292) in paragraph at lines 100--104
-\T1/lmr/m/n/10 (+20) Com-pile. In par-tic-u-lar, the run stud-ied here
+Underfull \hbox (badness 1478) in paragraph at lines 108--112
+\T1/lmr/m/n/10 (+20) Tile Com-pile. In par-tic-u-lar, the run stud-ied
  []
 
 
-Underfull \hbox (badness 4765) in paragraph at lines 100--104
-\T1/lmr/m/n/10 (+20) re-ports \T1/lmtt/m/n/10 classic_tile_weights_used=false \
-T1/lmr/m/n/10 (+20) and
+Underfull \hbox (badness 2529) in paragraph at lines 108--112
+\T1/lmr/m/n/10 (+20) here re-ports \T1/lmtt/m/n/10 classic_tile_weights_used=fa
+lse
  []
 
-[2]
-<m31_aqmh_quality_timeseries.png, id=109, 686.565pt x 325.215pt>
+
+Underfull \hbox (badness 1946) in paragraph at lines 108--112
+\T1/lmr/m/n/10 (+20) and \T1/lmtt/m/n/10 fallback_to_classic=false\T1/lmr/m/n/1
+0 (+20) . The clas-sic
+ []
+
+[2{/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc}] [3]
+<m31_aqmh_quality_timeseries.png, id=117, 686.565pt x 325.215pt>
 File: m31_aqmh_quality_timeseries.png Graphic file (type png)
 <use m31_aqmh_quality_timeseries.png>
-Package pdftex.def Info: m31_aqmh_quality_timeseries.png  used on input line 23
-6.
+Package pdftex.def Info: m31_aqmh_quality_timeseries.png  used on input line 27
+1.
 (pdftex.def)             Requested size: 469.0pt x 222.1556pt.
-<m31_aqmh_diagnostic_distributions.png, id=111, 686.565pt x 433.62pt>
+<m31_aqmh_diagnostic_distributions.png, id=119, 686.565pt x 433.62pt>
 File: m31_aqmh_diagnostic_distributions.png Graphic file (type png)
 <use m31_aqmh_diagnostic_distributions.png>
 Package pdftex.def Info: m31_aqmh_diagnostic_distributions.png  used on input l
-ine 245.
+ine 280.
 (pdftex.def)             Requested size: 469.0pt x 296.20746pt.
-<m31_aqmh_validation_summary.png, id=112, 758.835pt x 274.626pt>
+<m31_aqmh_validation_summary.png, id=120, 758.835pt x 274.626pt>
 File: m31_aqmh_validation_summary.png Graphic file (type png)
 <use m31_aqmh_validation_summary.png>
-Package pdftex.def Info: m31_aqmh_validation_summary.png  used on input line 26
-1.
+Package pdftex.def Info: m31_aqmh_validation_summary.png  used on input line 30
+4.
 (pdftex.def)             Requested size: 229.5pt x 83.0547pt.
-<m31_aqmh_hms_preview.png, id=113, 564.509pt x 348.9035pt>
+<m31_aqmh_hms_preview.png, id=121, 564.509pt x 348.9035pt>
 File: m31_aqmh_hms_preview.png Graphic file (type png)
 <use m31_aqmh_hms_preview.png>
-Package pdftex.def Info: m31_aqmh_hms_preview.png  used on input line 270.
+Package pdftex.def Info: m31_aqmh_hms_preview.png  used on input line 313.
 (pdftex.def)             Requested size: 229.5pt x 141.84283pt.
- [3 <./m31_aqmh_validation_summary.png> <./m31_aqmh_hms_preview.png>]
-Underfull \hbox (badness 7203) in paragraph at lines 292--292
+
+[4 <./m31_aqmh_validation_summary.png> <./m31_aqmh_hms_preview.png>]
+Underfull \hbox (badness 1389) in paragraph at lines 339--344
+[]\T1/lmr/m/n/10 (+20) The sup-port coun-ters are par-tic-u-larly im-por-
+ []
+
+
+Underfull \hbox (badness 7203) in paragraph at lines 345--345
 []\T1/lmr/bx/n/12 (+20) Interpretation of sta-ble map
  []
 
-[4 <./m31_aqmh_quality_timeseries.png>]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
- [5 <./m31_aqmh_diagnostic_distributions.png>]
-Underfull \hbox (badness 5431) in paragraph at lines 328--334
+[5 <./m31_aqmh_quality_timeseries.png>] [6 <./m31_aqmh_diagnostic_distributions
+.png>]
+Underfull \hbox (badness 5431) in paragraph at lines 392--398
 []\T1/lmr/bx/n/10 (+20) Code. \T1/lmr/m/n/10 (+20) The pub-lic project repos-i-
 tory is
  []
 
-[6
+[7
 
 ] (./paper-adaptive_quality_mask_harvesting_m31_run_20260611_en.aux)
  ***********
@@ -698,13 +701,13 @@ un_20260611_en.out' has not changed.
 (rerunfilecheck)             Checksum: E746B633E497EB55407E0B79DFB1116A;2192.
  ) 
 Here is how much of TeX's memory you used:
- 18030 strings out of 467363
- 352119 string characters out of 5419001
- 759581 words of memory out of 6000000
- 46695 multiletter control sequences out of 15000+600000
- 702659 words of font info for 177 fonts, out of 8000000 for 9000
+ 18033 strings out of 467363
+ 352189 string characters out of 5419001
+ 761599 words of memory out of 6000000
+ 46697 multiletter control sequences out of 15000+600000
+ 702644 words of font info for 177 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,16n,80p,1055b,1194s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,16n,80p,1055b,1051s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texlive/texmf-dist/fonts/type1/public/lm/lmbx10.pfb></usr/share/t
 exlive/texmf-dist/fonts/type1/public/lm/lmbx12.pfb></usr/share/texlive/texmf-di
 st/fonts/type1/public/lm/lmbx9.pfb></usr/share/texlive/texmf-dist/fonts/type1/p
@@ -722,10 +725,10 @@ live/texmf-dist/fonts/type1/public/lm/lmsy9.pfb></usr/share/texlive/texmf-dist/
 fonts/type1/public/lm/lmtt10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
 lic/lm/lmtt9.pfb>
 Output written on paper-adaptive_quality_mask_harvesting_m31_run_20260611_en.pd
-f (6 pages, 3569624 bytes).
+f (7 pages, 3576175 bytes).
 PDF statistics:
- 257 PDF objects out of 1000 (max. 8388607)
- 196 compressed objects within 2 object streams
- 38 named destinations out of 1000 (max. 500000)
+ 264 PDF objects out of 1000 (max. 8388607)
+ 201 compressed objects within 3 object streams
+ 39 named destinations out of 1000 (max. 500000)
  44173 words of extra memory for PDF output out of 51595 (max. 10000000)
 

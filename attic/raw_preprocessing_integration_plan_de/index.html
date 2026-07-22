@@ -1,0 +1,3663 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/attic/raw_preprocessing_integration_plan_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Plan: Raw-Preprocessing als eigener Menuepunkt - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#plan-raw-preprocessing-als-eigener-menuepunkt" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan: Raw-Preprocessing als eigener Menuepunkt
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ziel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#neuer-menuepunkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neuer Menuepunkt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mvp-funktionsumfang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MVP-Funktionsumfang
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#erweiterter-kalibrierumfang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Erweiterter Kalibrierumfang
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wiederverwendung-aus-tile-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wiederverwendung aus Tile-Compile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-schnitt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline-Schnitt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frame-qualitaetsfilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frame-Qualitaetsfilter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gewichtetes-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gewichtetes Stacking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uebergabe-an-den-hauptstrang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uebergabe an den Hauptstrang
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend-Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fortschrittsanzeige" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fortschrittsanzeige
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parameterbearbeitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameterbearbeitung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frontend-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend-Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#risiken-und-offene-entscheidungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risiken und offene Entscheidungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schritt-fuer-schritt-umsetzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schritt-fuer-Schritt-Umsetzung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schritt-fuer-Schritt-Umsetzung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-architektur-und-scope-festziehen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Architektur und Scope festziehen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-konfigurationsschema-und-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Konfigurationsschema und Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-backend-api-grundgeruest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Backend-API-Grundgeruest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-input-scan-und-metadaten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Input-Scan und Metadaten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-runner-und-eventmodell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Runner und Eventmodell
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-pipeline-schnitt-ohne-tile-spezialphasen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Pipeline-Schnitt ohne Tile-Spezialphasen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-qualitaetsanalyse-und-frame-auswahl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Qualitaetsanalyse und Frame-Auswahl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-stacking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Stacking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-spaete-phasen-astrometry-bge-pcc-backendseitig-anbinden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Spaete Phasen Astrometry, BGE, PCC backendseitig anbinden
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-report-und-artefakte" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Report und Artefakte
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#11-frontend-menuepunkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Frontend-Menuepunkt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-run-monitor-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Run-Monitor-Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-tests-und-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Tests und Fixtures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-dokumentation-und-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Dokumentation und Migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-abnahmekriterien-fuer-mvp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Abnahmekriterien fuer MVP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kurzfazit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kurzfazit
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="plan-raw-preprocessing-als-eigener-menuepunkt">Plan: Raw-Preprocessing als eigener Menuepunkt<a class="headerlink" href="#plan-raw-preprocessing-als-eigener-menuepunkt" title="Permanent link">&para;</a></h1>
+<h2 id="ziel">Ziel<a class="headerlink" href="#ziel" title="Permanent link">&para;</a></h2>
+<p>Tile-Compile soll einen eigenen Menuepunkt auf derselben Ebene wie <code>Astrometry</code>, <code>PCC</code> und weitere Werkzeuge erhalten, der den grundlegenden Preprocessing-Pfad von Rohdaten bis zum linearen Stack abdeckt:</p>
+<ol>
+<li>Raw-/Light-Daten einlesen</li>
+<li>optionale Kalibrierung mit Bias/Dark/Flat</li>
+<li>CFA-/OSC- oder Mono-Behandlung mit Tile-Compile-Logik</li>
+<li>Registrierung</li>
+<li>Frame-Qualitaetsbewertung und optionales Filtern</li>
+<li>lineares Stacking</li>
+<li>Uebergabe des erzeugten Stacks an den bestehenden Hauptstrang, z. B. Astrometry, BGE, PCC und HyperMetric Stretch</li>
+</ol>
+<p>Der erwartete Anwendernutzen ist ein direkter linearer Pre-Stack-Workflow:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>lights -&gt; scan -&gt; calibrate -&gt; CFA/channel handling -&gt; register -&gt; quality filter -&gt; stack
+</span></code></pre></div>
+<p>Die technische Umsetzung soll vorhandene Tile-Compile-Phasen wiederverwenden und nur die tile-spezifischen Spezialphasen ueberspringen.</p>
+<p>Unterstuetzte Eingangsdaten sollen den bestehenden Tile-Compile-Moeglichkeiten entsprechen: Raw-Formate, FITS, CFA/OSC und Mono. Der neue Menuepunkt darf hier keinen engeren Formatumfang definieren als der Hauptstrang.</p>
+<h2 id="neuer-menuepunkt">Neuer Menuepunkt<a class="headerlink" href="#neuer-menuepunkt" title="Permanent link">&para;</a></h2>
+<p>Vorgeschlagener Name: <code>Preprocessing</code> oder <code>Raw Stack</code>.</p>
+<p>Position: Hauptnavigation auf derselben Ebene wie <code>Astrometry</code>, <code>PCC</code>, <code>BGE</code> und andere eigenstaendige Tools. Der Punkt soll kein Unterdialog der bestehenden Run-Konfiguration sein, sondern ein eigener Workflow, weil er vor dem heutigen Tile-Compile-Hauptstrang liegt.</p>
+<p>Wichtig: Preprocessing ist ein getrennter Prozess. Es darf nicht im normalen Tile-Compile Run Studio, im normalen Run-Monitor-Phasensatz oder im normalen Parameter Studio auftauchen. Wiederverwendet werden nur Funktionen, Algorithmen, Report-/Eventmuster und UI-Komponenten.</p>
+<p>Primaere Ausgabe nach Tile-Compile-Artefaktstruktur:</p>
+<ul>
+<li><code>artifacts/preprocess/stacked_linear.fits</code></li>
+<li>bei OSC zusaetzlich <code>artifacts/preprocess/stacked_rgb.fits</code></li>
+<li><code>artifacts/preprocess/frame_quality.csv</code></li>
+<li><code>artifacts/preprocess/rejected_frames.txt</code></li>
+<li><code>artifacts/preprocess/preprocessing_report.json</code></li>
+<li>vollstaendiger Report, erzeugt ueber denselben Report-Generator wie normale Tile-Compile-Runs</li>
+</ul>
+<p>Diese Artefakte koennen danach als Input fuer den bestehenden Pfad verwendet werden.</p>
+<p>Fortschritt und Parameterbearbeitung sollen sich fuer Anwender genauso anfuehlen wie bestehende Tile-Compile-Laeufe: Fortschrittsanzeige nach dem Muster des Run Monitors, Parameteransicht und Parameterkorrekturen nach dem Muster des Parameter Studios.</p>
+<h2 id="mvp-funktionsumfang">MVP-Funktionsumfang<a class="headerlink" href="#mvp-funktionsumfang" title="Permanent link">&para;</a></h2>
+<p>Der erste umsetzbare Stand sollte bewusst nah an der vorhandenen Tile-Compile-Pipeline bleiben:</p>
+<ol>
+<li>Eingabeordner <code>lights</code> waehlen.</li>
+<li>Raw/FITS-Dateien erkennen und in interne lineare Frames laden.</li>
+<li>Kalibrierung und Metadatenpruefung wie im Hauptstrang vorbereiten.</li>
+<li>Referenzframe aus den Lights bestimmen.</li>
+<li>Alle Frames mit der vorhandenen Tile-Compile-Registrierung ausrichten.</li>
+<li>Frame-Metriken und Qualitaetsfilter aus dem Hauptstrang berechnen.</li>
+<li>Registrierte Frames klassisch stacken.</li>
+<li>CFA/OSC und Mono im Tile-Compile-Stil behandeln: CFA-/Channel-Pfad verwenden, Mono als Ein-Kanal-Pfad ohne kuenstliche RGB-Annahmen.</li>
+<li>Stack als lineares FITS schreiben.</li>
+<li>Den Output direkt an <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> und Stretch weiterreichen koennen.</li>
+</ol>
+<p>Kalibrierframes sind im MVP optional. Ohne Bias/Dark/Flat entsteht ein klassischer registrierter Stack, intern aber weiterhin mit Tile-Compile-Mechanik.</p>
+<h2 id="erweiterter-kalibrierumfang">Erweiterter Kalibrierumfang<a class="headerlink" href="#erweiterter-kalibrierumfang" title="Permanent link">&para;</a></h2>
+<p>Der erweiterte Pfad sollte folgende Eingaben akzeptieren:</p>
+<ul>
+<li><code>lights</code></li>
+<li><code>bias</code></li>
+<li><code>darks</code></li>
+<li><code>flats</code></li>
+<li>optional <code>darkflats</code></li>
+</ul>
+<p>Empfohlene Reihenfolge:</p>
+<ol>
+<li>Master-Bias erstellen oder laden.</li>
+<li>Master-Dark erstellen oder laden.</li>
+<li>Master-Flat erstellen oder laden.</li>
+<li>Lights kalibrieren.</li>
+<li>kosmetische Korrektur fuer Hot-/Cold-Pixel anwenden.</li>
+<li>CFA-/Channel-Behandlung ueber den bestehenden Tile-Compile-Ansatz ausfuehren.</li>
+</ol>
+<p>Wichtige Konfigurationspunkte:</p>
+<ul>
+<li><code>calibration.dark_already_bias_corrected</code></li>
+<li>Flat-Normalisierung</li>
+<li>Dark-Optimierung an/aus</li>
+<li>Hot-Pixel-Schwelle</li>
+<li>Bayer-Pattern, sofern fuer OSC/CFA noetig</li>
+<li>CFA-Blacklevel und Whitelevel</li>
+<li>Umgang mit bereits linearen FITS-Daten</li>
+<li>Mono-Modus ohne CFA-Konvertierung</li>
+</ul>
+<h2 id="wiederverwendung-aus-tile-compile">Wiederverwendung aus Tile-Compile<a class="headerlink" href="#wiederverwendung-aus-tile-compile" title="Permanent link">&para;</a></h2>
+<p>Aus dem bestehenden Hauptstrang sollten nicht nur Algorithmen, sondern auch Diagnostik und Guardrails uebernommen werden.</p>
+<p>Geeignete Bausteine:</p>
+<ul>
+<li>FITS-I/O und HDU-Auswahl aus <code>tile_compile_cpp/src/io/fits_io.cpp</code></li>
+<li>CFA-/Debayer-Logik aus <code>tile_compile_cpp/src/image/cfa_processing.cpp</code></li>
+<li>Raw-Import und Formatbehandlung entsprechend dem bestehenden Tile-Compile-Eingangspfad</li>
+<li>Registrierung aus <code>tile_compile_cpp/src/registration/registration.cpp</code></li>
+<li>globale Registrierung und astrometrisches Rescue als optionale Fallbacks</li>
+<li>Sigma-Clipping/Stacking aus dem Rekonstruktionspfad</li>
+<li>Event-/Progress-Logging des Runners</li>
+<li>Report- und Artefaktstruktur der bestehenden Runs</li>
+<li>Background- und Noise-Metriken aus den bestehenden Metrics-Modulen</li>
+</ul>
+<p>Der Preprocessing-Menuepunkt sollte die Daten nicht tile-basiert rekonstruieren. Er soll einen klassischen Stack erzeugen, aber davor denselben robusten Tile-Compile-Unterbau nutzen: Lesen, Kalibrieren, Normalisieren, Registrieren, Metriken, Guardrails und Reporting. Weggelassen werden nur die Spezialphasen, die ein Tile-Grid oder lokale Tile-Rekonstruktion voraussetzen.</p>
+<h2 id="pipeline-schnitt">Pipeline-Schnitt<a class="headerlink" href="#pipeline-schnitt" title="Permanent link">&para;</a></h2>
+<p>Der neue Menuepunkt kann als "linearer Pre-Stack-Modus" verstanden werden.</p>
+<p>Uebernehmen:</p>
+<ul>
+<li>Input-Scan und Metadatenvalidierung</li>
+<li>Kalibrierung</li>
+<li>CFA-/OSC-Behandlung nach Tile-Compile-Logik</li>
+<li>Mono-Behandlung nach Tile-Compile-Logik</li>
+<li>globale Registrierung</li>
+<li>Registrierungs-Outlier-Erkennung</li>
+<li>Normalisierung</li>
+<li>globale und lokale Qualitaetsmetriken, soweit sie ohne Tile-Grid berechenbar sind</li>
+<li>Frame-Auswahl</li>
+<li>klassisches Sigma-/Winsor-/Median-Stacking</li>
+<li>Artefakte, Events, Status, Reports</li>
+<li>Run-Monitor-kompatible Fortschritts- und Phasenereignisse</li>
+<li>Parameter-Studio-kompatible Parametergruppen, Defaults und Override-Logik</li>
+</ul>
+<p>Auslassen:</p>
+<ul>
+<li>adaptive Tile-Grid-Erzeugung</li>
+<li>Tile Coverage Scheduling</li>
+<li>lokale Tile-Metrik-Selektion als Rekonstruktionsgrundlage</li>
+<li>Tile-basierte Qualitaetsrekonstruktion</li>
+<li>Synthetic Frames</li>
+<li>State Clustering</li>
+<li>Overlap-Add-/Tile-Seam-spezifische Schritte</li>
+<li>Dead-Tile- und Tile-Boundary-Diagnostik, soweit sie nur fuer Rekonstruktion relevant ist</li>
+</ul>
+<p>Optional danach:</p>
+<ul>
+<li>Astrometry</li>
+<li>BGE</li>
+<li>PCC</li>
+<li>HyperMetric Stretch</li>
+</ul>
+<p>Diese spaeten Schritte sollen in der GUI einzeln waehlbar sein. <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> und <code>HyperMetric Stretch</code> sind per Default aktiviert, weil der typische Preprocessing-Lauf direkt einen geloesten, farbkalibrierten und sichtbaren Ergebnisstand erzeugen soll.</p>
+<p>Damit bleibt der Ablauf fuer den Anwender wie ein normaler Preprocessing-Stacker, nutzt aber intern moeglichst viel bewahrte Tile-Compile-Infrastruktur.</p>
+<h2 id="frame-qualitaetsfilter">Frame-Qualitaetsfilter<a class="headerlink" href="#frame-qualitaetsfilter" title="Permanent link">&para;</a></h2>
+<p>Schlechte Frames sollten vor dem Stacken optional automatisch ausgeschlossen werden. Das ist wahrscheinlich der wichtigste Qualitaetsgewinn gegenueber einer reinen Minimalprozedur.</p>
+<p>Empfohlene Metriken pro Frame:</p>
+<ul>
+<li>Sternanzahl</li>
+<li>FWHM oder Seeing-Schaetzung</li>
+<li>Exzentrizitaet der Sterne</li>
+<li>Hintergrundmedian</li>
+<li>Hintergrund-RMS</li>
+<li>Clipping-/Saturationsanteil</li>
+<li>Hotpixel-/Defektpixelanteil</li>
+<li>Registrierungsfehler</li>
+<li>Korrelationswert zur Referenz</li>
+<li>Transparenz-/Signal-Schaetzung</li>
+<li>Drift, Rotation und Skalierungsabweichung</li>
+</ul>
+<p>Empfohlene Ausschlussregeln:</p>
+<ul>
+<li>zu wenige Sterne</li>
+<li>FWHM deutlich schlechter als Median, z. B. <code>&gt; median + 2 sigma</code></li>
+<li>Exzentrizitaet zu hoch</li>
+<li>Hintergrund zu hell oder stark abweichend</li>
+<li>Registrierungsfehler ueber Grenzwert</li>
+<li>Korrelationswert unter Grenzwert</li>
+<li>zu viele saturierte Pixel</li>
+<li>abweichende Belichtungszeit, Gain, Offset, Temperatur oder Bildgroesse</li>
+</ul>
+<p>Die Regeln sollten als <code>auto</code>, <code>strict</code>, <code>relaxed</code> und <code>off</code> angeboten werden. Zusaetzlich braucht die UI eine Frame-Tabelle, in der der Anwender einzelne Frames wieder aktivieren oder deaktivieren kann.</p>
+<h2 id="gewichtetes-stacking">Gewichtetes Stacking<a class="headerlink" href="#gewichtetes-stacking" title="Permanent link">&para;</a></h2>
+<p>Neben hartem Ausschluss sollte das Stacking optional gewichtet werden. Gute Frames tragen dann mehr zum Stack bei, grenzwertige Frames weniger.</p>
+<p>Moeglicher Score:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>quality_score =
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  star_count_factor
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  * fwhm_factor
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  * eccentricity_factor
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  * background_noise_factor
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  * registration_factor
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  * transparency_factor
+</span></code></pre></div>
+<p>Der Score sollte in <code>frame_quality.csv</code> nachvollziehbar gespeichert werden. Fuer den ersten Stand reicht Median/Sigma-Clipping mit optionaler Frame-Gewichtung. Lokale Tile-Gewichte werden nicht als Rekonstruktionsgewichte verwendet, koennen aber als globale Diagnose verdichtet werden, z. B. "Frame hat in vielen Bildregionen schlechte Sterne" oder "Randbereich hat zu wenig Ueberdeckung".</p>
+<h2 id="uebergabe-an-den-hauptstrang">Uebergabe an den Hauptstrang<a class="headerlink" href="#uebergabe-an-den-hauptstrang" title="Permanent link">&para;</a></h2>
+<p>Nach erfolgreichem Preprocessing sollte der erzeugte Stack als normaler Tile-Compile-Input weiterlaufen koennen:</p>
+<ol>
+<li><code>Preprocessing</code> erzeugt linearen Stack.</li>
+<li><code>Astrometry</code> loest den Stack, default <code>true</code>.</li>
+<li><code>BGE</code> entfernt Gradienten vor PCC, default <code>true</code>.</li>
+<li><code>PCC</code> kalibriert die Farbe, default <code>true</code>.</li>
+<li><code>HyperMetric Stretch</code> erzeugt sichtbare Ausgabe, default <code>true</code>.</li>
+</ol>
+<p>Der Hauptstrang sollte erkennen, dass der Input bereits registriert und gestackt ist. Dann duerfen die fruehen Rekonstruktionsphasen nicht versehentlich erneut auf Einzelbilder angewendet werden. Alternativ kann der Preprocessing-Menuepunkt direkt die spaeten Phasen <code>ASTROMETRY -&gt; BGE -&gt; PCC -&gt; HYPERMETRIC_STRETCH</code> anbieten.</p>
+<h2 id="report">Report<a class="headerlink" href="#report" title="Permanent link">&para;</a></h2>
+<p>Der Preprocessing-Lauf muss einen detaillierten Report ueber dieselbe Report-Pipeline erzeugen wie normale Tile-Compile-Runs, nicht nur eine kleine JSON-Zusammenfassung. Der Report wird aus den Preprocessing-Artefakten, Events, Metriken und der effektiven Konfiguration gebaut.</p>
+<p>Wichtig: Reportdaten gehoeren unter <code>artifacts/</code>, analog zu Tile-Compile. <code>outputs/</code> bleibt fuer finale FITS-/Bildausgaben reserviert, falls der bestehende Run-Aufbau diese Trennung nutzt.</p>
+<p>Pflichtinhalte:</p>
+<ul>
+<li>Run-Konfiguration und effektive Defaults</li>
+<li>erkannte Input-Dateien mit Typ, Format, Groesse, Belichtung, Gain/Offset, Temperatur, Bayer-Pattern oder Mono-Kennung</li>
+<li>Kalibrierstatus pro Frame und verwendete Master-Frames</li>
+<li>Referenzframe-Auswahl mit Begruendung</li>
+<li>Registrierungsmetriken pro Frame</li>
+<li>Qualitaetsmetriken pro Frame</li>
+<li>automatische Ausschlussentscheidung mit konkretem Grund</li>
+<li>finale Frame-Gewichte</li>
+<li>Stacking-Methode, Rejection-Grenzen und Normalisierung</li>
+<li>Output-Artefakte mit Pfaden</li>
+<li>optionaler Astrometry-/BGE-/PCC-Status inklusive Kennzahlen</li>
+<li>Warnungen zu Metadaten-Inkonsistenzen</li>
+<li>reproduzierbare Parameter fuer Resume oder Wiederholung</li>
+</ul>
+<p>Report-Artefakte:</p>
+<ul>
+<li><code>artifacts/preprocess/preprocessing_report.json</code> fuer maschinenlesbare Auswertung</li>
+<li><code>artifacts/preprocess/preprocessing_report.md</code>, falls der normale Report-Generator Markdown erzeugt</li>
+<li><code>artifacts/preprocess/preprocessing_report.html</code>, falls der normale Report-Generator HTML erzeugt</li>
+<li><code>artifacts/preprocess/frame_quality.csv</code> als tabellarische Detailquelle</li>
+<li><code>artifacts/preprocess/events.jsonl</code> analog zum Runner-Eventlog</li>
+<li><code>artifacts/preprocess/artifacts_manifest.json</code> mit allen erzeugten Artefakten und Pfaden</li>
+</ul>
+<p>Der Report soll dieselbe Sprache, Struktur, Abschnittslogik und Artefaktverlinkung wie die bestehenden Tile-Compile-Reports verwenden, damit Preprocessing-Laeufe und normale Runs vergleichbar bleiben. Es soll keinen zweiten Report-Generator fuer Preprocessing geben.</p>
+<h2 id="backend-integration">Backend-Integration<a class="headerlink" href="#backend-integration" title="Permanent link">&para;</a></h2>
+<p>Neue Backend-API:</p>
+<ul>
+<li><code>GET /api/tools/preprocessing/defaults</code></li>
+<li><code>POST /api/tools/preprocessing/scan</code></li>
+<li><code>POST /api/tools/preprocessing/run</code></li>
+<li><code>POST /api/tools/preprocessing/cancel</code></li>
+<li><code>GET /api/tools/preprocessing/status</code></li>
+<li><code>GET /api/tools/preprocessing/report</code></li>
+<li><code>GET /api/tools/preprocessing/parameters</code></li>
+<li><code>PATCH /api/tools/preprocessing/parameters</code></li>
+</ul>
+<p>Neue Runner-Phase oder eigener Tool-Runner:</p>
+<ul>
+<li>eigener Tool-Runner ist fuer den ersten Schritt sinnvoller, weil Preprocessing vor dem heutigen Run-Modell liegt</li>
+<li>intern sollte er dieselben Pipeline-Bausteine nutzen und keine zweite parallele Preprocessing-Pipeline bauen</li>
+<li>spaeter kann eine Pipeline-Phase oder ein Pipeline-Modus <code>RAW_PREPROCESSING</code> / <code>LINEAR_PRESTACK</code> ergaenzt werden</li>
+</ul>
+<p>Neue Konfigurationsgruppe:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">preprocessing</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linear_prestack</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">lights_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">bias_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">darks_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">flats_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">darkflats_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">input_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nt">raw_formats</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tile_compile</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nt">bayer_pattern</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nt">cfa_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tile_compile</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">mono_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nt">registration_reference</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">best_quality</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="nt">rejection</span><span class="p">:</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sigma</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">low</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nt">high</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">  </span><span class="nt">quality_filter</span><span class="p">:</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nt">min_stars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nt">max_fwhm_sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="nt">max_eccentricity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.65</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="nt">min_correlation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.75</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">  </span><span class="nt">stacking</span><span class="p">:</span>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">    </span><span class="nt">normalization</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">addscale</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">    </span><span class="nt">weighting</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quality</span>
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="w">  </span><span class="nt">postprocess</span><span class="p">:</span>
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">    </span><span class="nt">astrometry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">    </span><span class="nt">bge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">    </span><span class="nt">pcc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">    </span><span class="nt">hypermetric_stretch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="w">  </span><span class="nt">hypermetric_stretch</span><span class="p">:</span>
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ready_to_use</span>
+</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="w">    </span><span class="nt">target_bg</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.15</span>
+</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a><span class="w">    </span><span class="nt">protect_b</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6.0</span>
+</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="w">    </span><span class="nt">convergence_power</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.5</span>
+</span><span id="__span-2-38"><a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a><span class="w">  </span><span class="nt">report</span><span class="p">:</span>
+</span><span id="__span-2-39"><a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">    </span><span class="nt">detailed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-40"><a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">    </span><span class="nt">formats</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">json</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">markdown</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<p>Die Parameterstruktur sollte schema-faehig sein und im selben Stil wie die bestehenden Konfigurationswerte editiert werden koennen. Aenderungen muessen vor dem Start sichtbar sein, im Report als effektive Konfiguration auftauchen und fuer Wiederholung/Resume erhalten bleiben.</p>
+<h2 id="fortschrittsanzeige">Fortschrittsanzeige<a class="headerlink" href="#fortschrittsanzeige" title="Permanent link">&para;</a></h2>
+<p>Die Fortschrittsanzeige soll wie der bestehende Run Monitor aufgebaut sein, nicht als separater Spezialstatus.</p>
+<p>Erwartete Phasen:</p>
+<ul>
+<li><code>INPUT_SCAN</code></li>
+<li><code>CALIBRATION</code></li>
+<li><code>CFA_CHANNEL_PREP</code></li>
+<li><code>REFERENCE_SELECTION</code></li>
+<li><code>REGISTRATION</code></li>
+<li><code>QUALITY_ANALYSIS</code></li>
+<li><code>FRAME_FILTERING</code></li>
+<li><code>STACKING</code></li>
+<li><code>ASTROMETRY</code>, falls aktiviert</li>
+<li><code>BGE</code>, falls aktiviert</li>
+<li><code>PCC</code>, falls aktiviert</li>
+<li><code>HYPERMETRIC_STRETCH</code>, falls aktiviert</li>
+<li><code>REPORT</code></li>
+</ul>
+<p>Jede Phase soll dieselben Grundzustande wie normale Runs liefern: pending, running, ok, skipped, warning, failed, aborted. Der Status muss Prozentwerte, aktuelle Phase, verarbeitete Frames, ausgeschlossene Frames, aktuelle Datei und relevante Warnungen anzeigen koennen.</p>
+<p>Event-Format:</p>
+<ul>
+<li><code>phase_start</code></li>
+<li><code>phase_progress</code></li>
+<li><code>phase_end</code></li>
+<li><code>frame_progress</code></li>
+<li><code>warning</code></li>
+<li><code>artifact</code></li>
+<li><code>run_end</code></li>
+</ul>
+<p>Damit kann die bestehende Run-Monitor-Komponente moeglichst direkt wiederverwendet werden. Die GUI sollte fuer Preprocessing keine andere Fortschrittslogik einfuehren, sondern nur andere Phasenlabels und Artefakte anzeigen.</p>
+<h2 id="parameterbearbeitung">Parameterbearbeitung<a class="headerlink" href="#parameterbearbeitung" title="Permanent link">&para;</a></h2>
+<p>Parameteraenderungen muessen wie im Parameter Studio moeglich sein.</p>
+<p>Anforderungen:</p>
+<ul>
+<li>alle relevanten Preprocessing-Parameter in gruppierten Abschnitten anzeigen</li>
+<li>Defaults, effektive Werte und User-Overrides unterscheiden</li>
+<li>Parameter vor dem Start editierbar machen</li>
+<li>laufende Jobs gegen nachtraegliche inkompatible Aenderungen schuetzen</li>
+<li>geaenderte Parameter in <code>preprocessing_report.json</code> und im menschenlesbaren Report dokumentieren</li>
+<li>Presets fuer <code>auto</code>, <code>strict</code>, <code>relaxed</code>, <code>mono</code>, <code>cfa_osc</code> anbieten</li>
+<li>Validierung gegen Schema oder gleichwertige Backend-Regeln</li>
+<li>Zuruecksetzen einzelner Werte auf Default erlauben</li>
+</ul>
+<p>Empfohlene Parametergruppen:</p>
+<ul>
+<li><code>input</code></li>
+<li><code>calibration</code></li>
+<li><code>cfa_mono</code></li>
+<li><code>registration</code></li>
+<li><code>quality_filter</code></li>
+<li><code>stacking</code></li>
+<li><code>postprocess</code></li>
+<li><code>report</code></li>
+</ul>
+<p>Die UI muss hier kein zweites Parameter Studio neu erfinden. Ziel ist Wiederverwendung der bestehenden Parameter-Studio-Komponenten mit einer Preprocessing-spezifischen Schema-/Parameterquelle.</p>
+<h2 id="frontend-integration">Frontend-Integration<a class="headerlink" href="#frontend-integration" title="Permanent link">&para;</a></h2>
+<p>Der Menuepunkt sollte sechs kompakte Bereiche haben:</p>
+<ol>
+<li><code>Input</code>: Ordner fuer Lights und Kalibrierframes, Bayer-Pattern/CFA-Modus.</li>
+<li><code>Calibration</code>: Master-Erstellung, Dark-/Flat-Optionen, kosmetische Korrektur.</li>
+<li><code>Quality</code>: Frame-Tabelle, Auto-Rejection, Metrik-Grenzen, Preview der ausgeschlossenen Frames.</li>
+<li><code>Stack</code>: Rejection-Methode, Normalisierung, Output-Pfad, Start/Cancel.</li>
+<li><code>Postprocess</code>: Checkboxen fuer <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> und <code>HyperMetric Stretch</code>, jeweils default aktiv.</li>
+<li><code>Parameters</code>: Parameter-Studio-Ansicht fuer alle Preprocessing-Parameter.</li>
+</ol>
+<p>Wichtig ist eine klare Frame-Tabelle:</p>
+<ul>
+<li>Dateiname</li>
+<li>Status: verwendet / ausgeschlossen</li>
+<li>Grund fuer Ausschluss</li>
+<li>FWHM</li>
+<li>Sterne</li>
+<li>Exzentrizitaet</li>
+<li>Hintergrund</li>
+<li>Registrierungs-RMS</li>
+<li>Gewicht</li>
+</ul>
+<p>Die UI muss CFA/OSC und Mono explizit anzeigen. Im Auto-Modus erkennt Tile-Compile den Modus aus Format/Metadaten; bei Konflikten kann der Anwender manuell <code>CFA/OSC</code> oder <code>Mono</code> setzen.</p>
+<p>Der laufende Job soll im selben Layout wie der Run Monitor erscheinen: Phasenleiste, aktuelle Phase, Log-/Eventansicht, Artefaktliste, Fehler-/Warnbereich und Fortschritt pro Frame oder pro Phase.</p>
+<h2 id="risiken-und-offene-entscheidungen">Risiken und offene Entscheidungen<a class="headerlink" href="#risiken-und-offene-entscheidungen" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Raw-Formate: wie im bestehenden Tile-Compile-Hauptstrang; der neue Menuepunkt soll denselben Importpfad und dieselben Formatgrenzen nutzen.</li>
+<li>CFA-/OSC-Behandlung: Der Preprocessing-Pfad soll den Tile-Compile-Ansatz verwenden; ein klassisches Debayering ist nur eine moegliche Ausgabeform, nicht die zentrale Architektur.</li>
+<li>Mono-Behandlung: Muss gleichwertig zu CFA/OSC unterstuetzt werden und darf nicht durch RGB-spezifische Annahmen laufen.</li>
+<li>Speicherbedarf: Raw-Stacks koennen sehr gross werden; Streaming/Chunking ist frueh einplanen.</li>
+<li>Metadaten-Konsistenz: Frames mit unterschiedlichem Gain, Offset, Temperatur, Belichtung oder Filter duerfen nicht blind zusammen gestackt werden.</li>
+<li>UI-Komplexitaet: Der MVP sollte zuerst den linearen Pre-Stack-Modus sauber abdecken und keine vollstaendige Spezialsoftware ersetzen.</li>
+<li>Wiederholbarkeit: Alle automatisch ausgeschlossenen Frames, Schwellen, effektiven Defaults und optionalen Postprocess-Schritte muessen im Report stehen.</li>
+</ul>
+<h2 id="schritt-fuer-schritt-umsetzung">Schritt-fuer-Schritt-Umsetzung<a class="headerlink" href="#schritt-fuer-schritt-umsetzung" title="Permanent link">&para;</a></h2>
+<p>Jeder Schritt ist so formuliert, dass er nach Umsetzung mit <code>[x]</code> markiert werden kann. Die Reihenfolge ist bewusst inkrementell: erst Vertrag und Datenmodell, dann Backend, dann UI, dann Qualitaetslogik und Erweiterungen.</p>
+<h3 id="1-architektur-und-scope-festziehen">1. Architektur und Scope festziehen<a class="headerlink" href="#1-architektur-und-scope-festziehen" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Zielmodus <code>LINEAR_PRESTACK</code> definieren.
+  Erledigt wenn dokumentiert ist, dass der Modus vorhandene Tile-Compile-Bausteine nutzt, aber Tile-Grid, Tile-Rekonstruktion, Synthetic Frames und State Clustering ueberspringt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Phasenliste fuer Preprocessing festlegen.
+  Erledigt wenn <code>INPUT_SCAN</code>, <code>CALIBRATION</code>, <code>CFA_CHANNEL_PREP</code>, <code>REFERENCE_SELECTION</code>, <code>REGISTRATION</code>, <code>QUALITY_ANALYSIS</code>, <code>FRAME_FILTERING</code>, <code>STACKING</code>, optionale Spaetphasen und <code>REPORT</code> als feste Phase-IDs definiert sind.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Artefaktstruktur festlegen.
+  Erledigt wenn alle Preprocessing-Metriken, Reports, Events und Manifeste unter <code>artifacts/preprocess/</code> liegen und finale FITS-/Bildausgaben klar davon getrennt sind.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kompatibilitaetsgrenze zum normalen Run-Modell definieren.
+  Erledigt wenn klar ist, ob Preprocessing zuerst als eigener Tool-Runner oder als Pipeline-Modus implementiert wird und wie spaete Phasen wiederverwendet werden.</p>
+</li>
+</ul>
+<h3 id="2-konfigurationsschema-und-defaults">2. Konfigurationsschema und Defaults<a class="headerlink" href="#2-konfigurationsschema-und-defaults" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> eigenen Preprocessing-Konfigurationsvertrag anlegen.
+  Erledigt wenn <code>mode</code>, Input-Pfade, <code>input_mode</code>, <code>raw_formats</code>, <code>cfa_mode</code>, <code>mono_mode</code>, Registrierung, Qualitaetsfilter, Stacking, Postprocess und Report im getrennten Preprocessing-Vertrag konfigurierbar sind, ohne im normalen Tile-Compile-Schema oder Parameter Studio aufzutauchen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Defaults setzen.
+  Erledigt wenn <code>postprocess.astrometry: true</code>, <code>postprocess.bge: true</code>, <code>postprocess.pcc: true</code>, <code>postprocess.hypermetric_stretch: true</code>, <code>report.detailed: true</code> und <code>raw_formats: tile_compile</code> als Defaults gelten.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Parametergruppen fuer den separaten Preprocessing-Parametereditor definieren.
+  Erledigt wenn <code>input</code>, <code>calibration</code>, <code>cfa_mono</code>, <code>registration</code>, <code>quality_filter</code>, <code>stacking</code>, <code>postprocess</code>, <code>hypermetric_stretch</code> und <code>report</code> gruppiert und beschriftet sind, aber nicht in der normalen Tile-Compile-Parameter-Studio-Ansicht erscheinen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Validierungsregeln ergaenzen.
+  Erledigt wenn ungueltige Kombinationen wie Mono plus erzwungenes Bayer-Pattern, fehlende Lights oder widerspruechliche Postprocess-Optionen vor dem Start abgefangen werden.</p>
+</li>
+</ul>
+<h3 id="3-backend-api-grundgeruest">3. Backend-API-Grundgeruest<a class="headerlink" href="#3-backend-api-grundgeruest" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>GET /api/tools/preprocessing/defaults</code> implementieren.
+  Erledigt wenn die GUI alle Defaultwerte ohne Run-Start laden kann.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>GET /api/tools/preprocessing/parameters</code> implementieren.
+  Erledigt wenn Parameter-Studio-kompatible Gruppen, Werte, Defaults und Beschreibungen geliefert werden.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>PATCH /api/tools/preprocessing/parameters</code> implementieren.
+  Erledigt wenn User-Overrides gespeichert, validiert und wieder geladen werden koennen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>POST /api/tools/preprocessing/scan</code> implementieren.
+  Erledigt wenn ein Ordner gescannt und eine Frame-Tabelle mit Metadaten zurueckgegeben wird.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>POST /api/tools/preprocessing/run</code> implementieren.
+  Erledigt wenn ein Preprocessing-Job mit effektiver Konfiguration gestartet werden kann.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>POST /api/tools/preprocessing/cancel</code> implementieren.
+  Erledigt wenn laufende Jobs sauber abbrechen und den Status <code>aborted</code> schreiben.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>GET /api/tools/preprocessing/status</code> implementieren.
+  Erledigt wenn der Status dieselbe Struktur wie der Run Monitor verwenden kann.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>GET /api/tools/preprocessing/report</code> implementieren.
+  Erledigt wenn der erzeugte Report und seine Artefakte ueber die GUI auffindbar sind.</p>
+</li>
+</ul>
+<h3 id="4-input-scan-und-metadaten">4. Input-Scan und Metadaten<a class="headerlink" href="#4-input-scan-und-metadaten" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> bestehenden Raw-/FITS-Importpfad anbinden.
+  Erledigt wenn Preprocessing dieselben Raw-Formate und FITS-Eingaben akzeptiert wie der Hauptstrang.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> CFA/OSC und Mono automatisch erkennen.
+  Erledigt wenn jedes Frame als <code>cfa_osc</code>, <code>mono</code> oder <code>unknown</code> klassifiziert wird und Konflikte gemeldet werden.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Metadaten pro Frame extrahieren.
+  Erledigt wenn Dateipfad, Format, Dimensionen, Belichtung, Gain/Offset, Temperatur, Bayer-Pattern, Kanalmodus und Zeitstempel in der Scan-Antwort stehen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Metadaten-Konsistenz pruefen.
+  Erledigt wenn abweichende Bildgroessen, Belichtungen, Gain/Offset-Werte, Filter oder Kanalmodi als Warnung oder Fehler klassifiziert werden.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-Ergebnis fuer UI-Tabellen stabilisieren.
+  Erledigt wenn die GUI Dateiliste, Warnungen und Auto-Erkennung ohne Job-Start anzeigen kann.</p>
+</li>
+</ul>
+<h3 id="5-runner-und-eventmodell">5. Runner und Eventmodell<a class="headerlink" href="#5-runner-und-eventmodell" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preprocessing-Jobmodell anlegen.
+  Erledigt wenn Jobs eine ID, Arbeitsverzeichnis, Konfiguration, Status, Start-/Endzeit und Abbruchsignal besitzen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Eventwriter fuer <code>artifacts/preprocess/events.jsonl</code> anbinden.
+  Erledigt wenn <code>phase_start</code>, <code>phase_progress</code>, <code>phase_end</code>, <code>frame_progress</code>, <code>warning</code>, <code>artifact</code> und <code>run_end</code> geschrieben werden.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Run-Monitor-kompatible Phasenstatus erzeugen.
+  Erledigt wenn jede Preprocessing-Phase <code>pending</code>, <code>running</code>, <code>ok</code>, <code>skipped</code>, <code>warning</code>, <code>failed</code> oder <code>aborted</code> liefern kann.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Fortschritt pro Frame und Phase berechnen.
+  Erledigt wenn Status aktuelle Phase, Prozentwert, aktuelle Datei, verarbeitete Frames und ausgeschlossene Frames enthaelt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Fehler- und Abbruchsemantik angleichen.
+  Erledigt wenn Fehler im Status, Eventlog und Report gleich behandelt werden wie in normalen Runs.</p>
+</li>
+</ul>
+<h3 id="6-pipeline-schnitt-ohne-tile-spezialphasen">6. Pipeline-Schnitt ohne Tile-Spezialphasen<a class="headerlink" href="#6-pipeline-schnitt-ohne-tile-spezialphasen" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Input-Frames in interne lineare Frames ueberfuehren.
+  Erledigt wenn Raw/FITS-Daten mit bestehenden Tile-Compile-Pfaden geladen werden und lineare Daten fuer Registrierung/Stacking bereitstehen.
+  Implementiert in <code>runner_phase_preprocess_pipeline.cpp</code> (Phase INPUT_SCAN / SCAN_INPUT).</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kalibrierung optional vorbereiten und anbinden.
+  Erledigt wenn der MVP auch ohne Kalibrierframes laeuft, aber Bias/Dark/Flat ueber Ordner oder Master-Dateien angewendet werden koennen.
+  Implementiert: CALIBRATION-Phase wird mit "skipped" emittiert wenn keine Kalibrierquellen konfiguriert sind; Bias/Dark/Flat/Darkflat unterstuetzen Ordner, Master-Dateien, Use-Flags und Pattern.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> CFA/OSC-Pfad ueber Tile-Compile-Logik anbinden.
+  Erledigt wenn CFA-Daten ohne erzwungenen separaten Debayer-Schritt in den Channel-/Stacking-Pfad gelangen.
+  Implementiert in CFA_CHANNEL_PREP via <code>run_phase_channel_split_normalization_global_metrics</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Mono-Pfad anbinden.
+  Erledigt wenn Mono-Daten als Ein-Kanal-Pfad laufen und keine RGB-/Bayer-Annahmen erzwingen.
+  Implementiert: <code>input_mode=mono</code> setzt ColorMode::MONO, kein Bayer-Offset.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Referenzframe-Auswahl implementieren.
+  Erledigt wenn <code>best_quality</code> ein Referenzframe mit begruendeten Metriken waehlt.
+  Implementiert: <code>select_reference_frame()</code> mit <code>best_quality</code> (max quality_score) und <code>temporal_center</code> Fallback.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> globale Registrierung wiederverwenden.
+  Erledigt wenn Frames mit der bestehenden Registrierung ausgerichtet werden und Registrierungsmetriken pro Frame entstehen.
+  Implementiert: REGISTRATION-Phase ruft <code>registration::register_single_frame</code> parallel auf, schreibt <code>preprocessing_registration.json</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Normalisierung vor Stacking anwenden.
+  Erledigt wenn die konfigurierte Normalisierung, z. B. <code>addscale</code>, reproduzierbar angewendet und im Report dokumentiert wird.
+  Implementiert: Normalisierungsmodus aus <code>cfg.stacking.normalization</code> an <code>shim_cfg</code> uebergeben, Artefakt <code>normalization.json</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tile-Spezialphasen explizit ueberspringen.
+  Erledigt wenn keine adaptive Tile-Grid-Erzeugung, keine Tile-Rekonstruktion, keine Synthetic Frames und kein State Clustering gestartet werden.
+  Implementiert: <code>run_preprocess_pipeline</code> startet TILE_GRID, TILE_RECONSTRUCTION, SYNTHETIC_FRAMES, STATE_CLUSTERING nicht.</p>
+</li>
+</ul>
+<h3 id="7-qualitaetsanalyse-und-frame-auswahl">7. Qualitaetsanalyse und Frame-Auswahl<a class="headerlink" href="#7-qualitaetsanalyse-und-frame-auswahl" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sternanzahl pro Frame bestimmen.
+  Erledigt wenn <code>frame_quality.csv</code> eine Sternanzahl pro Frame enthaelt.
+  Implementiert: <code>FrameQualityRecord::star_count</code> aus <code>FrameStarMetrics</code>, in CSV geschrieben.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> FWHM/Seeing-Schaetzung pro Frame bestimmen.
+  Erledigt wenn FWHM-Werte fuer Filterung und Report verfuegbar sind.
+  Implementiert: <code>fwhm</code>, <code>fwhm_x</code>, <code>fwhm_y</code> aus <code>metrics::measure_frame_stars</code>, Sigma-Rejection auf FWHM.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Exzentrizitaet pro Frame bestimmen.
+  Erledigt wenn verzogene Frames erkennbar und filterbar sind.
+  Implementiert: <code>eccentricity = 1 - min(fwhm_x, fwhm_y) / max(...)</code>, Hard-Threshold <code>max_eccentricity</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Hintergrundmedian und Hintergrund-RMS bestimmen.
+  Erledigt wenn Hintergrundabweichungen in Tabelle, Report und Filterlogik sichtbar sind.
+  Implementiert: <code>background_median</code> und <code>background_rms</code> (noise) aus <code>FrameMetrics</code> in CSV und JSON.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Saturation-/Clipping-Anteil bestimmen.
+  Erledigt wenn ueberbelichtete oder geclippte Frames markiert werden koennen.
+  Implementiert: <code>clip_fraction</code> Feld in <code>FrameQualityRecord</code>; der Wert wird beim Quality-Pass ueber die registrierten Frame-Pixel gemessen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Registrierungsfehler und Korrelationswert pro Frame speichern.
+  Erledigt wenn schlechte Registrierung als Ausschlussgrund genutzt werden kann.
+  Implementiert: <code>registration_cc</code> aus <code>pipeline_ctx.frame_cc</code>, Hard-Threshold <code>min_correlation</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Auto-Rejection implementieren.
+  Erledigt wenn <code>auto</code>, <code>strict</code>, <code>relaxed</code> und <code>off</code> funktionieren und Ausschlussgruende pro Frame gespeichert werden.
+  Implementiert: <code>apply_sigma_rejection_high/low</code> + Hard-Thresholds nach <code>mode</code> (<code>auto</code>/<code>strict</code>/<code>relaxed</code>/<code>off</code>).</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> manuelle Frame-Overrides vorbereiten.
+  Erledigt wenn die Datenstruktur Frames als manuell eingeschlossen oder ausgeschlossen markieren kann.
+  Implementiert: <code>quality_filter.manual_overrides</code> wird aus der Konfiguration gelesen, nach Index oder Dateiname auf Frames angewendet und ueberschreibt Auto-Rejection.</p>
+</li>
+</ul>
+<h3 id="8-stacking">8. Stacking<a class="headerlink" href="#8-stacking" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> klassisches Sigma-/Median-/Winsor-Stacking anbinden.
+  Erledigt wenn registrierte Frames ohne Tile-Rekonstruktion zu einem linearen Stack kombiniert werden.
+  Implementiert: <code>tile_compile_runner preprocess</code> reduziert akzeptierte, registrierte Frames in der separaten <code>STACKING</code>-Phase ohne Tile-Grid/Rekonstruktion.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Rejection-Parameter anwenden.
+  Erledigt wenn Low-/High-Sigma oder alternative Rejection-Parameter aus der Konfiguration greifen.
+  Implementiert: <code>rejection.method</code> (<code>sigma</code>, <code>median</code>, <code>winsor</code>) sowie <code>rejection.low</code>/<code>rejection.high</code> werden pro Pixel angewendet.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> optionale Frame-Gewichtung implementieren.
+  Erledigt wenn <code>stacking.weighting: quality</code> die berechneten Frame-Scores verwendet.
+  Implementiert: <code>stacking.weighting=quality</code> nutzt <code>FrameQualityRecord::quality_score</code>, <code>uniform</code> setzt alle Gewichte auf 1.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Stack-Artefakte schreiben.
+  Erledigt wenn <code>stacked_linear.fits</code> und bei CFA/OSC der passende RGB-/Channel-Output erzeugt und im Artefaktmanifest registriert werden.
+  Implementiert: <code>outputs/stacked_linear.fits</code>; bei OSC zusaetzlich <code>outputs/stacked_rgb.fits</code>, beide im Manifest/Report registriert.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Stacking-Diagnostik erfassen.
+  Erledigt wenn Anzahl verwendeter Frames, ausgeschlossene Frames, Rejection-Statistik und Normalisierung im Report stehen.
+  Implementiert: <code>artifacts/preprocess/stacking_diagnostics.json</code> und Report-Abschnitt <code>stacking</code>.</p>
+</li>
+</ul>
+<h3 id="9-spaete-phasen-astrometry-bge-pcc-backendseitig-anbinden">9. Spaete Phasen Astrometry, BGE, PCC backendseitig anbinden<a class="headerlink" href="#9-spaete-phasen-astrometry-bge-pcc-backendseitig-anbinden" title="Permanent link">&para;</a></h3>
+<p>Dieser Schritt ist bewusst ohne neue Raw-Stack-GUI abschliessbar. Die sichtbaren
+Optionen und Checkboxen gehoeren zu Punkt 11. Punkt 9 stellt nur sicher, dass die
+Pipeline- und API-Vertraege bereits korrekt sind, sobald die GUI spaeter darauf
+aufschaltet.</p>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Postprocess-Defaults backendseitig erzwingen.
+  Erledigt wenn auch API-Starts ohne explizite GUI-Werte <code>astrometry</code>, <code>bge</code> und <code>pcc</code> auf <code>true</code> setzen.
+  Implementiert: <code>preprocessing</code> defaults und API-Starts setzen die drei Optionen per Default auf <code>true</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Astrometry an Preprocessing-Output anbinden.
+  Erledigt wenn der lineare Stack automatisch als Astrometry-Input verwendet wird.
+  Implementiert: Astrometry laeuft im separaten Preprocessing-Runner auf <code>outputs/stacked_rgb.fits</code> und schreibt WCS nach <code>artifacts/preprocess/stacked_rgb.wcs</code>; ohne RGB oder ASTAP wird sauber <code>skipped</code> gemeldet.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> BGE an Astrometry-/Stack-Output anbinden.
+  Erledigt wenn BGE nach erfolgreichem Stack und, falls aktiv, nach Astrometry laufen kann.
+  Implementiert: BGE nutzt den RGB-Stack beziehungsweise den aktuellen RGB-Zwischenstand und ein aus dem Stack erzeugtes regulaeres Analysegrid ohne Tile-Rekonstruktion; Ergebnis <code>outputs/stacked_rgb_bge.fits</code>, Diagnostik <code>artifacts/preprocess/bge_diagnostics.json</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PCC an Stack/BGE/WCS-Output anbinden.
+  Erledigt wenn PCC automatisch den richtigen RGB- und WCS-Input aus dem Preprocessing-Lauf erhaelt.
+  Implementiert: PCC nutzt bevorzugt den BGE-RGB-Output, sonst den RGB-Stack, und laeuft nur mit geloestem WCS; Ergebnis <code>outputs/stacked_rgb_pcc.fits</code>, Diagnostik <code>artifacts/preprocess/pcc_diagnostics.json</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> deaktivierte Spaetphasen als <code>skipped</code> melden.
+  Erledigt wenn Run Monitor und Report deaktivierte Optionen sauber als uebersprungen anzeigen.
+  Implementiert: <code>ASTROMETRY</code>, <code>BGE</code>, <code>PCC</code> und <code>HYPERMETRIC_STRETCH</code> schreiben eigene <code>skipped</code>-Events mit Grund.</p>
+</li>
+</ul>
+<h3 id="10-report-und-artefakte">10. Report und Artefakte<a class="headerlink" href="#10-report-und-artefakte" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Artefaktmanifest schreiben.
+  Erledigt wenn <code>artifacts/preprocess/artifacts_manifest.json</code> alle erzeugten Dateien mit Typ, Phase und Pfad enthaelt.
+  Implementiert: Manifest enthaelt Config, Events, Registration, Quality, Rejections, Stack, Postprocess-Diagnostik und Reportformate.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>frame_quality.csv</code> schreiben.
+  Erledigt wenn alle Qualitaetsmetriken, Gewichte, Status und Ausschlussgruende pro Frame enthalten sind.
+  Implementiert: <code>runner_phase_quality_analysis</code> schreibt <code>artifacts/preprocess/frame_quality.csv</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>rejected_frames.txt</code> schreiben.
+  Erledigt wenn alle ausgeschlossenen Frames mit Grund gelistet sind.
+  Implementiert: <code>artifacts/preprocess/rejected_frames.txt</code> listet Index, Dateiname, Ausschlussgrund und Detail.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> maschinenlesbaren Report schreiben.
+  Erledigt wenn <code>artifacts/preprocess/preprocessing_report.json</code> effektive Konfiguration, Metriken, Warnungen, Phasen und Artefakte enthaelt.
+  Implementiert: JSON-Report enthaelt effective config, Input, Reference, Quality, Stacking, Postprocess, Phasen und Artefakte.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> bestehenden Tile-Compile-Reportgenerator verwenden.
+  Erledigt wenn Markdown/HTML-Report ueber dieselbe Report-Pipeline erzeugt wird wie normale Tile-Compile-Runs.
+  Implementiert: Preprocessing schreibt <code>preprocessing_report.json</code>, <code>preprocessing_report.md</code> und <code>preprocessing_report.html</code> in den Artefaktbaum und folgt dem gemeinsamen Artefakt-/Report-Vertrag (<code>tile_compile_artifacts_v1</code>). Der vollstaendige normale Tile-Compile-Reportgenerator bleibt wegen der getrennten Runner-/Backend-Grenze nicht direkt gelinkt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Report in GUI verlinken.
+  Erledigt wenn der Report aus dem Preprocessing-Screen und der Artefaktliste geoeffnet werden kann.
+  Implementiert backendseitig: <code>/api/tools/preprocessing/report</code> liefert JSON-, Markdown- und HTML-Reportpfade fuer die spaetere GUI-Verlinkung.</p>
+</li>
+</ul>
+<h3 id="11-frontend-menuepunkt">11. Frontend-Menuepunkt<a class="headerlink" href="#11-frontend-menuepunkt" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Hauptnavigation um <code>Preprocessing</code> oder <code>Raw Stack</code> erweitern.
+  Erledigt wenn der Menuepunkt auf derselben Ebene wie <code>Astrometry</code>, <code>BGE</code> und <code>PCC</code> sichtbar ist.
+  Implementiert: <code>raw-stack.html</code> ist in Header und Sidebar auf gleicher Ebene wie <code>Astrometry</code> und <code>PCC</code> verlinkt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> i18n-Schluessel fuer den neuen Menuepunkt und alle Raw-Stack-Texte anlegen.
+  Erledigt wenn <code>web_frontend/i18n/de.json</code>, <code>web_frontend/i18n/en.json</code> und die Page-Bindings keine fest verdrahteten deutschen oder englischen UI-Texte fuer Raw Stack mehr benoetigen.
+  Implementiert: Navigation, Tooltips, Seitentitel, Intro, Bereiche und Footer sind in <code>de.json</code>/<code>en.json</code> und <code>src/i18n.js</code> angebunden; technische Parameterlabels bleiben als stabile Parameternamen sichtbar.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Input</code>-Bereich bauen.
+  Erledigt wenn Light- und Kalibrierordner gewaehlt, gescannt und validiert werden koennen.
+  Implementiert: Eingabe der Lights und Kalibrierpfade 1:1 ueber dieselben Controls wie <code>Input &amp; Scan</code> (<code>inp-*</code>, <code>cal-*</code>, Run-Queue, Browse, Scan). Raw Stack liest diese Werte fuer den separaten Preprocessing-Start.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Calibration</code>-Bereich bauen.
+  Erledigt wenn Kalibrieroptionen sichtbar sind und Defaults aus dem Backend kommen.
+  Implementiert: Bias/Dark/Flat-Schalter, Ordner/Master-Auswahl und Browse-Buttons sind identisch zu <code>Input &amp; Scan</code>; erweiterte Kalibrierparameter bleiben im Parametereditor.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Quality</code>-Bereich bauen.
+  Erledigt wenn Frame-Tabelle, Auto-Rejection-Modus, Ausschlussgruende und manuelle Overrides sichtbar sind.
+  Implementiert: Auto-Rejection-Modus und relevante Grenzwerte sind editierbar; nach einem Lauf wird <code>frame_quality.csv</code> als Frame-Tabelle angezeigt. Checkboxen schreiben <code>quality_filter.manual_overrides</code> fuer den naechsten Lauf.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Stack</code>-Bereich bauen.
+  Erledigt wenn Rejection, Normalisierung, Gewichtung, Output und Start/Cancel bedienbar sind.
+  Implementiert: Rejection, Sigma-Grenzen, Normalisierung, Gewichtung sowie Start/Cancel sind bedienbar.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Postprocess</code>-Bereich bauen.
+  Erledigt wenn <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> und <code>HyperMetric Stretch</code> default aktiv und einzeln waehlbar sind.
+  Implementiert: Alle vier Optionen werden aus Backend-Defaults auf <code>true</code> geladen und koennen einzeln umgeschaltet werden. HMS-Detailparameter entsprechen den Tile-Compile-Defaults und sind nur im Parametereditor editierbar.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI-Optionen fuer <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> anlegen.
+  Erledigt wenn alle drei Checkboxen sichtbar, i18n-gebunden und per Default aktiv sind.
+  Implementiert: Sichtbare Postprocess-Schalter fuer Astrometry, BGE und PCC.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Parameters</code>-Bereich mit Parameter-Studio-Komponenten bauen.
+  Erledigt wenn Preprocessing-Parameter gruppiert, editierbar, validiert und auf Default ruecksetzbar sind.
+  Implementiert: Gruppierte Preprocessing-Parameter werden aus <code>/api/tools/preprocessing/parameters</code> gerendert; der JSON-Editor bleibt die Bearbeitungsflaeche fuer erweiterte Parameter. Backend-Validierung, gespeicherter Parameterzustand, Defaults und Reset sind angebunden.</p>
+</li>
+</ul>
+<h3 id="12-run-monitor-integration">12. Run-Monitor-Integration<a class="headerlink" href="#12-run-monitor-integration" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preprocessing-Status in Run-Monitor-Komponente einspeisen.
+  Erledigt wenn Phasenleiste, aktuelle Phase und Gesamtstatus ohne Sonder-UI angezeigt werden.
+  Implementiert: <code>run-monitor.html?preprocessing_job_id=...</code> laedt <code>/api/tools/preprocessing/status</code>, nutzt dieselbe Phasenlisten-Komponente und zeigt die Preprocessing-Phasen ohne eigenes Progress-Widget.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Event-/Logansicht anbinden.
+  Erledigt wenn Preprocessing-Events wie normale Run-Events erscheinen.
+  Implementiert: Run Monitor liest <code>artifacts/preprocess/events.jsonl</code> und formatiert die Events ueber die bestehende strukturierte Logansicht.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Artefaktliste anbinden.
+  Erledigt wenn <code>artifacts/preprocess/*</code> in der GUI sichtbar und anklickbar ist.
+  Implementiert: Run Monitor verwendet fuer den Preprocessing-Run dieselbe Artefaktliste und denselben Artefaktviewer ueber die vorhandenen Run-Artefakt-Endpunkte.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Warnungen und Fehler anzeigen.
+  Erledigt wenn Metadatenwarnungen, Filterwarnungen und Phasenfehler im gleichen Bereich wie normale Run-Warnungen erscheinen.
+  Implementiert: Warnungen, Fehler und Phasenstatus kommen ueber Preprocessing-Status, <code>events.jsonl</code> und Artefakte in dieselben Run-Monitor-Bereiche.</p>
+</li>
+</ul>
+<h3 id="13-tests-und-fixtures">13. Tests und Fixtures<a class="headerlink" href="#13-tests-und-fixtures" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend-Contract-Test fuer Defaults ergaenzen.
+  Erledigt wenn Defaults fuer Postprocess und Report automatisch geprueft werden.
+  Implementiert: <code>web_backend_cpp_contract</code> prueft Raw-Stack-Defaults inklusive Astrometry/BGE/PCC/HMS und HMS-Detaildefaults.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-Test mit CFA/OSC-Fixture ergaenzen.
+  Erledigt wenn CFA-Erkennung, Bayer-Pattern und Metadaten validiert werden.
+  Implementiert: Backend-Contract deckt Scan-Job-Normalisierung ab; CFA/OSC-Erkennung bleibt an den bestehenden Tile-Compile-Scanpfad gekoppelt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-Test mit Mono-Fixture ergaenzen.
+  Erledigt wenn Mono-Erkennung ohne Bayer-Annahmen validiert wird.
+  Implementiert: <code>web_backend_cpp_contract</code> startet Preprocessing-Scan auf Mono-Fixture und prueft <code>input_mode=mono</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Status-/Event-Test ergaenzen.
+  Erledigt wenn Run-Monitor-kompatible Phasen und Events geprueft werden.
+  Implementiert: Contract prueft Phasenstatus inklusive <code>REPORT</code>, <code>HYPERMETRIC_STRETCH</code> und deaktivierte Spaetphasen als <code>skipped</code>; Event-Artefakt wird ueber Artefakt-API gelesen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Parameter-Patch-Test ergaenzen.
+  Erledigt wenn Overrides, Validierung und Reset auf Default getestet sind.
+  Implementiert: Contract prueft <code>PATCH /api/tools/preprocessing/parameters</code> mit Merge von Defaults, gespeicherten Overrides, manuellen Frame-Overrides und Validation-Fehlern.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Report-Artefakt-Test ergaenzen.
+  Erledigt wenn <code>artifacts_manifest.json</code>, <code>frame_quality.csv</code>, <code>events.jsonl</code> und Reportdateien entstehen.
+  Implementiert: Contract prueft Artefaktliste, Manifest, <code>frame_quality.csv</code>, <code>events.jsonl</code>, HTML-Report-Raw-Endpoint und Report-Route.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> End-to-End-Minimaltest ergaenzen.
+  Erledigt wenn ein kleiner Fixture-Datensatz vom Scan bis zum Stack und Report durchlaeuft.
+  Implementiert: Backend-Contract startet einen Fake-Runner-E2E-Lauf und prueft Stack-, Quality-, Report- und Status-Artefakte; C++-Contract-Test prueft separate Preprocessing-Konfigurationsregeln.</p>
+</li>
+</ul>
+<h3 id="14-dokumentation-und-migration">14. Dokumentation und Migration<a class="headerlink" href="#14-dokumentation-und-migration" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Konfigurationsreferenz erweitern.
+  Erledigt wenn alle <code>preprocessing.*</code> Parameter dokumentiert sind.
+  Implementiert: <code>configuration_reference.md</code> und <code>configuration_reference_en.md</code> enthalten Abschnitt <code>Raw Stack / Preprocessing</code> mit Input, Calibration, Quality, Stacking, Postprocess, HMS und Report.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI-Dokumentation erweitern.
+  Erledigt wenn Menuepunkt, Parameter, Run-Monitor-Anzeige und Report beschrieben sind.
+  Implementiert: <code>docs/raw_stack_gui_de.md</code> beschreibt Eingabe, Postprocess, Parametereditor, Run-Monitor-Integration und Artefakte.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Beispielkonfiguration ergaenzen.
+  Erledigt wenn mindestens je ein CFA/OSC- und Mono-Beispiel existiert.
+  Implementiert: <code>configuration_examples_practical_de.md</code> und <code>configuration_examples_practical_en.md</code> enthalten Raw-Stack-Beispiele fuer CFA/OSC und Mono.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Changelog/Release-Notiz vorbereiten.
+  Erledigt wenn Scope, Defaults und bekannte Grenzen des neuen Menuepunkts dokumentiert sind.
+  Implementiert: <code>docs/raw_stack_release_note_de.md</code>.</p>
+</li>
+</ul>
+<h3 id="15-abnahmekriterien-fuer-mvp">15. Abnahmekriterien fuer MVP<a class="headerlink" href="#15-abnahmekriterien-fuer-mvp" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> CFA/OSC-Datensatz laeuft von Scan bis Stack.
+  Erledigt wenn ein realer oder Fixture-Datensatz einen linearen Stack, Artefakte, Status und Report erzeugt.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Mono-Datensatz laeuft von Scan bis Stack.
+  Erledigt wenn Mono ohne CFA-/RGB-Zwang verarbeitet wird.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>Astrometry</code>, <code>BGE</code>, <code>PCC</code> und <code>HyperMetric Stretch</code> sind default aktiv.
+  Erledigt wenn GUI und Backend dieselben Defaults zeigen und verwenden.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Fortschritt entspricht Run Monitor.
+  Erledigt wenn keine separate Fortschrittsanzeige noetig ist.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Parameterbearbeitung entspricht Parameter Studio.
+  Erledigt wenn Anwender Preprocessing-Parameter vor dem Start gruppiert bearbeiten koennen.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Report entspricht Tile-Compile-Reportpipeline.
+  Erledigt wenn der Report aus <code>artifacts/preprocess/*</code> mit dem bestehenden Generator erzeugt wird.</p>
+</li>
+</ul>
+<h2 id="kurzfazit">Kurzfazit<a class="headerlink" href="#kurzfazit" title="Permanent link">&para;</a></h2>
+<p>Der neue Menuepunkt sollte den vorhandenen Tile-Compile-Unterbau fuer Raw-/FITS-Input, Kalibrierung, CFA/OSC- und Mono-Behandlung, Registrierung, Normalisierung, Metriken, Parameterbearbeitung, Fortschrittsanzeige und Reporting nutzen, aber ohne Tile-Grid und ohne die speziellen tile-basierten Rekonstruktionsphasen arbeiten. Der groesste Zusatznutzen ist die automatische Qualitaetsanalyse: schlechte Frames erkennen, begruendet ausschliessen, verbleibende Frames gewichten und alle Entscheidungen im detaillierten Tile-Compile-Report sichtbar machen. Danach kann der erzeugte lineare Stack standardmaessig durch Astrometry, BGE und PCC laufen.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3394 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_performance_analysis/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AQMH v0.2.0 Performance Regression Analysis - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#aqmh-v020-performance-regression-analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AQMH v0.2.0 Performance Regression Analysis
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-dataset-and-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Dataset and Environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-phase-by-phase-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Phase-by-Phase Timing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-root-cause-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Root Cause Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Root Cause Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-reconstruction-backend-gpu-v010-cpu-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Reconstruction Backend: GPU (v0.1.0) → CPU (v0.2.0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-slower-aqmh_maps-phase-renamed-from-aqmh_quality_mapslocal_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Slower AQMH_MAPS Phase (Renamed from AQMH_QUALITY_MAPS/LOCAL_METRICS)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-aqmh_diagnostics-phase-mandatory-and-heavy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 AQMH_DIAGNOSTICS Phase: Mandatory and Heavy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-increased-io-and-cache-pressure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Increased I/O and Cache Pressure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-memory-observations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 Memory Observations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-are-parallel_workers-respected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 Are parallel_workers Respected?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-quantified-impact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Quantified Impact
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-optimization-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Optimization Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Optimization Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-re-enable-gpu-reconstruction-highest-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Re-enable GPU Reconstruction (Highest Priority)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-make-aqmh_diagnostics-configurable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Make AQMH_DIAGNOSTICS Configurable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-reduce-diagnostic-payload-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Reduce Diagnostic Payload Size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-overlap-aqmh_maps-with-reconstruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Overlap AQMH_MAPS with Reconstruction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-increase-region-streaming-chunk-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Increase Region-Streaming Chunk Size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-cache-quality-maps-in-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Cache Quality Maps in Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-investigate-aqmh_maps-cpu-bottlenecks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Investigate AQMH_MAPS CPU Bottlenecks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-suggested-implementation-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Suggested Implementation Plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Conclusion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-relevant-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A: Relevant Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-b-raw-timing-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix B: Raw Timing Data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-c-artifact-size-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix C: Artifact Size Data
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="aqmh-v020-performance-regression-analysis">AQMH v0.2.0 Performance Regression Analysis<a class="headerlink" href="#aqmh-v020-performance-regression-analysis" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-07-05<br />
+<strong>Analyzed Runs:</strong>
+- <code>m31-gpu1_20260628_210413</code> (v0.1.0 / legacy AQMH reconstruction)
+- <code>M31_AQMH2_20260704_233605</code> (v0.2.0 / new AQMH pipeline)</p>
+<p><strong>Goal:</strong> Understand why v0.2.0 is significantly slower than v0.1.0 for the same dataset (645 M31 frames, 3840x2160, OSC) and propose concrete optimizations.</p>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary<a class="headerlink" href="#1-executive-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>v0.1.0</th>
+<th>v0.2.0</th>
+<th>Delta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Total wall time</strong></td>
+<td><strong>29.7 min</strong></td>
+<td><strong>56.6 min</strong></td>
+<td><strong>+90 %</strong></td>
+</tr>
+<tr>
+<td>Reconstruction + maps time</td>
+<td>901.9 s</td>
+<td>2 117.0 s</td>
+<td><strong>+2.3x</strong></td>
+</tr>
+<tr>
+<td>Artifact size (<code>aqmh_metrics.json</code>)</td>
+<td>256 KB</td>
+<td>178 MB</td>
+<td><strong>+694x</strong></td>
+</tr>
+<tr>
+<td>Additional artifacts</td>
+<td>none</td>
+<td><code>aqmh_regions.json</code> (100 MB)</td>
+<td>new</td>
+</tr>
+<tr>
+<td>Reconstruction backend</td>
+<td><strong>OpenCV CUDA GPU</strong></td>
+<td><strong>CPU exact (GPU fallback)</strong></td>
+<td>regression</td>
+</tr>
+<tr>
+<td>Cache reads</td>
+<td>1 290</td>
+<td>28 380</td>
+<td><strong>+22x</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The v0.2.0 pipeline restructures the previous <code>AQMH_QUALITY_MAPS</code> + <code>TILE_RECONSTRUCTION</code> steps into three sequential phases (<code>AQMH_MAPS</code>/<code>AQMH_RECONSTRUCTION</code>/<code>AQMH_DIAGNOSTICS</code>). The biggest regressions are:</p>
+<ol>
+<li><strong>CPU-only reconstruction</strong> replacing the v0.1.0 OpenCV CUDA kernel (901.7 s vs 336.9 s). The v0.2.0 artifact shows <code>acceleration_fallback: true</code> — the GPU backend was selected but fell back to CPU because no GPU implementation exists for the v0.2.0 weighted-MAD algorithm.</li>
+<li><strong>Slower AQMH_MAPS phase</strong> (formerly <code>AQMH_QUALITY_MAPS</code>/<code>LOCAL_METRICS</code>, 565.0 s in v0.1.0) now costs 1 215.3 s — a 2.2x increase.</li>
+<li><strong>AQMH_DIAGNOSTICS phase</strong> writes 278 MB of diagnostic JSON and takes 318.6 s with no opt-out.</li>
+</ol>
+<p><strong>Recommended actions:</strong>
+- Re-enable GPU acceleration for the v0.2.0 reconstruction path.
+- Make the <code>AQMH_DIAGNOSTICS</code> phase configurable or compute it only on demand.
+- Reduce JSON diagnostic payload size (replace full per-frame block arrays with summaries).
+- Consider fusing <code>AQMH_MAPS</code> with reconstruction again, or at least overlap their execution.</p>
+<hr />
+<h2 id="2-dataset-and-environment">2. Dataset and Environment<a class="headerlink" href="#2-dataset-and-environment" title="Permanent link">&para;</a></h2>
+<p>Both runs processed the same input directory:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>/media/tc_ssd/M31_ligths_all
+</span></code></pre></div>
+<p>Common parameters:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frames</td>
+<td>645</td>
+</tr>
+<tr>
+<td>Image size</td>
+<td>3840 x 2160</td>
+</tr>
+<tr>
+<td>Color mode</td>
+<td>OSC (GBRG)</td>
+</tr>
+<tr>
+<td>Canvas size</td>
+<td>3924 x 2310</td>
+</tr>
+<tr>
+<td>Parallel workers</td>
+<td>8</td>
+</tr>
+<tr>
+<td>Acceleration</td>
+<td><code>auto</code> → CUDA available</td>
+</tr>
+<tr>
+<td>AQMH enabled</td>
+<td><code>true</code></td>
+</tr>
+</tbody>
+</table>
+<p>Configuration differences are minimal (mostly BGE-related settings) and do not explain the performance gap.</p>
+<hr />
+<h2 id="3-phase-by-phase-timing">3. Phase-by-Phase Timing<a class="headerlink" href="#3-phase-by-phase-timing" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>v0.1.0</th>
+<th>v0.2.0</th>
+<th>Delta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SCAN_INPUT</td>
+<td>0.5 s</td>
+<td>1.3 s</td>
+<td>+0.8 s</td>
+</tr>
+<tr>
+<td>CHANNEL_SPLIT</td>
+<td>0.0 s</td>
+<td>0.0 s</td>
+<td>—</td>
+</tr>
+<tr>
+<td>NORMALIZATION</td>
+<td>96.5 s</td>
+<td>111.4 s</td>
+<td>+14.9 s</td>
+</tr>
+<tr>
+<td>GLOBAL_METRICS</td>
+<td>77.2 s</td>
+<td>—</td>
+<td>removed/merged</td>
+</tr>
+<tr>
+<td>TILE_GRID</td>
+<td>0.3 s</td>
+<td>—</td>
+<td>removed/merged</td>
+</tr>
+<tr>
+<td>REGISTRATION</td>
+<td>281.6 s</td>
+<td>315.1 s</td>
+<td>+33.5 s</td>
+</tr>
+<tr>
+<td>PREWARP</td>
+<td>293.8 s</td>
+<td>328.4 s</td>
+<td>+34.6 s</td>
+</tr>
+<tr>
+<td>COMMON_OVERLAP</td>
+<td>0.3 s</td>
+<td>0.0 s</td>
+<td>−0.3 s</td>
+</tr>
+<tr>
+<td>AQMH_QUALITY_MAPS / LOCAL_METRICS</td>
+<td><strong>565.0 s</strong></td>
+<td>—</td>
+<td>renamed to AQMH_MAPS</td>
+</tr>
+<tr>
+<td>AQMH_MAPS</td>
+<td>—</td>
+<td><strong>1 215.3 s</strong></td>
+<td>renamed/restructured from AQMH_QUALITY_MAPS</td>
+</tr>
+<tr>
+<td>AQMH_GLOBAL_QUALITY</td>
+<td>—</td>
+<td>0.0 s</td>
+<td>new</td>
+</tr>
+<tr>
+<td>AQMH_RECONSTRUCTION</td>
+<td>—</td>
+<td><strong>901.7 s</strong></td>
+<td>replaces TILE_RECONSTRUCTION</td>
+</tr>
+<tr>
+<td>AQMH_DIAGNOSTICS</td>
+<td>—</td>
+<td><strong>318.6 s</strong></td>
+<td>new</td>
+</tr>
+<tr>
+<td>TILE_RECONSTRUCTION</td>
+<td><strong>336.9 s</strong></td>
+<td>—</td>
+<td>removed</td>
+</tr>
+<tr>
+<td>STATE_CLUSTERING</td>
+<td>0.0 s</td>
+<td>0.0 s</td>
+<td>—</td>
+</tr>
+<tr>
+<td>SYNTHETIC_FRAMES</td>
+<td>0.0 s</td>
+<td>0.0 s</td>
+<td>—</td>
+</tr>
+<tr>
+<td>STACKING</td>
+<td>1.3 s</td>
+<td>3.2 s</td>
+<td>+1.9 s</td>
+</tr>
+<tr>
+<td>DEBAYER</td>
+<td>0.5 s</td>
+<td>0.4 s</td>
+<td>−0.1 s</td>
+</tr>
+<tr>
+<td>ASTROMETRY</td>
+<td>8.0 s</td>
+<td>8.1 s</td>
+<td>+0.1 s</td>
+</tr>
+<tr>
+<td>BGE</td>
+<td>60.1 s</td>
+<td>60.3 s</td>
+<td>+0.2 s</td>
+</tr>
+<tr>
+<td>PCC</td>
+<td>56.5 s</td>
+<td>55.3 s</td>
+<td>−1.2 s</td>
+</tr>
+<tr>
+<td>HYPERMETRIC_STRETCH</td>
+<td>1.2 s</td>
+<td>1.1 s</td>
+<td>−0.1 s</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>29.7 min</strong></td>
+<td><strong>56.6 min</strong></td>
+<td><strong>+26.9 min</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The v0.1.0 run had two separate phases: <code>AQMH_QUALITY_MAPS</code>/<code>LOCAL_METRICS</code> (565.0 s) for quality-map computation and <code>TILE_RECONSTRUCTION</code> (336.9 s) for weighted reconstruction on the GPU. The v0.2.0 pipeline renames and restructures these into three sequential phases: <code>AQMH_MAPS</code> (renamed from <code>AQMH_QUALITY_MAPS</code>), <code>AQMH_RECONSTRUCTION</code> (replaces <code>TILE_RECONSTRUCTION</code>), and <code>AQMH_DIAGNOSTICS</code> (new). Together they consume 2 435.6 s, compared to 901.9 s for the two v0.1.0 phases — a 2.7x increase.</p>
+<hr />
+<h2 id="4-root-cause-analysis">4. Root Cause Analysis<a class="headerlink" href="#4-root-cause-analysis" title="Permanent link">&para;</a></h2>
+<h3 id="41-reconstruction-backend-gpu-v010-cpu-v020">4.1 Reconstruction Backend: GPU (v0.1.0) → CPU (v0.2.0)<a class="headerlink" href="#41-reconstruction-backend-gpu-v010-cpu-v020" title="Permanent link">&para;</a></h3>
+<p>The most critical regression is the reconstruction backend.</p>
+<p><strong>v0.1.0 artifact (<code>tile_reconstruction.json</code>):</strong>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;acceleration_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;cache_stats&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">&quot;bytes_read&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5846563800</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">&quot;bytes_written&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2923281900</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">&quot;read_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1290</span><span class="p">,</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">&quot;write_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">645</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;max_resident_maps_observed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>v0.2.0 artifact (<code>aqmh_reconstruction.json</code>):</strong>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;acceleration&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">&quot;selected_backend&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;opencv_cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">&quot;using_gpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">&quot;acceleration_fallback&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">&quot;acceleration_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">&quot;execution_backend&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cpu_exact_v0_2&quot;</span><span class="p">,</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">&quot;region_streaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nt">&quot;chunk_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">44</span><span class="p">,</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nt">&quot;chunk_rows&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">53</span><span class="p">,</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nt">&quot;cache_stats&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="nt">&quot;bytes_read&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3085264620</span><span class="p">,</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">&quot;bytes_written&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2923281900</span><span class="p">,</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">&quot;read_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">28380</span><span class="p">,</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">&quot;write_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">645</span><span class="p">,</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">&quot;max_resident_maps_observed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p>Observations:
+- v0.1.0 used the OpenCV CUDA kernel (<code>cv::cuda::GpuMat</code> operations, not native NVIDIA CUDA) and kept up to 2 quality maps resident in memory.
+- v0.2.0 <strong>selected</strong> <code>opencv_cuda</code> as the backend (and <code>acceleration_context.json</code> reports <code>using_gpu: true</code>), but the artifact shows <code>acceleration_fallback: true</code> and <code>acceleration_used: false</code>. This means the GPU backend was selected by the acceleration framework but the v0.2.0 reconstruction code has no GPU implementation for the exact weighted-MAD algorithm, so it fell back to the "exact CPU region-streaming backend" with 44 chunks of 53 rows each.
+- v0.2.0 reads <strong>less total bytes</strong> (3.09 GB vs 5.85 GB) but performs <strong>22x more read calls</strong> (28 380 vs 1 290). The small chunk size and CPU streaming create massive overhead.
+- The log explicitly states: <code>v0.2 weighted-MAD uses the exact CPU region-streaming backend; the legacy v0.1 CUDA kernel is intentionally not used.</code> (The log label "CUDA kernel" here means the v0.1.0 <strong>OpenCV CUDA</strong> path, not a native NVIDIA CUDA kernel.)</p>
+<p>Impact: The reconstruction step alone is <strong>2.7x slower</strong> (901.7 s vs 336.9 s), and it is the single largest contributor to the slowdown.</p>
+<h3 id="42-slower-aqmh_maps-phase-renamed-from-aqmh_quality_mapslocal_metrics">4.2 Slower <code>AQMH_MAPS</code> Phase (Renamed from <code>AQMH_QUALITY_MAPS</code>/<code>LOCAL_METRICS</code>)<a class="headerlink" href="#42-slower-aqmh_maps-phase-renamed-from-aqmh_quality_mapslocal_metrics" title="Permanent link">&para;</a></h3>
+<p>The quality-map functionality existed in v0.1.0 as a separate phase called <code>AQMH_QUALITY_MAPS</code> (which logged its end event as <code>LOCAL_METRICS</code>). It took <strong>565.0 s</strong> (19:16:44–19:26:09). In v0.2.0 it was renamed to <code>AQMH_MAPS</code> and takes <strong>1 215.3 s</strong> — a 2.2x increase. The phase was not "embedded inside TILE_RECONSTRUCTION" as previously stated; it was always a separate phase.</p>
+<p><div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>[AQMH] requested=auto selected=opencv_cuda execution=GPU (auto-detected) [OpenCV CUDA]
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>[AQMH] Using 8 parallel workers for quality-map computation cpu_workers=8 gpu=yes backend=opencv_cuda
+</span></code></pre></div>
+(Note: <code>selected=opencv_cuda</code> means the phase runs via <strong>OpenCV CUDA</strong>, not native NVIDIA CUDA kernels.)</p>
+<p>Duration: <strong>1 215.3 s</strong> (≈1.88 s/frame), up from 565.0 s (≈0.88 s/frame) in v0.1.0. The GPU is selected, but the phase still dominates the pipeline. Possible reasons for the 2.2x slowdown:
+- Each frame is read from disk cache, preprocessed, downsampled across pyramid scales, and the per-pixel quality map is computed and written back to disk.
+- The CPU workers (8) may be the bottleneck for the pyramid/combination steps even though the heavy convolutions are on GPU.
+- There is no overlap with reconstruction; the whole pipeline waits for all 645 maps to be written before reconstruction starts.</p>
+<h3 id="43-aqmh_diagnostics-phase-mandatory-and-heavy">4.3 <code>AQMH_DIAGNOSTICS</code> Phase: Mandatory and Heavy<a class="headerlink" href="#43-aqmh_diagnostics-phase-mandatory-and-heavy" title="Permanent link">&para;</a></h3>
+<p>v0.2.0 adds a mandatory <code>AQMH_DIAGNOSTICS</code> phase (318.6 s) that:
+- Computes block-level statistics and heatmaps for every frame.
+- Writes them to <code>aqmh_metrics.json</code> (178 MB) and <code>aqmh_regions.json</code> (100 MB).</p>
+<p>Size breakdown of <code>aqmh_metrics.json</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Size</th>
+<th>Share</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frames</code></td>
+<td>107.5 MB</td>
+<td>99.7 %</td>
+</tr>
+<tr>
+<td><code>diagnostics</code></td>
+<td>0.37 MB</td>
+<td>0.3 %</td>
+</tr>
+<tr>
+<td>all other</td>
+<td>&lt;0.01 MB</td>
+<td>&lt;0.1 %</td>
+</tr>
+</tbody>
+</table>
+<p>Each frame entry is 164 KB of <code>block_diagnostics</code> (9 blocks per frame). The diagnostics phase has no configuration flag to disable or reduce its output.</p>
+<p>Impact: This phase adds <strong>5.3 minutes</strong> and <strong>278 MB of disk I/O</strong> to every run, regardless of whether the user needs the detailed per-block heatmaps.</p>
+<h3 id="44-increased-io-and-cache-pressure">4.4 Increased I/O and Cache Pressure<a class="headerlink" href="#44-increased-io-and-cache-pressure" title="Permanent link">&para;</a></h3>
+<ul>
+<li>v0.2.0 writes more intermediate artifacts (178 MB + 100 MB diagnostic JSON).</li>
+<li>The CPU region-streaming reconstruction performs 28 380 cache reads, compared to 1 290 in the GPU path.</li>
+<li><code>persistent_mmap_cache_views</code> and <code>region_streaming</code> are enabled, but the high read-count suggests the small chunk size (53 rows) thrashes the cache.</li>
+</ul>
+<h3 id="45-memory-observations">4.5 Memory Observations<a class="headerlink" href="#45-memory-observations" title="Permanent link">&para;</a></h3>
+<p>System memory during a comparable v0.2.0 run (M42):
+- 55/62 GB RAM used
+- 28/31 GB swap used</p>
+<p>The CPU-streaming backend likely keeps many frame chunks in memory or swap, while the v0.1.0 GPU path kept only 2 resident maps.</p>
+<h3 id="46-are-parallel_workers-respected">4.6 Are <code>parallel_workers</code> Respected?<a class="headerlink" href="#46-are-parallel_workers-respected" title="Permanent link">&para;</a></h3>
+<p><strong>Yes.</strong> I verified both the runtime logs and the source code:</p>
+<ul>
+<li><strong>AQMH_MAPS</strong> log entries show <code>workers=8 cpu_workers=8 gpu=yes backend=opencv_cuda</code>.</li>
+<li><strong>AQMH_RECONSTRUCTION</strong> prints <code>cpu_workers=8</code> and passes <code>cfg.runtime_limits.parallel_workers</code> into <code>reconstruction::AqmhReconstructionConfig::parallel_workers</code> (<code>@/media/data/programming/tile_compile/tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp:66</code>).</li>
+<li>The CPU reconstruction then uses OpenMP <code>#pragma omp parallel num_threads(...)</code> with <code>schedule(dynamic, 64)</code> over the pixels of each chunk (<code>@/media/data/programming/tile_compile/tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp:237-249</code>).</li>
+</ul>
+<p><strong>Why it still feels slow:</strong> The v0.2.0 backend is CPU-only and <strong>row-streaming</strong>. Each chunk is only 53 rows, so the per-chunk work is small and the 8 threads spend much of their time waiting on cache I/O and synchronization. More workers cannot overcome the fact that the algorithm is no longer running on the GPU.</p>
+<p>There is also a cap on the reconstruction chunk size: the code computes the chunk rows from <code>memory_budget / 2</code> clamped to <code>[128, 1536]</code> MB. For the M31 run with <code>memory_budget: 2048</code>, the chunk size was exactly 53 rows (<code>2 048 / 2 = 1024</code> MB). Raising <code>memory_budget</code> to 4 096 MB would only increase the chunk size to about 79 rows (clamped at <code>4 096 / 2 = 2048</code> → 1536 MB), not a dramatic change. To use larger chunks, the clamp would need to be relaxed.</p>
+<hr />
+<h2 id="5-quantified-impact">5. Quantified Impact<a class="headerlink" href="#5-quantified-impact" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Bottleneck</th>
+<th>Time Added</th>
+<th>Share of Extra Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU-only reconstruction (GPU fallback)</td>
+<td>564.8 s</td>
+<td>35 %</td>
+</tr>
+<tr>
+<td>Slower AQMH_MAPS phase (565→1 215 s)</td>
+<td>650.3 s</td>
+<td>41 %</td>
+</tr>
+<tr>
+<td>AQMH_DIAGNOSTICS phase (new)</td>
+<td>318.6 s</td>
+<td>20 %</td>
+</tr>
+<tr>
+<td>Removed GLOBAL_METRICS + TILE_GRID</td>
+<td>−77.5 s</td>
+<td>−5 %</td>
+</tr>
+<tr>
+<td>Other small changes</td>
+<td>~35 s</td>
+<td>2 %</td>
+</tr>
+<tr>
+<td><strong>Total extra</strong></td>
+<td><strong>~1 491 s</strong></td>
+<td><strong>~93 %</strong></td>
+</tr>
+</tbody>
+</table>
+<p>(Shares are of the total extra phase time. The net wall-time increase is larger — 26.9 min = 1 614 s — due to inter-phase overhead and gaps not captured by individual phase timings.)</p>
+<p>Net wall-time increase: 26.9 min (90 %).</p>
+<hr />
+<h2 id="6-optimization-recommendations">6. Optimization Recommendations<a class="headerlink" href="#6-optimization-recommendations" title="Permanent link">&para;</a></h2>
+<h3 id="61-re-enable-gpu-reconstruction-highest-priority">6.1 Re-enable GPU Reconstruction (Highest Priority)<a class="headerlink" href="#61-re-enable-gpu-reconstruction-highest-priority" title="Permanent link">&para;</a></h3>
+<p><strong>Three-tier backend strategy:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Backend</th>
+<th>Target Platform</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Native CUDA</strong> (<code>cuda</code>)</td>
+<td>NVIDIA GPUs (Linux/Win)</td>
+<td>not implemented — <code>cuda</code> backend returns <code>false</code> for all phases</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>OpenCL</strong> (<code>opencv_opencl</code>)</td>
+<td>AMD/Intel GPUs (Win/Mac/Linux)</td>
+<td>not implemented — <code>aqmh_reconstruction</code> not in allowed list</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>CPU exact</strong> (<code>cpu</code>)</td>
+<td>All platforms (fallback)</td>
+<td>implemented — current default via <code>acceleration_fallback</code></td>
+</tr>
+</tbody>
+</table>
+<p>The v0.1.0 OpenCV CUDA algorithm is <strong>not</strong> re-used — the goal is to run the v0.2.0 exact weighted-MAD on the GPU. The v0.2.0 code currently selects <code>opencv_cuda</code> but falls back to CPU (<code>acceleration_fallback: true</code>) because no GPU implementation exists.</p>
+<p><strong>Backend availability in the codebase:</strong>
+- <code>opencv_opencl</code> is already integrated in the build (<code>TILE_COMPILE_HAS_OPENCV_OPENCL</code>, <code>cv::ocl</code>) and used by other phases (prewarp, stacking, tile_reconstruction).
+- <code>aqmh_reconstruction</code> is currently <strong>not</strong> listed for <code>opencv_opencl</code> (<code>@/media/data/programming/tile_compile/tile_compile_cpp/src/core/acceleration.cpp:91-94</code>).
+- The native <code>cuda</code> backend returns <code>false</code> for all phases (<code>@/media/data/programming/tile_compile/tile_compile_cpp/src/core/acceleration.cpp:96-97</code>).
+- Both must be activated for <code>aqmh_reconstruction</code>.</p>
+<p><strong>Implementation plan:</strong></p>
+<ol>
+<li><strong>Native NVIDIA CUDA backend (Tier 1 — highest priority)</strong></li>
+<li>Add a new translation unit, e.g. <code>src/reconstruction/aqmh_reconstruction_cuda.cu</code>.</li>
+<li>Implement a real per-pixel <code>weighted_mad_sigma_clip</code> <code>__global__</code> kernel (not OpenCV CUDA wrappers):<ul>
+<li>Gather <code>frame_count</code> samples per pixel (value, weight = <code>gw * q</code>), honoring <code>canvas_mask</code> and frame masks.</li>
+<li>Apply cherry-pick if enabled (<code>aqmh_select_top_k</code> logic on device).</li>
+<li>Compute weighted median / MAD, iterative sigma-clipping, and <code>min_n_eff</code> / <code>min_fraction</code> checks.</li>
+<li>Return weighted mean, weight sum, and optional uniform-control image.</li>
+</ul>
+</li>
+<li>Activate the <code>cuda</code> backend for <code>aqmh_reconstruction</code> in <code>phase_supports_backend()</code>.</li>
+<li>Keep the CPU path as a deterministic fallback when <code>tile_compile_with_cuda</code> is false or the CUDA kernel reports a failure.</li>
+<li>
+<p>Hook it into <code>runner_phase_aqmh_reconstruction.cpp</code> so the phase selects the <strong>native CUDA</strong> backend when <code>acceleration.selected_backend == cuda</code> (distinct from <code>opencv_cuda</code>).</p>
+</li>
+<li>
+<p><strong>OpenCL backend (Tier 2 — cross-platform fallback)</strong></p>
+</li>
+<li>Add <code>AccelerationPhase::aqmh_reconstruction</code> to the <code>opencv_opencl</code> case in <code>@/media/data/programming/tile_compile/tile_compile_cpp/src/core/acceleration.cpp:91-94</code>.</li>
+<li>Implement <code>opencl_aqmh_weighted_reconstruction_impl</code> using <strong>real OpenCL C kernels</strong> (via <code>cv::ocl::ProgramSource</code> or direct OpenCL API), <strong>not</strong> <code>cv::UMat</code> reductions:<ul>
+<li><code>cv::UMat</code> operations (<code>cv::mean</code>, <code>cv::multiply</code>, <code>cv::compare</code>) cannot express per-pixel weighted-MAD with iterative sigma-clipping and quickselect — this requires custom kernel code.</li>
+<li>The OpenCL kernel mirrors the CUDA kernel logic 1:1: gather samples, cherry-pick, weighted median/MAD, sigma-clipping, <code>min_n_eff</code>/<code>min_fraction</code> checks.</li>
+<li>Cherry-pick can remain on the CPU as a pre-pass if it simplifies the kernel; the heavy per-pixel weighted-MAD is the part that must run on the GPU.</li>
+</ul>
+</li>
+<li>This enables GPU acceleration on <strong>AMD/Intel GPUs</strong> (Windows/Mac/Linux) where CUDA is unavailable.</li>
+<li>
+<p>On Mac, OpenCL is deprecated by Apple but still functional; a future Metal backend could replace it if needed.</p>
+</li>
+<li>
+<p><strong>Avoid duplicating region streaming for GPU paths</strong></p>
+</li>
+<li>The current CPU path streams 53-row chunks because of memory limits. A GPU path can load full frames into device memory once (or in larger batches) and process the whole canvas on the GPU.</li>
+<li>Remove or bypass the <code>chunk_rows</code> loop when a GPU backend is active.</li>
+</ol>
+<p>Expected gain: 2–3x faster reconstruction, reducing 901.7 s to roughly 300–450 s.</p>
+<h3 id="62-make-aqmh_diagnostics-configurable">6.2 Make <code>AQMH_DIAGNOSTICS</code> Configurable<a class="headerlink" href="#62-make-aqmh_diagnostics-configurable" title="Permanent link">&para;</a></h3>
+<p>Add a configuration flag to control the diagnostics phase:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">diagnostics</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># default: true</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;summary&quot;</span><span class="w">     </span><span class="c1"># options: &quot;summary&quot; | &quot;full&quot; | &quot;none&quot;</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">per_frame_blocks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">heatmaps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span></code></pre></div>
+<p>Behavior:
+- <code>none</code>: Skip the diagnostics phase entirely; write only the lightweight <code>diagnostics</code> array (0.37 MB).
+- <code>summary</code>: Keep the <code>diagnostics</code> array and global metrics, but omit the per-frame <code>frames</code> block.
+- <code>full</code>: Current behavior (178 MB + 100 MB).</p>
+<p>Expected gain: Up to 318.6 s saved and 278 MB less disk I/O when <code>none</code> or <code>summary</code> is selected.</p>
+<h3 id="63-reduce-diagnostic-payload-size">6.3 Reduce Diagnostic Payload Size<a class="headerlink" href="#63-reduce-diagnostic-payload-size" title="Permanent link">&para;</a></h3>
+<p>If <code>full</code> diagnostics are required:
+- Store block heatmaps in a compact binary format (e.g., FITS or compressed binary) instead of JSON.
+- Reduce block count or resolution (<code>r_morph_canvas_px</code>, <code>q_region</code> defaults could be relaxed for production runs).
+- Write per-frame diagnostics asynchronously or after the main pipeline completes.</p>
+<h3 id="64-overlap-aqmh_maps-with-reconstruction">6.4 Overlap AQMH_MAPS with Reconstruction<a class="headerlink" href="#64-overlap-aqmh_maps-with-reconstruction" title="Permanent link">&para;</a></h3>
+<p>Currently <code>AQMH_MAPS</code> must complete before <code>AQMH_RECONSTRUCTION</code> starts. For streaming/region-based reconstruction, this is not strictly necessary. Options:
+- Start reconstructing rows as soon as their quality maps are available (producer-consumer pipeline).
+- Process frames in batches: compute maps for N frames, then immediately reconstruct them, freeing their cache.</p>
+<p>Expected gain: 20–40 % of the combined maps+reconstruction time, because the two phases are currently almost perfectly sequential.</p>
+<h3 id="65-increase-region-streaming-chunk-size">6.5 Increase Region-Streaming Chunk Size<a class="headerlink" href="#65-increase-region-streaming-chunk-size" title="Permanent link">&para;</a></h3>
+<p>The current chunk size is 53 rows (44 chunks). Larger chunks would reduce the 28 380 cache read calls:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">runtime_limits</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">memory_budget</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span><span class="w">        </span><span class="c1"># increases chunk size, but capped at 1536 MB effective</span>
+</span></code></pre></div>
+<p>The chunk size is computed as <code>memory_budget / 2</code> clamped to <code>[128, 1536]</code> MB (<code>@/media/data/programming/tile_compile/tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp:159-164</code>). For the M31 run this gave 53 rows; with 4 096 MB it would only grow to about 79 rows. To get substantially larger chunks, either:
+- raise or remove the 1536 MB clamp in the code, or
+- add an explicit <code>aqmh.reconstruction.chunk_rows</code> config that bypasses the budget formula.</p>
+<p>Trade-off: higher memory usage, but modern systems (62 GB RAM) can handle it. Expected gain: 20–30 % reduction in reconstruction time.</p>
+<h3 id="66-cache-quality-maps-in-memory">6.6 Cache Quality Maps in Memory<a class="headerlink" href="#66-cache-quality-maps-in-memory" title="Permanent link">&para;</a></h3>
+<p>v0.2.0 uses <code>persistent_mmap_cache_views</code> and <code>max_resident_maps_observed: 0</code>, meaning maps are read from disk for every chunk. Keeping 2–4 maps resident (like v0.1.0) would eliminate repeated disk reads for the same frame across chunks.</p>
+<p>Expected gain: significant reduction in the 3.09 GB of cache reads and the 28 380 read calls.</p>
+<h3 id="67-investigate-aqmh_maps-cpu-bottlenecks">6.7 Investigate AQMH_MAPS CPU Bottlenecks<a class="headerlink" href="#67-investigate-aqmh_maps-cpu-bottlenecks" title="Permanent link">&para;</a></h3>
+<p>Even with <code>gpu=yes</code>, the phase takes 1.88 s/frame. Profiling should focus on:
+- <code>aqmh_quality_map.cpp</code> pyramid construction and downsample/combine steps.
+- CPU post-processing after GPU kernels (bilinear upsample, artifact mask, etc.).
+- Disk I/O for writing the cache.</p>
+<p>Quick win: parallelize the per-frame write-back or use asynchronous writes.</p>
+<hr />
+<h2 id="7-suggested-implementation-plan">7. Suggested Implementation Plan<a class="headerlink" href="#7-suggested-implementation-plan" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Immediate (no code changes):</strong></li>
+<li>Document that v0.2.0 is intentionally slower for the sake of algorithmic correctness/diagnostics.</li>
+<li>
+<p>Advise users to run production stacks with a config that disables BGE guards if they want the fastest path (already done in M31_AQMH2).</p>
+</li>
+<li>
+<p><strong>Short-term (config only):</strong></p>
+</li>
+<li>Add <code>aqmh.diagnostics.enabled</code> and <code>aqmh.diagnostics.level</code> flags.</li>
+<li>
+<p>Add <code>aqmh.reconstruction.chunk_rows</code> to tune the region-streaming granularity.</p>
+</li>
+<li>
+<p><strong>Medium-term (code changes):</strong></p>
+</li>
+<li>Overlap AQMH_MAPS and AQMH_RECONSTRUCTION using a frame batch queue.</li>
+<li>
+<p>Increase default resident quality maps to 2–4.</p>
+</li>
+<li>
+<p><strong>Long-term (code changes):</strong></p>
+</li>
+<li>Port the exact v0.2.0 weighted-MAD reconstruction to native NVIDIA CUDA.</li>
+<li>Replace JSON diagnostics with a compact binary format.</li>
+</ol>
+<hr />
+<h2 id="8-conclusion">8. Conclusion<a class="headerlink" href="#8-conclusion" title="Permanent link">&para;</a></h2>
+<p>The v0.2.0 pipeline is <strong>90 % slower</strong> than v0.1.0 for this dataset because it:</p>
+<ol>
+<li><strong>Replaced the fast GPU reconstruction with an exact CPU region-streaming backend</strong> (GPU was selected but fell back to CPU because no v0.2.0 GPU implementation exists).</li>
+<li><strong>Slowed down the <code>AQMH_QUALITY_MAPS</code>/<code>LOCAL_METRICS</code> phase</strong> (565→1 215 s) by renaming it to <code>AQMH_MAPS</code> and making it 2.2x slower.</li>
+<li><strong>Added a mandatory AQMH_DIAGNOSTICS phase</strong> that writes 278 MB of per-frame block diagnostics.</li>
+</ol>
+<p>The GPU is still used for AQMH_MAPS, but the CPU reconstruction and diagnostic I/O dominate the runtime. The most impactful fixes are re-enabling GPU reconstruction and making the diagnostics phase optional.</p>
+<hr />
+<h2 id="appendix-a-relevant-files">Appendix A: Relevant Files<a class="headerlink" href="#appendix-a-relevant-files" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp</code> — v0.2.0 CPU reconstruction backend.</li>
+<li><code>tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp</code> — phase orchestration.</li>
+<li><code>tile_compile_cpp/apps/runner_phase_aqmh_maps.cpp</code> — thin wrapper around local metrics.</li>
+<li><code>tile_compile_cpp/apps/runner_phase_aqmh_diagnostics.cpp</code> — diagnostic JSON generation.</li>
+<li><code>tile_compile_cpp/apps/runner_phase_local_metrics.cpp</code> — quality map computation.</li>
+<li><code>tile_compile_cpp/src/metrics/aqmh_quality_map.cpp</code> — quality map algorithm.</li>
+<li><code>tile_compile_cpp/include/tile_compile/config/configuration.hpp</code> — AQMH config structs.</li>
+</ul>
+<h2 id="appendix-b-raw-timing-data">Appendix B: Raw Timing Data<a class="headerlink" href="#appendix-b-raw-timing-data" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>v0.1.0 (m31-gpu1_20260628_210413)
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  SCAN_INPUT                  0.5 s
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  NORMALIZATION              96.5 s
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  GLOBAL_METRICS             77.2 s
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  TILE_GRID                   0.3 s
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  REGISTRATION              281.6 s
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  PREWARP                   293.8 s
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  COMMON_OVERLAP               0.3 s
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  AQMH_QUALITY_MAPS/LOCAL_METRICS 565.0 s
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>  TILE_RECONSTRUCTION       336.9 s
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  STACKING                    1.3 s
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  DEBAYER                     0.5 s
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  ASTROMETRY                  8.0 s
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>  BGE                        60.1 s
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  PCC                        56.5 s
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  HYPERMETRIC_STRETCH         1.2 s
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  Total:                    29.7 min
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>
+</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>v0.2.0 (M31_AQMH2_20260704_233605)
+</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  SCAN_INPUT                 1.3 s
+</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>  NORMALIZATION            111.4 s
+</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>  REGISTRATION             315.1 s
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  PREWARP                  328.4 s
+</span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>  COMMON_OVERLAP             0.0 s
+</span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>  AQMH_MAPS              1 215.3 s
+</span><span id="__span-6-26"><a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>  AQMH_GLOBAL_QUALITY        0.0 s
+</span><span id="__span-6-27"><a id="__codelineno-6-27" name="__codelineno-6-27" href="#__codelineno-6-27"></a>  AQMH_RECONSTRUCTION      901.7 s
+</span><span id="__span-6-28"><a id="__codelineno-6-28" name="__codelineno-6-28" href="#__codelineno-6-28"></a>  AQMH_DIAGNOSTICS         318.6 s
+</span><span id="__span-6-29"><a id="__codelineno-6-29" name="__codelineno-6-29" href="#__codelineno-6-29"></a>  STACKING                   3.2 s
+</span><span id="__span-6-30"><a id="__codelineno-6-30" name="__codelineno-6-30" href="#__codelineno-6-30"></a>  DEBAYER                    0.4 s
+</span><span id="__span-6-31"><a id="__codelineno-6-31" name="__codelineno-6-31" href="#__codelineno-6-31"></a>  ASTROMETRY                 8.1 s
+</span><span id="__span-6-32"><a id="__codelineno-6-32" name="__codelineno-6-32" href="#__codelineno-6-32"></a>  BGE                       60.3 s
+</span><span id="__span-6-33"><a id="__codelineno-6-33" name="__codelineno-6-33" href="#__codelineno-6-33"></a>  PCC                       55.3 s
+</span><span id="__span-6-34"><a id="__codelineno-6-34" name="__codelineno-6-34" href="#__codelineno-6-34"></a>  HYPERMETRIC_STRETCH        1.1 s
+</span><span id="__span-6-35"><a id="__codelineno-6-35" name="__codelineno-6-35" href="#__codelineno-6-35"></a>  Total:                   56.6 min
+</span></code></pre></div>
+<h2 id="appendix-c-artifact-size-data">Appendix C: Artifact Size Data<a class="headerlink" href="#appendix-c-artifact-size-data" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>v0.1.0 aqmh_metrics.json: 256 KB
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>  - diagnostics: 206 KB (99.6 %)
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>  - all other:  &lt; 1 KB
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>v0.2.0 aqmh_metrics.json: 178 MB
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>  - frames:   107.5 MB (99.7 %)
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  - diagnostics: 0.37 MB (0.3 %)
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  - all other:  &lt; 1 MB
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>v0.2.0 aqmh_regions.json: 100 MB
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3426 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/bge_preview_gui_plan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>BGE Preview GUI – detaillierter Implementierungsplan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#bge-preview-gui-detaillierter-implementierungsplan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              BGE Preview GUI – detaillierter Implementierungsplan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../AQMH/aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-ziel-und-umfang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Ziel und Umfang
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-bezug-zu-autobgepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Bezug zu AutoBGE.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-verbindlicher-einstieg-im-resume-bereich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Verbindlicher Einstieg im Resume-Bereich
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-benutzerablauf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Benutzerablauf
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-eingangsartefakt-vertrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Eingangsartefakt-Vertrag
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-vorarbeiten-und-notwendige-core-korrekturen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Vorarbeiten und notwendige Core-Korrekturen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Vorarbeiten und notwendige Core-Korrekturen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-autobge-von-classic-tile-artefakten-entkoppeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 AutoBGE von Classic-Tile-Artefakten entkoppeln
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-separate-sampling-ausschlussmaske" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Separate Sampling-Ausschlussmaske
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-preview-fahiges-core-ergebnis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Preview-fähiges Core-Ergebnis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-proxy-strategie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Proxy-Strategie
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-api-vertrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. API-Vertrag
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. API-Vertrag">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-preview-berechnen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 Preview berechnen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-previewbilder-abrufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 Previewbilder abrufen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#83-kein-eigener-apply-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.3 Kein eigener Apply-Endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-parametervertrag-und-validierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Parametervertrag und Validierung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-modal-und-darstellung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Modal und Darstellung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Diagnostik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-cache-und-nebenlaufigkeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Cache und Nebenläufigkeit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Cache und Nebenläufigkeit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#input-proxy-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input-Proxy-Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preview-ergebnis-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preview-Ergebnis-Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-yaml-merge-und-persistenz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. YAML-Merge und Persistenz
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-fehlerfalle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Fehlerfälle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-tests-und-abnahmekriterien" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Tests und Abnahmekriterien
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15. Tests und Abnahmekriterien">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-implementierungsreihenfolge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Implementierungsreihenfolge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#17-aufwandsschatzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        17. Aufwandsschätzung
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="bge-preview-gui-detaillierter-implementierungsplan">BGE Preview GUI – detaillierter Implementierungsplan<a class="headerlink" href="#bge-preview-gui-detaillierter-implementierungsplan" title="Permanent link">&para;</a></h1>
+<h2 id="1-ziel-und-umfang">1. Ziel und Umfang<a class="headerlink" href="#1-ziel-und-umfang" title="Permanent link">&para;</a></h2>
+<p>Für die Resume-Phase <code>BGE</code> wird eine interaktive Konfigurations- und
+Vorschauoberfläche ergänzt, analog zum vorhandenen HMS-Dialog. Als fachliche
+Referenz dient <code>AutoBGE.py</code> Version 2.0.2. Die eigentliche Berechnung erfolgt
+nicht in Python und wird nicht im Web-Backend nachgebaut, sondern verwendet den
+bereits vorhandenen C++-AutoBGE-Core.</p>
+<p>Der erste Ausbau unterstützt:</p>
+<ul>
+<li>RGB- und vom Core unterstützte Mono-Eingaben,</li>
+<li><code>bge.method: autobge</code>,</li>
+<li>Vorschau des korrigierten Bildes und des berechneten Hintergrundmodells,</li>
+<li>Darstellung der verwendeten Sample-Punkte,</li>
+<li>manuell gezeichnete Ausschlussflächen,</li>
+<li>Übernahme der Werte in die Resume-YAML,</li>
+<li>Resume ab <code>BGE</code> über den bestehenden Resume-Endpoint.</li>
+</ul>
+<p>Die klassische Grid-/Tile-BGE bleibt im MVP im normalen Config-Editor
+konfigurierbar. Eine interaktive Classic-BGE-Preview ist eine spätere
+Ausbaustufe, weil sie zusätzlich <code>local_metrics.json</code>, <code>tile_grid.json</code> und die
+Classic-BGE-Fitdiagnostik benötigt.</p>
+<h2 id="2-bezug-zu-autobgepy">2. Bezug zu AutoBGE.py<a class="headerlink" href="#2-bezug-zu-autobgepy" title="Permanent link">&para;</a></h2>
+<p>Die Referenzimplementierung arbeitet zweistufig:</p>
+<ol>
+<li>Bild in einen Arbeitsraum transformieren.</li>
+<li>Bild und Maske verkleinern.</li>
+<li>Hintergrund-Sample-Punkte bestimmen:</li>
+<li>Rand- und Eckpunkte,</li>
+<li>zufällige Punkte verteilt auf vier Quadranten,</li>
+<li>Ausschluss heller Bereiche,</li>
+<li>Verschieben der Punkte zu lokal dunkleren Positionen.</li>
+<li>Pro Kanal ein Polynommodell fitten und abziehen.</li>
+<li>Auf dem Residuum neue Sample-Punkte bestimmen.</li>
+<li>Ein RBF-Modell fitten.</li>
+<li>Polynom- und RBF-Hintergrund kombinieren.</li>
+<li>Ergebnis in den ursprünglichen Arbeitsraum zurücktransformieren.</li>
+<li>Zwischen korrigiertem Bild und Hintergrundmodell umschalten.</li>
+</ol>
+<p>Der C++-Core bildet diesen Ablauf bereits in <code>autobge.cpp</code> ab und erweitert ihn
+um deterministische Zufallsauswahl, robuste Patch-Schätzer, Varianzfilter,
+Canvas-Maske, Guard-Prüfungen und Diagnostik. Die GUI bildet deshalb den
+C++-Vertrag ab. Abweichende Defaults aus dem Python-Skript dürfen die aktuellen
+Projekt-Defaults nicht überschreiben.</p>
+<h2 id="3-verbindlicher-einstieg-im-resume-bereich">3. Verbindlicher Einstieg im Resume-Bereich<a class="headerlink" href="#3-verbindlicher-einstieg-im-resume-bereich" title="Permanent link">&para;</a></h2>
+<p>Wenn die Phase <code>BGE</code> ausgewählt ist, zeigt der rechte Resume-Bereich:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>[ BGE konfigurieren ]  [ BGE ]
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                        ^ vorhandenes Phasen-Badge
+</span></code></pre></div>
+<ul>
+<li>Der Button steht unmittelbar links neben dem BGE-Badge.</li>
+<li>Er wird ausschließlich bei ausgewählter Phase <code>BGE</code> angezeigt.</li>
+<li>Der Klick öffnet ein Modal innerhalb des Run Monitors.</li>
+<li>Das Modal lädt seine Startwerte aus der aktuell im Resume-YAML-Editor
+  geladenen Konfiguration.</li>
+<li>Bei <code>bge.method: none</code> oder <code>classic</code> erklärt der Dialog, dass die interaktive
+  Vorschau AutoBGE verwendet. Der Benutzer kann im Dialog ausdrücklich auf
+  <code>autobge</code> wechseln; es erfolgt keine stille Methodenänderung.</li>
+<li>Deutsche Beschriftung: <code>BGE konfigurieren</code>.</li>
+<li>Englische Beschriftung: <code>Configure BGE</code>.</li>
+</ul>
+<h2 id="4-benutzerablauf">4. Benutzerablauf<a class="headerlink" href="#4-benutzerablauf" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Benutzer wählt <code>BGE</code> in der Phasenliste.</li>
+<li>Der Button <code>BGE konfigurieren</code> erscheint links neben dem Phasen-Badge.</li>
+<li>Klick öffnet das BGE-Modal.</li>
+<li>Das Backend lädt das lineare RGB-Bild vor BGE und die Canvas-Maske.</li>
+<li>Das Modal zeigt zunächst das Original-Proxybild.</li>
+<li>Nach gültigen Parameteränderungen wird nach Debounce eine AutoBGE-Vorschau
+   berechnet.</li>
+<li>Benutzer kann zwischen <code>Original</code>, <code>Korrigiert</code> und <code>Hintergrundmodell</code>
+   umschalten sowie Sample-Punkte einblenden.</li>
+<li>Optional zeichnet der Benutzer Ausschlusspolygone über dem Bild.</li>
+<li><code>Übernehmen &amp; Resume starten</code> merged die BGE-Werte in die Resume-YAML und
+   ruft den bestehenden Resume-Endpoint mit <code>from_phase: "BGE"</code> auf.</li>
+<li>Das Modal schließt und der Run Monitor zeigt den Resume-Job.</li>
+</ol>
+<p><code>Zurücksetzen</code> stellt Parameter und Ausschlussflächen auf den Zustand beim
+Öffnen zurück. <code>Abbrechen</code> verändert weder YAML noch FITS-Dateien.</p>
+<h2 id="5-eingangsartefakt-vertrag">5. Eingangsartefakt-Vertrag<a class="headerlink" href="#5-eingangsartefakt-vertrag" title="Permanent link">&para;</a></h2>
+<p>Die Preview verwendet dasselbe lineare Bild, das der BGE-Resume-Pfad vor der
+Hintergrundextraktion verwendet:</p>
+<ol>
+<li><code>outputs/stacked_rgb_solve.fits</code>, wenn vorhanden,</li>
+<li>sonst <code>outputs/stacked_rgb.fits</code>.</li>
+</ol>
+<p>Bereits BGE-korrigierte Dateien wie <code>stacked_rgb_bge_linear.fits</code> oder
+<code>stacked_rgb_bge.fits</code> dürfen niemals als Eingang verwendet werden, da sonst
+eine doppelte Hintergrundkorrektur entstünde.</p>
+<p>Zusätzlich erforderlich:</p>
+<ul>
+<li><code>outputs/canvas_mask.fits</code>,</li>
+<li>identische Bild- und Maskengeometrie,</li>
+<li>drei konsistente RGB-Kanäle oder ein gültiger Mono-Cube entsprechend der
+  Core-Semantik.</li>
+</ul>
+<p>Die Artefaktauflösung wird aus dem Runner in eine gemeinsame Servicefunktion
+extrahiert. Preview und finaler Resume dürfen keine getrennten Prioritätslisten
+pflegen.</p>
+<h2 id="6-vorarbeiten-und-notwendige-core-korrekturen">6. Vorarbeiten und notwendige Core-Korrekturen<a class="headerlink" href="#6-vorarbeiten-und-notwendige-core-korrekturen" title="Permanent link">&para;</a></h2>
+<h3 id="61-autobge-von-classic-tile-artefakten-entkoppeln">6.1 AutoBGE von Classic-Tile-Artefakten entkoppeln<a class="headerlink" href="#61-autobge-von-classic-tile-artefakten-entkoppeln" title="Permanent link">&para;</a></h3>
+<p>Im aktuellen Resume-Pfad wird <code>apply_background_extraction()</code> nur aufgerufen,
+wenn Tile-Metriken und Tile-Grid vorhanden und konsistent sind. AutoBGE benötigt
+diese Daten intern jedoch nicht; es verwendet Bild, Canvas-Maske und eigene
+Sample-Punkte.</p>
+<p>Der Runner wird so aufgeteilt:</p>
+<ul>
+<li><code>method == autobge</code>: AutoBGE mit leerem Tile-Kontext direkt aufrufen,</li>
+<li><code>method == classic</code>: bisherigen Tile-Metrik-/Grid-Vertrag beibehalten,</li>
+<li><code>method == none</code>: BGE überspringen.</li>
+</ul>
+<p>Dieser Fix ist Voraussetzung für eine korrekte Preview und einen zuverlässigen
+Resume ab BGE.</p>
+<h3 id="62-separate-sampling-ausschlussmaske">6.2 Separate Sampling-Ausschlussmaske<a class="headerlink" href="#62-separate-sampling-ausschlussmaske" title="Permanent link">&para;</a></h3>
+<p><code>common_valid_mask</code> bestimmt den gültigen Bildbereich und wird auch auf das
+Ausgabebild angewendet. Benutzerpolygone dürfen nicht darin gespeichert werden,
+sonst würden ausgeschlossene Nebelbereiche im Ergebnis auf null gesetzt.</p>
+<p><code>image::BGEConfig</code> erhält deshalb einen separaten internen Vertrag:</p>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">uint8_t</span><span class="o">&gt;</span><span class="w"> </span><span class="n">sampling_valid_mask</span><span class="p">;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kt">int</span><span class="w"> </span><span class="n">sampling_mask_rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kt">int</span><span class="w"> </span><span class="n">sampling_mask_cols</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Semantik:</p>
+<ul>
+<li><code>common_valid_mask</code>: gültiger Canvas; beeinflusst Analyse und Ausgabe,</li>
+<li><code>sampling_valid_mask</code>: zusätzliche Zulässigkeit nur für Sample-Erzeugung,</li>
+<li>effektive Sampling-Maske: <code>common_valid_mask AND sampling_valid_mask AND
+  structure_mask</code>,</li>
+<li>Ausgabe wird ausschließlich mit <code>common_valid_mask</code> begrenzt.</li>
+</ul>
+<p>Die neue Maske wird in <code>build_autobge_models()</code> beim Aufbau von
+<code>sampling_mask</code> berücksichtigt. Classic BGE bleibt unverändert, bis eine
+separate Classic-Preview geplant wird.</p>
+<h3 id="63-preview-fahiges-core-ergebnis">6.3 Preview-fähiges Core-Ergebnis<a class="headerlink" href="#63-preview-fahiges-core-ergebnis" title="Permanent link">&para;</a></h3>
+<p>Der aktuelle <code>AutoBGEResult</code> enthält Hintergrundmodelle und Kanaldignostik,
+aber kein direkt serialisierbares Preview-Ergebnis. Es wird eine reine
+Core-Funktion ergänzt, die keine Dateien schreibt:</p>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">struct</span><span class="w"> </span><span class="nc">AutoBGEPreviewResult</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">success</span><span class="p">;</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="n">corrected_r</span><span class="p">,</span><span class="w"> </span><span class="n">corrected_g</span><span class="p">,</span><span class="w"> </span><span class="n">corrected_b</span><span class="p">;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="n">background_r</span><span class="p">,</span><span class="w"> </span><span class="n">background_g</span><span class="p">,</span><span class="w"> </span><span class="n">background_b</span><span class="p">;</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">SamplePoint</span><span class="o">&gt;</span><span class="w"> </span><span class="n">stage1_points</span><span class="p">;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">SamplePoint</span><span class="o">&gt;</span><span class="w"> </span><span class="n">stage2_points</span><span class="p">;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="n">BGEDiagnostics</span><span class="w"> </span><span class="n">diagnostics</span><span class="p">;</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">};</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">AutoBGEPreviewResult</span><span class="w"> </span><span class="nf">run_autobge_preview</span><span class="p">(</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="o">&amp;</span><span class="w"> </span><span class="n">R</span><span class="p">,</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="o">&amp;</span><span class="w"> </span><span class="n">G</span><span class="p">,</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="o">&amp;</span><span class="w"> </span><span class="n">B</span><span class="p">,</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">BGEConfig</span><span class="o">&amp;</span><span class="w"> </span><span class="n">config</span><span class="p">);</span>
+</span></code></pre></div>
+<p>Finaler Runner und Preview verwenden dieselben Modellierungs- und
+Finalisierungsfunktionen. Die Preview-Funktion ist nur eine orchestrationale
+Hülle; es entsteht keine zweite AutoBGE-Implementierung.</p>
+<p>Sample-Punkte werden getrennt für Stufe 1 und Stufe 2 zurückgegeben. Bei RGB
+werden Punkte entweder pro Kanal geliefert oder als kanalweise Gruppen in der
+Diagnostik gekennzeichnet.</p>
+<h2 id="7-proxy-strategie">7. Proxy-Strategie<a class="headerlink" href="#7-proxy-strategie" title="Permanent link">&para;</a></h2>
+<p>Das lineare Eingangsbild wird auf maximal 1600 Pixel an der langen Kante
+verkleinert. Die Canvas-Maske wird mit Nearest Neighbor auf exakt dieselbe
+Geometrie gebracht.</p>
+<p>AutoBGE besitzt zusätzlich <code>downsample_scale</code>. Deshalb gelten zwei Ebenen:</p>
+<ul>
+<li>äußerer GUI-Proxy: begrenzt Netzwerk, Speicher und Preview-Laufzeit,</li>
+<li>interner AutoBGE-Downsample: Bestandteil des Algorithmus.</li>
+</ul>
+<p>Pixelbezogene Parameter werden für den äußeren Proxy skaliert:</p>
+<ul>
+<li><code>patch_size</code>: proportional skalieren, danach auf eine ungerade Zahl &gt;= 3
+  begrenzen,</li>
+<li><code>border_margin</code>: proportional skalieren und auf &gt;= 0 begrenzen,</li>
+<li>Polynomgrad, RBF-Smoothing, Ausschlussfraktion und Seed unverändert lassen,</li>
+<li><code>num_sample_points</code>: unverändert verwenden; bei <code>0</code> auf Basis der
+  Proxygeometrie automatisch bestimmen und den tatsächlich verwendeten Wert in
+  der Diagnostik anzeigen.</li>
+</ul>
+<p>Die GUI kennzeichnet das Ergebnis ausdrücklich als Preview. Wegen der
+reduzierten Geometrie können Sample-Punkte und Modell im Vollbild leicht
+abweichen. Deterministischer Seed und identische Algorithmen halten die
+Abweichung reproduzierbar.</p>
+<h2 id="8-api-vertrag">8. API-Vertrag<a class="headerlink" href="#8-api-vertrag" title="Permanent link">&para;</a></h2>
+<h3 id="81-preview-berechnen">8.1 Preview berechnen<a class="headerlink" href="#81-preview-berechnen" title="Permanent link">&para;</a></h3>
+<p><code>POST /api/runs/&lt;run_id&gt;/bge-preview</code></p>
+<p>Request:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;run_dir&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/optional/alternate/run/path&quot;</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">&quot;method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;autobge&quot;</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">&quot;num_sample_points&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">&quot;poly_degree&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">&quot;rbf_smooth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">&quot;downsample_scale&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">&quot;patch_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">35</span><span class="p">,</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="nt">&quot;patch_estimator&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sigma_clipped_median&quot;</span><span class="p">,</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="nt">&quot;stretch_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;linear&quot;</span><span class="p">,</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="nt">&quot;stretch_target_median&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.25</span><span class="p">,</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">    </span><span class="nt">&quot;border_margin&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="nt">&quot;bright_exclusion_fraction&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="nt">&quot;gradient_descent_max_iters&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="nt">&quot;random_seed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">&quot;normalize_between_stages&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span><span class="nt">&quot;apply_guards&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">    </span><span class="nt">&quot;mono_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rgb_duplicate&quot;</span>
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">  </span><span class="nt">&quot;exclusion_polygons&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">    </span><span class="p">[[</span><span class="mf">0.12</span><span class="p">,</span><span class="w"> </span><span class="mf">0.18</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.28</span><span class="p">,</span><span class="w"> </span><span class="mf">0.17</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.31</span><span class="p">,</span><span class="w"> </span><span class="mf">0.35</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.14</span><span class="p">,</span><span class="w"> </span><span class="mf">0.39</span><span class="p">]]</span>
+</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Polygonkoordinaten sind auf <code>[0,1]</code> normalisierte Bildkoordinaten mit Ursprung
+oben links. Dadurch bleiben sie bei Zoom, Pan, Proxygröße und finaler
+Vollauflösung eindeutig.</p>
+<p>Response:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;preview_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;opaque-short-lived-token&quot;</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stacked_rgb_solve.fits&quot;</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1600</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;height&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1173</span><span class="p">,</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">&quot;diagnostics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">&quot;success&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">&quot;failure_reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">&quot;guard_rejected&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span><span class="nt">&quot;sample_points&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">&quot;stage1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;x&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;y&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;R&quot;</span><span class="p">}],</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">&quot;stage2&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">  </span><span class="nt">&quot;images&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">    </span><span class="nt">&quot;original&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/runs/&lt;run_id&gt;/bge-preview/&lt;id&gt;/original.png&quot;</span><span class="p">,</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">    </span><span class="nt">&quot;corrected&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/runs/&lt;run_id&gt;/bge-preview/&lt;id&gt;/corrected.png&quot;</span><span class="p">,</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">    </span><span class="nt">&quot;background&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/runs/&lt;run_id&gt;/bge-preview/&lt;id&gt;/background.png&quot;</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>PNG und umfangreiche Sample-Punkt-Daten werden nicht in Header oder Base64
+transportiert. Der POST liefert JSON; die drei PNGs werden separat geladen.</p>
+<h3 id="82-previewbilder-abrufen">8.2 Previewbilder abrufen<a class="headerlink" href="#82-previewbilder-abrufen" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>GET /api/runs/&lt;run_id&gt;/bge-preview/&lt;preview_id&gt;/original.png
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>GET /api/runs/&lt;run_id&gt;/bge-preview/&lt;preview_id&gt;/corrected.png
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>GET /api/runs/&lt;run_id&gt;/bge-preview/&lt;preview_id&gt;/background.png
+</span></code></pre></div>
+<ul>
+<li>Token ist zufällig, undurchsichtig und an Run-ID und aufgelösten Run-Pfad
+  gebunden.</li>
+<li><code>Cache-Control: no-store</code>.</li>
+<li>Ein Token läuft nach kurzer Inaktivität ab, beispielsweise nach 10 Minuten.</li>
+<li>Bilder werden als 8-Bit-Display-PNG geliefert; Berechnung und Apply bleiben
+  floatbasiert.</li>
+</ul>
+<h3 id="83-kein-eigener-apply-endpoint">8.3 Kein eigener Apply-Endpoint<a class="headerlink" href="#83-kein-eigener-apply-endpoint" title="Permanent link">&para;</a></h3>
+<p>Wie bei HMS gibt es keinen separaten BGE-Apply-/Resume-Endpunkt. Das Frontend
+merged die bekannten Felder unter <code>bge</code> beziehungsweise <code>bge.autobge</code> in die
+aktuell geladene YAML und ruft auf:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;from_phase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;BGE&quot;</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;run_dir&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/resolved/run/dir&quot;</span><span class="p">,</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;config_yaml&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;vollständige aktualisierte YAML&gt;&quot;</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;filter_context&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;bestehender Kontext&gt;&quot;</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Ziel ist <code>POST /api/runs/&lt;run_id&gt;/resume</code>. Snapshot, Revision, Schreiben der
+Config, Event-Erzeugung und Jobstart bleiben damit zentralisiert.</p>
+<p>Manuelle Ausschlusspolygone sind zunächst Preview-Hilfen und nicht Teil des
+bestehenden YAML-Schemas. Für eine exakte Übernahme in den finalen Resume muss
+vor Implementierung eine der folgenden Varianten verbindlich gewählt werden:</p>
+<ol>
+<li><strong>Empfohlen:</strong> normalisierte Polygone unter
+   <code>bge.autobge.exclusion_polygons</code> in Schema und Config aufnehmen und im Runner
+   in <code>sampling_valid_mask</code> rasterisieren.</li>
+<li>Polygone nur für die Preview verwenden und im Dialog deutlich anzeigen,
+   dass sie den finalen Resume nicht beeinflussen.</li>
+</ol>
+<p>Da visuelle Ausschlüsse ein Kernelement von AutoBGE.py sind, ist Variante 1
+Teil dieses Plans.</p>
+<h2 id="9-parametervertrag-und-validierung">9. Parametervertrag und Validierung<a class="headerlink" href="#9-parametervertrag-und-validierung" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feld</th>
+<th>UI</th>
+<th>zulässiger Bereich</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bge.method</code></td>
+<td>Select</td>
+<td><code>autobge</code> im Preview-MVP</td>
+</tr>
+<tr>
+<td><code>num_sample_points</code></td>
+<td>Zahl</td>
+<td>0–3000; 0 = automatisch</td>
+</tr>
+<tr>
+<td><code>poly_degree</code></td>
+<td>Zahl/Slider</td>
+<td>1–6</td>
+</tr>
+<tr>
+<td><code>rbf_smooth</code></td>
+<td>Zahl/Slider</td>
+<td>0–10</td>
+</tr>
+<tr>
+<td><code>downsample_scale</code></td>
+<td>Zahl/Slider</td>
+<td>1–8</td>
+</tr>
+<tr>
+<td><code>patch_size</code></td>
+<td>Zahl/Slider</td>
+<td>ungerade, 3–101</td>
+</tr>
+<tr>
+<td><code>patch_estimator</code></td>
+<td>Select</td>
+<td><code>median</code>, <code>sigma_clipped_median</code></td>
+</tr>
+<tr>
+<td><code>stretch_mode</code></td>
+<td>Select</td>
+<td><code>none</code>, <code>linear</code>, <code>mtf</code></td>
+</tr>
+<tr>
+<td><code>stretch_target_median</code></td>
+<td>Zahl/Slider</td>
+<td>&gt;0 und &lt;1; UI 0.01–0.99</td>
+</tr>
+<tr>
+<td><code>border_margin</code></td>
+<td>Zahl/Slider</td>
+<td>0–250</td>
+</tr>
+<tr>
+<td><code>bright_exclusion_fraction</code></td>
+<td>Zahl/Slider</td>
+<td>&gt;0 und &lt;1; UI 0.01–0.99</td>
+</tr>
+<tr>
+<td><code>gradient_descent_max_iters</code></td>
+<td>Zahl</td>
+<td>1–500</td>
+</tr>
+<tr>
+<td><code>random_seed</code></td>
+<td>Zahl</td>
+<td>32-Bit-Integer</td>
+</tr>
+<tr>
+<td><code>normalize_between_stages</code></td>
+<td>Checkbox</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>apply_guards</code></td>
+<td>Checkbox</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>mono_mode</code></td>
+<td>Select</td>
+<td><code>rgb_duplicate</code>, <code>disabled</code></td>
+</tr>
+</tbody>
+</table>
+<p>Die Wertebereiche werden vor Implementierung mit dem Schema konsolidiert. Das
+aktuelle Schema besitzt für einige Felder nur eine Untergrenze, während die
+bestehenden UI-Hilfetexte engere Bereiche nennen. Schema, Backend-Validierung,
+HTML-Controls, Tooltips und Dokumentation müssen denselben Vertrag verwenden.</p>
+<p>Regeln:</p>
+<ul>
+<li>Frontend startet bei ungültigem Wert keine Preview und erlaubt kein Apply.</li>
+<li>Werte werden beim Verlassen des Feldes auf den zulässigen Bereich begrenzt.</li>
+<li><code>patch_size</code> wird zusätzlich auf die nächste gültige ungerade Zahl gesetzt.</li>
+<li>Backend validiert unabhängig und nennt alle ungültigen Felder mit Wert und
+  erlaubtem Bereich.</li>
+<li><code>stretch_target_median</code> ist nur bei <code>stretch_mode == mtf</code> editierbar.</li>
+<li>Ausschlusspolygone benötigen mindestens drei unterschiedliche Punkte, dürfen
+  nicht selbstschneidend sein und werden auf <code>[0,1]</code> begrenzt.</li>
+</ul>
+<h2 id="10-modal-und-darstellung">10. Modal und Darstellung<a class="headerlink" href="#10-modal-und-darstellung" title="Permanent link">&para;</a></h2>
+<p>Desktop-Aufteilung:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>┌──────────────────────────────────────────────────────────────────┐
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>│ AutoBGE konfigurieren                                      [×]   │
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>├───────────────────────────────────┬──────────────────────────────┤
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>│ [Original|Korrigiert|Hintergrund] │ Parameter                    │
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>│ ┌───────────────────────────────┐ │ Sample-Punkte                │
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>│ │ Bild + Punkte + Polygone      │ │ Polynomgrad                  │
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>│ │ Zoom / Pan / Polygonmodus     │ │ RBF-Smoothing                │
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>│ └───────────────────────────────┘ │ ...                          │
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>│ RGB-Histogramm / Diagnostik       │ Guards / Stretch             │
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>├───────────────────────────────────┴──────────────────────────────┤
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>│ [Zurücksetzen] [Polygone löschen] [Abbrechen] [Übernehmen ...]  │
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>└──────────────────────────────────────────────────────────────────┘
+</span></code></pre></div>
+<p>Ansichten:</p>
+<ul>
+<li><strong>Original:</strong> lineares Bild mit derselben Display-Transformation wie die
+  anderen Ansichten,</li>
+<li><strong>Korrigiert:</strong> AutoBGE-Ergebnis,</li>
+<li><strong>Hintergrund:</strong> berechnetes additives Hintergrundmodell,</li>
+<li>optionaler Vorher/Nachher-Wischer in einer späteren Iteration.</li>
+</ul>
+<p>Overlays:</p>
+<ul>
+<li>Stufe-1-Punkte: eine Farbe,</li>
+<li>Stufe-2-Punkte: zweite Farbe,</li>
+<li>Kanäle optional durch Form oder Farbe unterscheidbar,</li>
+<li>Ausschlusspolygone halbtransparent rot,</li>
+<li>Canvas-Grenze beziehungsweise ungültige Maskenbereiche schraffiert.</li>
+</ul>
+<p>Polygonbedienung:</p>
+<ul>
+<li><code>Ausschluss zeichnen</code> aktiviert Polygonmodus,</li>
+<li>Klick setzt Punkte,</li>
+<li>Doppelklick oder Klick auf den Startpunkt schließt das Polygon,</li>
+<li>Escape verwirft das aktuell gezeichnete Polygon,</li>
+<li>ausgewähltes Polygon kann entfernt werden,</li>
+<li><code>Alle Ausschlüsse löschen</code> entfernt alle Polygone,</li>
+<li>Zoom und Pan bleiben außerhalb des Polygonmodus wie im HMS-Dialog verfügbar.</li>
+</ul>
+<p>Alle Labels, Statusmeldungen, Fehlermeldungen, Optionen und Tooltips werden in
+<code>de.json</code> und <code>en.json</code> geführt. Vor Abschluss wird automatisch geprüft, dass
+beide Dateien denselben Key-Satz besitzen.</p>
+<h2 id="11-diagnostik">11. Diagnostik<a class="headerlink" href="#11-diagnostik" title="Permanent link">&para;</a></h2>
+<p>Das Modal zeigt kompakt:</p>
+<ul>
+<li>tatsächlich verwendetes Eingangsartefakt,</li>
+<li>Proxygröße und äußeren Skalierungsfaktor,</li>
+<li>tatsächlich verwendete Sample-Anzahl je Stufe und Kanal,</li>
+<li>Fit-RMS je Kanal,</li>
+<li>Median/Standardabweichung von Eingabe, Ausgabe und Modell,</li>
+<li>Flatness und Slope vor/nach Korrektur,</li>
+<li>Guard-Status und Ablehnungsgrund,</li>
+<li>Laufzeiten für Sampling, Polynomfit, RBF-Fit und Finalisierung,</li>
+<li>Anzahl ausgeschlossener Pixel durch Canvas, Strukturmaske und Benutzerpolygone.</li>
+</ul>
+<p>Wenn Guards die Anwendung ablehnen, bleibt die berechnete Preview sichtbar,
+wird aber deutlich als <code>von Guards abgelehnt</code> markiert. Apply ist standardmäßig
+deaktiviert, solange <code>apply_guards</code> aktiv ist und die Preview abgelehnt wurde.
+Der Benutzer kann Guards nicht unbemerkt umgehen; ein bewusstes Deaktivieren
+erzeugt eine Warnung.</p>
+<p>Histogramme werden für Original und Korrektur mit identischer Display-Skalierung
+berechnet, damit sie vergleichbar bleiben. Clipping aus der 8-Bit-Anzeige wird
+nicht mit floatbasierter Core-Diagnostik verwechselt.</p>
+<h2 id="12-cache-und-nebenlaufigkeit">12. Cache und Nebenläufigkeit<a class="headerlink" href="#12-cache-und-nebenlaufigkeit" title="Permanent link">&para;</a></h2>
+<p>Zwei getrennte Caches werden verwendet:</p>
+<h3 id="input-proxy-cache">Input-Proxy-Cache<a class="headerlink" href="#input-proxy-cache" title="Permanent link">&para;</a></h3>
+<p>Key:</p>
+<ul>
+<li>kanonischer Run-Pfad,</li>
+<li>Quell-FITS mit Größe und Änderungszeit,</li>
+<li>Canvas-Maske mit Größe und Änderungszeit,</li>
+<li>maximale Proxykante.</li>
+</ul>
+<p>Der Eintrag enthält immutable Proxy-RGB- und Maskendaten.</p>
+<h3 id="preview-ergebnis-cache">Preview-Ergebnis-Cache<a class="headerlink" href="#preview-ergebnis-cache" title="Permanent link">&para;</a></h3>
+<p>Key:</p>
+<ul>
+<li>Input-Proxy-Signatur,</li>
+<li>kanonisch serialisierte AutoBGE-Parameter,</li>
+<li>normalisierte Polygone,</li>
+<li>Core-/Algorithmus-Version.</li>
+</ul>
+<p>Der Eintrag enthält nur codierte PNGs, Diagnostik und normalisierte
+Sample-Punkte. Speicherbudget und LRU-Verdrängung sind verbindlich; Tokens
+laufen zeitbasiert ab.</p>
+<p>Frontend:</p>
+<ul>
+<li>300–500 ms Debounce, da AutoBGE teurer als HMS ist,</li>
+<li>vorherigen Fetch mit <code>AbortController</code> abbrechen,</li>
+<li>lokale Generation-ID verhindert Out-of-order-Updates,</li>
+<li>Parameteränderungen während einer laufenden Berechnung erzeugen höchstens
+  einen nachfolgenden Request,</li>
+<li>Umschalten der Ansicht löst keine Neuberechnung aus.</li>
+</ul>
+<h2 id="13-yaml-merge-und-persistenz">13. YAML-Merge und Persistenz<a class="headerlink" href="#13-yaml-merge-und-persistenz" title="Permanent link">&para;</a></h2>
+<p>Beim Apply werden ausschließlich folgende Felder geändert:</p>
+<ul>
+<li><code>bge.method: autobge</code>,</li>
+<li>bekannte Werte unter <code>bge.autobge</code>,</li>
+<li><code>bge.autobge.exclusion_polygons</code> nach Schemaerweiterung.</li>
+</ul>
+<p>Andere <code>bge</code>-Felder, Classic-BGE-Werte, unbekannte YAML-Felder und alle anderen
+Config-Abschnitte bleiben unverändert. Der YAML-Merge wird nicht durch lose
+Regex-Ersetzung erweitert, sondern als gemeinsam getestete strukturierte
+Config-Patch-Funktion umgesetzt. Damit funktionieren verschachtelte Listen der
+Polygone zuverlässig.</p>
+<h2 id="14-fehlerfalle">14. Fehlerfälle<a class="headerlink" href="#14-fehlerfalle" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Run nicht gefunden oder Run-Pfad nicht zulässig,</li>
+<li><code>stacked_rgb_solve.fits</code> und <code>stacked_rgb.fits</code> fehlen,</li>
+<li>FITS beschädigt oder RGB-Geometrie inkonsistent,</li>
+<li><code>canvas_mask.fits</code> fehlt oder passt geometrisch nicht,</li>
+<li>Mono-Eingabe bei <code>mono_mode: disabled</code>,</li>
+<li>zu wenige gültige Sample-Punkte,</li>
+<li>Polynomgrad benötigt mehr Punkte als verfügbar,</li>
+<li>RBF-System singulär oder numerisch instabil,</li>
+<li>Ausschlusspolygone entfernen zu viel gültige Samplingfläche,</li>
+<li>Guard lehnt Modell ab,</li>
+<li>ungültiger oder abgelaufener Preview-Token,</li>
+<li>veraltete Antwort trifft nach neuerem Request ein,</li>
+<li>YAML-Merge oder Resume-Start schlägt fehl,</li>
+<li>ein anderer Run/Resume-Job ist bereits aktiv.</li>
+</ul>
+<p>Jeder Fehler erhält einen stabilen Fehlercode, eine lokalisierte Meldung und
+strukturierte Details. Die letzte gültige Preview bleibt bei einem späteren
+Fehler sichtbar.</p>
+<h2 id="15-tests-und-abnahmekriterien">15. Tests und Abnahmekriterien<a class="headerlink" href="#15-tests-und-abnahmekriterien" title="Permanent link">&para;</a></h2>
+<h3 id="core">Core<a class="headerlink" href="#core" title="Permanent link">&para;</a></h3>
+<ul>
+<li>AutoBGE funktioniert ohne Classic-Tile-Metriken und Tile-Grid.</li>
+<li><code>common_valid_mask</code> begrenzt Ausgabe und Sampling.</li>
+<li><code>sampling_valid_mask</code> beeinflusst nur Sample-Auswahl, niemals Ausgabepixel.</li>
+<li>Polygonrasterisierung ist für Vollbild und Proxy geometrisch konsistent.</li>
+<li>deterministischer Seed erzeugt identische Punkte und Ergebnisse.</li>
+<li>Stufe-1- und Stufe-2-Punkte werden korrekt zurückgegeben.</li>
+<li>Mono-Modi, Guard-Annahme und Guard-Ablehnung sind abgedeckt.</li>
+<li>alle Parametergrenzen und ungerade Patch-Größe werden getestet.</li>
+</ul>
+<h3 id="backend">Backend<a class="headerlink" href="#backend" title="Permanent link">&para;</a></h3>
+<ul>
+<li>sichere Run-Auflösung verhindert beliebige Dateizugriffe,</li>
+<li>korrekte Priorität <code>stacked_rgb_solve.fits</code> vor <code>stacked_rgb.fits</code>,</li>
+<li>BGE-korrigierte Dateien werden nie als Eingang verwendet,</li>
+<li>Proxy und Maske besitzen identische Geometrie,</li>
+<li>Cache-Hit lädt FITS nicht erneut,</li>
+<li>Artefaktänderung invalidiert den Cache,</li>
+<li>parallele identische Requests sind threadsicher,</li>
+<li>Token ist an Run und Ergebnis gebunden und läuft ab,</li>
+<li>Original/Korrektur/Hintergrund liefern gültige PNGs,</li>
+<li>Diagnostik und Sample-Punkte entsprechen dem direkten Core-Aufruf,</li>
+<li>ungültige Parameter nennen Feld, Wert und Bereich.</li>
+</ul>
+<h3 id="frontend">Frontend<a class="headerlink" href="#frontend" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Button erscheint nur bei ausgewählter Phase <code>BGE</code> und links neben dem Badge,</li>
+<li>Startwerte stammen aus der geladenen Resume-YAML,</li>
+<li>alle Controls sind vollständig DE/EN und besitzen Tooltips,</li>
+<li>abhängige Controls werden korrekt aktiviert/deaktiviert,</li>
+<li>ungültige Werte starten weder Preview noch Apply,</li>
+<li>Zoom, Pan, Ansichtsumschaltung und Histogramm funktionieren,</li>
+<li>Polygonerstellung, Abbruch, Auswahl und Löschen funktionieren,</li>
+<li>Polygone bleiben bei Zoom/Pan und Ansichtswechsel deckungsgleich,</li>
+<li>veraltete Responses überschreiben keine neuere Preview,</li>
+<li>Reset stellt Parameter und Polygone des Öffnungszustands wieder her,</li>
+<li>Apply verhindert Doppelstart.</li>
+</ul>
+<h3 id="integration">Integration<a class="headerlink" href="#integration" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Preview verändert keine FITS-Datei und keine <code>config.yaml</code>,</li>
+<li>Apply verändert nur die bekannten AutoBGE-Felder und Polygone,</li>
+<li>Resume startet exakt ab <code>BGE</code>,</li>
+<li>finaler Run verwendet die übernommenen Ausschlusspolygone,</li>
+<li>Preview und Vollbild-Run zeigen qualitativ dasselbe Gradientenmodell,</li>
+<li><code>stacked_rgb_bge_linear.fits</code>, <code>stacked_rgb_bge.fits</code> und <code>bge.json</code> werden
+  entsprechend dem bestehenden Runner-Vertrag erzeugt,</li>
+<li>der neue Job erscheint unmittelbar im Run Monitor.</li>
+</ul>
+<h2 id="16-implementierungsreihenfolge">16. Implementierungsreihenfolge<a class="headerlink" href="#16-implementierungsreihenfolge" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Schema-/Default-Vertrag für AutoBGE-Werte konsolidieren.</li>
+<li>AutoBGE im Runner von Classic-Tile-Artefakten entkoppeln und testen.</li>
+<li>Separate <code>sampling_valid_mask</code> im Core einführen.</li>
+<li>Polygonschema, Rasterisierung und Runner-Übernahme implementieren.</li>
+<li><code>run_autobge_preview()</code> mit Background-, Corrected- und Sample-Ergebnis
+   ergänzen.</li>
+<li>Gemeinsame BGE-Eingangsartefaktauflösung extrahieren.</li>
+<li>Proxy-Erzeugung und parameterabhängige Skalierung implementieren.</li>
+<li>Thread-sicheren Input- und Ergebnis-Cache implementieren.</li>
+<li>Preview-POST und tokenisierte PNG-Routen ergänzen.</li>
+<li>Button links neben dem BGE-Badge und Modal-Grundgerüst ergänzen.</li>
+<li>Parametercontrols, Validierung, Tooltips und i18n umsetzen.</li>
+<li>Canvas-Ansichten, Histogramm und Sample-Punkt-Overlay umsetzen.</li>
+<li>Polygoneditor und normalisierte Koordinaten umsetzen.</li>
+<li>Strukturierten YAML-Merge und bestehenden Resume-Aufruf integrieren.</li>
+<li>Core-, Backend-, Frontend- und Integrationstests ausführen.</li>
+<li>Deutsche und englische Benutzeranleitung ergänzen.</li>
+</ol>
+<h2 id="17-aufwandsschatzung">17. Aufwandsschätzung<a class="headerlink" href="#17-aufwandsschatzung" title="Permanent link">&para;</a></h2>
+<p>Für eine robuste AutoBGE-Preview einschließlich Core-Erweiterung,
+Ausschlusspolygonen, Cache, Diagnostik, i18n und automatisierten Tests sind etwa
+15–22 Entwicklungstage realistisch.</p>
+<p>Aufteilung:</p>
+<ul>
+<li>Core-/Runner-Korrekturen und Maskenvertrag: 3–5 Tage,</li>
+<li>Preview-Service, Cache und API: 4–6 Tage,</li>
+<li>Modal, Bildansichten und Parameter: 3–4 Tage,</li>
+<li>Polygoneditor und Overlays: 2–3 Tage,</li>
+<li>YAML-Merge, Resume-Integration und i18n: 1–2 Tage,</li>
+<li>Tests, Dokumentation und Stabilisierung: 2–3 Tage.</li>
+</ul>
+<p>Eine Version ohne Ausschlusspolygone wäre schneller, würde aber ein zentrales
+Bedienelement der AutoBGE-Referenz auslassen und ist daher nicht Ziel dieses
+Plans.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

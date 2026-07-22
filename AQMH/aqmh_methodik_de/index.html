@@ -1,0 +1,3656 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Adaptive Quality Mask Harvesting (AQMH) - Methodik v0.1.0 - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adaptive-quality-mask-harvesting-aqmh-methodik-v010" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Adaptive Quality Mask Harvesting (AQMH) - Methodik v0.1.0
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-motivation-und-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Motivation und Ziel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0. Motivation und Ziel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02-ziel-von-aqmh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 Ziel von AQMH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-unabhaengigkeit-und-gemeinsame-infrastruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Unabhaengigkeit und gemeinsame Infrastruktur
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-prinzipien-und-definitionen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Prinzipien und Definitionen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Prinzipien und Definitionen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-physikalisches-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Physikalisches Ziel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-invarianten-bindend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Invarianten (bindend)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-notation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Notation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-konvention-fuer-deterministische-statistik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Konvention fuer deterministische Statistik
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-canvas-ausschlussvertrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Canvas-Ausschlussvertrag
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-berechnung-dichter-qualitaetskarten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Berechnung dichter Qualitaetskarten
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Berechnung dichter Qualitaetskarten">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ueberblick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Ueberblick
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-eingabedaten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Eingabedaten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-multi-scale-pyramide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Multi-Scale-Pyramide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.3 Multi-Scale-Pyramide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#231-skalendefinition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.1 Skalendefinition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#232-signalberechnung-pro-skala" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.2 Signalberechnung pro Skala
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#233-qualitaetskarte-pro-skala" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.3 Qualitaetskarte pro Skala
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#234-rand-und-leerfensterregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.4 Rand- und Leerfensterregeln
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-multi-scale-fusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Multi-Scale-Fusion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-block-level-diagnosezusammenfassungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Block-Level-Diagnosezusammenfassungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-qualitaetskarten-speicher-und-speichermodell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Qualitaetskarten-Speicher- und Speichermodell
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Qualitaetskarten-Speicher- und Speichermodell">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-speicherformat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Speicherformat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-speicherbudget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Speicherbudget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-disk-cache-lebenszyklus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Disk-Cache-Lebenszyklus
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-pipeline-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Pipeline-Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Pipeline-Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-aqmh-verarbeitungsstufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 AQMH-Verarbeitungsstufen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-aqmh-kartenberechnung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 AQMH-Kartenberechnung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-aqmh-pixelweise-gewichtete-rekonstruktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 AQMH pixelweise gewichtete Rekonstruktion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-adaptive-region-extraction-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Adaptive Region Extraction (optional)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Adaptive Region Extraction (optional)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-qualitaetskontur-extraktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Qualitaetskontur-Extraktion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-optionaler-cherry-pick-stacking-modus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Optionaler Cherry-Pick-Stacking-Modus
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-qualitaetskarten-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Qualitaetskarten-Diagnostik
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Qualitaetskarten-Diagnostik">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-pro-frame-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Pro-Frame-Diagnostik
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-block-level-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Block-Level-Diagnostik
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-heatmaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Heatmaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-konfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Konfiguration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Konfiguration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-top-level-schalter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Top-Level-Schalter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-pyramidenkonfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Pyramidenkonfiguration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-speicherkonfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Speicherkonfiguration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-cherry-pick-modus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 Cherry-Pick-Modus
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-diagnostikkonfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 Diagnostikkonfiguration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-numerische-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Numerische Defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-validierungsanforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Validierungsanforderungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-scope-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Scope Boundary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Scope Boundary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gemeinsame-infrastruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gemeinsame Infrastruktur
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aqmh-methode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AQMH-Methode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-kernaussage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Kernaussage
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="adaptive-quality-mask-harvesting-aqmh-methodik-v010">Adaptive Quality Mask Harvesting (AQMH) - Methodik v0.1.0<a class="headerlink" href="#adaptive-quality-mask-harvesting-aqmh-methodik-v010" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Explorative Spezifikation - noch nicht normativ<br />
+<strong>Version:</strong> v0.1.0 (2026-06-05)<br />
+<strong>Zuletzt ueberarbeitet:</strong> 2026-06-05<br />
+<strong>Bezug zum Kernsystem:</strong> Eigenstaendige Rekonstruktionsmethode; kann gemeinsame Preprocessing-Infrastruktur wiederverwenden</p>
+<hr />
+<h2 id="0-motivation-und-ziel">0. Motivation und Ziel<a class="headerlink" href="#0-motivation-und-ziel" title="Permanent link">&para;</a></h2>
+<h3 id="01-motivation">0.1 Motivation<a class="headerlink" href="#01-motivation" title="Permanent link">&para;</a></h3>
+<p>AQMH ist eine eigenstaendige, qualitaetskartenbasierte Stacking-Methode. Sie basiert auf der Beobachtung, dass lokale Bildqualitaet haeufig raeumlich heterogen ist: eine Satellitenspur, eine Wolkenkante, ein Registrierungsrest oder ein Hot-Pixel-Cluster kann nur einen kleinen Bereich eines registrierten Frames beeintraechtigen, waehrend der restliche Frame weiterhin nutzbar bleibt.</p>
+<p>Jede Methode, die einem grossen raeumlichen Block nur einen lokalen skalaren Qualitaetswert zuweist, hat zwei strukturelle Grenzen:</p>
+<ol>
+<li>
+<p><strong>Intra-regionale Heterogenitaet:</strong> Ein kleiner kontaminierter Bereich kann die Qualitaet beeinflussen, die einem wesentlich groesseren Bereich zugewiesen wird.</p>
+</li>
+<li>
+<p><strong>Blockgrenzen-Diskontinuitaeten:</strong> Wenn Gewichte innerhalb grober raeumlicher Bloecke konstant sind, kann die Rekonstruktionsqualitaet an Blockgrenzen springen.</p>
+</li>
+</ol>
+<h3 id="02-ziel-von-aqmh">0.2 Ziel von AQMH<a class="headerlink" href="#02-ziel-von-aqmh" title="Permanent link">&para;</a></h3>
+<p>Adaptive Quality Mask Harvesting berechnet fuer jeden Frame ein <strong>kontinuierliches pixelweises Qualitaetsgewichtsfeld</strong> <code>Q_map_{f,c}(x,y)</code>. Die Rekonstruktion fuehrt danach einen <strong>pixelweisen qualitaetsgewichteten Mittelwert</strong> aus, der ausschliesslich AQMH-Gewichte verwendet: Jeder Ausgabepixel wird aus den Frame-Samples an derselben Pixelposition rekonstruiert, gewichtet mit dem zugehoerigen AQMH-Qualitaetswert.</p>
+<p>Kernziele:</p>
+<ol>
+<li>Den nutzbaren Anteil jedes Frames auf Pixelebene extrahieren.</li>
+<li>Raeumliche Blockgrenzen-Diskontinuitaeten im finalen Stack vermeiden.</li>
+<li>Lokale Qualitaetsheterogenitaet ueber eine Multi-Scale-Analysepyramide modellieren.</li>
+<li>Deterministische gewichtete Mittelwertrekonstruktion, Canvas-Ausschluss und Nicht-Halluzinations-Invarianten erhalten.</li>
+<li>Unabhaengig von Classic Tile Compile funktionieren. Classic-Ausgaben duerfen nur als externe Vergleichsbaselines dienen, nicht als AQMH-Eingaben oder Fallbacks.</li>
+</ol>
+<h3 id="03-unabhaengigkeit-und-gemeinsame-infrastruktur">0.3 Unabhaengigkeit und gemeinsame Infrastruktur<a class="headerlink" href="#03-unabhaengigkeit-und-gemeinsame-infrastruktur" title="Permanent link">&para;</a></h3>
+<p>AQMH ist eine <strong>eigenstaendige Rekonstruktionsmethode</strong>. Sie darf gemeinsame Pipeline-Infrastruktur wiederverwenden, aber ihr Qualitaetsmodell und ihre Rekonstruktionsgewichte werden nicht aus Classic-Tile-Compile-Local-/Tile-Metriken abgeleitet.</p>
+<p>Gemeinsame Infrastruktur kann umfassen:</p>
+<ul>
+<li>Input-Scan und Frame-Auswahl</li>
+<li>Kalibrierung und Registrierung/Prewarping</li>
+<li>globale photometrische Normalisierung</li>
+<li>Common-Overlap-/Canvas-Valid-Maske</li>
+<li>Run-Management, Logging, Artefakte, Reports und UI-Anbindung</li>
+</ul>
+<p>Der AQMH-Algorithmus selbst besteht aus:</p>
+<ul>
+<li>Berechnung dichter AQMH-Qualitaetskarten</li>
+<li>pixelweiser AQMH-gewichteter Rekonstruktion</li>
+<li>AQMH-Diagnostik und optionaler Regionsextraktion</li>
+</ul>
+<p>Classic Tile Compile und AQMH muessen unabhaengig voneinander ausfuehrbar sein. Das Aktivieren oder Deaktivieren einer Methode darf die mathematische Definition der anderen Methode nicht veraendern.</p>
+<hr />
+<h2 id="1-prinzipien-und-definitionen">1. Prinzipien und Definitionen<a class="headerlink" href="#1-prinzipien-und-definitionen" title="Permanent link">&para;</a></h2>
+<h3 id="11-physikalisches-ziel">1.1 Physikalisches Ziel<a class="headerlink" href="#11-physikalisches-ziel" title="Permanent link">&para;</a></h3>
+<p>Die Methode modelliert pixelweise Beobachtungsqualitaet als Produkt zweier trennbarer Komponenten:</p>
+<ul>
+<li><strong>Frame-Level-Qualitaet:</strong> der globale atmosphaerische Zustand von Frame <code>f</code>, erfasst durch <code>G_{f,c}</code>. <code>G_{f,c}</code> ist eine AQMH-Eingabe, abgeleitet aus gemeinsamen globalen Frame-Diagnostiken und Normalisierung; es ist keine Classic-Tile-/Local-Metrik.</li>
+<li><strong>Raeumliches Qualitaetsfeld:</strong> die kontinuierliche Qualitaetsverteilung innerhalb des Frames, erfasst durch <code>Q_map_{f,c}(x,y)</code>.</li>
+</ul>
+<p>Das effektive Pixelgewicht lautet:</p>
+<p><code>W_{f,c}^{aqmh}(x,y) = G_{f,c} * Q_map_{f,c}(x,y)</code></p>
+<h3 id="12-invarianten-bindend">1.2 Invarianten (bindend)<a class="headerlink" href="#12-invarianten-bindend" title="Permanent link">&para;</a></h3>
+<p>Die folgenden Invarianten sind fuer die AQMH-Rekonstruktion bindend. Der optionale Cherry-Pick-Modus ist eine explizite Opt-in-Abweichung und wird separat in Abschnitt 5.3 geregelt.</p>
+<ol>
+<li><strong>Keine Frame-Selektion:</strong> Ganze Frames duerfen nicht aufgrund ihrer Qualitaet entfernt werden.</li>
+<li><strong>Bedingte photometrische Linearitaet:</strong> Sobald die deterministischen Gewichte berechnet wurden, bleibt die finale Rekonstruktion <code>R(p) = sum_f w_f(p) * I_f(p) / sum_f w_f(p)</code> mit <code>w_f(p) &gt;= 0</code>. AQMH darf keine nichtlinearen Intensitaetstransformationen auf Samples anwenden, die in den Akkumulator eingehen.</li>
+<li><strong>Determinismus:</strong> Alle Qualitaetskartenberechnungen muessen deterministisch und reproduzierbar sein.</li>
+<li><strong>Canvas-Ausschluss:</strong> Canvas-ungueltige Pixel werden aus allen AQMH-Akkumulatoren und Statistiken ausgeschlossen. Sie werden nur in finalen Ausgabearrays als null/unsupported geschrieben.</li>
+<li><strong>Keine Halluzination:</strong> AQMH gibt nur Gewichte und Masken aus. Es erzeugt oder prognostiziert keine Pixelintensitaeten.</li>
+</ol>
+<h3 id="13-notation">1.3 Notation<a class="headerlink" href="#13-notation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>f</code> Frame-Index</li>
+<li><code>c</code> Kanalindex</li>
+<li><code>(x, y)</code> Pixelkoordinaten im registrierten Canvas</li>
+<li><code>Q_map_{f,c}(x,y)</code> pixelweises Qualitaetsfeld, <code>in [0, 1]</code></li>
+<li><code>D_s</code> Downscale-Faktor auf Pyramidenskala <code>s</code></li>
+<li><code>P</code> konfigurierte maximale Anzahl von Pyramidenskalen</li>
+<li><code>S_actual</code> geordnete Menge tatsaechlich berechneter Pyramidenskalen nach der Small-Image-Omission-Regel</li>
+<li><code>P_actual = |S_actual|</code> tatsaechliche Anzahl berechneter Pyramidenskalen fuer die Fusion</li>
+<li><code>R_s</code> raeumlicher Radius des lokalen Analysefensters auf Skala <code>s</code></li>
+<li><code>Psi_s(x,y)</code> Qualitaetsbeitrag auf Skala <code>s</code></li>
+<li><code>W_{f,c}^{aqmh}(x,y)</code> effektives AQMH-Pixelgewicht</li>
+<li><code>B_s(x,y; R)</code> maskierter lokaler Hintergrundoperator auf Skala <code>s</code></li>
+</ul>
+<h3 id="14-konvention-fuer-deterministische-statistik">1.4 Konvention fuer deterministische Statistik<a class="headerlink" href="#14-konvention-fuer-deterministische-statistik" title="Permanent link">&para;</a></h3>
+<p>Alle Mediane, MADs und Quantile in AQMH werden nur ueber endliche Werte und ueber die explizit angegebene gueltige Unterstuetzung berechnet, z. B. <code>W_s_valid</code> oder canvas-gueltige Pixel. Wenn die Unterstuetzung leer ist, ist die Statistik ungueltig und die Fallback-Regeln in Abschnitt 2.3.4 gelten.</p>
+<p>Fuer deterministische Reproduzierbarkeit werden endliche Werte numerisch aufsteigend sortiert. Der Median ist bei ungerader Samplezahl der mittlere Wert und bei gerader Samplezahl das arithmetische Mittel der beiden mittleren Werte. MAD verwendet dieselbe Median-Konvention auf <code>|x - median(x)|</code>. Quantile verwenden lineare Interpolation zwischen sortierten Samples mit Index <code>q * (n - 1)</code>, begrenzt auf <code>[0, n-1]</code>; fuer <code>n = 1</code> wird das einzige Sample zurueckgegeben.</p>
+<h3 id="15-canvas-ausschlussvertrag">1.5 Canvas-Ausschlussvertrag<a class="headerlink" href="#15-canvas-ausschlussvertrag" title="Permanent link">&para;</a></h3>
+<p>Canvas-ungueltige Pixel liegen ausserhalb der beobachteten Datendomaene. Sie sind keine nullwertigen Samples, keine Hintergrundsamples, keine Low-Quality-Samples und kein Padding. Sie duerfen AQMH in keiner Phase beeinflussen.</p>
+<p>Bindende Regeln:</p>
+<ol>
+<li>Canvas-ungueltige Quellpixel werden vor der AQMH-Kartenberechnung in ungueltig/NaN umgewandelt.</li>
+<li>Downsampling verwendet einen Valid-Count-Denominator; ungueltige Pixel tragen weder Wert noch Gewicht bei.</li>
+<li>Lokale Statistiken, Filter, Mediane, MADs, Laplacian-Responses, Artifact-Fractions, z-score-Populationen und Quantile arbeiten nur auf endlicher canvas-gueltiger Unterstuetzung.</li>
+<li>Upsampling vom Skalenraum zum Canvas ist maskenbewusst; ungueltige Skalen-Samples interpolieren nicht in gueltige Canvas-Pixel.</li>
+<li>Die Rekonstruktion iteriert nur ueber canvas-gueltige Ausgabepixel, und die Frame-Sample-Menge <code>V_c^I(p)</code> enthaelt nur endliche, canvas-gueltige Quellsamples.</li>
+<li>Diagnostik und Regionsextraktion verwenden nur canvas-gueltige Unterstuetzung. Rohe ungueltige Canvas-Bereiche koennen aus Formkompatibilitaetsgruenden in Arrays vorhanden sein, muessen aber aus allen Statistiken ausgeschlossen werden.</li>
+<li>Der finale <code>Q_map</code> Canvas-Guard setzt canvas-ungueltige Pixel exakt auf null, nur als Ausgabekonvention. Diese Null darf nie wieder als Datensample in AQMH-Statistiken eingehen.</li>
+</ol>
+<hr />
+<h2 id="2-berechnung-dichter-qualitaetskarten">2. Berechnung dichter Qualitaetskarten<a class="headerlink" href="#2-berechnung-dichter-qualitaetskarten" title="Permanent link">&para;</a></h2>
+<h3 id="21-ueberblick">2.1 Ueberblick<a class="headerlink" href="#21-ueberblick" title="Permanent link">&para;</a></h3>
+<p>Fuer jeden Frame <code>f</code> und Kanal <code>c</code> wird aus dem prewarped, normalisierten Frame <code>I_{f,c}</code> eine dichte Qualitaetskarte <code>Q_map_{f,c}</code> berechnet. Die Karte wird in einer <strong>Multi-Scale-Pyramide</strong> mit <code>P</code> Skalen berechnet. Jeder Qualitaetsbeitrag pro Skala wird auf Canvas-Aufloesung hochskaliert, danach werden die hochskalierten Beitraege per geometrischem Mittel fusioniert.</p>
+<h3 id="22-eingabedaten">2.2 Eingabedaten<a class="headerlink" href="#22-eingabedaten" title="Permanent link">&para;</a></h3>
+<p>Eingabe fuer AQMH ist der registrierte, prewarped, photometrisch normalisierte Frame <code>I_{f,c}(x,y)</code> aus dem gemeinsamen Preprocessing. Die Common-Overlap-Canvas-Maske gilt: Canvas-ungueltige Pixel werden aus allen Qualitaetskarten-Akkumulatoren ausgeschlossen.</p>
+<h3 id="23-multi-scale-pyramide">2.3 Multi-Scale-Pyramide<a class="headerlink" href="#23-multi-scale-pyramide" title="Permanent link">&para;</a></h3>
+<h4 id="231-skalendefinition">2.3.1 Skalendefinition<a class="headerlink" href="#231-skalendefinition" title="Permanent link">&para;</a></h4>
+<p>Definiere <code>P</code> Analyseskalen mit Downscale-Faktoren <code>D_s</code> und Fensterradien <code>R_s</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Skala <code>s</code></th>
+<th>Downscale <code>D_s</code></th>
+<th>Fenster <code>R_s</code></th>
+<th>Erfasste Struktur</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>4 px</td>
+<td>Sub-Tile, pixelnahe Defekte, Hot Pixels</td>
+</tr>
+<tr>
+<td>1</td>
+<td>4</td>
+<td>4 px</td>
+<td>tile-vergleichbar (ca. 16 px Fenster)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>16</td>
+<td>4 px</td>
+<td>grobe Regionen (ca. 64 px Fenster)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>64</td>
+<td>4 px</td>
+<td>globaler Frame-Qualitaetskontext (ca. 256 px Fenster)</td>
+</tr>
+</tbody>
+</table>
+<p>Spezifizierte Defaults: <code>P = 4</code>, <code>D_s = 4^s</code>, <code>R_s = 4</code> (in downscaled Pixeln).</p>
+<p>Eine Skala <code>s</code> wird <strong>ausgelassen</strong>, wenn <code>D_s &gt; min(W, H) / 16</code>; das konfigurierte Maximum <code>P</code> bleibt unveraendert, waehrend <code>S_actual</code> und <code>P_actual</code> entsprechend reduziert werden. Aequivalent benoetigt Skala <code>s</code> <code>min(W, H) &gt;= 16 * D_s</code>. Beispiele fuer die Defaults: Skala 1 (<code>D=4</code>) benoetigt <code>min(W,H) &gt;= 64</code>; Skala 2 (<code>D=16</code>) benoetigt <code>&gt;= 256</code>; Skala 3 (<code>D=64</code>) benoetigt <code>&gt;= 1024</code>. Kleine Bilder lassen daher automatisch die groebsten Skalen weg, z. B. behaelt ein 512-px-Bild nur Skalen 0-2.</p>
+<h4 id="232-signalberechnung-pro-skala">2.3.2 Signalberechnung pro Skala<a class="headerlink" href="#232-signalberechnung-pro-skala" title="Permanent link">&para;</a></h4>
+<p>Auf Skala <code>s</code> wird eine downscaled Version der Eingabe berechnet:</p>
+<p><code>I_s(x,y) = downsample(I_{f,c}, D_s)</code></p>
+<p>mit Flaechenmittelung und canvas-maskenbewusstem Denominator; canvas-ungueltige Pixel werden aus dem Flaechenmittel ausgeschlossen und nicht durch Null ersetzt.</p>
+<p>Fuer jedes Pixel <code>(x,y)</code> in der downscaled Domaene werden ueber ein lokales Fenster <code>W_s(x,y)</code> mit Radius <code>R_s</code> die folgenden <strong>drei Qualitaetssignale</strong> berechnet:</p>
+<h5 id="a-lokales-schaerfesignal-phi_sharp">(a) Lokales Schaerfesignal <code>Phi_sharp</code><a class="headerlink" href="#a-lokales-schaerfesignal-phi_sharp" title="Permanent link">&para;</a></h5>
+<p><code>Phi_sharp_s(x,y) = Var_{p in W_s_valid(x,y)}(Lap_valid(I_s)(p))</code></p>
+<p>Dabei ist <code>Lap_valid</code> die maskierte Laplacian-Response mit gueltiger Unterstuetzung, und <code>Var</code> ist die lokale Varianz endlicher, gueltiger Laplacian-Werte. <code>Lap_valid</code> darf keine gespiegelten, replizierten, nullgefuellten oder canvas-ungueltigen Nachbarn verwenden. Wenn das Zentrumspixel ungueltig ist oder die endliche Stencil-Unterstuetzung fuer eine deterministische Laplacian-Schaetzung nicht ausreicht, ist die Response ungueltig. Das Ergebnis wird auf <code>[0, +inf)</code> begrenzt.</p>
+<p>An dieser Stelle wird keine explizite globale Skalierung von <code>Phi_sharp_s</code> angewendet. Der robuste z-score pro Skala in Abschnitt 2.3.3 ist invariant gegenueber globaler multiplikativer Skalierung (<code>z(a*Phi) = z(Phi)</code> fuer <code>a &gt; 0</code>), sodass eine <code>sigma_Lap</code>-basierte Normalisierung hier keinen Einfluss auf <code>Psi_s</code> haette und bewusst weggelassen wird. Implementierungen duerfen <code>Phi_sharp_s</code> aus numerischen Gruenden lokal umskalieren, duerfen aber nicht davon ausgehen, dass dies das Ergebnis veraendert.</p>
+<h5 id="b-lokales-snr-signal-phi_snr">(b) Lokales SNR-Signal <code>Phi_snr</code><a class="headerlink" href="#b-lokales-snr-signal-phi_snr" title="Permanent link">&para;</a></h5>
+<p><code>b_s(x,y) = B_s(x,y; R_s) = median_{p in W_s_valid(x,y)} I_s(p)</code><br />
+<code>mu_s(x,y) = mean_{p in W_s_valid(x,y)}(max(I_s(p) - b_s(x,y), 0))</code><br />
+<code>sigma_s(x,y) = MAD_{p in W_s_valid(x,y)}(I_s(p)) * 1.4826</code></p>
+<p><code>Phi_snr_s(x,y) = mu_s(x,y) / max(sigma_s(x,y), eps_aqmh)</code></p>
+<p>Der Clamp wird nur fuer den Mittelwertterm angewendet. Die SNR-Rauschskala <code>sigma_s</code> verwendet rohe endliche Pixelwerte <code>I_s(p)</code> in der lokalen Unterstuetzung, nicht den hintergrundsubtrahierten oder geclamp-ten Signalterm; dadurch wird die Rauschschaetzung nicht durch positives Signal-Clipping verzerrt. <code>B_s</code> ist ein deterministischer maskierter Median ueber dieselbe lokale gueltige Unterstuetzung <code>W_s_valid(x,y)</code>, die auch die anderen lokalen Statistiken verwenden. Wenn <code>W_s_valid(x,y)</code> leer ist, ist das Signal nach Abschnitt 2.3.4 ungueltig. Wenn weniger als drei gueltige Pixel verfuegbar sind, duerfen Implementierungen auf <code>mean(max(I_s(p), 0))</code> zurueckfallen, muessen aber das Diagnoseflag <code>scene_dependent_snr = true</code> setzen.</p>
+<p>Scene-Dependence-Guard: <code>Phi_snr_s</code> ist ein lokaler Support-Qualitaetsproxy, kein Quellendetektor. Die hintergrundzentrierte Definition soll Source-Content-Bias reduzieren; der Fallback auf den nicht zentrierten Mittelwert ist nur als diagnostisch markierter degradierter Pfad erlaubt.</p>
+<h5 id="c-artefakt-anomalie-score-phi_artifact">(c) Artefakt-Anomalie-Score <code>Phi_artifact</code><a class="headerlink" href="#c-artefakt-anomalie-score-phi_artifact" title="Permanent link">&para;</a></h5>
+<p><code>Phi_artifact_s(x,y)</code> erkennt lokale Outlier-Gradienten, die auf Satellitenspuren, kosmische Strahlen oder Wolkenkanten hinweisen:</p>
+<ol>
+<li>Berechne das High-Pass-Residual <code>hp_s(x,y) = I_s(x,y) - blur(I_s, R_s)(x,y)</code>, wobei <code>blur(I_s, R_s)(x,y)</code> der maskierte lokale Mittelwert von <code>I_s</code> ueber <code>W_s_valid(x,y)</code> ist.</li>
+<li>Berechne die lokale robuste Skala <code>tau_s(x,y) = max(1.4826 * MAD_{p in W_s_valid(x,y)}(hp_s(p)), eps_aqmh)</code>.</li>
+<li>Berechne die lokale Outlier-Fraktion: <code>frac_out_s(x,y) = |{p in W_s_valid(x,y) : |hp_s(p)| &gt; k_artifact * tau_s(x,y)}| / |W_s_valid(x,y)|</code><br />
+   mit spezifiziertem Default <code>k_artifact = 3.0</code>.</li>
+<li><code>Phi_artifact_s(x,y) = 1 - clip(frac_out_s(x,y) / frac_artifact_max, 0, 1)</code><br />
+   mit spezifiziertem Default <code>frac_artifact_max = 0.25</code>.</li>
+</ol>
+<p><code>Phi_artifact_s = 1</code> bedeutet eine saubere Region; <code>Phi_artifact_s = 0</code> bedeutet, dass mindestens <code>frac_artifact_max</code> (Default 25%) der Pixel im Fenster Outlier sind.</p>
+<h4 id="233-qualitaetskarte-pro-skala">2.3.3 Qualitaetskarte pro Skala<a class="headerlink" href="#233-qualitaetskarte-pro-skala" title="Permanent link">&para;</a></h4>
+<p>Die Qualitaetskarte pro Skala <code>Psi_s(x,y)</code> ist definiert als:</p>
+<p><code>Psi_s(x,y) = sigmoid(w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s)) * Phi_artifact_s(x,y)</code></p>
+<p>wobei:</p>
+<ul>
+<li><code>z(Phi)</code> die robuste z-score-Normalisierung ist: <code>z(Phi)(x,y) = (Phi(x,y) - median(Phi_s)) / max(1.4826 * MAD(Phi_s), eps_aqmh)</code>, angewendet ueber alle endlichen, canvas-gueltigen Pixel auf Skala <code>s</code></li>
+<li><code>sigmoid(v) = 1 / (1 + exp(-v))</code></li>
+<li><code>w_sharp</code>, <code>w_snr</code> konfigurierbare Gewichte sind (spezifizierte Defaults: <code>w_sharp = 0.6</code>, <code>w_snr = 0.4</code>)</li>
+<li>der Artefaktterm <code>Phi_artifact_s</code> als multiplikatives Gate wirkt: Er unterdrueckt Regionen mit zu hoher Outlier-Dichte unabhaengig von Schaerfe oder SNR.</li>
+</ul>
+<p>Bindende Bedingung: <code>Psi_s(x,y) in [0, 1]</code> fuer alle endlichen Eingaben. Der Sigmoid-Term ist strikt positiv, aber das multiplikative Artefakt-Gate kann <code>Psi_s</code> exakt auf null setzen.</p>
+<p><strong>Within-frame relativity (bindende Klarstellung):</strong> Weil <code>z(Phi_sharp_s)</code> und <code>z(Phi_snr_s)</code> pro Frame normalisiert werden (Median/MAD ueber die Pixel dieses Frames auf Skala <code>s</code>), ist der <strong>Sigmoid-Faktor von <code>Q_map</code> ein innerhalb des Frames relatives Qualitaetsfeld</strong>, keine absolute Cross-Frame-Qualitaetsmessung. Zwei Frames mit unterschiedlichem globalem Seeing erzeugen aehnlich verteilte Sigmoid-Faktoren, jeweils selbstnormalisiert. Folglich gilt im AQMH-Rekonstruktionsgewicht <code>W_{f,c}^{aqmh} = G_{f,c} * Q_map_{f,c}</code> (Abschnitt 1.1, 4.3):</p>
+<ul>
+<li><strong>Zwischen-Frame</strong>-Diskriminierung an einem Pixel wird durch das globale Gewicht <code>G_{f,c}</code> und durch <strong>absolute</strong> Gates wie <code>Phi_artifact_s</code> getragen, die nicht z-gescored werden und <code>Q_map</code> in jedem Frame unabhaengig von anderen Frames gegen null treiben koennen.</li>
+<li><strong>Innerhalb-Frame</strong>-raeumliche Diskriminierung, also welche Regionen eines einzelnen Frames schaerfer/sauberer sind, wird durch den Sigmoid-Faktor getragen.</li>
+</ul>
+<p>Diese Arbeitsteilung ist absichtlich und bindend: Der Sigmoid-Faktor darf nicht als absolute photometrische Qualitaet interpretiert und nicht zum Ranking ganzer Frames verwendet werden.</p>
+<h3 id="234-rand-und-leerfensterregeln">2.3.4 Rand- und Leerfensterregeln<a class="headerlink" href="#234-rand-und-leerfensterregeln" title="Permanent link">&para;</a></h3>
+<p>Alle lokalen Statistiken werden nur ueber endliche, canvas-gueltige Pixel berechnet. <code>W_s_valid(x,y)</code> sei die gueltige Teilmenge des Analysefensters.</p>
+<p>Wenn <code>|W_s_valid(x,y)| = 0</code>, werden alle pro-Skala-Signale an <code>(x,y)</code> als ungueltig markiert, und der fusionierte <code>Q_map</code>-Wert wird spaeter durch den Canvas-Guard auf null gesetzt. Wenn <code>|W_s_valid(x,y)| &gt; 0</code>, aber weniger als drei gueltige Pixel vorhanden sind, fallen robuste Skalenschaetzungen auf <code>eps_aqmh</code> und lokale Varianzschaetzungen auf null zurueck. Fuer das <code>Phi_snr_s</code>-Signal hat die Hintergrundzentrierungs-Fallback-Regel in Abschnitt 2.3.2(b) Vorrang.</p>
+<p>Der Default-Randmodus fuer faltungsartige Operationen (<code>Lap_valid</code>, <code>blur</code>, lokale Fenster und Morphologie-Supportmasken) ist valid-only maskierte Auswertung. Implementierungen duerfen canvas-ungueltige Pixel nicht spiegeln, replizieren, nullfuellen oder sonstwie synthetisch in die Statistik einfuehren. Wenn ein Bibliotheksprimitive diese Support-Regel nicht direkt ausdruecken kann, muessen Implementierungen Zaehler und Valid-Support-Denominator separat berechnen oder einen explizit maskierten Operator verwenden.</p>
+<h3 id="24-multi-scale-fusion">2.4 Multi-Scale-Fusion<a class="headerlink" href="#24-multi-scale-fusion" title="Permanent link">&para;</a></h3>
+<p><code>S_actual</code> sei die geordnete Menge der Skalen, die nach Anwendung der Omission-Regel aus Abschnitt 2.3.1 tatsaechlich berechnet werden, und <code>P_actual = |S_actual|</code>. Jede berechnete <code>Psi_s</code> wird per maskenbewusster bilinearer Interpolation auf volle Canvas-Aufloesung hochskaliert:</p>
+<p><code>Psi_s^{up}(x,y) = upsample_valid(Psi_s, valid_s, D_s)</code></p>
+<p>wobei <code>valid_s</code> die endliche Valid-Support-Maske von <code>Psi_s</code> ist. <code>upsample_valid</code> interpoliert Zaehler <code>Psi_s * valid_s</code> und Supportmaske <code>valid_s</code> separat und dividiert anschliessend durch den interpolierten Support. Wenn der interpolierte Support an einem Canvas-Pixel null ist, ist <code>Psi_s^{up}</code> an diesem Pixel ungueltig. Ungueltige Skalen-Samples duerfen bei der Interpolation nicht als null behandelt werden, weil dies benachbarte gueltige Canvas-Pixel absenken wuerde.</p>
+<p>Fusion per <strong>geometrischem Mittel</strong> ueber die <code>P_actual</code> berechneten Skalen:</p>
+<p><code>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}</code></p>
+<p>Das konfigurierte <code>P</code> ist eine Obergrenze. Es darf nicht als Exponent-Denominator verwendet werden, wenn eine oder mehrere Skalen ausgelassen wurden. Wenn <code>P_actual = 0</code>, ist <code>Q_map</code> nach dem Canvas-Guard ueberall null.</p>
+<p>Das geometrische Mittel wird dem arithmetischen Mittel vorgezogen, weil es verlangt, dass <strong>alle Skalen hohe Qualitaet bestaetigen</strong>. Eine einzelne Skala, die ein Artefakt meldet, unterdrueckt die fusionierte Karte unabhaengig von anderen Skalen. Das implementiert eine konservative "all-clear"-Fusionsphilosophie.</p>
+<p><strong>Zero-scale guard:</strong> Wenn <code>Psi_s^{up}(x,y) = 0</code> fuer irgendeine Skala <code>s</code>, dann ist <code>Q_map_{f,c}(x,y) = 0</code> exakt; eine schlechte Skala vetoiert das Pixel.</p>
+<p><strong>Canvas guard (bindend):</strong> Fuer alle canvas-ungueltigen Pixel <code>p</code> wird <code>Q_map_{f,c}(p) = 0</code> bedingungslos nach der Fusion gesetzt und ueberschreibt jeden berechneten Wert.</p>
+<p>Wenn eine berechnete Skala an einem canvas-gueltigen Pixel ungueltig ist, weil nach maskenbewusstem Upsampling kein gueltiger Skalen-Support vorhanden ist, traegt diese Skala an diesem Pixel ein Zero-Veto bei. Das ist verschieden von canvas-ungueltigen Pixeln, die ausgeschlossen und nur durch den finalen Canvas-Guard genullt werden.</p>
+<h3 id="25-block-level-diagnosezusammenfassungen">2.5 Block-Level-Diagnosezusammenfassungen<a class="headerlink" href="#25-block-level-diagnosezusammenfassungen" title="Permanent link">&para;</a></h3>
+<p>Fuer Reports und visuelle Zusammenfassungen darf AQMH Block-Level-Diagnosewerte ableiten, indem <code>Q_map_{f,c}</code> ueber einen Anzeigeblock <code>b</code> aggregiert wird:</p>
+<p><code>Q_{f,b,c}^{aqmh} = median_{p in b, canvas-valid} Q_map_{f,c}(p)</code></p>
+<p>Das Blockraster ist nur eine Reporting-/Visualisierungshilfe. Es ist nicht Teil des AQMH-Rekonstruktionsgewichtsmodells und darf keine blockkonstanten Gewichte in den AQMH-Akkumulator einfuehren.</p>
+<hr />
+<h2 id="3-qualitaetskarten-speicher-und-speichermodell">3. Qualitaetskarten-Speicher- und Speichermodell<a class="headerlink" href="#3-qualitaetskarten-speicher-und-speichermodell" title="Permanent link">&para;</a></h2>
+<h3 id="31-speicherformat">3.1 Speicherformat<a class="headerlink" href="#31-speicherformat" title="Permanent link">&para;</a></h3>
+<p>Konzeptionell ist <code>Q_map_{f,c}</code> ein Full-Canvas-Qualitaetsfeld, eines pro Frame und Kanal. Die persistierte Darstellung darf nach Abschnitt 3.2 niedriger aufgeloest oder quantisiert sein. Fuer mehrkanalige CFA-Eingaben, die mit der CFA-proxy-aequivalenten Kernvariante verarbeitet werden, kann statt kanalweiser Karten eine einzelne Luminanzkanal-Karte verwendet werden (konfigurierbar).</p>
+<p>Empfohlene Speicherung: auf dem bestehenden <code>DiskCacheFrameStore</code> oder in einem parallelen Qualitaetskarten-Disk-Cache mit identischer Indexsemantik.</p>
+<h3 id="32-speicherbudget">3.2 Speicherbudget<a class="headerlink" href="#32-speicherbudget" title="Permanent link">&para;</a></h3>
+<p>Bei voller Aufloesung benoetigt eine Karte <code>W * H * 4</code> Bytes. Fuer einen 24-Mpx-Sensor mit 300 Frames und 3 Kanaelen waere der volle unkomprimierte <strong>On-Disk-Working-Set</strong> etwa <code>24e6 * 4 * 300 * 3 ~= 86 GB</code>.</p>
+<p>Diese Zahl ist <strong>kein</strong> erlaubtes RAM-Budget. AQMH darf niemals voraussetzen, dass alle Frames, alle prewarped Frames oder alle Qualitaetskarten im Speicher liegen. Wie der Rest von Tile Compile ist AQMH fuer hunderte Frames ausgelegt und muss in jeder Phase als streamingfaehige, disk-cache-gestuetzte Methode implementiert werden.</p>
+<p>Bindende Speicherinvariante:</p>
+<ol>
+<li>Zur AQMH-Kartenberechnungszeit darf jeder Worker nur den aktuellen Quellframe, seine aktuellen Pyramiden-Temporaries und die aktuelle Ausgabekarte halten.</li>
+<li>Nachdem <code>Q_map</code> eines Frames berechnet wurde, muss sie zeitnah in den AQMH-Map-Cache geschrieben werden, und Full-Resolution-Arbeitspuffer muessen freigegeben werden.</li>
+<li>AQMH-Rekonstruktion muss Frames und Karten ueber begrenzte Provider/Caches lesen. Die Anzahl residenter Quellframes und Full-Resolution-Karten muss durch explizite Speicherlimits begrenzt sein und darf nicht mit der Framezahl skalieren.</li>
+<li>Eine gueltige Implementierung muss hunderte Frames ohne OOM verarbeiten koennen, indem sie Speicher gegen Disk-IO tauscht.</li>
+</ol>
+<p>Daher werden folgende Kompressionsstrategien unterstuetzt:</p>
+<table>
+<thead>
+<tr>
+<th>Strategie</th>
+<th>Beschreibung</th>
+<th>Spezifiziert?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full resolution float32</td>
+<td>Keine Kompression</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td>1/4 area float32</td>
+<td>Downscale um 2 pro Achse</td>
+<td><strong>Default</strong></td>
+</tr>
+<tr>
+<td>uint16 quantization</td>
+<td>Karte auf <code>[0, 65535]</code> skaliert</td>
+<td>Optional, empfohlene Performance-Variante, wenn bitidentische float32-Cachewerte nicht erforderlich sind</td>
+</tr>
+<tr>
+<td>uint8 quantization</td>
+<td>Karte auf <code>[0, 255]</code> skaliert</td>
+<td>Optional, kleinerer Cache mit hoeherem Quantisierungsfehler</td>
+</tr>
+<tr>
+<td>Block-compressed float16</td>
+<td>Float16-Teilbloecke pro Block</td>
+<td>Zukuenftig optional; nur gueltig, wenn explizit implementiert</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Spezifizierter Default:</strong> Speichere <code>Q_map</code> bei <code>1/4</code> Flaechenaufloesung (Faktor-2-Downscale je Achse, <code>resolution_divisor = 2</code>). Die Karte wird bei Bedarf waehrend der Rekonstruktion per bilinearer Interpolation auf volle Aufloesung hochskaliert.</p>
+<h3 id="33-disk-cache-lebenszyklus">3.3 Disk-Cache-Lebenszyklus<a class="headerlink" href="#33-disk-cache-lebenszyklus" title="Permanent link">&para;</a></h3>
+<p>Qualitaetskarten werden waehrend der AQMH-Kartenberechnung geschrieben und waehrend der AQMH-Rekonstruktion gelesen. Karten werden invalidiert, wenn der prewarped Quellframe invalidiert wird, wenn sich die Common-Overlap-Maske aendert oder wenn sich eine <strong>kartenbeeinflussende</strong> AQMH-Konfiguration aendert (<code>pyramid</code>, <code>storage</code> oder Kartenformatversion). Nur-rekonstruktionsbezogene Einstellungen duerfen Map-Cache-Eintraege nicht invalidieren. Implementierungen sollten einen Cache-Metadaten-Hash speichern und validieren, der nur kartenbeeinflussende Eingaben umfasst.</p>
+<p>Der Cache ist keine Optimierung, sondern Teil des AQMH-Ausfuehrungsmodells. Implementierungen muessen cache-gestuetzten Zugriff fuer alle grossen datenpro-Frame-Produkte verwenden:</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Grosse Daten</th>
+<th>Erforderliches Zugriffsmuster</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gemeinsames Preprocessing</td>
+<td>kalibrierte/registrierte/prewarped Frames</td>
+<td>disk-backed Frame Store; begrenzter residenter Frame-Satz</td>
+</tr>
+<tr>
+<td>AQMH-Kartenberechnung</td>
+<td>Quellframe, Pyramidenpuffer, Ausgabekarte</td>
+<td>ein Frame pro Worker; write-through Map Cache</td>
+</tr>
+<tr>
+<td>AQMH-Rekonstruktion</td>
+<td>Quellframes und <code>Q_map</code>-Dateien</td>
+<td>begrenzter Frame-/Map-Read-Cache; kein Full-Run-Preload</td>
+</tr>
+<tr>
+<td>AQMH-Diagnostik/Report</td>
+<td>Metriken und Zusammenfassungen</td>
+<td>aggregierte JSON/Statistiken; Rohkarten bleiben Cache-Artefakte</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-pipeline-integration">4. Pipeline-Integration<a class="headerlink" href="#4-pipeline-integration" title="Permanent link">&para;</a></h2>
+<h3 id="41-aqmh-verarbeitungsstufen">4.1 AQMH-Verarbeitungsstufen<a class="headerlink" href="#41-aqmh-verarbeitungsstufen" title="Permanent link">&para;</a></h3>
+<p>AQMH hat eigene algorithmische Stufen. Eine konkrete Anwendung darf diese Stufen aus Engineering-Gruenden innerhalb bestehender Runner-Phasen schedulen, aber dieses Scheduling ist nicht Teil der mathematischen Methode.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>AQMH_MAPS
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  Berechne dichte Qualitaetskarten Q_map pro Frame
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>AQMH_RECONSTRUCTION
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  Fuehre pixelweises gewichtetes Stacking mit W_aqmh = G * Q_map aus
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>AQMH_DIAGNOSTICS
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  Schreibe Qualitaetskarten-, Rekonstruktions- und optionale Regionsartefakte
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>AQMH_NATIVE_BGE_INPUTS
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  Optionale Postprocessing-Unterstuetzung: leite BGE-Sampling-Hilfen aus dem
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  AQMH-Rekonstruktionsoutput und der Canvas-Maske ab, nicht aus Classic
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  Tile Compile Local Metrics.
+</span></code></pre></div>
+<p>Gemeinsame Preprocessing- und Postprocessing-Stufen duerfen wiederverwendet werden, aber Classic-Tile-Compile-Local-Metrics und Tile-Reconstruction sind keine AQMH-Stufen. Wenn BGE fuer einen AQMH-Run aktiviert ist, muessen BGE-Tile-Sampling-Hilfen aus dem AQMH-Rekonstruktionsoutput und der Canvas-Valid-Maske abgeleitet werden. Sie duerfen pro Tile Hintergrund-, robuste Rausch- und Gradienten-/Strukturschaetzungen fuer BGE-Sampling enthalten, sind aber keine AQMH-Rekonstruktionsgewichte und duerfen nicht aus <code>local_metrics.json</code> gelesen werden.</p>
+<h3 id="42-aqmh-kartenberechnung">4.2 AQMH-Kartenberechnung<a class="headerlink" href="#42-aqmh-kartenberechnung" title="Permanent link">&para;</a></h3>
+<p>Fuer jeden Frame <code>f</code> und Kanal <code>c</code> mit <code>frame_has_data[f] = true</code>:</p>
+<ol>
+<li>Lade den prewarped Frame <code>I_{f,c}</code> aus dem <code>DiskCacheFrameStore</code>.</li>
+<li>Wende die Common-Overlap-Canvas-Maske an: setze Pixel ausserhalb der Maske auf NaN (aus allen Fensterstatistiken ausgeschlossen).</li>
+<li>Fuer <code>s = 0, ..., P-1</code>:
+   a. Berechne <code>I_s</code> per flaechengemitteltem Downsampling mit maskenbewusstem Denominator.
+   b. Berechne <code>Phi_sharp_s</code>, <code>Phi_snr_s</code>, <code>Phi_artifact_s</code> (Abschnitt 2.3.2).
+   c. Berechne <code>Psi_s</code> (Abschnitt 2.3.3).</li>
+<li>Skaliere alle <code>Psi_s</code> auf Canvas-Aufloesung hoch (Abschnitt 2.4).</li>
+<li>Berechne das fusionierte <code>Q_map_{f,c}</code> per geometrischem Mittel (Abschnitt 2.4).</li>
+<li>Wende den Canvas-Guard an: setze canvas-ungueltige Pixel auf null.</li>
+<li>Schreibe <code>Q_map_{f,c}</code> in den AQMH-Qualitaetskarten-Disk-Cache (in der konfigurierten Speicheraufloesung).</li>
+</ol>
+<h3 id="43-aqmh-pixelweise-gewichtete-rekonstruktion">4.3 AQMH pixelweise gewichtete Rekonstruktion<a class="headerlink" href="#43-aqmh-pixelweise-gewichtete-rekonstruktion" title="Permanent link">&para;</a></h3>
+<p>Fuer jedes Pixel <code>p</code> in canvas-gueltiger Unterstuetzung:</p>
+<p>Definiere die endliche Intensitaets-Sample-Menge:</p>
+<p><code>V_c^{I}(p) = { f | I_{f,c}(p) is finite AND canvas-valid }</code></p>
+<p>Definiere die Map-verfuegbare Sample-Menge:</p>
+<p><code>V_c^{map}(p) = { f in V_c^{I}(p) | Q_map_{f,c}(p) is finite }</code></p>
+<p>Fuer jedes <code>f in V_c^{I}(p)</code> ist das effektive AQMH-Pixelgewicht:</p>
+<p><code>w_{f,c}^{aqmh}(p) = G_{f,c} * Q_map_{f,c}(p)</code> wenn <code>f in V_c^{map}(p)</code></p>
+<p><code>w_{f,c}^{aqmh}(p) = 0</code> wenn das Map-Sample nicht verfuegbar oder nicht endlich ist</p>
+<p>Kein Classic-Tile-Compile-Local-/Tile-Gewicht wird als AQMH-Fallback verwendet.</p>
+<p>Canvas-ungueltige Ausgabepixel werden nicht rekonstruiert. Sie werden als unsupported/null geschrieben, ohne Frame-Samples, Map-Samples, Sigma-Clipping oder Denominator-Fallback auszuwerten. Canvas-ungueltige Quellpixel sind nie Mitglieder von <code>V_c^I(p)</code>.</p>
+<p>Der rekonstruierte Pixelwert ist:</p>
+<p><code>R_c^{aqmh}(p) = sum_{f in V^I} w_{f,c}^{aqmh}(p) * I_{f,c}(p) / sum_{f in V^I} w_{f,c}^{aqmh}(p)</code></p>
+<p><strong>Unsupported-Pixel-Handling (bindend):</strong> Vor jedem numerischen Denominator-Guard muessen Implementierungen endliche Map-Samples von nicht verfuegbaren Map-Samples unterscheiden. Eine endliche Null ist ein gueltiges Map-Sample und ein explizites Veto, kein fehlender Wert. Wenn <code>sum_f max(w_{f,c}^{aqmh}(p), 0) &lt;= eps_weight</code>, haengt das Fallback-Verhalten davon ab, warum die Summe null ist:</p>
+<ol>
+<li>Wenn an <code>p</code> mindestens ein endliches Map-Sample existiert (<code>V_c^{map}(p) != empty</code>) und alle AQMH-Gewichte null sind, weil die verfuegbaren Maps das Pixel explizit vetieren (<code>Q_map = 0</code>), wird das Ausgabepixel als unsupported/null markiert. Ersetze das explizite Zero-Veto <strong>nicht</strong> durch einen ungewichteten Mittelwert.</li>
+<li>Wenn an <code>p</code> kein endliches Map-Sample existiert oder alle Map-Samples wegen IO-/Cache-Fehler nicht verfuegbar sind, wird das Ausgabepixel als unsupported/null markiert, und der Run emittiert eine AQMH-Cache-/Map-Verfuegbarkeitswarnung. AQMH darf nicht stillschweigend auf Classic-Tile-Compile-Gewichte wechseln.</li>
+<li>Wenn Sigma-Clipping nach einer nicht-null Pre-Clip-Gewichtssumme alle Samples entfernt, gelten die AQMH-Sigma-Clipping-Keep-Floor- und Denominator-Guard-Semantiken fuer pixelweise gewichtete Rekonstruktion.</li>
+</ol>
+<p><strong>Sigma-Clipping:</strong> Iteratives gewichtetes Sigma-Clipping wird mit <code>w_{f,c}^{aqmh}(p)</code> angewendet. Keep-Floor <code>min_fraction</code> und <code>N_eff</code>-/<code>D_eff</code>-Guards sind AQMH-Rekonstruktionsparameter und muessen deterministisch sein.</p>
+<hr />
+<h2 id="5-adaptive-region-extraction-optional">5. Adaptive Region Extraction (optional)<a class="headerlink" href="#5-adaptive-region-extraction-optional" title="Permanent link">&para;</a></h2>
+<h3 id="51-motivation">5.1 Motivation<a class="headerlink" href="#51-motivation" title="Permanent link">&para;</a></h3>
+<p>Zusaetzlich zur kontinuierlichen Gewichtskarte kann AQMH <strong>binaere Qualitaetsregionen</strong> fuer Diagnoseberichte und fuer den optionalen Cherry-Pick-Stacking-Modus erzeugen.</p>
+<h3 id="52-qualitaetskontur-extraktion">5.2 Qualitaetskontur-Extraktion<a class="headerlink" href="#52-qualitaetskontur-extraktion" title="Permanent link">&para;</a></h3>
+<p>Aus der fusionierten <code>Q_map_{f,c}</code> werden binaere Regionen per Thresholding extrahiert:</p>
+<ol>
+<li>Berechne den Frame-Schwellenwert: <code>tau_f = quantile(Q_map_{f,c}, q_region)</code> ueber endliche, canvas-gueltige Pixel, mit spezifiziertem Default <code>q_region = 0.75</code>.</li>
+<li>Binaermaske: <code>M_f(x,y) = 1 iff Q_map_{f,c}(x,y) &gt;= tau_f AND canvas-valid</code>.</li>
+<li>Wende morphologisches Opening mit Radius <code>r_morph_canvas_px</code> an, um isolierte Rauschregionen zu entfernen. Der spezifizierte Default ist ein <strong>canvas-aequivalenter Radius von 6 px</strong>, entsprechend 3 px beim Default <code>resolution_divisor = 2</code>. Wenn Regionsextraktion auf einer gespeicherten/downscaled Map laeuft, verwende <code>r_morph_map = max(1, round(r_morph_canvas_px / resolution_divisor))</code>. Morphologie ist auf canvas-gueltige Unterstuetzung beschraenkt: ungueltige Canvas-Pixel liegen ausserhalb der Domaene, sind keine nullwertigen Hintergrundpixel, und die finale Regionsmaske wird immer mit der Canvas-Valid-Maske geschnitten.</li>
+<li>Extrahiere verbundene Komponenten; beschrifte jede Komponente mit:</li>
+<li><code>Area_r</code>: Pixelanzahl</li>
+<li><code>MeanQ_r</code>: mittlerer Qualitaetsscore ueber die Region</li>
+<li><code>Compactness_r = 4*pi*Area_r / Perimeter_r^2</code> (Polsby-Popper-Score)</li>
+<li>Ranke Regionen nach <code>Score_r = MeanQ_r * log(1 + Area_r)</code>.</li>
+</ol>
+<p>Diese Regionen werden im Diagnoseartefakt <code>aqmh_regions.json</code> pro Frame berichtet.</p>
+<h3 id="53-optionaler-cherry-pick-stacking-modus">5.3 Optionaler Cherry-Pick-Stacking-Modus<a class="headerlink" href="#53-optionaler-cherry-pick-stacking-modus" title="Permanent link">&para;</a></h3>
+<p>Wenn <code>aqmh.cherry_pick.enabled = true</code>, verwendet pixelweises Stacking nur die <strong>Top-K Frames</strong> nach Qualitaet statt aller Frames:</p>
+<p><code>K(p) = min(N_valid(p), max(k_min, floor(k_frac * N_valid(p))))</code></p>
+<p>wobei <code>N_valid(p) = |V_c^{I}(p)|</code> die Anzahl endlicher Intensitaetssamples an Pixel <code>p</code> ist (die Intensitaets-Sample-Menge aus Abschnitt 4.3), mit spezifizierten Defaults <code>k_min = 3</code>, <code>k_frac = 0.3</code>.</p>
+<p>Fuer jedes Pixel <code>p</code> sortiere <code>V_c^{I}(p)</code> nach dem cross-frame kalibrierten Score <code>S_f(p) = G_{f,c} * Q_map_{f,c}(p)</code> absteigend und behalte nur die Top-<code>K(p)</code> Frames. Frames mit nicht verfuegbaren/nicht-endlichen Maps erhalten <code>S_f(p) = 0</code>. Die gewichtete Rekonstruktion laeuft ueber diese reduzierte Menge.</p>
+<p><strong>Warnung (bindend):</strong> Cherry-Pick-Modus verletzt die Default-AQMH-No-Frame-Selection-Invariante auf Pixelebene, auch wenn er keine ganzen Frames verwirft. Er darf nur verwendet werden, wenn der Nutzer ihn explizit aktiviert, und muss in Diagnoseausgaben klar markiert werden. Default ist <code>disabled</code>.</p>
+<hr />
+<h2 id="6-qualitaetskarten-diagnostik">6. Qualitaetskarten-Diagnostik<a class="headerlink" href="#6-qualitaetskarten-diagnostik" title="Permanent link">&para;</a></h2>
+<h3 id="61-pro-frame-diagnostik">6.1 Pro-Frame-Diagnostik<a class="headerlink" href="#61-pro-frame-diagnostik" title="Permanent link">&para;</a></h3>
+<p>Fuer jeden verarbeiteten Frame <code>f</code> werden folgende skalare Diagnosen in <code>aqmh_metrics.json</code> geschrieben:</p>
+<table>
+<thead>
+<tr>
+<th>Feld</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>map_mean</code></td>
+<td>Mittelwert von <code>Q_map_{f,c}</code> ueber canvas-gueltige Pixel</td>
+</tr>
+<tr>
+<td><code>map_p10</code></td>
+<td>10. Perzentil ueber canvas-gueltige Pixel</td>
+</tr>
+<tr>
+<td><code>map_p90</code></td>
+<td>90. Perzentil ueber canvas-gueltige Pixel</td>
+</tr>
+<tr>
+<td><code>artifact_frac</code></td>
+<td>Anteil canvas-gueltiger Pixel mit <code>Q_map_{f,c} &lt; tau_artifact</code> (spezifizierter Default: <code>tau_artifact = 0.2</code>)</td>
+</tr>
+<tr>
+<td><code>sharpness_p50</code></td>
+<td>Median des <strong>pre-z-score</strong> <code>Phi_sharp_0</code> auf Skala 0</td>
+</tr>
+<tr>
+<td><code>snr_p50</code></td>
+<td>Median des <strong>pre-z-score</strong> <code>Phi_snr_1</code> auf Skala 1</td>
+</tr>
+<tr>
+<td><code>n_regions</code></td>
+<td>Anzahl Qualitaetsregionen (Abschnitt 5.2) oberhalb des Schwellenwerts</td>
+</tr>
+</tbody>
+</table>
+<p>Wenn die referenzierte Diagnoseskala durch die Small-Image-Skalenregel (Abschnitt 2.3.1) ausgelassen wird, wird das entsprechende Diagnosefeld als <code>NaN</code> oder <code>null</code> geschrieben, und das Artefakt muss ebenfalls festhalten, dass die Skala nicht verfuegbar war. Mit Defaultwerten ist <code>sharpness_p50</code> normalerweise verfuegbar, weil Skala 0 <code>D=1</code> hat; <code>snr_p50</code> kann nicht verfuegbar sein, wenn Skala 1 ausgelassen wird.</p>
+<h3 id="62-block-level-diagnostik">6.2 Block-Level-Diagnostik<a class="headerlink" href="#62-block-level-diagnostik" title="Permanent link">&para;</a></h3>
+<p>Fuer jeden Reportblock <code>b</code> koennen folgende Werte berichtet werden:</p>
+<ul>
+<li><code>aqmh_q_median</code>: <code>Q_{f,b,c}^{aqmh}</code> wie in Abschnitt 2.5 definiert</li>
+<li><code>aqmh_q_p10</code>, <code>aqmh_q_p90</code>: 10. und 90. Perzentil innerhalb des Blocks</li>
+<li><code>aqmh_artifact_frac</code>: Anteil der Pixel im Block mit <code>Q_map &lt; tau_artifact</code></li>
+</ul>
+<h3 id="63-heatmaps">6.3 Heatmaps<a class="headerlink" href="#63-heatmaps" title="Permanent link">&para;</a></h3>
+<p>Fuer die Integration in den Reportgenerator emittiert AQMH raeumliche Heatmap-Eintraege fuer das Artefakt <code>aqmh_metrics.json</code>:</p>
+<ul>
+<li>mittleres <code>Q_map</code> pro Reportblock und Frame</li>
+<li>Artefakt-Fraktion-Heatmap pro Reportblock</li>
+<li>optionale AQMH-vs-Classic-Vergleichsheatmaps nur, wenn beide Methoden separat auf demselben Eingabesatz ausgefuehrt wurden</li>
+</ul>
+<hr />
+<h2 id="7-konfiguration">7. Konfiguration<a class="headerlink" href="#7-konfiguration" title="Permanent link">&para;</a></h2>
+<h3 id="71-top-level-schalter">7.1 Top-Level-Schalter<a class="headerlink" href="#71-top-level-schalter" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aqmh</span><span class="w">              </span><span class="c1"># optionaler expliziter Methodenschluessel: classic_tile_compile | aqmh</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">        </span><span class="c1"># default: disabled until validated</span>
+</span></code></pre></div>
+<p>Wenn <code>aqmh.enabled: false</code>, werden alle AQMH-Berechnungen uebersprungen. Wenn die Implementierung noch keinen expliziten Top-Level-<code>method</code>-Schluessel unterstuetzt, muss der Runtime-Status trotzdem die abgeleitete Methode anzeigen: <code>aqmh.enabled = false</code> bedeutet <code>classic_tile_compile</code>, und <code>aqmh.enabled = true</code> bedeutet <code>aqmh</code>.</p>
+<h3 id="72-pyramidenkonfiguration">7.2 Pyramidenkonfiguration<a class="headerlink" href="#72-pyramidenkonfiguration" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">pyramid</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">scales</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">           </span><span class="c1"># Anzahl Skalen P (Default: 4)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">base_window_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">   </span><span class="c1"># Fensterradius R_s in downscaled Pixeln (Default: 4)</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">w_sharp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.6</span><span class="w">        </span><span class="c1"># Schaerfegewicht im pro-Skala-Sigmoid (Default: 0.6)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">w_snr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span><span class="w">          </span><span class="c1"># SNR-Gewicht im pro-Skala-Sigmoid (Default: 0.4)</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">k_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span><span class="w">     </span><span class="c1"># Outlier-Erkennungsschwelle (Default: 3.0)</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">frac_artifact_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.25</span><span class="w">  </span><span class="c1"># Artefakt-Gate-Schwelle (Default: 0.25)</span>
+</span></code></pre></div>
+<h3 id="73-speicherkonfiguration">7.3 Speicherkonfiguration<a class="headerlink" href="#73-speicherkonfiguration" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">storage</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">resolution_divisor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">   </span><span class="c1"># linearer Divisor pro Achse: 1=voll, 2=halbe Breite/Hoehe (1/4 Flaeche), 4=Viertelbreite/-hoehe (1/16 Flaeche)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">dtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float32</span><span class="w">          </span><span class="c1"># float32 | uint16 | uint8 (Default: float32)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">max_resident_maps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># begrenzter Read-Through-Cache waehrend Rekonstruktion; 0 deaktiviert</span>
+</span></code></pre></div>
+<p>Der Speicherdefault (<code>resolution_divisor = 2</code>, <code>dtype = float32</code>) entspricht der <strong>1/4-area float32</strong>-Strategie in Abschnitt 3.2. <code>max_resident_maps</code> begrenzt, wie viele Full-Resolution-Maps waehrend der AQMH-Rekonstruktion gleichzeitig im RAM gehalten werden duerfen; diese Zahl darf nicht mit der Framezahl skalieren.
+<code>uint16</code> ist das empfohlene Performance-Cache-Format, wenn bitidentische float32-Cachewerte nicht erforderlich sind. Es quantisiert <code>Q_map</code> auf <code>[0,65535]</code>, erhaelt exakte Zero-Veto- und Full-Quality-Endpunkte und hat einen maximalen Quantisierungsfehler von etwa <code>7.7e-6</code>.</p>
+<h3 id="74-cherry-pick-modus">7.4 Cherry-Pick-Modus<a class="headerlink" href="#74-cherry-pick-modus" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">cherry_pick</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># muss explizit aktiviert werden; bricht No-Frame-Selection-Invariante auf Pixelebene</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">k_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">k_frac</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.30</span>
+</span></code></pre></div>
+<h3 id="75-diagnostikkonfiguration">7.5 Diagnostikkonfiguration<a class="headerlink" href="#75-diagnostikkonfiguration" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">diagnostics</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">tau_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.20</span><span class="w">  </span><span class="c1"># Qualitaetsschwelle fuer artifact_frac-Diagnostik (Default: 0.20)</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">q_region</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.75</span><span class="w">      </span><span class="c1"># Quantilschwelle fuer Qualitaetsregionsextraktion (Default: 0.75)</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">r_morph_canvas_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span><span class="w"> </span><span class="c1"># canvas-aequivalenter Radius fuer Qualitaetsregion-Morphologie (Default: 6)</span>
+</span></code></pre></div>
+<p><code>tau_artifact</code> ist eine <strong>nur diagnostische</strong> Schwelle (siehe Abschnitt 6.1, 6.2). Sie beeinflusst weder Rekonstruktionsgewichte noch das pro-Skala-Artefakt-Gate <code>Phi_artifact_s</code>, das durch <code>k_artifact</code> und <code>frac_artifact_max</code> in Abschnitt 7.2 gesteuert wird.</p>
+<hr />
+<h2 id="8-numerische-defaults">8. Numerische Defaults<a class="headerlink" href="#8-numerische-defaults" title="Permanent link">&para;</a></h2>
+<p>Alle <code>eps_aqmh</code>-Konstanten haben den Default <code>1e-6</code>, sofern nicht anders angegeben.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eps_aqmh</code></td>
+<td><code>1e-6</code></td>
+<td>Denominator-Guard fuer alle AQMH-Divisionen</td>
+</tr>
+<tr>
+<td><code>k_artifact</code></td>
+<td><code>3.0</code></td>
+<td>Outlier-Sigma-Multiplikator</td>
+</tr>
+<tr>
+<td><code>frac_artifact_max</code></td>
+<td><code>0.25</code></td>
+<td>Maximal tolerierte Outlier-Fraktion pro Fenster</td>
+</tr>
+<tr>
+<td><code>w_sharp</code></td>
+<td><code>0.6</code></td>
+<td>Schaerfegewicht im pro-Skala-Qualitaetssigmoid</td>
+</tr>
+<tr>
+<td><code>w_snr</code></td>
+<td><code>0.4</code></td>
+<td>SNR-Gewicht im pro-Skala-Qualitaetssigmoid</td>
+</tr>
+<tr>
+<td><code>P</code></td>
+<td><code>4</code></td>
+<td>Maximale Anzahl Pyramidenskalen; tatsaechliche Anzahl kann wegen Omission-Regel in Abschnitt 2.3.1 niedriger sein</td>
+</tr>
+<tr>
+<td><code>R_s</code></td>
+<td><code>4</code></td>
+<td>Fensterradius auf jeder Skala (in downscaled Pixeln)</td>
+</tr>
+<tr>
+<td><code>q_region</code></td>
+<td><code>0.75</code></td>
+<td>Qualitaetsquantilschwelle fuer Regionsextraktion</td>
+</tr>
+<tr>
+<td><code>r_morph_canvas_px</code></td>
+<td><code>6</code></td>
+<td>Morphologischer Opening-Radius in Canvas-Pixeln; Map-Space-Radius ist <code>max(1, round(r_morph_canvas_px / resolution_divisor))</code></td>
+</tr>
+<tr>
+<td><code>k_frac</code></td>
+<td><code>0.30</code></td>
+<td>Cherry-Pick-Frame-Fraktion</td>
+</tr>
+<tr>
+<td><code>k_min</code></td>
+<td><code>3</code></td>
+<td>Mindestframes im Cherry-Pick-Modus</td>
+</tr>
+<tr>
+<td><code>tau_artifact</code></td>
+<td><code>0.20</code></td>
+<td>Qualitaetsschwelle fuer Artifact-Fraction-Diagnostik</td>
+</tr>
+<tr>
+<td><code>max_resident_maps</code></td>
+<td><code>2</code></td>
+<td>Maximale Full-Resolution-Maps im RAM waehrend Rekonstruktion</td>
+</tr>
+<tr>
+<td><code>resolution_divisor</code></td>
+<td><code>2</code></td>
+<td>Speicher-Downscale-Faktor pro Achse (1/4-area Default)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9-validierungsanforderungen">9. Validierungsanforderungen<a class="headerlink" href="#9-validierungsanforderungen" title="Permanent link">&para;</a></h2>
+<p>Wenn AQMH aktiviert ist, gelten folgende Validierungsanforderungen:</p>
+<ol>
+<li><strong>Map range:</strong> <code>Q_map_{f,c}(p) in [0, 1]</code> fuer alle endlichen canvas-gueltigen Pixel.</li>
+<li><strong>Canvas guard:</strong> <code>Q_map_{f,c}(p) = 0</code> fuer alle canvas-ungueltigen Pixel.</li>
+<li><strong>Determinismus:</strong> Identische registrierte Frames und Canvas-Masken erzeugen identische Qualitaetskarten.</li>
+<li><strong>Unsupported coverage:</strong> Jedes Pixel mit <code>V_c^{I}(p) = empty</code> gibt null/unsupported zurueck; jedes Pixel mit endlichen Intensitaetssamples, aber ohne endliche AQMH-Map-Samples, gibt null/unsupported mit AQMH-Warnung zurueck; kein NaN/Inf im Output.</li>
+<li><strong>Explicit zero-veto:</strong> Wenn endliche Maps an einem Pixel existieren und alle verfuegbaren AQMH-Gewichte null sind, bleibt der Output unsupported/null und darf nicht durch einen ungewichteten Mittelwert ersetzt werden.</li>
+<li><strong>Block diagnostic consistency:</strong> <code>Q_{f,b,c}^{aqmh}</code> entspricht <code>median(Q_map over b)</code> innerhalb Floating-Point-Toleranz.</li>
+<li><strong>No structural injection:</strong> Seam-Scores, FWHM und Background RMS duerfen gegenueber einem AQMH-deaktivierten Kontrollrun auf demselben Dataset nicht ueber die dokumentierte Validierungstoleranz hinaus regressieren.</li>
+<li><strong>Artifact detection:</strong> Bekannte satellitenkontaminierte Frames zeigen erhoehtes <code>artifact_frac &gt; 0.01</code> fuer mindestens die kontaminierten Reportbloecke.</li>
+<li><strong>Scale omission:</strong> Fuer eine Eingabe mit <code>P_actual &lt; P</code> (z. B. <code>min(W,H) &lt; 64</code> mit Defaults) verwendet die Fusion <code>P_actual</code> als geometrischen-Mittel-Denominator, ausgelassene Skalen werden in Diagnosen erfasst, und nicht verfuegbare Diagnoseskalen werden als <code>NaN</code>/<code>null</code> geschrieben.</li>
+<li><strong>Cherry-pick flag:</strong> Wenn <code>cherry_pick.enabled = true</code>, muss das Output-Artefakt <code>aqmh_metrics.json</code> <code>cherry_pick_active: true</code> enthalten und das Pipeline-Log muss eine <code>WARNING</code>-Level-Meldung emittieren.</li>
+</ol>
+<hr />
+<h2 id="10-scope-boundary">10. Scope Boundary<a class="headerlink" href="#10-scope-boundary" title="Permanent link">&para;</a></h2>
+<h3 id="gemeinsame-infrastruktur">Gemeinsame Infrastruktur<a class="headerlink" href="#gemeinsame-infrastruktur" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Input-Scan, Kalibrierung, Registrierung/Prewarping, globale Normalisierung, Common-Overlap-Maske, Run-Management, Logging, Reports</li>
+</ul>
+<h3 id="aqmh-methode">AQMH-Methode<a class="headerlink" href="#aqmh-methode" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Berechnung dichter Qualitaetskarten</li>
+<li>pixelweise gewichtete AQMH-Rekonstruktion</li>
+<li>Adaptive Region Extraction (Abschnitt 5)</li>
+<li>Cherry-Pick-Stacking (Abschnitt 5.3, nur explizites Opt-in)</li>
+<li>AQMH-Diagnoseartefakte</li>
+</ul>
+<hr />
+<h2 id="11-kernaussage">11. Kernaussage<a class="headerlink" href="#11-kernaussage" title="Permanent link">&para;</a></h2>
+<p>AQMH ist eine eigenstaendige deterministische gewichtete-Mittelwert-Rekonstruktionsmethode. Sie verwendet ein kontinuierliches pixelweises Qualitaetsfeld statt blockkonstanter lokaler Gewichte. Jedes Pixel, das in den Rekonstruktionsakkumulator eingeht, tut dies mit einem deterministischen nichtnegativen AQMH-Gewicht, das sowohl globale atmosphaerische Bedingungen als auch lokale raeumliche Qualitaet widerspiegelt, ohne kuenstliche Blockgrenzen und ohne Abhaengigkeit von Classic-Tile-Compile-Gewichten oder Fallback-Verhalten.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

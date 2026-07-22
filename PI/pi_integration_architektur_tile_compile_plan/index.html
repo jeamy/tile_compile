@@ -1,0 +1,3355 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/PI/pi_integration_architektur_tile_compile_plan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>PI-Integration Architekturplan fuer Tile Compile - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-integration-architekturplan-fuer-tile-compile" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PI-Integration Architekturplan fuer Tile Compile
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ausgangspunkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ausgangspunkt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zielbild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zielbild
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sicherheitsregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sicherheitsregeln
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rekonstruierter-implementierungsstand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rekonstruierter Implementierungsstand
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-0-fundament" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 - Fundament
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-pi-kontext-tools-und-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 - PI Kontext, Tools und Assistant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-action-plan-preview-und-kontrolliertes-anwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 - Action-Plan Preview und kontrolliertes Anwenden
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-memories-und-lernen-ueber-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 - Memories und Lernen ueber Sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-memory-retrieval-im-optimierungsfluss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 - Memory Retrieval im Optimierungsfluss
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-outcome-metriken-und-qualitaetsfeedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 - Outcome-Metriken und Qualitaetsfeedback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-erweiterte-pi-werkzeuge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 - Erweiterte PI-Werkzeuge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-7-audit-export-und-betrieb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7 - Audit, Export und Betrieb
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-8-run-chat-und-natuerliches-qualitaetsfeedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8 - Run-Chat und natuerliches Qualitaetsfeedback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-9-globaler-ai-memory-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 9 - Globaler AI Memory Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 9 - Globaler AI Memory Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-memory-datentypen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Memory-Datentypen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-globales-memory-schema-pimemoryv2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Globales Memory-Schema pi.memory.v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-kontextsignatur-fuer-tile-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Kontextsignatur fuer Tile Compile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#94-professioneller-ki-kontext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.4 Professioneller KI-Kontext
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#95-memory-erzeugung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.5 Memory-Erzeugung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#96-retrieval-und-ranking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.6 Retrieval und Ranking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#97-gui3-anforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.7 GUI3-Anforderungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#98-umsetzungsschritte" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.8 Umsetzungsschritte
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-konzept-im-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory-Konzept im Detail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#professionalisierung-der-ki-funktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Professionalisierung der KI-Funktion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#naechster-sinnvoller-schritt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Naechster sinnvoller Schritt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-integration-architekturplan-fuer-tile-compile">PI-Integration Architekturplan fuer Tile Compile<a class="headerlink" href="#pi-integration-architekturplan-fuer-tile-compile" title="Permanent link">&para;</a></h1>
+<p>Status: rekonstruiert und neu geschrieben am 2026-07-14<br />
+Zieloberflaeche: GUI3 (<code>web_frontend_v3</code>). Die alte GUI (<code>web_frontend</code>) ist nicht Ziel dieser Integration.</p>
+<p>Reset-Entscheidung: Bereits gespeicherte AI-/PI-Memory-Daten muessen nicht
+migriert oder kompatibel weitergelesen werden. Die naechste Memory-Iteration
+startet bei null mit einem neuen Store- und Schema-Vertrag.</p>
+<h2 id="ausgangspunkt">Ausgangspunkt<a class="headerlink" href="#ausgangspunkt" title="Permanent link">&para;</a></h2>
+<p>Tile Compile hat PI bereits als Parameter-Optimierung im Scan-AI-/Empfehlungsfluss. Die neue Integration erweitert das zu einer kontrollierten PI-Schicht, die Kontext versteht, Empfehlungen in Action-Plans ueberfuehrt, Aenderungen vorab validiert, eine sichere Vorschau liefert, explizit angewendet wird und aus geprueften Optimierungen ueber Sessions hinweg lernen kann.</p>
+<ul>
+<li>Tile Compile arbeitet config- und run-zentriert, daher ist <code>validate-config</code> die zentrale Sicherheitsgrenze.</li>
+<li>PI-Antworten werden nicht direkt geschrieben, sondern als <code>pi.action-plan.v1</code> modelliert.</li>
+<li>Memories lernen nicht automatisch "Wahrheiten", sondern speichern reviewbare Optimierungs-Erfahrungen.</li>
+<li>Memories werden global gespeichert und ueber Projekte hinweg abgerufen. Projekt-/Run-IDs dienen nur als Evidenzreferenz, nicht als Speichergrenze.</li>
+<li>Memory-Retrieval nutzt eine detaillierte Kontextsignatur aus Objekt, Zieltyp, Aufnahmegeraet, Optik, Kamera, Filter, Belichtungen, Kalibrierung, Montierung, Himmel/Qualitaet und Pipeline-Konfiguration.</li>
+<li>Bisherige AI-/Memory-Dateien sind fuer die neue Architektur keine Quelle der Wahrheit und duerfen ignoriert werden.</li>
+<li>GUI3 bleibt der einzige neue Bedienpfad.</li>
+</ul>
+<h2 id="zielbild">Zielbild<a class="headerlink" href="#zielbild" title="Permanent link">&para;</a></h2>
+<p>PI wird in Tile Compile zu einer Assistenz- und Orchestrierungsschicht:</p>
+<ul>
+<li>Kontext lesen: Runtime, aktuelle Config, Scan-Ergebnisse, Jobs, Artefakte, Reports.</li>
+<li>Vorschlagen: Scan-AI-Empfehlungen und spaeter weitere PI-Tools erzeugen strukturierte Action-Plans.</li>
+<li>Pruefen: Action-Plans werden serverseitig formal und config-semantisch validiert.</li>
+<li>Vorschau: GUI3 zeigt mutationfreie YAML-Diffs.</li>
+<li>Anwenden: Schreibende Aktionen brauchen explizite Bestaetigung und erzeugen Config-Revisionen.</li>
+<li>Lernen: Erfolgreich angewendete Optimierungen koennen als Memory-Kandidaten gespeichert und reviewed werden.</li>
+<li>Erinnern: Akzeptierte Memories werden semantisch und strukturell gesucht, mit Evidenz und Gueltigkeitsbereich gewichtet und der KI als begrenzter Kontext gegeben.</li>
+</ul>
+<h2 id="sicherheitsregeln">Sicherheitsregeln<a class="headerlink" href="#sicherheitsregeln" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Kein Blind-Write: Jede Config-Aenderung laeuft ueber Action-Plan, Preview und Validierung.</li>
+<li>Kein ungeprueftes Lernen: Memories starten als <code>candidate</code>; erst Review macht sie fuer spaetere Sessions belastbar.</li>
+<li>Keine alte GUI: Neue PI-Funktionalitaet wird nur in <code>web_frontend_v3</code> eingebaut.</li>
+<li>Privacy by default: Memories speichern Metadaten, Config-Pfade, Gruende und Validierung, aber keine Bilddaten.</li>
+<li>Globale Memory-Policy: Lernen ist nicht projektbezogen. Es werden keine absoluten Bildpfade, keine Rohbilder und keine vertraulichen lokalen Pfade als Knowledge gespeichert. Stattdessen werden stabile, normalisierte Metadaten und optional gehashte Run-/Artefakt-Referenzen genutzt.</li>
+<li>Keine Legacy-Pflicht: Es gibt keinen Migrationspfad fuer bisherige AI-/Memory-Daten. Ein alter Store wird fuer die neue Schicht ignoriert und nicht automatisch ausgewertet.</li>
+<li>Keine unerklaerte KI-Autoritaet: Jede Memory-Nutzung muss im Prompt als historische Erfahrung mit Geltungsbereich, Confidence, Evidenz und moeglichen Gegenbeispielen markiert werden.</li>
+<li>Bestehende Tile-Compile-Kommandos bleiben die Autoritaet fuer Config-Gueltigkeit.</li>
+</ul>
+<h2 id="rekonstruierter-implementierungsstand">Rekonstruierter Implementierungsstand<a class="headerlink" href="#rekonstruierter-implementierungsstand" title="Permanent link">&para;</a></h2>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Plan-Datei in <code>docs/PI/pi_integration_architektur_tile_compile_plan.md</code> rekonstruiert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend-PI-Routen rekonstruiert und in <code>main.cpp</code> registriert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI-Service-Dateien fuer Action-Plans, Validator, Context, Tools, Assistant und Memories rekonstruiert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> CMake-Ziele und Tests fuer PI-Komponenten rekonstruiert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI-Routen um PI Action-Plan-Anreicherung erweitert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI Apply um <code>learn=true</code> Memory-Kandidaten erweitert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3-Endpunkte und AI-Empfehlungsseite um PI Preview, PI Apply und Memories erweitert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Alte GUI von versehentlichen PI-Aenderungen bereinigt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Agent-Service Traffic-Logging zentralisiert und mit Redaction versehen.</li>
+</ul>
+<p>Verifikation:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>node --check web_frontend_v3/js/pages/ai-empfehlung.js</code></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>node --check web_frontend_v3/js/api/endpoints.js</code></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>npm run build</code> in <code>agent_service</code></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend Build fuer <code>tile_compile_web_backend</code>, <code>fake_tile_compile_cli</code>, PI-Tests und AI-Routen-Test</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>ctest --output-on-failure -R 'web_backend_cpp_(pi_routes|pi_memory_store|pi_action_plan|ai_routes)'</code></li>
+</ul>
+<h2 id="phase-0-fundament">Phase 0 - Fundament<a class="headerlink" href="#phase-0-fundament" title="Permanent link">&para;</a></h2>
+<p>Ziel: Gemeinsame Sprache und Sicherheitsmodell fuer PI schaffen.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Action-Plan Schema <code>pi.action-plan.v1</code> definieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>config.set</code> als erste sichere Action implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Action-Plan Shape-Validator implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI <code>validated_updates</code> in Action-Plans umwandeln.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Backend-Tests fuer Action-Plan-Erzeugung und Validierung anlegen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI-Traffic-Log aus Agent-Service duplizierten Stellen herausziehen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Secrets, Bearer Tokens, API Keys und lokale Projektpfade im Traffic-Log redacten.</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Action-Plan ohne Schema oder ohne gueltige Actions wird abgelehnt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI-Antworten enthalten <code>action_plan</code> und <code>action_plan_validation</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Logging-Fehler brechen Analyse nicht ab.</li>
+</ul>
+<h2 id="phase-1-pi-kontext-tools-und-assistant">Phase 1 - PI Kontext, Tools und Assistant<a class="headerlink" href="#phase-1-pi-kontext-tools-und-assistant" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI kann Tile-Compile-Kontext kontrolliert lesen, ohne Schreibrechte.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/context</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/tools</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/tools/call</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/assistant/ask</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tool <code>context.overview</code> bereitstellen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tool <code>config.schema</code> bereitstellen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tools fuer Artefakt-/Report-Zusammenfassung bereitstellen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Vorschau-Tools fuer BGE/HMS als planende Read-/Preview-Tools bereitstellen.</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kontextantwort enthaelt Runtime-, State-, Job- und Scan-Informationen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Unbekannte Tools werden abgelehnt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Assistant antwortet ohne schreibende Nebenwirkung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI-Routen-Test deckt Kontext, Tools und Assistant ab.</li>
+</ul>
+<h2 id="phase-2-action-plan-preview-und-kontrolliertes-anwenden">Phase 2 - Action-Plan Preview und kontrolliertes Anwenden<a class="headerlink" href="#phase-2-action-plan-preview-und-kontrolliertes-anwenden" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI-Vorschlaege koennen sicher vorab gesehen und erst dann angewendet werden.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/action-plans/validate</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/action-plans/preview</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preview setzt Config-Aenderungen mutationfrei auf eine Basiskonfig.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preview prueft Ergebnis mit <code>validate-config --stdin</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/action-plans/apply</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply erfordert <code>confirmed=true</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply kann <code>expected_patched_yaml</code> gegen Preview-Ergebnis pruefen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply speichert Config-Revision und UI-Event.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 AI-Seite erzeugt Action-Plans aus ausgewaehlten Empfehlungen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 zeigt PI Preview als YAML-Diff.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 erlaubt explizites PI-Anwenden.</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Unbestaetigtes Apply wird abgelehnt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preview erzeugt YAML-Diff ohne Config-Datei zu schreiben.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Apply erzeugt Revision.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests decken Preview, Apply und invaliden Config-Fall ab.</li>
+</ul>
+<h2 id="phase-3-memories-und-lernen-ueber-sessions">Phase 3 - Memories und Lernen ueber Sessions<a class="headerlink" href="#phase-3-memories-und-lernen-ueber-sessions" title="Permanent link">&para;</a></h2>
+<p>Ziel: Tile Compile merkt sich nuetzliche Optimierungsentscheidungen reviewbar und sessionuebergreifend.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI Memory Store als JSONL-Dateien unter einem konfigurierbaren PI-Storage implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Erste Memory-Speicherung implementiert; wird fuer die neue globale Memory-Schicht ignoriert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kandidaten mit <code>append_candidate</code> speichern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/memories</code> fuer Liste und Statusfilter implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/memories/:id/review</code> fuer <code>accepted</code>, <code>rejected</code>, <code>deprecated</code> implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/memories/retrieve</code> fuer einfache pfad-/typbasierte Suche implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI Apply kann bei <code>learn=true</code> ein <code>config_optimization</code> Memory erzeugen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 AI-Seite zeigt Memory-Liste und Review-Aktionen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Speicherung von "projektbezogen" auf "global nutzbar" schaerfen: Projekt/Run nur als Provenance, nicht als Retrieval-Grenze. (durch Phase 9 abgedeckt: <code>memories_v2.jsonl</code>, globale Indizes)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kandidaten beim Erzeugen mit einer vollstaendigen Astro-Kontextsignatur anreichern. (durch Phase 9 abgedeckt: <code>pi.context_signature.v1</code> Builder)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Neuen Memory-Store ohne Ruecksicht auf alte gespeicherte AI-/Memory-Daten initialisieren. (durch Phase 9 abgedeckt: Store ignoriert <code>memories.jsonl</code>, liest nur <code>memories_v2.jsonl</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kandidaten nicht nur aus Apply erzeugen, sondern erst als lernwuerdig markieren (<code>promotable</code>), wenn eine Outcome-Evidenz oder ein Nutzerfeedback vorhanden ist. (Automatische Promotion-Logik: <code>verdict=improved</code> setzt <code>promotable</code>, Promote-Endpoint fuer <code>promotable</code> → <code>accepted</code>)</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory Store Test deckt Append, List, Review und Retrieve ab.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI-Routen-Test deckt Memory-List, Review und Retrieve ab.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> AI-Routen-Test prueft Memory-Kandidat nach <code>learn=true</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-JSON enthaelt keine absoluten lokalen Bild-/Projektpfade. (durch Phase 9 abgedeckt: Tests in test_pi_routes.cpp und test_ai_routes.cpp)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-JSON enthaelt mindestens <code>context_signature</code>, <code>evidence</code>, <code>scope</code>, <code>outcome</code>, <code>review</code> und <code>provenance</code>. (durch Phase 9 abgedeckt: <code>pi.memory.v2</code> Pflichtfelder)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 zeigt klar, warum ein Memory global wiederverwendbar ist oder warum es nur lokal/eingeschraenkt gelten darf. (durch Phase 9 abgedeckt: Memory-Detail mit Scope, <code>does_not_apply_when</code>, Scope-Editor)</li>
+</ul>
+<p>Noch offen in Phase 3:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Akzeptierte Memories beim naechsten Scan-AI-Request automatisch als Kontext beilegen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 deutlicher anzeigen, welche Memories nur Kandidaten sind und welche accepted/deprecated sind.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Deduplikation einbauen, damit identische Config-Optimierungen nicht mehrfach wachsen.</li>
+</ul>
+<h2 id="phase-4-memory-retrieval-im-optimierungsfluss">Phase 4 - Memory Retrieval im Optimierungsfluss<a class="headerlink" href="#phase-4-memory-retrieval-im-optimierungsfluss" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI nutzt akzeptierte Erfahrungen, ohne sie unkritisch zu kopieren.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Beim Aufbau des Scan-AI Request relevante Memories anhand von Config-Pfaden abrufen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Nur <code>accepted</code> Memories als starken Kontext verwenden; <code>candidate</code> wird nicht in den Request-Kontext uebernommen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kontext im Prompt klar als "historische Erfahrung" markieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ablehnungsstatus (<code>rejected</code>, <code>deprecated</code>) als Negativsignal nutzbar machen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Retrieval mit Tests gegen Fehluebernahme absichern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrieval nicht nur anhand von Config-Pfaden, sondern anhand einer gewichteten Kontextsignatur durchfuehren. (<code>pi_memory_store.cpp</code>: 18 Felder mit <code>compare_text</code>, <code>compare_number_close</code>, <code>compare_set_overlap</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Positive und negative Memories gemeinsam abrufen: accepted als moegliche Strategie, rejected/deprecated als Warnung vor Wiederholung. (<code>positive_memories</code> und <code>negative_memories</code> im <code>pi.ai-request.v2</code> Container)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrieval-Erklaerung in AI-Kontext aufnehmen: warum dieses Memory passend ist, welche Felder matchen, welche nicht. (<code>match_explanation</code> und <code>match_coverage</code> in <code>accepted_pi_memories</code> und <code>negative_pi_memories</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrieval begrenzen: Diversity-Begrenzung nach Objekt-/Kamera-Klassen, max. 2 Memories pro Klasse bei Kontext-Abfrage, max. 3 ohne. (<code>apply_diversity_cap()</code> in <code>pi_memory_store.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Coverage-Felder aus Retrieval explizit in den KI-Prompt weitergeben: <code>retrieval_coverage_summary</code> mit <code>systemically_missing_context_fields</code> im <code>pi.ai-request.v2</code> Container. (<code>pi_ai_request_builder.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Mismatch-Strafe fuer aktiv falsche Kontextfelder: <code>object_type</code> (-6) und <code>camera_type</code> (-5) verhindern Cross-Contamination auch bei Config-Pfad-Ueberlappung. (<code>pi_memory_store.cpp</code>)</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ein neuer Scan-AI-Request enthaelt passende accepted Memories.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Rejected Memories werden nicht als Empfehlungskontext genutzt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass Memories keine Schema-/Config-Validierung umgehen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass ein Memory fuer z.B. "M42, Nebel, OSC, ausgedehnte Emission" nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet wird. (<code>test_pi_memory_store.cpp</code>: cross-contamination, galaxy_matches=0, path_overlap=0, nebula_positive=1)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im Prompt erscheint. (<code>test_pi_memory_store.cpp</code>: rejected-signal, retrieve_negative liefert 1 Match mit <code>retrieval_warning</code> und <code>match_explanation</code>)</li>
+</ul>
+<h2 id="phase-5-outcome-metriken-und-qualitaetsfeedback">Phase 5 - Outcome-Metriken und Qualitaetsfeedback<a class="headerlink" href="#phase-5-outcome-metriken-und-qualitaetsfeedback" title="Permanent link">&para;</a></h2>
+<p>Ziel: Lernen wird besser als blosses "wurde angewendet".</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Nach Runs relevante Outcome-Metriken automatisch erfassen: Post-Run-Trigger <code>/api/pi/memories/evaluate-run</code> liest Run-Artefakte (stats.json) und schreibt Outcome-Daten in offene Memory-Kandidaten. (<code>pi_routes.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kandidaten um Outcome-Felder erweitern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 Review zeigt angewendete Pfade, Gruende, Validierung und Outcomes.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Accepted-Memories nach positiver Outcome-Evidenz hoeher gewichten.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Deprecated-Memories fuer verschlechterte oder ueberholte Optimierungen unterstuetzen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Outcome-Delta statt Einzelwert speichern: Vorher/Nachher fuer FWHM, Background-Gradient, Star-Count, Report-Warnungen, Artefaktstatus, Resume-Phase und Nutzerbewertung. (<code>evaluate_memory_outcome_payload</code> in <code>pi_routes.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory erst als <code>promotable</code> markieren, wenn mindestens eine positive Evidenz vorliegt: <code>verdict=improved</code> oder <code>user_rating&gt;=4</code> setzt Status auf <code>promotable</code>. Promote-Endpoint <code>/api/pi/memories/:id/promote</code> fuer <code>promotable</code> → <code>accepted</code> Uebergang.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Negative Learning unterstuetzen: Bei <code>verdict=worse/unchanged</code> erzeugt <code>/api/pi/memories/:id/outcome</code> automatisch einen <code>counterexample</code>-Kandidaten mit dem selben Kontext und setzt ihn als <code>rejected</code>. (<code>pi_routes.cpp</code>)</li>
+</ul>
+<h2 id="phase-6-erweiterte-pi-werkzeuge">Phase 6 - Erweiterte PI-Werkzeuge<a class="headerlink" href="#phase-6-erweiterte-pi-werkzeuge" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI kann weitere Tile-Compile-Arbeitsablaeufe planen, aber weiterhin kontrolliert.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> BGE-Plan-Tool mit echten Run-/Config-Daten vertiefen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> HMS-/Mosaik-Plan-Tool mit echten Projektparametern vertiefen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Resume-/Run-Planung als read-only Plan erzeugen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Schreibende Tools erst nach Action-Plan/Preview/Apply freischalten.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tool-Registry versionieren und dokumentieren.</li>
+</ul>
+<h2 id="phase-7-audit-export-und-betrieb">Phase 7 - Audit, Export und Betrieb<a class="headerlink" href="#phase-7-audit-export-und-betrieb" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI-Aktionen bleiben nachvollziehbar und wartbar.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 Audit-Ansicht fuer Action-Plans, Applies, Revisionen und Memory-Reviews.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Export/Import fuer PI Memories mit Privacy-Filter.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> CLI-/Backend-Werkzeug zum Aufraeumen und Deduplizieren von Memories.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Regressionstests fuer typische Optimierungsfaelle: OSC/MONO, BGE, HMS, AQMH, PCC.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Nutzer-Dokumentation fuer Workflow: Empfehlung, Preview, Apply, Learn, Review.</li>
+</ul>
+<h2 id="phase-8-run-chat-und-natuerliches-qualitaetsfeedback">Phase 8 - Run-Chat und natuerliches Qualitaetsfeedback<a class="headerlink" href="#phase-8-run-chat-und-natuerliches-qualitaetsfeedback" title="Permanent link">&para;</a></h2>
+<p>Ziel: Nach einem abgeschlossenen Run kann der Nutzer in normaler Sprache beschreiben, was am Bild falsch wirkt. PI verbindet diese Beschreibung mit Run-Kontext, Artefakten, Reports, Config und Memories und erzeugt nachvollziehbare Diagnose- und Optimierungsvorschlaege.</p>
+<p>Beispiel aus <code>runs/run_20260714_091851</code>:</p>
+<blockquote>
+<p>Sterne oben haben schwarzen Kern. Der Nebel oben wird nicht einbezogen, sondern beschnitten und ist kaum sichtbar. Was kann man tun?</p>
+</blockquote>
+<p>Geplanter Workflow:</p>
+<ol>
+<li>Nutzer oeffnet einen fertigen Run in GUI3.</li>
+<li>Chat-Panel bietet ein Eingabefeld fuer natuerliche Problembeschreibung.</li>
+<li>Backend baut einen <code>pi.run-chat-context.v1</code> aus Run-Status, Config-Revision, Report-Stats, Artefakten, Phasenereignissen, Scan-Metriken und relevanten Memories.</li>
+<li>PI beantwortet in normaler Nutzersprache: wahrscheinliche Ursachen, zu pruefende Artefakte, konkrete naechste Schritte.</li>
+<li>Wenn sinnvoll, erzeugt PI zusaetzlich einen <code>pi.action-plan.v1</code> fuer sichere Config-Aenderungen.</li>
+<li>GUI3 zeigt Antwort, Evidenz, Artefakt-Links und optional PI Preview/Apply.</li>
+<li>Nutzer kann den Chat-Ausgang als Memory-Kandidat speichern, wenn ein spaeterer Run die Verbesserung bestaetigt.</li>
+</ol>
+<p>Umsetzungsschritte:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 Run-Chat-Panel im Run Monitor ergaenzen; History bleibt ohne Chat-Elemente.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>/api/pi/run-chat</code> als read-only Diagnose-Endpoint implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Run-Kontextbuilder fuer abgeschlossene Runs bauen: Report, Artefakte, Config/Preview-Kontext, relevante Metriken und Memories.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Natuerliche Nutzerbeschreibung strukturiert in Problem-Hinweise uebersetzen, ohne sie als harte Wahrheit zu behandeln.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Antwortformat definieren: <code>summary</code>, <code>likely_causes</code>, <code>checks</code>, <code>recommendations</code>, <code>evidence</code>, optional <code>action_plan</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Typische Bildprobleme als kontrollierte Hinweise modellieren: schwarze Sternkerne, beschnittener Nebel, zu dunkle Nebelanteile, Hintergrundgradient, Farbstich, Tile-Muster, unscharfe Sterne.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Chat-Antworten mit bestehender PI Preview verbinden; Apply bleibt bewusst separat und reviewpflichtig.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Letztes Run-Bild in Run History und Run Monitor oberhalb des Chats anzeigen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bildpreview beim ersten Seitenaufbau nur bei fehlender Preview erzeugen; weitere Regeneration nur per explizitem Refresh-Button.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Folgefragen im Run-Monitor-Chat mit lokalem Chat-Verlauf unterstuetzen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> PI schlaegt fuer Resume eine passende Startphase vor; Nutzer waehlt sie explizit aus.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests mit Fixture-Run und Beispielproblemen anlegen.</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Chat funktioniert ohne Schreibzugriff und ohne vorhandene Bilddaten in Memories zu speichern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Antwort nennt konkrete Run-Artefakte oder Report-Fakten als Evidenz.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Empfehlungen koennen optional als Action-Plan validiert und previewed werden.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Preview-Refresh wird nicht mehr durch Polling, Resume-Status oder Terminal-Events erzwungen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Run History enthaelt keine Chat-Controls oder Run-Chat-Action-Plan-Elemente mehr.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Nutzertext wie "Sterne haben schwarzen Kern" fuehrt zu nachvollziehbaren Checks statt zu blindem Parameter-Raten.</li>
+</ul>
+<h2 id="phase-9-globaler-ai-memory-layer">Phase 9 - Globaler AI Memory Layer<a class="headerlink" href="#phase-9-globaler-ai-memory-layer" title="Permanent link">&para;</a></h2>
+<p>Ziel: PI wird zu einer professionellen, global lernenden Wissensschicht fuer
+Astro-Optimierungen. Gelernt wird nicht "dieses Projekt hatte diese Config",
+sondern "unter diesem Aufnahme-/Objekt-/Pipeline-Kontext war diese Strategie
+mit dieser Evidenz sinnvoll oder nicht sinnvoll".</p>
+<p>Grundsatz:</p>
+<ul>
+<li>Global statt projektbezogen: Memories liegen im zentralen PI-Storage und sind ueber alle Runs/Projekte hinweg nutzbar.</li>
+<li>Kontext statt Anekdote: Jedes Memory muss seine fachliche Geltungsbedingung beschreiben.</li>
+<li>Evidenz statt Bauchgefuehl: Jedes Memory braucht eine Provenance, Outcome-Information und Review-Status.</li>
+<li>Retrieval statt blindem Prompt-Anhaengen: Nur passende, begrenzte, erklaerte Memories werden an die KI gegeben.</li>
+<li>Negative Erfahrungen sind wertvoll: Nicht erfolgreiche Vorschlaege werden als Gegenbeispiele gespeichert.</li>
+</ul>
+<h3 id="91-memory-datentypen">9.1 Memory-Datentypen<a class="headerlink" href="#91-memory-datentypen" title="Permanent link">&para;</a></h3>
+<p>Neue oder geschaerfte Memory-Typen:</p>
+<ul>
+<li><code>config_optimization</code>: Eine konkrete Parameterstrategie war unter bestimmtem Kontext sinnvoll. (implementiert: Erzeugung via <code>scan_ai_apply</code> und <code>run_chat</code>)</li>
+<li><code>artifact_diagnosis</code>: Ein sichtbares Problem wurde mit Ursachen/Checks/Phasen verbunden. (implementiert: Erzeugung via <code>run_chat</code>)</li>
+<li><code>resume_strategy</code>: Eine Resume-Phase war fuer eine Problemklasse sinnvoll oder nicht sinnvoll. (implementiert: Erzeugung via <code>run_chat</code>; <code>source: resume_feedback</code> ist als Wert definiert, aber kein dedizierter Resume-Feedback-Endpoint setzt diesen <code>source</code>-Wert explizit — laeuft aktuell ueber den allgemeinen Outcome-Endpoint)</li>
+<li><code>provider_prompt_pattern</code>: Ein Prompt-/Kontextmuster fuehrte zu besser strukturierten KI-Antworten. (Typ definiert, aber kein Erzeugungspfad implementiert; <strong>deferiert</strong> — wird erst relevant wenn Provider-spezifische Prompt-Optimierung empirisch noetig wird. Bis dahin reicht die statische Prompt-Struktur in <code>pi.ai-request.v2</code>.)</li>
+<li><code>counterexample</code>: Eine Empfehlung war trotz aehnlichem Kontext nicht hilfreich. (implementiert: negatives Outcome setzt <code>verdict=worse</code> und <code>review_recommendation=rejected</code>; automatischer counterexample-Kandidat ueber <code>/api/pi/memories/:id/outcome</code> mit <code>negative_learning=true</code>)</li>
+<li><code>user_preference</code>: Nutzerpraeferenzen fuer Darstellung/Stretch/Detailgrad, sofern explizit bestaetigt. (Typ definiert, aber kein GUI3-Element erzeugt diesen Typ; <strong>deferiert</strong> — setzt voraus, dass GUI3 einen dedizierten "Praeferenz speichern"-Dialog implementiert. Kann in einer spaeter Phase mit einem <code>/api/pi/memories/preference</code>-Endpoint nachgezogen werden.)</li>
+</ul>
+<h3 id="92-globales-memory-schema-pimemoryv2">9.2 Globales Memory-Schema <code>pi.memory.v2</code><a class="headerlink" href="#92-globales-memory-schema-pimemoryv2" title="Permanent link">&para;</a></h3>
+<p><code>pi.memory.v2</code> ist der neue Startpunkt. Fruehere Drafts oder bisher
+gespeicherte AI-Daten werden nicht migriert und nicht kompatibel weitergelesen.
+Alte Dateien werden fuer die neue Memory-Schicht ignoriert oder nur als manuell
+exportierte Referenz betrachtet, nie als automatisch vertrauenswuerdige Quelle.</p>
+<p>Pflichtfelder:</p>
+<ul>
+<li><code>schema_version</code>: <code>pi.memory.v2</code></li>
+<li><code>id</code>: stabile ID</li>
+<li><code>type</code>: Memory-Typ</li>
+<li><code>status</code>: <code>candidate</code>, <code>promotable</code>, <code>accepted</code>, <code>rejected</code>, <code>deprecated</code></li>
+<li><code>privacy_class</code>: z.B. <code>metadata_only</code></li>
+<li><code>created_at</code>, <code>updated_at</code></li>
+<li><code>source</code>: <code>scan_ai_apply</code>, <code>run_chat</code>, <code>resume_feedback</code>, <code>manual_review</code>, <code>outcome_evaluator</code></li>
+<li><code>summary</code>: kurze fachliche Aussage</li>
+<li><code>recommendation</code>: strukturierte Empfehlung oder Warnung</li>
+<li><code>context_signature</code>: normalisierte Kontextsignatur</li>
+<li><code>scope</code>: Geltungsbereich und Grenzen</li>
+<li><code>evidence</code>: Provenance und Belege</li>
+<li><code>outcome</code>: Ergebnisbeobachtung und Vorher/Nachher-Deltas</li>
+<li><code>review</code>: menschliche Review-Information</li>
+<li><code>retrieval</code>: Such-/Ranking-Hilfen</li>
+</ul>
+<p>Beispielstruktur:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pi.memory.v2&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;config_optimization&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;candidate&quot;</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;privacy_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;metadata_only&quot;</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Bei ausgedehnten Nebeln mit OSC-Daten BGE konservativ einsetzen, weil schwache Emission als Hintergrund entfernt werden kann.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;context_signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">      </span><span class="nt">&quot;object_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;M42&quot;</span><span class="p">,</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">&quot;object_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;emission_nebula&quot;</span><span class="p">,</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">&quot;angular_size_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;large&quot;</span><span class="p">,</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">      </span><span class="nt">&quot;has_extended_emission&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">&quot;acquisition&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">      </span><span class="nt">&quot;camera_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;OSC&quot;</span><span class="p">,</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="nt">&quot;filters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;dual_narrowband&quot;</span><span class="p">],</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="nt">&quot;exposure_seconds_median&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span><span class="p">,</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">      </span><span class="nt">&quot;frame_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">      </span><span class="nt">&quot;total_integration_minutes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">360</span><span class="p">,</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">      </span><span class="nt">&quot;calibration&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">        </span><span class="nt">&quot;darks&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">        </span><span class="nt">&quot;flats&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">        </span><span class="nt">&quot;bias&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">      </span><span class="p">}</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">    </span><span class="nt">&quot;optics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">      </span><span class="nt">&quot;telescope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;unknown_or_redacted&quot;</span><span class="p">,</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="w">      </span><span class="nt">&quot;focal_length_mm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="w">      </span><span class="nt">&quot;f_ratio&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="w">      </span><span class="nt">&quot;pixel_scale_arcsec&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="w">    </span><span class="nt">&quot;mount&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;EQ&quot;</span><span class="p">,</span>
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="w">      </span><span class="nt">&quot;tracking_quality&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;unknown&quot;</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="w">    </span><span class="nt">&quot;pipeline&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="w">      </span><span class="nt">&quot;affected_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;bge.enabled&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;stretch.target_background&quot;</span><span class="p">],</span>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="w">      </span><span class="nt">&quot;phases&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;BGE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;HYPERMETRIC_STRETCH&quot;</span><span class="p">]</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="w">    </span><span class="nt">&quot;quality&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="w">      </span><span class="nt">&quot;gradient_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="w">      </span><span class="nt">&quot;star_count_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">,</span>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="w">      </span><span class="nt">&quot;fwhm_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;normal&quot;</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="w">    </span><span class="nt">&quot;applies_when&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="w">      </span><span class="s2">&quot;target has large diffuse emission&quot;</span><span class="p">,</span>
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="w">      </span><span class="s2">&quot;background extraction may confuse nebulosity with background&quot;</span>
+</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="w">    </span><span class="p">],</span>
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="w">    </span><span class="nt">&quot;does_not_apply_when&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="w">      </span><span class="s2">&quot;compact galaxy target&quot;</span><span class="p">,</span>
+</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a><span class="w">      </span><span class="s2">&quot;strong measured gradient dominates the field&quot;</span>
+</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a><span class="w">    </span><span class="p">],</span>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a><span class="w">    </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.68</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="w">  </span><span class="nt">&quot;recommendation&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a><span class="w">    </span><span class="nt">&quot;action_plan_fragment&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a><span class="w">      </span><span class="nt">&quot;actions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a><span class="w">        </span><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;config.set&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bge.enabled&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">}</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a><span class="w">      </span><span class="p">]</span>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="w">    </span><span class="nt">&quot;explanation&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Testweise BGE deaktivieren oder konservativer konfigurieren und Stretch neu bewerten.&quot;</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a><span class="w">  </span><span class="nt">&quot;evidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a><span class="w">    </span><span class="nt">&quot;run_refs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a><span class="w">      </span><span class="p">{</span><span class="nt">&quot;run_id_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;artifact_refs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;report&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;stacked_rgb_hms_preview&quot;</span><span class="p">]}</span>
+</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a><span class="w">    </span><span class="p">],</span>
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a><span class="w">    </span><span class="nt">&quot;human_feedback&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Nebel wurde nach BGE-Off sichtbarer.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a><span class="w">    </span><span class="nt">&quot;ai_observation&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Preview zeigte abgeschnittene/schwache Nebelstruktur.&quot;</span>
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a><span class="w">  </span><span class="nt">&quot;outcome&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a><span class="w">    </span><span class="nt">&quot;before&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;nebula_visibility&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;weak&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;warnings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;faint_nebula&quot;</span><span class="p">]},</span>
+</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a><span class="w">    </span><span class="nt">&quot;after&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;nebula_visibility&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;improved&quot;</span><span class="p">},</span>
+</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a><span class="w">    </span><span class="nt">&quot;delta&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;user_rating&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">},</span>
+</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a><span class="w">    </span><span class="nt">&quot;verified&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78" href="#__codelineno-0-78"></a><span class="w">  </span><span class="nt">&quot;review&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79" href="#__codelineno-0-79"></a><span class="w">    </span><span class="nt">&quot;reviewed_by&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80" href="#__codelineno-0-80"></a><span class="w">    </span><span class="nt">&quot;reviewed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81" href="#__codelineno-0-81"></a><span class="w">    </span><span class="nt">&quot;notes&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82" href="#__codelineno-0-82"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83" href="#__codelineno-0-83"></a><span class="w">  </span><span class="nt">&quot;retrieval&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84" href="#__codelineno-0-84"></a><span class="w">    </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;nebula&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;BGE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;extended emission&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OSC&quot;</span><span class="p">],</span>
+</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85" href="#__codelineno-0-85"></a><span class="w">    </span><span class="nt">&quot;embedding_text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;extended nebula OSC BGE removes faint emission&quot;</span><span class="p">,</span>
+</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86" href="#__codelineno-0-86"></a><span class="w">    </span><span class="nt">&quot;negative&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87" href="#__codelineno-0-87"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88" href="#__codelineno-0-88"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Hinweis zu <code>embedding_text</code>: Das Feld ist fuer eine spaetere Vektorsuche reserviert und wird aktuell nur als menschenlesbarer Text gespeichert. Das aktuelle Retrieval nutzt ausschliesslich das strukturierte <code>keywords</code>-Array und die gewichtete <code>context_signature</code>-Aehlichkeit. Solange kein Embedding-Backend angebunden ist, darf <code>embedding_text</code> nicht als Retrieval-Signal interpretiert werden.</p>
+<h3 id="93-kontextsignatur-fuer-tile-compile">9.3 Kontextsignatur fuer Tile Compile<a class="headerlink" href="#93-kontextsignatur-fuer-tile-compile" title="Permanent link">&para;</a></h3>
+<p>Die Kontextsignatur wird aus vorhandenen Quellen normalisiert. Fehlende Werte
+bleiben <code>null</code> oder <code>unknown</code>, werden aber nicht erfunden.</p>
+<p>Quellen:</p>
+<ul>
+<li>FITS-Header: Objektname, Kamera, Filter, Belichtungszeit, Gain, Temperatur, Datum, Teleskop/Focal Length falls vorhanden.</li>
+<li>Scan-Ergebnis: Frame-Anzahl, Farbmodus, Bayer-Pattern, Dateigruppen, Fehler/Warnungen.</li>
+<li>Scan-Metriken: FWHM, Star Count, Hintergrund, Noise, Gradient, Roundness, Session Geometry.</li>
+<li>Config: relevante Pfade, aktivierte Pipeline-Phasen, BGE/PCC/HMS/AQMH/Stacking/Registration-Parameter.</li>
+<li>Run-Report: Phasenstatus, Artefakte, Warnungen, Qualitaetsmetriken.</li>
+<li>Nutzerangaben: Mount, Objektklasse, Kamera, Kalibrierung, Notizen.</li>
+<li>Run-Chat: natuerliche Problembeschreibung und Bildbeobachtungen.</li>
+</ul>
+<p>Normalisierte Felder:</p>
+<ul>
+<li><code>target.object_name</code>, <code>target.object_type</code>, <code>target.angular_size_class</code>, <code>target.has_extended_emission</code></li>
+<li><code>acquisition.camera_name</code>, <code>acquisition.camera_type</code>, <code>acquisition.color_mode</code>, <code>acquisition.filters</code></li>
+<li><code>acquisition.exposure_seconds_min/median/max</code>, <code>frame_count</code>, <code>total_integration_minutes</code></li>
+<li><code>acquisition.gain</code>, <code>sensor_temperature_c</code>, <code>date_range</code></li>
+<li><code>calibration.darks/flats/bias/dark_flats</code>, <code>calibration.quality_warnings</code></li>
+<li><code>optics.telescope</code>, <code>focal_length_mm</code>, <code>aperture_mm</code>, <code>f_ratio</code>, <code>reducer</code>, <code>pixel_scale_arcsec</code></li>
+<li><code>mount.type</code>, <code>tracking_quality</code>, <code>field_rotation_risk</code></li>
+<li><code>sky.moon_phase</code>, <code>moon_distance</code>, <code>bortle</code>, <code>transparency</code> falls spaeter verfuegbar</li>
+<li><code>quality.fwhm_class</code>, <code>gradient_class</code>, <code>noise_class</code>, <code>star_count_class</code></li>
+<li><code>pipeline.phases</code>, <code>pipeline.affected_paths</code>, <code>pipeline.resume_phase</code></li>
+</ul>
+<h3 id="94-professioneller-ki-kontext">9.4 Professioneller KI-Kontext<a class="headerlink" href="#94-professioneller-ki-kontext" title="Permanent link">&para;</a></h3>
+<p>Scan-AI und Run-Chat duerfen nicht mehr nur "Empfehlungen plus ein paar
+Memories" senden. Der Request muss professionell strukturiert sein:</p>
+<ul>
+<li><code>task</code>: klare Aufgabe, z.B. <code>scan_config_optimization</code>, <code>run_quality_diagnosis</code>, <code>resume_strategy</code>.</li>
+<li><code>current_context</code>: normalisierte Kontextsignatur.</li>
+<li><code>current_evidence</code>: Scan-/Run-/Report-/Artefaktdaten, mit Bildpreview wenn das Modell Vision kann.</li>
+<li><code>candidate_memories</code>: passende positive Memories mit Match-Erklaerung.</li>
+<li><code>negative_memories</code>: rejected/deprecated/counterexamples mit Warnung.</li>
+<li><code>constraints</code>: erlaubte Config-Pfade, Safety-Regeln, keine Pfade/Secrets, keine unvalidierten Writes.</li>
+<li><code>required_output_schema</code>: z.B. <code>pi.scan-analysis.v2</code> oder <code>pi.run-chat-answer.v2</code>.</li>
+<li><code>uncertainty_policy</code>: KI muss fehlende Daten als fehlend markieren und darf sie nicht raten.</li>
+<li><code>memory_write_policy</code>: KI darf Memory-Kandidaten vorschlagen, aber nicht automatisch akzeptieren.</li>
+</ul>
+<p>Die KI-Antwort muss professioneller werden:</p>
+<ul>
+<li>Empfehlungen brauchen <code>rationale</code>, <code>evidence_refs</code>, <code>expected_effect</code>, <code>risk</code>, <code>confidence</code>, <code>scope</code>.</li>
+<li>Parameter-Vorschlaege brauchen <code>path</code>, <code>current_value</code>, <code>suggested_value</code>, <code>why_now</code>, <code>why_safe</code>.</li>
+<li>Bei Bildfragen muss klar sein, ob ein Bild mitgesendet wurde und welche Beobachtung aus dem Bild stammt.</li>
+<li>Bei Folgefragen muss der bisherige Chat-/Run-Kontext enthalten sein.</li>
+<li>Wiederholte wirkungslose Vorschlaege duerfen nicht erneut angeboten werden; stattdessen muss die KI eine andere Hypothese oder ein Gegenbeispiel formulieren.</li>
+</ul>
+<h3 id="95-memory-erzeugung">9.5 Memory-Erzeugung<a class="headerlink" href="#95-memory-erzeugung" title="Permanent link">&para;</a></h3>
+<p>Memory-Kandidaten entstehen aus mehreren Quellen:</p>
+<ul>
+<li><code>learn=true</code> nach Apply: erzeugt nur <code>candidate</code>, noch keine akzeptierte Wahrheit.</li>
+<li>Run-Outcome-Evaluator nach Resume/Run: ergaenzt Outcome-Deltas.</li>
+<li>Run-Chat mit Nutzerfeedback: erzeugt <code>artifact_diagnosis</code> oder <code>resume_strategy</code>.</li>
+<li>Nutzer markiert "hat geholfen" oder "hat nicht geholfen": erzeugt positive oder negative Evidenz.</li>
+<li>Wiederholter Erfolg in aehnlichem Kontext: Kandidat wird <code>promotable</code>.</li>
+</ul>
+<p>Speicherregeln:</p>
+<ul>
+<li>Kein Memory ohne Kontextsignatur.</li>
+<li>Kein accepted Memory ohne Review.</li>
+<li>Kein globales Memory ohne Scope und <code>does_not_apply_when</code>.</li>
+<li>Kein Memory mit Bilddaten; nur Preview-/Artefaktreferenzen und optional Hashes.</li>
+<li>Kein Memory mit absoluten lokalen Pfaden in Knowledge-Feldern.</li>
+<li>Jede Memory-Aenderung erzeugt Audit-Event.</li>
+</ul>
+<h3 id="96-retrieval-und-ranking">9.6 Retrieval und Ranking<a class="headerlink" href="#96-retrieval-und-ranking" title="Permanent link">&para;</a></h3>
+<p>Ranking-Signale:</p>
+<ul>
+<li>Config-Pfad-Ueberschneidung.</li>
+<li>Objektklasse und Zielgroesse.</li>
+<li>Kamera-/Filter-/Farbmodus-Aehnlichkeit.</li>
+<li>Pipeline-Phase und Problemklasse.</li>
+<li>Qualitaetsmetriken und Artefaktklasse.</li>
+<li>Outcome-Qualitaet und Review-Status.</li>
+<li>Aktualitaet und Deprecation.</li>
+<li>Gegenbeispiele fuer aehnliche Kontexte.</li>
+</ul>
+<p>Retrieval-Ergebnis:</p>
+<ul>
+<li><code>matches</code>: akzeptierte Memories mit Score und Match-Feldern.</li>
+<li><code>warnings</code>: negative/deprecated Memories mit Grund.</li>
+<li><code>coverage</code>: welche Kontextfelder fehlen und daher Confidence senken.</li>
+<li><code>prompt_budget</code>: Begrenzung fuer KI-Kontext.</li>
+</ul>
+<h3 id="97-gui3-anforderungen">9.7 GUI3-Anforderungen<a class="headerlink" href="#97-gui3-anforderungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Memory-Detailansicht zeigt Kontextsignatur, Scope, Evidenz, Outcome, Review und Retrieval-Treffer.</li>
+<li>Beim Review kann der Nutzer Scope bearbeiten: "gilt fuer Nebel", "nicht fuer Galaxien", "nur OSC", "nur Dualband".</li>
+<li>Run-Chat zeigt, welche Memories die KI benutzt hat und warum.</li>
+<li>AI-Empfehlung zeigt positive und negative Memory-Hinweise getrennt.</li>
+<li>"Learn from this optimization" wird genauer: <code>Lernkandidat speichern</code>, danach Review/Outcome erforderlich.</li>
+<li>GUI3 erlaubt globale Memory-Suche nach Objekt, Kamera, Filter, Config-Pfad, Problemklasse und Status.</li>
+</ul>
+<h3 id="98-umsetzungsschritte">9.8 Umsetzungsschritte<a class="headerlink" href="#98-umsetzungsschritte" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi.memory.v2</code> Schema als neuen Baseline-Vertrag definieren; keine Legacy-/Draft-Migration.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Store-Reset-Verhalten definieren: neuer globaler Store, alte AI-/Memory-Dateien sichtbar ignorieren, keine automatische Uebernahme.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi.context_signature.v1</code> Builder aus Scan-AI-Kontext, GUI-Kontext, Config-Pfaden und Scan-Metriken implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi.context_signature.v1</code> um tiefere FITS-Header-/Run-Report-Extraktion fuer Objekt, Teleskop, Filter, Belichtung und Aufnahmezeit erweitern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory Store auf globale Indizes erweitern: <code>by_type</code>, <code>by_status</code>, <code>by_path</code>, <code>by_target</code>, <code>by_camera</code>, <code>by_filter</code>, <code>by_problem</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrieval-Service mit Scoring, accepted-only Matches und negativen Warnungen implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrieval-Match-Erklaerung und Coverage-Felder fuer Scan-AI-Kontext und Store-Retrieval ausbauen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI Request um strukturierte positive und negative Memory-Kontexte erweitern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gemeinsamen professionellen Kontextcontainer <code>pi.ai-request.v2</code> definieren und kompatibel in Scan-AI-Requests einbetten.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Run-Chat Request kompatibel um denselben <code>pi.ai-request.v2</code> Container erweitern, inklusive Bildstatus und Chat-Historie.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Scan-AI und Run-Chat intern vollstaendig auf <code>pi.ai-request.v2</code> als primaeren Sidecar-Vertrag umstellen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Outcome-Evaluator fuer Run/Resume implementieren und Memory-Kandidaten mit Vorher/Nachher-Deltas aktualisieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Negative Learning aus Nutzerfeedback und wirkungslosen Resume-Versuchen implementieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 Memory-Detail-/Review-Ansicht um Kontext, Scope, Evidence, Outcome und <code>promotable</code> erweitern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Export/Import fuer <code>pi.memory.v2</code> mit Privacy-Filter erweitern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests fuer globale Retrieval-Faelle, Scope-Grenzen, negative Memories und Legacy-Ignorieren anlegen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass alte AI-/Memory-Daten nicht geladen, migriert oder als Retrieval-Kontext verwendet werden.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Diversity-Cap im Retrieval implementieren: max. 2 Memories pro Klasse bei Kontext-Abfrage, max. 3 ohne. (<code>apply_diversity_cap()</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Coverage aus Retrieval explizit als Prompt-Abschnitt weitergeben: <code>retrieval_coverage_summary</code> mit <code>systemically_missing_context_fields</code> im <code>pi.ai-request.v2</code>. (<code>pi_ai_request_builder.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Mismatch-Strafe fuer aktiv falsche Felder: verhindert Cross-Contamination auch bei Config-Pfad-Ueberlappung. (<code>pi_memory_store.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen Kontext-Cross-Contamination: Memory fuer "M42, Nebel, OSC" wird nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet. (<code>test_pi_memory_store.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im KI-Prompt erscheint. (<code>test_pi_memory_store.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Post-Run-Trigger fuer automatische Outcome-Erfassung: <code>/api/pi/memories/evaluate-run</code> liest Run-Artefakte und schreibt Outcome-Daten in offene Kandidaten. (<code>pi_routes.cpp</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>resume_feedback</code> als dedizierter <code>source</code>-Wert: <code>/api/pi/memories/resume-feedback</code> setzt <code>source=resume_feedback</code> und erzeugt <code>resume_strategy</code> oder <code>counterexample</code> Memory.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>provider_prompt_pattern</code>- und <code>user_preference</code>-Memory-Typen als <strong>deferiert</strong> dokumentiert: benötigen keine Implementierung bis Provider-spezifische Prompt-Optimierung oder GUI3-Praeferenz-Dialog notwendig wird.</li>
+</ul>
+<p>Abnahmekriterien:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ein neues globales Memory aus einem frueheren Run wird in einem anderen Projekt gefunden, wenn Objekt-/Aufnahme-/Pipeline-Kontext passt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Dasselbe Memory wird nicht oder nur mit niedriger Confidence gefunden, wenn der Kontext fachlich nicht passt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> KI-Prompts enthalten explizit positive Memories, negative Memories, Match-Erklaerung und fehlende Kontextfelder.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kandidaten enthalten Objekt-/Aufnahmedaten, sofern im Scan-AI-/GUI-Kontext vorhanden: Objektklasse, Kamera, Frame-Anzahl, Kalibrierung, Montierung, Qualitaetsmetriken.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Memory-Kandidaten enthalten zusaetzlich tief extrahierte FITS-Felder: Objektname, Teleskop, Filter, Belichtung, Aufnahmedatum.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3 erlaubt Review mit Scope-Anpassung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kein Memory speichert Rohbilddaten, API-Keys oder absolute lokale Bildpfade.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests sichern ab, dass accepted Memories weiterhin keine Config-Validierung umgehen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ein leerer neuer PI-Storage startet deterministisch ohne Altlasten und ohne automatische Migration.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen Kontext-Cross-Contamination: Memory fuer "M42, Nebel, OSC" wird nicht blind auf "M104, Galaxie, Mono/LRGB" angewendet.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tests pruefen, dass ein rejected Memory bei aehnlichem Kontext als explizites Negativsignal im KI-Prompt erscheint.</li>
+</ul>
+<h2 id="memory-konzept-im-detail">Memory-Konzept im Detail<a class="headerlink" href="#memory-konzept-im-detail" title="Permanent link">&para;</a></h2>
+<p>Ein Memory ist eine reviewbare, global nutzbare Erfahrung, keine automatische
+Regel und keine projektspezifische Notiz.</p>
+<p>Typischer Ablauf:</p>
+<ol>
+<li>Scan-AI erzeugt Empfehlungen.</li>
+<li>GUI3 zeigt Empfehlungen und PI Preview.</li>
+<li>Nutzer wendet validierte Aenderungen an.</li>
+<li>Wenn <code>learn=true</code> gesetzt ist, speichert Tile Compile einen Memory-Kandidaten mit Kontextsignatur.</li>
+<li>Nach Run/Resume werden Outcome-Daten ergaenzt: Was wurde besser, gleich, schlechter oder blieb unklar?</li>
+<li>Nutzer reviewed den Kandidaten als <code>accepted</code>, <code>rejected</code> oder <code>deprecated</code> und kann den Scope bearbeiten.</li>
+<li>Spaetere Sessions duerfen passende accepted Memories als Kontext verwenden, muessen aber weiterhin Schema und Config validieren.</li>
+<li>Rejected/deprecated Memories werden als Gegenbeispiele genutzt, damit die KI nicht dieselbe erfolglose Strategie wiederholt.</li>
+</ol>
+<p>Beispiel fuer <code>config_optimization</code>:</p>
+<ul>
+<li><code>type</code>: <code>config_optimization</code></li>
+<li><code>source</code>: <code>scan_ai_apply</code></li>
+<li><code>status</code>: <code>candidate</code></li>
+<li><code>privacy_class</code>: <code>metadata_only</code></li>
+<li><code>analysis_id</code></li>
+<li><code>provenance</code>: Analyse-/Run-/Artefaktreferenzen ohne absolute lokale Bildpfade</li>
+<li><code>config_updates</code></li>
+<li><code>context_signature</code>: Objekt, Zieltyp, Kamera, Teleskop/Optik, Filter, Belichtungen, Frame-Anzahl, Kalibrierung, Montierung, Qualitaetsklassen, relevante Pipeline-Phasen</li>
+<li><code>scope</code>: Wann diese Erfahrung gilt und wann nicht</li>
+<li><code>summary</code></li>
+<li><code>confidence</code></li>
+<li><code>detected_scenarios</code></li>
+<li><code>warnings</code></li>
+<li><code>validation</code></li>
+<li><code>outcome</code>: Vorher/Nachher-Deltas, Nutzerfeedback, Report-/Artefaktstatus</li>
+<li><code>review</code>: Status, Reviewer, Notizen, Scope-Aenderungen</li>
+</ul>
+<p>Memory-Qualitaetsregeln:</p>
+<ul>
+<li>Ein Memory ohne <code>context_signature</code> darf nicht <code>accepted</code> werden.</li>
+<li>Ein Memory ohne Outcome oder Nutzerreview bleibt <code>candidate</code>.</li>
+<li>Ein Memory mit nur einem Einzelfall bekommt niedrige Confidence.</li>
+<li>Ein Memory mit widerspruechlichem spaeterem Ergebnis wird <code>deprecated</code> oder erhaelt ein <code>counterexample</code>.</li>
+<li>Memories duerfen global wirken, aber nur innerhalb ihres fachlich beschriebenen Scopes.</li>
+<li>Die KI bekommt Memories nie als Befehl, sondern als historische Evidenz mit Match-Score und Unsicherheit.</li>
+</ul>
+<h2 id="professionalisierung-der-ki-funktion">Professionalisierung der KI-Funktion<a class="headerlink" href="#professionalisierung-der-ki-funktion" title="Permanent link">&para;</a></h2>
+<p>Die KI-Funktion soll nicht mehr wie ein einfacher Empfehlungsdialog arbeiten,
+sondern wie ein strukturierter Diagnose- und Optimierungsassistent.</p>
+<p>Pflichtanforderungen fuer KI-Requests:</p>
+<ul>
+<li>Vollstaendiger Kontextcontainer statt losem Prompt.</li>
+<li>Explizite Aufgabe: Analyse, Diagnose, Resume-Plan, Memory-Bewertung oder Outcome-Bewertung.</li>
+<li>Normalisierte Kontextsignatur.</li>
+<li>Relevante positive und negative Memories mit Match-Begruendung.</li>
+<li>Aktuelle Config und erlaubte Config-Pfade.</li>
+<li>Report-/Artefakt-/Qualitaetsdaten mit Quellenreferenzen.</li>
+<li>Bildpreview nur wenn Provider/Modell Vision unterstuetzt; sonst klarer Hinweis <code>image_context=false</code>.</li>
+<li>Striktes Antwortschema mit Empfehlungen, Evidenz, Risiken, Confidence und optionalem Action-Plan.</li>
+</ul>
+<p>Pflichtanforderungen fuer KI-Antworten:</p>
+<ul>
+<li>Keine Behauptung ohne Evidenzreferenz oder Unsicherheitsmarkierung.</li>
+<li>Keine Wiederholung identischer Parameterempfehlungen, wenn sie im selben Run bereits ohne Verbesserung getestet wurden.</li>
+<li>Jede Parameterempfehlung erklaert erwartete Wirkung, Risiko, betroffene Phase und kleinste sinnvolle Resume-Phase.</li>
+<li>Bei Memory-Vorschlaegen muss die KI Scope, Evidence und moegliche Gegenbeispiele mitliefern.</li>
+<li>Bei Bildproblemen muss die KI trennen zwischen "im Bild beobachtet", "aus Report abgeleitet" und "nur Nutzerbeschreibung".</li>
+</ul>
+<h2 id="naechster-sinnvoller-schritt">Naechster sinnvoller Schritt<a class="headerlink" href="#naechster-sinnvoller-schritt" title="Permanent link">&para;</a></h2>
+<p>Alle Phasen 0–9 sind implementiert und getestet. Die verbleibenden deferierten Punkte sind keine Blocker:</p>
+<p><strong>Deferierte Punkte (erst bei Bedarf):</strong>
+- <code>provider_prompt_pattern</code>: Wird relevant wenn Provider-spezifische Prompt-Tuning empirisch noetig wird.
+- <code>user_preference</code>: Braucht einen GUI3-Dialog "Praeferenz speichern" und einen <code>/api/pi/memories/preference</code>-Endpoint.
+- Vektorsuche via <code>embedding_text</code>: Reserviert fuer spaetere semantische Retrieval-Erweiterung; aktuell kein Embedding-Backend angebunden.</p>
+<p><strong>Empfohlene naechste Arbeit (ausserhalb PI-Architektur):</strong>
+- GUI3: Post-Run-Trigger automatisch als Client-Call nach Run-Completion-Event auslösen (aktuell manuell via <code>/api/pi/memories/evaluate-run</code>).
+- GUI3: Resume-Feedback-Dialog im Run-Monitor nach Resume-Completion anbieten.
+- GUI3: Promote-Button fuer <code>promotable</code>-Memories im Memory-Review-Panel.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,4444 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_de_v0.2.1/">
+      
+      
+        <link rel="prev" href="../aqmh_methodik_en_v0.2.0/">
+      
+      
+        <link rel="next" href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AQMH v0.2.1 (DE) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adaptive-quality-map-hyperstacking-aqmh-methodik-v021" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AQMH v0.2.1 (DE)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-dokumenthistorie-und-geltungsbereich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Dokumenthistorie und Geltungsbereich
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0. Dokumenthistorie und Geltungsbereich">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-anderungen-gegenuber-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 Änderungen gegenüber v0.2.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#02-unabhangigkeit-und-gemeinsame-infrastruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 Unabhängigkeit und gemeinsame Infrastruktur
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2 Unabhängigkeit und gemeinsame Infrastruktur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#03-cross-infrastructure-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Cross-Infrastructure-Erweiterungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-prinzipien-und-definitionen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Prinzipien und Definitionen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Prinzipien und Definitionen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-physikalisches-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Physikalisches Ziel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-effektives-pixelgewicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Effektives Pixelgewicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-invarianten-verbindlich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Invarianten (verbindlich)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-deterministische-statistik-konvention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Deterministische Statistik-Konvention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-globale-qualitat-mit-hintergrundstrafe-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Globale Qualität mit Hintergrundstrafe (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-quality-map-berechnung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Quality-Map-Berechnung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Quality-Map-Berechnung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Übersicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-gemeinsame-vorverarbeitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Gemeinsame Vorverarbeitung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-mehrskalige-pyramide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Mehrskalige Pyramide
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-mehrskalen-fusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Mehrskalen-Fusion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-block-level-diagnose-zusammenfassungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Block-Level-Diagnose-Zusammenfassungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-quality-map-speicher-und-speichermodell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Quality-Map-Speicher und Speichermodell
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-pipeline-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Pipeline-Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Pipeline-Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-aqmh-verarbeitungsstufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 AQMH-Verarbeitungsstufen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-global-quality-stufe-v021-aktualisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Global-Quality-Stufe (v0.2.1-Aktualisierung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-registrierungs-gewichtsschutz-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Registrierungs-Gewichtsschutz (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-vorverarbeitung-der-registrierungs-ncc-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Vorverarbeitung der Registrierungs-NCC (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pixelweise-gewichtete-rekonstruktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pixelweise gewichtete Rekonstruktion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pixelweise gewichtete Rekonstruktion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-rekonstruktionsformel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Rekonstruktionsformel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-sigma-clipping-und-effektive-sample-suffizienz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Sigma-Clipping und effektive Sample-Suffizienz
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-cherry-pick-stacking-modus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Cherry-Pick-Stacking-Modus
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-robustheits-erweiterungen-nach-der-rekonstruktion-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-uniformes-kontrollmittel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Uniformes Kontrollmittel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-validierungsmetriken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Validierungsmetriken
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-adaptive-niederfrequenz-neutralisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Adaptive Niederfrequenz-Neutralisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-strukturmaskiertes-detail-blending" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Strukturmaskiertes Detail-Blending
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-finales-schutzgate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Finales Schutzgate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-reporting-anforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Reporting-Anforderungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-validierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Validierung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Validierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-regressionsvalidierung-gegen-das-uniforme-kontrollmittel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Regressionsvalidierung gegen das Uniforme Kontrollmittel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-zero-veto-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Zero-Veto-Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-keine-strukturinjektion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Keine Strukturinjektion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Diagnostik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-konfigurationszusammenfassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Konfigurationszusammenfassung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Konfigurationszusammenfassung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-daten-und-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Daten und Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-globale-qualitat-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Globale Qualität (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#94-registrierungs-gewichtsschutz-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.4 Registrierungs-Gewichtsschutz (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#95-neutralisierung-und-blending-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.5 Neutralisierung und Blending (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#96-cherry-pick-unverandert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.6 Cherry-Pick (unverändert)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-konformitatsaussage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Konformitätsaussage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-referenzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Referenzen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-dokumenthistorie-und-geltungsbereich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Dokumenthistorie und Geltungsbereich
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0. Dokumenthistorie und Geltungsbereich">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-anderungen-gegenuber-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 Änderungen gegenüber v0.2.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#02-unabhangigkeit-und-gemeinsame-infrastruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 Unabhängigkeit und gemeinsame Infrastruktur
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2 Unabhängigkeit und gemeinsame Infrastruktur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#03-cross-infrastructure-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Cross-Infrastructure-Erweiterungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-prinzipien-und-definitionen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Prinzipien und Definitionen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Prinzipien und Definitionen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-physikalisches-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Physikalisches Ziel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-effektives-pixelgewicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Effektives Pixelgewicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-invarianten-verbindlich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Invarianten (verbindlich)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-deterministische-statistik-konvention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Deterministische Statistik-Konvention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-globale-qualitat-mit-hintergrundstrafe-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Globale Qualität mit Hintergrundstrafe (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-quality-map-berechnung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Quality-Map-Berechnung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Quality-Map-Berechnung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Übersicht
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-gemeinsame-vorverarbeitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Gemeinsame Vorverarbeitung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-mehrskalige-pyramide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Mehrskalige Pyramide
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-mehrskalen-fusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Mehrskalen-Fusion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-block-level-diagnose-zusammenfassungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Block-Level-Diagnose-Zusammenfassungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-quality-map-speicher-und-speichermodell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Quality-Map-Speicher und Speichermodell
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-pipeline-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Pipeline-Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Pipeline-Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-aqmh-verarbeitungsstufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 AQMH-Verarbeitungsstufen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-global-quality-stufe-v021-aktualisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Global-Quality-Stufe (v0.2.1-Aktualisierung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-registrierungs-gewichtsschutz-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Registrierungs-Gewichtsschutz (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-vorverarbeitung-der-registrierungs-ncc-v021-erganzung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Vorverarbeitung der Registrierungs-NCC (v0.2.1-Ergänzung)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pixelweise-gewichtete-rekonstruktion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pixelweise gewichtete Rekonstruktion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pixelweise gewichtete Rekonstruktion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-rekonstruktionsformel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Rekonstruktionsformel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-sigma-clipping-und-effektive-sample-suffizienz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Sigma-Clipping und effektive Sample-Suffizienz
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-cherry-pick-stacking-modus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Cherry-Pick-Stacking-Modus
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-robustheits-erweiterungen-nach-der-rekonstruktion-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-uniformes-kontrollmittel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Uniformes Kontrollmittel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-validierungsmetriken" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Validierungsmetriken
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-adaptive-niederfrequenz-neutralisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Adaptive Niederfrequenz-Neutralisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-strukturmaskiertes-detail-blending" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Strukturmaskiertes Detail-Blending
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-finales-schutzgate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Finales Schutzgate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-reporting-anforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Reporting-Anforderungen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-validierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Validierung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Validierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-regressionsvalidierung-gegen-das-uniforme-kontrollmittel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Regressionsvalidierung gegen das Uniforme Kontrollmittel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-zero-veto-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Zero-Veto-Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-keine-strukturinjektion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Keine Strukturinjektion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-diagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Diagnostik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-konfigurationszusammenfassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Konfigurationszusammenfassung
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Konfigurationszusammenfassung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-daten-und-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Daten und Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-globale-qualitat-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Globale Qualität (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#94-registrierungs-gewichtsschutz-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.4 Registrierungs-Gewichtsschutz (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#95-neutralisierung-und-blending-v021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.5 Neutralisierung und Blending (v0.2.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#96-cherry-pick-unverandert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.6 Cherry-Pick (unverändert)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-konformitatsaussage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Konformitätsaussage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-referenzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Referenzen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="adaptive-quality-map-hyperstacking-aqmh-methodik-v021">Adaptive Quality Map Hyperstacking (AQMH) – Methodik v0.2.1<a class="headerlink" href="#adaptive-quality-map-hyperstacking-aqmh-methodik-v021" title="Permanent link">&para;</a></h1>
+<p><strong>Dokumentstatus:</strong> Normativ für die Konfigurationsfamilie <code>v0.2.1</code>.<br />
+<strong>Ersetzt:</strong> <code>aqmh_methodik_en_v0.2.0.md</code> bzw. deren deutsche Übersetzung.<br />
+<strong>Sprache:</strong> Deutsch. Für die englische Version siehe <code>aqmh_methodik_en_v0.2.1.md</code>.</p>
+<hr />
+<h2 id="0-dokumenthistorie-und-geltungsbereich">0. Dokumenthistorie und Geltungsbereich<a class="headerlink" href="#0-dokumenthistorie-und-geltungsbereich" title="Permanent link">&para;</a></h2>
+<h3 id="01-anderungen-gegenuber-v020">0.1 Änderungen gegenüber v0.2.0<a class="headerlink" href="#01-anderungen-gegenuber-v020" title="Permanent link">&para;</a></h3>
+<p>Version <code>v0.2.1</code> ist eine strikte Obermenge von <code>v0.2.0</code>. Alle mathematischen
+Definitionen, Invarianten, normativen Vorgabewerte und diagnostischen
+Anforderungen aus <code>v0.2.0</code> bleiben verbindlich. <code>v0.2.1</code> formalisiert vier
+Erweiterungen, die in der Referenzimplementierung nach der <code>v0.2.0</code>-Basis
+hinzugekommen sind:</p>
+<ol>
+<li>
+<p><strong>Hintergrundgradienten-Strafe in der globalen Frame-Qualität (§1.5, §4.2).</strong><br />
+   Ein drittes globales Qualitätssignal bestraft Frames mit starkem
+   großskaligem Hintergrundgradienten (z. B. Lichtverschmutzung, Mondglühen).
+   Das Signal wird aus einem quadrantenbasierten Sky-Gradient-Schätzer
+   gewonnen, nicht aus der AQMH-Quality-Map selbst. Es wird daher als
+   zulässige <strong>Cross-Infrastructure-Erweiterung</strong> dokumentiert, die mit dem
+   AQMH-Unabhängigkeitsprinzip (§0.3) vereinbar bleibt.</p>
+</li>
+<li>
+<p><strong>Registrierungs-Gewichtsschutz (§4.3).</strong><br />
+   Vor der pixelweisen gewichteten Rekonstruktion kann das globale AQMH-Gewicht
+   jedes Frames mit einem Registrierungs-Konfidenzfaktor gedämpft werden, der
+   aus dem gemeinsamen Global-Registration-Artefakt abgeleitet wird. Dieser
+   Schutz ist eine reine Robustheitsmaßnahme; er ändert nicht die
+   Rekonstruktionsformel und bleibt ein Frame-Multiplikator.</p>
+</li>
+<li>
+<p><strong>Adaptive Niederfrequenz-Neutralisierung und strukturmaskierte
+   Detail-Blending (§6.3, §6.4).</strong><br />
+   Nach der gewöhnlichen AQMH-Rekonstruktion kann eine optionale
+   Nachverarbeitung niederfrequente „Veil“-Residuen entfernen, indem eine
+   stark geglättete Differenz zwischen dem AQMH-Ergebnis und einem
+   uniformen Kontrollmittel (ungewichteter Mittelwert) subtrahiert wird.
+   Anschließend wird Detail in strukturreichen Regionen selektiv
+   zurückgeblendet. Ein Validierungsgate entscheidet, ob das
+   neutralisierte/geblendete Ergebnis übernommen wird; andernfalls bleibt das
+   rohe AQMH-Ergebnis erhalten. Das uniforme Kontrollmittel darf das rohe
+   AQMH-Ergebnis nicht als stillen Fallback ersetzen.</p>
+</li>
+</ol>
+<p>Ziel dieser Ergänzungen ist es, das v0.2.0-Pixelqualitätsmodell zu erhalten,
+während drei praktische Fehlermuster reduziert werden:</p>
+<ul>
+<li>Großskalige Hintergrundgradienten, die den finalen Stack dominieren würden,
+  weil jeder Frame einen ähnlichen additiven Gradienten trägt.</li>
+<li>Restschwächen der Registrierung (niedrige Korrelation oder tief verkettete
+  Vorhersage-Frames), die durch hohe AQMH-Qualitätswerte verstärkt werden.</li>
+<li>Niederfrequenter „Veil“ oder Hintergrund-Nichtlinearität, der durch die
+  gewichtete Rekonstruktion selbst entstehen kann.</li>
+</ul>
+<hr />
+<h2 id="02-unabhangigkeit-und-gemeinsame-infrastruktur">0.2 Unabhängigkeit und gemeinsame Infrastruktur<a class="headerlink" href="#02-unabhangigkeit-und-gemeinsame-infrastruktur" title="Permanent link">&para;</a></h2>
+<p>AQMH bleibt eine <strong>unabhängige Rekonstruktionsmethode</strong>. Sie darf gemeinsame
+Pipeline-Infrastruktur wiederverwenden, aber ihr Qualitätsmodell und ihre
+Rekonstruktionsgewichte dürfen nicht aus den lokalen/Tile-Metriken von
+Classic Tile Compile abgeleitet sein.</p>
+<p>Gemeinsame Infrastruktur kann umfassen:</p>
+<ul>
+<li>Input-Scan und nicht-qualitätsbasierte Eligibilitätsfilter (Lesbarkeit,
+  Verfügbarkeit von Kalibration, explizite Benutzer-Ausschlüsse);</li>
+<li>Kalibration und Registrierung/Prewarping;</li>
+<li>globale photometrische Normalisierung;</li>
+<li>globale Output-Canvas-Maske <code>C</code> und frame-spezifische registriert-gültige
+  Masken <code>M_f</code>;</li>
+<li>Run-Management, Logging, Artefakte, Reports, UI-Plumbing.</li>
+</ul>
+<p>Der AQMH-Algorithmus selbst besteht aus:</p>
+<ul>
+<li>Berechnung dichter AQMH-Quality-Maps;</li>
+<li>pixelweiser gewichteter AQMH-Rekonstruktion;</li>
+<li>AQMH-Diagnostik und optionaler Region-Extraktion.</li>
+</ul>
+<p>Classic Tile Compile und AQMH müssen unabhängig voneinander ausführbar sein.
+Das Aktivieren oder Deaktivieren einer Methode darf die mathematische
+Definition der anderen nicht verändern.</p>
+<h3 id="03-cross-infrastructure-erweiterungen">0.3 Cross-Infrastructure-Erweiterungen<a class="headerlink" href="#03-cross-infrastructure-erweiterungen" title="Permanent link">&para;</a></h3>
+<p><code>v0.2.1</code> erlaubt ausdrücklich die folgenden sorgfältig abgegrenzten Eingaben
+aus der gemeinsamen Infrastruktur, sofern sie dokumentiert sind und keine
+AQMH-eigenen Signale ersetzen:</p>
+<ul>
+<li>
+<p><strong>Sky-Gradient-Zusammenfassung</strong> für die Hintergrundstrafe (§1.5).<br />
+  Dies ist ein Skalar pro Frame, abgeleitet aus dem hintergrundmaskierten
+  Eingabebild nach der Registrierung. Er wird nur innerhalb des
+  globalen Qualitäts-Sigmoid verwendet und bleibt orthogonal zur Berechnung
+  der within-frame <code>Q_map</code>.</p>
+</li>
+<li>
+<p><strong>Registrierungs-Konfidenz-Metadaten</strong> für den Gewichtsschutz (§4.3).<br />
+  Dies ist ein Skalarmultiplikator pro Frame, abgeleitet aus dem bestehenden
+  Global-Registration-Artefakt. Er modifiziert den globalen Faktor <code>G_f</code>,
+  beeinflusst aber nicht <code>Q_map</code>.</p>
+</li>
+<li>
+<p><strong>Uniformes Kontrollmittel</strong> für die Neutralisierungsvalidierung (§6.3).<br />
+  Der ungewichtete Mittelwert der registrierten Frames wird als Nebenprodukt
+  der AQMH-Rekonstruktion berechnet (<code>compute_uniform_control = true</code>). Er
+  wird nur für die Validierung und optionales Blending nach der Rekonstruktion
+  verwendet, nicht als primärer Qualitätseingang.</p>
+</li>
+<li>
+<p><strong>PSF-FWHM-Schärfeproxy</strong> für die globale Schärfezusammenfassung <code>g_sharp</code>
+  (§1.1, §4.2).<br />
+  Wenn pro-Frame-Sternmetriken aus der gemeinsamen Metrik-Phase verfügbar
+  sind, kann der Runner <code>1 / wfwhm</code> (gewichteter FWHM, invertiert, so dass
+  kleinerer FWHM einen höheren Schärfeewert ergibt) anstelle der
+  AQMH-Map-<code>g_sharp</code>-Zusammenfassung verwenden. Dies ist ein Skalar pro Frame,
+  abgeleitet aus der PSF-Sternentdeckung auf dem registrierten Frame. Er wird
+  nur innerhalb des globalen Qualitäts-Sigmoid verwendet und bleibt orthogonal
+  zur within-frame-<code>Q_map</code>-Berechnung. Die AQMH-Map-<code>g_sharp</code> dient als
+  Fallback, wenn Sternmetriken nicht verfügbar oder ungültig sind. Die
+  ausgewählte Quelle wird pro Frame als <code>global_sharpness_source</code>
+  (<code>"laplacian_variance"</code> oder <code>"psf_wfwhm_inverted"</code>) in
+  <code>aqmh_metrics.json</code> dokumentiert.</p>
+</li>
+</ul>
+<p><strong>Begründung.</strong> Das AQMH-Map-Schärfesignal <code>Phi_sharp_0</code> basiert auf
+  <code>local_variance(laplacian)</code>, welches die lokale Hochfrequenzvarianz misst.
+  Bei stern-dominierten Feldern ist dies ein ausgezeichneter Schärfeproxy. Bei
+  Extended-Emission-Objekten (Galaxien, Nebel) wird dasselbe Signal jedoch von
+  der Nebeltextur dominiert statt von der stellaren PSF-Breite, und kann
+  <em>positiv</em> mit dem Seeing-FWHM korrelieren — was zu einer Inversion führt,
+  bei der schlechtere Frames ein höheres <code>g_sharp</code> und damit höhere Gewichte
+  erhalten. Der PSF-FWHM-Proxy ist immun gegen diese Inversion, da er die
+  Sternbildbreite direkt misst, unabhängig vom Extended-Emission-Inhalt.</p>
+<hr />
+<h2 id="1-prinzipien-und-definitionen">1. Prinzipien und Definitionen<a class="headerlink" href="#1-prinzipien-und-definitionen" title="Permanent link">&para;</a></h2>
+<h3 id="11-physikalisches-ziel">1.1 Physikalisches Ziel<a class="headerlink" href="#11-physikalisches-ziel" title="Permanent link">&para;</a></h3>
+<p>Die Methode modelliert die pixelweise Beobachtungsqualität als Produkt zweier
+separabler Komponenten:</p>
+<ul>
+<li><strong>Frame-Level-Qualität:</strong> der globale atmosphärische/technische Zustand des
+  Frames <code>f</code>, erfasst durch den strikt positiven AQMH-Faktor <code>G_{f,c}</code>.</li>
+<li><strong>Räumliches Qualitätsfeld:</strong> die kontinuierliche Qualitätsverteilung im
+  Frame, erfasst durch <code>Q_map_{f,c}(x,y)</code>.</li>
+</ul>
+<p>Für jeden Frame/Kanal leiten wir die globalen Pre-Z-Score-Zusammenfassungen
+aus seinen AQMH-Maps ab:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>g_sharp_{f,c}  = median_{p source-valid}(Phi_sharp_0(p))
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>g_snr_{f,c}    = median_{p source-valid}(Phi_snr_1(p))
+</span></code></pre></div>
+<p>wobei der feinste verfügbare Skala verwendet wird, falls Skala 1 ausgelassen
+wird.</p>
+<p><strong>Post-v0.2.1-Erweiterung — PSF-FWHM-Schärfeproxy.</strong> Wenn pro-Frame-
+Sternmetriken verfügbar sind, kann der Runner <code>g_sharp</code> durch <code>1 / wfwhm</code>
+(invertierten gewichteten FWHM) aus der gemeinsamen PSF-Sternentdeckungs-
+Phase ersetzen. Dies vermeidet eine bekannte Inversion von
+<code>local_variance(laplacian)</code> bei Extended-Emission-Objekten (§0.3). Die
+AQMH-Map-<code>g_sharp</code> wird als Fallback verwendet, wenn Sternmetriken nicht
+verfügbar sind. Die ausgewählte Quelle wird pro Frame als
+<code>global_sharpness_source</code> (<code>"laplacian_variance"</code> oder
+<code>"psf_wfwhm_inverted"</code>) in <code>aqmh_metrics.json</code> dokumentiert.</p>
+<h3 id="12-effektives-pixelgewicht">1.2 Effektives Pixelgewicht<a class="headerlink" href="#12-effektives-pixelgewicht" title="Permanent link">&para;</a></h3>
+<p>Das effektive pixelweise Rekonstruktionsgewicht ist:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>W_{f,c}^{aqmh}(x,y) = G_{f,c} * Q_map_{f,c}(x,y)
+</span></code></pre></div>
+<p><code>v0.2.1</code> erlaubt zusätzlich einen Frame-weise Registrierungs-Konfidenz-
+Multiplikator <code>R_f ∈ [r_floor, 1]</code> (§4.3). Wenn aktiviert, lautet das Gewicht:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>W_{f,c}^{aqmh}(x,y) = G_{f,c} * R_f * Q_map_{f,c}(x,y)
+</span></code></pre></div>
+<p><code>R_f</code> ist ein gemeinsamer Infrastruktur-Schutz, kein Bestandteil des
+AQMH-Qualitätsmodells. Er muss in <code>aqmh_reconstruction.json</code> protokolliert
+werden.</p>
+<h3 id="13-invarianten-verbindlich">1.3 Invarianten (verbindlich)<a class="headerlink" href="#13-invarianten-verbindlich" title="Permanent link">&para;</a></h3>
+<p>Die folgenden Invarianten aus v0.2.0 bleiben verbindlich:</p>
+<ol>
+<li><strong>Keine Frame-Selektion:</strong> Ganze Frames dürfen nicht auf Basis der Qualität
+   entfernt werden.</li>
+<li><strong>Bedingte photometrische Linearität:</strong> Sobald deterministische Gewichte
+   berechnet sind, bleibt die finale Rekonstruktion <code>R(p) = sum_f w_f(p) *
+   I_f(p) / sum_f w_f(p)</code> mit <code>w_f(p) &gt;= 0</code>. AQMH darf keine nichtlinearen
+   Intensitätstransformationen auf die in den Akkumulator eingehenden Samples
+   anwenden.</li>
+<li><strong>Determinismus:</strong> Alle Quality-Map-Berechnungen müssen deterministisch und
+   reproduzierbar sein.</li>
+<li><strong>Canvas-Ausschluss:</strong> Canvas-ungültige Pixel werden aus allen AQMH-
+   Akkumulatoren und Statistiken ausgeschlossen.</li>
+<li><strong>Keine Halluzination:</strong> AQMH-Ausgaben sind Gewichte und Masken. Es werden
+   keine Pixelintensitäten generiert oder vorhergesagt.</li>
+<li><strong>Sample-Count-Suffizienz für optionale Selektionsmodi:</strong> Cherry-Pick und
+   jeder andere per-Pixel-Selektionsmodus müssen eine dokumentierte minimale
+   Anzahl beibehaltener Samples erzwingen; unterschreitet sie, wird der Modus
+   automatisch deaktiviert.</li>
+</ol>
+<p><code>v0.2.1</code> ergänzt die folgenden abgeleiteten Invarianten für die neuen
+Erweiterungen:</p>
+<ol>
+<li>
+<p><strong>Cross-Infrastructure-Erweiterungen müssen monotone Frame-Level-Schütze
+   sein.</strong><br />
+   Der Registrierungs-Gewichtsschutz und die Hintergrundstrafe dürfen das
+   globale Frame-Gewicht nur mit einem nicht-negativen Skalar multiplizieren.
+   Sie dürfen <code>Q_map</code> nicht verändern, dürfen keine pixelabhängigen Gewichte
+   einführen und müssen unabhängig deaktivierbar sein.</p>
+</li>
+<li>
+<p><strong>Nachverarbeitung muss zwei Referenzen bestehen.</strong>
+   Das rohe AQMH-Ergebnis <code>A</code> ist die unveränderliche Qualitäts-Baseline. Jeder
+   nachverarbeitete Kandidat muss sowohl gegen das uniforme Kontrollmittel <code>U</code>
+   als auch gegen <code>A</code> alle jeweils anwendbaren Regressionsschwellen bestehen.
+   Besteht kein Kandidat beide Vergleiche, ist <code>A</code> das Endergebnis. Der Run muss
+   den ausgewählten Kandidaten, beide Vergleiche und den Auswahlgrund
+   aufzeichnen. Eine Verbesserung einer Einzelmetrik darf keine Lockerung einer
+   anderen Schwelle auslösen.</p>
+</li>
+</ol>
+<h3 id="14-deterministische-statistik-konvention">1.4 Deterministische Statistik-Konvention<a class="headerlink" href="#14-deterministische-statistik-konvention" title="Permanent link">&para;</a></h3>
+<p>(Identisch zu v0.2.0 §1.4.)</p>
+<p>Überall wird der robuste Z-Score verwendet: <code>z(x) = (x - med) / (1.4826 * MAD)</code>
+über finite, source-valid Samples auf derselben Aggregationsebene. Degenerierte
+Mengen (MAD = 0 oder weniger als drei finite Samples) erhalten für gültige
+Eingaben Z-Score 0 und werden andernfalls als ungültig markiert.</p>
+<h3 id="15-globale-qualitat-mit-hintergrundstrafe-v021-erganzung">1.5 Globale Qualität mit Hintergrundstrafe (v0.2.1-Ergänzung)<a class="headerlink" href="#15-globale-qualitat-mit-hintergrundstrafe-v021-erganzung" title="Permanent link">&para;</a></h3>
+<p><code>v0.2.1</code> führt ein optionales drittes globales Qualitätssignal ein:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>g_background_{f,c} = sky_gradient_f
+</span></code></pre></div>
+<p>wobei <code>sky_gradient_f</code> ein dimensionsloser relativer Großskalengradient ist:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sky_gradient_f = (q_max - q_min) / background_f
+</span></code></pre></div>
+<ul>
+<li><code>background_f</code> ist der maskierte Medianhintergrund von Frame <code>f</code>.</li>
+<li>Das Bild wird in vier Quadranten unterteilt. Für jeden Quadranten <code>q</code> wird
+  der maskierte Medianhintergrund <code>b_q</code> berechnet.</li>
+<li><code>q_min = min_q(b_q)</code>, <code>q_max = max_q(b_q)</code>.</li>
+</ul>
+<p>Ist <code>background_f &lt;= 0</code> oder gibt es weniger als vier gültige Quadrantenwerte,
+so ist die Zusammenfassung ungültig.</p>
+<p>Die Hintergrundstrafe geht als <strong>subtraktiver</strong> Term in die globale Qualität ein:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>z_s,f = robust_zscore(g_sharp)
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>z_n,f = robust_zscore(g_snr)
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>z_b,f = robust_zscore(g_background)
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>score_f = w_sharp * z_s,f + w_snr * z_n,f - w_background * z_b,f
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>G_f     = g_floor + (1 - g_floor) * sigmoid(clamp(g_k_scale * score_f, -8, 8))
+</span></code></pre></div>
+<p>mit <code>sigmoid(v) = 1 / (1 + exp(-v))</code>.</p>
+<p><strong>Post-v0.2.1-Erweiterung — Sigmoid-Temperatur und Score-Clipping.</strong> Die
+Implementierung multipliziert <code>score_f</code> mit einem konfigurierbaren
+Temperaturfaktor <code>g_k_scale</code> (Default <code>1.5</code>) vor der Sigmoid-Anwendung und
+clippt den skalierten Score auf <code>[-8, 8]</code> zur numerischen Stabilität. Die
+v0.2.1-Referenzformel verwendet eine implizite Skalierung von <code>1.0</code> und kein
+Clipping. Der Temperaturfaktor ist notwendig, weil <code>robust_zscore</code> (MAD-basiert)
+typischerweise kleinere Absolutwerte liefert als Standard-z-Scores; ohne
+Skalierung clustern alle <code>G_f</code>-Werte nahe <code>g_floor + 0.5 * (1 - g_floor)</code>, was
+den gewichteten Stack fast ungewichtet macht. Das Clipping ist ein
+Sicherheitsnetz, das in der Praxis nie aktiv wird, da einzelne z-Scores bereits
+auf <code>[-5, 5]</code> begrenzt sind, aber <code>exp</code>-Überlauf bei extremen Eingaben
+verhindert.</p>
+<p>Die Gewichte <code>w_sharp</code>, <code>w_snr</code>, <code>w_background</code> werden direkt als
+<code>g_w_sharp</code>, <code>g_w_snr</code>, <code>g_w_background_penalty</code> konfiguriert. Zur Laufzeit
+werden sie in <strong>effektive Gewichte</strong> <code>w_*_eff</code> umgerechnet:</p>
+<ul>
+<li>Ist ein konfiguriertes Gewicht <code>&lt;= 0</code>, so ist sein effektives Gewicht <code>0</code>.</li>
+<li>Gibt es weniger als drei finite positive Zusammenfassungswerte, so ist das
+  effektive Gewicht <code>0</code>.</li>
+<li>Ist der Variationskoeffizient <code>CV = MAD / median</code> der endlichen positiven
+  Zusammenfassungswerte unter <code>0.01</code>, so ist das effektive Gewicht <code>0</code>. Damit
+  wird verhindert, dass nahezu konstante Signale Rauschen verstärken und die
+  Qualitätsrangfolge invertieren.</li>
+</ul>
+<p>Die verbleibenden effektiven Gewichte werden so renormiert, dass gilt:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>w_sharp_norm + w_snr_norm + w_background_norm = 1
+</span></code></pre></div>
+<p>sofern mindestens ein effektives Gewicht positiv ist. Sind alle effektiven
+Gewichte null, ist <code>score_f = 0</code> und jeder Frame erhält dasselbe Gewicht
+<code>G_f = g_floor + 0.5 * (1 - g_floor)</code>. Die absolute gemeinsame Skalierung ist
+für den gewichteten Mittelwert irrelevant.</p>
+<p><strong>Normative Vorgabewerte (v0.2.1):</strong></p>
+<p>Die v0.2.1-Referenzwerte sind:</p>
+<ul>
+<li><code>g_floor = 0.05</code></li>
+<li><code>g_w_sharp = 0.6</code></li>
+<li><code>g_w_snr = 0.4</code></li>
+<li><code>g_w_background_penalty = 0.3</code></li>
+</ul>
+<p>Die aktuellen Betriebswerte (Post-v0.2.1-Revision) sind:</p>
+<ul>
+<li><code>g_floor = 0.03</code></li>
+<li><code>g_w_sharp = 0.55</code></li>
+<li><code>g_w_snr = 0.30</code></li>
+<li><code>g_w_background_penalty = 0.25</code></li>
+</ul>
+<p>Diese wurden empirisch optimiert: der niedrigere Floor und die ausgewogeneren
+Gewichte verhindern, dass wenige hochwertige Frames den Stack dominieren, bei
+typischen Deep-Sky-Datensätzen mit moderer Frame-zu-Frame-Qualitätsvariation.</p>
+<p>Post-v0.2.1-Erweiterung-Default:</p>
+<ul>
+<li><code>g_k_scale = 1.5</code> (Sigmoid-Temperatur; <code>1.0</code> stellt die v0.2.1-Referenzformel
+  wieder her)</li>
+</ul>
+<p>Die Sigmoid-Abbildung begrenzt <code>G_f</code> auf <code>[g_floor, 1]</code>. Dadurch kann kein
+einzelner Frame durch ein exponentiell wachsendes globales Gewicht die lokalen
+Quality-Maps dominieren. Mit <code>g_w_background_penalty = 0.0</code> wird nur die
+Hintergrundstrafe deaktiviert; die begrenzte v0.2.1-Abbildung bleibt aktiv.</p>
+<p><strong>Begründung.</strong> Ein starker Großskalengradient bedeutet, dass das vom SNR-
+Signal verwendete Hintergrundmodell (<code>b_s</code> in §2.3.2(b)) lokal verzerrt ist.
+Frames mit sehr flachem Hintergrund tendieren zu saubereren und lineareren
+Bedingungen; Frames mit starkem Mondglühen- oder Lichtverschmutzungsgradienten
+erhalten ein niedrigeres globales Gewicht, ohne jedoch ganz entfernt zu werden.</p>
+<p><strong>Kompatibilitätshinweis.</strong> Die Hintergrundstrafe ist nicht aus <code>Q_map</code>
+abgeleitet. Sie ist daher eine <strong>Erweiterung</strong> von v0.2.0, keine
+Widersprüchlichkeit. Sie muss in <code>aqmh_metrics.json</code> als Frame-Feld
+<code>global_background_penalty_input</code> mit der Quelle
+<code>global_background_penalty_source: "sky_gradient"</code> dokumentiert werden. Das
+konfigurierte Strafgewicht gehört zur AQMH-Global-Quality-Konfiguration und
+nicht zum Artefakt <code>registration_weight_guard</code>.</p>
+<hr />
+<h2 id="2-quality-map-berechnung">2. Quality-Map-Berechnung<a class="headerlink" href="#2-quality-map-berechnung" title="Permanent link">&para;</a></h2>
+<h3 id="21-ubersicht">2.1 Übersicht<a class="headerlink" href="#21-ubersicht" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0. AQMH berechnet für jedes Frame/Kanal-Paar eine dichte
+Quality-Map durch Fusionierung mehrskaliger lokaler Schärfe-, SNR- und
+Artefakt-Anomalie-Signale.</p>
+<h3 id="22-gemeinsame-vorverarbeitung">2.2 Gemeinsame Vorverarbeitung<a class="headerlink" href="#22-gemeinsame-vorverarbeitung" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0. Alle Frames müssen vor der AQMH-Map-Berechnung kalibriert,
+registriert und auf einen gemeinsamen Output-Canvas prewarped sein.</p>
+<h3 id="23-mehrskalige-pyramide">2.3 Mehrskalige Pyramide<a class="headerlink" href="#23-mehrskalige-pyramide" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0 §2.3. Die vier Skalen, die Auslassungsregel, die Berechnung
+von Schärfe, SNR und Artefakt sowie die geometrische Mittelwertfusion bleiben
+unverändert.</p>
+<h3 id="24-mehrskalen-fusion">2.4 Mehrskalen-Fusion<a class="headerlink" href="#24-mehrskalen-fusion" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0 §2.4.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}
+</span></code></pre></div>
+<p>implementiert als <code>exp(mean_s(log(Psi_s^{up})))</code> mit dem Exact-Zero-Veto und
+dem Output-Guard.</p>
+<h3 id="25-block-level-diagnose-zusammenfassungen">2.5 Block-Level-Diagnose-Zusammenfassungen<a class="headerlink" href="#25-block-level-diagnose-zusammenfassungen" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0 §2.5.</p>
+<hr />
+<h2 id="3-quality-map-speicher-und-speichermodell">3. Quality-Map-Speicher und Speichermodell<a class="headerlink" href="#3-quality-map-speicher-und-speichermodell" title="Permanent link">&para;</a></h2>
+<p>Der Standard-Speichermodus ist Full-Resolution <code>float32</code> mit
+<code>resolution_divisor = 1</code>. Ein optionaler Performance-Modus verwendet <code>uint16</code>
+mit <code>resolution_divisor = 2</code> für reduzierten Speicherbedarf; dies ist nicht
+der Standard und muss explizit berichtet werden. Cherry-Pick erfordert den
+Referenzmodus, weil eine reduzierte oder quantisierte Map die per-Pixel-
+Rangfolge verändern kann. Jeder Run muss Auflösung und Datentyp berichten.</p>
+<p>Das Hintergrundstrafe-Signal beeinflusst den Quality-Map-Speicher nicht; es ist
+ein Frame-skaliger Wert, der während oder nach der Map-Berechnung ermittelt
+und in <code>aqmh_metrics.json</code> abgelegt wird.</p>
+<hr />
+<h2 id="4-pipeline-integration">4. Pipeline-Integration<a class="headerlink" href="#4-pipeline-integration" title="Permanent link">&para;</a></h2>
+<h3 id="41-aqmh-verarbeitungsstufen">4.1 AQMH-Verarbeitungsstufen<a class="headerlink" href="#41-aqmh-verarbeitungsstufen" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AQMH_MAPS
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>AQMH_GLOBAL_QUALITY
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>AQMH_RECONSTRUCTION
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>AQMH_DIAGNOSTICS
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>AQMH_NATIVE_BGE_INPUTS
+</span></code></pre></div>
+<p>Die Ausgabe von <code>AQMH_RECONSTRUCTION</code> wird zusätzlich unverändert als
+<code>outputs/aqmh_reconstructed_raw.fit</code> gespeichert. Dieses Artefakt enthält bei
+OSC-Daten weiterhin das CFA-Muster und ist die einzige zulässige Eingabe für
+ein Resume ab <code>STACKING</code>. <code>reconstructed_L.fit</code> ist kein Resume-Artefakt: Es
+wird in <code>STACKING</code> durch die skalierte Luminanzausgabe ersetzt. Fehlt das rohe
+Artefakt bei einem älteren Run, muss der Runner <code>AQMH_RECONSTRUCTION</code> aus den
+Map- und Prewarp-Caches erneut ausführen. Eine bereits gestackte Luminanz darf
+nie erneut als CFA debayert werden.
+Mit <code>aqmh.reconstruction.delete_prewarped_cache_after_run: false</code> kann der
+Cache <code>cache/prewarped_frames</code> gezielt für spätere Resumes erhalten bleiben; der Default <code>true</code>
+löscht ihn weiterhin zur Speicherplatzfreigabe.</p>
+<h3 id="42-global-quality-stufe-v021-aktualisierung">4.2 Global-Quality-Stufe (v0.2.1-Aktualisierung)<a class="headerlink" href="#42-global-quality-stufe-v021-aktualisierung" title="Permanent link">&para;</a></h3>
+<p>Die Stufe berechnet nun pro Frame die drei Zusammenfassungsvektoren
+<code>g_sharp</code>, <code>g_snr</code>, <code>g_background</code> und übergibt sie an
+<code>compute_aqmh_global_quality</code>. Das Ergebnis ist ein Vektor <code>G_f</code> pro Frame.</p>
+<p>Alle drei Eingaben werden pro Frame in <code>aqmh_metrics.json</code> erfasst:</p>
+<ul>
+<li><code>global_sharpness_input</code></li>
+<li><code>global_sharpness_source: "laplacian_variance"</code> oder <code>"psf_wfwhm_inverted"</code> (Post-v0.2.1-Erweiterung)</li>
+<li><code>global_snr_input</code></li>
+<li><code>global_background_penalty_input</code></li>
+<li><code>global_background_penalty_source: "sky_gradient"</code></li>
+<li><code>global_quality_input_invalid</code></li>
+<li><code>global_quality</code> (der finale <code>G_f</code>)</li>
+</ul>
+<p>Wenn der PSF-FWHM-Schärfeproxy verwendet wird, enthält <code>global_sharpness_input</code>
+bereits den <code>1 / wfwhm</code>-Wert.</p>
+<h3 id="43-registrierungs-gewichtsschutz-v021-erganzung">4.3 Registrierungs-Gewichtsschutz (v0.2.1-Ergänzung)<a class="headerlink" href="#43-registrierungs-gewichtsschutz-v021-erganzung" title="Permanent link">&para;</a></h3>
+<p>Vor der Rekonstruktion kann der Runner optional einen
+<strong>Registrierungs-Gewichtsschutz</strong> auf <code>G_f</code> anwenden. Er liest das gemeinsame
+<code>global_registration.json</code>-Artefakt, das pro Frame die Felder <code>cc</code>
+(Kreuzkorrelations-Konfidenz), <code>source</code> (Registrierungs-Quelltyp) und optional
+<code>chain_depth</code> enthalten muss.</p>
+<p>Für jeden Frame <code>f</code>:</p>
+<ol>
+<li><strong>Kreuzkorrelations-Abbildung.</strong> Direkte und Referenz-Lösungen erhalten
+   oberhalb des Floors keine kontinuierliche Dämpfung:</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>r_cc = cc_f &gt;= cc_floor ? 1.0 : r_floor
+</span></code></pre></div>
+<p>Für sequenzielle, vorhergesagte, interpolierte oder unbekannte Lösungen gilt:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>r_cc = r_floor + (1 - r_floor) * t
+</span></code></pre></div>
+<p>mit den Vorgaben <code>r_floor = 0.30</code>, <code>cc_floor = 0.35</code>, <code>cc_full = 0.80</code>.</p>
+<ol>
+<li>
+<p><strong>Dämpfung nach Registrierungsquelle.</strong></p>
+</li>
+<li>
+<p>Falls <code>source == "sequential_refined"</code>: <code>r_f *= sequential_factor</code>
+     (Vorgabe <code>0.92</code>).</p>
+</li>
+<li>
+<p>Falls <code>source</code> den String <code>"predicted"</code>, <code>"interpolated"</code> enthält oder
+     <code>"unknown"</code> ist: <code>r_f *= predicted_factor</code> (Vorgabe <code>0.50</code>).</p>
+</li>
+<li>
+<p><strong>Kettentiefen-Dämpfung für nicht-direkte Lösungen.</strong></p>
+</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>r_f *= (1 - depth_penalty)
+</span></code></pre></div>
+<p>mit den Vorgaben <code>depth_penalty_per_step = 0.03</code>, <code>depth_max = 0.15</code>.</p>
+<ol>
+<li><strong>Clamping.</strong></li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>R_f = clamp(r_f, r_floor, 1.0)
+</span></code></pre></div>
+<p>Das effektive globale Gewicht in der Rekonstruktion lautet:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>G_f^{eff} = G_f * R_f
+</span></code></pre></div>
+<p>Der Schutz ist standardmäßig aktiviert (<code>registration_weight_guard: true</code>) und
+wird in <code>aqmh_reconstruction.json</code> unter <code>registration_weight_guard</code> berichtet.</p>
+<p><strong>Begründung.</strong> Tief verkettete oder schwach korrelierte Frames können die
+Eligibilitätsfilterung überstehen, aber dennoch eine geringere
+Registrierungsgenauigkeit besitzen. Der Schutz verhindert, dass hohe
+AQMH-Qualitätswerte Registrierungsfehler verstärken. Da er ein Multiplikator
+aus der gemeinsamen Infrastruktur ist, wird er als <strong>Robustheits-
+erweiterung</strong> dokumentiert, nicht als Bestandteil des AQMH-Kernqualitätsmodells.</p>
+<h3 id="44-vorverarbeitung-der-registrierungs-ncc-v021-erganzung">4.4 Vorverarbeitung der Registrierungs-NCC (v0.2.1-Ergänzung)<a class="headerlink" href="#44-vorverarbeitung-der-registrierungs-ncc-v021-erganzung" title="Permanent link">&para;</a></h3>
+<p>Vor den NCC-Vergleichen der Registrierung werden die normalisierten Proxy-Bilder
+für eine robuste Korrelation vorbereitet:</p>
+<ol>
+<li>Begrenze das Proxy-Bild auf nichtnegative Werte, um negative Werte aus der
+   Hintergrundsubtraktion zu entfernen.</li>
+<li>Wende einen Gaussian-Blur mit <code>sigma = 1.5 px</code> an, um den Einfluss von
+   Hotpixeln und isolierten Defekten zu reduzieren.</li>
+<li>Berechne sowohl die Identity-Overlap-NCC als auch die Warped-Overlap-NCC aus
+   diesen vorbereiteten Bildern.</li>
+</ol>
+<p>Ein Near-Identity-Ergebnis wird nur akzeptiert, wenn alle folgenden Bedingungen
+erfüllt sind:</p>
+<ul>
+<li>Die Gesamtverschiebung ist kleiner als <code>star_inlier_tol_px</code>.</li>
+<li>Die absolute Rotation liegt unter <code>0.1°</code>.</li>
+<li>Die Warped-NCC liegt höchstens <code>0.02</code> unter der Identity-Overlap-NCC.</li>
+<li>Die Identity-Overlap-NCC ist größer als <code>0.7</code>.</li>
+</ul>
+<p>Die letzte Bedingung verhindert, dass eine nahezu nullgroße Verschiebung mit
+niedriger Korrelation akzeptiert wird, nur weil der Optimierer keine sinnvolle
+Verschiebung gefunden hat. Diese Registrierungsänderung liegt vor AQMH und
+verändert <code>Q_map</code> nicht; sie verbessert die Zuverlässigkeit der Metadaten
+<code>cc</code>, <code>source</code> und <code>chain_depth</code>, die vom Registrierungs-Gewichtsschutz genutzt
+werden.</p>
+<hr />
+<h2 id="5-pixelweise-gewichtete-rekonstruktion">5. Pixelweise gewichtete Rekonstruktion<a class="headerlink" href="#5-pixelweise-gewichtete-rekonstruktion" title="Permanent link">&para;</a></h2>
+<h3 id="51-rekonstruktionsformel">5.1 Rekonstruktionsformel<a class="headerlink" href="#51-rekonstruktionsformel" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0. Für jeden Output-Kanal:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
+</span></code></pre></div>
+<p>wobei <code>w_f(p) = G_f^{eff} * Q_map_{f,c}(p)</code> und <code>V_c^I(p)</code> die Menge der
+Frames mit finite Intensität und finite Quality-Map an Pixel <code>p</code> ist.</p>
+<p>Der geometrische Support jedes registrierten Frames ist Bestandteil von
+<code>V_c^I(p)</code>. Prewarp-Pixel außerhalb dieses Supports müssen als ungültig
+(<code>NaN</code> plus Frame-Support-Maske) erhalten bleiben; nullgefüllte Warpränder
+dürfen niemals als reale Intensitätswerte in AQMH eingehen. Dabei gelten drei
+getrennte Maskenrollen:</p>
+<ul>
+<li>Die Frame-Support-Maske beschreibt, welche Pixel ein einzelner Frame liefert.</li>
+<li>Die Common-Overlap-Maske dient ausschließlich Analyse, Validierung und
+  Kalibrierung mit der konfigurierten Mindestüberdeckung.</li>
+<li>Die Output-Maske ist die Vereinigung der Frame-Support-Masken und erhält alle
+  tatsächlich rekonstruierbaren Randstrukturen.</li>
+</ul>
+<p>Die Common-Overlap-Maske darf weder die AQMH-Rekonstruktion noch BGE-, PCC- oder
+HMS-Ausgaben auf den gemeinsamen Kern beschneiden. Pixel, welche
+<code>min_n_eff</code> nicht erfüllen, bleiben als nicht ausreichend gestützte Pixel
+diagnostizierbar; ihre Existenz darf jedoch nicht dazu führen, dass gültige
+Nachbarpixel aus wenigen Frames mit nicht vorhandenen Nullsamples verdünnt
+werden.</p>
+<h3 id="52-sigma-clipping-und-effektive-sample-suffizienz">5.2 Sigma-Clipping und effektive Sample-Suffizienz<a class="headerlink" href="#52-sigma-clipping-und-effektive-sample-suffizienz" title="Permanent link">&para;</a></h3>
+<p>Iteratives asymmetrisches Sigma-Clipping verwendet standardmäßig
+<code>clip_sigma_low = 2.0</code>, <code>clip_sigma_high = 2.0</code> und <code>clip_iterations = 4</code>.
+Die strengere Oberseite unterdrückt positive Ausreißer wie Satellitenspuren,
+Hotpixel und nicht vollständig maskierte Sterne, ohne die Unterseite gleich
+stark abzuschneiden. Es gelten außerdem <code>min_n_eff = 2.0</code> und
+<code>min_fraction = 0.40</code>. Reicht die Sample-Suffizienz nicht aus, darf kein
+scheinbar qualitätsverbesserter Wert aus einer zu kleinen Restmenge entstehen.</p>
+<h3 id="53-cherry-pick-stacking-modus">5.3 Cherry-Pick-Stacking-Modus<a class="headerlink" href="#53-cherry-pick-stacking-modus" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0 §5.3. Das Run-Level-<code>K_nominal_median</code>-Floor, die
+Per-Pixel-Regel <code>K(p) = max(k_min_required, K_nominal(p))</code>, Tiering und die
+Rank-Separation-Diagnostik bleiben unverändert.</p>
+<hr />
+<h2 id="6-robustheits-erweiterungen-nach-der-rekonstruktion-v021">6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)<a class="headerlink" href="#6-robustheits-erweiterungen-nach-der-rekonstruktion-v021" title="Permanent link">&para;</a></h2>
+<h3 id="61-uniformes-kontrollmittel">6.1 Uniformes Kontrollmittel<a class="headerlink" href="#61-uniformes-kontrollmittel" title="Permanent link">&para;</a></h3>
+<p>Wenn <code>compute_uniform_control: true</code> gesetzt ist, berechnet die
+Rekonstruktionsroutine zusätzlich den ungewichteten Mittelwert der
+registrierten Frames über dieselbe Menge gültiger Pixel. Dieses Mittel wird
+<strong>uniformes Kontrollmittel</strong> <code>U(p)</code> genannt:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>U(p) = sum_{f in V_c^I(p)} I_f(p) / |V_c^I(p)|
+</span></code></pre></div>
+<p><code>U(p)</code> ist kein qualitätsgewichtetes Ergebnis; es ist ein diagnostischer
+Referenzwert.</p>
+<h3 id="62-validierungsmetriken">6.2 Validierungsmetriken<a class="headerlink" href="#62-validierungsmetriken" title="Permanent link">&para;</a></h3>
+<p>Das rohe AQMH-Ergebnis <code>A(p)</code> wird mit <code>U(p)</code> verglichen. Jeder
+nachverarbeitete Kandidat wird zusätzlich mit <code>A(p)</code> verglichen. Dazu dienen
+dieselben Metriken wie die v0.2.0-Validierung:</p>
+<ul>
+<li><code>seam_score_regression</code></li>
+<li><code>fwhm_regression</code></li>
+<li><code>background_rms_regression</code></li>
+<li><code>tail11_abs_regression</code></li>
+<li><code>elongation_regression</code></li>
+</ul>
+<p><code>background_rms</code> bezeichnet dabei nicht die globale Helligkeitsstreuung des
+Bildes. Es wird robust aus horizontalen und vertikalen Pixel-Differenzen
+bestimmt (<code>1,4826 * MAD(diff / sqrt(2))</code>). Dadurch werden langsam veränderliche
+Nebel-, Galaxien- und IFN-Strukturen nicht als Hintergrundrauschen klassifiziert.</p>
+<p>Für Tail- und Elongationsmetriken werden Sterne genau einmal in der jeweiligen
+Referenz erkannt und anschließend in Kandidat und Referenz an denselben
+Koordinaten vermessen. Unabhängige Sternerkennungen sind für einen
+Regressionsvergleich unzulässig, weil sie unterschiedliche Sternpopulationen
+und damit eine künstliche Regression erzeugen können. Tail und Elongation sind
+nur bei mindestens zwölf gemeinsam messbaren Sternen anwendbar.</p>
+<p>Diese Vergleiche und ihre Anwendbarkeit werden in
+<code>aqmh_reconstruction.json</code> protokolliert. Nicht anwendbare Metriken gelten
+nicht als Fehler, dürfen aber auch nicht als Verbesserung ausgelegt werden.</p>
+<h3 id="63-adaptive-niederfrequenz-neutralisierung">6.3 Adaptive Niederfrequenz-Neutralisierung<a class="headerlink" href="#63-adaptive-niederfrequenz-neutralisierung" title="Permanent link">&para;</a></h3>
+<p>Ist das uniforme Kontrollmittel <code>U(p)</code> verfügbar, wird ein optionaler
+neutralisierter Kandidat <code>N(p)</code> berechnet:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>L(p) = GaussianBlur( A(p) - U(p), sigma = 96 px )
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>N(p) = A(p) - L(p)
+</span></code></pre></div>
+<p>Das Blurring verwendet den Reflektionsrandmodus REFLECT101. Die Sigma von
+96 px wurde empirisch gewählt, um großskalige „Veil“-Residuen anzugehen, ohne
+Struktur auf kleineren Skalen zu beeinträchtigen.</p>
+<p>Die Vergleiche <code>compare(N, U)</code> und <code>compare(N, A)</code> werden berechnet. <code>N(p)</code>
+wird gegenüber <code>A(p)</code> nur dann ausgewählt, wenn der Hintergrundvergleich
+anwendbar ist, <code>A</code> gegenüber <code>U</code> tatsächlich einen schlechteren Hintergrund
+besitzt, <code>N</code> diesen verbessert und beide Vergleiche alle Schwellen bestehen:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>background_rms_regression(N, U) &lt; background_rms_regression(A, U)
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>background_rms_regression(A, U) &gt; 0
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>gate(N, U) &amp;&amp; gate(N, A)
+</span></code></pre></div>
+<p>Das ausgewählte Basisbild wird <code>B(p)</code> genannt (entweder <code>A(p)</code> oder <code>N(p)</code>).</p>
+<p><strong>Begründung.</strong> Der per-Pixel-gewichtete Mittelwert kann in seltenen Fällen
+eine niederfrequente Residuum erzeugen, die glatter ist als der wahre
+Hintergrund. Die Subtraktion des geglätteten Unterschieds zum ungewichteten
+Mittel entfernt diese additive Niederfrequenzkomponente, während höherfrequentes
+Detail erhalten bleibt.</p>
+<h3 id="64-strukturmaskiertes-detail-blending">6.4 Strukturmaskiertes Detail-Blending<a class="headerlink" href="#64-strukturmaskiertes-detail-blending" title="Permanent link">&para;</a></h3>
+<p>Nach Auswahl der Basis <code>B(p)</code> wird ein zweiter optionaler Kandidat berechnet,
+der AQMH-Detail in strukturreichen Regionen bewahrt, während der glattere
+Hintergrund von <code>B(p)</code> erhalten bleibt:</p>
+<ol>
+<li>Berechne die Gradientenbetrag <code>grad(U)</code> des uniformen Kontrollmittels.</li>
+<li>Erstelle eine weiche Strukturmaske <code>M_s(p)</code>, indem der Gradientenbetrag von
+   dem Quantil <code>low_q = 0.40</code> auf das Quantil <code>high_q = 0.90</code> auf <code>[0, 1]</code>
+   abgebildet und anschließend mit <code>sigma = 4 px</code> geglättet wird.
+   Die v0.2.1-Referenzwerte waren <code>low_q = 0.70</code>, <code>high_q = 0.97</code>,
+   <code>sigma = 2 px</code>; die aktuellen Betriebswerte wurden erweitert, um
+   mittelgradientige Struktur (Spiralarme, Staubbänder) zu erhalten, die der
+   ursprünglich enge Bereich unterdrückte.</li>
+<li>Berechne den Detail-Kandidaten:</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>D(p) = U(p) + M_s(p) * (B(p) - U(p))
+</span></code></pre></div>
+<p>In strukturreichen Regionen (<code>M_s ≈ 1</code>) folgt <code>D(p)</code> der AQMH-Basis; in
+   glatten Regionen (<code>M_s ≈ 0</code>) folgt es dem uniformen Kontrollmittel.</p>
+<p><code>D(p)</code> wird akzeptiert, wenn er alle Validierungsschwellen sowohl gegen <code>U</code>
+als auch gegen die unveränderliche Baseline <code>A</code> besteht:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>background_rms_regression(D, U) &lt;= max_background_rms_regression
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>fwhm_regression(D, U)            &lt;= max_fwhm_regression
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>seam_score_regression(D, U)      &lt;= max_seam_score_regression
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>tail11_abs_regression(D, U)      &lt;= max_tail11_abs_regression
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>elongation_regression(D, U)      &lt;= max_elongation_regression
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>gate(D, A)
+</span></code></pre></div>
+<p>und zumindest FWHM oder Seam-Score gegenüber <code>U</code> verbessert.</p>
+<p>Schlägt <code>D(p)</code> fehl, wird eine <strong>Alpha-Blend-Attenuierung</strong> über
+<code>alpha ∈ [0, 1]</code> gesucht:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
+</span></code></pre></div>
+<p>Das größte <code>alpha</code>, das <code>gate(D_alpha, U)</code> und <code>gate(D_alpha, A)</code> besteht und
+FWHM oder Seam-Score gegenüber <code>U</code> verbessert, wird ausgewählt. Gibt es kein
+<code>alpha &gt; 0</code>, das beide Vergleiche besteht, bleibt die bereits validierte Basis
+<code>B(p)</code> erhalten.</p>
+<h3 id="65-finales-schutzgate">6.5 Finales Schutzgate<a class="headerlink" href="#65-finales-schutzgate" title="Permanent link">&para;</a></h3>
+<p>Nach der gesamten Nachverarbeitung wird das ausgewählte Ausgabebild <code>O(p)</code>
+nochmals gegen <code>U(p)</code> und die unveränderliche Raw-AQMH-Baseline <code>A(p)</code>
+validiert. Falls gilt:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>background_rms_regression(O, U) &gt; max_background_rms_regression
+</span></code></pre></div>
+<p>oder eine andere konfigurierte Schwelle überschritten wird, verwirft der
+Runner den nachverarbeiteten Kandidaten und gibt <code>A(p)</code> aus. <code>U(p)</code> bleibt
+ausschließlich eine diagnostische Referenz. Ein Blend in Richtung <code>U(p)</code> ist
+unzulässig, weil ein solcher Blend schwache diffuse Signale entfernen kann,
+während einseitige Rauschmetriken scheinbar besser werden.</p>
+<h3 id="66-reporting-anforderungen">6.6 Reporting-Anforderungen<a class="headerlink" href="#66-reporting-anforderungen" title="Permanent link">&para;</a></h3>
+<p><code>aqmh_reconstruction.json</code> muss enthalten:</p>
+<ul>
+<li><code>low_frequency_neutralization_applied</code> (<code>true</code>/<code>false</code>)</li>
+<li><code>low_frequency_neutralization_evaluated</code> (<code>true</code>/<code>false</code>)</li>
+<li><code>low_frequency_neutralization</code> (Vergleichsmetriken plus <code>sigma_px</code>)</li>
+<li><code>structure_masked_detail_applied</code> (<code>true</code>/<code>false</code>)</li>
+<li><code>structure_masked_detail_alpha</code> (finale Blend-Alpha, falls Attenuierung
+  verwendet wurde)</li>
+<li><code>structure_masked_detail_validation</code></li>
+<li><code>uniform_control_gate_triggered</code> (<code>true</code>/<code>false</code>)</li>
+<li><code>raw_aqmh_validation</code></li>
+<li><code>final_vs_raw_aqmh_validation</code></li>
+<li><code>raw_aqmh_preserved_by_guard</code> (<code>true</code>/<code>false</code>)</li>
+<li><code>selected_candidate</code></li>
+</ul>
+<hr />
+<h2 id="7-validierung">7. Validierung<a class="headerlink" href="#7-validierung" title="Permanent link">&para;</a></h2>
+<h3 id="71-regressionsvalidierung-gegen-das-uniforme-kontrollmittel">7.1 Regressionsvalidierung gegen das Uniforme Kontrollmittel<a class="headerlink" href="#71-regressionsvalidierung-gegen-das-uniforme-kontrollmittel" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0 §9. Das rekonstruierte Ergebnis wird mit dem uniformen
+Kontrollmittel verglichen. Regressionsschwellen:</p>
+<p>Aktuelle Betriebswerte (Post-v0.2.1-Revision):</p>
+<ul>
+<li><code>max_seam_score_regression = 0.05</code></li>
+<li><code>max_fwhm_regression = 0.02</code></li>
+<li><code>max_background_rms_regression = 0.05</code></li>
+<li><code>max_tail11_abs_regression = 0.10</code></li>
+<li><code>max_elongation_regression = 0.08</code></li>
+</ul>
+<p>Die v0.2.1-Referenzwerte waren <code>0.02</code> für Seam/FWHM/Hintergrund und <code>0.05</code>
+für Tail/Elongation. Die aktuellen Werte sind weiter für Seam, Hintergrund,
+Tail und Elongation, um Fehlablehnungen bei realen Datensätzen zu reduzieren,
+wo sub-Schwellen-Regressionen häufig sind und keine bedeutsame
+Qualitätsminderung anzeigen.</p>
+<h3 id="72-zero-veto-test">7.2 Zero-Veto-Test<a class="headerlink" href="#72-zero-veto-test" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0. Sind alle Gewichte null, muss die Ausgabe null sein, kein
+ungewichteter Mittelwert.</p>
+<h3 id="73-keine-strukturinjektion">7.3 Keine Strukturinjektion<a class="headerlink" href="#73-keine-strukturinjektion" title="Permanent link">&para;</a></h3>
+<p>Identisch zu v0.2.0. Die AQMH-Ausgabe darf keine Struktur einführen, die das
+uniforme Kontrollmittel um mehr als die konfigurierten Regressionsschwellen
+übersteigt.</p>
+<hr />
+<h2 id="8-diagnostik">8. Diagnostik<a class="headerlink" href="#8-diagnostik" title="Permanent link">&para;</a></h2>
+<p>Identisch zu v0.2.0 §6 und §7, ergänzt um die in §6.6 genannten Felder.</p>
+<p>Per-Frame-Diagnostiken in <code>aqmh_metrics.json</code> umfassen:</p>
+<ul>
+<li><code>map_mean</code>, <code>map_p10</code>, <code>map_p90</code></li>
+<li><code>artifact_frac</code></li>
+<li><code>sharpness_p50</code>, <code>snr_p50</code></li>
+<li><code>n_regions</code></li>
+<li><code>global_quality</code></li>
+<li><code>global_sharpness_input</code>, <code>global_snr_input</code></li>
+<li><code>global_sharpness_source: "laplacian_variance"</code> oder <code>"psf_wfwhm_inverted"</code> (Post-v0.2.1-Erweiterung)</li>
+<li><code>global_background_penalty_input</code> und
+  <code>global_background_penalty_source: "sky_gradient"</code> (v0.2.1)</li>
+<li><code>global_quality_input_invalid</code></li>
+</ul>
+<hr />
+<h2 id="9-konfigurationszusammenfassung">9. Konfigurationszusammenfassung<a class="headerlink" href="#9-konfigurationszusammenfassung" title="Permanent link">&para;</a></h2>
+<h3 id="91-daten-und-pipeline">9.1 Daten und Pipeline<a class="headerlink" href="#91-daten-und-pipeline" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>data.color_mode</code>: <code>OSC</code> für One-Shot-Color-Daten.</li>
+<li><code>data.bayer_pattern</code>: Standard <code>auto</code>. Die FITS-Header-Werte <code>BAYERPAT</code> und
+  <code>COLORTYP</code> haben Vorrang; ein Config-Wert wird nur als Fallback verwendet,
+  wenn der Header keine Bayer-Metadaten enthält. Diese Änderung wurde
+  eingeführt, damit Beispiel-Config-Defaults Kamera-Metadaten nicht
+  überschreiben.</li>
+</ul>
+<h3 id="92-aqmh-kernparameter-unverandert-gegenuber-v020">9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)<a class="headerlink" href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>aqmh.pyramid.scales = 4</code></li>
+<li><code>aqmh.pyramid.base_window_px = 4</code></li>
+<li><code>aqmh.pyramid.w_sharp = 0.6</code></li>
+<li><code>aqmh.pyramid.w_snr = 0.4</code></li>
+<li><code>aqmh.pyramid.k_artifact = 3.0</code></li>
+<li><code>aqmh.pyramid.frac_artifact_max = 0.25</code></li>
+<li><code>aqmh.storage.resolution_divisor = 1</code></li>
+<li><code>aqmh.storage.dtype = "float32"</code></li>
+</ul>
+<h3 id="93-globale-qualitat-v021">9.3 Globale Qualität (v0.2.1)<a class="headerlink" href="#93-globale-qualitat-v021" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>aqmh.global_quality.g_floor = 0.03</code></li>
+<li><code>aqmh.global_quality.g_w_sharp = 0.55</code></li>
+<li><code>aqmh.global_quality.g_w_snr = 0.30</code></li>
+<li><code>aqmh.global_quality.g_w_background_penalty = 0.25</code></li>
+<li><code>aqmh.global_quality.g_k_scale = 1.5</code> (Post-v0.2.1-Erweiterung; <code>1.0</code> stellt
+  die v0.2.1-Referenzformel wieder her)</li>
+</ul>
+<p>Die v0.2.1-Referenzwerte waren <code>g_floor=0.05</code>, <code>g_w_sharp=0.6</code>,
+<code>g_w_snr=0.4</code>, <code>g_w_background_penalty=0.3</code>.</p>
+<p>Mit <code>g_w_background_penalty = 0.0</code> wird die Hintergrundstrafe deaktiviert; die
+begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.</p>
+<h3 id="94-registrierungs-gewichtsschutz-v021">9.4 Registrierungs-Gewichtsschutz (v0.2.1)<a class="headerlink" href="#94-registrierungs-gewichtsschutz-v021" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>aqmh.reconstruction.registration_weight_guard = true</code></li>
+<li><code>aqmh.reconstruction.registration_weight_floor = 0.30</code></li>
+<li><code>aqmh.reconstruction.registration_cc_floor = 0.35</code></li>
+<li><code>aqmh.reconstruction.registration_cc_full = 0.80</code></li>
+<li><code>aqmh.reconstruction.registration_sequential_factor = 0.92</code></li>
+<li><code>aqmh.reconstruction.registration_predicted_factor = 0.50</code></li>
+<li><code>aqmh.reconstruction.registration_chain_depth_penalty = 0.03</code></li>
+<li><code>aqmh.reconstruction.registration_chain_depth_max_penalty = 0.15</code></li>
+</ul>
+<h3 id="95-neutralisierung-und-blending-v021">9.5 Neutralisierung und Blending (v0.2.1)<a class="headerlink" href="#95-neutralisierung-und-blending-v021" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Neutralisierungs-Blur-Sigma: <code>96 px</code> (fest verdrahtet).</li>
+<li>Strukturmaske-Quantile: <code>low_q = 0.40</code>, <code>high_q = 0.90</code>.</li>
+<li>Strukturmaske-Blur-Sigma: <code>4 px</code>.</li>
+<li>Sigma-Clipping: <code>low = 2.0</code>, <code>high = 1.5</code>, <code>4</code> Iterationen.</li>
+<li>Die Validierungsschwellen stammen aus <code>aqmh.validation</code>.</li>
+</ul>
+<p>Die v0.2.1-Referenzwerte waren <code>low_q=0.70</code>, <code>high_q=0.97</code>, Blur-Sigma
+<code>2 px</code>; die aktuellen Betriebswerte sind weiter, um mittelgradientige
+Struktur zu erhalten.</p>
+<h3 id="96-cherry-pick-unverandert">9.6 Cherry-Pick (unverändert)<a class="headerlink" href="#96-cherry-pick-unverandert" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>aqmh.cherry_pick.enabled = false</code> standardmäßig.</li>
+<li><code>k_frac = 0.30</code></li>
+<li><code>k_min_required = 20</code></li>
+<li><code>margin_min = 0.02</code></li>
+</ul>
+<hr />
+<h2 id="10-konformitatsaussage">10. Konformitätsaussage<a class="headerlink" href="#10-konformitatsaussage" title="Permanent link">&para;</a></h2>
+<p>Ein Run ist <strong>v0.2.1-konform</strong>, genau dann wenn:</p>
+<ol>
+<li>Er alle verbindlichen Invarianten von v0.2.0 (§1.3) einhält.</li>
+<li>Er <code>Q_map</code> gemäß §2 und §3 berechnet und den verwendeten Speichermodus
+   berichtet; Cherry-Pick verwendet zwingend Full-Resolution-Float32.</li>
+<li>Er die globale Qualität mit der erweiterten Formel aus §1.5 berechnet,
+   wenn <code>g_w_background_penalty &gt; 0</code>, oder mit der v0.2.0-Formel, wenn der Wert
+   <code>0</code> ist.</li>
+<li>Er den Registrierungs-Gewichtsschutz wie in §4.3 beschrieben anwendet,
+   wenn er aktiviert ist, und das Ergebnis protokolliert.</li>
+<li>Er die Nachverarbeitungs-Validierung und die optionale Neutralisierung
+   gemäß §6 durchführt und den ausgewählten Kandidaten sowie eventuelle
+   Rückfälle aufzeichnet.</li>
+<li>Er <code>aqmh_metrics.json</code>, <code>aqmh_reconstruction.json</code> und alle erforderlichen
+   Diagnosefelder erzeugt.</li>
+</ol>
+<p>Ein Run ist <strong>strikt v0.2.0-konform</strong>, wenn <code>g_w_background_penalty = 0</code>,
+<code>registration_weight_guard = false</code> und alle Nachverarbeitungs-
+erweiterungen deaktiviert sind. Ein solcher Run ist eine gültige Teilmenge von
+v0.2.1.</p>
+<hr />
+<h2 id="11-referenzen">11. Referenzen<a class="headerlink" href="#11-referenzen" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>aqmh_methodik_en_v0.2.0.md</code> — Basismethodik.</li>
+<li><code>tile_compile_cpp/include/tile_compile/config/configuration.hpp</code> —
+  Konfigurationsstrukturen.</li>
+<li><code>tile_compile_cpp/src/metrics/aqmh_global_quality.cpp</code> — Berechnung der
+  globalen Qualität.</li>
+<li><code>tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp</code> —
+  Registrierungs-Gewichtsschutz, Neutralisierung und Blending.</li>
+<li><code>tile_compile_cpp/src/metrics/aqmh_quality_map.cpp</code> — Quality-Map-
+  Berechnung.</li>
+<li><code>tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp</code> — Gewichtete
+  Rekonstruktion und Cherry-Pick-Logik.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

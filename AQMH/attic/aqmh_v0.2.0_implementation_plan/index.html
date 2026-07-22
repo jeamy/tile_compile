@@ -1,0 +1,3995 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_implementation_plan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AQMH v0.2.0 — Implementation Plan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#aqmh-v020-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AQMH v0.2.0 — Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../gui3_user_guide_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../configuration_reference_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../aqmh_methodik_en_v0.2.1/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Methodology
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/build/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../about/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_integration_architecture_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Architecture Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/pi_run_chat_recommendation_chat_data_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Run-Chat Data Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_implementation_plan_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Plan (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_implementation_plan_summary_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI Implementation Summary (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#delta-v010-v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delta: v0.1.0 → v0.2.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-0-pipeline-disentanglement-aqmh-als-main-pfad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Pipeline Disentanglement — AQMH als Main-Pfad
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 0: Pipeline Disentanglement — AQMH als Main-Pfad">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#target-file-layout-neue-aqmh-dateien" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target File Layout (neue AQMH-Dateien)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-01-phase-enum-erweitern-includetile_compilecoretypeshpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.1 — Phase-Enum erweitern (include/tile_compile/core/types.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-02-run_phase_local_metrics-aufteilen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.2 — run_phase_local_metrics() aufteilen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-03-tile_reconstruction-phase-aufteilen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.3 — TILE_RECONSTRUCTION-Phase aufteilen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-04-global_weights-entflechtung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.4 — global_weights Entflechtung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-05-common_overlap-fur-aqmh-c-only-m_f-ableiten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.5 — COMMON_OVERLAP für AQMH: C-only, M_f ableiten
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-06-tile_grid-fur-aqmh-uberspringen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.6 — TILE_GRID für AQMH überspringen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-07-post-reconstruction-phasen-bereinigen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.7 — Post-Reconstruction Phasen bereinigen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-08-pipeline-main-loop-zwei-pfade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.8 — Pipeline-Main-Loop: zwei Pfade
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-09-aqmh_diagnostics-als-eigene-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.9 — AQMH_DIAGNOSTICS als eigene Phase
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-010-web-backend-frontend-anpassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 0.10 — Web Backend / Frontend Anpassung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-config-numerical-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Config &amp; Numerical Infrastructure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1: Config &amp; Numerical Infrastructure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-11-config-structs-includetile_compileconfigconfigurationhpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1.1 — Config structs (include/tile_compile/config/configuration.hpp)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-12-replace-eps_aqmh-with-eps_scaleeps_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1.2 — Replace eps_aqmh with eps_scale/eps_noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-13-yaml-parsing-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1.3 — YAML parsing + schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-quality-map-computation-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Quality Map Computation (§2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2: Quality Map Computation (§2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-21-source-valid-mask-c-m_f" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.1 — Source-valid mask (C + M_f)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-22-phi_snr-background-denominator-232b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.2 — Phi_snr background + denominator (§2.3.2b)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-23-phi_artifact-updates-232c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.3 — Phi_artifact updates (§2.3.2c)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-24-lap_valid-explicit-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.4 — Lap_valid explicit definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-25-geometric-mean-output-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.5 — Geometric mean &amp; output guard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-26-pre-z-score-diagnostic-summaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2.6 — Pre-z-score diagnostic summaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-global-quality-factor-g-11-41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Global Quality Factor G (§1.1, §4.1)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3: Global Quality Factor G (§1.1, §4.1)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-31-aqmh_global_quality-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3.1 — AQMH_GLOBAL_QUALITY stage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-32-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3.2 — Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-storage-cache-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Storage &amp; Cache (§3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 4: Storage &amp; Cache (§3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-41-format-version-bump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4.1 — Format version bump
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-42-zero-veto-mask-for-divisor-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4.2 — Zero-veto mask for divisor &gt; 1
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-43-mask-aware-area-downsampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4.3 — Mask-aware area downsampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-44-cache-invalidation-m_f-hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4.4 — Cache invalidation: M_f hash
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-reconstruction-43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Reconstruction (§4.3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 5: Reconstruction (§4.3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-51-sample-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5.1 — Sample sets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-52-unsupported-pixel-handling-3-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5.2 — Unsupported-pixel handling (3 cases)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-53-deterministic-weighted-sigma-clipping-431" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5.3 — Deterministic weighted sigma clipping (§4.3.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-54-config-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5.4 — Config integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-cherry-pick-v020-53" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: Cherry-Pick v0.2.0 (§5.3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 6: Cherry-Pick v0.2.0 (§5.3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-61-run-level-gate-532" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.1 — Run-level gate (§5.3.2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-62-per-pixel-kp-533" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.2 — Per-pixel K(p) (§5.3.3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-63-tiered-k_frac-534" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.3 — Tiered k_frac (§5.3.4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-64-rank-separation-diagnostic-535" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.4 — Rank-separation diagnostic (§5.3.5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-65-diagnostics-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.5 — Diagnostics output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-66-remove-large-image-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6.6 — Remove large-image fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-7-diagnostics-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7: Diagnostics (§6)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 7: Diagnostics (§6)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-71-per-frame-fields-61" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7.1 — Per-frame fields (§6.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-72-run-level-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7.2 — Run-level fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-73-per-channel-cfa-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7.3 — Per-channel + CFA-proxy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-74-block-level-diagnostics-62" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7.4 — Block-level diagnostics (§6.2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-75-heatmaps-63" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7.5 — Heatmaps (§6.3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-8-region-extraction-52" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8: Region Extraction (§5.2)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 8: Region Extraction (§5.2)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-81-threshold-binary-mask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 8.1 — Threshold + binary mask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-82-morphological-opening-52-step-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 8.2 — Morphological opening (§5.2, step 3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-83-connected-components-region-properties-52-steps-45" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 8.3 — Connected components + region properties (§5.2, steps 4–5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-9-validation-77-9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 9: Validation (§7.7, §9)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 9: Validation (§7.7, §9)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-91-uniform-weight-control-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 9.1 — Uniform-weight control run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-92-regression-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 9.2 — Regression metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-93-16-validation-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 9.3 — 16 validation checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-10-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 10: Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 10: Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-101-runner_aqmh_pipelinecpp-stage-ordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 10.1 — runner_aqmh_pipeline.cpp — Stage ordering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-102-remove-k_min-from-configui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 10.2 — Remove k_min from config/UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-105-aqmh_native_bge_inputs-stage-41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 10.5 — AQMH_NATIVE_BGE_INPUTS stage (§4.1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-106-cmakeliststxt-neue-source-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 10.6 — CMakeLists.txt — neue Source-Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-107-build-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 10.7 — Build &amp; test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-implementation-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested Implementation Order
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Suggested Implementation Order">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-file-summary-18-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New File Summary (18 files)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-approved-approximations-deviations-from-spec-with-rationale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Approved Approximations (deviations from spec with rationale)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="aqmh-v020-implementation-plan">AQMH v0.2.0 — Implementation Plan<a class="headerlink" href="#aqmh-v020-implementation-plan" title="Permanent link">&para;</a></h1>
+<p><strong>Spec:</strong> <code>docs/AQMH/aqmh_methodik_en_v0.2.0.md</code>
+<strong>Current code:</strong> Partial v0.1.0 in <code>tile_compile_cpp/</code></p>
+<h2 id="delta-v010-v020">Delta: v0.1.0 → v0.2.0<a class="headerlink" href="#delta-v010-v020" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>v0.1.0 (current)</th>
+<th>v0.2.0 (target)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Pipeline structure</strong></td>
+<td>AQMH as <code>if</code>-branch inside Classic phases</td>
+<td><strong>AQMH as independent main path</strong>, separate files</td>
+</tr>
+<tr>
+<td>Numerical guards</td>
+<td><code>eps_aqmh = 1e-6</code></td>
+<td><code>eps_scale(X)</code>, <code>eps_noise(X)</code> dimension-preserving</td>
+</tr>
+<tr>
+<td>Frame quality <code>G</code></td>
+<td>External <code>global_weights</code> from <code>GLOBAL_METRICS</code></td>
+<td>AQMH-native: z-score of map summaries → sigmoid</td>
+</tr>
+<tr>
+<td>Validity model</td>
+<td>Canvas-valid (<code>C</code>)</td>
+<td>Source-valid: <code>C AND M_f</code></td>
+</tr>
+<tr>
+<td><code>Phi_snr</code> floor</td>
+<td><code>eps_aqmh</code></td>
+<td><code>eps_noise(I_s)</code></td>
+</tr>
+<tr>
+<td><code>Phi_artifact</code> denom</td>
+<td><code>W_s_valid</code></td>
+<td><code>H_s_valid</code> (finite hp only)</td>
+</tr>
+<tr>
+<td><code>Phi_artifact</code> &lt;3 samples</td>
+<td>Not specified</td>
+<td><code>= 1</code> (no false veto)</td>
+</tr>
+<tr>
+<td>Storage default</td>
+<td><code>resolution_divisor=2</code></td>
+<td><code>resolution_divisor=1</code></td>
+</tr>
+<tr>
+<td>Veto mask</td>
+<td>Not stored</td>
+<td>Full-res 1-bit for <code>divisor&gt;1</code></td>
+</tr>
+<tr>
+<td>Map format version</td>
+<td>1</td>
+<td>2 (bump)</td>
+</tr>
+<tr>
+<td>Pipeline stages</td>
+<td>MAPS→RECON (inline in Classic)</td>
+<td>MAPS→GLOBAL_QUALITY→RECON→DIAGNOSTICS (separate)</td>
+</tr>
+<tr>
+<td>Sigma clipping</td>
+<td>Unspecified</td>
+<td>Weighted median+MAD, keep-floor, N_eff guard</td>
+</tr>
+<tr>
+<td>Cherry-pick</td>
+<td><code>min(N,max(k_min,floor(k_frac*N)))</code></td>
+<td><code>k_min_required=20</code>, <code>K_nominal_median</code> gate, tiered</td>
+</tr>
+<tr>
+<td>Diagnostics</td>
+<td>7 fields/frame</td>
+<td>11 fields/frame + run-level cherry-pick stats</td>
+</tr>
+<tr>
+<td>Validation</td>
+<td>10 reqs</td>
+<td>16 reqs + control-run</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="phase-0-pipeline-disentanglement-aqmh-als-main-pfad">Phase 0: Pipeline Disentanglement — AQMH als Main-Pfad<a class="headerlink" href="#phase-0-pipeline-disentanglement-aqmh-als-main-pfad" title="Permanent link">&para;</a></h2>
+<p><strong>Ziel:</strong> AQMH-Code aus Classic-Phasen extrahieren, in eigene Dateien auslagern, zwei klare Pipeline-Pfade schaffen.</p>
+<h3 id="target-file-layout-neue-aqmh-dateien">Target File Layout (neue AQMH-Dateien)<a class="headerlink" href="#target-file-layout-neue-aqmh-dateien" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>tile_compile_cpp/
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── apps/
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── runner_pipeline.cpp              # Main dispatcher: aqmh vs classic
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── runner_aqmh_pipeline.cpp         # NEW: AQMH pipeline orchestrator
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── runner_aqmh_pipeline.hpp         # NEW
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── runner_phase_local_metrics.cpp   # Classic-only (nach Extraktion)
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── runner_phase_local_metrics.hpp   # Classic-only
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── runner_phase_aqmh_maps.cpp       # NEW: AQMH quality-map phase
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   ├── runner_phase_aqmh_maps.hpp       # NEW
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── runner_phase_aqmh_global_quality.cpp  # NEW: G factor phase
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── runner_phase_aqmh_global_quality.hpp  # NEW
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── runner_phase_aqmh_reconstruction.cpp  # NEW: AQMH recon phase
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── runner_phase_aqmh_reconstruction.hpp  # NEW
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   ├── runner_phase_aqmh_diagnostics.cpp     # NEW: AQMH diagnostics phase
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   ├── runner_phase_aqmh_diagnostics.hpp     # NEW
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│   └── ... (classic files unchanged)
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>├── src/
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│   ├── metrics/
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│   │   ├── aqmh_quality_map.cpp         # Existing (updated)
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│   │   ├── aqmh_quality_map_cache.cpp   # Existing (updated)
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>│   │   ├── aqmh_eps.cpp                 # NEW: eps_scale, eps_noise, robust zscore
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>│   │   ├── aqmh_global_quality.cpp      # NEW: G factor computation
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>│   │   ├── aqmh_frame_valid_mask.cpp    # NEW: M_f mask derivation
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>│   │   └── ... (classic metrics unchanged)
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>│   ├── reconstruction/
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>│   │   ├── reconstruction.cpp           # Classic-only (nach Extraktion)
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>│   │   ├── aqmh_reconstruction.cpp      # NEW: AQMH recon (extracted)
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>│   │   ├── aqmh_sigma_clip.cpp          # NEW: weighted median+MAD clipping
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>│   │   ├── aqmh_cherry_pick.cpp         # NEW: cherry-pick selection logic
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>│   │   └── ... (classic recon files unchanged)
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>│   └── ...
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>├── include/tile_compile/
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>│   ├── metrics/
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>│   │   ├── aqmh_quality_map.hpp         # Existing (updated)
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>│   │   ├── aqmh_quality_map_cache.hpp   # Existing (updated)
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>│   │   ├── aqmh_eps.hpp                 # NEW
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>│   │   ├── aqmh_global_quality.hpp      # NEW
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>│   │   ├── aqmh_frame_valid_mask.hpp    # NEW
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>│   │   └── ...
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>│   ├── reconstruction/
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>│   │   ├── reconstruction.hpp           # Classic structs only
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>│   │   ├── aqmh_reconstruction.hpp      # NEW: AQMH recon structs + decls
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>│   │   ├── aqmh_sigma_clip.hpp          # NEW
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>│   │   ├── aqmh_cherry_pick.hpp         # NEW
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>│   │   └── ...
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>│   ├── core/
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>│   │   ├── types.hpp                    # Updated: new Phase enum values
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>│   │   └── ...
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>│   └── ...
+</span></code></pre></div>
+<h3 id="step-01-phase-enum-erweitern-includetile_compilecoretypeshpp">Step 0.1 — Phase-Enum erweitern (<code>include/tile_compile/core/types.hpp</code>)<a class="headerlink" href="#step-01-phase-enum-erweitern-includetile_compilecoretypeshpp" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Neue Phasen hinzufügen:
+  <div class="language-cpp highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">AQMH_MAPS</span><span class="p">,</span><span class="w">              </span><span class="c1">// quality map computation</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">AQMH_GLOBAL_QUALITY</span><span class="p">,</span><span class="w">    </span><span class="c1">// G factor computation</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">AQMH_RECONSTRUCTION</span><span class="p">,</span><span class="w">    </span><span class="c1">// AQMH pixel-wise reconstruction</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">AQMH_DIAGNOSTICS</span><span class="p">,</span><span class="w">       </span><span class="c1">// post-recon diagnostics + regions</span>
+</span></code></pre></div></li>
+<li><code>phase_to_string()</code> und <code>phase_from_int()</code> aktualisieren</li>
+<li>Classic-Phasen bleiben unangetastet (<code>LOCAL_METRICS</code>, <code>TILE_RECONSTRUCTION</code>, etc.)</li>
+</ul>
+<h3 id="step-02-run_phase_local_metrics-aufteilen">Step 0.2 — <code>run_phase_local_metrics()</code> aufteilen<a class="headerlink" href="#step-02-run_phase_local_metrics-aufteilen" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> Eine Funktion (~994 Zeilen) mit <code>if (compute_classic_local_metrics)</code>-Verzweigung.
+- Classic-Pfad (tile metrics, local weights, neighborhood normalization, spatial regularization, Zeilen 169–993) → in <code>runner_phase_local_metrics.cpp</code> belassen, AQMH-Code entfernen
+- AQMH-Pfad (quality map computation, Zeilen 324–555) → extrahieren in <strong><code>runner_phase_aqmh_maps.cpp</code></strong> + <strong><code>runner_phase_aqmh_maps.hpp</code></strong>
+- Neue Funktion: <code>run_phase_aqmh_maps()</code> — nur AQMH-relevante Parameter:
+  - <code>frames</code>, <code>prewarped_frames</code>, <code>common_valid_mask</code> (C), <code>frame_valid_masks</code> (M_f)
+  - <code>cfg.aqmh.*</code>, <code>acceleration</code>, <code>emitter</code>, <code>log_file</code>
+  - <strong>Keine</strong> <code>tiles_phase56</code>, <code>local_metrics</code>, <code>local_weights</code>, <code>tile_common_valid</code>
+- <code>runner_phase_local_metrics.hpp</code>: Classic-Signatur behalten, AQMH-Signatur in <code>runner_phase_aqmh_maps.hpp</code></p>
+<h3 id="step-03-tile_reconstruction-phase-aufteilen">Step 0.3 — TILE_RECONSTRUCTION-Phase aufteilen<a class="headerlink" href="#step-03-tile_reconstruction-phase-aufteilen" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> <code>runner_pipeline.cpp</code> Zeilen ~2226–2397 (AQMH) und ~2398–3856 (Classic, ~1458 Zeilen) in einem <code>if/else</code>-Block.
+- AQMH-Pfad → extrahieren in <strong><code>runner_phase_aqmh_reconstruction.cpp</code></strong> + <code>.hpp</code>
+  - Neue Funktion: <code>run_phase_aqmh_reconstruction()</code> — ruft <code>reconstruct_aqmh_weighted()</code> auf, schreibt <code>tile_reconstruction.json</code> artifact
+- Classic-Pfad → in <code>runner_pipeline.cpp</code> belassen oder in separate Funktion auslagern (optional)
+- <strong><code>reconstruction.cpp</code></strong> aufteilen:
+  - Classic tile-weighted reconstruction (<code>reconstruct_tiles_parallel()</code> etc.) → bleibt in <code>reconstruction.cpp</code>
+  - AQMH reconstruction (<code>reconstruct_aqmh_weighted()</code>) → extrahieren in <strong><code>aqmh_reconstruction.cpp</code></strong>
+  - AQMH structs (<code>AqmhReconstructionConfig</code>, <code>AqmhReconstructionResult</code>, <code>AqmhFrameLoader</code>) → <strong><code>aqmh_reconstruction.hpp</code></strong>
+  - Classic structs (<code>ReconstructionConfig</code>, <code>ReconstructTilesResult</code>) → bleiben in <code>reconstruction.hpp</code></p>
+<h3 id="step-04-global_weights-entflechtung">Step 0.4 — <code>global_weights</code> Entflechtung<a class="headerlink" href="#step-04-global_weights-entflechtung" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> <code>GLOBAL_METRICS</code>-Phase erzeugt <code>global_weights</code> aus <code>frame_metrics</code> → beide Pfade nutzen dieselben.
+- Classic: <code>global_weights</code> aus <code>frame_metrics</code> bleibt unangetastet
+- AQMH: <code>AQMH_GLOBAL_QUALITY</code>-Phase erzeugt <code>G_{f,c}</code> → eigene Variable <code>aqmh_global_weights</code>
+- <strong><code>PhaseMetricsContext::global_weights</code></strong> wird nicht von AQMH-Code gelesen
+- AQMH-Pipeline übergibt <code>aqmh_global_weights</code> an <code>reconstruct_aqmh_weighted()</code>
+- Neue Datei: <strong><code>aqmh_global_quality.cpp</code></strong> + <strong><code>aqmh_global_quality.hpp</code></strong> für G-Faktor-Logik</p>
+<h3 id="step-05-common_overlap-fur-aqmh-c-only-m_f-ableiten">Step 0.5 — <code>COMMON_OVERLAP</code> für AQMH: C-only, M_f ableiten<a class="headerlink" href="#step-05-common_overlap-fur-aqmh-c-only-m_f-ableiten" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> <code>COMMON_OVERLAP</code> berechnet <code>common_valid_mask</code> (C) <strong>und</strong> <code>tile_common_valid</code> (tile-level).
+- AQMH braucht nur <code>C</code> (pixel-level canvas mask) + <code>M_f</code> (frame-level valid mask)
+- <code>COMMON_OVERLAP</code> für AQMH: nur <code>common_valid_mask</code> berechnen, tile-Validierung überspringen
+- <strong>M_f (frame-valid mask)</strong>: neue Datei <strong><code>aqmh_frame_valid_mask.cpp</code></strong> + <code>.hpp</code>
+  - <code>M_f(p) = 1 iff prewarped_frame[fi](p) is finite</code>
+  - Effizient: während PREWARP erzeugt und als 1-bit-Maske pro Frame gecacht
+  - Neue Datenstruktur: <code>FrameValidMaskStore</code> (disk-backed, ähnlich <code>DiskCacheFrameStore</code> aber 1-bit)</p>
+<h3 id="step-06-tile_grid-fur-aqmh-uberspringen">Step 0.6 — <code>TILE_GRID</code> für AQMH überspringen<a class="headerlink" href="#step-06-tile_grid-fur-aqmh-uberspringen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>AQMH ist pixel-wise, braucht kein Tile-Grid</li>
+<li>Phase wird für AQMH-Main übersprungen</li>
+<li><code>tiles_phase56</code> wird nicht erzeugt → alle tile-abhängigen Parameter fallen weg</li>
+<li>In <code>runner_aqmh_pipeline.cpp</code>: <code>TILE_GRID</code>-Phase nicht aufrufen</li>
+</ul>
+<h3 id="step-07-post-reconstruction-phasen-bereinigen">Step 0.7 — Post-Reconstruction Phasen bereinigen<a class="headerlink" href="#step-07-post-reconstruction-phasen-bereinigen" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>STATE_CLUSTERING</code>, <code>SYNTHETIC_FRAMES</code>, <code>STACKING</code> → für AQMH komplett überspringen</li>
+<li>Aktuell schon via <code>skip_clustering_for_aqmh</code> — wird durch Pipeline-Trennung obsolet</li>
+<li><code>DEBAYER</code>, <code>ASTROMETRY</code>, <code>BGE</code>, <code>PCC</code>, <code>HYPERMETRIC_STRETCH</code> → gemeinsam (shared infrastructure)</li>
+<li>BGE: v0.2.0 §4.1 spezifiziert <code>AQMH_NATIVE_BGE_INPUTS</code> — BGE tile-sampling aus AQMH recon output + C, <strong>nicht</strong> aus <code>local_metrics.json</code></li>
+</ul>
+<h3 id="step-08-pipeline-main-loop-zwei-pfade">Step 0.8 — Pipeline-Main-Loop: zwei Pfade<a class="headerlink" href="#step-08-pipeline-main-loop-zwei-pfade" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> <code>runner_pipeline.cpp</code> (~6426 Zeilen) mit <code>if (cfg.aqmh.enabled)</code> Verzweigungen in jeder Phase.
+- Neue Datei: <strong><code>runner_aqmh_pipeline.cpp</code></strong> + <code>.hpp</code> — AQMH Pipeline Orchestrator
+- <code>runner_pipeline.cpp</code> wird zum Dispatcher:
+  <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>if (cfg.method == &quot;aqmh&quot;) → runner::run_aqmh_pipeline(...)
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>else → runner::run_classic_pipeline(...)
+</span></code></pre></div>
+- Beide Pfade teilen: <code>SCAN_INPUT</code>, <code>REGISTRATION</code>, <code>PREWARP</code>, <code>CHANNEL_SPLIT</code>, <code>NORMALIZATION</code>, <code>COMMON_OVERLAP</code> (C-only für AQMH)
+- AQMH-spezifisch: <code>AQMH_MAPS</code> → <code>AQMH_GLOBAL_QUALITY</code> → <code>AQMH_RECONSTRUCTION</code> → <code>AQMH_DIAGNOSTICS</code>
+- Classic-spezifisch: <code>TILE_GRID</code> → <code>LOCAL_METRICS</code> → <code>TILE_RECONSTRUCTION</code> → <code>STATE_CLUSTERING</code> → <code>SYNTHETIC_FRAMES</code> → <code>STACKING</code>
+- Gemeinsame Post-Phasen: <code>DEBAYER</code> → <code>ASTROMETRY</code> → <code>BGE</code> → <code>PCC</code> → <code>HYPERMETRIC_STRETCH</code> → <code>DONE</code></p>
+<h3 id="step-09-aqmh_diagnostics-als-eigene-phase">Step 0.9 — <code>AQMH_DIAGNOSTICS</code> als eigene Phase<a class="headerlink" href="#step-09-aqmh_diagnostics-als-eigene-phase" title="Permanent link">&para;</a></h3>
+<p><strong>Aktuell:</strong> Diagnostics inline in <code>LOCAL_METRICS</code> (<code>aqmh_metrics.json</code>) und <code>TILE_RECONSTRUCTION</code> (<code>tile_reconstruction.json</code>).
+- Neue Datei: <strong><code>runner_phase_aqmh_diagnostics.cpp</code></strong> + <code>.hpp</code>
+- Sammelt: per-frame diagnostics, run-level diagnostics, block-level diagnostics, heatmaps, region extraction
+- Schreibt: <code>aqmh_metrics.json</code> (erweitert), <code>aqmh_regions.json</code>
+- Wird nach <code>AQMH_RECONSTRUCTION</code> ausgeführt</p>
+<h3 id="step-010-web-backend-frontend-anpassung">Step 0.10 — Web Backend / Frontend Anpassung<a class="headerlink" href="#step-010-web-backend-frontend-anpassung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Web Backend (<code>web_backend_cpp/</code>): AQMH-Phasen in Phase-Definition aufnehmen</li>
+<li>Phase-Namen in i18n-Dateien (<code>de.json</code>, <code>en.json</code>) ergänzen; remove redundant <code>phase.aqmh_quality_maps</code> entry (duplicate of <code>phase.aqmh_maps</code>)</li>
+<li><strong>Fix phase order in <code>web_frontend_v3/js/components/phase-list.js</code></strong>:</li>
+<li><code>CLASSIC_PHASES</code>: reorder to match <code>core/types.hpp</code>: <code>SCAN_INPUT → REGISTRATION → PREWARP → CHANNEL_SPLIT → NORMALIZATION → GLOBAL_METRICS → TILE_GRID → COMMON_OVERLAP → ...</code></li>
+<li><code>AQMH_PHASES</code>: reorder to match v0.2.0 pipeline: <code>SCAN_INPUT → REGISTRATION → PREWARP → CHANNEL_SPLIT → NORMALIZATION → COMMON_OVERLAP → AQMH_MAPS → AQMH_GLOBAL_QUALITY → AQMH_RECONSTRUCTION → AQMH_DIAGNOSTICS → ...</code></li>
+<li>Remove Classic-only phases (<code>GLOBAL_METRICS</code>, <code>TILE_GRID</code>, <code>LOCAL_METRICS</code>, <code>TILE_RECONSTRUCTION</code>, <code>STATE_CLUSTERING</code>, <code>SYNTHETIC_FRAMES</code>, <code>STACKING</code>) from <code>AQMH_PHASES</code></li>
+<li>Update <code>RESUMABLE_PHASES</code> accordingly</li>
+<li><strong>Fix phase order in <code>web_frontend/src/app.js</code></strong>:</li>
+<li><code>RUN_MONITOR_PHASE_ORDER</code>: reorder to match <code>core/types.hpp</code></li>
+<li><code>AQMH_RUN_MONITOR_PHASE_ORDER</code>: add <code>AQMH_GLOBAL_QUALITY</code> and <code>AQMH_DIAGNOSTICS</code>, remove Classic-only phases, correct order</li>
+<li><code>getEffectiveDashboardPipelineGroups()</code>: update AQMH groups to <code>SCAN → REG → AQMH → DEBAYER → ASTROM → BGE → PCC → HMS</code></li>
+<li><strong>Skip <code>GLOBAL_METRICS</code> phase events for AQMH in backend</strong> (<code>tile_compile_cpp/apps/runner_phase_metrics.cpp</code>):</li>
+<li>Add <code>const bool expose_global_metrics = !cfg.aqmh.enabled;</code></li>
+<li>Skip <code>phase_start</code>, <code>phase_progress</code>, <code>phase_end</code> when AQMH is active</li>
+<li>Keep the metric computation and <code>global_metrics.json</code> artifact — they are still needed for:<ul>
+<li>BGE background-RMS validation (<code>frame_metrics[i].noise</code>)</li>
+<li>Registration model-predicted weight penalty (<code>global_weights</code>)</li>
+</ul>
+</li>
+<li>This is an interim step until BGE/registration are fully disentangled from Classic metrics</li>
+<li><strong>Fix backend-status merge in <code>web_frontend_v3/js/pages/run-monitor.js</code></strong>:</li>
+<li>In <code>refreshRunStatus()</code>, merge <code>status.phases</code> into <code>getPhasesForConfig()</code>-based order instead of using raw backend order</li>
+<li>This is a defensive guard against any backend phases not relevant to the current method</li>
+<li>API-Endpunkte für <code>aqmh_metrics.json</code>, <code>aqmh_regions.json</code></li>
+</ul>
+<hr />
+<h2 id="phase-1-config-numerical-infrastructure">Phase 1: Config &amp; Numerical Infrastructure<a class="headerlink" href="#phase-1-config-numerical-infrastructure" title="Permanent link">&para;</a></h2>
+<h3 id="step-11-config-structs-includetile_compileconfigconfigurationhpp">Step 1.1 — Config structs (<code>include/tile_compile/config/configuration.hpp</code>)<a class="headerlink" href="#step-11-config-structs-includetile_compileconfigconfigurationhpp" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AqmhStorageConfig</code>: default <code>resolution_divisor</code> 2→1</li>
+<li><code>AqmhCherryPickConfig</code>: remove <code>k_min</code>, add <code>k_min_required=20</code>, <code>margin_min=0.02</code>, <code>tiered_k_frac</code> (vec of <code>{min_n_rankable, k_frac}</code>)</li>
+<li>New <code>AqmhGlobalQualityConfig</code>: <code>g_floor=0.05, g_w_sharp=0.6, g_w_snr=0.4</code></li>
+<li>New <code>AqmhReconstructionConfig</code>: <code>clip_sigma=3.0, clip_iterations=3, min_fraction=0.5, min_n_eff=2.0</code></li>
+<li>New <code>AqmhValidationConfig</code>: <code>max_seam_score_regression=0.02, max_fwhm_regression=0.02, max_background_rms_regression=0.02</code></li>
+<li>New <code>AqmhDiagnosticsConfig</code>: <code>tau_artifact=0.20, q_region=0.75, r_morph_canvas_px=6</code></li>
+<li><code>AqmhConfig</code>: add the four new sub-structs</li>
+</ul>
+<h3 id="step-12-replace-eps_aqmh-with-eps_scaleeps_noise">Step 1.2 — Replace <code>eps_aqmh</code> with <code>eps_scale</code>/<code>eps_noise</code><a class="headerlink" href="#step-12-replace-eps_aqmh-with-eps_scaleeps_noise" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>src/metrics/aqmh_eps.cpp</code> + <code>include/tile_compile/metrics/aqmh_eps.hpp</code></p>
+<ul>
+<li>Remove <code>constexpr float eps_aqmh</code> from <code>aqmh_quality_map.hpp</code></li>
+<li><code>aqmh_eps.hpp</code>: declare <code>eps_scale()</code>, <code>eps_noise()</code>, <code>robust_zscore_eps_scale()</code></li>
+<li><code>aqmh_eps.cpp</code>: implement:</li>
+<li><code>eps_scale(X)</code>: <code>max(nextafter(0,1), 1e-6 * max(median(|X|), MAD(X)))</code></li>
+<li><code>eps_noise(X)</code>: <code>max(nextafter(0,1), 1e-6 * median(|X - median(X)|))</code></li>
+<li><code>robust_zscore_eps_scale()</code>: degenerate (MAD=0) → z=0</li>
+<li><code>aqmh_quality_map.cpp</code>: include <code>aqmh_eps.hpp</code>, update all call sites: <code>Phi_snr</code>→<code>eps_noise</code>, <code>Phi_artifact</code> tau→<code>eps_scale(hp)</code>, <code>compute_psi</code>→<code>robust_zscore_eps_scale</code></li>
+</ul>
+<h3 id="step-13-yaml-parsing-schema">Step 1.3 — YAML parsing + schema<a class="headerlink" href="#step-13-yaml-parsing-schema" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Parse <code>aqmh.global_quality.*</code>, <code>aqmh.reconstruction.*</code>, <code>aqmh.validation.*</code></li>
+<li>Parse <code>aqmh.diagnostics.tau_artifact</code>, <code>q_region</code>, <code>r_morph_canvas_px</code></li>
+<li>Parse <code>cherry_pick.k_min_required</code>, <code>margin_min</code>, <code>tiered_k_frac</code></li>
+<li>Update <code>tile_compile.schema.json</code></li>
+</ul>
+<hr />
+<h2 id="phase-2-quality-map-computation-2">Phase 2: Quality Map Computation (§2)<a class="headerlink" href="#phase-2-quality-map-computation-2" title="Permanent link">&para;</a></h2>
+<h3 id="step-21-source-valid-mask-c-m_f">Step 2.1 — Source-valid mask (C + M_f)<a class="headerlink" href="#step-21-source-valid-mask-c-m_f" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>src/metrics/aqmh_frame_valid_mask.cpp</code> + <code>include/tile_compile/metrics/aqmh_frame_valid_mask.hpp</code></p>
+<ul>
+<li><code>aqmh_frame_valid_mask.hpp</code>: declare <code>FrameValidMaskStore</code> (disk-backed 1-bit per-pixel mask), <code>compute_frame_valid_mask()</code></li>
+<li><code>aqmh_frame_valid_mask.cpp</code>: implement M_f derivation from prewarped frames</li>
+<li><code>aqmh_quality_map.hpp</code>: <code>compute_aqmh_quality_map</code> signature add <code>frame_valid_mask</code> param</li>
+<li><code>aqmh_quality_map.cpp</code>: compute <code>source_valid = C AND M_f</code>; replace all canvas-valid checks</li>
+<li><code>canvas_masked_frame</code> → <code>source_masked_frame</code> (NaN where C=0 OR M_f=0)</li>
+<li>Update <code>downsample_valid_mean</code>, <code>mask_valid</code> calls</li>
+</ul>
+<h3 id="step-22-phi_snr-background-denominator-232b">Step 2.2 — <code>Phi_snr</code> background + denominator (§2.3.2b)<a class="headerlink" href="#step-22-phi_snr-background-denominator-232b" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Background <code>b_s</code></strong>: spec requires <code>median_{p in W_s_valid}(I_s(p))</code> — a <strong>local masked median</strong>, not a local mean. Current implementation uses <code>local_mean</code> as background approximation.</li>
+<li>Correct implementation: per-pixel window median (O(W×H×R²)); or document explicitly as approved performance approximation if the mean is retained.</li>
+<li><code>mu_s = mean(max(I_s(p) - b_s, 0))</code> — mean of positive-clamped background-subtracted values</li>
+<li><code>sigma_s = 1.4826 * MAD_{p in W_s_valid}(I_s(p))</code> — MAD over <strong>raw</strong> <code>I_s</code>, not background-subtracted</li>
+<li><strong><code>eps_noise</code> scope</strong>: spec §2.3.2b defines <code>eps_noise(I_s over W_s_valid(x,y))</code> as a <strong>per-window</strong> floor. Current implementation computes it once globally over all finite pixels as a performance approximation — this is an intentional deviation. Document as approved approximation: global <code>eps_noise</code> computed once per scale over all source-valid pixels, used as scalar floor.</li>
+<li>Both approximations must be noted in code comments referencing §2.3.2b.</li>
+</ul>
+<h3 id="step-23-phi_artifact-updates-232c">Step 2.3 — <code>Phi_artifact</code> updates (§2.3.2c)<a class="headerlink" href="#step-23-phi_artifact-updates-232c" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>H_s_valid(x,y)</code> = <code>{p in W_s_valid(x,y) | hp_s(p) is finite}</code> — subset where high-pass response is finite</li>
+<li><code>tau_s</code> uses <code>max(1.4826 * MAD_{H_s_valid}(hp_s), eps_scale(hp_s over H_s_valid))</code></li>
+<li><strong><code>frac_out</code> denominator = <code>|H_s_valid|</code></strong> (not <code>|W_s_valid|</code>) — binding per spec</li>
+<li><code>|H_s_valid| &lt; 3</code> → <code>Phi_artifact = 1</code> (insufficient support, no false veto); <code>|H_s_valid| = 0</code> → invalid</li>
+<li><strong>Current separable-path implementation</strong> uses <code>local_mean(outlier_ind, r)</code> which implicitly divides by the total window count, not <code>|H_s_valid|</code>. This must be corrected:</li>
+<li>Compute <code>outlier_count = local_sum(outlier_ind, r)</code> (sum, not mean)</li>
+<li>Compute <code>h_valid_count = local_sum(hp_finite_ind, r)</code> (support count)</li>
+<li><code>frac_out(p) = outlier_count(p) / h_valid_count(p)</code> where <code>h_valid_count &gt; 0</code></li>
+<li><code>|H_s_valid| &lt; 3</code>: use scalar <code>h_valid_count &lt; 3</code> guard before assigning 1.0</li>
+<li>For the <code>&lt; 3</code> guard and <code>tau_s</code> (which requires local MAD over <code>H_s_valid</code>), the separable path cannot compute a true per-pixel local MAD. Document as: use global <code>eps_scale</code> floor for tau, and handle <code>&lt; 3</code> via the support-count map.</li>
+</ul>
+<h3 id="step-24-lap_valid-explicit-definition">Step 2.4 — <code>Lap_valid</code> explicit definition<a class="headerlink" href="#step-24-lap_valid-explicit-definition" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Verify: <code>I(p) - mean(I(q))</code> over source-valid 4-connected axial neighbors</li>
+<li>Requires valid center + ≥2 valid neighbors; no mirror/replicate/zero-fill</li>
+</ul>
+<h3 id="step-25-geometric-mean-output-guard">Step 2.5 — Geometric mean &amp; output guard<a class="headerlink" href="#step-25-geometric-mean-output-guard" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Log-sum approach already correct; update <code>eps_aqmh</code> clamp to <code>nextafter(0,1)</code></li>
+<li>Output guard: <code>C=0 OR M_f=0</code> → <code>Q_map=0</code> (was C-only)</li>
+</ul>
+<h3 id="step-26-pre-z-score-diagnostic-summaries">Step 2.6 — Pre-z-score diagnostic summaries<a class="headerlink" href="#step-26-pre-z-score-diagnostic-summaries" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AqmhQualityMapDiagnostics</code>: add <code>g_sharp_summary</code>, <code>g_snr_summary</code>, <code>g_summary_invalid</code></li>
+<li>Compute median of <code>Phi_sharp_0</code> and <code>Phi_snr_1</code> (or finest available) over source-valid</li>
+</ul>
+<hr />
+<h2 id="phase-3-global-quality-factor-g-11-41">Phase 3: Global Quality Factor G (§1.1, §4.1)<a class="headerlink" href="#phase-3-global-quality-factor-g-11-41" title="Permanent link">&para;</a></h2>
+<h3 id="step-31-aqmh_global_quality-stage">Step 3.1 — <code>AQMH_GLOBAL_QUALITY</code> stage<a class="headerlink" href="#step-31-aqmh_global_quality-stage" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>src/metrics/aqmh_global_quality.cpp</code> + <code>include/tile_compile/metrics/aqmh_global_quality.hpp</code> + <code>apps/runner_phase_aqmh_global_quality.cpp</code> + <code>.hpp</code></p>
+<ul>
+<li><code>aqmh_global_quality.hpp</code>: declare <code>compute_aqmh_global_quality()</code> — takes per-frame summaries, returns <code>G_{f,c}</code></li>
+<li><code>aqmh_global_quality.cpp</code>: implement cross-frame robust z-score + sigmoid</li>
+<li><code>runner_phase_aqmh_global_quality.cpp</code>: pipeline phase — collect summaries from all frames, call <code>compute_aqmh_global_quality()</code>, persist G values</li>
+<li><code>G_{f,c} = g_floor + (1-g_floor) * sigmoid(g_w_sharp*z + g_w_snr*z)</code></li>
+<li>Persist G values + summaries before reconstruction</li>
+</ul>
+<h3 id="step-32-integration">Step 3.2 — Integration<a class="headerlink" href="#step-32-integration" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>runner_aqmh_pipeline.cpp</code>: pass <code>aqmh_global_weights</code> (not <code>PhaseMetricsContext::global_weights</code>) to <code>reconstruct_aqmh_weighted()</code></li>
+<li>Assert <code>g_floor &lt; G &lt; 1</code></li>
+</ul>
+<hr />
+<h2 id="phase-4-storage-cache-3">Phase 4: Storage &amp; Cache (§3)<a class="headerlink" href="#phase-4-storage-cache-3" title="Permanent link">&para;</a></h2>
+<h3 id="step-41-format-version-bump">Step 4.1 — Format version bump<a class="headerlink" href="#step-41-format-version-bump" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>kAqmhMapFormatVersion</code> 1→2 (invalidates v0.1.0 caches)</li>
+</ul>
+<h3 id="step-42-zero-veto-mask-for-divisor-1">Step 4.2 — Zero-veto mask for <code>divisor &gt; 1</code><a class="headerlink" href="#step-42-zero-veto-mask-for-divisor-1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Store full-res 1-bit veto mask alongside downsampled map</li>
+<li>On read: upsample, then reset vetoed pixels to 0</li>
+<li>Update <code>write()</code>, <code>decode_file()</code>, metadata</li>
+</ul>
+<h3 id="step-43-mask-aware-area-downsampling">Step 4.3 — Mask-aware area downsampling<a class="headerlink" href="#step-43-mask-aware-area-downsampling" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>downsample_for_storage</code>: valid-count denominator, invalid pixels excluded</li>
+</ul>
+<h3 id="step-44-cache-invalidation-m_f-hash">Step 4.4 — Cache invalidation: M_f hash<a class="headerlink" href="#step-44-cache-invalidation-m_f-hash" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>make_config_hash</code>: add M_f mask hash (or combined C+M_f hash)</li>
+</ul>
+<hr />
+<h2 id="phase-5-reconstruction-43">Phase 5: Reconstruction (§4.3)<a class="headerlink" href="#phase-5-reconstruction-43" title="Permanent link">&para;</a></h2>
+<h3 id="step-51-sample-sets">Step 5.1 — Sample sets<a class="headerlink" href="#step-51-sample-sets" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp</code> (extracted from <code>reconstruction.cpp</code>)</p>
+<ul>
+<li><code>V_c^I(p)</code>: add <code>C=1 AND M_f=1 AND finite</code> (currently C-only)</li>
+<li>Add <code>frame_valid_mask</code> param to <code>reconstruct_aqmh_weighted</code></li>
+<li><code>A_c(p)</code>: cherry-pick subset or <code>V_c^I(p)</code></li>
+</ul>
+<h3 id="step-52-unsupported-pixel-handling-3-cases">Step 5.2 — Unsupported-pixel handling (3 cases)<a class="headerlink" href="#step-52-unsupported-pixel-handling-3-cases" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>eps_weight(p) = |A_c(p)| * eps_machine * w_max</code></li>
+<li>Case 1: finite map, all weights zero → veto, no unweighted mean</li>
+<li>Case 2: no finite map → unsupported + warning</li>
+<li>Case 3: post-clip denom fails → unsupported + numerical warning</li>
+</ul>
+<h3 id="step-53-deterministic-weighted-sigma-clipping-431">Step 5.3 — Deterministic weighted sigma clipping (§4.3.1)<a class="headerlink" href="#step-53-deterministic-weighted-sigma-clipping-431" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>src/reconstruction/aqmh_sigma_clip.cpp</code> + <code>include/tile_compile/reconstruction/aqmh_sigma_clip.hpp</code></p>
+<ul>
+<li><code>aqmh_sigma_clip.hpp</code>: declare <code>weighted_median()</code>, <code>weighted_mad()</code>, <code>sigma_clip_weighted()</code></li>
+<li><code>aqmh_sigma_clip.cpp</code>: implement:</li>
+<li>Weighted median: sort by <code>(intensity, frame_index)</code> — <strong>frame_index as deterministic tiebreaker</strong> — cumweight ≥ half</li>
+<li>Weighted MAD: <code>1.4826 * weighted_median(|I_f - m|)</code> using same sort convention</li>
+<li>Clip: <code>|I_f - m| &lt;= clip_sigma * sigma</code>; degenerate (sigma ≤ eps_scale) → retain samples with <code>I_f = m</code></li>
+<li>Keep-floor: <code>n_keep_min = min(n0, max(1, ceil(min_fraction*n0)))</code>; if would retain fewer, retain the <code>n_keep_min</code> samples with smallest <code>(|I_f - m| / max(sigma, eps_scale({I_f})), frame_index)</code> — <strong>frame_index as tiebreaker here too</strong></li>
+<li>Post-clip: <code>D_eff = sum(w_f)</code>, <code>N_eff = D_eff² / sum(w_f²)</code>; unsupported if <code>D_eff &lt;= n_retained * machine_epsilon * max(w_f)</code> OR <code>N_eff &lt; min_n_eff</code></li>
+<li><code>aqmh_reconstruction.cpp</code>: call <code>sigma_clip_weighted()</code> per pixel instead of Welford-only</li>
+</ul>
+<h3 id="step-54-config-integration">Step 5.4 — Config integration<a class="headerlink" href="#step-54-config-integration" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>apps/runner_phase_aqmh_reconstruction.cpp</code></p>
+<ul>
+<li>Map new <code>AqmhReconstructionConfig</code> (from <code>configuration.hpp</code>) to <code>reconstruct_aqmh_weighted()</code> params</li>
+<li>Replace <code>sigma_low/sigma_high</code> with <code>clip_sigma/clip_iterations/min_fraction/min_n_eff</code></li>
+<li>Remove old <code>sigma_low/sigma_high</code> references from <code>runner_pipeline.cpp</code></li>
+</ul>
+<hr />
+<h2 id="phase-6-cherry-pick-v020-53">Phase 6: Cherry-Pick v0.2.0 (§5.3)<a class="headerlink" href="#phase-6-cherry-pick-v020-53" title="Permanent link">&para;</a></h2>
+<h3 id="step-61-run-level-gate-532">Step 6.1 — Run-level gate (§5.3.2)<a class="headerlink" href="#step-61-run-level-gate-532" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>src/reconstruction/aqmh_cherry_pick.cpp</code> + <code>include/tile_compile/reconstruction/aqmh_cherry_pick.hpp</code></p>
+<ul>
+<li><code>aqmh_cherry_pick.hpp</code>: declare <code>CherryPickGate</code>, <code>compute_k_nominal()</code>, <code>evaluate_cherry_pick_gate()</code></li>
+<li><code>aqmh_cherry_pick.cpp</code>: implement:</li>
+<li><code>K_nominal(p) = floor(k_frac(p) * N_rankable(p))</code></li>
+<li><code>K_nominal_median = median(K_nominal(p))</code> over C=1 pixels</li>
+<li>If <code>&lt; k_min_required</code>: force disable, record <code>cherry_pick_forced_disabled</code>, WARNING</li>
+</ul>
+<h3 id="step-62-per-pixel-kp-533">Step 6.2 — Per-pixel K(p) (§5.3.3)<a class="headerlink" href="#step-62-per-pixel-kp-533" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>src/reconstruction/aqmh_cherry_pick.cpp</code></p>
+<ul>
+<li><code>K(p) = max(k_min_required, K_nominal(p))</code> when <code>N_rankable &gt;= k_min_required</code></li>
+<li>Else: inactive, use full <code>V_c^I(p)</code></li>
+<li>Remove old <code>min(N, max(k_min, ...))</code> logic from <code>aqmh_reconstruction.cpp</code></li>
+</ul>
+<h3 id="step-63-tiered-k_frac-534">Step 6.3 — Tiered k_frac (§5.3.4)<a class="headerlink" href="#step-63-tiered-k_frac-534" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>src/reconstruction/aqmh_cherry_pick.cpp</code></p>
+<ul>
+<li>Match tier: greatest <code>min_n_rankable &lt;= N_rankable(p)</code></li>
+<li><code>k_frac(p) = max(base, tier)</code>; no tier → base</li>
+</ul>
+<h3 id="step-64-rank-separation-diagnostic-535">Step 6.4 — Rank-separation diagnostic (§5.3.5)<a class="headerlink" href="#step-64-rank-separation-diagnostic-535" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>src/reconstruction/aqmh_cherry_pick.cpp</code></p>
+<ul>
+<li><code>margin(p) = (S_(K) - S_(K+1)) / S_(1)</code></li>
+<li><code>median(margin)</code> &lt; <code>margin_min</code> → <code>low_rank_separation: true</code></li>
+</ul>
+<h3 id="step-65-diagnostics-output">Step 6.5 — Diagnostics output<a class="headerlink" href="#step-65-diagnostics-output" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong> <code>src/reconstruction/aqmh_cherry_pick.cpp</code> (compute) + <code>apps/runner_phase_aqmh_diagnostics.cpp</code> (write)</p>
+<ul>
+<li>Add: <code>cherry_pick_forced_disabled</code>, <code>cherry_pick_active</code>, <code>k_nominal_median</code></li>
+<li>Add: <code>k_effective_p10/p50/p90</code>, <code>low_rank_separation</code></li>
+<li><code>AqmhReconstructionResult</code> in <code>aqmh_reconstruction.hpp</code>: add cherry-pick diagnostic fields</li>
+</ul>
+<h3 id="step-66-remove-large-image-fallback">Step 6.6 — Remove large-image fallback<a class="headerlink" href="#step-66-remove-large-image-fallback" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Current <code>kCherryPickMaxPixels=8Mpx</code> global fallback is non-spec</li>
+<li>Implement streaming per-pixel selection within memory budget</li>
+<li>All cherry-pick logic in <code>aqmh_cherry_pick.cpp</code> (not in <code>reconstruction.cpp</code>)</li>
+</ul>
+<hr />
+<h2 id="phase-7-diagnostics-6">Phase 7: Diagnostics (§6)<a class="headerlink" href="#phase-7-diagnostics-6" title="Permanent link">&para;</a></h2>
+<p><strong>New files:</strong> <code>apps/runner_phase_aqmh_diagnostics.cpp</code> + <code>.hpp</code></p>
+<h3 id="step-71-per-frame-fields-61">Step 7.1 — Per-frame fields (§6.1)<a class="headerlink" href="#step-71-per-frame-fields-61" title="Permanent link">&para;</a></h3>
+<p>All 11 fields per <code>(frame, channel)</code> pair:</p>
+<ul>
+<li><code>map_mean</code> — mean of <code>Q_map</code> over source-valid pixels</li>
+<li><code>map_p10</code>, <code>map_p90</code> — 10th/90th percentile over source-valid pixels</li>
+<li><code>artifact_frac</code> — fraction with <code>Q_map &lt; tau_artifact</code> (from <code>AqmhDiagnosticsConfig.tau_artifact</code>)</li>
+<li><code>sharpness_p50</code> — median of pre-z-score <code>Phi_sharp_0</code> at scale 0</li>
+<li><code>snr_p50</code> — median of pre-z-score <code>Phi_snr_1</code> at scale 1 (or finest available; <code>NaN</code>/<code>null</code> if scale 1 omitted)</li>
+<li><code>n_regions</code> — number of quality regions from §5.2 above threshold</li>
+<li><code>global_quality</code> — <code>G_{f,c}</code> from §1.1</li>
+<li><code>global_sharpness_input</code>, <code>global_snr_input</code> — pre-z-score summaries used to derive <code>G_{f,c}</code></li>
+<li><code>global_quality_input_invalid</code> — <code>true</code> if either global summary required the zero-z-score fallback</li>
+<li>Update existing: "canvas-valid" → "source-valid" in all computations</li>
+<li>All per-frame diagnostics written by <code>runner_phase_aqmh_diagnostics.cpp</code> (not inline in maps/recon phases)</li>
+</ul>
+<h3 id="step-72-run-level-fields">Step 7.2 — Run-level fields<a class="headerlink" href="#step-72-run-level-fields" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>cherry_pick_forced_disabled</code>, <code>cherry_pick_active</code>, <code>k_nominal_median</code></li>
+<li><code>k_effective_p10/p50/p90</code>, <code>low_rank_separation</code></li>
+<li>Written to <code>aqmh_metrics.json</code> by <code>runner_phase_aqmh_diagnostics.cpp</code></li>
+</ul>
+<h3 id="step-73-per-channel-cfa-proxy">Step 7.3 — Per-channel + CFA-proxy<a class="headerlink" href="#step-73-per-channel-cfa-proxy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>All diagnostics per <code>(frame, channel)</code>; CFA-proxy: record <code>analysis_channel: proxy</code></li>
+<li>Aggregates may be reported additionally but must not replace per-channel values</li>
+</ul>
+<h3 id="step-74-block-level-diagnostics-62">Step 7.4 — Block-level diagnostics (§6.2)<a class="headerlink" href="#step-74-block-level-diagnostics-62" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>apps/runner_phase_aqmh_diagnostics.cpp</code></p>
+<p>Per report block <code>b</code>, per <code>(frame, channel)</code>:</p>
+<ul>
+<li><code>aqmh_q_median</code> — <code>Q_{f,b,c}^{aqmh} = median_{p in b, source-valid}(Q_map(p))</code></li>
+<li><code>aqmh_q_p10</code>, <code>aqmh_q_p90</code> — 10th/90th percentile within block</li>
+<li><code>aqmh_artifact_frac</code> — fraction of block pixels with <code>Q_map &lt; tau_artifact</code></li>
+</ul>
+<h3 id="step-75-heatmaps-63">Step 7.5 — Heatmaps (§6.3)<a class="headerlink" href="#step-75-heatmaps-63" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>apps/runner_phase_aqmh_diagnostics.cpp</code></p>
+<ul>
+<li>Mean <code>Q_map</code> per report block, per frame and analysis channel → into <code>aqmh_metrics.json</code> spatial heatmap entries</li>
+<li>Artifact fraction heatmap per report block, per frame and analysis channel</li>
+<li>Optional AQMH-vs-Classic comparison heatmaps only when both methods were run separately on the same input set</li>
+</ul>
+<hr />
+<h2 id="phase-8-region-extraction-52">Phase 8: Region Extraction (§5.2)<a class="headerlink" href="#phase-8-region-extraction-52" title="Permanent link">&para;</a></h2>
+<p><strong>File:</strong> <code>apps/runner_phase_aqmh_diagnostics.cpp</code> (integrated into AQMH_DIAGNOSTICS phase)</p>
+<h3 id="step-81-threshold-binary-mask">Step 8.1 — Threshold + binary mask<a class="headerlink" href="#step-81-threshold-binary-mask" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tau_{f,c} = quantile(Q_map_{f,c}, q_region)</code> over finite source-valid pixels (from <code>AqmhDiagnosticsConfig.q_region = 0.75</code>)</li>
+<li><code>M_region_{f,c}(p) = 1 iff Q_map_{f,c}(p) &gt;= tau_{f,c} AND C(p) = 1 AND M_f(p) = 1</code></li>
+</ul>
+<h3 id="step-82-morphological-opening-52-step-3">Step 8.2 — Morphological opening (§5.2, step 3)<a class="headerlink" href="#step-82-morphological-opening-52-step-3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Apply morphological opening with radius <code>r_morph_map = max(1, round(r_morph_canvas_px / resolution_divisor))</code> in map-space pixels (canvas default: <code>r_morph_canvas_px = 6</code>)</li>
+<li>Opening constrained to valid support (C AND M_f); result intersected with C AND M_f</li>
+<li>Use OpenCV <code>cv::morphologyEx</code> with <code>MORPH_OPEN</code> on the binary mask</li>
+</ul>
+<h3 id="step-83-connected-components-region-properties-52-steps-45">Step 8.3 — Connected components + region properties (§5.2, steps 4–5)<a class="headerlink" href="#step-83-connected-components-region-properties-52-steps-45" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Extract connected components via <code>cv::connectedComponentsWithStats</code></li>
+<li>For each component <code>r</code>, compute:</li>
+<li><code>Area_r</code> — pixel count</li>
+<li><code>MeanQ_r</code> — mean <code>Q_map</code> over region pixels</li>
+<li><code>Compactness_r = 4*pi*Area_r / Perimeter_r^2</code> (Polsby-Popper; perimeter from contour length)</li>
+<li>Rank by <code>Score_r = MeanQ_r * log(1 + Area_r)</code></li>
+<li>Write per <code>(frame, channel)</code> to <code>aqmh_regions.json</code></li>
+</ul>
+<hr />
+<h2 id="phase-9-validation-77-9">Phase 9: Validation (§7.7, §9)<a class="headerlink" href="#phase-9-validation-77-9" title="Permanent link">&para;</a></h2>
+<h3 id="step-91-uniform-weight-control-run">Step 9.1 — Uniform-weight control run<a class="headerlink" href="#step-91-uniform-weight-control-run" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Same samples, masks, sigma-clipping; uniform weights; AQMH-native</li>
+</ul>
+<h3 id="step-92-regression-metrics">Step 9.2 — Regression metrics<a class="headerlink" href="#step-92-regression-metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>regression = (m_aqmh - m_control) / max(abs(m_control), eps_scale(...))</code></li>
+<li>Compare seam score, FWHM, background RMS</li>
+</ul>
+<h3 id="step-93-16-validation-checks">Step 9.3 — 16 validation checks<a class="headerlink" href="#step-93-16-validation-checks" title="Permanent link">&para;</a></h3>
+<p>Implement all §9.1–9.16 as testable assertions:</p>
+<ol>
+<li>Map range <code>Q_map ∈ [0,1]</code> for all finite source-valid pixels</li>
+<li>Output guard: <code>Q_map = 0</code> where <code>C=0</code> or <code>M_f=0</code></li>
+<li>Determinism: identical inputs → identical maps</li>
+<li>Unsupported coverage: no finite intensity + no finite map → unsupported with warning</li>
+<li>Explicit zero-veto: finite zero maps not replaced by unweighted mean</li>
+<li>Block diagnostic consistency: <code>Q_{f,b,c}</code> matches <code>median(Q_map over b)</code> within float32 tolerance</li>
+<li>No structural injection: seam/FWHM/background-RMS within configured regression limits vs. §7.7 control</li>
+<li>Artifact detection: contaminated frames show <code>artifact_frac &gt; 0.01</code> for contaminated blocks</li>
+<li>Scale omission: <code>P_actual &lt; P</code> → fusion uses <code>P_actual</code> denominator; omitted scales recorded; unavailable diagnostics written as <code>NaN</code>/<code>null</code></li>
+<li>Cherry-pick flag + <strong>WARNING log</strong>: when <code>cherry_pick_active = true</code>, pipeline log must emit a <code>WARNING</code> level message (binding per §9 req.10)</li>
+<li>Cherry-pick forced-disabled: <code>K_nominal_median &lt; k_min_required</code> → <code>cherry_pick_forced_disabled: true</code>, reconstruction bit-identical to <code>enabled=false</code></li>
+<li>Cherry-pick effective-sample floor: <code>K(p) &gt;= k_min_required</code> for all active pixels; all retained scores finite and strictly positive</li>
+<li>Cherry-pick graceful degradation: <code>N_rankable(p) &lt; k_min_required</code> → inactive at that pixel, full-set reconstruction</li>
+<li>Global quality: every eligible frame has finite <code>G_{f,c}</code> with <code>g_floor &lt; G &lt; 1</code>; no frame removed via <code>G=0</code></li>
+<li>Storage fidelity: full-res cache exact within float32; <code>divisor &gt; 1</code> records approximate mode, preserves zero-veto mask, reports isolated-defect recall</li>
+<li>Channel diagnostics: every <code>(f,c)</code> pair has distinct diagnostics; aggregates separately named</li>
+</ol>
+<hr />
+<h2 id="phase-10-integration">Phase 10: Integration<a class="headerlink" href="#phase-10-integration" title="Permanent link">&para;</a></h2>
+<h3 id="step-101-runner_aqmh_pipelinecpp-stage-ordering">Step 10.1 — <code>runner_aqmh_pipeline.cpp</code> — Stage ordering<a class="headerlink" href="#step-101-runner_aqmh_pipelinecpp-stage-ordering" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Enforce binding stage order: <code>AQMH_MAPS</code> → <code>AQMH_GLOBAL_QUALITY</code> → <code>AQMH_RECONSTRUCTION</code> → <code>AQMH_DIAGNOSTICS</code></li>
+<li>Optional post-reconstruction: <code>AQMH_NATIVE_BGE_INPUTS</code> (when BGE enabled, see Step 10.5)</li>
+<li><code>AQMH_GLOBAL_QUALITY</code> waits for all frames' pre-z-score summaries</li>
+<li><code>AQMH_RECONSTRUCTION</code> waits for all <code>G_{f,c}</code> values persisted</li>
+<li><code>AQMH_DIAGNOSTICS</code> waits for reconstruction output</li>
+<li>All five stages in <code>runner_aqmh_pipeline.cpp</code>, nicht in <code>runner_pipeline.cpp</code></li>
+</ul>
+<h3 id="step-102-remove-k_min-from-configui">Step 10.2 — Remove <code>k_min</code> from config/UI<a class="headerlink" href="#step-102-remove-k_min-from-configui" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Clean up references in config parsing, UI, schema, docs</li>
+<li>Remove <code>cfg.aqmh.cherry_pick.k_min</code> from <code>runner_pipeline.cpp</code> (Zeile 2257)</li>
+</ul>
+<h3 id="step-105-aqmh_native_bge_inputs-stage-41">Step 10.5 — <code>AQMH_NATIVE_BGE_INPUTS</code> stage (§4.1)<a class="headerlink" href="#step-105-aqmh_native_bge_inputs-stage-41" title="Permanent link">&para;</a></h3>
+<p><strong>New files:</strong> <code>apps/runner_phase_aqmh_bge_inputs.cpp</code> + <code>.hpp</code></p>
+<ul>
+<li>Only executed when BGE is enabled for an AQMH run</li>
+<li>Derives BGE tile-sampling helpers from <strong>AQMH reconstruction output</strong> + canvas mask <code>C</code></li>
+<li>Per-tile: background estimate, robust noise, gradient/structure estimates for BGE sampling</li>
+<li>Must <strong>not</strong> read from <code>local_metrics.json</code> (Classic Tile Compile output)</li>
+<li>Must <strong>not</strong> be used as AQMH reconstruction weights</li>
+<li>Writes BGE-compatible tile-sampling artifact (format TBD, compatible with BGE phase input)</li>
+<li>Phase enum: add <code>AQMH_BGE_INPUTS</code> to <code>core/types.hpp</code>; add to phase-list and i18n</li>
+</ul>
+<h3 id="step-106-cmakeliststxt-neue-source-files">Step 10.6 — <code>CMakeLists.txt</code> — neue Source-Files<a class="headerlink" href="#step-106-cmakeliststxt-neue-source-files" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Alle neuen <code>.cpp</code>-Dateien in <code>tile_compile_cpp/CMakeLists.txt</code> aufnehmen:</li>
+<li><code>apps/runner_aqmh_pipeline.cpp</code></li>
+<li><code>apps/runner_phase_aqmh_maps.cpp</code></li>
+<li><code>apps/runner_phase_aqmh_global_quality.cpp</code></li>
+<li><code>apps/runner_phase_aqmh_reconstruction.cpp</code></li>
+<li><code>apps/runner_phase_aqmh_diagnostics.cpp</code></li>
+<li><code>apps/runner_phase_aqmh_bge_inputs.cpp</code></li>
+<li><code>src/metrics/aqmh_eps.cpp</code></li>
+<li><code>src/metrics/aqmh_global_quality.cpp</code></li>
+<li><code>src/metrics/aqmh_frame_valid_mask.cpp</code></li>
+<li><code>src/reconstruction/aqmh_reconstruction.cpp</code></li>
+<li><code>src/reconstruction/aqmh_sigma_clip.cpp</code></li>
+<li><code>src/reconstruction/aqmh_cherry_pick.cpp</code></li>
+</ul>
+<h3 id="step-107-build-test">Step 10.7 — Build &amp; test<a class="headerlink" href="#step-107-build-test" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Build with C++20, CUDA 13, OpenCV 4.11</li>
+<li>Run mini dataset (15 frames) → verify maps, G, reconstruction</li>
+<li>Run full dataset → verify diagnostics, cherry-pick gate, performance</li>
+<li>Verify Classic pipeline still works (regression test)</li>
+</ul>
+<hr />
+<h2 id="suggested-implementation-order">Suggested Implementation Order<a class="headerlink" href="#suggested-implementation-order" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Phase 0.1</strong> (Phase-Enum incl. <code>AQMH_BGE_INPUTS</code>) — foundation for all subsequent work</li>
+<li><strong>Phase 1</strong> (config + eps incl. <code>AqmhDiagnosticsConfig</code>) — config structs, <code>aqmh_eps.cpp/.hpp</code>, no behavioral change</li>
+<li><strong>Phase 4.1</strong> (format bump) — do early to avoid stale cache issues during dev</li>
+<li><strong>Phase 0.2</strong> (split <code>run_phase_local_metrics</code>) — extract <code>runner_phase_aqmh_maps.cpp</code></li>
+<li><strong>Phase 0.3</strong> (split TILE_RECONSTRUCTION) — extract <code>runner_phase_aqmh_reconstruction.cpp</code> + <code>aqmh_reconstruction.cpp/.hpp</code></li>
+<li><strong>Phase 0.5</strong> (M_f mask) — <code>aqmh_frame_valid_mask.cpp/.hpp</code></li>
+<li><strong>Phase 2</strong> (quality map) — core algorithm changes in <code>aqmh_quality_map.cpp</code>; document approved approximations (Step 2.2, 2.3)</li>
+<li><strong>Phase 0.4 + Phase 3</strong> (global quality) — <code>aqmh_global_quality.cpp/.hpp</code> + <code>runner_phase_aqmh_global_quality.cpp/.hpp</code></li>
+<li><strong>Phase 5</strong> (reconstruction) — <code>aqmh_sigma_clip.cpp/.hpp</code> incl. keep-floor tiebreaker, rewrite inner loop in <code>aqmh_reconstruction.cpp</code></li>
+<li><strong>Phase 6</strong> (cherry-pick) — <code>aqmh_cherry_pick.cpp/.hpp</code>, builds on Phase 5</li>
+<li><strong>Phase 0.8</strong> (pipeline split) — <code>runner_aqmh_pipeline.cpp/.hpp</code>, dispatcher in <code>runner_pipeline.cpp</code></li>
+<li><strong>Phase 0.9 + Phase 7+8</strong> (diagnostics + regions incl. block-level, heatmaps, morphology, CC) — <code>runner_phase_aqmh_diagnostics.cpp/.hpp</code></li>
+<li><strong>Phase 10.5</strong> (<code>AQMH_NATIVE_BGE_INPUTS</code>) — <code>runner_phase_aqmh_bge_inputs.cpp/.hpp</code></li>
+<li><strong>Phase 0.10</strong> (web backend/frontend) — phase definitions, i18n</li>
+<li><strong>Phase 9</strong> (validation incl. WARNING log check) — test infrastructure</li>
+<li><strong>Phase 10</strong> (integration) — CMakeLists, final wiring, build &amp; test</li>
+</ol>
+<h3 id="new-file-summary-18-files">New File Summary (18 files)<a class="headerlink" href="#new-file-summary-18-files" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apps/runner_aqmh_pipeline.cpp/.hpp</code></td>
+<td>AQMH pipeline orchestrator (5 stages)</td>
+</tr>
+<tr>
+<td><code>apps/runner_phase_aqmh_maps.cpp/.hpp</code></td>
+<td>Quality-map computation phase</td>
+</tr>
+<tr>
+<td><code>apps/runner_phase_aqmh_global_quality.cpp/.hpp</code></td>
+<td>G factor phase</td>
+</tr>
+<tr>
+<td><code>apps/runner_phase_aqmh_reconstruction.cpp/.hpp</code></td>
+<td>AQMH reconstruction phase</td>
+</tr>
+<tr>
+<td><code>apps/runner_phase_aqmh_diagnostics.cpp/.hpp</code></td>
+<td>Diagnostics + block-level + heatmaps + region extraction phase</td>
+</tr>
+<tr>
+<td><code>apps/runner_phase_aqmh_bge_inputs.cpp/.hpp</code></td>
+<td>BGE tile-sampling helpers from AQMH recon output (§4.1)</td>
+</tr>
+<tr>
+<td><code>src/metrics/aqmh_eps.cpp</code> + <code>include/.../aqmh_eps.hpp</code></td>
+<td>eps_scale, eps_noise, robust zscore</td>
+</tr>
+<tr>
+<td><code>src/metrics/aqmh_global_quality.cpp</code> + <code>include/.../aqmh_global_quality.hpp</code></td>
+<td>G factor computation</td>
+</tr>
+<tr>
+<td><code>src/metrics/aqmh_frame_valid_mask.cpp</code> + <code>include/.../aqmh_frame_valid_mask.hpp</code></td>
+<td>M_f mask derivation + storage</td>
+</tr>
+<tr>
+<td><code>src/reconstruction/aqmh_reconstruction.cpp</code> + <code>include/.../aqmh_reconstruction.hpp</code></td>
+<td>AQMH recon (extracted from reconstruction.cpp)</td>
+</tr>
+<tr>
+<td><code>src/reconstruction/aqmh_sigma_clip.cpp</code> + <code>include/.../aqmh_sigma_clip.hpp</code></td>
+<td>Weighted median+MAD sigma clipping with deterministic tiebreakers</td>
+</tr>
+<tr>
+<td><code>src/reconstruction/aqmh_cherry_pick.cpp</code> + <code>include/.../aqmh_cherry_pick.hpp</code></td>
+<td>Cherry-pick selection logic</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="known-approved-approximations-deviations-from-spec-with-rationale">Known Approved Approximations (deviations from spec with rationale)<a class="headerlink" href="#known-approved-approximations-deviations-from-spec-with-rationale" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Spec requirement</th>
+<th>Approved approximation</th>
+<th>Location</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>b_s = median_{W_s_valid}(I_s)</code> per pixel (§2.3.2b)</td>
+<td><code>b_s = local_mean(I_s, r)</code> via separable O(W×H) boxfilter</td>
+<td><code>aqmh_quality_map.cpp</code> <code>phi_snr</code></td>
+<td>O(W×H×R²) per-pixel median is ~100× slower; mean is a close approximation for smooth backgrounds</td>
+</tr>
+<tr>
+<td><code>eps_noise(I_s over W_s_valid(x,y))</code> per window (§2.3.2b)</td>
+<td>Global <code>eps_noise</code> computed once over all source-valid pixels per scale</td>
+<td><code>aqmh_quality_map.cpp</code> <code>phi_snr</code></td>
+<td>Per-window eps_noise requires O(N) alloc+sort per pixel; global floor is numerically equivalent for the floor's purpose</td>
+</tr>
+<tr>
+<td><code>frac_out = outliers / |H_s_valid|</code> (§2.3.2c)</td>
+<td><code>local_mean_and_count(outlier_ind, r)</code> — <code>.count</code> = <code>|H_s_valid|</code>, <code>.mean * count</code> = outlier sum; <code>frac = mean</code> is already <code>outlier_count / |H_s_valid|</code></td>
+<td><code>aqmh_quality_map.cpp</code> <code>phi_artifact</code></td>
+<td><strong>Implemented</strong> — <code>local_mean_and_count</code> naturally divides by finite-support count, which equals <code>\|H_s_valid\|</code> since <code>outlier_ind</code> is NaN iff <code>hp</code> is NaN</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
