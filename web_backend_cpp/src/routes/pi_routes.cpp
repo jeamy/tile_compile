@@ -649,10 +649,10 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
             border_fraction /= 100.0;
         }
         border_fraction = std::clamp(border_fraction, 0.0, 0.40);
-        const int x = static_cast<int>(std::lround(analysis_image.cols * border_fraction));
-        const int y = static_cast<int>(std::lround(analysis_image.rows * border_fraction));
-        const int w = std::max(1, analysis_image.cols - 2 * x);
-        const int h = std::max(1, analysis_image.rows - 2 * y);
+        const int x = static_cast<int>(std::lround(image.cols * border_fraction));
+        const int y = static_cast<int>(std::lround(image.rows * border_fraction));
+        const int w = std::max(1, image.cols - 2 * x);
+        const int h = std::max(1, image.rows - 2 * y);
         operations.push_back({{"type", "crop"}, {"params", {{"x", x}, {"y", y}, {"w", w}, {"h", h}}}});
         summary = "Bild zugeschnitten.";
     } else if (has("schae") || has("sharpen")) {
