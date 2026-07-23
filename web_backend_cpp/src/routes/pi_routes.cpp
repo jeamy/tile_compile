@@ -24,6 +24,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -635,6 +636,25 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         summary = "Saettigung erhoeht.";
         adjustable = true;
         adjust_step = {{"type", "saturation"}, {"params", {{"amount", saturation_amount * 0.5}}}};
+    } else if (has("crop") || has("zuschneid") || has("beschneid") || has("rand abschneiden")) {
+        double border_fraction = 0.05;
+        std::smatch match;
+        if (std::regex_search(lower, match, std::regex(R"((\d+(?:[\.,]\d+)?)\s*%)"))) {
+            try { border_fraction = std::stod(match[1].str()); } catch (...) {}
+            if (match[1].str().find(',') != std::string::npos) {
+                std::string value = match[1].str();
+                std::replace(value.begin(), value.end(), ',', '.');
+                try { border_fraction = std::stod(value); } catch (...) {}
+            }
+            border_fraction /= 100.0;
+        }
+        border_fraction = std::clamp(border_fraction, 0.0, 0.40);
+        const int x = static_cast<int>(std::lround(analysis_image.cols * border_fraction));
+        const int y = static_cast<int>(std::lround(analysis_image.rows * border_fraction));
+        const int w = std::max(1, analysis_image.cols - 2 * x);
+        const int h = std::max(1, analysis_image.rows - 2 * y);
+        operations.push_back({{"type", "crop"}, {"params", {{"x", x}, {"y", y}, {"w", w}, {"h", h}}}});
+        summary = "Bild zugeschnitten.";
     } else if (has("schae") || has("sharpen")) {
         operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
         summary = "Schaerfe erhoeht.";
@@ -2899,7 +2919,20 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         // Append user message to chat history
         live_store->append_chat(session_id, "user", message);
 
-        // Try AI sidecar
+        // Crop is a deterministic geometry operation and must never require
+        // or invoke the AI sidecar. Handle it through the local parser.
+        const std::string lower_message = [&]() {
+            std::string value = message;
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            return value;
+        }();
+        const bool local_crop_request = lower_message.find("crop") != std::string::npos ||
+            lower_message.find("zuschneid") != std::string::npos ||
+            lower_message.find("beschneid") != std::string::npos ||
+            lower_message.find("rand abschneiden") != std::string::npos;
+
+        // Try AI sidecar unless this is a local-only crop request.
         nlohmann::json ai_result;
         bool sidecar_ok = false;
         nlohmann::json prompt_history = nlohmann::json::array();
@@ -2908,6 +2941,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             for (size_t i = begin; i < op_history.size(); ++i) prompt_history.push_back(op_history[i]);
         }
         try {
+            if (local_crop_request) throw std::runtime_error("crop is local-only");
             auto ai_config = current_pi_ai_config(state);
             if (!ai_config.model.empty()) {
                 tile_compile::ai::AiSidecarClient client(ai_config);
@@ -2915,9 +2949,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"prompt", message},
                     {"image_base64", vision_b64},
                     {"image_mime", "image/jpeg"},
+                    {"image_width", analysis_image.cols},
+                    {"image_height", analysis_image.rows},
                     {"operation_history", prompt_history}
                 };
-                auto response = client.post("/live-image-chat", payload);
+        auto response = client.post("/live-image-chat", payload);
                 if (response.contains("operations")) {
                     ai_result = response;
                     sidecar_ok = true;

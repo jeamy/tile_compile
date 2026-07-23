@@ -161,14 +161,12 @@ verringern, ohne neue Chat-Nachrichten zu tippen.
 | `crop` | Zuschneiden | `x`, `y`, `w`, `h` | ROI-Ausschnitt |
 | `reset` | Zurücksetzen | — | Zurück auf Originalbild |
 
-**Hinweis `crop`:** Wird bewusst **nicht** in den AI-System-Prompt (8.4)
-aufgenommen und taucht **nicht** im Chat-Dropdown (7.4) auf — Zuschneiden per
-Freitext-Chat ("schneide links 10% ab") ist unpräzise und fehleranfällig.
-`crop` ist als Operation für ein zukünftiges manuelles Zuschneide-Tool
-(Maus-Rechteck im Viewer) reserviert, nicht für den Live-Image-Chat selbst.
-Bis dieses Tool existiert, bleibt `crop` in `pi_image_ops` implementiert,
-aber über keine UI erreichbar (kein toter Code im Sinne von "nie
-verwendet", sondern vorbereitete, noch nicht verdrahtete Funktionalität).
+**Hinweis `crop`:** Crop ist jetzt auch im Live-Image-Chat verfügbar. Die KI
+erhält die Bildabmessungen und darf Crop nur bei einer ausdrücklichen
+Zuschneideanweisung mit gültigen Pixelkoordinaten vorschlagen. Der lokale
+Fallback unterstützt Prozentangaben wie "schneide 10% Rand ab"; ohne Angabe
+wird ein konservativer 5%-Rand pro Seite entfernt. Ein manuelles
+Maus-Rechteck im Viewer bleibt als mögliche spätere Ergänzung bestehen.
 
 ### Unterstützte Operationen (Phase 2 — optional)
 

@@ -22,7 +22,9 @@ Nach jeder erfolgreichen Operation bleibt die vorherige Preview erhalten. Ein Kl
 
 ## Operationen
 
-Unterstützt werden Helligkeit, Kontrast, Sättigung, Schärfen, Entrauschen, Bilateralfilter, Grünentfernung, CLAHE/lokale Details, Invertieren, Zurücksetzen, Vibrance, Farbtemperatur, Entfernung lila Farbsäume, Banding-Reduktion, Sternentsättigung und Dehaze. Das Backend validiert und begrenzt Parameter vor der Anwendung.
+Unterstützt werden Helligkeit, Kontrast, Sättigung, Schärfen, Entrauschen, Bilateralfilter, Grünentfernung, CLAHE/lokale Details, Zuschneiden, Invertieren, Zurücksetzen, Vibrance, Farbtemperatur, Entfernung lila Farbsäume, Banding-Reduktion, Sternentsättigung und Dehaze. Das Backend validiert und begrenzt Parameter vor der Anwendung.
+
+Crop ist über den Chat mit einer ausdrücklichen Anweisung wie „schneide 10% Rand ab“ verfügbar. Das Backend wandelt den Prozentwert in Pixelkoordinaten um und begrenzt das Rechteck auf die aktuelle Bildgröße.
 
 Signierte Operationen wie Helligkeit, Kontrast, Sättigung, Vibrance und Farbtemperatur können `+/-`-Regler anzeigen. Nicht-invertierbare oder einseitige Operationen verwenden keine `+/-`-Regler.
 
@@ -54,4 +56,3 @@ runs/<run-id>/outputs/live_image_export_<session-id>.fits
 ```
 
 Diese Exporte sind getrennt von der kanonischen Arbeitsdatei `live_edit.fits`.
-

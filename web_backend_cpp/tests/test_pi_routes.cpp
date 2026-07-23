@@ -795,6 +795,18 @@ int main(int argc, char** argv) {
         expect_true(!repeat_resp["image_base64"].get<std::string>().empty(),
                     "live-image-chat repeat image_base64 not empty");
 
+        // 3c. Crop can be requested explicitly through the local chat parser
+        const auto crop_resp = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", session_id},
+            {"message", "schneide 10% Rand ab"}
+        });
+        expect_equal(crop_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat crop status");
+        expect_equal(static_cast<long>(crop_resp["image_width"].get<int>()), 52L,
+                     "live-image-chat crop width");
+        expect_equal(static_cast<long>(crop_resp["image_height"].get<int>()), 52L,
+                     "live-image-chat crop height");
+
         // 4. Chat with invalid session
         const auto chat_bad = harness.post_json("/api/pi/live-image-chat", {
             {"session_id", "invalid_session_id"},

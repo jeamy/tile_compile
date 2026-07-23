@@ -22,7 +22,9 @@ Each successful operation keeps the previous preview. Clicking the image or the 
 
 ## Operations
 
-The editor supports brightness, contrast, saturation, sharpening, denoising, bilateral filtering, green removal, CLAHE/local detail, inversion, reset, vibrance, color temperature, purple-fringe removal, banding reduction, star desaturation, and dehaze. Parameters are validated and clamped by the backend before the operation is applied.
+The editor supports brightness, contrast, saturation, sharpening, denoising, bilateral filtering, green removal, CLAHE/local detail, crop, inversion, reset, vibrance, color temperature, purple-fringe removal, banding reduction, star desaturation, and dehaze. Parameters are validated and clamped by the backend before the operation is applied.
+
+Crop is available from chat with an explicit instruction such as “crop 10% border”. The backend converts the percentage into pixel coordinates and clamps the rectangle to the current image dimensions.
 
 Signed operations such as brightness, contrast, saturation, vibrance, and color temperature can expose `+/-` adjustment controls. Non-invertible or one-sided operations do not use `+/-`.
 
@@ -54,4 +56,3 @@ runs/<run-id>/outputs/live_image_export_<session-id>.fits
 ```
 
 These exports are separate from the canonical `live_edit.fits` working file.
-
