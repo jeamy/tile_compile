@@ -1,5 +1,47 @@
 ## Changelog
 
+### (2026-07-24)
+
+**v0.4.2 — PI Live Image Editor command suite and reusable editing workflows:**
+
+**New GUI commands and deterministic image operations:**
+
+- **Levels:** Added `levels` with validated `black` (`0…1`), `white` (`0…1`), and `gamma` (`0.1…5`) parameters. Black/white ordering is enforced in backend validation and frontend controls.
+- **Curves:** Added the GUI-only `curves` operation with 2–32 control points. The editor displays a gamma-style graph, supports click-to-add, drag-to-move, and double-click/right-click removal, and uses the same clamped Catmull-Rom spline in frontend and backend. Curves is excluded from the AI operation prompt.
+- **Shadow Recovery:** Added `shadow_recovery` with strength `0…1`.
+- **Highlight Recovery:** Added `highlight_recovery` with strength `0…1`. Explicit highlight/spitzlichter requests are routed to the dedicated dialog even when an AI model proposes generic brightness plus recovery operations.
+- **Color Balance:** Added global red/green/blue correction plus optional shadow, midtone, and highlight RGB adjustments with luminance-weighted deterministic application.
+- **Local Contrast:** Added `local_contrast` with strength `0…1` and radius `0.5…10`.
+- **Chroma Denoise:** Added `chroma_denoise` with strength, structure protection, and `soft`/`strong` modes.
+- **Crop:** Added deterministic axis-aligned and rotated crop operations. Screen-to-image coordinate conversion remains correct after zoom and pan; crop bounds remain inside the visible image area. Crop bypasses the AI sidecar.
+
+**AI proposal and parameter dialogs:**
+
+- Dialog-based commands are validated but no longer applied by `POST /api/pi/live-image-chat`. The endpoint returns `requires_confirmation` and structured proposed operations.
+- Dedicated command-intent routing normalises levels, shadow, highlight, color-balance, local-contrast, and chroma-noise requests. Wrong, legacy, multi-operation, or invalid model responses are replaced by safe deterministic suggestions.
+- Added `POST /api/pi/live-image-chat/preview-operation` for non-persistent previews calculated from a clone of the current FITS image.
+- Added debounced preview requests, stale-response rejection, pointer lifecycle guards, and validation-aware parameter ranges.
+- Parameter and curve dialogs use a shared symmetric theme, can be dragged by their header, and are constrained to the visible browser area.
+- Added **Before/Current view** checkbox. Disabling it displays the unchanged canonical current image; enabling it displays the current temporary preview.
+- **Apply** commits the operation through the deterministic backend. **Cancel** invalidates pending preview work and restores `currentImageSrc` without changing FITS, history, or undo/redo.
+
+**Timeline, history, and presets:**
+
+- Replaced inverse/rebuild-only undo assumptions with exact pre/post pixel snapshots for every operation. Threshold, crop, denoise, CLAHE, and other lossy operations now undo exactly.
+- Added persistent `edit_history` alongside the active `operation_history`. Apply, adjust, undo, and redo actions are recorded explicitly.
+- Added `POST /api/pi/live-image-chat/reapply`. Clickable chat entries can execute their stored operation parameters again without AI.
+- Added global timeline presets under `.pi_memory/presets`. Backend routes list, create, overwrite, and atomically apply presets. The frontend provides themed selection, **Save**, **Save as**, overwrite confirmation, and **Apply**.
+- Presets store the effective operation sequence plus the complete edit timeline and can be applied to any run.
+
+**Preview, reset, compatibility, and documentation:**
+
+- Retained the previous committed preview for click-based Before/Current comparison.
+- Reset recreates the canonical `live_edit.fits`, removes stale derived previews, clears chat/edit/undo/redo history after confirmation, and updates the run preview.
+- Replaced `cv::getRotationMatrix2D` with an equivalent explicit affine matrix for OpenCV 5/macOS compatibility.
+- Added and aligned English/German UI strings for commands, parameter controls, dialogs, previews, presets, crop, comparison, and repeat actions.
+- Expanded the English and German Live Image Editor guides with AI proposal semantics, deterministic fallback, live preview, curves, history, and presets.
+- Added spline-operation regression coverage and retained complete Live Image Session test coverage.
+
 ### (2026-07-23)
 
 **v0.4.1 — PI Live Image Editor:**
