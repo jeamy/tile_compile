@@ -25,11 +25,16 @@ std::string LiveImageSessionStore::generate_uuid() const {
 }
 
 std::string LiveImageSessionStore::create(const std::string& run_id, cv::Mat fits) {
+    return create(run_id, fits, fits);
+}
+
+std::string LiveImageSessionStore::create(const std::string& run_id,
+                                          cv::Mat original, cv::Mat current) {
     auto session = std::make_unique<LiveImageSession>();
     session->session_id = generate_uuid();
     session->run_id = run_id;
-    session->original_fits = fits.clone();
-    session->current_fits = fits.clone();
+    session->original_fits = original.clone();
+    session->current_fits = current.clone();
     auto now = std::chrono::steady_clock::now();
     session->created_at = now;
     session->last_accessed = now;
@@ -114,18 +119,52 @@ ImageOpResult LiveImageSessionStore::apply_operation(const std::string& session_
             s->last_accessed = std::chrono::steady_clock::now();
             result = apply_image_op_fits(s->current_fits, op);
             if (result.success) {
-                s->current_fits = std::move(result.image);
-                s->undo_stack.push_back(op);
-                s->redo_stack.clear();
-
-                // Record in operation_history
-                nlohmann::json hist_entry = op;
-                hist_entry["timestamp"] = "";
-                hist_entry["source"] = "chat";
-                s->operation_history.push_back(hist_entry);
+                if (op.value("type", "") == "reset") {
+                    s->current_fits = s->original_fits.clone();
+                    s->undo_stack.clear();
+                    s->redo_stack.clear();
+                    s->operation_history.clear();
+                    s->chat_history = nlohmann::json::array();
+                    s->adjust_count = 0;
+                    s->adjust_base_size = 0;
+                    s->last_adjust_step = nullptr;
+                    s->last_repeat_operation = nullptr;
+                } else {
+                    s->current_fits = std::move(result.image);
+                    nlohmann::json stack_entry = op;
+                    stack_entry["source"] = "chat";
+                    s->undo_stack.push_back(stack_entry);
+                    s->redo_stack.clear();
+                    s->operation_history = s->undo_stack;
+                    s->last_repeat_operation = op;
+                }
             }
             return result;
         }
+    }
+    result.error = "session not found";
+    return result;
+}
+
+ImageOpResult LiveImageSessionStore::repeat_operation(const std::string& session_id) {
+    ImageOpResult result;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& s : m_sessions) {
+        if (s->session_id != session_id) continue;
+        s->last_accessed = std::chrono::steady_clock::now();
+        if (s->last_repeat_operation.is_null() || s->last_repeat_operation.empty()) {
+            result.error = "no repeatable operation set";
+            return result;
+        }
+        result = apply_image_op_fits(s->current_fits, s->last_repeat_operation);
+        if (!result.success) return result;
+        s->current_fits = std::move(result.image);
+        nlohmann::json stack_entry = s->last_repeat_operation;
+        stack_entry["source"] = "repeat";
+        s->undo_stack.push_back(stack_entry);
+        s->redo_stack.clear();
+        s->operation_history = s->undo_stack;
+        return result;
     }
     result.error = "session not found";
     return result;
@@ -142,25 +181,37 @@ ImageOpResult LiveImageSessionStore::apply_adjust(const std::string& session_id,
                 result.error = "no adjust step set";
                 return result;
             }
-            nlohmann::json op;
-            if (direction == "increase") {
-                op = s->last_adjust_step;
-                s->adjust_count++;
-            } else {
-                op = invert_op(s->last_adjust_step);
-                s->adjust_count = std::max(0, s->adjust_count - 1);
+            if (direction != "increase" && direction != "decrease") {
+                result.error = "invalid adjust direction";
+                return result;
             }
-            result = apply_image_op_fits(s->current_fits, op);
-            if (result.success) {
-                s->current_fits = std::move(result.image);
-                s->undo_stack.push_back(op);
-                s->redo_stack.clear();
-
-                nlohmann::json hist_entry = op;
-                hist_entry["timestamp"] = "";
-                hist_entry["source"] = "adjust";
-                s->operation_history.push_back(hist_entry);
+            const int new_count = direction == "increase"
+                ? std::min(20, s->adjust_count + 1)
+                : std::max(0, s->adjust_count - 1);
+            cv::Mat rebuilt = s->original_fits.clone();
+            std::vector<nlohmann::json> new_stack;
+            const size_t base_size = std::min(s->adjust_base_size, s->undo_stack.size());
+            for (size_t i = 0; i < base_size; ++i) {
+                auto op_result = apply_image_op_fits(rebuilt, s->undo_stack[i]);
+                if (!op_result.success) { result.error = op_result.error; return result; }
+                rebuilt = std::move(op_result.image);
+                new_stack.push_back(s->undo_stack[i]);
             }
+            for (int i = 0; i < new_count; ++i) {
+                auto op_result = apply_image_op_fits(rebuilt, s->last_adjust_step);
+                if (!op_result.success) { result.error = op_result.error; return result; }
+                rebuilt = std::move(op_result.image);
+                nlohmann::json stack_entry = s->last_adjust_step;
+                stack_entry["source"] = "adjust";
+                new_stack.push_back(std::move(stack_entry));
+            }
+            s->current_fits = std::move(rebuilt);
+            s->undo_stack = std::move(new_stack);
+            s->redo_stack.clear();
+            s->adjust_count = new_count;
+            s->operation_history = s->undo_stack;
+            result.image = s->current_fits.clone();
+            result.success = true;
             return result;
         }
     }
@@ -184,6 +235,9 @@ UndoRedoResult LiveImageSessionStore::undo(const std::string& session_id) {
             s->undo_stack.pop_back();
             rebuild_current_fits(*s);
             s->redo_stack.push_back(entry);
+            s->operation_history = s->undo_stack;
+            if (entry.value("source", "") == "adjust")
+                s->adjust_count = std::max(0, s->adjust_count - 1);
 
             result.image = s->current_fits.clone();
             result.summary = "Ruckgangig";
@@ -213,6 +267,8 @@ UndoRedoResult LiveImageSessionStore::redo(const std::string& session_id) {
             s->redo_stack.pop_back();
             s->undo_stack.push_back(entry);
             rebuild_current_fits(*s);
+            s->operation_history = s->undo_stack;
+            if (entry.value("source", "") == "adjust") ++s->adjust_count;
 
             result.image = s->current_fits.clone();
             result.summary = "Wiederhergestellt";
@@ -236,6 +292,10 @@ cv::Mat LiveImageSessionStore::reset(const std::string& session_id) {
             s->redo_stack.clear();
             s->adjust_count = 0;
             s->operation_history.clear();
+            s->chat_history = nlohmann::json::array();
+            s->last_adjust_step = nullptr;
+            s->last_repeat_operation = nullptr;
+            s->adjust_base_size = 0;
             return s->current_fits.clone();
         }
     }
@@ -250,6 +310,7 @@ void LiveImageSessionStore::set_adjust_step(const std::string& session_id,
             s->last_accessed = std::chrono::steady_clock::now();
             s->last_adjust_step = step;
             s->adjust_count = 0;
+            s->adjust_base_size = s->undo_stack.size();
             return;
         }
     }

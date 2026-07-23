@@ -2,7 +2,7 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { t } from "../i18n/i18n.js";
 
-const FEATURE_PHASE = 1;
+const FEATURE_PHASE = 2;
 
 const PRESET_COMMANDS = [
   { category: "brightness", label: "liveImage.cmd.brightnessUp", command: "helle das Bild auf", help: "liveImage.cmd.brightnessUp.help", phase: 1 },
@@ -11,26 +11,34 @@ const PRESET_COMMANDS = [
   { category: "brightness", label: "liveImage.cmd.highlightsDown", command: "reduziere die Spitzlichter", help: "liveImage.cmd.highlightsDown.help", phase: 1 },
   { category: "brightness", label: "liveImage.cmd.contrastUp", command: "erhoehe den Kontrast", help: "liveImage.cmd.contrastUp.help", phase: 1 },
   { category: "brightness", label: "liveImage.cmd.contrastDown", command: "verringere den Kontrast", help: "liveImage.cmd.contrastDown.help", phase: 1 },
-  { category: "brightness", label: "liveImage.cmd.localContrast", command: "verstaerke lokale Details", help: "liveImage.cmd.localContrast.help", phase: 1 },
   { category: "brightness", label: "liveImage.cmd.blackLevel", command: "hebe den Schwarzwert an", help: "liveImage.cmd.blackLevel.help", phase: 1 },
   { category: "color", label: "liveImage.cmd.saturationUp", command: "erhoehe die Farbsaettigung", help: "liveImage.cmd.saturationUp.help", phase: 1 },
   { category: "color", label: "liveImage.cmd.saturationDown", command: "verringere die Farbsaettigung", help: "liveImage.cmd.saturationDown.help", phase: 1 },
   { category: "color", label: "liveImage.cmd.rmgreen", command: "entferne gruene Farbnebel", help: "liveImage.cmd.rmgreen.help", phase: 1 },
   { category: "noise", label: "liveImage.cmd.denoise", command: "unterdruecke das Rauschen", help: "liveImage.cmd.denoise.help", phase: 1 },
   { category: "noise", label: "liveImage.cmd.bilateral", command: "entferne Rauschen ohne Detailverlust", help: "liveImage.cmd.bilateral.help", phase: 1 },
-  { category: "noise", label: "liveImage.cmd.colorDenoise", command: "unterdruecke das Farbrauschen", help: "liveImage.cmd.colorDenoise.help", phase: 1 },
   { category: "noise", label: "liveImage.cmd.sharpen", command: "schaerfe das Bild", help: "liveImage.cmd.sharpen.help", phase: 1 },
   { category: "misc", label: "liveImage.cmd.invert", command: "zeige das Bild als Negativ", help: "liveImage.cmd.invert.help", phase: 1 },
   { category: "misc", label: "liveImage.cmd.reset", command: "setze das Bild zurueck", help: "liveImage.cmd.reset.help", phase: 1 },
+  { category: "color", label: "liveImage.cmd.vibrance", command: "erhoehe die Lebendigkeit", help: "liveImage.cmd.vibrance.help", phase: 2 },
+  { category: "color", label: "liveImage.cmd.temperatureWarm", command: "mache die Farben waermer", help: "liveImage.cmd.temperatureWarm.help", phase: 2 },
+  { category: "color", label: "liveImage.cmd.unpurple", command: "entferne lila Farbsaeume", help: "liveImage.cmd.unpurple.help", phase: 2 },
+  { category: "details", label: "liveImage.cmd.fixbanding", command: "reduziere Streifenartefakte", help: "liveImage.cmd.fixbanding.help", phase: 2 },
+  { category: "details", label: "liveImage.cmd.starDesaturation", command: "entsaettige uebersteuerte Sterne", help: "liveImage.cmd.starDesaturation.help", phase: 2 },
+  { category: "details", label: "liveImage.cmd.dehaze", command: "reduziere den Dunst", help: "liveImage.cmd.dehaze.help", phase: 2 },
 ];
 
 export function createLiveImageViewer(runId, runDir, onClose) {
   const state = {
     sessionId: null,
     currentImageSrc: null,
+    previousImageSrc: null,
+    showingPrevious: false,
+    pendingBeforeImageSrc: null,
     adjustActive: false,
     adjustLabel: "",
     adjustCount: 0,
+    repeatActive: false,
     canUndo: false,
     canRedo: false,
     chatHistory: [],
@@ -39,6 +47,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     panX: 0,
     panY: 0,
     isDragging: false,
+    hasDragged: false,
     dragStartX: 0,
     dragStartY: 0,
   };
@@ -105,6 +114,24 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   imgEl.draggable = false;
   imageWrap.appendChild(imgEl);
 
+  const compareBtn = document.createElement("button");
+  compareBtn.type = "button";
+  compareBtn.className = "live-image-viewer__compare-badge";
+  compareBtn.style.display = "none";
+  compareBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleComparison();
+  });
+  imageWrap.appendChild(compareBtn);
+
+  imgEl.addEventListener("click", () => {
+    if (state.hasDragged) {
+      state.hasDragged = false;
+      return;
+    }
+    toggleComparison();
+  });
+
   const loadingOverlay = document.createElement("div");
   loadingOverlay.className = "live-image-viewer__loading";
   loadingOverlay.style.display = "none";
@@ -127,6 +154,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   imgEl.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     state.isDragging = true;
+    state.hasDragged = false;
     state.dragStartX = e.clientX - state.panX;
     state.dragStartY = e.clientY - state.panY;
     imgEl.style.cursor = "grabbing";
@@ -134,6 +162,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   window.addEventListener("mousemove", (e) => {
     if (!state.isDragging) return;
+    if (Math.abs(e.clientX - state.dragStartX - state.panX) > 3 ||
+        Math.abs(e.clientY - state.dragStartY - state.panY) > 3) state.hasDragged = true;
     state.panX = e.clientX - state.dragStartX;
     state.panY = e.clientY - state.dragStartY;
     applyTransform();
@@ -148,6 +178,45 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   function applyTransform() {
     imgEl.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+  }
+
+  function renderDisplayedImage() {
+    const src = state.showingPrevious ? state.previousImageSrc : state.currentImageSrc;
+    if (src) imgEl.src = src;
+    compareBtn.style.display = state.previousImageSrc ? "block" : "none";
+    compareBtn.textContent = state.showingPrevious
+      ? t("liveImage.compareAfter", "AFTER")
+      : t("liveImage.compareBefore", "BEFORE");
+    compareBtn.title = state.showingPrevious
+      ? t("liveImage.compareAfterTitle", "Show current image")
+      : t("liveImage.compareBeforeTitle", "Show image before the last operation");
+  }
+
+  function toggleComparison() {
+    if (!state.previousImageSrc || state.isLoading) return;
+    state.showingPrevious = !state.showingPrevious;
+    renderDisplayedImage();
+  }
+
+  function beginOperation() {
+    if (state.showingPrevious) {
+      state.showingPrevious = false;
+      renderDisplayedImage();
+    }
+    state.pendingBeforeImageSrc = state.currentImageSrc;
+    return state.pendingBeforeImageSrc;
+  }
+
+  function commitOperation(base64, beforeSrc) {
+    state.previousImageSrc = beforeSrc || null;
+    state.pendingBeforeImageSrc = null;
+    state.currentImageSrc = base64 ? `data:image/jpeg;base64,${base64}` : state.currentImageSrc;
+    state.showingPrevious = false;
+    renderDisplayedImage();
+  }
+
+  function cancelOperation() {
+    state.pendingBeforeImageSrc = null;
   }
 
   content.appendChild(imageWrap);
@@ -182,6 +251,17 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   adjustRow.appendChild(adjustLabelEl);
   adjustRow.appendChild(adjustUp);
   chatPanel.appendChild(adjustRow);
+
+  const repeatRow = document.createElement("div");
+  repeatRow.className = "live-image-viewer__repeat";
+  repeatRow.style.display = "none";
+  const repeatBtn = document.createElement("button");
+  repeatBtn.type = "button";
+  repeatBtn.className = "live-image-viewer__btn live-image-viewer__btn--repeat";
+  repeatBtn.textContent = t("liveImage.repeat", "Apply again");
+  repeatBtn.addEventListener("click", () => doRepeat());
+  repeatRow.appendChild(repeatBtn);
+  chatPanel.appendChild(repeatRow);
 
   // Help box
   const helpBox = document.createElement("div");
@@ -282,6 +362,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   function setLoading(loading) {
     state.isLoading = loading;
+    compareBtn.disabled = loading;
     loadingOverlay.style.display = loading ? "flex" : "none";
   }
 
@@ -289,7 +370,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     imgEl.style.opacity = "0";
     setTimeout(() => {
       state.currentImageSrc = `data:image/jpeg;base64,${jpegBase64}`;
-      imgEl.src = state.currentImageSrc;
+      state.showingPrevious = false;
+      renderDisplayedImage();
       imgEl.style.opacity = "1";
     }, 150);
   }
@@ -319,6 +401,11 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     adjustLabelEl.textContent = show ? `${state.adjustLabel} (${state.adjustCount})` : "";
   }
 
+  function updateRepeatControl(show) {
+    state.repeatActive = show;
+    repeatRow.style.display = show ? "flex" : "none";
+  }
+
   function updateUndoRedo(canUndo, canRedo) {
     state.canUndo = canUndo;
     state.canRedo = canRedo;
@@ -335,7 +422,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       updateImage(resp.image_base64);
       imgEl.style.cursor = "grab";
 
-      if (resp.resumed && resp.chat_history) {
+      if (resp.chat_history) {
         restoreChatHistory(resp.chat_history);
       }
 
@@ -349,22 +436,25 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function sendChat(msg) {
     if (!state.sessionId || state.isLoading) return;
+    const beforeSrc = beginOperation();
     addChatBubble("user", msg);
     setLoading(true);
     updateAdjustControls(false, "", 0);
+    updateRepeatControl(false);
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.chat, {
         session_id: state.sessionId,
         message: msg,
       });
       addChatBubble("assistant", resp.summary || "");
-      updateImage(resp.image_base64);
-      updateUndoRedo(true, false);
+      commitOperation(resp.image_base64, beforeSrc);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
 
       if (resp.adjustable) {
-        const label = resp.adjust_step?.label || t("liveImage.adjustStep", "Adjust");
+        const label = resp.adjust_step?.label || resp.adjust_step?.type || t("liveImage.adjustStep", "Adjust");
         updateAdjustControls(true, label, 0);
       }
+      updateRepeatControl(resp.repeatable === true && !resp.adjustable);
 
       if (resp.warnings && resp.warnings.length > 0) {
         for (const w of resp.warnings) {
@@ -372,6 +462,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         }
       }
     } catch (err) {
+      cancelOperation();
       addChatBubble("assistant", `Error: ${err.message}`);
     } finally {
       setLoading(false);
@@ -380,15 +471,37 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function doAdjust(direction) {
     if (!state.sessionId || state.isLoading) return;
+    const beforeSrc = beginOperation();
     setLoading(true);
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.adjust, {
         session_id: state.sessionId,
         direction,
       });
-      updateImage(resp.image_base64);
+      commitOperation(resp.image_base64, beforeSrc);
       updateAdjustControls(true, state.adjustLabel, resp.adjust_count || 0);
     } catch (err) {
+      cancelOperation();
+      addChatBubble("assistant", `Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function doRepeat() {
+    if (!state.sessionId || state.isLoading || !state.repeatActive) return;
+    const beforeSrc = beginOperation();
+    setLoading(true);
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.repeat, {
+        session_id: state.sessionId,
+      });
+      addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation applied again."));
+      commitOperation(resp.image_base64, beforeSrc);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateRepeatControl(resp.repeatable !== false);
+    } catch (err) {
+      cancelOperation();
       addChatBubble("assistant", `Error: ${err.message}`);
     } finally {
       setLoading(false);
@@ -397,14 +510,16 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function doUndo() {
     if (!state.sessionId || state.isLoading) return;
+    const beforeSrc = beginOperation();
     setLoading(true);
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.undo, {
         session_id: state.sessionId,
       });
-      updateImage(resp.image_base64);
+      commitOperation(resp.image_base64, beforeSrc);
       updateUndoRedo(resp.can_undo, resp.can_redo);
     } catch (err) {
+      cancelOperation();
       if (err.status === 404) {
         updateUndoRedo(false, state.canRedo);
       } else {
@@ -417,14 +532,16 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function doRedo() {
     if (!state.sessionId || state.isLoading) return;
+    const beforeSrc = beginOperation();
     setLoading(true);
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.redo, {
         session_id: state.sessionId,
       });
-      updateImage(resp.image_base64);
+      commitOperation(resp.image_base64, beforeSrc);
       updateUndoRedo(resp.can_undo, resp.can_redo);
     } catch (err) {
+      cancelOperation();
       if (err.status === 404) {
         updateUndoRedo(state.canUndo, false);
       } else {
@@ -437,14 +554,21 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function doReset() {
     if (!state.sessionId || state.isLoading) return;
+    if (!window.confirm(t("liveImage.confirmReset", "Delete chat history and restore the original image?"))) return;
     setLoading(true);
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.reset, {
         session_id: state.sessionId,
       });
-      updateImage(resp.image_base64);
+      state.currentImageSrc = `data:image/jpeg;base64,${resp.image_base64}`;
+      state.previousImageSrc = null;
+      state.showingPrevious = false;
+      renderDisplayedImage();
       updateUndoRedo(false, false);
       updateAdjustControls(false, "", 0);
+      updateRepeatControl(false);
+      chatHistoryEl.innerHTML = "";
+      if (typeof onClose === "function") onClose();
     } catch (err) {
       addChatBubble("assistant", `Error: ${err.message}`);
     } finally {

@@ -24,7 +24,9 @@ struct LiveImageSession {
     nlohmann::json chat_history = nlohmann::json::array();
     nlohmann::json operation_history = nlohmann::json::array();
     nlohmann::json last_adjust_step;
+    nlohmann::json last_repeat_operation;
     int adjust_count = 0;
+    size_t adjust_base_size = 0;
     std::chrono::steady_clock::time_point created_at;
     std::chrono::steady_clock::time_point last_accessed;
 };
@@ -40,6 +42,7 @@ struct UndoRedoResult {
 class LiveImageSessionStore {
 public:
     std::string create(const std::string& run_id, cv::Mat image);
+    std::string create(const std::string& run_id, cv::Mat original, cv::Mat current);
     void close(const std::string& session_id);
     void evict_expired(int max_age_seconds = 1800, size_t max_sessions = 5);
 
@@ -50,6 +53,7 @@ public:
                                   const nlohmann::json& op);
     ImageOpResult apply_adjust(const std::string& session_id,
                                const std::string& direction);
+    ImageOpResult repeat_operation(const std::string& session_id);
     UndoRedoResult undo(const std::string& session_id);
     UndoRedoResult redo(const std::string& session_id);
     cv::Mat reset(const std::string& session_id);

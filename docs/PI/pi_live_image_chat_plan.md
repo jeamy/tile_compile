@@ -1,7 +1,7 @@
 # PI Live Image Chat — Plan
 
-**Status:** Draft  
-**Datum:** 2026-07-22  
+**Status:** Implemented (Phase 1-2)
+**Datum:** 2026-07-22
 **Modul:** `web_backend_cpp`, `web_frontend_v3`, `agent_service`
 
 ---
@@ -260,15 +260,17 @@ aber im Unterverzeichnis `live_image_chat/` statt `run_chat/`.
 **Speicher-Regel:**
 - Nach jeder Chat-Nachricht, Adjust-Operation, Undo und Redo wird die
   History-Datei aktualisiert (append + flush).
-- `chat_history` und `operation_history` werden nicht gekürzt (im Gegensatz
-  zum Run-Chat, der auf 24 Turns begrenzt) — die vollständige Historie ist
-  für Reproduzierbarkeit erforderlich.
+- `chat_history` bleibt vollständig erhalten. `operation_history` beschreibt
+  dagegen bewusst den aktuell wirksamen Operationspfad: Undo entfernt den
+  letzten Eintrag, Redo fügt ihn wieder ein, und eine neue Bearbeitung leert
+  den Redo-Pfad. Dadurch bleibt die Rekonstruktion exakt.
 - `undo_stack` / `redo_stack` und `cv::Mat`-Snapshots werden **nicht**
   persistiert (nur im RAM). Nach Refresh werden die Stacks leer
   initialisiert; Undo/Redo ist dann erst ab der nächsten Operation verfügbar.
-- `current_image` wird nicht persistiert — es wird bei Session-Resume aus
-  `original_image` + `operation_history` neu aufgebaut (siehe Lifecycle
-  Schritt 9).
+- `current_image` wird zusätzlich als `runs/<run_id>/outputs/live_edit.fits`
+  persistiert. Diese Datei ist der kanonische letzte Arbeitsstand; die
+  ursprüngliche FITS-Datei bleibt unverändert. Fehlt die Arbeitsdatei, wird
+  der Stand einmalig aus `operation_history` rekonstruiert.
 
 ### Lifecycle
 
@@ -277,14 +279,17 @@ aber im Unterverzeichnis `live_image_chat/` statt `run_chat/`.
 3. **Adjust:** User klickt + oder - → `POST /api/pi/live-image-chat/adjust` → wendet `adjust_step` vorwärts oder rückwärts an → neues JPEG
 4. **Undo:** User klickt ↶ → `POST /api/pi/live-image-chat/undo` → nimmt letzte Operation vom `undo_stack`, wendet inverse an, pusht auf `redo_stack` → neues JPEG
 5. **Redo:** User klickt ↷ → `POST /api/pi/live-image-chat/redo` → nimmt letzte Operation vom `redo_stack`, wendet vorwärts an, pusht auf `undo_stack` → neues JPEG
-6. **Reset:** `POST /api/pi/live-image-chat/reset` → setzt auf Originalbild zurück, leert `undo_stack` und `redo_stack`
+6. **Reset:** Nach UI-Bestätigung ersetzt `POST /api/pi/live-image-chat/reset`
+   `live_edit.fits` durch eine frische Kopie des unveränderten Quellbilds,
+   löscht die History-Datei, leert beide Stacks und aktualisiert die Preview.
 7. **Export:** `POST /api/pi/live-image-chat/export` → speichert finales Bild als FITS/PNG in Run-Output
 8. **Close:** Session wird nach 30 Min Inaktivität aus dem Speicher entfernt. Chat- und Operations-Historie bleiben in `.pi_memory` erhalten.
 9. **Resume (nach Browser-Refresh):** `POST /api/pi/live-image-chat/create`
-   mit `run_id` erkennt bestehende History-Datei. Wenn vorhanden:
+   mit `run_id` erkennt Arbeitsdatei und/oder History. Wenn `live_edit.fits`
+   vorhanden ist, wird sie direkt als aktueller Stand geladen. Nur wenn sie
+   fehlt, werden alle Operationen aus `operation_history` sequenziell auf das
+   Originalbild angewendet und die Arbeitsdatei neu erzeugt.
    - Lade FITS, rendere 1:1 JPEG (wie bei Create)
-   - Wende alle Operationen aus `operation_history` sequenziell auf das
-     Originalbild an → rekonstruiere `current_image`
    - Stelle `chat_history` in der UI her
    - `undo_stack` / `redo_stack` beginnen leer (Undo nur ab neuer Operation)
    - Gib `session_id` + rekonstruiertes JPEG + `chat_history` zurück
@@ -298,19 +303,11 @@ aber im Unterverzeichnis `live_image_chat/` statt `run_chat/`.
 - `undo_stack` / `redo_stack` speichern für **invertierbare** Operationen
   (brightness, contrast, saturation, sharpen, rmgreen) nur Operations-JSON,
   keine Bilder — Inverse wird aus den negierten Parametern berechnet.
-- Für **nicht invertierbare** Operationen (clahe, bilateral, denoise,
-  threshold, crop, invert) legt der Undo-Stack-Eintrag zusätzlich einen
-  `cv::Mat`-Snapshot des Bildes **vor** Anwendung der Operation ab
-  (`"snapshot"`-Feld). Das erhöht den Speicherbedarf pro solcher Operation
-  um ein weiteres volles Bild (~3.5 MB bei 1080×1080).
-- **Konsequenz für die 5-Sessions-Kalkulation:** Die ursprüngliche
-  ~35-MB-Schätzung gilt nur, wenn ausschließlich invertierbare Operationen
-  genutzt werden. Um den Snapshot-Speicher zu begrenzen, wird die
-  Undo-Tiefe für nicht invertierbare Operationen auf die letzten **10**
-  Snapshots pro Session gedeckelt (älteste Snapshot-Einträge werden beim
-  Überschreiten verworfen — Undo ist dann für diese Operation nicht mehr
-  möglich, `can_undo` wird entsprechend `false`). Worst Case: 5 Sessions ×
-  (7 MB Basis + 10 × 3.5 MB Snapshots) ≈ 210 MB.
+- Undo/Redo speichern nur Operations-JSON und bauen den aktuellen Float-Stand
+  deterministisch aus der unveränderten Quelle und dem Stack neu auf. Auch
+  nicht invertierbare Operationen benötigen daher keine Pixel-Snapshots.
+- Worst Case bleibt damit ungefähr 5 Sessions × 7 MB Basisbild; zusätzlich
+  wächst nur die kleine Operationshistorie.
 - Max. 5 gleichzeitige Sessions, LRU-Eviction bei Überschreitung
 
 ---
@@ -432,11 +429,12 @@ auf `undo_stack`. Wenn `redo_stack` leer → `can_redo: false`.
 ```
 POST /api/pi/live-image-chat/reset
 Body: { "session_id": "string" }
-Response: { "session_id": "string", "jpeg_base64": "string (Original)" }
+Response: { "session_id": "string", "image_base64": "string (Original)", "can_undo": false, "can_redo": false }
 ```
 
-Setzt `current_image` auf `original_image` zurück. Leert `undo_stack` und
-`redo_stack`.
+Setzt `current_image` auf `original_image` zurück, ersetzt nach Bestätigung
+`outputs/live_edit.fits` durch den Originalzustand, löscht die persistierte
+History und leert beide Stacks.
 
 ### 6.7 Export
 
@@ -537,6 +535,11 @@ Nach +/- Klick (Adjust aktiv):
 - **Chat-Panel:** Rechts neben dem Bild, wie bestehender Run-Chat aber mit
   Live-Bild-Updates
 - **Nach jeder AI-Antwort:** Bild wird durch neues JPEG ersetzt (smooth fade)
+- **Vorher/Nachher-Vergleich:** Vor jeder erfolgreichen Chat-, Adjust-, Undo-
+  oder Redo-Operation bleibt das unmittelbar vorherige Preview im Viewer
+  erhalten. Ein Klick auf das Bild oder den Badge links oben schaltet zwischen
+  `VORHER` und `AKTUELL`; der Vorher-Zustand wird über den Badge links oben
+  gekennzeichnet.
 - **+/- Buttons:** Wenn AI `adjustable: true` zurückgibt, erscheinen +/− Buttons
   mit dem Label der Operation (z.B. "Mitteltöne", "Sättigung"). Klick auf +
   verstärkt den Effekt, Klick auf − verringert ihn. Der Zähler zeigt die Anzahl
@@ -1524,23 +1527,19 @@ sed -n '1,120p' /tmp/out_test_routes.txt
 | Ungültige Operations-Parameter | `validate_op` → Fehler, Operation nicht angewendet |
 | Path Traversal bei Export | Pfad-Validierung, muss unter `runs/` liegen |
 
-### Phase 7: Erweiterte Bild-Operationen (Phase 2 aus Abschnitt 4) — optional, Tag 11-13
+### Phase 7: Erweiterte Bild-Operationen (Phase 2 aus Abschnitt 4) — umgesetzt
 
-Erst hier werden die "Phase 2"-Operationen aus Abschnitt 4 tatsächlich
-implementiert: `vibrance`, `color_temperature`, `unpurple`, `fixbanding`,
-`star_desaturation`, `dehaze` (sowie `levels`, `curves`,
-`shadow_recovery`/`highlight_recovery` falls gewünscht — letztere sind
+Umgesetzt sind `vibrance`, `color_temperature`, `unpurple`, `fixbanding`,
+`star_desaturation` und `dehaze`. `levels`, `curves` sowie
+`shadow_recovery`/`highlight_recovery` bleiben optionale spätere Erweiterungen;
+letztere sind
 durch `brightness.shadows`/`brightness.highlights` in Phase 1 bereits
 näherungsweise abgedeckt).
 
-- Neue `apply_*`-Funktionen in `pi_image_ops.hpp/.cpp` + Tests
-  (analog Schritt 1.1)
-- Erweiterung des AI-System-Prompts (8.4) um die neuen Operationstypen
-- Dropdown-`FEATURE_PHASE`-Konstante im Frontend auf `2` erhöhen (siehe 7.4)
-  → die 7 `[P2]`-Einträge werden sichtbar
-- Ohne diese Phase bleiben die 7 `[P2]`-Dropdown-Einträge ausgeblendet;
-  das Produkt ist nach Phase 1-6 vollständig funktionsfähig, nur mit
-  reduziertem Funktionsumfang (17 statt 24 Befehle).
+- Die Operationen sind in Backend, linearem FITS-Pfad, Fallback und
+  AI-System-Prompt verdrahtet und werden durch Backend-Tests abgedeckt.
+- Die Dropdown-`FEATURE_PHASE`-Konstante steht auf `2`; nicht implementierte
+  Phase-2-Befehle bleiben ausgeblendet.
 
 ---
 

@@ -33,6 +33,12 @@ Available operations:
 - threshold: { black_point: 0..1, white_point: 0..1 }
 - invert: {}
 - reset: {}
+- vibrance: { amount: -1..1 }
+- color_temperature: { amount: -1..1 }
+- unpurple: { amount: 0..1 }
+- fixbanding: { amount: 0..1, sigma: 0.5..5 }
+- star_desaturation: { amount: 0..1 }
+- dehaze: { amount: 0..1 }
 
 Note: clahe, bilateral, denoise and threshold cannot be exactly undone by
 negating a parameter (they are non-linear or lossy). Do NOT set
@@ -40,10 +46,13 @@ adjustable=true with a negatable adjust_step for these — if finer control
 makes sense, ask the user to issue a new command instead of relying on the
 +/- buttons for these types.
 
-For commands like "mehr X", "weniger X", "helle X auf", "erhoehe X" — these are
-adjustable operations. Set adjustable=true and provide an adjust_step with a
-moderate increment (e.g. +5%). The user will click + or - buttons in the UI
-to fine-tune the effect. You do not need to loop or detect "stop".
+For signed operations such as brightness, contrast, saturation, vibrance and
+color_temperature, commands like "mehr X", "weniger X", "helle X auf" and
+"erhoehe X" are adjustable. Set adjustable=true and provide an adjust_step
+with a moderate signed increment (e.g. +5%). Do not mark one-sided operations
+(unpurple, fixbanding, star_desaturation, dehaze or rmgreen) as adjustable.
+Sharpen is repeatable with the same positive parameters, but is not a +/-
+operation. You do not need to loop or detect "stop".
 
 Return exactly:
 {
@@ -52,6 +61,7 @@ Return exactly:
   "operations": [...],
   "adjustable": false,
   "adjust_step": { "type": "string", "params": {...}, "label": "string" },
+  "repeatable": false,
   "warnings": []
 }`;
 

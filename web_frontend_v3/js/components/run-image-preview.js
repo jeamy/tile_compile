@@ -22,7 +22,13 @@ function scoreArtifact(item) {
   let score = 0;
   if (p.includes("/outputs/") || p.startsWith("outputs/")) score += 20;
   if (p.endsWith(".png")) score += 10;
-  if (p.includes("stacked_rgb_hms") || p.includes("hms_")) score += 100;
+  if (p.includes("live_edit")) {
+    score += 200;
+    // The canonical working state is the float FITS. Prefer it over an
+    // older derived PNG/JPEG preview that may still exist after reset.
+    if (/\.(fits?|fts)$/.test(p)) score += 50;
+  }
+  else if (p.includes("stacked_rgb_hms") || p.includes("hms_")) score += 100;
   else if (p.includes("stacked_rgb_pcc") || p.includes("pcc_")) score += 90;
   else if (p.includes("stacked_rgb_bge")) score += 80;
   else if (p.includes("stacked_rgb_solve")) score += 70;
@@ -74,6 +80,13 @@ function panelBody(targetId) {
 function setPreviewStatus(targetId, text) {
   const status = document.getElementById(`${targetId}-status`);
   if (status) status.textContent = text;
+}
+
+function openLiveEditor(runId, runDir, targetId) {
+  const viewer = createLiveImageViewer(runId, runDir, () => {
+    refreshRunImagePreviewPanel(targetId);
+  });
+  viewer.open();
 }
 
 export function refreshRunImagePreviewPanel(targetId = "run-image-preview") {
@@ -145,7 +158,17 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
     clear(body);
     const path = artifactPath(candidate);
     setPreviewStatus(targetId, path);
-    body.appendChild(el("div", { class: "tc-text-sm tc-text-muted tc-mono" }, path));
+    const pathRow = el("div", {
+      class: "tc-flex tc-items-center tc-justify-between tc-gap-2",
+    });
+    pathRow.appendChild(el("div", { class: "tc-text-sm tc-text-muted tc-mono" }, path));
+    pathRow.appendChild(el("button", {
+      class: "tc-btn tc-btn-sm",
+      title: t("ui.button.live_editor", "Live Editor"),
+      "aria-label": t("ui.button.live_editor", "Live Editor"),
+      onclick: () => openLiveEditor(runId, runDir, targetId),
+    }, t("ui.button.live_editor", "Live Editor")));
+    body.appendChild(pathRow);
     body.appendChild(el("img", {
       src,
       alt: t("ui.title.latest_image_preview", "Letztes Bild"),
@@ -159,8 +182,7 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
       },
       title: t("liveImage.clickToOpen", "Click to open Live Image Editor"),
       onclick: () => {
-        const viewer = createLiveImageViewer(runId, runDir, null);
-        viewer.open();
+        openLiveEditor(runId, runDir, targetId);
       },
     }));
   } catch (e) {

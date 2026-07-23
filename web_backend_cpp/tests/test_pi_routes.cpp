@@ -778,6 +778,23 @@ int main(int argc, char** argv) {
         expect_true(!chat_resp["image_base64"].get<std::string>().empty(),
                      "live-image-chat chat image_base64 not empty");
 
+        // 3b. Repeat a non-adjustable operation with the exact same parameters
+        const auto sharpen_resp = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", session_id},
+            {"message", "schaerfe das Bild"}
+        });
+        expect_equal(sharpen_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat sharpen status");
+        expect_true(sharpen_resp.value("repeatable", false),
+                    "live-image-chat sharpen is repeatable");
+        const auto repeat_resp = harness.post_json("/api/pi/live-image-chat/repeat", {
+            {"session_id", session_id}
+        });
+        expect_equal(repeat_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat repeat status");
+        expect_true(!repeat_resp["image_base64"].get<std::string>().empty(),
+                    "live-image-chat repeat image_base64 not empty");
+
         // 4. Chat with invalid session
         const auto chat_bad = harness.post_json("/api/pi/live-image-chat", {
             {"session_id", "invalid_session_id"},

@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <cmath>
+#include <vector>
 
 static int failures = 0;
 
@@ -263,6 +264,30 @@ int main() {
             cv::Mat diff;
             cv::absdiff(img, reset_res.image, diff);
             EXPECT(cv::sum(diff)[0] == 0, "apply_image_op(reset) returns original");
+        }
+
+        // --- Phase 2 operations ---
+        {
+            const std::vector<nlohmann::json> phase2 = {
+                {{"type", "vibrance"}, {"params", {{"amount", 0.2}}}},
+                {{"type", "color_temperature"}, {"params", {{"amount", 0.2}}}},
+                {{"type", "unpurple"}, {"params", {{"amount", 0.5}}}},
+                {{"type", "fixbanding"}, {"params", {{"amount", 0.5}, {"sigma", 2.0}}}},
+                {{"type", "star_desaturation"}, {"params", {{"amount", 0.5}}}},
+                {{"type", "dehaze"}, {"params", {{"amount", 0.4}}}}
+            };
+            for (const auto& op : phase2) {
+                auto validation = tile_compile::pi::validate_op(op);
+                EXPECT(validation.empty(), "phase 2 operation validates");
+                auto result = tile_compile::pi::apply_image_op(img, op);
+                EXPECT(result.success && result.image.size() == img.size(),
+                       "phase 2 operation applies to display image");
+            }
+            cv::Mat linear;
+            img.convertTo(linear, CV_32FC3, 1.0 / 255.0);
+            auto linear_result = tile_compile::pi::apply_image_op_fits(linear, phase2.front());
+            EXPECT(linear_result.success && linear_result.image.type() == CV_32FC3,
+                   "phase 2 operation applies to linear FITS image");
         }
 
     } catch (const std::exception& e) {

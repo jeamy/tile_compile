@@ -88,6 +88,13 @@ nlohmann::json validate_op(const nlohmann::json& op) {
         if (check(require_int("h", 1, 100000))) return {{"error", err}};
     } else if (type == "reset") {
         // no params
+    } else if (type == "vibrance" || type == "color_temperature") {
+        if (check(require("amount", -1.0, 1.0))) return {{"error", err}};
+    } else if (type == "unpurple" || type == "star_desaturation" || type == "dehaze") {
+        if (check(require("amount", 0.0, 1.0))) return {{"error", err}};
+    } else if (type == "fixbanding") {
+        if (check(require("amount", 0.0, 1.0))) return {{"error", err}};
+        if (check(require("sigma", 0.5, 5.0))) return {{"error", err}};
     } else {
         return {{"error", "unknown operation type: " + type}};
     }
@@ -316,6 +323,192 @@ cv::Mat apply_crop(const cv::Mat& img, int x, int y, int w, int h) {
         return img.clone(); // invalid crop returns original
     }
     return img(cv::Rect(x, y, w, h)).clone();
+}
+
+cv::Mat apply_vibrance(const cv::Mat& img, double amount) {
+    amount = clamp_param(amount, -1.0, 1.0);
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    c[1].convertTo(c[1], CV_32F, 1.0 / 255.0);
+    for (int y = 0; y < c[1].rows; ++y) {
+        float* row = c[1].ptr<float>(y);
+        for (int x = 0; x < c[1].cols; ++x) {
+            const double s = row[x];
+            row[x] = static_cast<float>(clamp_param(s + (amount >= 0 ? amount * (1.0 - s) : amount * s), 0.0, 1.0));
+        }
+    }
+    c[1].convertTo(c[1], CV_8U, 255.0);
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+cv::Mat apply_color_temperature(const cv::Mat& img, double amount) {
+    amount = clamp_param(amount, -1.0, 1.0);
+    cv::Mat f;
+    img.convertTo(f, CV_32F, 1.0 / 255.0);
+    std::vector<cv::Mat> c;
+    cv::split(f, c);
+    c[0] -= static_cast<float>(0.12 * amount);
+    c[2] += static_cast<float>(0.12 * amount);
+    for (auto& ch : c) cv::min(cv::max(ch, 0.0f), 1.0f, ch);
+    cv::merge(c, f);
+    cv::Mat out;
+    f.convertTo(out, CV_8U, 255.0);
+    return out;
+}
+
+cv::Mat apply_unpurple(const cv::Mat& img, double amount) {
+    amount = clamp_param(amount, 0.0, 1.0);
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    for (int y = 0; y < hsv.rows; ++y) {
+        for (int x = 0; x < hsv.cols; ++x) {
+            const int h = c[0].at<uchar>(y, x);
+            if (h >= 125 && h <= 165) {
+                c[1].at<uchar>(y, x) = static_cast<uchar>(c[1].at<uchar>(y, x) * (1.0 - amount));
+            }
+        }
+    }
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+cv::Mat apply_fixbanding(const cv::Mat& img, double amount, double sigma) {
+    amount = clamp_param(amount, 0.0, 1.0);
+    sigma = clamp_param(sigma, 0.5, 5.0);
+    cv::Mat f;
+    img.convertTo(f, CV_32F, 1.0 / 255.0);
+    cv::Mat smooth;
+    cv::GaussianBlur(f, smooth, cv::Size(0, 0), sigma);
+    cv::Mat out = f + (f - smooth) * static_cast<float>(-amount);
+    cv::min(cv::max(out, 0.0f), 1.0f, out);
+    cv::Mat u8;
+    out.convertTo(u8, CV_8U, 255.0);
+    return u8;
+}
+
+cv::Mat apply_star_desaturation(const cv::Mat& img, double amount) {
+    amount = clamp_param(amount, 0.0, 1.0);
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    for (int y = 0; y < hsv.rows; ++y) {
+        for (int x = 0; x < hsv.cols; ++x) {
+            const double v = c[2].at<uchar>(y, x) / 255.0;
+            const double factor = 1.0 - amount * std::max(0.0, (v - 0.7) / 0.3);
+            c[1].at<uchar>(y, x) = static_cast<uchar>(c[1].at<uchar>(y, x) * factor);
+        }
+    }
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+cv::Mat apply_dehaze(const cv::Mat& img, double amount) {
+    amount = clamp_param(amount, 0.0, 1.0);
+    cv::Mat f;
+    img.convertTo(f, CV_32F, 1.0 / 255.0);
+    cv::Mat base;
+    cv::GaussianBlur(f, base, cv::Size(0, 0), 15.0);
+    cv::Mat out = f + (f - base) * static_cast<float>(amount);
+    cv::min(cv::max(out, 0.0f), 1.0f, out);
+    cv::Mat u8;
+    out.convertTo(u8, CV_8U, 255.0);
+    return u8;
+}
+
+static cv::Mat apply_vibrance_fits(const cv::Mat& img, double amount) {
+    if (img.channels() == 1) return img.clone();
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    for (int y = 0; y < c[1].rows; ++y) {
+        float* row = c[1].ptr<float>(y);
+        for (int x = 0; x < c[1].cols; ++x) {
+            const double s = row[x];
+            row[x] = static_cast<float>(clamp_param(s + (amount >= 0 ? amount * (1.0 - s) : amount * s), 0.0, 1.0));
+        }
+    }
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+static cv::Mat apply_color_temperature_fits(const cv::Mat& img, double amount) {
+    std::vector<cv::Mat> c;
+    cv::split(img, c);
+    c[0] -= static_cast<float>(0.12 * amount);
+    c[2] += static_cast<float>(0.12 * amount);
+    for (auto& ch : c) cv::min(cv::max(ch, 0.0f), 1.0f, ch);
+    cv::Mat out;
+    cv::merge(c, out);
+    return out;
+}
+
+static cv::Mat apply_unpurple_fits(const cv::Mat& img, double amount) {
+    if (img.channels() == 1) return img.clone();
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    for (int y = 0; y < hsv.rows; ++y) {
+        for (int x = 0; x < hsv.cols; ++x) {
+            const float h = c[0].at<float>(y, x);
+            if (h >= 250.0f && h <= 330.0f)
+                c[1].at<float>(y, x) = static_cast<float>(c[1].at<float>(y, x) * (1.0 - amount));
+        }
+    }
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+static cv::Mat apply_fixbanding_fits(const cv::Mat& img, double amount, double sigma) {
+    cv::Mat smooth;
+    cv::GaussianBlur(img, smooth, cv::Size(0, 0), sigma);
+    cv::Mat out = img + (smooth - img) * static_cast<float>(amount);
+    cv::min(cv::max(out, 0.0f), 1.0f, out);
+    return out;
+}
+
+static cv::Mat apply_star_desaturation_fits(const cv::Mat& img, double amount) {
+    if (img.channels() == 1) return img.clone();
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+    std::vector<cv::Mat> c;
+    cv::split(hsv, c);
+    for (int y = 0; y < hsv.rows; ++y) {
+        for (int x = 0; x < hsv.cols; ++x) {
+            const double v = c[2].at<float>(y, x);
+            const double factor = 1.0 - amount * std::max(0.0, (v - 0.7) / 0.3);
+            c[1].at<float>(y, x) = static_cast<float>(c[1].at<float>(y, x) * factor);
+        }
+    }
+    cv::merge(c, hsv);
+    cv::Mat out;
+    cv::cvtColor(hsv, out, cv::COLOR_HSV2BGR);
+    return out;
+}
+
+static cv::Mat apply_dehaze_fits(const cv::Mat& img, double amount) {
+    cv::Mat base;
+    cv::GaussianBlur(img, base, cv::Size(0, 0), 15.0);
+    cv::Mat out = img + (img - base) * static_cast<float>(amount);
+    cv::min(cv::max(out, 0.0f), 1.0f, out);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +766,18 @@ ImageOpResult apply_image_op_fits(const cv::Mat& input, const nlohmann::json& op
                 p["w"].get<int>(), p["h"].get<int>());
         } else if (type == "reset") {
             result.image = input.clone();
+        } else if (type == "vibrance") {
+            result.image = apply_vibrance_fits(input, p["amount"].get<double>());
+        } else if (type == "color_temperature") {
+            result.image = apply_color_temperature_fits(input, p["amount"].get<double>());
+        } else if (type == "unpurple") {
+            result.image = apply_unpurple_fits(input, p["amount"].get<double>());
+        } else if (type == "fixbanding") {
+            result.image = apply_fixbanding_fits(input, p["amount"].get<double>(), p["sigma"].get<double>());
+        } else if (type == "star_desaturation") {
+            result.image = apply_star_desaturation_fits(input, p["amount"].get<double>());
+        } else if (type == "dehaze") {
+            result.image = apply_dehaze_fits(input, p["amount"].get<double>());
         } else {
             result.error = "unknown operation type: " + type;
             return result;
@@ -645,6 +850,18 @@ ImageOpResult apply_image_op(const cv::Mat& input, const nlohmann::json& op) {
                 p["w"].get<int>(), p["h"].get<int>());
         } else if (type == "reset") {
             result.image = input.clone();
+        } else if (type == "vibrance") {
+            result.image = apply_vibrance(input, p["amount"].get<double>());
+        } else if (type == "color_temperature") {
+            result.image = apply_color_temperature(input, p["amount"].get<double>());
+        } else if (type == "unpurple") {
+            result.image = apply_unpurple(input, p["amount"].get<double>());
+        } else if (type == "fixbanding") {
+            result.image = apply_fixbanding(input, p["amount"].get<double>(), p["sigma"].get<double>());
+        } else if (type == "star_desaturation") {
+            result.image = apply_star_desaturation(input, p["amount"].get<double>());
+        } else if (type == "dehaze") {
+            result.image = apply_dehaze(input, p["amount"].get<double>());
         } else {
             result.error = "unknown operation type: " + type;
             return result;
@@ -676,8 +893,8 @@ nlohmann::json invert_op(const nlohmann::json& op) {
         p["highlights"] = -p["highlights"].get<double>();
         return inv;
     }
-    if (type == "contrast" || type == "saturation"
-        || type == "sharpen" || type == "rmgreen") {
+    if (type == "contrast" || type == "saturation" ||
+        type == "vibrance" || type == "color_temperature") {
         auto inv = op;
         inv["params"]["amount"] = -op["params"]["amount"].get<double>();
         return inv;

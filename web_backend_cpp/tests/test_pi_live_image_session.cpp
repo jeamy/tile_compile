@@ -72,6 +72,7 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.empty(), "undo_stack empty after undo");
                 EXPECT(s.redo_stack.size() == 1, "redo_stack has 1 entry");
+                EXPECT(s.operation_history.empty(), "operation_history mirrors current state after undo");
                 // Undo rebuilds from original, so exact equality is expected.
                 cv::Mat diff;
                 cv::absdiff(s.current_fits, s.original_fits, diff);
@@ -91,6 +92,7 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.size() == 1, "undo_stack has 1 entry after redo");
                 EXPECT(s.redo_stack.empty(), "redo_stack empty after redo");
+                EXPECT(s.operation_history.size() == 1, "operation_history restored after redo");
                 EXPECT(!images_equal(s.current_fits, s.original_fits),
                        "current_fits changed after redo");
             });
@@ -135,6 +137,18 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.adjust_count == 0, "adjust_count == 0 after decrease");
             });
+
+            store.reset(sid);
+            nlohmann::json sharpen_step = {
+                {"type", "sharpen"},
+                {"params", {{"amount", 0.1}, {"radius", 2.0}}}
+            };
+            store.set_adjust_step(sid, sharpen_step);
+            auto sharp_inc = store.apply_adjust(sid, "increase");
+            EXPECT(sharp_inc.success, "sharpen +/- increase succeeds");
+            auto sharp_dec = store.apply_adjust(sid, "decrease");
+            EXPECT(sharp_dec.success && sharp_dec.image.size() == img.size(),
+                   "sharpen +/- decrease rebuilds successfully");
         }
 
         // --- non-invertible op (clahe) with rebuild undo ---
@@ -159,6 +173,23 @@ int main() {
                 EXPECT(images_equal(s.current_fits, s.original_fits),
                        "current_fits restored after clahe undo (rebuild)");
             });
+
+            nlohmann::json reset_op = {{"type", "reset"}, {"params", nlohmann::json::object()}};
+            auto reset_result = store.apply_operation(sid, reset_op);
+            EXPECT(reset_result.success, "reset operation succeeds in session store");
+            store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
+                EXPECT(s.undo_stack.empty() && s.operation_history.empty(),
+                       "reset operation clears current edit history");
+                EXPECT(s.chat_history.empty(), "reset operation clears chat history");
+            });
+
+            nlohmann::json repeat_op = {
+                {"type", "sharpen"}, {"params", {{"amount", 0.1}, {"radius", 2.0}}}
+            };
+            auto first_repeat = store.apply_operation(sid, repeat_op);
+            EXPECT(first_repeat.success, "repeat source operation succeeds");
+            auto repeated = store.repeat_operation(sid);
+            EXPECT(repeated.success, "repeat operation reapplies identical params");
         }
 
         // --- chat history ---

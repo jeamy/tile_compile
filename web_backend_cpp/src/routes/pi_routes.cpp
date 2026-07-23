@@ -319,30 +319,13 @@ cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) 
     return mat;
 }
 
-std::pair<float, float> robust_range(const std::vector<cv::Mat>& planes) {
-    std::vector<float> sample;
-    for (const auto& mat : planes) {
-        const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(mat.rows * mat.cols) / 250000.0)));
-        for (int y = 0; y < mat.rows; y += stride)
-            for (int x = 0; x < mat.cols; x += stride) {
-                const float v = mat.at<float>(y, x);
-                if (std::isfinite(v)) sample.push_back(v);
-            }
-    }
-    if (sample.empty()) return {0.0f, 1.0f};
-    std::sort(sample.begin(), sample.end());
-    auto at = [&](double q) {
-        const size_t idx = std::min(sample.size() - 1, static_cast<size_t>(std::llround(q * static_cast<double>(sample.size() - 1))));
-        return sample[idx];
-    };
-    float lo = at(0.01);
-    float hi = at(0.995);
-    if (!std::isfinite(lo) || !std::isfinite(hi) || hi <= lo) {
-        lo = sample.front();
-        hi = sample.back();
-    }
-    if (hi <= lo) hi = lo + 1.0f;
-    return {lo, hi};
+// FITS live-edit data is stored as linear float values in the [0, 1] range.
+// Preview rendering must not apply an implicit stretch or gamma curve: those
+// are display operations, not live-image edits, and make the preview disagree
+// with the canonical live_edit.fits values.
+unsigned char linear_float_to_u8(float value) {
+    if (!std::isfinite(value)) value = 0.0f;
+    return cv::saturate_cast<unsigned char>(std::clamp(value, 0.0f, 1.0f) * 255.0f);
 }
 
 std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, int max_edge = 1024) {
@@ -368,21 +351,13 @@ std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, 
         cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
         cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
     }
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
     cv::Mat out(r.rows, r.cols, CV_8UC3);
     for (int y = 0; y < r.rows; ++y) {
         for (int x = 0; x < r.cols; ++x) {
-            auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = lo;
-                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
-                n = std::pow(n, 0.6f);
-                return cv::saturate_cast<unsigned char>(n * 255.0f);
-            };
             auto& px = out.at<cv::Vec3b>(y, x);
-            px[2] = convert(r.at<float>(y, x));
-            px[1] = convert(g.at<float>(y, x));
-            px[0] = convert(b.at<float>(y, x));
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
         }
     }
     std::vector<unsigned char> png;
@@ -405,21 +380,13 @@ std::vector<unsigned char> render_fits_full_jpeg(const fs::path& path, int quali
         b = plane_to_mat(bv, wb, hb);
     }
     // No downscale — 1:1 resolution
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
     cv::Mat out(r.rows, r.cols, CV_8UC3);
     for (int y = 0; y < r.rows; ++y) {
         for (int x = 0; x < r.cols; ++x) {
-            auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = lo;
-                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
-                n = std::pow(n, 0.6f);
-                return cv::saturate_cast<unsigned char>(n * 255.0f);
-            };
             auto& px = out.at<cv::Vec3b>(y, x);
-            px[2] = convert(r.at<float>(y, x));
-            px[1] = convert(g.at<float>(y, x));
-            px[0] = convert(b.at<float>(y, x));
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
         }
     }
     int effective_quality = quality;
@@ -435,15 +402,10 @@ cv::Mat render_float_planes_to_bgr8(const cv::Mat& r, const cv::Mat& g, const cv
     cv::Mat out(r.rows, r.cols, CV_8UC3);
     for (int y = 0; y < r.rows; ++y) {
         for (int x = 0; x < r.cols; ++x) {
-            auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = 0.0f;
-                const float n = std::clamp(v, 0.0f, 1.0f);
-                return cv::saturate_cast<unsigned char>(n * 255.0f);
-            };
             auto& px = out.at<cv::Vec3b>(y, x);
-            px[2] = convert(r.at<float>(y, x));
-            px[1] = convert(g.at<float>(y, x));
-            px[0] = convert(b.at<float>(y, x));
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
         }
     }
     return out;
@@ -516,6 +478,22 @@ void write_float_bgr_to_fits(const cv::Mat& img, const fs::path& path) {
         throw std::runtime_error("Cannot create FITS image: " + fits_status_text(status));
     }
 
+    double display_min = 0.0;
+    double display_max = 1.0;
+    fits_update_key(fptr, TDOUBLE, const_cast<char*>("DATAMIN"), &display_min,
+                    const_cast<char*>("Live editor display minimum"), &status);
+    fits_update_key(fptr, TDOUBLE, const_cast<char*>("DATAMAX"), &display_max,
+                    const_cast<char*>("Live editor display maximum"), &status);
+    if (channels == 3) {
+        char rgb[] = "RGB";
+        fits_update_key(fptr, TSTRING, const_cast<char*>("CTYPE3"), rgb,
+                        const_cast<char*>("Color channel"), &status);
+    }
+    if (status) {
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("Cannot write FITS display metadata: " + fits_status_text(status));
+    }
+
     if (!img.isContinuous()) {
         cv::Mat tmp = img.clone();
         write_float_bgr_to_fits(tmp, path);
@@ -585,6 +563,7 @@ nlohmann::json fallback_parse_message(const std::string& msg) {
     nlohmann::json operations = nlohmann::json::array();
     std::string summary;
     bool adjustable = false;
+    bool repeatable = false;
     nlohmann::json adjust_step;
 
     if (has("heller") || has("aufhellen") || has("brighter")) {
@@ -615,12 +594,35 @@ nlohmann::json fallback_parse_message(const std::string& msg) {
     } else if (has("schae") || has("sharpen")) {
         operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
         summary = "Schaerfe erhoeht.";
+        repeatable = true;
     } else if (has("rausch") || has("denoise") || has("noise")) {
         operations.push_back({{"type", "denoise"}, {"params", {{"strength", 0.5}, {"luminance", false}}}});
         summary = "Rauschen reduziert.";
     } else if (has("gruen")) {
         operations.push_back({{"type", "rmgreen"}, {"params", {{"strength", 0.5}}}});
         summary = "Gruenanteil reduziert.";
+    } else if (has("lebendig") || has("vibrance")) {
+        operations.push_back({{"type", "vibrance"}, {"params", {{"amount", 0.1}}}});
+        summary = "Lebendigkeit erhoeht.";
+        adjustable = true;
+        adjust_step = {{"type", "vibrance"}, {"params", {{"amount", 0.05}}}};
+    } else if (has("warm") || has("waerm") || has("temperatur")) {
+        operations.push_back({{"type", "color_temperature"}, {"params", {{"amount", 0.1}}}});
+        summary = "Farben erwaermt.";
+        adjustable = true;
+        adjust_step = {{"type", "color_temperature"}, {"params", {{"amount", 0.05}}}};
+    } else if (has("lila") || has("purple")) {
+        operations.push_back({{"type", "unpurple"}, {"params", {{"amount", 0.6}}}});
+        summary = "Lila Farbsaueme reduziert.";
+    } else if (has("streifen") || has("banding")) {
+        operations.push_back({{"type", "fixbanding"}, {"params", {{"amount", 0.5}, {"sigma", 2.0}}}});
+        summary = "Streifenartefakte reduziert.";
+    } else if (has("stern") && (has("saett") || has("entsaett"))) {
+        operations.push_back({{"type", "star_desaturation"}, {"params", {{"amount", 0.5}}}});
+        summary = "Uebersteuerte Sterne entsaettigt.";
+    } else if (has("dunst") || has("dehaze")) {
+        operations.push_back({{"type", "dehaze"}, {"params", {{"amount", 0.4}}}});
+        summary = "Dunst reduziert.";
     } else if (has("detail") || has("lokal") || has("clahe")) {
         operations.push_back({{"type", "clahe"}, {"params", {{"cliplimit", 3.0}, {"tilesize", 8}}}});
         summary = "Lokaler Kontrast erhoeht (CLAHE).";
@@ -638,6 +640,7 @@ nlohmann::json fallback_parse_message(const std::string& msg) {
         {"operations", operations},
         {"summary", summary},
         {"adjustable", adjustable},
+        {"repeatable", repeatable},
         {"adjust_step", adjust_step},
         {"warnings", nlohmann::json::array()},
         {"mode", "local_fallback"}
@@ -801,9 +804,16 @@ void persist_live_session(const std::shared_ptr<AppState>& state,
         run_id = s.run_id;
     });
     if (run_id.empty()) return;
+    const auto chat_history = store->get_chat_history(session_id);
+    const auto operation_history = store->get_operation_history(session_id);
+    if (chat_history.empty() && operation_history.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(pi_live_image_chat_history_path(state, run_id), ec);
+        return;
+    }
     write_pi_live_image_chat_history(state, run_id, {
-        {"chat_history", store->get_chat_history(session_id)},
-        {"operation_history", store->get_operation_history(session_id)},
+        {"chat_history", chat_history},
+        {"operation_history", operation_history},
         {"created_at", utc_now_iso()}
     });
 }
@@ -2742,40 +2752,47 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!fs::is_directory(run_dir))
             return err_resp("NOT_FOUND", "run directory not found", 404);
 
+        live_store->evict_expired(1800, 5);
+
         auto fits_path = find_output_fits(run_dir);
         if (!fits_path)
             return err_resp("NO_FITS", "No FITS output found in run directory", 404);
 
         try {
             const fs::path live_edit_path = run_dir / "outputs" / "live_edit.fits";
-            std::error_code copy_ec;
-            fs::copy_file(*fits_path, live_edit_path, fs::copy_options::overwrite_existing, copy_ec);
-            if (copy_ec)
-                return err_resp("COPY_FAILED", "Failed to create outputs/live_edit.fits: " + copy_ec.message(), 500);
 
-            cv::Mat fits = read_fits_to_float_bgr(live_edit_path);
-            if (fits.empty())
-                return err_resp("RENDER_FAILED", "Failed to read FITS data", 500);
-
-            std::string session_id = live_store->create(run_id, fits);
-
-            // Check for existing chat history and reconstruct image
+            // The source FITS is immutable. live_edit.fits, when present, is
+            // the canonical current working image from a previous session.
             auto saved = read_pi_live_image_chat_history(state, run_id);
             nlohmann::json op_history = saved.value("operation_history", nlohmann::json::array());
-            bool resumed = !op_history.empty();
+            const bool has_live_edit = fs::exists(live_edit_path);
+            const bool resumed = has_live_edit || !op_history.empty() ||
+                !saved.value("chat_history", nlohmann::json::array()).empty();
 
-            if (resumed) {
-                // Reconstruct current_fits from original + operation_history
+            cv::Mat original = read_fits_to_float_bgr(*fits_path);
+            cv::Mat current = has_live_edit ? read_fits_to_float_bgr(live_edit_path) : original.clone();
+            if (original.empty() || current.empty())
+                return err_resp("RENDER_FAILED", "Failed to read FITS data", 500);
+
+            std::string session_id = live_store->create(run_id, original, current);
+            live_store->evict_expired(1800, 5);
+
+            // If history exists without a working FITS, reconstruct the current
+            // image once and materialize the canonical working file.
+            if (!has_live_edit && !op_history.empty()) {
                 live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
                     for (const auto& op : op_history) {
                         auto result = tile_compile::pi::apply_image_op_fits(s.current_fits, op);
                         if (result.success) s.current_fits = std::move(result.image);
                     }
                 });
+                persist_live_edit_fits(state, live_store, session_id);
             }
 
-            if (resumed)
-                persist_live_edit_fits(state, live_store, session_id);
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                s.chat_history = saved.value("chat_history", nlohmann::json::array());
+                s.operation_history = op_history;
+            });
 
             std::string preview_b64;
             int img_w = 0, img_h = 0;
@@ -2794,8 +2811,9 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"image_height", img_h},
                 {"resumed", resumed}
             };
-            if (resumed) {
-                resp["chat_history"] = saved.value("chat_history", nlohmann::json::array());
+            nlohmann::json chat_history = saved.value("chat_history", nlohmann::json::array());
+            if (!chat_history.empty()) {
+                resp["chat_history"] = chat_history;
                 resp["operation_history"] = op_history;
             }
 
@@ -2838,6 +2856,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         // Try AI sidecar
         nlohmann::json ai_result;
         bool sidecar_ok = false;
+        nlohmann::json prompt_history = nlohmann::json::array();
+        if (op_history.is_array()) {
+            const size_t begin = op_history.size() > 10 ? op_history.size() - 10 : 0;
+            for (size_t i = begin; i < op_history.size(); ++i) prompt_history.push_back(op_history[i]);
+        }
         try {
             auto ai_config = current_pi_ai_config(state);
             if (!ai_config.model.empty()) {
@@ -2846,7 +2869,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"prompt", message},
                     {"image_base64", vision_b64},
                     {"image_mime", "image/jpeg"},
-                    {"operation_history", op_history}
+                    {"operation_history", prompt_history}
                 };
                 auto response = client.post("/live-image-chat", payload);
                 if (response.contains("operations")) {
@@ -2865,6 +2888,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         // Apply operations
         nlohmann::json operations = ai_result.value("operations", nlohmann::json::array());
         nlohmann::json applied_ops = nlohmann::json::array();
+        nlohmann::json warnings = ai_result.value("warnings", nlohmann::json::array());
+        if (!warnings.is_array()) warnings = nlohmann::json::array();
         std::string last_error;
 
         for (const auto& op : operations) {
@@ -2874,13 +2899,32 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 applied_ops.push_back(op);
             } else {
                 last_error = res.error;
+                warnings.push_back("invalid_operation: " + res.error);
             }
         }
 
-        // Set adjust step if provided
-        if (ai_result.value("adjustable", false) && ai_result.contains("adjust_step")) {
-            live_store->set_adjust_step(session_id, ai_result["adjust_step"]);
+        const bool sharpen_operation = !applied_ops.empty() &&
+            applied_ops.front().value("type", std::string()) == "sharpen";
+        const bool adjustable = ai_result.value("adjustable", false) && !sharpen_operation;
+
+        // Set adjust step if provided, otherwise derive from the first applied operation
+        nlohmann::json effective_adjust_step = nullptr;
+        if (adjustable) {
+            nlohmann::json adjust_step = ai_result.value("adjust_step", nlohmann::json());
+            if (adjust_step.is_null() && !applied_ops.empty()) {
+                adjust_step = applied_ops[0];
+            }
+            if (!adjust_step.is_null()) {
+                effective_adjust_step = adjust_step;
+                live_store->set_adjust_step(session_id, adjust_step);
+            }
+        } else {
+            live_store->set_adjust_step(session_id, nullptr);
         }
+        const bool has_repeatable_operation = !applied_ops.empty() &&
+            applied_ops.front().value("type", std::string()) != "reset";
+        const bool repeatable = has_repeatable_operation &&
+            (sharpen_operation || ai_result.value("repeatable", false) || !adjustable);
 
         // Append assistant response to chat history
         std::string summary = ai_result.value("summary", std::string());
@@ -2892,29 +2936,71 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
         std::string updated_b64;
         int img_w = 0, img_h = 0;
+        bool can_undo = false, can_redo = false;
         live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
             updated_b64 = mat_to_jpeg_base64(s.current_fits, 85);
             img_w = s.current_fits.cols;
             img_h = s.current_fits.rows;
+            can_undo = !s.undo_stack.empty();
+            can_redo = !s.redo_stack.empty();
         });
 
         nlohmann::json resp = {
+            {"schema_version", "pi.live-image-chat.v1"},
+            {"session_id", session_id},
             {"summary", summary},
             {"operations", applied_ops},
             {"image_base64", updated_b64},
             {"image_mime", "image/jpeg"},
             {"image_width", img_w},
             {"image_height", img_h},
-            {"adjustable", ai_result.value("adjustable", false)},
-            {"mode", ai_result.value("mode", sidecar_ok ? "sidecar" : "sidecar")}
+            {"adjustable", adjustable},
+            {"repeatable", repeatable},
+            {"can_undo", can_undo},
+            {"can_redo", can_redo},
+            {"mode", ai_result.value("mode", sidecar_ok ? "sidecar" : "local_fallback")}
         };
-        if (ai_result.contains("warnings"))
-            resp["warnings"] = ai_result["warnings"];
+        resp["warnings"] = warnings;
+        if (!effective_adjust_step.is_null())
+            resp["adjust_step"] = effective_adjust_step;
         if (!last_error.empty())
             resp["last_error"] = last_error;
 
         try { persist_live_session(state, live_store, session_id); } catch (...) {}
         return json_resp(resp);
+    });
+
+    // Repeat the last non-adjustable operation with exactly the same params.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/repeat").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+        auto result = live_store->repeat_operation(session_id);
+        if (!result.success)
+            return err_resp("REPEAT_FAILED", result.error, 400);
+        nlohmann::json repeated_op = nlohmann::json(nullptr);
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            if (!s.undo_stack.empty()) repeated_op = s.undo_stack.back();
+        });
+        live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", repeated_op);
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false, can_redo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            can_undo = !s.undo_stack.empty();
+            can_redo = !s.redo_stack.empty();
+        });
+        return json_resp({
+            {"session_id", session_id},
+            {"summary", "Operation erneut angewendet."},
+            {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+            {"image_mime", "image/jpeg"},
+            {"can_undo", can_undo},
+            {"can_redo", can_redo},
+            {"repeatable", true}
+        });
     });
 
     // 3. POST /api/pi/live-image-chat/adjust
@@ -3010,9 +3096,43 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (img.empty())
             return err_resp("NOT_FOUND", "session not found", 404);
 
-        persist_live_edit_fits(state, live_store, session_id);
+        // Reset is a new editing session boundary: replace the old canonical
+        // working image with a fresh copy of the immutable source and remove
+        // persisted history.
+        try {
+            std::string rid;
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                rid = s.run_id;
+            });
+            if (!rid.empty()) {
+                auto run_dir = state->runtime.resolve_run_dir(rid);
+                const auto outputs_dir = run_dir / "outputs";
+                std::filesystem::remove(outputs_dir / "live_edit.fits");
+                // Remove derived previews as well; live_edit.fits is the only
+                // canonical reset result and stale PNG/JPEG files would make
+                // the run preview disagree with it.
+                for (const char* name : {"live_edit.png", "live_edit.jpg", "live_edit.jpeg"})
+                    std::filesystem::remove(outputs_dir / name);
+            }
+        } catch (...) {}
 
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        // Materialize the reset state again as the new canonical working FITS
+        // so the run preview immediately reflects the reset image. History
+        // remains deleted; this file contains the untouched source pixels.
+        try { persist_live_edit_fits(state, live_store, session_id); } catch (...) {}
+
+        // Delete chat history file entirely
+        try {
+            std::string rid;
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                rid = s.run_id;
+            });
+            if (!rid.empty()) {
+                auto history_path = pi_live_image_chat_history_path(state, rid);
+                std::filesystem::remove(history_path);
+            }
+        } catch (...) {}
+
         return json_resp({
             {"image_base64", mat_to_jpeg_base64(img, 85)},
             {"image_mime", "image/jpeg"},
