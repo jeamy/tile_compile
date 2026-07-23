@@ -96,6 +96,27 @@ nlohmann::json validate_op(const nlohmann::json& op) {
         // no params
     } else if (type == "vibrance" || type == "color_temperature") {
         if (check(require("amount", -1.0, 1.0))) return {{"error", err}};
+    } else if (type == "levels") {
+        if (check(require("black", 0.0, 1.0))) return {{"error", err}};
+        if (check(require("white", 0.0, 1.0))) return {{"error", err}};
+        if (check(require("gamma", 0.1, 5.0))) return {{"error", err}};
+        if (p["black"].get<double>() >= p["white"].get<double>()) return {{"error", "black must be < white"}};
+    } else if (type == "curves") {
+        if (!p.contains("points") || !p["points"].is_array() || p["points"].size() < 2 || p["points"].size() > 32)
+            return {{"error", "curves requires 2-32 points"}};
+    } else if (type == "shadow_recovery" || type == "highlight_recovery") {
+        if (check(require("strength", 0.0, 1.0))) return {{"error", err}};
+    } else if (type == "local_contrast") {
+        if (check(require("strength", 0.0, 1.0))) return {{"error", err}};
+        if (check(require("radius", 0.5, 10.0))) return {{"error", err}};
+    } else if (type == "color_balance") {
+        if (check(require("red", -1.0, 1.0))) return {{"error", err}};
+        if (check(require("green", -1.0, 1.0))) return {{"error", err}};
+        if (check(require("blue", -1.0, 1.0))) return {{"error", err}};
+    } else if (type == "chroma_denoise") {
+        if (check(require("strength", 0.0, 1.0))) return {{"error", err}};
+        if (check(require("protect", 0.0, 1.0))) return {{"error", err}};
+        if (p.contains("mode") && !p["mode"].is_string()) return {{"error", "mode must be a string"}};
     } else if (type == "unpurple" || type == "star_desaturation" || type == "dehaze") {
         if (check(require("amount", 0.0, 1.0))) return {{"error", err}};
     } else if (type == "fixbanding") {
@@ -170,6 +191,97 @@ cv::Mat apply_contrast(const cv::Mat& img, double amount) {
     cv::Mat out;
     cv::merge(channels, out);
     return out;
+}
+
+cv::Mat apply_levels_float(const cv::Mat& img, double black, double white, double gamma) {
+    cv::Mat out = img.clone();
+    const float scale = static_cast<float>(1.0 / (white - black));
+    for (int y = 0; y < out.rows; ++y) {
+        auto* row = out.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < out.cols; ++x) for (int c = 0; c < 3; ++c) {
+            const double n = clamp_param((row[x][c] - black) * scale, 0.0, 1.0);
+            row[x][c] = static_cast<float>(std::pow(n, 1.0 / gamma));
+        }
+    }
+    return out;
+}
+
+cv::Mat apply_curves_float(const cv::Mat& img, const nlohmann::json& points) {
+    std::vector<std::pair<double, double>> p;
+    for (const auto& point : points) {
+        double x = 0.0, y = 0.0;
+        if (point.is_array() && point.size() >= 2) { x = point[0].get<double>(); y = point[1].get<double>(); }
+        else if (point.is_object() && point.contains("x") && point.contains("y")) { x = point["x"].get<double>(); y = point["y"].get<double>(); }
+        else continue;
+        p.emplace_back(clamp_param(x, 0.0, 1.0), clamp_param(y, 0.0, 1.0));
+    }
+    if (p.size() < 2) return img.clone();
+    std::sort(p.begin(), p.end());
+    cv::Mat lut(1, 256, CV_32F);
+    for (int i = 0; i < 256; ++i) {
+        const double x = i / 255.0;
+        size_t j = 1; while (j < p.size() && x > p[j].first) ++j;
+        if (j >= p.size()) j = p.size() - 1;
+        const auto [x0, y0] = p[j - 1]; const auto [x1, y1] = p[j];
+        const double t = x1 > x0 ? (x - x0) / (x1 - x0) : 0.0;
+        const double yprev = j > 1 ? p[j - 2].second : y0;
+        const double ynext = j + 1 < p.size() ? p[j + 1].second : y1;
+        const double t2 = t * t, t3 = t2 * t;
+        const double spline = 0.5 * ((2.0 * y0) + (-yprev + y1) * t + (2.0 * yprev - 5.0 * y0 + 4.0 * y1 - ynext) * t2 + (-yprev + 3.0 * y0 - 3.0 * y1 + ynext) * t3);
+        lut.at<float>(0, i) = static_cast<float>(clamp_param(spline, 0.0, 1.0));
+    }
+    cv::Mat out = img.clone();
+    for (int y = 0; y < out.rows; ++y) {
+        auto* row = out.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < out.cols; ++x) for (int c = 0; c < 3; ++c) {
+            const int idx = std::clamp(static_cast<int>(row[x][c] * 255.0f), 0, 255);
+            row[x][c] = lut.at<float>(0, idx);
+        }
+    }
+    return out;
+}
+
+cv::Mat apply_shadow_highlight_float(const cv::Mat& img, double strength, bool shadows) {
+    cv::Mat out = img.clone();
+    for (int y = 0; y < out.rows; ++y) {
+        auto* row = out.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < out.cols; ++x) {
+            float lum = (row[x][0] + row[x][1] + row[x][2]) / 3.0f;
+            float weight = shadows ? (1.0f - lum) * (1.0f - lum) : lum * lum;
+            float delta = static_cast<float>(strength) * weight * (shadows ? (1.0f - lum) : -lum);
+            for (int c = 0; c < 3; ++c) row[x][c] = static_cast<float>(clamp_param(row[x][c] + delta, 0.0, 1.0));
+        }
+    }
+    return out;
+}
+
+cv::Mat apply_color_balance_float(const cv::Mat& img, const nlohmann::json& p) {
+    cv::Mat out = img.clone();
+    auto value = [&](const std::string& key) { return p.value(key, 0.0); };
+    const double base[3] = {value("blue"), value("green"), value("red")};
+    const double shadow[3] = {value("shadow_blue"), value("shadow_green"), value("shadow_red")};
+    const double highlight[3] = {value("highlight_blue"), value("highlight_green"), value("highlight_red")};
+    const double mid[3] = {value("mid_blue"), value("mid_green"), value("mid_red")};
+    for (int y = 0; y < out.rows; ++y) { auto* row = out.ptr<cv::Vec3f>(y); for (int x = 0; x < out.cols; ++x) {
+        const double lum = (row[x][0] + row[x][1] + row[x][2]) / 3.0;
+        const double sw = std::max(0.0, 1.0 - lum * 2.0), hw = std::max(0.0, (lum - 0.5) * 2.0), mw = 1.0 - std::min(1.0, sw + hw);
+        for (int c = 0; c < 3; ++c) row[x][c] = static_cast<float>(clamp_param(row[x][c] * (1.0 + base[c] + sw * shadow[c] + mw * mid[c] + hw * highlight[c]), 0.0, 1.0));
+    }}
+    return out;
+}
+
+cv::Mat apply_local_contrast_float(const cv::Mat& img, double strength, double radius) {
+    cv::Mat blur, out; cv::GaussianBlur(img, blur, cv::Size(0, 0), radius);
+    out = img + static_cast<float>(strength) * (img - blur); cv::min(out, 1.0, out); cv::max(out, 0.0, out); return out;
+}
+
+cv::Mat apply_chroma_denoise_float(const cv::Mat& img, double strength, double protect, const std::string& mode) {
+    cv::Mat blur; cv::GaussianBlur(img, blur, cv::Size(0, 0), mode == "strong" ? 2.0 : 1.2);
+    cv::Mat out = img.clone();
+    for (int y = 0; y < out.rows; ++y) { auto* row = out.ptr<cv::Vec3f>(y); const auto* b = blur.ptr<cv::Vec3f>(y); for (int x = 0; x < out.cols; ++x) {
+        float lum = (row[x][0] + row[x][1] + row[x][2]) / 3.0f; float factor = static_cast<float>(strength * (1.0 - protect));
+        for (int c = 0; c < 3; ++c) row[x][c] = static_cast<float>(clamp_param(lum + (1.0 - factor) * (row[x][c] - lum) + factor * (b[x][c] - lum), 0.0, 1.0));
+    }} return out;
 }
 
 cv::Mat apply_saturation(const cv::Mat& img, double amount) {
@@ -824,6 +936,20 @@ ImageOpResult apply_image_op_fits(const cv::Mat& input, const nlohmann::json& op
             result.image = apply_star_desaturation_fits(input, p["amount"].get<double>());
         } else if (type == "dehaze") {
             result.image = apply_dehaze_fits(input, p["amount"].get<double>());
+        } else if (type == "levels") {
+            result.image = apply_levels_float(input, p["black"].get<double>(), p["white"].get<double>(), p["gamma"].get<double>());
+        } else if (type == "curves") {
+            result.image = apply_curves_float(input, p["points"]);
+        } else if (type == "shadow_recovery") {
+            result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), true);
+        } else if (type == "highlight_recovery") {
+            result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), false);
+        } else if (type == "color_balance") {
+            result.image = apply_color_balance_float(input, p);
+        } else if (type == "local_contrast") {
+            result.image = apply_local_contrast_float(input, p["strength"].get<double>(), p["radius"].get<double>());
+        } else if (type == "chroma_denoise") {
+            result.image = apply_chroma_denoise_float(input, p["strength"].get<double>(), p["protect"].get<double>(), p.value("mode", "soft"));
         } else {
             result.error = "unknown operation type: " + type;
             return result;
@@ -913,6 +1039,20 @@ ImageOpResult apply_image_op(const cv::Mat& input, const nlohmann::json& op) {
             result.image = apply_star_desaturation(input, p["amount"].get<double>());
         } else if (type == "dehaze") {
             result.image = apply_dehaze(input, p["amount"].get<double>());
+        } else if (type == "levels") {
+            result.image = apply_levels_float(input, p["black"].get<double>(), p["white"].get<double>(), p["gamma"].get<double>());
+        } else if (type == "curves") {
+            result.image = apply_curves_float(input, p["points"]);
+        } else if (type == "shadow_recovery") {
+            result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), true);
+        } else if (type == "highlight_recovery") {
+            result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), false);
+        } else if (type == "color_balance") {
+            result.image = apply_color_balance_float(input, p);
+        } else if (type == "local_contrast") {
+            result.image = apply_local_contrast_float(input, p["strength"].get<double>(), p["radius"].get<double>());
+        } else if (type == "chroma_denoise") {
+            result.image = apply_chroma_denoise_float(input, p["strength"].get<double>(), p["protect"].get<double>(), p.value("mode", "soft"));
         } else {
             result.error = "unknown operation type: " + type;
             return result;

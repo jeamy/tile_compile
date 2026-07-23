@@ -39,6 +39,13 @@ Available operations:
 - fixbanding: { amount: 0..1, sigma: 0.5..5 }
 - star_desaturation: { amount: 0..1 }
 - dehaze: { amount: 0..1 }
+- levels: { black: 0..1, white: 0..1, gamma: 0.1..5 } (AI suggests initial values; GUI fine-tunes)
+- shadow_recovery: { strength: 0..1 }
+- highlight_recovery: { strength: 0..1 }
+- color_balance: { red: -1..1, green: -1..1, blue: -1..1, optional shadow_red/green/blue, mid_red/green/blue, highlight_red/green/blue: -1..1 }
+- local_contrast: { strength: 0..1, radius: 0.5..10 }
+- chroma_denoise: { strength: 0..1, protect: 0..1, mode: "soft"|"strong" }
+- curves: GUI-only; never generate curves operations here
 
 Note: clahe, bilateral, denoise and threshold cannot be exactly undone by
 negating a parameter (they are non-linear or lossy). Do NOT set
@@ -53,6 +60,10 @@ with a moderate signed increment (e.g. +5%). Do not mark one-sided operations
 (unpurple, fixbanding, star_desaturation, dehaze or rmgreen) as adjustable.
 Sharpen is repeatable with the same positive parameters, but is not a +/-
 operation. You do not need to loop or detect "stop".
+For levels, shadow_recovery, highlight_recovery, color_balance,
+local_contrast and chroma_denoise, choose conservative initial parameters;
+the GUI exposes controls for subsequent fine adjustment. Never return a
+curves operation: curves are edited only by the user in the GUI.
 
 Return exactly:
 {

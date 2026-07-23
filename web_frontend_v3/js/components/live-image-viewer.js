@@ -26,6 +26,13 @@ const PRESET_COMMANDS = [
   { category: "details", label: "liveImage.cmd.fixbanding", command: "reduziere Streifenartefakte", help: "liveImage.cmd.fixbanding.help", phase: 2 },
   { category: "details", label: "liveImage.cmd.starDesaturation", command: "entsaettige uebersteuerte Sterne", help: "liveImage.cmd.starDesaturation.help", phase: 2 },
   { category: "details", label: "liveImage.cmd.dehaze", command: "reduziere den Dunst", help: "liveImage.cmd.dehaze.help", phase: 2 },
+  { category: "brightness", label: "liveImage.cmd.levels", command: "passe die Tonwerte an", help: "liveImage.cmd.levels.help", phase: 2 },
+  { category: "brightness", label: "liveImage.cmd.shadowRecovery", command: "stelle die Schatten wieder her", help: "liveImage.cmd.shadowRecovery.help", phase: 2 },
+  { category: "brightness", label: "liveImage.cmd.highlightRecovery", command: "stelle die Spitzlichter wieder her", help: "liveImage.cmd.highlightRecovery.help", phase: 2 },
+  { category: "color", label: "liveImage.cmd.colorBalance", command: "passe die Farbbalance an", help: "liveImage.cmd.colorBalance.help", phase: 2 },
+  { category: "details", label: "liveImage.cmd.localContrast", command: "erhoehe den lokalen Kontrast", help: "liveImage.cmd.localContrast.help", phase: 2 },
+  { category: "noise", label: "liveImage.cmd.chromaDenoise", command: "reduziere Farbrauschen", help: "liveImage.cmd.chromaDenoise.help", phase: 2 },
+  { category: "details", label: "liveImage.cmd.curves", action: "curves", help: "liveImage.cmd.curves.help", phase: 2 },
   { category: "misc", label: "liveImage.cmd.crop", action: "crop", help: "liveImage.cmd.crop.help", phase: 1 },
 ];
 
@@ -52,6 +59,11 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     dragStartX: 0,
     dragStartY: 0,
     selectedPresetId: "",
+    previewBaseSrc: null,
+    previewRequestId: 0,
+    previewTimer: null,
+    previewEnabled: true,
+    editorOperationProvider: null,
   };
 
   const overlay = document.createElement("div");
@@ -266,6 +278,35 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   repeatRow.appendChild(repeatBtn);
   chatPanel.appendChild(repeatRow);
 
+  const operationEditor = document.createElement("div");
+  operationEditor.className = "live-image-viewer__operation-editor";
+  operationEditor.style.display = "none";
+  imageWrap.appendChild(operationEditor);
+
+  let editorDrag = null;
+  operationEditor.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".live-image-viewer__operation-editor-header");
+    if (!handle) return;
+    const rect = operationEditor.getBoundingClientRect();
+    editorDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    operationEditor.style.left = `${rect.left}px`;
+    operationEditor.style.top = `${rect.top}px`;
+    operationEditor.style.right = "auto";
+    operationEditor.style.transform = "none";
+    handle.setPointerCapture(event.pointerId);
+  });
+  operationEditor.addEventListener("pointermove", (event) => {
+    if (!editorDrag) return;
+    const maxLeft = Math.max(0, window.innerWidth - operationEditor.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - operationEditor.offsetHeight);
+    operationEditor.style.left = `${Math.max(0, Math.min(maxLeft, event.clientX - editorDrag.dx))}px`;
+    operationEditor.style.top = `${Math.max(0, Math.min(maxTop, event.clientY - editorDrag.dy))}px`;
+  });
+  const stopEditorDrag = () => { editorDrag = null; };
+  operationEditor.addEventListener("pointerup", stopEditorDrag);
+  operationEditor.addEventListener("pointercancel", stopEditorDrag);
+  operationEditor.addEventListener("lostpointercapture", stopEditorDrag);
+
   const presetRow = document.createElement("div");
   presetRow.className = "live-image-viewer__presets";
   const presetSelect = document.createElement("select");
@@ -384,6 +425,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     const cropAction = selected.dataset.action;
     if (cropAction === "crop") {
       openCropOverlay();
+    } else if (cropAction === "curves") {
+      openCurvesEditor();
     } else {
       sendChat(selected.value);
     }
@@ -396,6 +439,130 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     state.isLoading = loading;
     compareBtn.disabled = loading;
     loadingOverlay.style.display = loading ? "flex" : "none";
+  }
+
+  function beginOperationDialog(title) {
+    operationEditor.innerHTML = "";
+    operationEditor.classList.remove("live-image-viewer__operation-editor--curves");
+    operationEditor.style.left = "50%";
+    operationEditor.style.top = "50%";
+    operationEditor.style.right = "auto";
+    operationEditor.style.transform = "translate(-50%, -50%)";
+    const header = document.createElement("div");
+    header.className = "live-image-viewer__operation-editor-header";
+    header.textContent = title;
+    operationEditor.appendChild(header);
+    state.previewEnabled = true;
+    state.editorOperationProvider = null;
+    state.previewBaseSrc = state.currentImageSrc;
+  }
+
+  function appendOperationDialogFooter(onApply) {
+    const footer = document.createElement("div");
+    footer.className = "live-image-viewer__operation-editor-footer";
+    const previewLabel = document.createElement("label");
+    previewLabel.className = "live-image-viewer__preview-toggle";
+    const previewCheckbox = document.createElement("input");
+    previewCheckbox.type = "checkbox";
+    previewCheckbox.checked = true;
+    const previewText = document.createElement("span");
+    previewText.textContent = t("liveImage.previewToggle", "Vorher/Aktuell");
+    previewLabel.append(previewCheckbox, previewText);
+    previewCheckbox.addEventListener("change", () => {
+      state.previewEnabled = previewCheckbox.checked;
+      if (state.previewEnabled && state.editorOperationProvider) {
+        previewOperation(state.editorOperationProvider());
+      } else {
+        if (state.previewTimer) window.clearTimeout(state.previewTimer);
+        state.previewTimer = null;
+        state.previewRequestId += 1;
+        restoreCurrentEditorImage();
+      }
+    });
+    const actions = document.createElement("div");
+    actions.className = "live-image-viewer__operation-editor-actions";
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "live-image-viewer__btn";
+    apply.textContent = t("liveImage.apply", "Anwenden");
+    apply.addEventListener("click", onApply);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "live-image-viewer__btn";
+    cancel.textContent = t("liveImage.cancel", "Abbrechen");
+    cancel.addEventListener("click", clearOperationPreview);
+    actions.append(apply, cancel);
+    footer.append(previewLabel, actions);
+    operationEditor.appendChild(footer);
+  }
+
+  function openCurvesEditor() {
+    beginOperationDialog(t("liveImage.cmd.curves", "Kurven"));
+    operationEditor.classList.add("live-image-viewer__operation-editor--curves");
+    const points = [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]];
+    const canvas = document.createElement("canvas"); canvas.width = 360; canvas.height = 260; canvas.className = "live-image-viewer__curves-canvas";
+    const ctx = canvas.getContext("2d");
+    const pad = 28; const plotW = canvas.width - pad - 10; const plotH = canvas.height - pad - 10;
+    const toCanvas = (p) => [pad + p[0] * plotW, 10 + (1 - p[1]) * plotH];
+    const fromCanvas = (x, y) => [Math.max(0, Math.min(1, (x - pad) / plotW)), Math.max(0, Math.min(1, 1 - (y - 10) / plotH))];
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) { const x = pad + i * plotW / 4; const y = 10 + i * plotH / 4; ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, 10 + plotH); ctx.stroke(); ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke(); }
+      const sorted = [...points].sort((a, b) => a[0] - b[0]);
+      ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i <= 100; i++) {
+        const x = i / 100; let j = 1;
+        while (j < sorted.length && x > sorted[j][0]) j++;
+        j = Math.min(j, sorted.length - 1);
+        const a = sorted[j - 1], b = sorted[j];
+        const t = b[0] > a[0] ? (x - a[0]) / (b[0] - a[0]) : 0;
+        const yPrev = j > 1 ? sorted[j - 2][1] : a[1];
+        const yNext = j + 1 < sorted.length ? sorted[j + 1][1] : b[1];
+        const t2 = t * t, t3 = t2 * t;
+        const y = Math.max(0, Math.min(1, 0.5 * ((2 * a[1]) + (-yPrev + b[1]) * t
+          + (2 * yPrev - 5 * a[1] + 4 * b[1] - yNext) * t2
+          + (-yPrev + 3 * a[1] - 3 * b[1] + yNext) * t3)));
+        const [cx, cy] = toCanvas([x, y]);
+        if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+      for (const p of sorted) { const [x, y] = toCanvas(p); ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "#2563eb"; ctx.stroke(); }
+    };
+    let dragging = null;
+    const nearest = (x, y) => { let best = null; let dist = 14; for (const p of points) { const [px, py] = toCanvas(p); const d = Math.hypot(px - x, py - y); if (d < dist) { best = p; dist = d; } } return best; };
+    const eventPoint = (event) => {
+      const r = canvas.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return null;
+      return [(event.clientX - r.left) * canvas.width / r.width, (event.clientY - r.top) * canvas.height / r.height];
+    };
+    const updateFromPointer = (event) => { const pos = eventPoint(event); if (!pos || !dragging) return; const [x, y] = fromCanvas(pos[0], pos[1]); dragging[0] = x; dragging[1] = y; draw(); previewOperation({ type: "curves", params: { points } }); };
+    canvas.addEventListener("pointerdown", (event) => { const pos = eventPoint(event); if (!pos) return; const [x, y] = pos; dragging = nearest(x, y); if (!dragging && points.length < 32) { const p = fromCanvas(x, y); points.push(p); dragging = p; draw(); previewOperation({ type: "curves", params: { points } }); } if (dragging) canvas.setPointerCapture(event.pointerId); });
+    canvas.addEventListener("pointermove", (event) => { if (dragging) updateFromPointer(event); });
+    canvas.addEventListener("pointerup", () => { dragging = null; });
+    canvas.addEventListener("pointercancel", () => { dragging = null; });
+    canvas.addEventListener("lostpointercapture", () => { dragging = null; });
+    canvas.addEventListener("dblclick", (event) => { const pos = eventPoint(event); if (!pos) return; const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && points.length > 2) { points.splice(points.indexOf(p), 1); draw(); previewOperation({ type: "curves", params: { points } }); } });
+    canvas.addEventListener("contextmenu", (event) => { event.preventDefault(); const pos = eventPoint(event); if (!pos) return; const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && points.length > 2) { points.splice(points.indexOf(p), 1); draw(); previewOperation({ type: "curves", params: { points } }); } });
+    operationEditor.appendChild(canvas); draw();
+    state.editorOperationProvider = () => ({ type: "curves", params: { points } });
+    appendOperationDialogFooter(() => {
+      const operation = state.editorOperationProvider();
+      clearOperationPreview();
+      sendOperationDirect(operation);
+    });
+    operationEditor.style.display = "flex";
+  }
+
+  async function sendOperationDirect(operation) {
+    if (!state.sessionId || state.isLoading) return;
+    const beforeSrc = beginOperation(); setLoading(true);
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.reapply, { session_id: state.sessionId, operations: [operation] });
+      addChatBubble("assistant", resp.summary || t("liveImage.operationApplied", "Operation angewendet."), resp.operations || [operation]);
+      commitOperation(resp.image_base64, beforeSrc); updateUndoRedo(resp.can_undo === true, resp.can_redo === true); renderOperationEditor(resp.operations || [operation]);
+    } catch (err) { cancelOperation(); addChatBubble("assistant", `Error: ${err.message}`); }
+    finally { setLoading(false); }
   }
 
   function updateImage(jpegBase64) {
@@ -430,9 +597,9 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     }
   }
 
-  async function reapplyOperations(operations) {
+  async function reapplyOperations(operations, askConfirmation = true) {
     if (!state.sessionId || state.isLoading || !Array.isArray(operations) || !operations.length) return;
-    if (!window.confirm(t("liveImage.reapplyConfirm", "Befehl noch einmal anwenden?"))) return;
+    if (askConfirmation && !window.confirm(t("liveImage.reapplyConfirm", "Befehl noch einmal anwenden?"))) return;
     const beforeSrc = beginOperation();
     setLoading(true);
     try {
@@ -464,6 +631,124 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   function updateRepeatControl(show) {
     state.repeatActive = show;
     repeatRow.style.display = show ? "flex" : "none";
+  }
+
+  function renderOperationEditor(operations) {
+    const op = Array.isArray(operations) && operations.length ? operations[0] : null;
+    if (!op || op.type === "curves" || !op.params || typeof op.params !== "object") { operationEditor.style.display = "none"; return; }
+    beginOperationDialog(op.label || op.type.replaceAll("_", " "));
+    const controls = [];
+    const boundsFor = (type, key) => {
+      if (type === "brightness" || type === "color_balance") return [-1, 1, 0.01];
+      if (["contrast", "saturation", "vibrance", "color_temperature"].includes(type) && key === "amount") return [-1, 1, 0.01];
+      if (["unpurple", "star_desaturation", "dehaze", "fixbanding"].includes(type) && key === "amount") return [0, 1, 0.01];
+      if (["denoise", "rmgreen", "shadow_recovery", "highlight_recovery", "local_contrast", "chroma_denoise"].includes(type) && ["strength", "protect"].includes(key)) return [0, 1, 0.01];
+      if (type === "sharpen" && key === "amount") return [0, 1, 0.01];
+      if (type === "sharpen" && key === "radius") return [0.5, 5, 0.1];
+      if (type === "local_contrast" && key === "radius") return [0.5, 10, 0.1];
+      if (type === "fixbanding" && key === "sigma") return [0.5, 5, 0.1];
+      if (type === "levels" && ["black", "white"].includes(key)) return [0, 1, 0.01];
+      if (type === "levels" && key === "gamma") return [0.1, 5, 0.05];
+      if (type === "threshold" && ["black_point", "white_point"].includes(key)) return [0, 1, 0.01];
+      if (type === "clahe" && key === "cliplimit") return [1, 10, 0.1];
+      if (type === "clahe" && key === "tilesize") return [8, 64, 1];
+      if (type === "bilateral" && key === "d") return [3, 15, 1];
+      if (type === "bilateral" && ["sigma_color", "sigma_space"].includes(key)) return [10, 150, 1];
+      return null;
+    };
+    const operationWithControls = () => {
+      const adjusted = JSON.parse(JSON.stringify(op));
+      for (const control of controls) {
+        adjusted.params[control.key] = control.kind === "number" ? Number(control.input.value)
+          : control.kind === "boolean" ? control.input.checked : control.input.value;
+      }
+      if (adjusted.type === "levels" && adjusted.params.black >= adjusted.params.white) {
+        adjusted.params.black = Math.min(0.99, adjusted.params.black);
+        adjusted.params.white = Math.max(adjusted.params.black + 0.01, adjusted.params.white);
+      }
+      if (adjusted.type === "threshold" && adjusted.params.black_point >= adjusted.params.white_point) {
+        adjusted.params.black_point = Math.min(0.99, adjusted.params.black_point);
+        adjusted.params.white_point = Math.max(adjusted.params.black_point + 0.01, adjusted.params.white_point);
+      }
+      return adjusted;
+    };
+    for (const [key, value] of Object.entries(op.params)) {
+      const row = document.createElement("label");
+      row.className = "live-image-viewer__operation-editor-row";
+      const title = document.createElement("span"); title.textContent = key;
+      const input = document.createElement(typeof value === "string" ? "select" : "input");
+      const valueEl = document.createElement("output");
+      if (typeof value === "number") {
+        const bounds = boundsFor(op.type, key);
+        if (!bounds) continue;
+        input.type = "range"; input.min = bounds[0]; input.max = bounds[1]; input.step = bounds[2]; input.value = value;
+        valueEl.textContent = Number(value).toFixed(bounds[2] >= 1 ? 0 : 2);
+        controls.push({ key, input, kind: "number" });
+        input.addEventListener("input", () => { valueEl.textContent = Number(input.value).toFixed(bounds[2] >= 1 ? 0 : 2); previewOperation(operationWithControls()); });
+      } else if (typeof value === "boolean") {
+        input.type = "checkbox"; input.checked = value; valueEl.textContent = "";
+        controls.push({ key, input, kind: "boolean" });
+        input.addEventListener("change", () => previewOperation(operationWithControls()));
+      } else if (op.type === "chroma_denoise" && key === "mode") {
+        for (const mode of ["soft", "strong"]) { const option = document.createElement("option"); option.value = mode; option.textContent = t(`liveImage.mode.${mode}`, mode); input.appendChild(option); }
+        input.value = value; valueEl.textContent = "";
+        controls.push({ key, input, kind: "string" });
+        input.addEventListener("change", () => previewOperation(operationWithControls()));
+      } else {
+        continue;
+      }
+      row.append(title, input, valueEl); operationEditor.appendChild(row);
+    }
+    if (!controls.length) { operationEditor.style.display = "none"; return; }
+    state.editorOperationProvider = operationWithControls;
+    appendOperationDialogFooter(() => {
+      const operation = operationWithControls();
+      clearOperationPreview();
+      reapplyOperations([operation], false);
+    });
+    operationEditor.style.display = "flex";
+  }
+
+  function previewOperation(operation) {
+    if (!state.sessionId || state.isLoading || !state.previewEnabled) return;
+    if (state.previewTimer) window.clearTimeout(state.previewTimer);
+    const snapshot = JSON.parse(JSON.stringify(operation));
+    state.previewTimer = window.setTimeout(() => requestOperationPreview(snapshot), 120);
+  }
+
+  async function requestOperationPreview(operation) {
+    if (!state.sessionId || state.isLoading) return;
+    state.previewTimer = null;
+    if (!state.previewBaseSrc) state.previewBaseSrc = state.currentImageSrc;
+    const requestId = ++state.previewRequestId;
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.previewOperation, { session_id: state.sessionId, operation });
+      if (requestId === state.previewRequestId && resp.image_base64) imgEl.src = `data:image/jpeg;base64,${resp.image_base64}`;
+    } catch (err) {
+      if (requestId === state.previewRequestId) {
+        addChatBubble("assistant", `${t("liveImage.previewFailed", "Live-Vorschau fehlgeschlagen")}: ${err.message}`);
+      }
+    }
+  }
+
+  function clearOperationPreview() {
+    if (state.previewTimer) window.clearTimeout(state.previewTimer);
+    state.previewTimer = null;
+    state.previewRequestId += 1;
+    restoreCurrentEditorImage();
+    state.previewBaseSrc = null;
+    state.previewEnabled = true;
+    state.editorOperationProvider = null;
+    operationEditor.classList.remove("live-image-viewer__operation-editor--curves");
+    operationEditor.style.display = "none";
+  }
+
+  function restoreCurrentEditorImage() {
+    state.showingPrevious = false;
+    if (state.currentImageSrc) {
+      imgEl.src = state.currentImageSrc;
+      renderDisplayedImage();
+    }
   }
 
   function populatePresets(items) {
@@ -566,8 +851,17 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         session_id: state.sessionId,
         message: msg,
       });
-      addChatBubble("assistant", resp.summary || "", resp.operations);
-      commitOperation(resp.image_base64, beforeSrc);
+      if (resp.requires_confirmation === true) {
+        addChatBubble("assistant", resp.summary || "");
+        cancelOperation();
+        renderOperationEditor(resp.operations);
+        window.setTimeout(() => {
+          if (state.editorOperationProvider) previewOperation(state.editorOperationProvider());
+        }, 0);
+      } else {
+        addChatBubble("assistant", resp.summary || "", resp.operations);
+        commitOperation(resp.image_base64, beforeSrc);
+      }
       updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
 
       if (resp.adjustable) {

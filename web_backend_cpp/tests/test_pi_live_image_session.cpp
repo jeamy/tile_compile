@@ -154,6 +154,18 @@ int main() {
         // --- non-invertible ops use exact pre-operation snapshots ---
         {
             store.reset(sid);
+            nlohmann::json curves = {
+                {"type", "curves"},
+                {"params", {{"points", nlohmann::json::array({
+                    nlohmann::json::array({0.0, 0.0}),
+                    nlohmann::json::array({0.5, 0.6}),
+                    nlohmann::json::array({1.0, 1.0})
+                })}}}
+            };
+            auto curves_res = store.apply_operation(sid, curves);
+            EXPECT(curves_res.success, "apply_operation(curves spline) succeeds");
+            store.reset(sid);
+
             nlohmann::json op = {
                 {"type", "clahe"},
                 {"params", {{"cliplimit", 3.0}, {"tilesize", 8}}}

@@ -621,7 +621,8 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         summary = "Helligkeit reduziert.";
         adjustable = true;
         adjust_step = {{"type", "brightness"}, {"params", {{"midtones", -darken_amount * 0.35}, {"shadows", 0.0}, {"highlights", 0.0}}}};
-    } else if (has("kontrast") && (has("mehr") || has("erhoeh"))) {
+    } else if (has("kontrast") && !has("lokal") && !has("local") &&
+               (has("mehr") || has("erhoeh"))) {
         operations.push_back({{"type", "contrast"}, {"params", {{"amount", contrast_amount}}}});
         summary = "Kontrast erhoeht.";
         adjustable = true;
@@ -694,12 +695,34 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
         summary = "Schaerfe erhoeht.";
         repeatable = true;
-    } else if (has("rausch") || has("denoise") || has("noise")) {
+    } else if ((has("rausch") || has("denoise") || has("noise")) &&
+               !has("farbrausch") && !has("chroma")) {
         operations.push_back({{"type", "denoise"}, {"params", {{"strength", 0.5}, {"luminance", false}}}});
         summary = "Rauschen reduziert.";
     } else if (has("gruen")) {
         operations.push_back({{"type", "rmgreen"}, {"params", {{"strength", 0.5}}}});
         summary = "Gruenanteil reduziert.";
+    } else if (has("levels") || has("tonwerte") || has("tonwert")) {
+        const double black = std::clamp(p10_luma * 0.5, 0.0, 0.4);
+        const double white = std::clamp(p90_luma + 0.15, 0.6, 1.0);
+        operations.push_back({{"type", "levels"}, {"params", {{"black", black}, {"white", white}, {"gamma", 1.0}}}});
+        summary = "Tonwerte angepasst.";
+    } else if (has("schatten") || has("shadow")) {
+        operations.push_back({{"type", "shadow_recovery"}, {"params", {{"strength", 0.45}}}});
+        summary = "Schatten wiederhergestellt.";
+    } else if (has("spitzlich") || has("highlight")) {
+        operations.push_back({{"type", "highlight_recovery"}, {"params", {{"strength", 0.45}}}});
+        summary = "Spitzlichter wiederhergestellt.";
+    } else if (has("farbbalance") || has("color balance") || has("farben waermer") || has("farben kuehler")) {
+        const double red = has("waermer") ? 0.10 : (has("kuehler") ? -0.10 : 0.0);
+        operations.push_back({{"type", "color_balance"}, {"params", {{"red", red}, {"green", 0.0}, {"blue", -red}}}});
+        summary = "Farbbalance angepasst.";
+    } else if (has("lokal kontrast") || has("local contrast")) {
+        operations.push_back({{"type", "local_contrast"}, {"params", {{"strength", 0.4}, {"radius", 3.0}}}});
+        summary = "Lokaler Kontrast erhoeht.";
+    } else if (has("chrom") || has("farbrausch")) {
+        operations.push_back({{"type", "chroma_denoise"}, {"params", {{"strength", 0.5}, {"protect", 0.5}, {"mode", "soft"}}}});
+        summary = "Farbrauschen reduziert.";
     } else if (has("lebendig") || has("vibrance")) {
         operations.push_back({{"type", "vibrance"}, {"params", {{"amount", 0.1}}}});
         summary = "Lebendigkeit erhoeht.";
@@ -3085,15 +3108,76 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             ai_result = fallback_parse_message(message, analysis_image);
         }
 
+        // Commands backed by a parameter dialog must resolve to their
+        // dedicated operation type. Older model prompts may still answer
+        // with generic contrast/denoise/brightness operations, which would
+        // otherwise be applied immediately and bypass confirmation.
+        auto contains_message = [&](const std::string& value) {
+            return lower_message.find(value) != std::string::npos;
+        };
+        std::string requested_dialog_type;
+        if (contains_message("tonwert") || contains_message("levels"))
+            requested_dialog_type = "levels";
+        else if (contains_message("schatten") || contains_message("shadow"))
+            requested_dialog_type = "shadow_recovery";
+        else if (contains_message("spitzlicht") || contains_message("highlight"))
+            requested_dialog_type = "highlight_recovery";
+        else if (contains_message("farbbalance") || contains_message("color balance"))
+            requested_dialog_type = "color_balance";
+        else if ((contains_message("lokal") || contains_message("local")) &&
+                 contains_message("kontrast"))
+            requested_dialog_type = "local_contrast";
+        else if (contains_message("farbrausch") || contains_message("chroma"))
+            requested_dialog_type = "chroma_denoise";
+
+        if (!requested_dialog_type.empty()) {
+            const auto returned_ops = ai_result.value("operations", nlohmann::json::array());
+            const bool correct_type = returned_ops.is_array() && returned_ops.size() == 1 &&
+                returned_ops.front().is_object() &&
+                returned_ops.front().value("type", std::string()) == requested_dialog_type &&
+                tile_compile::pi::validate_op(returned_ops.front()).empty();
+            if (!correct_type) {
+                auto deterministic_suggestion = fallback_parse_message(message, analysis_image);
+                const auto fallback_ops = deterministic_suggestion.value("operations", nlohmann::json::array());
+                if (fallback_ops.is_array() && fallback_ops.size() == 1 &&
+                    fallback_ops.front().value("type", std::string()) == requested_dialog_type) {
+                    ai_result["operations"] = fallback_ops;
+                    ai_result["summary"] = deterministic_suggestion.value(
+                        "summary", std::string("Parameter vorgeschlagen."));
+                    ai_result["adjustable"] = false;
+                    ai_result["repeatable"] = false;
+                }
+            }
+        }
+
         // Apply operations
         nlohmann::json operations = ai_result.value("operations", nlohmann::json::array());
         nlohmann::json applied_ops = nlohmann::json::array();
+        nlohmann::json proposed_ops = nlohmann::json::array();
         nlohmann::json warnings = ai_result.value("warnings", nlohmann::json::array());
         if (!warnings.is_array()) warnings = nlohmann::json::array();
         std::string last_error;
 
+        const auto requires_parameter_dialog = [](const std::string& type) {
+            return type == "levels" || type == "shadow_recovery" ||
+                type == "highlight_recovery" || type == "color_balance" ||
+                type == "local_contrast" || type == "chroma_denoise";
+        };
+        const bool requires_confirmation = operations.is_array() && operations.size() == 1 &&
+            operations.front().is_object() &&
+            requires_parameter_dialog(operations.front().value("type", std::string()));
+
         for (const auto& op : operations) {
             if (!op.is_object() || !op.contains("type")) continue;
+            if (requires_confirmation) {
+                const auto validation = tile_compile::pi::validate_op(op);
+                if (validation.empty()) proposed_ops.push_back(op);
+                else {
+                    last_error = validation.value("error", std::string("invalid operation"));
+                    warnings.push_back("invalid_operation: " + last_error);
+                }
+                continue;
+            }
             auto res = live_store->apply_operation(session_id, op);
             if (res.success) {
                 applied_ops.push_back(op);
@@ -3105,7 +3189,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
         const bool sharpen_operation = !applied_ops.empty() &&
             applied_ops.front().value("type", std::string()) == "sharpen";
-        const bool adjustable = ai_result.value("adjustable", false) && !sharpen_operation;
+        const bool adjustable = !requires_confirmation &&
+            ai_result.value("adjustable", false) && !sharpen_operation;
 
         // Set adjust step if provided, otherwise derive from the first applied operation
         nlohmann::json effective_adjust_step = nullptr;
@@ -3132,7 +3217,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                                 applied_ops.empty() ? nlohmann::json(nullptr) : applied_ops);
 
         // Persist the float working copy and render preview
-        persist_live_edit_fits(state, live_store, session_id);
+        if (!applied_ops.empty()) persist_live_edit_fits(state, live_store, session_id);
 
         std::string updated_b64;
         int img_w = 0, img_h = 0;
@@ -3149,7 +3234,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             {"schema_version", "pi.live-image-chat.v1"},
             {"session_id", session_id},
             {"summary", summary},
-            {"operations", applied_ops},
+            {"operations", requires_confirmation ? proposed_ops : applied_ops},
+            {"requires_confirmation", requires_confirmation && !proposed_ops.empty()},
             {"image_base64", updated_b64},
             {"image_mime", "image/jpeg"},
             {"image_width", img_w},
@@ -3224,6 +3310,21 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp({{"ok", true}, {"summary", "Operation erneut angewendet."},
                           {"operations", operations}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
                           {"image_mime", "image/jpeg"}, {"can_undo", can_undo}, {"can_redo", false}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/preview-operation").methods("POST"_method)
+    ([live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        auto operation = body->value("operation", nlohmann::json::object());
+        cv::Mat current;
+        if (session_id.empty() || !live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { current = s.current_fits.clone(); }))
+            return err_resp("NOT_FOUND", "session not found", 404);
+        auto result = tile_compile::pi::apply_image_op_fits(current, operation);
+        if (!result.success) return err_resp("PREVIEW_FAILED", result.error, 400);
+        return json_resp({{"ok", true}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+                          {"image_mime", "image/jpeg"}});
     });
 
     // 3. POST /api/pi/live-image-chat/adjust

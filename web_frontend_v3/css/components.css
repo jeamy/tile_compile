@@ -993,6 +993,78 @@
   width: auto;
 }
 
+.live-image-viewer__operation-editor {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  z-index: 10020;
+  width: min(420px, calc(100vw - var(--space-4) - var(--space-4)));
+  max-height: min(560px, calc(100vh - var(--space-4) - var(--space-4)));
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+}
+.live-image-viewer__operation-editor-header {
+  margin: calc(0px - var(--space-3)) calc(0px - var(--space-3)) 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.live-image-viewer__operation-editor-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 42px;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-xs);
+}
+.live-image-viewer__curves-canvas {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: crosshair;
+  touch-action: none;
+}
+.live-image-viewer__operation-editor--curves {
+  width: min(440px, calc(100vw - var(--space-4) - var(--space-4)));
+}
+.live-image-viewer__operation-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.live-image-viewer__preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.live-image-viewer__operation-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .live-image-viewer__image {
   max-width: 100%;
   max-height: 100%;
