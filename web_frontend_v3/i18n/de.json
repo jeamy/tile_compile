@@ -2180,5 +2180,10 @@
   "liveImage.cmd.starDesaturation": "Uebersteuerte Sterne entsaettigen",
   "liveImage.cmd.starDesaturation.help": "Reduziert die Farbsättigung sehr heller Sterne.",
   "liveImage.cmd.dehaze": "Dunst reduzieren",
-  "liveImage.cmd.dehaze.help": "Erhöht den lokalen Kontrast in dunstigen Bildbereichen."
+  "liveImage.cmd.dehaze.help": "Erhöht den lokalen Kontrast in dunstigen Bildbereichen.",
+  "liveImage.cmd.crop": "Zuschneiden",
+  "liveImage.cmd.crop.help": "Oeffnet ein Werkzeug zum Zuschneiden des Bildes. Ziehe die Handles um den Ausschnitt zu definieren und klicke OK zum Anwenden.",
+  "liveImage.cropOk": "OK",
+  "liveImage.cropCancel": "Abbrechen",
+  "liveImage.cropHint": "Ausschnitt durch Ziehen der Handles festlegen"
 }

@@ -26,6 +26,7 @@ const PRESET_COMMANDS = [
   { category: "details", label: "liveImage.cmd.fixbanding", command: "reduziere Streifenartefakte", help: "liveImage.cmd.fixbanding.help", phase: 2 },
   { category: "details", label: "liveImage.cmd.starDesaturation", command: "entsaettige uebersteuerte Sterne", help: "liveImage.cmd.starDesaturation.help", phase: 2 },
   { category: "details", label: "liveImage.cmd.dehaze", command: "reduziere den Dunst", help: "liveImage.cmd.dehaze.help", phase: 2 },
+  { category: "misc", label: "liveImage.cmd.crop", action: "crop", help: "liveImage.cmd.crop.help", phase: 1 },
 ];
 
 export function createLiveImageViewer(runId, runDir, onClose) {
@@ -287,8 +288,9 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       dropdown.appendChild(group);
     }
     const opt = document.createElement("option");
-    opt.value = cmd.command;
+    opt.value = cmd.command || cmd.action || "";
     opt.dataset.help = cmd.help;
+    if (cmd.action) opt.dataset.action = cmd.action;
     opt.textContent = t(cmd.label, cmd.label);
     categories[cmd.category].appendChild(opt);
   }
@@ -354,7 +356,12 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       helpBox.textContent = t(helpKey, helpKey);
       helpBox.style.display = "block";
     }
-    sendChat(selected.value);
+    const cropAction = selected.dataset.action;
+    if (cropAction === "crop") {
+      openCropOverlay();
+    } else {
+      sendChat(selected.value);
+    }
     dropdown.selectedIndex = 0;
   });
 
@@ -590,6 +597,270 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     } finally {
       setLoading(false);
     }
+  }
+
+  // --- Crop overlay ---
+  let cropOverlayEl = null;
+
+  function openCropOverlay() {
+    if (!state.sessionId || !imgEl.naturalWidth) return;
+    if (cropOverlayEl) closeCropOverlay();
+
+    const rect = imgEl.getBoundingClientRect();
+    const wrapRect = imageWrap.getBoundingClientRect();
+    const imgLeft = rect.left - wrapRect.left;
+    const imgTop = rect.top - wrapRect.top;
+    const imgW = rect.width;
+    const imgH = rect.height;
+
+    // Default crop: 90% of image, centered
+    const margin = 0.05;
+    let cropX = imgLeft + imgW * margin;
+    let cropY = imgTop + imgH * margin;
+    let cropW = imgW * (1 - 2 * margin);
+    let cropH = imgH * (1 - 2 * margin);
+
+    cropOverlayEl = document.createElement("div");
+    cropOverlayEl.className = "live-image-viewer__crop-overlay";
+
+    // Dark mask outside crop region (4 rectangles)
+    const maskTop = document.createElement("div");
+    maskTop.className = "live-image-viewer__crop-mask";
+    const maskBottom = document.createElement("div");
+    maskBottom.className = "live-image-viewer__crop-mask";
+    const maskLeft = document.createElement("div");
+    maskLeft.className = "live-image-viewer__crop-mask";
+    const maskRight = document.createElement("div");
+    maskRight.className = "live-image-viewer__crop-mask";
+    cropOverlayEl.appendChild(maskTop);
+    cropOverlayEl.appendChild(maskBottom);
+    cropOverlayEl.appendChild(maskLeft);
+    cropOverlayEl.appendChild(maskRight);
+
+    // Crop rectangle border
+    const cropBox = document.createElement("div");
+    cropBox.className = "live-image-viewer__crop-box";
+    cropOverlayEl.appendChild(cropBox);
+
+    // Hint label
+    const hintLabel = document.createElement("div");
+    hintLabel.className = "live-image-viewer__crop-hint";
+    hintLabel.textContent = t("liveImage.cropHint", "Drag handles to define the crop region");
+    cropOverlayEl.appendChild(hintLabel);
+
+    // OK / Cancel buttons
+    const btnRow = document.createElement("div");
+    btnRow.className = "live-image-viewer__crop-buttons";
+    const okBtn = document.createElement("button");
+    okBtn.className = "live-image-viewer__btn live-image-viewer__btn--crop-ok";
+    okBtn.textContent = t("liveImage.cropOk", "OK");
+    okBtn.addEventListener("click", (e) => { e.stopPropagation(); applyCrop(); });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "live-image-viewer__btn live-image-viewer__btn--crop-cancel";
+    cancelBtn.textContent = t("liveImage.cropCancel", "Cancel");
+    cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); closeCropOverlay(); });
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(okBtn);
+    cropOverlayEl.appendChild(btnRow);
+
+    imageWrap.appendChild(cropOverlayEl);
+
+    function updateCropVisuals() {
+      cropBox.style.left = `${cropX}px`;
+      cropBox.style.top = `${cropY}px`;
+      cropBox.style.width = `${cropW}px`;
+      cropBox.style.height = `${cropH}px`;
+
+      maskTop.style.left = `${imgLeft}px`;
+      maskTop.style.top = `${imgTop}px`;
+      maskTop.style.width = `${imgW}px`;
+      maskTop.style.height = `${cropY - imgTop}px`;
+
+      maskBottom.style.left = `${imgLeft}px`;
+      maskBottom.style.top = `${cropY + cropH}px`;
+      maskBottom.style.width = `${imgW}px`;
+      maskBottom.style.height = `${imgTop + imgH - (cropY + cropH)}px`;
+
+      maskLeft.style.left = `${imgLeft}px`;
+      maskLeft.style.top = `${cropY}px`;
+      maskLeft.style.width = `${cropX - imgLeft}px`;
+      maskLeft.style.height = `${cropH}px`;
+
+      maskRight.style.left = `${cropX + cropW}px`;
+      maskRight.style.top = `${cropY}px`;
+      maskRight.style.width = `${imgLeft + imgW - (cropX + cropW)}px`;
+      maskRight.style.height = `${cropH}px`;
+
+      btnRow.style.left = `${cropX + cropW - 140}px`;
+      btnRow.style.top = `${cropY + cropH + 8}px`;
+      hintLabel.style.left = `${cropX}px`;
+      hintLabel.style.top = `${cropY - 28}px`;
+    }
+
+    // Create 8 handles
+    const handles = [];
+    const handlePositions = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+    for (const pos of handlePositions) {
+      const h = document.createElement("div");
+      h.className = `live-image-viewer__crop-handle live-image-viewer__crop-handle--${pos}`;
+      h.dataset.pos = pos;
+      cropOverlayEl.appendChild(h);
+      handles.push(h);
+    }
+
+    function updateHandles() {
+      for (const h of handles) {
+        const pos = h.dataset.pos;
+        let hx, hy;
+        if (pos.includes("w")) hx = cropX;
+        else if (pos.includes("e")) hx = cropX + cropW;
+        else hx = cropX + cropW / 2;
+        if (pos.includes("n")) hy = cropY;
+        else if (pos.includes("s")) hy = cropY + cropH;
+        else hy = cropY + cropH / 2;
+        h.style.left = `${hx - 6}px`;
+        h.style.top = `${hy - 6}px`;
+      }
+    }
+
+    function clampCrop() {
+      cropX = Math.max(imgLeft, Math.min(cropX, imgLeft + imgW - 20));
+      cropY = Math.max(imgTop, Math.min(cropY, imgTop + imgH - 20));
+      cropW = Math.max(20, Math.min(cropW, imgLeft + imgW - cropX));
+      cropH = Math.max(20, Math.min(cropH, imgTop + imgH - cropY));
+    }
+
+    function refreshAll() {
+      clampCrop();
+      updateCropVisuals();
+      updateHandles();
+    }
+
+    refreshAll();
+
+    // Dragging handles
+    let dragHandle = null;
+    let dragStartX = 0, dragStartY = 0;
+    let startCropX = 0, startCropY = 0, startCropW = 0, startCropH = 0;
+
+    for (const h of handles) {
+      h.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragHandle = h.dataset.pos;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        startCropX = cropX;
+        startCropY = cropY;
+        startCropW = cropW;
+        startCropH = cropH;
+      });
+    }
+
+    // Dragging the crop box itself (move)
+    cropBox.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragHandle = "move";
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      startCropX = cropX;
+      startCropY = cropY;
+    });
+
+    function onMouseMove(e) {
+      if (!dragHandle) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+
+      if (dragHandle === "move") {
+        cropX = startCropX + dx;
+        cropY = startCropY + dy;
+      } else {
+        if (dragHandle.includes("w")) {
+          cropX = startCropX + dx;
+          cropW = startCropW - dx;
+        }
+        if (dragHandle.includes("e")) {
+          cropW = startCropW + dx;
+        }
+        if (dragHandle.includes("n")) {
+          cropY = startCropY + dy;
+          cropH = startCropH - dy;
+        }
+        if (dragHandle.includes("s")) {
+          cropH = startCropH + dy;
+        }
+      }
+      refreshAll();
+    }
+
+    function onMouseUp() {
+      dragHandle = null;
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    cropOverlayEl._cleanup = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    function closeCropOverlay() {
+      if (!cropOverlayEl) return;
+      if (cropOverlayEl._cleanup) cropOverlayEl._cleanup();
+      cropOverlayEl.remove();
+      cropOverlayEl = null;
+    }
+
+    function applyCrop() {
+      if (!state.sessionId) { closeCropOverlay(); return; }
+
+      // Convert displayed pixel coords to image pixel coords.
+      // getBoundingClientRect() already accounts for CSS transform (scale+translate),
+      // so scaleX/scaleY convert display pixels to natural image pixels directly.
+      const scaleX = imgEl.naturalWidth / imgW;
+      const scaleY = imgEl.naturalHeight / imgH;
+      const px = Math.round((cropX - imgLeft) * scaleX);
+      const py = Math.round((cropY - imgTop) * scaleY);
+      const pw = Math.round(cropW * scaleX);
+      const ph = Math.round(cropH * scaleY);
+
+      closeCropOverlay();
+
+      const beforeSrc = beginOperation();
+      addChatBubble("user", t("liveImage.cmd.crop", "Crop"));
+      setLoading(true);
+      updateAdjustControls(false, "", 0);
+      updateRepeatControl(false);
+      api.post(API_ENDPOINTS.pi.liveImageChat.chat, {
+        session_id: state.sessionId,
+        message: `crop ${px} ${py} ${pw} ${ph}`,
+      }).then((resp) => {
+        addChatBubble("assistant", resp.summary || "");
+        commitOperation(resp.image_base64, beforeSrc);
+        updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+        updateRepeatControl(resp.repeatable === true && !resp.adjustable);
+      }).catch((err) => {
+        cancelOperation();
+        addChatBubble("assistant", `Error: ${err.message}`);
+      }).finally(() => {
+        setLoading(false);
+      });
+    }
+
+    // Expose close/apply for external buttons
+    cropOverlayEl._closeCropOverlay = closeCropOverlay;
+    cropOverlayEl._applyCrop = applyCrop;
+  }
+
+  function closeCropOverlay() {
+    if (cropOverlayEl && cropOverlayEl._closeCropOverlay) cropOverlayEl._closeCropOverlay();
+  }
+
+  function applyCrop() {
+    if (cropOverlayEl && cropOverlayEl._applyCrop) cropOverlayEl._applyCrop();
   }
 
   async function doClose() {

@@ -2159,5 +2159,10 @@
   "liveImage.cmd.starDesaturation": "Desaturate blown-out stars",
   "liveImage.cmd.starDesaturation.help": "Reduces color saturation in very bright stars.",
   "liveImage.cmd.dehaze": "Reduce haze",
-  "liveImage.cmd.dehaze.help": "Increases local contrast in hazy image regions."
+  "liveImage.cmd.dehaze.help": "Increases local contrast in hazy image regions.",
+  "liveImage.cmd.crop": "Crop",
+  "liveImage.cmd.crop.help": "Opens a crop tool. Drag the handles to define the region and click OK to apply.",
+  "liveImage.cropOk": "OK",
+  "liveImage.cropCancel": "Cancel",
+  "liveImage.cropHint": "Drag handles to define the crop region"
 }

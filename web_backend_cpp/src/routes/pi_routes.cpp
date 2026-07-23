@@ -637,23 +637,37 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         adjustable = true;
         adjust_step = {{"type", "saturation"}, {"params", {{"amount", saturation_amount * 0.5}}}};
     } else if (has("crop") || has("zuschneid") || has("beschneid") || has("rand abschneiden")) {
-        double border_fraction = 0.05;
-        std::smatch match;
-        if (std::regex_search(lower, match, std::regex(R"((\d+(?:[\.,]\d+)?)\s*%)"))) {
-            try { border_fraction = std::stod(match[1].str()); } catch (...) {}
-            if (match[1].str().find(',') != std::string::npos) {
-                std::string value = match[1].str();
-                std::replace(value.begin(), value.end(), ',', '.');
-                try { border_fraction = std::stod(value); } catch (...) {}
+        int cx = 0, cy = 0, cw = 0, ch = 0;
+        std::smatch pxmatch;
+        if (std::regex_search(lower, pxmatch,
+                std::regex(R"(crop\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+))"))) {
+            cx = std::stoi(pxmatch[1].str());
+            cy = std::stoi(pxmatch[2].str());
+            cw = std::stoi(pxmatch[3].str());
+            ch = std::stoi(pxmatch[4].str());
+        } else {
+            double border_fraction = 0.05;
+            std::smatch match;
+            if (std::regex_search(lower, match, std::regex(R"((\d+(?:[\.,]\d+)?)\s*%)"))) {
+                try { border_fraction = std::stod(match[1].str()); } catch (...) {}
+                if (match[1].str().find(',') != std::string::npos) {
+                    std::string value = match[1].str();
+                    std::replace(value.begin(), value.end(), ',', '.');
+                    try { border_fraction = std::stod(value); } catch (...) {}
+                }
+                border_fraction /= 100.0;
             }
-            border_fraction /= 100.0;
+            border_fraction = std::clamp(border_fraction, 0.0, 0.40);
+            cx = static_cast<int>(std::lround(image.cols * border_fraction));
+            cy = static_cast<int>(std::lround(image.rows * border_fraction));
+            cw = std::max(1, image.cols - 2 * cx);
+            ch = std::max(1, image.rows - 2 * cy);
         }
-        border_fraction = std::clamp(border_fraction, 0.0, 0.40);
-        const int x = static_cast<int>(std::lround(image.cols * border_fraction));
-        const int y = static_cast<int>(std::lround(image.rows * border_fraction));
-        const int w = std::max(1, image.cols - 2 * x);
-        const int h = std::max(1, image.rows - 2 * y);
-        operations.push_back({{"type", "crop"}, {"params", {{"x", x}, {"y", y}, {"w", w}, {"h", h}}}});
+        cx = std::clamp(cx, 0, std::max(0, image.cols - 1));
+        cy = std::clamp(cy, 0, std::max(0, image.rows - 1));
+        cw = std::clamp(cw, 1, image.cols - cx);
+        ch = std::clamp(ch, 1, image.rows - cy);
+        operations.push_back({{"type", "crop"}, {"params", {{"x", cx}, {"y", cy}, {"w", cw}, {"h", ch}}}});
         summary = "Bild zugeschnitten.";
     } else if (has("schae") || has("sharpen")) {
         operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
