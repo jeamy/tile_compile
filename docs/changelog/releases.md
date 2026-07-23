@@ -1,5 +1,78 @@
 # Release Notes
 
+## v0.4.2 (2026-07-24)
+
+**PI Live Image Editor commands, editable AI proposals, and reusable timelines:**
+
+Version 0.4.2 completes the interactive command and parameter workflow of the PI Live Image Editor. AI-assisted commands now provide editable proposals instead of silently committing dialog-based operations, while deterministic GUI tools remain fully usable without an AI provider.
+
+**New image commands:**
+
+- **Levels:** Black point, white point, and gamma with validated ranges and live preview.
+- **Curves:** Graphical, AI-free spline editor. Click to add points, drag to move them, and double-click or right-click to remove internal points. The UI and backend use the same clamped Catmull-Rom spline.
+- **Shadow Recovery:** Dedicated deterministic recovery operation with an AI-proposed starting strength.
+- **Highlight Recovery:** Dedicated operation for reducing clipped or overly bright structures.
+- **Color Balance:** Global RGB correction plus optional shadow, midtone, and highlight RGB controls.
+- **Local Contrast:** Independent strength and radius controls.
+- **Chroma Denoise:** Strength, structure protection, and Soft/Strong modes.
+- **Crop:** Deterministic crop and rotated-crop workflow that remains correct after pan and zoom and never invokes AI.
+
+**AI proposal and parameter workflow:**
+
+Levels, shadow recovery, highlight recovery, color balance, local contrast, and chroma denoise use a proposal workflow:
+
+1. The selected AI model analyses the request and proposes structured parameters.
+2. The backend validates the proposal but does not change `live_edit.fits`.
+3. A draggable parameter dialog opens above the unchanged image.
+4. Parameter changes generate a debounced, non-persistent live preview.
+5. **Apply** commits the operation; **Cancel** restores the canonical current image.
+
+Explicit requests for shadows, highlights, levels, color balance, local contrast, and chroma noise are routed to their dedicated operation types. If an older model returns a generic or invalid operation, the backend substitutes a validated deterministic proposal instead of applying the wrong command.
+
+The **Before/Current view** checkbox in each parameter dialog switches between the temporary preview and the unchanged current image. Preview requests never modify FITS data, history, or undo/redo state.
+
+**Timeline, undo, and repeatability:**
+
+- Exact pre/post pixel snapshots make undo and redo reliable for lossy or non-invertible operations such as threshold, crop, denoise, and CLAHE.
+- `operation_history` stores the currently effective operation sequence.
+- `edit_history` stores the complete timeline, including explicit undo and redo events.
+- Chat entries containing operations can be clicked and reapplied with identical parameters after confirmation. This path does not invoke AI.
+- The previous preview is retained after every committed operation and can be compared with the current preview.
+
+**Timeline presets:**
+
+- **Save as** creates a named JSON preset.
+- **Save** overwrites the selected preset after confirmation.
+- A themed dropdown selects presets.
+- **Apply** executes the saved operations sequentially on the current run without AI.
+- Presets are stored globally under `.pi_memory/presets` and include the effective operation sequence plus the complete edit timeline.
+
+**Reliability and compatibility:**
+
+- `live_edit.fits` remains the canonical working image.
+- Reset recreates `live_edit.fits`, clears history after confirmation, and refreshes the preview.
+- Preview rendering remains linear and consistent with the FITS working data.
+- Rotated crop no longer depends on `cv::getRotationMatrix2D`, preserving compatibility with OpenCV 5 macOS builds.
+- New frontend strings and dialogs are available in English and German.
+- The Live Image Editor guide documents AI use, deterministic fallback behavior, dialogs, previews, curves, history, and presets.
+
+## v0.4.1 (2026-07-23)
+
+**PI Live Image Editor:**
+
+- **Live Image Editor:** Non-destructive interactive editor for FITS output images. Chat-driven image operations in natural language with AI sidecar or local fallback parser. Operations include brightness, contrast, saturation, sharpen, denoise, bilateral filter, green removal, CLAHE, invert, vibrance, color temperature, unpurple, fixbanding, star desaturation, and dehaze.
+- **Session persistence:** Working state saved as `outputs/live_edit.fits` after every operation. Chat and operation history persisted separately in PI storage. Resume after browser refresh or backend restart restores the exact editing state.
+- **Undo/Redo:** Deterministic rebuild from original + operation stack — no pixel snapshots needed. Undo/Redo/Repeat all update the operation history and working FITS.
+- **+/- Adjust:** Signed operations (brightness, contrast, saturation, vibrance, color temperature) support iterative +/- buttons with deterministic rebuild from the adjust base.
+- **Repeat:** Non-adjustable operations (sharpen, denoise, etc.) offer a "repeat" button that reapplies the same parameters without calling the AI.
+- **Before/After comparison:** Click the image or badge to toggle between the previous and current preview after each operation.
+- **Reset with confirmation:** Restores the original source FITS, deletes chat/operation history, clears undo/redo, and refreshes the run preview immediately.
+- **Export:** PNG and FITS export with display metadata (DATAMIN/DATAMAX/CTYPE3) for FITS viewer compatibility.
+- **Linear preview rendering:** FITS previews for live-edit files use direct [0,1]→8-bit mapping without robust_range stretch or gamma, matching the editor preview exactly.
+- **Run preview integration:** `live_edit.fits` preferred in run-image preview scoring; preview refreshes after editor close or reset.
+- **Phase 2 operations:** Vibrance, color temperature, unpurple, fixbanding, star desaturation, and dehaze implemented in backend, fallback parser, AI system prompt, and frontend dropdown.
+- **Image-adaptive fallback:** Local fallback parser derives conservative operation strengths from current image statistics (luminance quantiles, mean saturation) when no AI sidecar is available.
+
 ## v0.4.0 (2026-07-22)
 
 **PI Run-Chat, AQMH v0.2.1 conformance, documentation reorganisation:**

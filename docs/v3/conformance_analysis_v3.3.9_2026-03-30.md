@@ -12,28 +12,28 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Conformance Status by Section](#2-conformance-status-by-section)
 3. [Detailed Findings](#3-detailed-findings)
-   - 3.1 [§1 Principles and Definitions](#31-§1-principles-and-definitions)
-   - 3.2 [§2 Assumptions and Operating Modes](#32-§2-assumptions-and-operating-modes)
-   - 3.3 [§3 Pipeline Overview](#33-§3-pipeline-overview)
-   - 3.4 [§4 Registration and Channel Separation](#34-§4-registration-and-channel-separation)
-   - 3.5 [§5.2 Global Linear Normalization](#35-§52-global-linear-normalization)
-   - 3.6 [§5.3 Global Metrics and Weights](#36-§53-global-metrics-and-weights)
-   - 3.7 [§5.4 Tile Geometry](#37-§54-tile-geometry)
-   - 3.8 [§5.5 Local Tile Metrics](#38-§55-local-tile-metrics)
-   - 3.9 [§5.6 Effective Weight](#39-§56-effective-weight)
-   - 3.10 [§5.7 Tile Reconstruction and OLA](#310-§57-tile-reconstruction-and-ola)
-   - 3.11 [§5.8 Optional Local Denoisers](#311-§58-optional-local-denoisers)
-   - 3.12 [§5.9 State-Based Clustering](#312-§59-state-based-clustering)
-   - 3.13 [§5.10 Synthetic Frames](#313-§510-synthetic-frames)
-   - 3.14 [§5.11 Final Linear Stacking](#314-§511-final-linear-stacking)
-   - 3.15 [§6.3 Background Gradient Extraction (BGE)](#315-§63-background-gradient-extraction-bge)
-   - 3.16 [§6.4 PCC](#316-§64-pcc)
-   - 3.17 [§7 Validation and Abort](#317-§7-validation-and-abort)
-   - 3.18 [§8 Numerical Defaults](#318-§8-numerical-defaults)
-   - 3.19 [§9.1 Operational Example Configurations](#319-§91-operational-example-configurations)
+   - 3.1 §1 Principles and Definitions
+   - 3.2 §2 Assumptions and Operating Modes
+   - 3.3 §3 Pipeline Overview
+   - 3.4 §4 Registration and Channel Separation
+   - 3.5 §5.2 Global Linear Normalization
+   - 3.6 §5.3 Global Metrics and Weights
+   - 3.7 §5.4 Tile Geometry
+   - 3.8 §5.5 Local Tile Metrics
+   - 3.9 §5.6 Effective Weight
+   - 3.10 §5.7 Tile Reconstruction and OLA
+   - 3.11 §5.8 Optional Local Denoisers
+   - 3.12 §5.9 State-Based Clustering
+   - 3.13 §5.10 Synthetic Frames
+   - 3.14 §5.11 Final Linear Stacking
+   - 3.15 §6.3 Background Gradient Extraction (BGE)
+   - 3.16 §6.4 PCC
+   - 3.17 §7 Validation and Abort
+   - 3.18 §8 Numerical Defaults
+   - 3.19 §9.1 Operational Example Configurations
 4. [Normative Test Checklist (§7.3, all 24 tests)](#4-normative-test-checklist)
 5. [Deviations and Gaps Summary](#5-deviations-and-gaps-summary)
-6. [Minor / Advisory Findings](#6-minor--advisory-findings)
+6. [Minor / Advisory Findings](#6-minor-advisory-findings)
 7. [Conclusions](#7-conclusions)
 
 ---

@@ -10,6 +10,8 @@
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/pi/pi_tool_registry.hpp"
+#include "services/pi/pi_image_ops.hpp"
+#include "services/pi/pi_live_image_session.hpp"
 #include "services/run_inspector.hpp"
 #include "subprocess_manager.hpp"
 #include "time_utils.hpp"
@@ -22,6 +24,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -317,30 +320,13 @@ cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) 
     return mat;
 }
 
-std::pair<float, float> robust_range(const std::vector<cv::Mat>& planes) {
-    std::vector<float> sample;
-    for (const auto& mat : planes) {
-        const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(mat.rows * mat.cols) / 250000.0)));
-        for (int y = 0; y < mat.rows; y += stride)
-            for (int x = 0; x < mat.cols; x += stride) {
-                const float v = mat.at<float>(y, x);
-                if (std::isfinite(v)) sample.push_back(v);
-            }
-    }
-    if (sample.empty()) return {0.0f, 1.0f};
-    std::sort(sample.begin(), sample.end());
-    auto at = [&](double q) {
-        const size_t idx = std::min(sample.size() - 1, static_cast<size_t>(std::llround(q * static_cast<double>(sample.size() - 1))));
-        return sample[idx];
-    };
-    float lo = at(0.01);
-    float hi = at(0.995);
-    if (!std::isfinite(lo) || !std::isfinite(hi) || hi <= lo) {
-        lo = sample.front();
-        hi = sample.back();
-    }
-    if (hi <= lo) hi = lo + 1.0f;
-    return {lo, hi};
+// FITS live-edit data is stored as linear float values in the [0, 1] range.
+// Preview rendering must not apply an implicit stretch or gamma curve: those
+// are display operations, not live-image edits, and make the preview disagree
+// with the canonical live_edit.fits values.
+unsigned char linear_float_to_u8(float value) {
+    if (!std::isfinite(value)) value = 0.0f;
+    return cv::saturate_cast<unsigned char>(std::clamp(value, 0.0f, 1.0f) * 255.0f);
 }
 
 std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, int max_edge = 1024) {
@@ -366,26 +352,421 @@ std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, 
         cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
         cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
     }
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
     cv::Mat out(r.rows, r.cols, CV_8UC3);
     for (int y = 0; y < r.rows; ++y) {
         for (int x = 0; x < r.cols; ++x) {
-            auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = lo;
-                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
-                n = std::pow(n, 0.6f);
-                return cv::saturate_cast<unsigned char>(n * 255.0f);
-            };
             auto& px = out.at<cv::Vec3b>(y, x);
-            px[2] = convert(r.at<float>(y, x));
-            px[1] = convert(g.at<float>(y, x));
-            px[0] = convert(b.at<float>(y, x));
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
         }
     }
     std::vector<unsigned char> png;
     if (!cv::imencode(".png", out, png)) throw std::runtime_error("PNG encoding failed");
     return png;
+}
+
+std::vector<unsigned char> render_fits_full_jpeg(const fs::path& path, int quality = 92) {
+    long w = 0, h = 0, p = 0;
+    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    cv::Mat r = plane_to_mat(rv, w, h);
+    cv::Mat g = r;
+    cv::Mat b = r;
+    if (p >= 3) {
+        long wg = 0, hg = 0, pg = 0;
+        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        g = plane_to_mat(gv, wg, hg);
+        long wb = 0, hb = 0, pb = 0;
+        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        b = plane_to_mat(bv, wb, hb);
+    }
+    // No downscale — 1:1 resolution
+    cv::Mat out(r.rows, r.cols, CV_8UC3);
+    for (int y = 0; y < r.rows; ++y) {
+        for (int x = 0; x < r.cols; ++x) {
+            auto& px = out.at<cv::Vec3b>(y, x);
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
+        }
+    }
+    int effective_quality = quality;
+    if (std::max(r.rows, r.cols) > 4000) effective_quality = 85;
+    std::vector<unsigned char> jpeg;
+    std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, effective_quality};
+    if (!cv::imencode(".jpg", out, jpeg, params))
+        throw std::runtime_error("JPEG encoding failed");
+    return jpeg;
+}
+
+cv::Mat render_float_planes_to_bgr8(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b) {
+    cv::Mat out(r.rows, r.cols, CV_8UC3);
+    for (int y = 0; y < r.rows; ++y) {
+        for (int x = 0; x < r.cols; ++x) {
+            auto& px = out.at<cv::Vec3b>(y, x);
+            px[2] = linear_float_to_u8(r.at<float>(y, x));
+            px[1] = linear_float_to_u8(g.at<float>(y, x));
+            px[0] = linear_float_to_u8(b.at<float>(y, x));
+        }
+    }
+    return out;
+}
+
+cv::Mat render_float_bgr_to_bgr8(const cv::Mat& img) {
+    if (img.channels() == 1) {
+        std::vector<cv::Mat> planes;
+        cv::split(img, planes);
+        return render_float_planes_to_bgr8(planes[0], planes[0], planes[0]);
+    }
+    std::vector<cv::Mat> planes;
+    cv::split(img, planes); // B, G, R
+    return render_float_planes_to_bgr8(planes[2], planes[1], planes[0]);
+}
+
+cv::Mat read_fits_to_float_bgr(const fs::path& path) {
+    long w = 0, h = 0, p = 0;
+    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    cv::Mat r = plane_to_mat(rv, w, h);
+    cv::Mat g = r;
+    cv::Mat b = r;
+    if (p >= 3) {
+        long wg = 0, hg = 0, pg = 0;
+        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        g = plane_to_mat(gv, wg, hg);
+        long wb = 0, hb = 0, pb = 0;
+        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        b = plane_to_mat(bv, wb, hb);
+    }
+
+    cv::Mat bgr(h, w, CV_32FC3);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            auto value = [](float v) -> float {
+                return std::isfinite(v) ? v : 0.0f;
+            };
+            cv::Vec3f& px = bgr.at<cv::Vec3f>(y, x);
+            px[0] = value(b.at<float>(y, x)); // B
+            px[1] = value(g.at<float>(y, x)); // G
+            px[2] = value(r.at<float>(y, x)); // R
+        }
+    }
+    return bgr;
+}
+
+void write_float_bgr_to_fits(const cv::Mat& img, const fs::path& path) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    // Create parent directory if it doesn't exist
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+
+    // cfitsio requires '!' prefix to overwrite an existing file
+    std::string path_str = path.string();
+    if (path_str[0] != '!')
+        path_str = "!" + path_str;
+
+    if (fits_create_file(&fptr, path_str.c_str(), &status)) {
+        throw std::runtime_error("Cannot create FITS file: " + fits_status_text(status));
+    }
+
+    const int channels = img.channels();
+    const int naxis = (channels == 1) ? 2 : 3;
+    long naxes[3] = {img.cols, img.rows, channels};
+
+    if (fits_create_img(fptr, FLOAT_IMG, naxis, naxes, &status)) {
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("Cannot create FITS image: " + fits_status_text(status));
+    }
+
+    double display_min = 0.0;
+    double display_max = 1.0;
+    fits_update_key(fptr, TDOUBLE, const_cast<char*>("DATAMIN"), &display_min,
+                    const_cast<char*>("Live editor display minimum"), &status);
+    fits_update_key(fptr, TDOUBLE, const_cast<char*>("DATAMAX"), &display_max,
+                    const_cast<char*>("Live editor display maximum"), &status);
+    if (channels == 3) {
+        char rgb[] = "RGB";
+        fits_update_key(fptr, TSTRING, const_cast<char*>("CTYPE3"), rgb,
+                        const_cast<char*>("Color channel"), &status);
+    }
+    if (status) {
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("Cannot write FITS display metadata: " + fits_status_text(status));
+    }
+
+    if (!img.isContinuous()) {
+        cv::Mat tmp = img.clone();
+        write_float_bgr_to_fits(tmp, path);
+        return;
+    }
+
+    const size_t plane_pixels = static_cast<size_t>(img.rows) * img.cols;
+    std::vector<float> pixels(plane_pixels * channels, 0.0f);
+    if (channels == 1) {
+        const float* src = reinterpret_cast<const float*>(img.data);
+        std::memcpy(pixels.data(), src, pixels.size() * sizeof(float));
+    } else {
+        std::vector<cv::Mat> planes;
+        cv::split(img, planes); // B, G, R
+        for (int c = 0; c < 3; ++c) {
+            const float* src = reinterpret_cast<const float*>(planes[2 - c].data);
+            std::memcpy(pixels.data() + c * plane_pixels, src, plane_pixels * sizeof(float));
+        }
+    }
+
+    long first[3] = {1, 1, 1};
+    if (fits_write_pix(fptr, TFLOAT, first, pixels.size(), pixels.data(), &status)) {
+        fits_close_file(fptr, &status);
+        throw std::runtime_error("Cannot write FITS data: " + fits_status_text(status));
+    }
+    fits_close_file(fptr, &status);
+}
+
+std::string mat_to_jpeg_base64(const cv::Mat& img, int quality = 85) {
+    cv::Mat display;
+    if (img.depth() == CV_32F) {
+        display = render_float_bgr_to_bgr8(img);
+    } else {
+        display = img;
+    }
+    std::vector<unsigned char> jpeg;
+    std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, quality};
+    if (!cv::imencode(".jpg", display, jpeg, params))
+        throw std::runtime_error("JPEG encoding failed");
+    return base64_encode(jpeg);
+}
+
+std::string mat_to_vision_jpeg_base64(const cv::Mat& img, int max_dim = 1568, int quality = 85) {
+    cv::Mat display = (img.depth() == CV_32F) ? render_float_bgr_to_bgr8(img) : img;
+    cv::Mat resized = display;
+    int longest = std::max(display.rows, display.cols);
+    if (longest > max_dim) {
+        double scale = static_cast<double>(max_dim) / longest;
+        cv::resize(display, resized, cv::Size(), scale, scale, cv::INTER_AREA);
+    }
+    std::vector<unsigned char> jpeg;
+    std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, quality};
+    if (!cv::imencode(".jpg", resized, jpeg, params))
+        throw std::runtime_error("JPEG encoding failed (vision)");
+    return base64_encode(jpeg);
+}
+
+nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& image) {
+    std::string lower = msg;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    auto has = [&](const std::string& kw) {
+        return lower.find(kw) != std::string::npos;
+    };
+
+    nlohmann::json operations = nlohmann::json::array();
+    std::string summary;
+    bool adjustable = false;
+    bool repeatable = false;
+    nlohmann::json adjust_step;
+
+    // Derive conservative local parameters from the current image when the
+    // AI sidecar is unavailable. The command text still selects the
+    // operation; these statistics only determine its strength.
+    double median_luma = 0.25;
+    double p10_luma = 0.05;
+    double p90_luma = 0.60;
+    double mean_saturation = 0.35;
+    if (!image.empty() && image.depth() == CV_32F) {
+        cv::Mat luminance;
+        if (image.channels() >= 3) cv::cvtColor(image, luminance, cv::COLOR_BGR2GRAY);
+        else luminance = image;
+        std::vector<float> samples;
+        samples.reserve(static_cast<size_t>(luminance.total() / 16 + 1));
+        for (int y = 0; y < luminance.rows; y += 4) {
+            for (int x = 0; x < luminance.cols; x += 4) {
+                const float v = luminance.at<float>(y, x);
+                if (std::isfinite(v)) samples.push_back(std::clamp(v, 0.0f, 1.0f));
+            }
+        }
+        if (!samples.empty()) {
+            std::sort(samples.begin(), samples.end());
+            auto quantile = [&](double q) {
+                const size_t idx = std::min(samples.size() - 1,
+                    static_cast<size_t>(q * static_cast<double>(samples.size() - 1)));
+                return static_cast<double>(samples[idx]);
+            };
+            p10_luma = quantile(0.10);
+            median_luma = quantile(0.50);
+            p90_luma = quantile(0.90);
+        }
+        if (image.channels() >= 3) {
+            cv::Mat hsv;
+            cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
+            std::vector<cv::Mat> hsv_channels;
+            cv::split(hsv, hsv_channels);
+            mean_saturation = cv::mean(hsv_channels[1])[0];
+            mean_saturation = std::clamp(mean_saturation, 0.0, 1.0);
+        }
+    }
+    const double brighten_amount = std::clamp((0.32 - median_luma) * 0.75, 0.04, 0.25);
+    const double darken_amount = std::clamp((median_luma - 0.10) * 0.75, 0.04, 0.25);
+    const double contrast_amount = std::clamp((0.45 - (p90_luma - p10_luma)) * 0.7, 0.04, 0.25);
+    const double saturation_amount = std::clamp((0.55 - mean_saturation) * 0.7, 0.04, 0.25);
+
+    if (has("heller") || has("aufhellen") || has("brighter")) {
+        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", brighten_amount}, {"shadows", 0.0}, {"highlights", 0.0}}}});
+        summary = "Helligkeit erhoeht.";
+        adjustable = true;
+        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", brighten_amount * 0.35}, {"shadows", 0.0}, {"highlights", 0.0}}}};
+    } else if (has("dunkler") || has("darker")) {
+        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", -darken_amount}, {"shadows", 0.0}, {"highlights", 0.0}}}});
+        summary = "Helligkeit reduziert.";
+        adjustable = true;
+        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", -darken_amount * 0.35}, {"shadows", 0.0}, {"highlights", 0.0}}}};
+    } else if (has("kontrast") && !has("lokal") && !has("local") &&
+               (has("mehr") || has("erhoeh"))) {
+        operations.push_back({{"type", "contrast"}, {"params", {{"amount", contrast_amount}}}});
+        summary = "Kontrast erhoeht.";
+        adjustable = true;
+        adjust_step = {{"type", "contrast"}, {"params", {{"amount", contrast_amount * 0.5}}}};
+    } else if (has("kontrast") && has("weniger")) {
+        operations.push_back({{"type", "contrast"}, {"params", {{"amount", -contrast_amount}}}});
+        summary = "Kontrast reduziert.";
+        adjustable = true;
+        adjust_step = {{"type", "contrast"}, {"params", {{"amount", -contrast_amount * 0.5}}}};
+    } else if ((has("saettigung") || has("farbe")) && (has("mehr") || has("erhoeh"))) {
+        operations.push_back({{"type", "saturation"}, {"params", {{"amount", saturation_amount}}}});
+        summary = "Saettigung erhoeht.";
+        adjustable = true;
+        adjust_step = {{"type", "saturation"}, {"params", {{"amount", saturation_amount * 0.5}}}};
+    } else if (has("crop_rotated") || (has("crop") && lower.find("angle") != std::string::npos)) {
+        int cx = 0, cy = 0, cw = 0, ch = 0;
+        double angle = 0.0;
+        std::smatch rmatch;
+        if (std::regex_search(lower, rmatch,
+                std::regex(R"(crop_rotated\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+(?:[\.,]\d+)?))"))) {
+            cx = std::stoi(rmatch[1].str());
+            cy = std::stoi(rmatch[2].str());
+            cw = std::stoi(rmatch[3].str());
+            ch = std::stoi(rmatch[4].str());
+            std::string a = rmatch[5].str();
+            std::replace(a.begin(), a.end(), ',', '.');
+            angle = std::stod(a);
+        }
+        cx = std::clamp(cx, 0, std::max(0, image.cols - 1));
+        cy = std::clamp(cy, 0, std::max(0, image.rows - 1));
+        cw = std::clamp(cw, 1, image.cols);
+        ch = std::clamp(ch, 1, image.rows);
+        angle = std::clamp(angle, -180.0, 180.0);
+        operations.push_back({{"type", "crop_rotated"}, {"params", {{"cx", cx}, {"cy", cy}, {"w", cw}, {"h", ch}, {"angle", angle}}}});
+        summary = "Bild gedreht zugeschnitten.";
+    } else if (has("crop") || has("zuschneid") || has("beschneid") || has("rand abschneiden")) {
+        int cx = 0, cy = 0, cw = 0, ch = 0;
+        std::smatch pxmatch;
+        if (std::regex_search(lower, pxmatch,
+                std::regex(R"(crop\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+))"))) {
+            cx = std::stoi(pxmatch[1].str());
+            cy = std::stoi(pxmatch[2].str());
+            cw = std::stoi(pxmatch[3].str());
+            ch = std::stoi(pxmatch[4].str());
+        } else {
+            double border_fraction = 0.05;
+            std::smatch match;
+            if (std::regex_search(lower, match, std::regex(R"((\d+(?:[\.,]\d+)?)\s*%)"))) {
+                try { border_fraction = std::stod(match[1].str()); } catch (...) {}
+                if (match[1].str().find(',') != std::string::npos) {
+                    std::string value = match[1].str();
+                    std::replace(value.begin(), value.end(), ',', '.');
+                    try { border_fraction = std::stod(value); } catch (...) {}
+                }
+                border_fraction /= 100.0;
+            }
+            border_fraction = std::clamp(border_fraction, 0.0, 0.40);
+            cx = static_cast<int>(std::lround(image.cols * border_fraction));
+            cy = static_cast<int>(std::lround(image.rows * border_fraction));
+            cw = std::max(1, image.cols - 2 * cx);
+            ch = std::max(1, image.rows - 2 * cy);
+        }
+        cx = std::clamp(cx, 0, std::max(0, image.cols - 1));
+        cy = std::clamp(cy, 0, std::max(0, image.rows - 1));
+        cw = std::clamp(cw, 1, image.cols - cx);
+        ch = std::clamp(ch, 1, image.rows - cy);
+        operations.push_back({{"type", "crop"}, {"params", {{"x", cx}, {"y", cy}, {"w", cw}, {"h", ch}}}});
+        summary = "Bild zugeschnitten.";
+    } else if (has("schae") || has("sharpen")) {
+        operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
+        summary = "Schaerfe erhoeht.";
+        repeatable = true;
+    } else if ((has("rausch") || has("denoise") || has("noise")) &&
+               !has("farbrausch") && !has("chroma")) {
+        operations.push_back({{"type", "denoise"}, {"params", {{"strength", 0.5}, {"luminance", false}}}});
+        summary = "Rauschen reduziert.";
+    } else if (has("gruen")) {
+        operations.push_back({{"type", "rmgreen"}, {"params", {{"strength", 0.5}}}});
+        summary = "Gruenanteil reduziert.";
+    } else if (has("levels") || has("tonwerte") || has("tonwert")) {
+        const double black = std::clamp(p10_luma * 0.5, 0.0, 0.4);
+        const double white = std::clamp(p90_luma + 0.15, 0.6, 1.0);
+        operations.push_back({{"type", "levels"}, {"params", {{"black", black}, {"white", white}, {"gamma", 1.0}}}});
+        summary = "Tonwerte angepasst.";
+    } else if (has("schatten") || has("shadow")) {
+        operations.push_back({{"type", "shadow_recovery"}, {"params", {{"strength", 0.45}}}});
+        summary = "Schatten wiederhergestellt.";
+    } else if (has("spitzlich") || has("highlight")) {
+        operations.push_back({{"type", "highlight_recovery"}, {"params", {{"strength", 0.45}}}});
+        summary = "Spitzlichter wiederhergestellt.";
+    } else if (has("farbbalance") || has("color balance") || has("farben waermer") || has("farben kuehler")) {
+        const double red = has("waermer") ? 0.10 : (has("kuehler") ? -0.10 : 0.0);
+        operations.push_back({{"type", "color_balance"}, {"params", {{"red", red}, {"green", 0.0}, {"blue", -red}}}});
+        summary = "Farbbalance angepasst.";
+    } else if (has("lokal kontrast") || has("local contrast")) {
+        operations.push_back({{"type", "local_contrast"}, {"params", {{"strength", 0.4}, {"radius", 3.0}}}});
+        summary = "Lokaler Kontrast erhoeht.";
+    } else if (has("chrom") || has("farbrausch")) {
+        operations.push_back({{"type", "chroma_denoise"}, {"params", {{"strength", 0.5}, {"protect", 0.5}, {"mode", "soft"}}}});
+        summary = "Farbrauschen reduziert.";
+    } else if (has("lebendig") || has("vibrance")) {
+        operations.push_back({{"type", "vibrance"}, {"params", {{"amount", 0.1}}}});
+        summary = "Lebendigkeit erhoeht.";
+        adjustable = true;
+        adjust_step = {{"type", "vibrance"}, {"params", {{"amount", 0.05}}}};
+    } else if (has("warm") || has("waerm") || has("temperatur")) {
+        operations.push_back({{"type", "color_temperature"}, {"params", {{"amount", 0.1}}}});
+        summary = "Farben erwaermt.";
+        adjustable = true;
+        adjust_step = {{"type", "color_temperature"}, {"params", {{"amount", 0.05}}}};
+    } else if (has("lila") || has("purple")) {
+        operations.push_back({{"type", "unpurple"}, {"params", {{"amount", 0.6}}}});
+        summary = "Lila Farbsaueme reduziert.";
+    } else if (has("streifen") || has("banding")) {
+        operations.push_back({{"type", "fixbanding"}, {"params", {{"amount", 0.5}, {"sigma", 2.0}}}});
+        summary = "Streifenartefakte reduziert.";
+    } else if (has("stern") && (has("saett") || has("entsaett"))) {
+        operations.push_back({{"type", "star_desaturation"}, {"params", {{"amount", 0.5}}}});
+        summary = "Uebersteuerte Sterne entsaettigt.";
+    } else if (has("dunst") || has("dehaze")) {
+        operations.push_back({{"type", "dehaze"}, {"params", {{"amount", 0.4}}}});
+        summary = "Dunst reduziert.";
+    } else if (has("detail") || has("lokal") || has("clahe")) {
+        operations.push_back({{"type", "clahe"}, {"params", {{"cliplimit", 3.0}, {"tilesize", 8}}}});
+        summary = "Lokaler Kontrast erhoeht (CLAHE).";
+    } else if (has("invert")) {
+        operations.push_back({{"type", "invert"}, {"params", nlohmann::json::object()}});
+        summary = "Bild invertiert.";
+    } else if (has("zurueck") || has("reset")) {
+        operations.push_back({{"type", "reset"}, {"params", nlohmann::json::object()}});
+        summary = "Bild zurueckgesetzt.";
+    } else {
+        summary = "Keine passende Operation gefunden. Versuche: heller, dunkler, Kontrast, Saettigung, SchaeRfe, Rauschen, Gruen, Details.";
+    }
+
+    return {
+        {"operations", operations},
+        {"summary", summary},
+        {"adjustable", adjustable},
+        {"repeatable", repeatable},
+        {"adjust_step", adjust_step},
+        {"warnings", nlohmann::json::array()},
+        {"mode", "local_fallback"}
+    };
 }
 
 void trim_json_array_to_latest(nlohmann::json& items, int limit) {
@@ -481,6 +862,164 @@ void write_pi_run_chat_history(const std::shared_ptr<AppState>& state,
     std::ofstream out(path, std::ios::out | std::ios::trunc);
     if (!out) throw std::runtime_error("failed to open run chat history for writing");
     out << history.dump(2);
+}
+
+std::filesystem::path pi_live_image_chat_history_path(const std::shared_ptr<AppState>& state,
+                                                      const std::string& run_id) {
+    std::string safe;
+    safe.reserve(run_id.size());
+    for (char c : run_id) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.')
+            safe += c;
+    }
+    if (safe.empty()) safe = "run";
+    const auto hash = std::hash<std::string>{}(run_id);
+    return tile_compile::pi::pi_storage_dir(state) / "live_image_chat" /
+        (safe + "_" + std::to_string(static_cast<unsigned long long>(hash)) + ".json");
+}
+
+nlohmann::json read_pi_live_image_chat_history(const std::shared_ptr<AppState>& state,
+                                               const std::string& run_id) {
+    auto path = pi_live_image_chat_history_path(state, run_id);
+    if (!std::filesystem::exists(path))
+        return {{"schema_version", "pi.live-image-chat-history.v1"},
+                {"run_id", run_id},
+                {"chat_history", nlohmann::json::array()},
+                {"operation_history", nlohmann::json::array()},
+                {"edit_history", nlohmann::json::array()}};
+    std::ifstream in(path);
+    auto data = nlohmann::json::parse(in, nullptr, false);
+    if (data.is_discarded() || !data.is_object())
+        return {{"schema_version", "pi.live-image-chat-history.v1"},
+                {"run_id", run_id},
+                {"chat_history", nlohmann::json::array()},
+                {"operation_history", nlohmann::json::array()},
+                {"edit_history", nlohmann::json::array()}};
+    return data;
+}
+
+void write_pi_live_image_chat_history(const std::shared_ptr<AppState>& state,
+                                      const std::string& run_id,
+                                      nlohmann::json history) {
+    auto path = pi_live_image_chat_history_path(state, run_id);
+    std::filesystem::create_directories(path.parent_path());
+    history["schema_version"] = "pi.live-image-chat-history.v1";
+    history["run_id"] = run_id;
+    if (!history.contains("chat_history") || !history["chat_history"].is_array())
+        history["chat_history"] = nlohmann::json::array();
+    if (!history.contains("operation_history") || !history["operation_history"].is_array())
+        history["operation_history"] = nlohmann::json::array();
+    if (!history.contains("edit_history") || !history["edit_history"].is_array())
+        history["edit_history"] = nlohmann::json::array();
+    history["last_updated"] = utc_now_iso();
+    // Atomic write: temp + rename
+    const auto tmp = path.string() + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::out | std::ios::trunc);
+        if (!out) throw std::runtime_error("failed to open live image chat history for writing");
+        out << history.dump(2);
+    }
+    std::filesystem::rename(tmp, path);
+}
+
+void persist_live_session(const std::shared_ptr<AppState>& state,
+                          const std::shared_ptr<tile_compile::pi::LiveImageSessionStore>& store,
+                          const std::string& session_id) {
+    std::string run_id;
+    store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        run_id = s.run_id;
+    });
+    if (run_id.empty()) return;
+    const auto chat_history = store->get_chat_history(session_id);
+    const auto operation_history = store->get_operation_history(session_id);
+    nlohmann::json edit_history = nlohmann::json::array();
+    store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        edit_history = s.edit_history;
+    });
+    if (chat_history.empty() && operation_history.empty() && edit_history.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(pi_live_image_chat_history_path(state, run_id), ec);
+        return;
+    }
+    write_pi_live_image_chat_history(state, run_id, {
+        {"chat_history", chat_history},
+        {"operation_history", operation_history},
+        {"edit_history", edit_history},
+        {"created_at", utc_now_iso()}
+    });
+}
+
+std::filesystem::path pi_live_image_presets_dir(const std::shared_ptr<AppState>& state) {
+    return tile_compile::pi::pi_storage_dir(state) / "presets";
+}
+
+std::string sanitize_live_preset_id(const std::string& name) {
+    std::string safe;
+    for (unsigned char ch : name) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') safe.push_back(static_cast<char>(ch));
+        else if (std::isspace(ch)) safe.push_back('_');
+    }
+    while (!safe.empty() && safe.front() == '.') safe.erase(safe.begin());
+    if (safe.size() > 80) safe.resize(80);
+    return safe;
+}
+
+nlohmann::json live_preset_summary(const nlohmann::json& preset) {
+    return {
+        {"id", preset.value("id", std::string())},
+        {"name", preset.value("name", preset.value("id", std::string()))},
+        {"updated_at", preset.value("updated_at", std::string())},
+        {"operation_count", preset.value("operations", nlohmann::json::array()).size()}
+    };
+}
+
+nlohmann::json read_live_preset(const std::shared_ptr<AppState>& state,
+                                const std::string& id) {
+    const auto safe = sanitize_live_preset_id(id);
+    if (safe.empty() || safe != id) return nlohmann::json();
+    const auto path = pi_live_image_presets_dir(state) / (safe + ".json");
+    if (!std::filesystem::exists(path)) return nlohmann::json();
+    std::ifstream in(path);
+    auto parsed = nlohmann::json::parse(in, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return nlohmann::json();
+    if (!parsed.value("operations", nlohmann::json::array()).is_array()) return nlohmann::json();
+    return parsed;
+}
+
+void write_live_preset(const std::shared_ptr<AppState>& state, nlohmann::json preset) {
+    const auto id = preset.value("id", std::string());
+    const auto safe = sanitize_live_preset_id(id);
+    if (safe.empty() || safe != id) throw std::runtime_error("invalid preset id");
+    auto dir = pi_live_image_presets_dir(state);
+    std::filesystem::create_directories(dir);
+    const auto path = dir / (safe + ".json");
+    const auto tmp = path.string() + ".tmp";
+    std::ofstream out(tmp, std::ios::out | std::ios::trunc);
+    if (!out) throw std::runtime_error("failed to open preset for writing");
+    out << preset.dump(2);
+    out.close();
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) throw std::runtime_error("failed to finalize preset: " + ec.message());
+}
+
+void persist_live_edit_fits(const std::shared_ptr<AppState>& state,
+                            const std::shared_ptr<tile_compile::pi::LiveImageSessionStore>& store,
+                            const std::string& session_id) {
+    cv::Mat current_fits;
+    std::string run_id;
+    store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        current_fits = s.current_fits.clone();
+        run_id = s.run_id;
+    });
+    if (run_id.empty() || current_fits.empty()) return;
+    try {
+        const auto run_dir = state->runtime.resolve_run_dir(run_id);
+        const fs::path edit_path = run_dir / "outputs" / "live_edit.fits";
+        write_float_bgr_to_fits(current_fits, edit_path);
+    } catch (...) {
+        // Don't fail API calls if the copy can't be written
+    }
 }
 
 std::string chat_message_key(const nlohmann::json& item) {
@@ -650,6 +1189,25 @@ std::optional<fs::path> resolve_run_relative_artifact(const fs::path& run_dir, c
     }
     if (!fs::exists(candidate) || !fs::is_regular_file(candidate)) return std::nullopt;
     return candidate;
+}
+
+std::optional<fs::path> find_output_fits(const fs::path& run_dir) {
+    const auto artifacts = list_run_artifacts(run_dir);
+    std::string best_rel;
+    int best_score = -1;
+    for (const auto& item : artifacts) {
+        if (!item.is_object()) continue;
+        const std::string rel = item.value("path", item.value("relative_path", std::string()));
+        const std::string ext = lower_ext(rel);
+        if (ext != ".fits" && ext != ".fit" && ext != ".fts") continue;
+        const int score = pi_preview_artifact_score(rel);
+        if (score > best_score) {
+            best_score = score;
+            best_rel = rel;
+        }
+    }
+    if (best_rel.empty()) return std::nullopt;
+    return resolve_run_relative_artifact(run_dir, best_rel);
 }
 
 nlohmann::json build_run_chat_preview_image(const fs::path& run_dir) {
@@ -2356,5 +2914,716 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             {"path", applied["path"]},
             {"saved", applied["saved"]}
         });
+    });
+
+    // ===== Live Image Chat Routes =====
+
+    auto live_store = std::make_shared<tile_compile::pi::LiveImageSessionStore>();
+
+    // 1. POST /api/pi/live-image-chat/create
+    CROW_ROUTE(app, "/api/pi/live-image-chat/create").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+
+        fs::path run_dir;
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::runtime_error&) {
+            return err_resp("NOT_FOUND", "run directory not found", 404);
+        }
+        if (!fs::is_directory(run_dir))
+            return err_resp("NOT_FOUND", "run directory not found", 404);
+
+        live_store->evict_expired(1800, 5);
+
+        auto fits_path = find_output_fits(run_dir);
+        if (!fits_path)
+            return err_resp("NO_FITS", "No FITS output found in run directory", 404);
+
+        try {
+            const fs::path live_edit_path = run_dir / "outputs" / "live_edit.fits";
+
+            // The source FITS is immutable. live_edit.fits, when present, is
+            // the canonical current working image from a previous session.
+            auto saved = read_pi_live_image_chat_history(state, run_id);
+            nlohmann::json op_history = saved.value("operation_history", nlohmann::json::array());
+            const bool has_live_edit = fs::exists(live_edit_path);
+            const bool resumed = has_live_edit || !op_history.empty() ||
+                !saved.value("chat_history", nlohmann::json::array()).empty();
+
+            cv::Mat original = read_fits_to_float_bgr(*fits_path);
+            cv::Mat current = has_live_edit ? read_fits_to_float_bgr(live_edit_path) : original.clone();
+            if (original.empty() || current.empty())
+                return err_resp("RENDER_FAILED", "Failed to read FITS data", 500);
+
+            std::string session_id = live_store->create(run_id, original, current);
+            live_store->evict_expired(1800, 5);
+
+            // If history exists without a working FITS, reconstruct the current
+            // image once and materialize the canonical working file.
+            if (!has_live_edit && !op_history.empty()) {
+                live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                    for (const auto& op : op_history) {
+                        auto result = tile_compile::pi::apply_image_op_fits(s.current_fits, op);
+                        if (result.success) s.current_fits = std::move(result.image);
+                    }
+                });
+                persist_live_edit_fits(state, live_store, session_id);
+            }
+
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                s.chat_history = saved.value("chat_history", nlohmann::json::array());
+                s.operation_history = op_history;
+                s.edit_history = saved.value("edit_history", nlohmann::json::array());
+                // Reconstruct exact pre-operation snapshots for undo after a
+                // browser/session reload. The canonical live_edit.fits is
+                // still used as the current image; snapshots are derived from
+                // the immutable source and persisted operation sequence.
+                cv::Mat replay = s.original_fits.clone();
+                s.undo_stack.clear();
+                s.undo_snapshots.clear();
+                s.redo_stack.clear();
+                s.redo_snapshots.clear();
+                if (op_history.is_array()) {
+                    for (const auto& history_op : op_history) {
+                        const cv::Mat before = replay.clone();
+                        auto replay_result = tile_compile::pi::apply_image_op_fits(replay, history_op);
+                        if (!replay_result.success) break;
+                        s.undo_snapshots.push_back(before);
+                        s.undo_stack.push_back(history_op);
+                        replay = std::move(replay_result.image);
+                    }
+                }
+            });
+
+            std::string preview_b64;
+            int img_w = 0, img_h = 0;
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                preview_b64 = mat_to_jpeg_base64(s.current_fits, 85);
+                img_w = s.current_fits.cols;
+                img_h = s.current_fits.rows;
+            });
+
+            nlohmann::json resp = {
+                {"session_id", session_id},
+                {"run_id", run_id},
+                {"image_base64", preview_b64},
+                {"image_mime", "image/jpeg"},
+                {"image_width", img_w},
+                {"image_height", img_h},
+                {"resumed", resumed}
+            };
+            nlohmann::json chat_history = saved.value("chat_history", nlohmann::json::array());
+            if (!chat_history.empty()) {
+                resp["chat_history"] = chat_history;
+                resp["operation_history"] = op_history;
+            }
+
+            return json_resp(resp);
+        } catch (const std::exception& e) {
+            return err_resp("RENDER_FAILED", e.what(), 500);
+        }
+    });
+
+    // 2. POST /api/pi/live-image-chat
+    CROW_ROUTE(app, "/api/pi/live-image-chat").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        const std::string message = body->value("message", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+        if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
+
+        // Count user messages to decide whether to send image
+        int user_msg_count = 0;
+        std::string vision_b64;
+        nlohmann::json op_history;
+        cv::Mat analysis_image;
+        bool found = live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            analysis_image = s.current_fits.clone();
+            for (const auto& entry : s.chat_history) {
+                if (entry.value("role", "") == "user") user_msg_count++;
+            }
+            op_history = s.operation_history;
+            // Send image every 3rd user message (1st, 4th, 7th, ...)
+            // to limit vision API costs while keeping analysis fresh
+            if (user_msg_count % 3 == 0) {
+                vision_b64 = mat_to_vision_jpeg_base64(s.current_fits, 1568, 85);
+            }
+        });
+        if (!found) return err_resp("NOT_FOUND", "session not found", 404);
+
+        // Append user message to chat history
+        live_store->append_chat(session_id, "user", message);
+
+        // Crop is a deterministic geometry operation and must never require
+        // or invoke the AI sidecar. Handle it through the local parser.
+        const std::string lower_message = [&]() {
+            std::string value = message;
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            return value;
+        }();
+        const bool local_crop_request = lower_message.find("crop") != std::string::npos ||
+            lower_message.find("zuschneid") != std::string::npos ||
+            lower_message.find("beschneid") != std::string::npos ||
+            lower_message.find("rand abschneiden") != std::string::npos;
+
+        // Try AI sidecar unless this is a local-only crop request.
+        nlohmann::json ai_result;
+        bool sidecar_ok = false;
+        nlohmann::json prompt_history = nlohmann::json::array();
+        if (op_history.is_array()) {
+            const size_t begin = op_history.size() > 10 ? op_history.size() - 10 : 0;
+            for (size_t i = begin; i < op_history.size(); ++i) prompt_history.push_back(op_history[i]);
+        }
+        try {
+            if (local_crop_request) throw std::runtime_error("crop is local-only");
+            auto ai_config = current_pi_ai_config(state);
+            if (!ai_config.model.empty()) {
+                tile_compile::ai::AiSidecarClient client(ai_config);
+                nlohmann::json payload = {
+                    {"prompt", message},
+                    {"image_base64", vision_b64},
+                    {"image_mime", "image/jpeg"},
+                    {"image_width", analysis_image.cols},
+                    {"image_height", analysis_image.rows},
+                    {"operation_history", prompt_history}
+                };
+        auto response = client.post("/live-image-chat", payload);
+                if (response.contains("operations")) {
+                    ai_result = response;
+                    sidecar_ok = true;
+                }
+            }
+        } catch (const std::exception&) {
+            // Sidecar not available, fall through to local
+        }
+
+        if (!sidecar_ok) {
+            ai_result = fallback_parse_message(message, analysis_image);
+        }
+
+        // Commands backed by a parameter dialog must resolve to their
+        // dedicated operation type. Older model prompts may still answer
+        // with generic contrast/denoise/brightness operations, which would
+        // otherwise be applied immediately and bypass confirmation.
+        auto contains_message = [&](const std::string& value) {
+            return lower_message.find(value) != std::string::npos;
+        };
+        std::string requested_dialog_type;
+        if (contains_message("tonwert") || contains_message("levels"))
+            requested_dialog_type = "levels";
+        else if (contains_message("schatten") || contains_message("shadow"))
+            requested_dialog_type = "shadow_recovery";
+        else if (contains_message("spitzlicht") || contains_message("highlight"))
+            requested_dialog_type = "highlight_recovery";
+        else if (contains_message("farbbalance") || contains_message("color balance"))
+            requested_dialog_type = "color_balance";
+        else if ((contains_message("lokal") || contains_message("local")) &&
+                 contains_message("kontrast"))
+            requested_dialog_type = "local_contrast";
+        else if (contains_message("farbrausch") || contains_message("chroma"))
+            requested_dialog_type = "chroma_denoise";
+
+        if (!requested_dialog_type.empty()) {
+            const auto returned_ops = ai_result.value("operations", nlohmann::json::array());
+            const bool correct_type = returned_ops.is_array() && returned_ops.size() == 1 &&
+                returned_ops.front().is_object() &&
+                returned_ops.front().value("type", std::string()) == requested_dialog_type &&
+                tile_compile::pi::validate_op(returned_ops.front()).empty();
+            if (!correct_type) {
+                auto deterministic_suggestion = fallback_parse_message(message, analysis_image);
+                const auto fallback_ops = deterministic_suggestion.value("operations", nlohmann::json::array());
+                if (fallback_ops.is_array() && fallback_ops.size() == 1 &&
+                    fallback_ops.front().value("type", std::string()) == requested_dialog_type) {
+                    ai_result["operations"] = fallback_ops;
+                    ai_result["summary"] = deterministic_suggestion.value(
+                        "summary", std::string("Parameter vorgeschlagen."));
+                    ai_result["adjustable"] = false;
+                    ai_result["repeatable"] = false;
+                }
+            }
+        }
+
+        // Apply operations
+        nlohmann::json operations = ai_result.value("operations", nlohmann::json::array());
+        nlohmann::json applied_ops = nlohmann::json::array();
+        nlohmann::json proposed_ops = nlohmann::json::array();
+        nlohmann::json warnings = ai_result.value("warnings", nlohmann::json::array());
+        if (!warnings.is_array()) warnings = nlohmann::json::array();
+        std::string last_error;
+
+        const auto requires_parameter_dialog = [](const std::string& type) {
+            return type == "levels" || type == "shadow_recovery" ||
+                type == "highlight_recovery" || type == "color_balance" ||
+                type == "local_contrast" || type == "chroma_denoise";
+        };
+        const bool requires_confirmation = operations.is_array() && operations.size() == 1 &&
+            operations.front().is_object() &&
+            requires_parameter_dialog(operations.front().value("type", std::string()));
+
+        for (const auto& op : operations) {
+            if (!op.is_object() || !op.contains("type")) continue;
+            if (requires_confirmation) {
+                const auto validation = tile_compile::pi::validate_op(op);
+                if (validation.empty()) proposed_ops.push_back(op);
+                else {
+                    last_error = validation.value("error", std::string("invalid operation"));
+                    warnings.push_back("invalid_operation: " + last_error);
+                }
+                continue;
+            }
+            auto res = live_store->apply_operation(session_id, op);
+            if (res.success) {
+                applied_ops.push_back(op);
+            } else {
+                last_error = res.error;
+                warnings.push_back("invalid_operation: " + res.error);
+            }
+        }
+
+        const bool sharpen_operation = !applied_ops.empty() &&
+            applied_ops.front().value("type", std::string()) == "sharpen";
+        const bool adjustable = !requires_confirmation &&
+            ai_result.value("adjustable", false) && !sharpen_operation;
+
+        // Set adjust step if provided, otherwise derive from the first applied operation
+        nlohmann::json effective_adjust_step = nullptr;
+        if (adjustable) {
+            nlohmann::json adjust_step = ai_result.value("adjust_step", nlohmann::json());
+            if (adjust_step.is_null() && !applied_ops.empty()) {
+                adjust_step = applied_ops[0];
+            }
+            if (!adjust_step.is_null()) {
+                effective_adjust_step = adjust_step;
+                live_store->set_adjust_step(session_id, adjust_step);
+            }
+        } else {
+            live_store->set_adjust_step(session_id, nullptr);
+        }
+        const bool has_repeatable_operation = !applied_ops.empty() &&
+            applied_ops.front().value("type", std::string()) != "reset";
+        const bool repeatable = has_repeatable_operation &&
+            (sharpen_operation || ai_result.value("repeatable", false) || !adjustable);
+
+        // Append assistant response to chat history
+        std::string summary = ai_result.value("summary", std::string());
+        live_store->append_chat(session_id, "assistant", summary,
+                                applied_ops.empty() ? nlohmann::json(nullptr) : applied_ops);
+
+        // Persist the float working copy and render preview
+        if (!applied_ops.empty()) persist_live_edit_fits(state, live_store, session_id);
+
+        std::string updated_b64;
+        int img_w = 0, img_h = 0;
+        bool can_undo = false, can_redo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            updated_b64 = mat_to_jpeg_base64(s.current_fits, 85);
+            img_w = s.current_fits.cols;
+            img_h = s.current_fits.rows;
+            can_undo = !s.undo_stack.empty();
+            can_redo = !s.redo_stack.empty();
+        });
+
+        nlohmann::json resp = {
+            {"schema_version", "pi.live-image-chat.v1"},
+            {"session_id", session_id},
+            {"summary", summary},
+            {"operations", requires_confirmation ? proposed_ops : applied_ops},
+            {"requires_confirmation", requires_confirmation && !proposed_ops.empty()},
+            {"image_base64", updated_b64},
+            {"image_mime", "image/jpeg"},
+            {"image_width", img_w},
+            {"image_height", img_h},
+            {"adjustable", adjustable},
+            {"repeatable", repeatable},
+            {"can_undo", can_undo},
+            {"can_redo", can_redo},
+            {"mode", ai_result.value("mode", sidecar_ok ? "sidecar" : "local_fallback")}
+        };
+        resp["warnings"] = warnings;
+        if (!effective_adjust_step.is_null())
+            resp["adjust_step"] = effective_adjust_step;
+        if (!last_error.empty())
+            resp["last_error"] = last_error;
+
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        return json_resp(resp);
+    });
+
+    // Repeat the last non-adjustable operation with exactly the same params.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/repeat").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+        auto result = live_store->repeat_operation(session_id);
+        if (!result.success)
+            return err_resp("REPEAT_FAILED", result.error, 400);
+        nlohmann::json repeated_op = nlohmann::json(nullptr);
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            if (!s.undo_stack.empty()) repeated_op = s.undo_stack.back();
+        });
+        live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", repeated_op);
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false, can_redo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            can_undo = !s.undo_stack.empty();
+            can_redo = !s.redo_stack.empty();
+        });
+        return json_resp({
+            {"session_id", session_id},
+            {"summary", "Operation erneut angewendet."},
+            {"operations", repeated_op.is_null() ? nlohmann::json::array() : nlohmann::json::array({repeated_op})},
+            {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+            {"image_mime", "image/jpeg"},
+            {"can_undo", can_undo},
+            {"can_redo", can_redo},
+            {"repeatable", true}
+        });
+    });
+
+    // Reapply an operation recorded in a chat message without invoking AI.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/reapply").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        nlohmann::json operations = body->value("operations", nlohmann::json::array());
+        if (operations.is_object()) operations = nlohmann::json::array({operations});
+        if (session_id.empty() || !operations.is_array() || operations.empty())
+            return err_resp("BAD_REQUEST", "session_id and operations are required", 400);
+        auto result = live_store->apply_preset(session_id, operations);
+        if (!result.success) return err_resp("REAPPLY_FAILED", result.error, 400);
+        live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", operations);
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { can_undo = !s.undo_stack.empty(); });
+        return json_resp({{"ok", true}, {"summary", "Operation erneut angewendet."},
+                          {"operations", operations}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+                          {"image_mime", "image/jpeg"}, {"can_undo", can_undo}, {"can_redo", false}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/preview-operation").methods("POST"_method)
+    ([live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        auto operation = body->value("operation", nlohmann::json::object());
+        cv::Mat current;
+        if (session_id.empty() || !live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { current = s.current_fits.clone(); }))
+            return err_resp("NOT_FOUND", "session not found", 404);
+        auto result = tile_compile::pi::apply_image_op_fits(current, operation);
+        if (!result.success) return err_resp("PREVIEW_FAILED", result.error, 400);
+        return json_resp({{"ok", true}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+                          {"image_mime", "image/jpeg"}});
+    });
+
+    // 3. POST /api/pi/live-image-chat/adjust
+    CROW_ROUTE(app, "/api/pi/live-image-chat/adjust").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        const std::string direction = body->value("direction", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+        if (direction != "increase" && direction != "decrease")
+            return err_resp("BAD_REQUEST", "direction must be 'increase' or 'decrease'", 400);
+
+        auto res = live_store->apply_adjust(session_id, direction);
+        if (!res.success && !res.error.empty())
+            return err_resp("ADJUST_FAILED", res.error, 400);
+
+        persist_live_edit_fits(state, live_store, session_id);
+
+        std::string b64;
+        int adjust_count = 0;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            b64 = mat_to_jpeg_base64(s.current_fits, 85);
+            adjust_count = s.adjust_count;
+        });
+
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        return json_resp({
+            {"image_base64", b64},
+            {"image_mime", "image/jpeg"},
+            {"adjust_count", adjust_count},
+            {"direction", direction}
+        });
+    });
+
+    // 4. POST /api/pi/live-image-chat/undo
+    CROW_ROUTE(app, "/api/pi/live-image-chat/undo").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+
+        auto res = live_store->undo(session_id);
+        if (res.image.empty())
+            return err_resp("NOT_FOUND", "session not found or nothing to undo", 404);
+
+        persist_live_edit_fits(state, live_store, session_id);
+
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        return json_resp({
+            {"image_base64", mat_to_jpeg_base64(res.image, 85)},
+            {"image_mime", "image/jpeg"},
+            {"summary", res.summary},
+            {"can_undo", res.can_undo},
+            {"can_redo", res.can_redo}
+        });
+    });
+
+    // 5. POST /api/pi/live-image-chat/redo
+    CROW_ROUTE(app, "/api/pi/live-image-chat/redo").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+
+        auto res = live_store->redo(session_id);
+        if (res.image.empty())
+            return err_resp("NOT_FOUND", "session not found or nothing to redo", 404);
+
+        persist_live_edit_fits(state, live_store, session_id);
+
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        return json_resp({
+            {"image_base64", mat_to_jpeg_base64(res.image, 85)},
+            {"image_mime", "image/jpeg"},
+            {"summary", res.summary},
+            {"can_undo", res.can_undo},
+            {"can_redo", res.can_redo}
+        });
+    });
+
+    // 6. POST /api/pi/live-image-chat/reset
+    CROW_ROUTE(app, "/api/pi/live-image-chat/reset").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+
+        auto img = live_store->reset(session_id);
+        if (img.empty())
+            return err_resp("NOT_FOUND", "session not found", 404);
+
+        // Reset is a new editing session boundary: replace the old canonical
+        // working image with a fresh copy of the immutable source and remove
+        // persisted history.
+        try {
+            std::string rid;
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                rid = s.run_id;
+            });
+            if (!rid.empty()) {
+                auto run_dir = state->runtime.resolve_run_dir(rid);
+                const auto outputs_dir = run_dir / "outputs";
+                std::filesystem::remove(outputs_dir / "live_edit.fits");
+                // Remove derived previews as well; live_edit.fits is the only
+                // canonical reset result and stale PNG/JPEG files would make
+                // the run preview disagree with it.
+                for (const char* name : {"live_edit.png", "live_edit.jpg", "live_edit.jpeg"})
+                    std::filesystem::remove(outputs_dir / name);
+            }
+        } catch (...) {}
+
+        // Materialize the reset state again as the new canonical working FITS
+        // so the run preview immediately reflects the reset image. History
+        // remains deleted; this file contains the untouched source pixels.
+        try { persist_live_edit_fits(state, live_store, session_id); } catch (...) {}
+
+        // Delete chat history file entirely
+        try {
+            std::string rid;
+            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+                rid = s.run_id;
+            });
+            if (!rid.empty()) {
+                auto history_path = pi_live_image_chat_history_path(state, rid);
+                std::filesystem::remove(history_path);
+            }
+        } catch (...) {}
+
+        return json_resp({
+            {"image_base64", mat_to_jpeg_base64(img, 85)},
+            {"image_mime", "image/jpeg"},
+            {"can_undo", false},
+            {"can_redo", false}
+        });
+    });
+
+    // 7. POST /api/pi/live-image-chat/export
+    CROW_ROUTE(app, "/api/pi/live-image-chat/export").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        const std::string format = body->value("format", std::string("png"));
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+
+        cv::Mat img;
+        std::string run_id;
+        bool found = live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            img = s.current_fits.clone();
+            run_id = s.run_id;
+        });
+        if (!found) return err_resp("NOT_FOUND", "session not found", 404);
+        if (img.empty()) return err_resp("INTERNAL", "current image is empty", 500);
+
+        fs::path run_dir;
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::runtime_error&) {
+            return err_resp("NOT_FOUND", "run directory not found", 404);
+        }
+
+        const fs::path output_dir = run_dir / "outputs";
+        std::error_code ec;
+        fs::create_directories(output_dir, ec);
+
+        std::string filename = "live_image_export_" + session_id.substr(0, 8);
+        std::string ext = (format == "fits") ? ".fits" : ".png";
+        fs::path output_path = output_dir / (filename + ext);
+
+        if (format == "fits") {
+            // Export the linear float FITS working copy as a proper FITS file.
+            write_float_bgr_to_fits(img, output_path);
+        } else {
+            // Render float data to an 8-bit sRGB PNG preview.
+            cv::Mat display = render_float_bgr_to_bgr8(img);
+            if (!cv::imwrite(output_path.string(), display))
+                return err_resp("EXPORT_FAILED", "Failed to write PNG file", 500);
+        }
+
+        return json_resp({
+            {"ok", true},
+            {"path", output_path.string()},
+            {"format", format}
+        });
+    });
+
+    // Persistent timeline presets shared by all runs.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets").methods("GET"_method)
+    ([state](const crow::request&) {
+        nlohmann::json items = nlohmann::json::array();
+        const auto dir = pi_live_image_presets_dir(state);
+        std::error_code ec;
+        if (std::filesystem::is_directory(dir, ec)) {
+            for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+                if (ec || !entry.is_regular_file() || entry.path().extension() != ".json") continue;
+                std::ifstream in(entry.path());
+                auto preset = nlohmann::json::parse(in, nullptr, false);
+                if (!preset.is_discarded() && preset.is_object()) items.push_back(live_preset_summary(preset));
+            }
+        }
+        std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+            return a.value("name", std::string()) < b.value("name", std::string());
+        });
+        return json_resp({{"items", items}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/save-as").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto name = body->value("name", std::string());
+        const auto id = sanitize_live_preset_id(name);
+        if (session_id.empty() || name.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and a valid name are required", 400);
+        if (read_live_preset(state, id).is_object()) return err_resp("CONFLICT", "Preset already exists", 409);
+        nlohmann::json operations, timeline;
+        bool found = live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            operations = s.operation_history;
+            timeline = s.edit_history;
+        });
+        if (!found) return err_resp("NOT_FOUND", "session not found", 404);
+        auto now = utc_now_iso();
+        nlohmann::json preset = {{"schema_version", "pi.live-image-preset.v1"}, {"id", id}, {"name", name},
+                                 {"operations", operations.is_array() ? operations : nlohmann::json::array()},
+                                 {"edit_history", timeline.is_array() ? timeline : nlohmann::json::array()},
+                                 {"created_at", now}, {"updated_at", now}};
+        try { write_live_preset(state, preset); }
+        catch (const std::exception& e) { return err_resp("SAVE_FAILED", e.what(), 500); }
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/save").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto id = body->value("preset_id", std::string());
+        auto preset = read_live_preset(state, id);
+        if (session_id.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and preset_id are required", 400);
+        if (!preset.is_object()) return err_resp("NOT_FOUND", "preset not found", 404);
+        nlohmann::json operations, timeline;
+        if (!live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            operations = s.operation_history; timeline = s.edit_history;
+        })) return err_resp("NOT_FOUND", "session not found", 404);
+        preset["operations"] = operations.is_array() ? operations : nlohmann::json::array();
+        preset["edit_history"] = timeline.is_array() ? timeline : nlohmann::json::array();
+        preset["updated_at"] = utc_now_iso();
+        try { write_live_preset(state, preset); }
+        catch (const std::exception& e) { return err_resp("SAVE_FAILED", e.what(), 500); }
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/apply").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto id = body->value("preset_id", std::string());
+        if (session_id.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and preset_id are required", 400);
+        auto preset = read_live_preset(state, id);
+        if (!preset.is_object()) return err_resp("NOT_FOUND", "preset not found", 404);
+        auto result = live_store->apply_preset(session_id, preset.value("operations", nlohmann::json::array()));
+        if (!result.success) return err_resp("PRESET_FAILED", result.error, 400);
+        live_store->append_chat(session_id, "assistant", "Preset angewendet: " + preset.value("name", id),
+                                preset.value("operations", nlohmann::json::array()));
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { can_undo = !s.undo_stack.empty(); });
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)},
+                          {"image_base64", mat_to_jpeg_base64(result.image, 85)}, {"image_mime", "image/jpeg"},
+                          {"can_undo", can_undo}, {"can_redo", false}});
+    });
+
+    // 8. GET /api/pi/live-image-chat/history
+    CROW_ROUTE(app, "/api/pi/live-image-chat/history").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string run_id = req.url_params.get("run_id") ? std::string(req.url_params.get("run_id")) : "";
+        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+
+        return json_resp(read_pi_live_image_chat_history(state, run_id));
+    });
+
+    // 9. POST /api/pi/live-image-chat/close
+    CROW_ROUTE(app, "/api/pi/live-image-chat/close").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string session_id = body->value("session_id", std::string());
+        if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
+
+        // Persist chat and operation history before closing
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+
+        live_store->close(session_id);
+        return json_resp({{"ok", true}});
     });
 }

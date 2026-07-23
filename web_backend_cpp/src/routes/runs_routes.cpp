@@ -491,21 +491,47 @@ static std::vector<unsigned char> render_fits_preview_png(const fs::path& path, 
         cv::resize(g, g, size, 0, 0, cv::INTER_AREA);
         cv::resize(b, b, size, 0, 0, cv::INTER_AREA);
     }
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
+
+    // HMS and PCC FITS files are already display-stretched to [0,1].
+    // Render them directly without robust_range or gamma.
+    std::string fname = path.filename().string();
+    std::transform(fname.begin(), fname.end(), fname.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    const bool already_stretched =
+        fname.find("hms") != std::string::npos ||
+        fname.find("pcc") != std::string::npos ||
+        fname.find("live_edit") != std::string::npos;
+
     cv::Mat out(r.rows, r.cols, CV_8UC3);
-    for (int y = 0; y < r.rows; ++y) {
-        for (int x = 0; x < r.cols; ++x) {
-            auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = lo;
-                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
-                n = std::pow(n, 0.6f);
-                return cv::saturate_cast<unsigned char>(n * 255.0f);
-            };
-            auto& px = out.at<cv::Vec3b>(y, x);
-            px[2] = convert(r.at<float>(y, x));
-            px[1] = convert(g.at<float>(y, x));
-            px[0] = convert(b.at<float>(y, x));
+    if (already_stretched) {
+        for (int y = 0; y < r.rows; ++y) {
+            for (int x = 0; x < r.cols; ++x) {
+                auto convert = [&](float v) -> unsigned char {
+                    if (!std::isfinite(v)) v = 0.0f;
+                    return cv::saturate_cast<unsigned char>(std::clamp(v, 0.0f, 1.0f) * 255.0f);
+                };
+                auto& px = out.at<cv::Vec3b>(y, x);
+                px[2] = convert(r.at<float>(y, x));
+                px[1] = convert(g.at<float>(y, x));
+                px[0] = convert(b.at<float>(y, x));
+            }
+        }
+    } else {
+        const auto [lo, hi] = robust_range({r, g, b});
+        const float denom = std::max(hi - lo, 1e-9f);
+        for (int y = 0; y < r.rows; ++y) {
+            for (int x = 0; x < r.cols; ++x) {
+                auto convert = [&](float v) -> unsigned char {
+                    if (!std::isfinite(v)) v = lo;
+                    float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
+                    n = std::pow(n, 0.6f);
+                    return cv::saturate_cast<unsigned char>(n * 255.0f);
+                };
+                auto& px = out.at<cv::Vec3b>(y, x);
+                px[2] = convert(r.at<float>(y, x));
+                px[1] = convert(g.at<float>(y, x));
+                px[0] = convert(b.at<float>(y, x));
+            }
         }
     }
     std::vector<unsigned char> png;

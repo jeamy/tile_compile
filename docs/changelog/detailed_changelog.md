@@ -1,5 +1,73 @@
 ## Changelog
 
+### (2026-07-24)
+
+**v0.4.2 — PI Live Image Editor command suite and reusable editing workflows:**
+
+**New GUI commands and deterministic image operations:**
+
+- **Levels:** Added `levels` with validated `black` (`0…1`), `white` (`0…1`), and `gamma` (`0.1…5`) parameters. Black/white ordering is enforced in backend validation and frontend controls.
+- **Curves:** Added the GUI-only `curves` operation with 2–32 control points. The editor displays a gamma-style graph, supports click-to-add, drag-to-move, and double-click/right-click removal, and uses the same clamped Catmull-Rom spline in frontend and backend. Curves is excluded from the AI operation prompt.
+- **Shadow Recovery:** Added `shadow_recovery` with strength `0…1`.
+- **Highlight Recovery:** Added `highlight_recovery` with strength `0…1`. Explicit highlight/spitzlichter requests are routed to the dedicated dialog even when an AI model proposes generic brightness plus recovery operations.
+- **Color Balance:** Added global red/green/blue correction plus optional shadow, midtone, and highlight RGB adjustments with luminance-weighted deterministic application.
+- **Local Contrast:** Added `local_contrast` with strength `0…1` and radius `0.5…10`.
+- **Chroma Denoise:** Added `chroma_denoise` with strength, structure protection, and `soft`/`strong` modes.
+- **Crop:** Added deterministic axis-aligned and rotated crop operations. Screen-to-image coordinate conversion remains correct after zoom and pan; crop bounds remain inside the visible image area. Crop bypasses the AI sidecar.
+
+**AI proposal and parameter dialogs:**
+
+- Dialog-based commands are validated but no longer applied by `POST /api/pi/live-image-chat`. The endpoint returns `requires_confirmation` and structured proposed operations.
+- Dedicated command-intent routing normalises levels, shadow, highlight, color-balance, local-contrast, and chroma-noise requests. Wrong, legacy, multi-operation, or invalid model responses are replaced by safe deterministic suggestions.
+- Added `POST /api/pi/live-image-chat/preview-operation` for non-persistent previews calculated from a clone of the current FITS image.
+- Added debounced preview requests, stale-response rejection, pointer lifecycle guards, and validation-aware parameter ranges.
+- Parameter and curve dialogs use a shared symmetric theme, can be dragged by their header, and are constrained to the visible browser area.
+- Added **Before/Current view** checkbox. Disabling it displays the unchanged canonical current image; enabling it displays the current temporary preview.
+- **Apply** commits the operation through the deterministic backend. **Cancel** invalidates pending preview work and restores `currentImageSrc` without changing FITS, history, or undo/redo.
+
+**Timeline, history, and presets:**
+
+- Replaced inverse/rebuild-only undo assumptions with exact pre/post pixel snapshots for every operation. Threshold, crop, denoise, CLAHE, and other lossy operations now undo exactly.
+- Added persistent `edit_history` alongside the active `operation_history`. Apply, adjust, undo, and redo actions are recorded explicitly.
+- Added `POST /api/pi/live-image-chat/reapply`. Clickable chat entries can execute their stored operation parameters again without AI.
+- Added global timeline presets under `.pi_memory/presets`. Backend routes list, create, overwrite, and atomically apply presets. The frontend provides themed selection, **Save**, **Save as**, overwrite confirmation, and **Apply**.
+- Presets store the effective operation sequence plus the complete edit timeline and can be applied to any run.
+
+**Preview, reset, compatibility, and documentation:**
+
+- Retained the previous committed preview for click-based Before/Current comparison.
+- Reset recreates the canonical `live_edit.fits`, removes stale derived previews, clears chat/edit/undo/redo history after confirmation, and updates the run preview.
+- Replaced `cv::getRotationMatrix2D` with an equivalent explicit affine matrix for OpenCV 5/macOS compatibility.
+- Added and aligned English/German UI strings for commands, parameter controls, dialogs, previews, presets, crop, comparison, and repeat actions.
+- Expanded the English and German Live Image Editor guides with AI proposal semantics, deterministic fallback, live preview, curves, history, and presets.
+- Added spline-operation regression coverage and retained complete Live Image Session test coverage.
+
+### (2026-07-23)
+
+**v0.4.1 — PI Live Image Editor:**
+
+**Live Image Editor (backend `web_backend_cpp/`, frontend `web_frontend_v3/`, sidecar `agent_service/`):**
+
+- **Non-destructive editor:** Interactive image editor operating on a canonical working copy (`outputs/live_edit.fits`) derived from the immutable source FITS. The source FITS is never modified. All operations are applied to in-memory float CV_32F BGR data and persisted after each change.
+- **Chat-driven operations:** Users issue natural-language commands (e.g. "helle das Bild auf", "erhoehe den Kontrast"). When the PI AI sidecar is available, the request is forwarded with a JPEG vision preview and recent operation history. The AI returns structured operations with parameters. The backend validates and applies them locally. When no sidecar is available, a local fallback parser selects the operation from keywords and derives conservative strengths from image statistics (luminance quantiles, mean saturation).
+- **Phase 1 operations:** brightness (midtones/shadows/highlights), contrast, saturation, sharpen (unsharp mask), denoise (Non-Local Means), bilateral filter, green removal (rmgreen), CLAHE (local contrast), threshold, invert, reset.
+- **Phase 2 operations:** vibrance, color_temperature, unpurple, fixbanding, star_desaturation, dehaze. Implemented in `pi_image_ops.cpp`, fallback parser, AI system prompt (`liveImageChatService.ts`), and frontend dropdown (`FEATURE_PHASE = 2`).
+- **+/- Adjust:** Signed operations (brightness, contrast, saturation, vibrance, color_temperature) support iterative +/- buttons. The adjust mechanism rebuilds deterministically from `original_fits` + base operations + N × adjust_step, ensuring exact reproducibility without accumulating floating-point drift. `adjust_base_size` captures the undo-stack depth at the time `set_adjust_step` is called.
+- **Repeat:** Non-adjustable operations offer a "repeat" button (`POST /api/pi/live-image-chat/repeat`) that reapplies the last operation with identical parameters without calling the AI. The repeated operation enters the undo stack and operation history.
+- **Undo/Redo:** Deterministic rebuild from `original_fits` + undo_stack entries — no pixel snapshots needed, even for non-invertible operations (CLAHE, bilateral, denoise, threshold). `operation_history` mirrors the current undo_stack at all times. Undo decrements `adjust_count` for adjust-source entries; redo increments it.
+- **Before/After comparison:** The previous preview image is retained after each operation. Clicking the image or the VORHER/AKTUELL badge toggles between the previous and current state. Drag detection prevents accidental toggle during pan.
+- **Reset with confirmation:** `window.confirm` dialog before reset. Reset copies the original source FITS to `live_edit.fits`, deletes the chat history file, clears undo/redo/operation_history/chat_history, removes stale derived PNG/JPEG previews, and triggers an immediate run-preview refresh via the `onClose` callback.
+- **Session persistence and resume:** `live_edit.fits` is the canonical working state. Chat and operation history are persisted in `.pi_memory/live_image_chat/<run_id>_<hash>.json`. On resume (`POST /api/pi/live-image-chat/create`): if `live_edit.fits` exists, it is loaded directly; if only history exists, operations are replayed once and the working FITS is materialized. `LiveImageSessionStore::create` accepts separate `original` and `current` matrices. `persist_live_session` deletes the history file when both histories are empty (post-reset).
+- **Linear preview rendering:** `render_fits_preview_png` and `render_fits_preview_png_for_pi` detect `live_edit`/HMS/PCC filenames and render with direct `[0,1]→[0,255]` mapping — no `robust_range` stretch, no gamma. `linear_float_to_u8` helper replaces per-pixel lambda. `render_float_bgr_to_bgr8` and `render_float_planes_to_bgr8` use the same mapping. This ensures the run preview, editor preview, and exported FITS all agree.
+- **FITS export metadata:** `write_float_bgr_to_fits` now writes `DATAMIN=0.0`, `DATAMAX=1.0`, and `CTYPE3=RGB` headers so FITS viewers can apply the correct display range.
+- **Run preview integration:** `scoreArtifact` in `run-image-preview.js` prefers `live_edit.fits` (score 250) over HMS (score 100). `openLiveEditor` helper passes a refresh callback so the run preview reloads after editor close or reset. A "Live Editor" button is shown next to the artifact path.
+- **Session eviction:** `evict_expired(1800, 5)` called on create to enforce 30-minute timeout and max 5 sessions.
+- **AI sidecar:** `liveImageChatService.ts` system prompt updated with Phase 2 operation schemas, adjustable vs. repeatable distinction (signed operations → adjustable; one-sided operations → not adjustable; sharpen → repeatable). `repeatable` field added to AI response schema. Operation history trimmed to last 10 entries for prompt context.
+- **Frontend:** `live-image-viewer.js` expanded with before/after comparison, repeat button, drag-vs-click detection, `beginOperation`/`commitOperation`/`cancelOperation` lifecycle for preview management. `FEATURE_PHASE` raised to 2. Preset commands reorganized (localContrast and colorDenoise removed from presets; Phase 2 commands added). Chat history restored on resume regardless of `resumed` flag.
+- **i18n:** New strings for `confirmReset`, `compareBefore`/`compareAfter`, `repeat`/`repeatDone`, Phase 2 command labels and help texts, `ui.button.live_editor` — in both `de.json` and `en.json`.
+- **Documentation:** `docs/guides/live_image_editor_de.md` (58 lines) covering working image, preview rendering, operations, AI usage, and export. `docs/PI/pi_live_image_chat_plan.md` updated to reflect implementation status (Phase 1-2), `live_edit.fits` persistence, deterministic undo/redo without snapshots, reset with confirmation, and resume from working FITS.
+- **Tests:** `test_pi_live_image_session.cpp` expanded with operation_history mirror assertions after undo/redo, sharpen +/- rebuild test, reset operation test (clears stacks and chat history), and repeat operation test.
+
 ### (2026-07-22)
 
 **v0.4.0 — PI Run-Chat, AQMH v0.2.1 conformance, documentation reorganisation:**

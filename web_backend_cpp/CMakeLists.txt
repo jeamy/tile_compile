@@ -180,6 +180,8 @@ set(BACKEND_SOURCES
     src/services/pi/pi_context_builder.cpp
     src/services/pi/pi_tool_registry.cpp
     src/services/pi/pi_assistant.cpp
+    src/services/pi/pi_image_ops.cpp
+    src/services/pi/pi_live_image_session.cpp
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
     src/services/hme_preview_service.cpp
@@ -334,6 +336,8 @@ if(BUILD_TESTS)
         src/services/pi/pi_memory_store.cpp
     )
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
+    target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
@@ -341,4 +345,17 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
+    add_backend_cpp_test(web_backend_cpp_pi_image_ops tests/test_pi_image_ops.cpp)
+    target_sources(web_backend_cpp_pi_image_ops PRIVATE
+        src/services/pi/pi_image_ops.cpp
+    )
+    target_include_directories(web_backend_cpp_pi_image_ops PRIVATE ${OPENCV4_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_image_ops PRIVATE ${OPENCV4_LINK_LIBRARIES})
+    add_backend_cpp_test(web_backend_cpp_pi_live_image_session tests/test_pi_live_image_session.cpp)
+    target_sources(web_backend_cpp_pi_live_image_session PRIVATE
+        src/services/pi/pi_image_ops.cpp
+        src/services/pi/pi_live_image_session.cpp
+    )
+    target_include_directories(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_LINK_LIBRARIES})
 endif()

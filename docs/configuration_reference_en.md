@@ -33,7 +33,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
 9. [Tile Denoise](#9-tile-denoise)
-9b. [Chroma Denoise](#9b-chroma-denoise) **NEW**
+9b. [Chroma Denoise](#chroma-denoise) **NEW**
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
@@ -48,7 +48,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 20. [Stacking](#20-stacking)
 21. [Validation](#21-validation)
 22. [Runtime Limits](#22-runtime-limits)
-23. [Raw Stack / Preprocessing](#23-raw-stack--preprocessing)
+23. [Raw Stack / Preprocessing](#raw-stack-preprocessing)
 
 ---
 
@@ -745,7 +745,7 @@ Tile-based denoising settings.
 
 ---
 
-## 9b. Chroma Denoise
+## 9b. Chroma Denoise {#chroma-denoise}
 
 Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma.
 
@@ -2877,7 +2877,7 @@ resume path. Exceeding the limit aborts the run with
 
 ---
 
-## 23. Raw Stack / Preprocessing
+## 23. Raw Stack / Preprocessing {#raw-stack-preprocessing}
 
 Raw Stack is a separate preprocessing process and is not part of the normal `tile_compile.yaml` main pipeline. Its configuration is used through the preprocessing API and the Raw Stack parameter editor:
 

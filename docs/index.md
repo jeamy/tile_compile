@@ -42,7 +42,32 @@ Also available: [macOS](getting_started/installation.md), [Windows](getting_star
 3. **Start & Monitor** — Run with real-time phase progress tracking
 4. **View Results** — Stacked images, diagnostic reports, quality metrics
 
-## Documentation
+## Find the right documentation
+
+### New users
+
+Start with the [Quick Start](getting_started/quickstart.md) (English) or [Schnellstart](getting_started/quickstart_de.md) (German). The [GUI3 User Guide](gui3_user_guide_en.md) walks through scanning, parameters, running a stack, and viewing results step by step. If you prefer German, use the [GUI3 Benutzerhandbuch](gui3_user_guide_de.md).
+
+Recommended path:
+
+1. Install or download GUI3.
+2. Scan a folder of FITS light frames.
+3. Keep the example configuration for the first run.
+4. Start and monitor the run.
+5. Open the result in the [Live Image Editor](guides/live_image_editor_en.md) or inspect the report.
+
+### Experienced users
+
+Use the [workflow guide](guides/workflow.md), [configuration reference](configuration_reference_en.md), and [practical examples](configuration_examples_practical_en.md). The **Professional & Technical** section in the site navigation contains phase internals, data flow, resume contracts, and methodology documents.
+
+### Documentation map
+
+The online help is intentionally split into four levels:
+
+- **Start Here** — installation, quick start, and the complete GUI walkthrough.
+- **Workflows & Tools** — day-to-day processing, Raw Stack, PI, and Live Image Editor.
+- **Configuration** — beginner configuration, full parameter reference, and examples.
+- **Professional & Technical** — algorithms, phase artifacts, data flow, resume dependencies, and normative methodology.
 
 ### Getting Started
 
@@ -59,6 +84,8 @@ Also available: [macOS](getting_started/installation.md), [Windows](getting_star
 - [AQMH Overview](guides/aqmh_overview.md)
 - [Raw Stack GUI](guides/raw_stack_gui.md) — not optimized, retained for legacy reasons
 - [PI – AI-Assisted Recommendations](guides/pi_ai.md)
+- [Live Image Editor (EN)](guides/live_image_editor_en.md)
+- [Live Image Editor (DE)](guides/live_image_editor_de.md)
 
 ### Configuration
 

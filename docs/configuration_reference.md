@@ -34,7 +34,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
 9. [Tile Denoise](#9-tile-denoise)
-9b. [Chroma Denoise](#9b-chroma-denoise) **NEU**
+9b. [Chroma Denoise](#chroma-denoise) **NEU**
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
@@ -49,7 +49,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 20. [Stacking](#20-stacking)
 21. [Validation](#21-validation)
 22. [Runtime Limits](#22-runtime-limits)
-23. [Raw Stack / Preprocessing](#23-raw-stack--preprocessing)
+23. [Raw Stack / Preprocessing](#raw-stack-preprocessing)
 
 ---
 
@@ -937,7 +937,7 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 
 ---
 
-## 9b. Chroma Denoise (struktur-schützende Farbrausch-Reduktion)
+## 9b. Chroma Denoise (struktur-schützende Farbrausch-Reduktion) {#chroma-denoise}
 
 Optionale, **chroma-selektive** Denoise-Erweiterung für OSC-Daten. Idee: Luminanz/Struktur möglichst erhalten, Farbrauschen primär in Cb/Cr (oder äquivalenten Opponent-Kanälen) reduzieren.
 
@@ -3657,7 +3657,7 @@ Die Schema-Dateien (`tile_compile.schema.json`, `tile_compile.schema.yaml`) defi
 
 ---
 
-## 23. Raw Stack / Preprocessing
+## 23. Raw Stack / Preprocessing {#raw-stack-preprocessing}
 
 Raw Stack ist ein separater Preprocessing-Prozess und gehoert nicht zum normalen `tile_compile.yaml`-Hauptstrang. Die Konfiguration wird ueber die Preprocessing-API und den Raw-Stack-Parametereditor verwendet:
 

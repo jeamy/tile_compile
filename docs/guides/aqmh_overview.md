@@ -84,4 +84,4 @@ aqmh:
 ## AQMH Papers
 
 - [AQMH v0.2.0 Paper](../AQMH/zenodo-0.2.0/paper-adaptive_quality_map_hyperstacking_m31_run_20260722_en.pdf) — M31 validation run with v0.2.0 extensions
-- [AQMH v0.1.0 Paper](../AQMH/zenodo-0.1.0/) — original method definition and M31-A validation run
+- [AQMH v0.1.0 Paper](../AQMH/zenodo-0.1.0/paper-adaptive_quality_mask_harvesting_m31_run_20260611_en.pdf) — original method definition and M31-A validation run

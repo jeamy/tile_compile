@@ -59,6 +59,7 @@ Full documentation site: **[https://jeamy.github.io/tile_compile/](https://jeamy
 - [Workflow & Pipeline Phases](docs/guides/workflow.md) — Typical GUI3 workflow, phase table, registration cascade
 - [Raw Stack GUI](docs/guides/raw_stack_gui.md) — Standalone preprocessing pipeline (not optimized, retained for legacy reasons)
 - [PI – AI-Assisted Recommendations](docs/guides/pi_ai.md) — Data-driven parameter recommendations
+- [Live Image Editor (EN)](docs/guides/live_image_editor_en.md) — Non-destructive FITS editing, previews, undo/redo, repeat, and AI/local fallback behavior
 
 ### AQMH
 
