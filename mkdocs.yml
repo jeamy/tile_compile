@@ -1,6 +1,8 @@
 site_name: tile_compile
 site_url: https://jeamy.github.io/tile_compile/
 docs_dir: docs
+exclude_docs: |
+  api/cpp/html/index\.html
 theme:
   name: material
   palette:
@@ -73,39 +75,41 @@ extra:
 
 nav:
   - Home: index.md
-  - Getting Started:
+  - Start Here:
     - Quick Start (EN): getting_started/quickstart.md
     - Schnellstart (DE): getting_started/quickstart_de.md
     - Installation (EN): getting_started/installation.md
     - Installation (DE): getting_started/installation_de.md
-    - CLI Reference: reference/cli.md
-    - Configuration (EN): getting_started/configuration.md
-    - Konfiguration (DE): getting_started/configuration_de.md
-  - User Guides:
     - GUI3 User Guide (EN): gui3_user_guide_en.md
     - GUI3 Benutzerhandbuch (DE): gui3_user_guide_de.md
+  - Workflows & Tools:
     - Workflow & Pipeline (EN): guides/workflow.md
     - Workflow & Pipeline (DE): guides/workflow_de.md
-    - AQMH Overview (EN): guides/aqmh_overview.md
-    - AQMH Übersicht (DE): guides/aqmh_overview_de.md
+    - Live Image Editor (EN): guides/live_image_editor_en.md
+    - Live Image Editor (DE): guides/live_image_editor_de.md
     - Raw Stack GUI (EN): guides/raw_stack_gui.md
     - Raw Stack GUI (DE): guides/raw_stack_gui_de.md
     - PI – AI Recommendations (EN): guides/pi_ai.md
     - PI – KI-Empfehlungen (DE): guides/pi_ai_de.md
     - PI Workflow in GUI3: PI/pi_workflow_gui3_en.md
-    - PI Scan-AI for Parameter Studio (EN): PI/scan_ai_parameter_studio_en.md
   - Configuration:
+    - Configuration Basics (EN): getting_started/configuration.md
+    - Konfigurationsgrundlagen (DE): getting_started/configuration_de.md
     - Reference (EN): configuration_reference_en.md
     - Reference (DE): configuration_reference.md
     - Practical Examples (EN): configuration_examples_practical_en.md
     - Practical Examples (DE): configuration_examples_practical_de.md
-  - Methodology:
-    - AQMH v0.2.1 (EN): AQMH/aqmh_methodik_en_v0.2.1.md
-    - AQMH v0.2.0 (EN): AQMH/aqmh_methodik_en_v0.2.0.md
-    - AQMH v0.2.1 (DE): AQMH/aqmh_methodik_de_v0.2.1.md
-    - TBQR v3.3.9 (EN): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md
-    - TBQR v3.3.9 (DE): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md
-    - Pipeline Overview: process_flow/phase_0_overview.md
+  - Professional & Technical:
+    - PI Scan-AI for Parameter Studio (EN): PI/scan_ai_parameter_studio_en.md
+    - PI Recommendations (EN): PI/pi_ai_recommendations_en.md
+    - PI Empfehlungen (DE): PI/pi_ki_empfehlungen_de.md
+    - AQMH Overview (EN): guides/aqmh_overview.md
+    - AQMH Übersicht (DE): guides/aqmh_overview_de.md
+    - Process Flow Overview: process_flow/phase_0_overview.md
+    - Data Flow (EN): process_flow/data_flow_user_description_en.md
+    - Data Flow (DE): process_flow/data_flow_user_description_de.md
+    - Resume Dependencies (EN): process_flow/resume_dependencies_en.md
+    - Resume-Abhängigkeiten (DE): process_flow/resume_dependencies_de.md
     - Phase 1 – Registration: process_flow/phase_1_registration.md
     - Phase 2 – Normalization & Metrics: process_flow/phase_2_normalization_metrics.md
     - Phase 3 – Tile Grid: process_flow/phase_3_tile_generation.md
@@ -114,20 +118,23 @@ nav:
     - Phase 6 – Clustering: process_flow/phase_6_clustering.md
     - Phase 7 – Final Stacking: process_flow/phase_7_final_stacking.md
     - Phase 8 – AQMH Extensions: process_flow/phase_8_aqmh_extensions.md
-    - Data Flow: process_flow/data_flow_user_description_en.md
-    - Resume Dependencies: process_flow/resume_dependencies_en.md
+    - AQMH v0.2.1 (EN): AQMH/aqmh_methodik_en_v0.2.1.md
+    - AQMH v0.2.1 (DE): AQMH/aqmh_methodik_de_v0.2.1.md
+    - AQMH v0.2.0 (EN): AQMH/aqmh_methodik_en_v0.2.0.md
+    - TBQR v3.3.9 (EN): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md
+    - TBQR v3.3.9 (DE): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md
   - Reference:
+    - CLI Reference: reference/cli.md
     - Build from Source: reference/build.md
     - Docker: reference/docker.md
-    - CLI Commands: reference/cli.md
     - Outputs & Artifacts: reference/outputs.md
     - Calibration & External Tools: reference/calibration.md
     - Project Structure: reference/project_structure.md
-  - Changelog:
-    - Release Notes: changelog/releases.md
-    - Detailed Changelog: changelog/detailed_changelog.md
-  - API Reference:
+  - API & Development:
     - C++ API (Doxygen): api/cpp/html/index.md
     - REST API: api/rest/index.md
-  - About:
+    - CLI Reference (Getting Started): getting_started/cli_reference.md
+  - History & About:
+    - Release Notes: changelog/releases.md
+    - Detailed Changelog: changelog/detailed_changelog.md
     - About: about.md

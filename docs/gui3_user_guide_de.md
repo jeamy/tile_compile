@@ -162,7 +162,7 @@ Unter der Phasenliste bieten drei Tabs weitere Werkzeuge:
 
 #### Resume-Tab
 
-Der Resume-Tab enthält die phasenbasierte Resume-Funktion (siehe [Resume](#resume) unten).
+Der Resume-Tab enthält die phasenbasierte Resume-Funktion (siehe [Resume](#resume-fortsetzen) unten).
 
 #### Run-Chat-Tab
 

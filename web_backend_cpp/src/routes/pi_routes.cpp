@@ -551,7 +551,7 @@ std::string mat_to_vision_jpeg_base64(const cv::Mat& img, int max_dim = 1568, in
     return base64_encode(jpeg);
 }
 
-nlohmann::json fallback_parse_message(const std::string& msg) {
+nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& image) {
     std::string lower = msg;
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char c) { return std::tolower(c); });
@@ -566,31 +566,75 @@ nlohmann::json fallback_parse_message(const std::string& msg) {
     bool repeatable = false;
     nlohmann::json adjust_step;
 
+    // Derive conservative local parameters from the current image when the
+    // AI sidecar is unavailable. The command text still selects the
+    // operation; these statistics only determine its strength.
+    double median_luma = 0.25;
+    double p10_luma = 0.05;
+    double p90_luma = 0.60;
+    double mean_saturation = 0.35;
+    if (!image.empty() && image.depth() == CV_32F) {
+        cv::Mat luminance;
+        if (image.channels() >= 3) cv::cvtColor(image, luminance, cv::COLOR_BGR2GRAY);
+        else luminance = image;
+        std::vector<float> samples;
+        samples.reserve(static_cast<size_t>(luminance.total() / 16 + 1));
+        for (int y = 0; y < luminance.rows; y += 4) {
+            for (int x = 0; x < luminance.cols; x += 4) {
+                const float v = luminance.at<float>(y, x);
+                if (std::isfinite(v)) samples.push_back(std::clamp(v, 0.0f, 1.0f));
+            }
+        }
+        if (!samples.empty()) {
+            std::sort(samples.begin(), samples.end());
+            auto quantile = [&](double q) {
+                const size_t idx = std::min(samples.size() - 1,
+                    static_cast<size_t>(q * static_cast<double>(samples.size() - 1)));
+                return static_cast<double>(samples[idx]);
+            };
+            p10_luma = quantile(0.10);
+            median_luma = quantile(0.50);
+            p90_luma = quantile(0.90);
+        }
+        if (image.channels() >= 3) {
+            cv::Mat hsv;
+            cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
+            std::vector<cv::Mat> hsv_channels;
+            cv::split(hsv, hsv_channels);
+            mean_saturation = cv::mean(hsv_channels[1])[0];
+            mean_saturation = std::clamp(mean_saturation, 0.0, 1.0);
+        }
+    }
+    const double brighten_amount = std::clamp((0.32 - median_luma) * 0.75, 0.04, 0.25);
+    const double darken_amount = std::clamp((median_luma - 0.10) * 0.75, 0.04, 0.25);
+    const double contrast_amount = std::clamp((0.45 - (p90_luma - p10_luma)) * 0.7, 0.04, 0.25);
+    const double saturation_amount = std::clamp((0.55 - mean_saturation) * 0.7, 0.04, 0.25);
+
     if (has("heller") || has("aufhellen") || has("brighter")) {
-        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", 0.15}, {"shadows", 0.0}, {"highlights", 0.0}}}});
+        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", brighten_amount}, {"shadows", 0.0}, {"highlights", 0.0}}}});
         summary = "Helligkeit erhoeht.";
         adjustable = true;
-        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", 0.05}, {"shadows", 0.0}, {"highlights", 0.0}}}};
+        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", brighten_amount * 0.35}, {"shadows", 0.0}, {"highlights", 0.0}}}};
     } else if (has("dunkler") || has("darker")) {
-        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", -0.15}, {"shadows", 0.0}, {"highlights", 0.0}}}});
+        operations.push_back({{"type", "brightness"}, {"params", {{"midtones", -darken_amount}, {"shadows", 0.0}, {"highlights", 0.0}}}});
         summary = "Helligkeit reduziert.";
         adjustable = true;
-        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", -0.05}, {"shadows", 0.0}, {"highlights", 0.0}}}};
+        adjust_step = {{"type", "brightness"}, {"params", {{"midtones", -darken_amount * 0.35}, {"shadows", 0.0}, {"highlights", 0.0}}}};
     } else if (has("kontrast") && (has("mehr") || has("erhoeh"))) {
-        operations.push_back({{"type", "contrast"}, {"params", {{"amount", 0.1}}}});
+        operations.push_back({{"type", "contrast"}, {"params", {{"amount", contrast_amount}}}});
         summary = "Kontrast erhoeht.";
         adjustable = true;
-        adjust_step = {{"type", "contrast"}, {"params", {{"amount", 0.05}}}};
+        adjust_step = {{"type", "contrast"}, {"params", {{"amount", contrast_amount * 0.5}}}};
     } else if (has("kontrast") && has("weniger")) {
-        operations.push_back({{"type", "contrast"}, {"params", {{"amount", -0.1}}}});
+        operations.push_back({{"type", "contrast"}, {"params", {{"amount", -contrast_amount}}}});
         summary = "Kontrast reduziert.";
         adjustable = true;
-        adjust_step = {{"type", "contrast"}, {"params", {{"amount", -0.05}}}};
+        adjust_step = {{"type", "contrast"}, {"params", {{"amount", -contrast_amount * 0.5}}}};
     } else if ((has("saettigung") || has("farbe")) && (has("mehr") || has("erhoeh"))) {
-        operations.push_back({{"type", "saturation"}, {"params", {{"amount", 0.1}}}});
+        operations.push_back({{"type", "saturation"}, {"params", {{"amount", saturation_amount}}}});
         summary = "Saettigung erhoeht.";
         adjustable = true;
-        adjust_step = {{"type", "saturation"}, {"params", {{"amount", 0.05}}}};
+        adjust_step = {{"type", "saturation"}, {"params", {{"amount", saturation_amount * 0.5}}}};
     } else if (has("schae") || has("sharpen")) {
         operations.push_back({{"type", "sharpen"}, {"params", {{"amount", 0.3}, {"radius", 2.0}}}});
         summary = "Schaerfe erhoeht.";
@@ -2837,7 +2881,9 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         int user_msg_count = 0;
         std::string vision_b64;
         nlohmann::json op_history;
+        cv::Mat analysis_image;
         bool found = live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            analysis_image = s.current_fits.clone();
             for (const auto& entry : s.chat_history) {
                 if (entry.value("role", "") == "user") user_msg_count++;
             }
@@ -2882,7 +2928,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         }
 
         if (!sidecar_ok) {
-            ai_result = fallback_parse_message(message);
+            ai_result = fallback_parse_message(message, analysis_image);
         }
 
         // Apply operations

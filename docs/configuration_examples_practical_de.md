@@ -531,7 +531,7 @@ global_metrics:
   clamp: [-2.5, 2.5]
 ```
 
-- Konkretes Vollbeispiel: [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml)
+- Konkretes Vollbeispiel: [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml)
 - Sinn dieses Profils: Multi-Anchor-Registration fuer Alt/Az-Rotation aktiv lassen, schwache Frames nicht wegwerfen, aber gute Frames bei der globalen Gewichtung klar bevorzugen.
 
 ---
@@ -565,7 +565,7 @@ global_metrics:
 ```
 
 - Empfehlenswert fuer Sessions mit sichtbar wechselhaftem Seeing oder transparenzbedingten Qualitaetsschwankungen.
-- Genau diese staerkere Trennung nutzt auch [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml).
+- Genau diese staerkere Trennung nutzt auch [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml).
 
 **Weichere Gewichtung bei homogener Session:**
 ```yaml

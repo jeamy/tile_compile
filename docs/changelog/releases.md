@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.4.1 (2026-07-23)
+
+**PI Live Image Editor:**
+
+- **Live Image Editor:** Non-destructive interactive editor for FITS output images. Chat-driven image operations in natural language with AI sidecar or local fallback parser. Operations include brightness, contrast, saturation, sharpen, denoise, bilateral filter, green removal, CLAHE, invert, vibrance, color temperature, unpurple, fixbanding, star desaturation, and dehaze.
+- **Session persistence:** Working state saved as `outputs/live_edit.fits` after every operation. Chat and operation history persisted separately in PI storage. Resume after browser refresh or backend restart restores the exact editing state.
+- **Undo/Redo:** Deterministic rebuild from original + operation stack — no pixel snapshots needed. Undo/Redo/Repeat all update the operation history and working FITS.
+- **+/- Adjust:** Signed operations (brightness, contrast, saturation, vibrance, color temperature) support iterative +/- buttons with deterministic rebuild from the adjust base.
+- **Repeat:** Non-adjustable operations (sharpen, denoise, etc.) offer a "repeat" button that reapplies the same parameters without calling the AI.
+- **Before/After comparison:** Click the image or badge to toggle between the previous and current preview after each operation.
+- **Reset with confirmation:** Restores the original source FITS, deletes chat/operation history, clears undo/redo, and refreshes the run preview immediately.
+- **Export:** PNG and FITS export with display metadata (DATAMIN/DATAMAX/CTYPE3) for FITS viewer compatibility.
+- **Linear preview rendering:** FITS previews for live-edit files use direct [0,1]→8-bit mapping without robust_range stretch or gamma, matching the editor preview exactly.
+- **Run preview integration:** `live_edit.fits` preferred in run-image preview scoring; preview refreshes after editor close or reset.
+- **Phase 2 operations:** Vibrance, color temperature, unpurple, fixbanding, star desaturation, and dehaze implemented in backend, fallback parser, AI system prompt, and frontend dropdown.
+- **Image-adaptive fallback:** Local fallback parser derives conservative operation strengths from current image statistics (luminance quantiles, mean saturation) when no AI sidecar is available.
+
 ## v0.4.0 (2026-07-22)
 
 **PI Run-Chat, AQMH v0.2.1 conformance, documentation reorganisation:**

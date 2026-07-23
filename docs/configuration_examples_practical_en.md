@@ -531,7 +531,7 @@ global_metrics:
   clamp: [-2.5, 2.5]
 ```
 
-- Full example file: [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml)
+- Full example file: [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml)
 - Intent of this profile: keep the multi-anchor Alt/Az registration path active, retain weak frames, but weight clearly better frames more strongly in the global ranking.
 
 ---
@@ -565,7 +565,7 @@ global_metrics:
 ```
 
 - Recommended when seeing or transparency varies noticeably across the session.
-- This stronger separation is also used in [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml).
+- This stronger separation is also used in [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml).
 
 **Softer weighting for homogeneous sessions:**
 ```yaml
