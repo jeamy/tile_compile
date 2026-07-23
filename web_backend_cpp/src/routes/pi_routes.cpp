@@ -432,15 +432,12 @@ std::vector<unsigned char> render_fits_full_jpeg(const fs::path& path, int quali
 }
 
 cv::Mat render_float_planes_to_bgr8(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b) {
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
     cv::Mat out(r.rows, r.cols, CV_8UC3);
     for (int y = 0; y < r.rows; ++y) {
         for (int x = 0; x < r.cols; ++x) {
             auto convert = [&](float v) -> unsigned char {
-                if (!std::isfinite(v)) v = lo;
-                float n = std::clamp((v - lo) / denom, 0.0f, 1.0f);
-                n = std::pow(n, 0.6f);
+                if (!std::isfinite(v)) v = 0.0f;
+                const float n = std::clamp(v, 0.0f, 1.0f);
                 return cv::saturate_cast<unsigned char>(n * 255.0f);
             };
             auto& px = out.at<cv::Vec3b>(y, x);
@@ -478,20 +475,16 @@ cv::Mat read_fits_to_float_bgr(const fs::path& path) {
         b = plane_to_mat(bv, wb, hb);
     }
 
-    const auto [lo, hi] = robust_range({r, g, b});
-    const float denom = std::max(hi - lo, 1e-9f);
-
     cv::Mat bgr(h, w, CV_32FC3);
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            auto norm = [&](float v) -> float {
-                if (!std::isfinite(v)) v = lo;
-                return std::clamp((v - lo) / denom, 0.0f, 1.0f);
+            auto value = [](float v) -> float {
+                return std::isfinite(v) ? v : 0.0f;
             };
             cv::Vec3f& px = bgr.at<cv::Vec3f>(y, x);
-            px[0] = norm(b.at<float>(y, x)); // B
-            px[1] = norm(g.at<float>(y, x)); // G
-            px[2] = norm(r.at<float>(y, x)); // R
+            px[0] = value(b.at<float>(y, x)); // B
+            px[1] = value(g.at<float>(y, x)); // G
+            px[2] = value(r.at<float>(y, x)); // R
         }
     }
     return bgr;
@@ -500,7 +493,17 @@ cv::Mat read_fits_to_float_bgr(const fs::path& path) {
 void write_float_bgr_to_fits(const cv::Mat& img, const fs::path& path) {
     fitsfile* fptr = nullptr;
     int status = 0;
-    if (fits_create_file(&fptr, path.string().c_str(), &status)) {
+
+    // Create parent directory if it doesn't exist
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+
+    // cfitsio requires '!' prefix to overwrite an existing file
+    std::string path_str = path.string();
+    if (path_str[0] != '!')
+        path_str = "!" + path_str;
+
+    if (fits_create_file(&fptr, path_str.c_str(), &status)) {
         throw std::runtime_error("Cannot create FITS file: " + fits_status_text(status));
     }
 
@@ -817,7 +820,7 @@ void persist_live_edit_fits(const std::shared_ptr<AppState>& state,
     if (run_id.empty() || current_fits.empty()) return;
     try {
         const auto run_dir = state->runtime.resolve_run_dir(run_id);
-        const fs::path edit_path = run_dir / "_live_edit.fits";
+        const fs::path edit_path = run_dir / "outputs" / "live_edit.fits";
         write_float_bgr_to_fits(current_fits, edit_path);
     } catch (...) {
         // Don't fail API calls if the copy can't be written
@@ -2744,11 +2747,15 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             return err_resp("NO_FITS", "No FITS output found in run directory", 404);
 
         try {
-            cv::Mat fits = read_fits_to_float_bgr(*fits_path);
+            const fs::path live_edit_path = run_dir / "outputs" / "live_edit.fits";
+            std::error_code copy_ec;
+            fs::copy_file(*fits_path, live_edit_path, fs::copy_options::overwrite_existing, copy_ec);
+            if (copy_ec)
+                return err_resp("COPY_FAILED", "Failed to create outputs/live_edit.fits: " + copy_ec.message(), 500);
+
+            cv::Mat fits = read_fits_to_float_bgr(live_edit_path);
             if (fits.empty())
                 return err_resp("RENDER_FAILED", "Failed to read FITS data", 500);
-
-            write_float_bgr_to_fits(fits, run_dir / "_live_edit.fits");
 
             std::string session_id = live_store->create(run_id, fits);
 
@@ -2767,7 +2774,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 });
             }
 
-            persist_live_edit_fits(state, live_store, session_id);
+            if (resumed)
+                persist_live_edit_fits(state, live_store, session_id);
 
             std::string preview_b64;
             int img_w = 0, img_h = 0;

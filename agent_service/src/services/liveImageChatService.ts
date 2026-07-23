@@ -163,7 +163,7 @@ export class LiveImageChatService {
       const images = hasImage
         ? [{ type: "image" as const, data: String(body.image_base64), mimeType: String(body.image_mime || "image/jpeg") }]
         : undefined;
-      const userMessage = String(body.prompt || "");
+      const userMessage = String(body.message ?? body.prompt ?? "");
       const operationHistory = body.operation_history
         ? `\nPREVIOUS OPERATIONS: ${JSON.stringify(body.operation_history)}`
         : "";

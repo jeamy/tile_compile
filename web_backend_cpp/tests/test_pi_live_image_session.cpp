@@ -12,13 +12,13 @@ static int failures = 0;
          else { std::cout << "ok: " << msg << "\n"; } } while(0)
 
 static cv::Mat make_test_image(int w = 64, int h = 64) {
-    cv::Mat img(h, w, CV_8UC3);
+    cv::Mat img(h, w, CV_32FC3);
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x)
-            img.at<cv::Vec3b>(y, x) = cv::Vec3b(
-                static_cast<uchar>(64 + x * 2),
-                static_cast<uchar>(64 + y * 2),
-                static_cast<uchar>(64 + (x + y)));
+            img.at<cv::Vec3f>(y, x) = cv::Vec3f(
+                static_cast<float>(0.25 + x * 0.01),
+                static_cast<float>(0.25 + y * 0.01),
+                static_cast<float>(0.25 + (x + y) * 0.005));
     return img;
 }
 
@@ -41,8 +41,8 @@ int main() {
         // Verify session exists and current == original
         bool found = store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
             EXPECT(s.run_id == "test_run", "session has correct run_id");
-            EXPECT(images_equal(s.current_image, s.original_image),
-                   "current_image == original_image after create");
+            EXPECT(images_equal(s.current_fits, s.original_fits),
+                   "current_fits == original_fits after create");
         });
         EXPECT(found, "with_session finds created session");
 
@@ -58,8 +58,8 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.size() == 1, "undo_stack has 1 entry");
                 EXPECT(s.redo_stack.empty(), "redo_stack is empty");
-                EXPECT(!images_equal(s.current_image, s.original_image),
-                       "current_image changed after operation");
+                EXPECT(!images_equal(s.current_fits, s.original_fits),
+                       "current_fits changed after operation");
             });
         }
 
@@ -72,14 +72,13 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.empty(), "undo_stack empty after undo");
                 EXPECT(s.redo_stack.size() == 1, "redo_stack has 1 entry");
-                // LUT-based brightness may clamp at 0/255, so exact
-                // restoration is not guaranteed. Check approximate equality.
+                // Undo rebuilds from original, so exact equality is expected.
                 cv::Mat diff;
-                cv::absdiff(s.current_image, s.original_image, diff);
+                cv::absdiff(s.current_fits, s.original_fits, diff);
                 double max_diff = 0;
                 cv::minMaxLoc(diff, nullptr, &max_diff);
-                EXPECT(max_diff <= 5.0,
-                       "current_image approximately restored after undo");
+                EXPECT(max_diff < 1e-6,
+                       "current_fits exactly restored after undo");
             });
         }
 
@@ -92,8 +91,8 @@ int main() {
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.size() == 1, "undo_stack has 1 entry after redo");
                 EXPECT(s.redo_stack.empty(), "redo_stack empty after redo");
-                EXPECT(!images_equal(s.current_image, s.original_image),
-                       "current_image changed after redo");
+                EXPECT(!images_equal(s.current_fits, s.original_fits),
+                       "current_fits changed after redo");
             });
         }
 
@@ -103,8 +102,8 @@ int main() {
             EXPECT(!img_reset.empty(), "reset returns image");
 
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
-                EXPECT(images_equal(s.current_image, s.original_image),
-                       "current_image == original after reset");
+                EXPECT(images_equal(s.current_fits, s.original_fits),
+                       "current_fits == original after reset");
                 EXPECT(s.undo_stack.empty(), "undo_stack empty after reset");
                 EXPECT(s.redo_stack.empty(), "redo_stack empty after reset");
                 EXPECT(s.adjust_count == 0, "adjust_count == 0 after reset");
@@ -138,7 +137,7 @@ int main() {
             });
         }
 
-        // --- non-invertible op (clahe) with snapshot ---
+        // --- non-invertible op (clahe) with rebuild undo ---
         {
             store.reset(sid);
             nlohmann::json op = {
@@ -150,17 +149,15 @@ int main() {
 
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(s.undo_stack.size() == 1, "undo_stack has 1 entry after clahe");
-                EXPECT(s.undo_stack[0].contains("snapshot_b64"),
-                       "clahe undo entry has snapshot_b64");
             });
 
-            // Undo should restore via snapshot
+            // Undo should restore via rebuild from original
             auto undo_res = store.undo(sid);
             EXPECT(!undo_res.image.empty(), "undo after clahe returns image");
 
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
-                EXPECT(images_equal(s.current_image, s.original_image),
-                       "current_image restored after clahe undo (snapshot)");
+                EXPECT(images_equal(s.current_fits, s.original_fits),
+                       "current_fits restored after clahe undo (rebuild)");
             });
         }
 

@@ -211,8 +211,8 @@ UndoRedoResult LiveImageSessionStore::redo(const std::string& session_id) {
             }
             nlohmann::json entry = s->redo_stack.back();
             s->redo_stack.pop_back();
-            rebuild_current_fits(*s);
             s->undo_stack.push_back(entry);
+            rebuild_current_fits(*s);
 
             result.image = s->current_fits.clone();
             result.summary = "Wiederhergestellt";
