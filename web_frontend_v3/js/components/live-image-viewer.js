@@ -51,6 +51,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     hasDragged: false,
     dragStartX: 0,
     dragStartY: 0,
+    selectedPresetId: "",
   };
 
   const overlay = document.createElement("div");
@@ -265,6 +266,29 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   repeatRow.appendChild(repeatBtn);
   chatPanel.appendChild(repeatRow);
 
+  const presetRow = document.createElement("div");
+  presetRow.className = "live-image-viewer__presets";
+  const presetSelect = document.createElement("select");
+  presetSelect.className = "live-image-viewer__dropdown live-image-viewer__preset-select";
+  const presetPlaceholder = document.createElement("option");
+  presetPlaceholder.value = "";
+  presetPlaceholder.textContent = t("liveImage.presetSelect", "Preset auswählen...");
+  presetSelect.appendChild(presetPlaceholder);
+  const presetApplyBtn = document.createElement("button");
+  presetApplyBtn.type = "button";
+  presetApplyBtn.className = "live-image-viewer__btn";
+  presetApplyBtn.textContent = t("liveImage.presetApply", "Anwenden");
+  const presetSaveBtn = document.createElement("button");
+  presetSaveBtn.type = "button";
+  presetSaveBtn.className = "live-image-viewer__btn";
+  presetSaveBtn.textContent = t("liveImage.presetSave", "Sichern");
+  const presetSaveAsBtn = document.createElement("button");
+  presetSaveAsBtn.type = "button";
+  presetSaveAsBtn.className = "live-image-viewer__btn";
+  presetSaveAsBtn.textContent = t("liveImage.presetSaveAs", "Sichern unter");
+  presetRow.append(presetSelect, presetApplyBtn, presetSaveBtn, presetSaveAsBtn);
+  chatPanel.appendChild(presetRow);
+
   // Help box
   const helpBox = document.createElement("div");
   helpBox.className = "live-image-viewer__help";
@@ -414,6 +438,50 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     repeatRow.style.display = show ? "flex" : "none";
   }
 
+  function populatePresets(items) {
+    presetSelect.innerHTML = "";
+    presetSelect.appendChild(presetPlaceholder);
+    for (const item of (Array.isArray(items) ? items : [])) {
+      const option = document.createElement("option");
+      option.value = item.id || "";
+      option.textContent = `${item.name || item.id} (${item.operation_count || 0})`;
+      presetSelect.appendChild(option);
+    }
+    presetSelect.value = state.selectedPresetId;
+    if (presetSelect.value !== state.selectedPresetId) state.selectedPresetId = "";
+  }
+
+  async function loadPresets() {
+    try {
+      const resp = await api.get(API_ENDPOINTS.pi.liveImageChat.presets);
+      populatePresets(resp.items || []);
+    } catch (err) {
+      addChatBubble("assistant", `Error: ${err.message}`);
+    }
+  }
+
+  presetSelect.addEventListener("change", () => { state.selectedPresetId = presetSelect.value; });
+  async function doSavePresetAs() {
+    if (!state.sessionId || state.isLoading) return;
+    const name = window.prompt(t("liveImage.presetNamePrompt", "Name des Presets:"));
+    if (!name || !name.trim()) return;
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.presetSaveAs, { session_id: state.sessionId, name: name.trim() });
+      state.selectedPresetId = resp.preset?.id || "";
+      await loadPresets();
+      presetSelect.value = state.selectedPresetId;
+    } catch (err) { window.alert(err.message); }
+  }
+  presetSaveAsBtn.addEventListener("click", () => doSavePresetAs());
+  presetSaveBtn.addEventListener("click", async () => {
+    if (!state.sessionId) return;
+    if (!state.selectedPresetId) { await doSavePresetAs(); return; }
+    if (!window.confirm(t("liveImage.presetOverwriteConfirm", "Ausgewähltes Preset überschreiben?"))) return;
+    try { await api.post(API_ENDPOINTS.pi.liveImageChat.presetSave, { session_id: state.sessionId, preset_id: state.selectedPresetId }); await loadPresets(); }
+    catch (err) { window.alert(err.message); }
+  });
+  presetApplyBtn.addEventListener("click", () => doApplyPreset());
+
   function updateUndoRedo(canUndo, canRedo) {
     state.canUndo = canUndo;
     state.canRedo = canRedo;
@@ -435,11 +503,27 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       }
 
       updateUndoRedo(false, false);
+      await loadPresets();
     } catch (err) {
       addChatBubble("assistant", `Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function doApplyPreset() {
+    if (!state.sessionId || state.isLoading || !state.selectedPresetId) { window.alert(t("liveImage.presetNoSelection", "Bitte zuerst ein Preset auswählen.")); return; }
+    const beforeSrc = beginOperation();
+    setLoading(true);
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.presetApply, { session_id: state.sessionId, preset_id: state.selectedPresetId });
+      addChatBubble("assistant", t("liveImage.presetApplied", "Preset angewendet."));
+      commitOperation(resp.image_base64, beforeSrc);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateAdjustControls(false, "", 0);
+      updateRepeatControl(false);
+    } catch (err) { cancelOperation(); addChatBubble("assistant", `Error: ${err.message}`); }
+    finally { setLoading(false); }
   }
 
   async function sendChat(msg) {

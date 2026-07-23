@@ -10,7 +10,7 @@ The source FITS remains unchanged. The editor keeps its current working state in
 runs/<run-id>/outputs/live_edit.fits
 ```
 
-This file contains the current linear float image. It is written after every successful operation, undo, redo, repeat, and reset. The operation and chat history is stored separately in the PI runtime data for the run.
+This file contains the current linear float image. It is written after every successful operation, undo, redo, repeat, and reset. The active operation history is stored separately from a complete edit timeline in the PI runtime data for the run; the timeline includes explicit undo and redo actions.
 
 Reset restores the immutable source FITS, replaces `live_edit.fits`, clears undo/redo and chat history, and refreshes the run preview. Old derived `live_edit` PNG/JPEG files are removed so they cannot be mistaken for the current FITS.
 
@@ -45,6 +45,12 @@ The model returns a structured operation and parameters. The C++ backend validat
 If no model/API key is available, the backend uses a local parser. The command text selects the operation and local image statistics derive conservative strengths for brightness, contrast, and saturation; other operations use safe fallback parameters. No network request is required in this mode.
 
 API keys are handled by the PI/sidecar authentication mechanisms and are not written into image files, operation history, or FITS headers.
+
+## Timeline presets
+
+The current effective operation sequence can be stored as a preset and applied to another run. The preset area provides **Save as**, **Save**, a dropdown, and **Apply**.
+
+**Save as** asks for a name and creates a new JSON preset. **Save** overwrites the selected preset only after confirmation. The file stores the active operations (the exact effective image state) and the complete timeline for traceability. Presets are global and stored in `.pi_memory/presets`, so they can be used for any run. Applying a preset executes the operations sequentially on the current image without AI; each applied operation is then available in the normal undo stack.
 
 ## Exports
 

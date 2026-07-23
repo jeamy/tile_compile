@@ -21,8 +21,17 @@ struct LiveImageSession {
     cv::Mat current_fits;
     std::vector<nlohmann::json> undo_stack;
     std::vector<nlohmann::json> redo_stack;
+    // Exact pixel states: one pre-operation snapshot per undo entry and one
+    // post-operation snapshot per redo entry. This is required for lossy or
+    // non-invertible operations such as threshold, crop and denoise.
+    std::vector<cv::Mat> undo_snapshots;
+    std::vector<cv::Mat> redo_snapshots;
     nlohmann::json chat_history = nlohmann::json::array();
     nlohmann::json operation_history = nlohmann::json::array();
+    // Complete editing timeline, including undo/redo actions. This is kept
+    // separate from operation_history, which represents only the active stack
+    // used to reconstruct the current image.
+    nlohmann::json edit_history = nlohmann::json::array();
     nlohmann::json last_adjust_step;
     nlohmann::json last_repeat_operation;
     int adjust_count = 0;
@@ -51,6 +60,8 @@ public:
 
     ImageOpResult apply_operation(const std::string& session_id,
                                   const nlohmann::json& op);
+    ImageOpResult apply_preset(const std::string& session_id,
+                               const nlohmann::json& operations);
     ImageOpResult apply_adjust(const std::string& session_id,
                                const std::string& direction);
     ImageOpResult repeat_operation(const std::string& session_id);

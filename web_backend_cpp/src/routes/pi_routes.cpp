@@ -862,14 +862,16 @@ nlohmann::json read_pi_live_image_chat_history(const std::shared_ptr<AppState>& 
         return {{"schema_version", "pi.live-image-chat-history.v1"},
                 {"run_id", run_id},
                 {"chat_history", nlohmann::json::array()},
-                {"operation_history", nlohmann::json::array()}};
+                {"operation_history", nlohmann::json::array()},
+                {"edit_history", nlohmann::json::array()}};
     std::ifstream in(path);
     auto data = nlohmann::json::parse(in, nullptr, false);
     if (data.is_discarded() || !data.is_object())
         return {{"schema_version", "pi.live-image-chat-history.v1"},
                 {"run_id", run_id},
                 {"chat_history", nlohmann::json::array()},
-                {"operation_history", nlohmann::json::array()}};
+                {"operation_history", nlohmann::json::array()},
+                {"edit_history", nlohmann::json::array()}};
     return data;
 }
 
@@ -884,6 +886,8 @@ void write_pi_live_image_chat_history(const std::shared_ptr<AppState>& state,
         history["chat_history"] = nlohmann::json::array();
     if (!history.contains("operation_history") || !history["operation_history"].is_array())
         history["operation_history"] = nlohmann::json::array();
+    if (!history.contains("edit_history") || !history["edit_history"].is_array())
+        history["edit_history"] = nlohmann::json::array();
     history["last_updated"] = utc_now_iso();
     // Atomic write: temp + rename
     const auto tmp = path.string() + ".tmp";
@@ -905,7 +909,11 @@ void persist_live_session(const std::shared_ptr<AppState>& state,
     if (run_id.empty()) return;
     const auto chat_history = store->get_chat_history(session_id);
     const auto operation_history = store->get_operation_history(session_id);
-    if (chat_history.empty() && operation_history.empty()) {
+    nlohmann::json edit_history = nlohmann::json::array();
+    store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        edit_history = s.edit_history;
+    });
+    if (chat_history.empty() && operation_history.empty() && edit_history.empty()) {
         std::error_code ec;
         std::filesystem::remove(pi_live_image_chat_history_path(state, run_id), ec);
         return;
@@ -913,8 +921,63 @@ void persist_live_session(const std::shared_ptr<AppState>& state,
     write_pi_live_image_chat_history(state, run_id, {
         {"chat_history", chat_history},
         {"operation_history", operation_history},
+        {"edit_history", edit_history},
         {"created_at", utc_now_iso()}
     });
+}
+
+std::filesystem::path pi_live_image_presets_dir(const std::shared_ptr<AppState>& state) {
+    return tile_compile::pi::pi_storage_dir(state) / "presets";
+}
+
+std::string sanitize_live_preset_id(const std::string& name) {
+    std::string safe;
+    for (unsigned char ch : name) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') safe.push_back(static_cast<char>(ch));
+        else if (std::isspace(ch)) safe.push_back('_');
+    }
+    while (!safe.empty() && safe.front() == '.') safe.erase(safe.begin());
+    if (safe.size() > 80) safe.resize(80);
+    return safe;
+}
+
+nlohmann::json live_preset_summary(const nlohmann::json& preset) {
+    return {
+        {"id", preset.value("id", std::string())},
+        {"name", preset.value("name", preset.value("id", std::string()))},
+        {"updated_at", preset.value("updated_at", std::string())},
+        {"operation_count", preset.value("operations", nlohmann::json::array()).size()}
+    };
+}
+
+nlohmann::json read_live_preset(const std::shared_ptr<AppState>& state,
+                                const std::string& id) {
+    const auto safe = sanitize_live_preset_id(id);
+    if (safe.empty() || safe != id) return nlohmann::json();
+    const auto path = pi_live_image_presets_dir(state) / (safe + ".json");
+    if (!std::filesystem::exists(path)) return nlohmann::json();
+    std::ifstream in(path);
+    auto parsed = nlohmann::json::parse(in, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return nlohmann::json();
+    if (!parsed.value("operations", nlohmann::json::array()).is_array()) return nlohmann::json();
+    return parsed;
+}
+
+void write_live_preset(const std::shared_ptr<AppState>& state, nlohmann::json preset) {
+    const auto id = preset.value("id", std::string());
+    const auto safe = sanitize_live_preset_id(id);
+    if (safe.empty() || safe != id) throw std::runtime_error("invalid preset id");
+    auto dir = pi_live_image_presets_dir(state);
+    std::filesystem::create_directories(dir);
+    const auto path = dir / (safe + ".json");
+    const auto tmp = path.string() + ".tmp";
+    std::ofstream out(tmp, std::ios::out | std::ios::trunc);
+    if (!out) throw std::runtime_error("failed to open preset for writing");
+    out << preset.dump(2);
+    out.close();
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) throw std::runtime_error("failed to finalize preset: " + ec.message());
 }
 
 void persist_live_edit_fits(const std::shared_ptr<AppState>& state,
@@ -2891,6 +2954,26 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
                 s.chat_history = saved.value("chat_history", nlohmann::json::array());
                 s.operation_history = op_history;
+                s.edit_history = saved.value("edit_history", nlohmann::json::array());
+                // Reconstruct exact pre-operation snapshots for undo after a
+                // browser/session reload. The canonical live_edit.fits is
+                // still used as the current image; snapshots are derived from
+                // the immutable source and persisted operation sequence.
+                cv::Mat replay = s.original_fits.clone();
+                s.undo_stack.clear();
+                s.undo_snapshots.clear();
+                s.redo_stack.clear();
+                s.redo_snapshots.clear();
+                if (op_history.is_array()) {
+                    for (const auto& history_op : op_history) {
+                        const cv::Mat before = replay.clone();
+                        auto replay_result = tile_compile::pi::apply_image_op_fits(replay, history_op);
+                        if (!replay_result.success) break;
+                        s.undo_snapshots.push_back(before);
+                        s.undo_stack.push_back(history_op);
+                        replay = std::move(replay_result.image);
+                    }
+                }
             });
 
             std::string preview_b64;
@@ -3306,6 +3389,94 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             {"path", output_path.string()},
             {"format", format}
         });
+    });
+
+    // Persistent timeline presets shared by all runs.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets").methods("GET"_method)
+    ([state](const crow::request&) {
+        nlohmann::json items = nlohmann::json::array();
+        const auto dir = pi_live_image_presets_dir(state);
+        std::error_code ec;
+        if (std::filesystem::is_directory(dir, ec)) {
+            for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+                if (ec || !entry.is_regular_file() || entry.path().extension() != ".json") continue;
+                std::ifstream in(entry.path());
+                auto preset = nlohmann::json::parse(in, nullptr, false);
+                if (!preset.is_discarded() && preset.is_object()) items.push_back(live_preset_summary(preset));
+            }
+        }
+        std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+            return a.value("name", std::string()) < b.value("name", std::string());
+        });
+        return json_resp({{"items", items}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/save-as").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto name = body->value("name", std::string());
+        const auto id = sanitize_live_preset_id(name);
+        if (session_id.empty() || name.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and a valid name are required", 400);
+        if (read_live_preset(state, id).is_object()) return err_resp("CONFLICT", "Preset already exists", 409);
+        nlohmann::json operations, timeline;
+        bool found = live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            operations = s.operation_history;
+            timeline = s.edit_history;
+        });
+        if (!found) return err_resp("NOT_FOUND", "session not found", 404);
+        auto now = utc_now_iso();
+        nlohmann::json preset = {{"schema_version", "pi.live-image-preset.v1"}, {"id", id}, {"name", name},
+                                 {"operations", operations.is_array() ? operations : nlohmann::json::array()},
+                                 {"edit_history", timeline.is_array() ? timeline : nlohmann::json::array()},
+                                 {"created_at", now}, {"updated_at", now}};
+        try { write_live_preset(state, preset); }
+        catch (const std::exception& e) { return err_resp("SAVE_FAILED", e.what(), 500); }
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/save").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto id = body->value("preset_id", std::string());
+        auto preset = read_live_preset(state, id);
+        if (session_id.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and preset_id are required", 400);
+        if (!preset.is_object()) return err_resp("NOT_FOUND", "preset not found", 404);
+        nlohmann::json operations, timeline;
+        if (!live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            operations = s.operation_history; timeline = s.edit_history;
+        })) return err_resp("NOT_FOUND", "session not found", 404);
+        preset["operations"] = operations.is_array() ? operations : nlohmann::json::array();
+        preset["edit_history"] = timeline.is_array() ? timeline : nlohmann::json::array();
+        preset["updated_at"] = utc_now_iso();
+        try { write_live_preset(state, preset); }
+        catch (const std::exception& e) { return err_resp("SAVE_FAILED", e.what(), 500); }
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/live-image-chat/presets/apply").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        const auto id = body->value("preset_id", std::string());
+        if (session_id.empty() || id.empty()) return err_resp("BAD_REQUEST", "session_id and preset_id are required", 400);
+        auto preset = read_live_preset(state, id);
+        if (!preset.is_object()) return err_resp("NOT_FOUND", "preset not found", 404);
+        auto result = live_store->apply_preset(session_id, preset.value("operations", nlohmann::json::array()));
+        if (!result.success) return err_resp("PRESET_FAILED", result.error, 400);
+        live_store->append_chat(session_id, "assistant", "Preset angewendet: " + preset.value("name", id),
+                                preset.value("operations", nlohmann::json::array()));
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { can_undo = !s.undo_stack.empty(); });
+        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)},
+                          {"image_base64", mat_to_jpeg_base64(result.image, 85)}, {"image_mime", "image/jpeg"},
+                          {"can_undo", can_undo}, {"can_redo", false}});
     });
 
     // 8. GET /api/pi/live-image-chat/history

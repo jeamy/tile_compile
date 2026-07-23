@@ -10,7 +10,7 @@ Das Quell-FITS bleibt unverändert. Der aktuelle Arbeitsstand wird gespeichert u
 runs/<run-id>/outputs/live_edit.fits
 ```
 
-Diese Datei enthält das aktuelle lineare Float-Bild. Sie wird nach jeder erfolgreichen Operation, bei Undo, Redo, Wiederholen und Reset geschrieben. Operations- und Chat-History werden separat in den PI-Laufdaten gespeichert.
+Diese Datei enthält das aktuelle lineare Float-Bild. Sie wird nach jeder erfolgreichen Operation, bei Undo, Redo, Wiederholen und Reset geschrieben. Die aktive Operations-History wird getrennt von einer vollständigen Bearbeitungs-Timeline in den PI-Laufdaten gespeichert; die Timeline enthält auch explizite Undo- und Redo-Aktionen.
 
 Reset stellt das unveränderliche Quell-FITS wieder her, ersetzt `live_edit.fits`, löscht Undo/Redo und Chat-History und aktualisiert die Run-Preview. Alte abgeleitete `live_edit`-PNG/JPEG-Dateien werden entfernt, damit sie nicht mit dem aktuellen FITS verwechselt werden.
 
@@ -45,6 +45,12 @@ Das Modell liefert eine strukturierte Operation mit Parametern. Das C++-Backend 
 Wenn kein Modell oder kein API-Key verfügbar ist, verwendet das Backend einen lokalen Parser. Der Text bestimmt die Operation; für Helligkeit, Kontrast und Sättigung werden konservative Stärken aus Bildstatistiken berechnet. Für andere Operationen werden sichere Fallback-Parameter verwendet. Dafür ist keine Netzwerkverbindung nötig.
 
 API-Keys werden über die PI-/Sidecar-Authentifizierung verwaltet und nicht in Bilddateien, Operations-History oder FITS-Header geschrieben.
+
+## Timeline-Presets
+
+Die aktuelle Operationsfolge kann als Preset gespeichert und auf einen anderen Run angewendet werden. Im Preset-Bereich stehen **Sichern unter**, **Sichern**, eine Auswahlliste und **Anwenden** zur Verfügung.
+
+**Sichern unter** fragt einen Namen ab und legt ein neues JSON-Preset an. **Sichern** überschreibt das ausgewählte Preset erst nach einer Bestätigung. Gespeichert werden die aktiven Operationen (also genau der aktuell wirksame Bildstand) sowie die vollständige Timeline zur Nachvollziehbarkeit. Die Dateien liegen global unter `.pi_memory/presets` und können daher für jeden Run verwendet werden. Beim Anwenden führt das Backend die Operationen sequenziell und ohne KI erneut auf dem aktuellen Bild aus; jede angewendete Operation ist anschließend über Undo rückgängig.
 
 ## Exporte
 

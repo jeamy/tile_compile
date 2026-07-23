@@ -151,7 +151,7 @@ int main() {
                    "sharpen +/- decrease rebuilds successfully");
         }
 
-        // --- non-invertible op (clahe) with rebuild undo ---
+        // --- non-invertible ops use exact pre-operation snapshots ---
         {
             store.reset(sid);
             nlohmann::json op = {
@@ -165,15 +165,36 @@ int main() {
                 EXPECT(s.undo_stack.size() == 1, "undo_stack has 1 entry after clahe");
             });
 
-            // Undo should restore via rebuild from original
+            // Undo must restore the exact pre-operation pixels.
             auto undo_res = store.undo(sid);
             EXPECT(!undo_res.image.empty(), "undo after clahe returns image");
 
             store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
                 EXPECT(images_equal(s.current_fits, s.original_fits),
-                       "current_fits restored after clahe undo (rebuild)");
+                       "current_fits restored after clahe undo snapshot");
+            });
+            store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
+                EXPECT(!s.edit_history.empty() &&
+                           s.edit_history.back().value("action", "") == "undo",
+                       "edit_history records undo action");
             });
 
+            nlohmann::json threshold = {
+                {"type", "threshold"},
+                {"params", {{"black_point", 0.2}, {"white_point", 0.8}}}
+            };
+            auto threshold_res = store.apply_operation(sid, threshold);
+            EXPECT(threshold_res.success, "apply_operation(threshold) succeeds");
+            auto threshold_undo = store.undo(sid);
+            EXPECT(images_equal(threshold_undo.image, img),
+                   "threshold undo restores exact snapshot");
+            auto threshold_redo = store.redo(sid);
+            EXPECT(threshold_redo.image.size() == img.size(),
+                   "threshold redo restores post-operation snapshot");
+            store.with_session(sid, [&](tile_compile::pi::LiveImageSession& s) {
+                EXPECT(s.edit_history.back().value("action", "") == "redo",
+                       "edit_history records redo action");
+            });
             nlohmann::json reset_op = {{"type", "reset"}, {"params", nlohmann::json::object()}};
             auto reset_result = store.apply_operation(sid, reset_op);
             EXPECT(reset_result.success, "reset operation succeeds in session store");

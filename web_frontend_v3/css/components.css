@@ -980,6 +980,19 @@
   padding: var(--space-2) 0;
 }
 
+.live-image-viewer__presets {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+.live-image-viewer__preset-select {
+  flex: 1 1 180px;
+  min-width: 0;
+  width: auto;
+}
+
 .live-image-viewer__image {
   max-width: 100%;
   max-height: 100%;
