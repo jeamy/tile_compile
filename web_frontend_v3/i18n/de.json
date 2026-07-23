@@ -2130,6 +2130,8 @@
   "liveImage.presetNoSelection": "Bitte zuerst ein Preset auswaehlen.",
   "liveImage.presetOverwriteConfirm": "Ausgewaehltes Preset ueberschreiben?",
   "liveImage.presetApplied": "Preset angewendet.",
+  "liveImage.reapplyTitle": "Klicken, um diesen Befehl erneut anzuwenden",
+  "liveImage.reapplyConfirm": "Befehl noch einmal anwenden?",
   "liveImage.close": "Schliessen",
   "liveImage.send": "Senden",
   "liveImage.exportPng": "Export PNG",

@@ -64,6 +64,7 @@ export const API_ENDPOINTS = {
       create: "/api/pi/live-image-chat/create",
       chat: "/api/pi/live-image-chat",
       repeat: "/api/pi/live-image-chat/repeat",
+      reapply: "/api/pi/live-image-chat/reapply",
       adjust: "/api/pi/live-image-chat/adjust",
       undo: "/api/pi/live-image-chat/undo",
       redo: "/api/pi/live-image-chat/redo",

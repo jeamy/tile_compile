@@ -2109,6 +2109,8 @@
   "liveImage.presetNoSelection": "Please select a preset first.",
   "liveImage.presetOverwriteConfirm": "Overwrite selected preset?",
   "liveImage.presetApplied": "Preset applied.",
+  "liveImage.reapplyTitle": "Click to apply this command again",
+  "liveImage.reapplyConfirm": "Apply this command again?",
   "liveImage.close": "Close",
   "liveImage.send": "Send",
   "liveImage.exportPng": "Export PNG",

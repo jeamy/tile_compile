@@ -1069,6 +1069,17 @@
   color: var(--foreground);
 }
 
+.live-image-viewer__chat-bubble--reapply {
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.live-image-viewer__chat-bubble--reapply:hover,
+.live-image-viewer__chat-bubble--reapply:focus-visible {
+  background: var(--primary-soft);
+  outline: 1px solid var(--primary);
+}
+
 .live-image-viewer__adjust {
   display: flex;
   align-items: center;

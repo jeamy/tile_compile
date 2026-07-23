@@ -3195,12 +3195,35 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp({
             {"session_id", session_id},
             {"summary", "Operation erneut angewendet."},
+            {"operations", repeated_op.is_null() ? nlohmann::json::array() : nlohmann::json::array({repeated_op})},
             {"image_base64", mat_to_jpeg_base64(result.image, 85)},
             {"image_mime", "image/jpeg"},
             {"can_undo", can_undo},
             {"can_redo", can_redo},
             {"repeatable", true}
         });
+    });
+
+    // Reapply an operation recorded in a chat message without invoking AI.
+    CROW_ROUTE(app, "/api/pi/live-image-chat/reapply").methods("POST"_method)
+    ([state, live_store](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const auto session_id = body->value("session_id", std::string());
+        nlohmann::json operations = body->value("operations", nlohmann::json::array());
+        if (operations.is_object()) operations = nlohmann::json::array({operations});
+        if (session_id.empty() || !operations.is_array() || operations.empty())
+            return err_resp("BAD_REQUEST", "session_id and operations are required", 400);
+        auto result = live_store->apply_preset(session_id, operations);
+        if (!result.success) return err_resp("REAPPLY_FAILED", result.error, 400);
+        live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", operations);
+        persist_live_edit_fits(state, live_store, session_id);
+        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        bool can_undo = false;
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { can_undo = !s.undo_stack.empty(); });
+        return json_resp({{"ok", true}, {"summary", "Operation erneut angewendet."},
+                          {"operations", operations}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
+                          {"image_mime", "image/jpeg"}, {"can_undo", can_undo}, {"can_redo", false}});
     });
 
     // 3. POST /api/pi/live-image-chat/adjust

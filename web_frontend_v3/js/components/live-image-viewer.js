@@ -408,10 +408,15 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     }, 150);
   }
 
-  function addChatBubble(role, text) {
+  function addChatBubble(role, text, operations = null) {
     const bubble = document.createElement("div");
     bubble.className = `live-image-viewer__chat-bubble live-image-viewer__chat-bubble--${role}`;
     bubble.textContent = text;
+    if (role === "assistant" && Array.isArray(operations) && operations.length > 0) {
+      bubble.classList.add("live-image-viewer__chat-bubble--reapply");
+      bubble.title = t("liveImage.reapplyTitle", "Klicken, um diesen Befehl erneut anzuwenden");
+      bubble.addEventListener("click", () => reapplyOperations(operations));
+    }
     chatHistoryEl.appendChild(bubble);
     chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
   }
@@ -421,7 +426,30 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     chatHistoryEl.innerHTML = "";
     for (const entry of history) {
       if (!entry || !entry.role) continue;
-      addChatBubble(entry.role, entry.content || entry.text || "");
+      addChatBubble(entry.role, entry.content || entry.text || "", entry.operations);
+    }
+  }
+
+  async function reapplyOperations(operations) {
+    if (!state.sessionId || state.isLoading || !Array.isArray(operations) || !operations.length) return;
+    if (!window.confirm(t("liveImage.reapplyConfirm", "Befehl noch einmal anwenden?"))) return;
+    const beforeSrc = beginOperation();
+    setLoading(true);
+    try {
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.reapply, {
+        session_id: state.sessionId,
+        operations,
+      });
+      addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation erneut angewendet."), resp.operations || operations);
+      commitOperation(resp.image_base64, beforeSrc);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateAdjustControls(false, "", 0);
+      updateRepeatControl(false);
+    } catch (err) {
+      cancelOperation();
+      addChatBubble("assistant", `Error: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -538,7 +566,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         session_id: state.sessionId,
         message: msg,
       });
-      addChatBubble("assistant", resp.summary || "");
+      addChatBubble("assistant", resp.summary || "", resp.operations);
       commitOperation(resp.image_base64, beforeSrc);
       updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
 
@@ -588,7 +616,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.repeat, {
         session_id: state.sessionId,
       });
-      addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation applied again."));
+      addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation applied again."), resp.operations);
       commitOperation(resp.image_base64, beforeSrc);
       updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
       updateRepeatControl(resp.repeatable !== false);

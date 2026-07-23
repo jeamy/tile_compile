@@ -339,8 +339,15 @@ cv::Mat apply_crop_rotated(const cv::Mat& img, int cx, int cy,
     h = std::clamp(h, 1, img.rows);
     if (w <= 0 || h <= 0) return img.clone();
 
-    const cv::Point2f center(static_cast<float>(cx), static_cast<float>(cy));
-    const cv::Mat rot = cv::getRotationMatrix2D(center, angle_deg, 1.0);
+    // Build the same 2x3 affine matrix as getRotationMatrix2D directly.
+    // This keeps the rotated-crop operation portable across OpenCV versions
+    // where the imgproc convenience declaration is not exposed by the headers.
+    const double radians = angle_deg * CV_PI / 180.0;
+    const double alpha = std::cos(radians);
+    const double beta = std::sin(radians);
+    const cv::Mat rot = (cv::Mat_<double>(2, 3) <<
+        alpha, beta, (1.0 - alpha) * static_cast<double>(cx) - beta * static_cast<double>(cy),
+        -beta, alpha, beta * static_cast<double>(cx) + (1.0 - alpha) * static_cast<double>(cy));
 
     // Warp the full image so the crop region becomes axis-aligned.
     cv::Mat warped;
