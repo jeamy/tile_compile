@@ -179,6 +179,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   function applyTransform() {
     imgEl.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+    if (cropOverlayEl && cropOverlayEl._refreshGeometry) cropOverlayEl._refreshGeometry();
   }
 
   function renderDisplayedImage() {
@@ -517,6 +518,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
   async function doUndo() {
     if (!state.sessionId || state.isLoading) return;
+    closeCropOverlay();
     const beforeSrc = beginOperation();
     setLoading(true);
     try {
@@ -599,7 +601,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     }
   }
 
-  // --- Crop overlay ---
+  // --- Crop overlay (with rotation) ---
   let cropOverlayEl = null;
 
   function openCropOverlay() {
@@ -608,47 +610,78 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
     const rect = imgEl.getBoundingClientRect();
     const wrapRect = imageWrap.getBoundingClientRect();
-    const imgLeft = rect.left - wrapRect.left;
-    const imgTop = rect.top - wrapRect.top;
-    const imgW = rect.width;
-    const imgH = rect.height;
+    let imgLeft = rect.left - wrapRect.left;
+    let imgTop = rect.top - wrapRect.top;
+    let imgW = rect.width;
+    let imgH = rect.height;
 
-    // Default crop: 90% of image, centered
+    function visibleImageBounds() {
+      const wrapW = imageWrap.clientWidth;
+      const wrapH = imageWrap.clientHeight;
+      const left = Math.max(0, imgLeft);
+      const top = Math.max(0, imgTop);
+      const right = Math.min(wrapW, imgLeft + imgW);
+      const bottom = Math.min(wrapH, imgTop + imgH);
+      return {
+        left,
+        top,
+        right: Math.max(left, right),
+        bottom: Math.max(top, bottom),
+      };
+    }
+
     const margin = 0.05;
-    let cropX = imgLeft + imgW * margin;
-    let cropY = imgTop + imgH * margin;
-    let cropW = imgW * (1 - 2 * margin);
-    let cropH = imgH * (1 - 2 * margin);
+    const initialBounds = visibleImageBounds();
+    let cropCx = (initialBounds.left + initialBounds.right) / 2;
+    let cropCy = (initialBounds.top + initialBounds.bottom) / 2;
+    let cropW = (initialBounds.right - initialBounds.left) * (1 - 2 * margin);
+    let cropH = (initialBounds.bottom - initialBounds.top) * (1 - 2 * margin);
+    let cropAngle = 0;
 
     cropOverlayEl = document.createElement("div");
     cropOverlayEl.className = "live-image-viewer__crop-overlay";
 
-    // Dark mask outside crop region (4 rectangles)
-    const maskTop = document.createElement("div");
-    maskTop.className = "live-image-viewer__crop-mask";
-    const maskBottom = document.createElement("div");
-    maskBottom.className = "live-image-viewer__crop-mask";
-    const maskLeft = document.createElement("div");
-    maskLeft.className = "live-image-viewer__crop-mask";
-    const maskRight = document.createElement("div");
-    maskRight.className = "live-image-viewer__crop-mask";
-    cropOverlayEl.appendChild(maskTop);
-    cropOverlayEl.appendChild(maskBottom);
-    cropOverlayEl.appendChild(maskLeft);
-    cropOverlayEl.appendChild(maskRight);
+    // SVG dark mask with a rotated-rect hole
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "live-image-viewer__crop-svg");
+    svg.style.position = "absolute";
+    svg.style.left = "0";
+    svg.style.top = "0";
+    svg.style.width = "100%";
+    svg.style.height = "100%";
+    svg.style.pointerEvents = "none";
+    cropOverlayEl.appendChild(svg);
 
-    // Crop rectangle border
+    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    svg.appendChild(defs);
+    const maskEl = document.createElementNS("http://www.w3.org/2000/svg", "mask");
+    maskEl.setAttribute("id", "cropMaskDyn");
+    maskEl.setAttribute("maskUnits", "userSpaceOnUse");
+    defs.appendChild(maskEl);
+
+    const maskBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    maskBg.setAttribute("fill", "white");
+    maskEl.appendChild(maskBg);
+
+    let maskHole = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    maskHole.setAttribute("fill", "black");
+    maskEl.appendChild(maskHole);
+
+    const maskRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    maskRect.setAttribute("fill", "rgba(0,0,0,0.55)");
+    maskRect.setAttribute("mask", "url(#cropMaskDyn)");
+    svg.appendChild(maskRect);
+
+    // Crop box (rotated via CSS transform)
     const cropBox = document.createElement("div");
     cropBox.className = "live-image-viewer__crop-box";
     cropOverlayEl.appendChild(cropBox);
 
-    // Hint label
     const hintLabel = document.createElement("div");
     hintLabel.className = "live-image-viewer__crop-hint";
     hintLabel.textContent = t("liveImage.cropHint", "Drag handles to define the crop region");
     cropOverlayEl.appendChild(hintLabel);
 
-    // OK / Cancel buttons
     const btnRow = document.createElement("div");
     btnRow.className = "live-image-viewer__crop-buttons";
     const okBtn = document.createElement("button");
@@ -663,41 +696,19 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     btnRow.appendChild(okBtn);
     cropOverlayEl.appendChild(btnRow);
 
+    // Rotation handle
+    const rotHandle = document.createElement("div");
+    rotHandle.className = "live-image-viewer__crop-rot-handle";
+    rotHandle.textContent = "\u21ba";
+    cropOverlayEl.appendChild(rotHandle);
+
+    const rotLine = document.createElement("div");
+    rotLine.className = "live-image-viewer__crop-rot-line";
+    cropOverlayEl.appendChild(rotLine);
+
     imageWrap.appendChild(cropOverlayEl);
 
-    function updateCropVisuals() {
-      cropBox.style.left = `${cropX}px`;
-      cropBox.style.top = `${cropY}px`;
-      cropBox.style.width = `${cropW}px`;
-      cropBox.style.height = `${cropH}px`;
-
-      maskTop.style.left = `${imgLeft}px`;
-      maskTop.style.top = `${imgTop}px`;
-      maskTop.style.width = `${imgW}px`;
-      maskTop.style.height = `${cropY - imgTop}px`;
-
-      maskBottom.style.left = `${imgLeft}px`;
-      maskBottom.style.top = `${cropY + cropH}px`;
-      maskBottom.style.width = `${imgW}px`;
-      maskBottom.style.height = `${imgTop + imgH - (cropY + cropH)}px`;
-
-      maskLeft.style.left = `${imgLeft}px`;
-      maskLeft.style.top = `${cropY}px`;
-      maskLeft.style.width = `${cropX - imgLeft}px`;
-      maskLeft.style.height = `${cropH}px`;
-
-      maskRight.style.left = `${cropX + cropW}px`;
-      maskRight.style.top = `${cropY}px`;
-      maskRight.style.width = `${imgLeft + imgW - (cropX + cropW)}px`;
-      maskRight.style.height = `${cropH}px`;
-
-      btnRow.style.left = `${cropX + cropW - 140}px`;
-      btnRow.style.top = `${cropY + cropH + 8}px`;
-      hintLabel.style.left = `${cropX}px`;
-      hintLabel.style.top = `${cropY - 28}px`;
-    }
-
-    // Create 8 handles
+    // 8 resize handles
     const handles = [];
     const handlePositions = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
     for (const pos of handlePositions) {
@@ -708,96 +719,178 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       handles.push(h);
     }
 
-    function updateHandles() {
+    function rotPt(x, y, cx, cy, deg) {
+      const rad = deg * Math.PI / 180;
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      return {
+        x: cx + (x - cx) * cos - (y - cy) * sin,
+        y: cy + (x - cx) * sin + (y - cy) * cos,
+      };
+    }
+
+    function updateCropVisuals() {
+      const wrapW = imageWrap.clientWidth;
+      const wrapH = imageWrap.clientHeight;
+      maskBg.setAttribute("x", "0");
+      maskBg.setAttribute("y", "0");
+      maskBg.setAttribute("width", wrapW);
+      maskBg.setAttribute("height", wrapH);
+
+      const hx = cropCx - cropW / 2;
+      const hy = cropCy - cropH / 2;
+      const corners = [
+        rotPt(hx, hy, cropCx, cropCy, cropAngle),
+        rotPt(hx + cropW, hy, cropCx, cropCy, cropAngle),
+        rotPt(hx + cropW, hy + cropH, cropCx, cropCy, cropAngle),
+        rotPt(hx, hy + cropH, cropCx, cropCy, cropAngle),
+      ];
+      maskHole.setAttribute("points", corners.map(c => `${c.x},${c.y}`).join(" "));
+
+      cropBox.style.left = `${hx}px`;
+      cropBox.style.top = `${hy}px`;
+      cropBox.style.width = `${cropW}px`;
+      cropBox.style.height = `${cropH}px`;
+      cropBox.style.transform = `rotate(${cropAngle}deg)`;
+
       for (const h of handles) {
         const pos = h.dataset.pos;
-        let hx, hy;
-        if (pos.includes("w")) hx = cropX;
-        else if (pos.includes("e")) hx = cropX + cropW;
-        else hx = cropX + cropW / 2;
-        if (pos.includes("n")) hy = cropY;
-        else if (pos.includes("s")) hy = cropY + cropH;
-        else hy = cropY + cropH / 2;
-        h.style.left = `${hx - 6}px`;
-        h.style.top = `${hy - 6}px`;
+        let lx, ly;
+        if (pos.includes("w")) lx = hx;
+        else if (pos.includes("e")) lx = hx + cropW;
+        else lx = hx + cropW / 2;
+        if (pos.includes("n")) ly = hy;
+        else if (pos.includes("s")) ly = hy + cropH;
+        else ly = hy + cropH / 2;
+        const rp = rotPt(lx, ly, cropCx, cropCy, cropAngle);
+        h.style.left = `${rp.x - 6}px`;
+        h.style.top = `${rp.y - 6}px`;
       }
+
+      // Rotation handle above top-center
+      const topMid = rotPt(cropCx, hy - 30, cropCx, cropCy, cropAngle);
+      rotHandle.style.left = `${topMid.x - 12}px`;
+      rotHandle.style.top = `${topMid.y - 12}px`;
+      const lineEnd = rotPt(cropCx, hy, cropCx, cropCy, cropAngle);
+      const lineLen = Math.hypot(lineEnd.x - topMid.x, lineEnd.y - topMid.y);
+      const lineAng = Math.atan2(lineEnd.y - topMid.y, lineEnd.x - topMid.x) * 180 / Math.PI;
+      rotLine.style.left = `${topMid.x}px`;
+      rotLine.style.top = `${topMid.y}px`;
+      rotLine.style.width = `${lineLen}px`;
+      rotLine.style.height = "1px";
+      rotLine.style.transformOrigin = "0 0";
+      rotLine.style.transform = `rotate(${lineAng}deg)`;
+
+      // Buttons are fixed by CSS at the viewport's top-right corner. They do
+      // not move with the transformed image or the crop rectangle.
+      btnRow.style.left = "";
+      btnRow.style.top = "";
+
+      // Hint above top-center
+      const hintPos = rotPt(cropCx, hy - 4, cropCx, cropCy, cropAngle);
+      hintLabel.style.left = `${hintPos.x - 100}px`;
+      hintLabel.style.top = `${hintPos.y - 24}px`;
     }
 
     function clampCrop() {
-      cropX = Math.max(imgLeft, Math.min(cropX, imgLeft + imgW - 20));
-      cropY = Math.max(imgTop, Math.min(cropY, imgTop + imgH - 20));
-      cropW = Math.max(20, Math.min(cropW, imgLeft + imgW - cropX));
-      cropH = Math.max(20, Math.min(cropH, imgTop + imgH - cropY));
+      const bounds = visibleImageBounds();
+      const boundsW = Math.max(20, bounds.right - bounds.left);
+      const boundsH = Math.max(20, bounds.bottom - bounds.top);
+      cropW = Math.max(20, Math.min(cropW, boundsW));
+      cropH = Math.max(20, Math.min(cropH, boundsH));
+      cropCx = Math.max(bounds.left + cropW / 2,
+        Math.min(cropCx, bounds.right - cropW / 2));
+      cropCy = Math.max(bounds.top + cropH / 2,
+        Math.min(cropCy, bounds.bottom - cropH / 2));
+    }
+
+    function syncImageGeometry() {
+      const oldW = imgW;
+      const oldH = imgH;
+      const oldRelCx = oldW > 0 ? (cropCx - imgLeft) / oldW : 0.5;
+      const oldRelCy = oldH > 0 ? (cropCy - imgTop) / oldH : 0.5;
+      const oldRelW = oldW > 0 ? cropW / oldW : 0.9;
+      const oldRelH = oldH > 0 ? cropH / oldH : 0.9;
+      const currentRect = imgEl.getBoundingClientRect();
+      const currentWrap = imageWrap.getBoundingClientRect();
+      imgLeft = currentRect.left - currentWrap.left;
+      imgTop = currentRect.top - currentWrap.top;
+      imgW = currentRect.width;
+      imgH = currentRect.height;
+      cropCx = imgLeft + oldRelCx * imgW;
+      cropCy = imgTop + oldRelCy * imgH;
+      cropW = oldRelW * imgW;
+      cropH = oldRelH * imgH;
     }
 
     function refreshAll() {
+      syncImageGeometry();
       clampCrop();
       updateCropVisuals();
-      updateHandles();
     }
 
     refreshAll();
 
-    // Dragging handles
-    let dragHandle = null;
+    // --- Dragging ---
+    let dragMode = null;
     let dragStartX = 0, dragStartY = 0;
-    let startCropX = 0, startCropY = 0, startCropW = 0, startCropH = 0;
+    let startCx = 0, startCy = 0, startW = 0, startH = 0;
 
     for (const h of handles) {
       h.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        dragHandle = h.dataset.pos;
+        dragMode = h.dataset.pos;
         dragStartX = e.clientX;
         dragStartY = e.clientY;
-        startCropX = cropX;
-        startCropY = cropY;
-        startCropW = cropW;
-        startCropH = cropH;
+        startCx = cropCx; startCy = cropCy;
+        startW = cropW; startH = cropH;
       });
     }
 
-    // Dragging the crop box itself (move)
     cropBox.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dragHandle = "move";
+      dragMode = "move";
       dragStartX = e.clientX;
       dragStartY = e.clientY;
-      startCropX = cropX;
-      startCropY = cropY;
+      startCx = cropCx; startCy = cropCy;
+    });
+
+    rotHandle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragMode = "rotate";
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
     });
 
     function onMouseMove(e) {
-      if (!dragHandle) return;
+      if (!dragMode) return;
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
 
-      if (dragHandle === "move") {
-        cropX = startCropX + dx;
-        cropY = startCropY + dy;
+      if (dragMode === "move") {
+        cropCx = startCx + dx;
+        cropCy = startCy + dy;
+      } else if (dragMode === "rotate") {
+        const wr = imageWrap.getBoundingClientRect();
+        const mx = e.clientX - wr.left;
+        const my = e.clientY - wr.top;
+        cropAngle = Math.atan2(my - cropCy, mx - cropCx) * 180 / Math.PI + 90;
       } else {
-        if (dragHandle.includes("w")) {
-          cropX = startCropX + dx;
-          cropW = startCropW - dx;
-        }
-        if (dragHandle.includes("e")) {
-          cropW = startCropW + dx;
-        }
-        if (dragHandle.includes("n")) {
-          cropY = startCropY + dy;
-          cropH = startCropH - dy;
-        }
-        if (dragHandle.includes("s")) {
-          cropH = startCropH + dy;
-        }
+        const rad = -cropAngle * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const ldx = dx * cos - dy * sin;
+        const ldy = dx * sin + dy * cos;
+        if (dragMode.includes("w")) cropW = Math.max(20, startW - ldx);
+        if (dragMode.includes("e")) cropW = Math.max(20, startW + ldx);
+        if (dragMode.includes("n")) cropH = Math.max(20, startH - ldy);
+        if (dragMode.includes("s")) cropH = Math.max(20, startH + ldy);
       }
       refreshAll();
     }
 
-    function onMouseUp() {
-      dragHandle = null;
-    }
+    function onMouseUp() { dragMode = null; }
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
@@ -816,14 +909,10 @@ export function createLiveImageViewer(runId, runDir, onClose) {
 
     function applyCrop() {
       if (!state.sessionId) { closeCropOverlay(); return; }
-
-      // Convert displayed pixel coords to image pixel coords.
-      // getBoundingClientRect() already accounts for CSS transform (scale+translate),
-      // so scaleX/scaleY convert display pixels to natural image pixels directly.
       const scaleX = imgEl.naturalWidth / imgW;
       const scaleY = imgEl.naturalHeight / imgH;
-      const px = Math.round((cropX - imgLeft) * scaleX);
-      const py = Math.round((cropY - imgTop) * scaleY);
+      const px = Math.round((cropCx - imgLeft) * scaleX);
+      const py = Math.round((cropCy - imgTop) * scaleY);
       const pw = Math.round(cropW * scaleX);
       const ph = Math.round(cropH * scaleY);
 
@@ -834,9 +923,14 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       setLoading(true);
       updateAdjustControls(false, "", 0);
       updateRepeatControl(false);
+
+      const msg = (Math.abs(cropAngle) < 0.5)
+        ? `crop ${px - Math.round(pw / 2)} ${py - Math.round(ph / 2)} ${pw} ${ph}`
+        : `crop_rotated ${px} ${py} ${pw} ${ph} ${cropAngle.toFixed(1)}`;
+
       api.post(API_ENDPOINTS.pi.liveImageChat.chat, {
         session_id: state.sessionId,
-        message: `crop ${px} ${py} ${pw} ${ph}`,
+        message: msg,
       }).then((resp) => {
         addChatBubble("assistant", resp.summary || "");
         commitOperation(resp.image_base64, beforeSrc);
@@ -850,10 +944,15 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       });
     }
 
-    // Expose close/apply for external buttons
     cropOverlayEl._closeCropOverlay = closeCropOverlay;
     cropOverlayEl._applyCrop = applyCrop;
+    cropOverlayEl._refreshGeometry = () => {
+      syncImageGeometry();
+      clampCrop();
+      updateCropVisuals();
+    };
   }
+
 
   function closeCropOverlay() {
     if (cropOverlayEl && cropOverlayEl._closeCropOverlay) cropOverlayEl._closeCropOverlay();

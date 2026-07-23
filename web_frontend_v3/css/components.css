@@ -1233,6 +1233,9 @@
 
 .live-image-viewer__crop-buttons {
   position: absolute;
+  top: 10px !important;
+  right: 10px !important;
+  left: auto !important;
   display: flex;
   gap: var(--space-2);
   pointer-events: auto;
@@ -1257,4 +1260,37 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--text-sm);
+}
+
+.live-image-viewer__crop-rot-handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  background: #4a9eff;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  z-index: 7;
+  pointer-events: auto;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #fff;
+  user-select: none;
+}
+
+.live-image-viewer__crop-rot-handle:active {
+  cursor: grabbing;
+}
+
+.live-image-viewer__crop-rot-line {
+  position: absolute;
+  background: #4a9eff;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.live-image-viewer__crop-svg {
+  z-index: 4;
 }

@@ -636,6 +636,27 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         summary = "Saettigung erhoeht.";
         adjustable = true;
         adjust_step = {{"type", "saturation"}, {"params", {{"amount", saturation_amount * 0.5}}}};
+    } else if (has("crop_rotated") || (has("crop") && lower.find("angle") != std::string::npos)) {
+        int cx = 0, cy = 0, cw = 0, ch = 0;
+        double angle = 0.0;
+        std::smatch rmatch;
+        if (std::regex_search(lower, rmatch,
+                std::regex(R"(crop_rotated\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+(?:[\.,]\d+)?))"))) {
+            cx = std::stoi(rmatch[1].str());
+            cy = std::stoi(rmatch[2].str());
+            cw = std::stoi(rmatch[3].str());
+            ch = std::stoi(rmatch[4].str());
+            std::string a = rmatch[5].str();
+            std::replace(a.begin(), a.end(), ',', '.');
+            angle = std::stod(a);
+        }
+        cx = std::clamp(cx, 0, std::max(0, image.cols - 1));
+        cy = std::clamp(cy, 0, std::max(0, image.rows - 1));
+        cw = std::clamp(cw, 1, image.cols);
+        ch = std::clamp(ch, 1, image.rows);
+        angle = std::clamp(angle, -180.0, 180.0);
+        operations.push_back({{"type", "crop_rotated"}, {"params", {{"cx", cx}, {"cy", cy}, {"w", cw}, {"h", ch}, {"angle", angle}}}});
+        summary = "Bild gedreht zugeschnitten.";
     } else if (has("crop") || has("zuschneid") || has("beschneid") || has("rand abschneiden")) {
         int cx = 0, cy = 0, cw = 0, ch = 0;
         std::smatch pxmatch;

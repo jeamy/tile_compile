@@ -40,6 +40,8 @@ cv::Mat apply_threshold(const cv::Mat& img, double black_point,
                         double white_point);
 cv::Mat apply_invert(const cv::Mat& img);
 cv::Mat apply_crop(const cv::Mat& img, int x, int y, int w, int h);
+cv::Mat apply_crop_rotated(const cv::Mat& img, int cx, int cy,
+                           int w, int h, double angle_deg);
 
 // Phase 2 operations
 cv::Mat apply_vibrance(const cv::Mat& img, double amount);

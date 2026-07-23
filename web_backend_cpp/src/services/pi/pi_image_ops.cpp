@@ -86,6 +86,12 @@ nlohmann::json validate_op(const nlohmann::json& op) {
         if (check(require_int("y", 0, 100000))) return {{"error", err}};
         if (check(require_int("w", 1, 100000))) return {{"error", err}};
         if (check(require_int("h", 1, 100000))) return {{"error", err}};
+    } else if (type == "crop_rotated") {
+        if (check(require_int("cx", 0, 100000))) return {{"error", err}};
+        if (check(require_int("cy", 0, 100000))) return {{"error", err}};
+        if (check(require_int("w", 1, 100000))) return {{"error", err}};
+        if (check(require_int("h", 1, 100000))) return {{"error", err}};
+        if (check(require("angle", -180.0, 180.0))) return {{"error", err}};
     } else if (type == "reset") {
         // no params
     } else if (type == "vibrance" || type == "color_temperature") {
@@ -323,6 +329,34 @@ cv::Mat apply_crop(const cv::Mat& img, int x, int y, int w, int h) {
         return img.clone(); // invalid crop returns original
     }
     return img(cv::Rect(x, y, w, h)).clone();
+}
+
+cv::Mat apply_crop_rotated(const cv::Mat& img, int cx, int cy,
+                           int w, int h, double angle_deg) {
+    cx = std::clamp(cx, 0, img.cols);
+    cy = std::clamp(cy, 0, img.rows);
+    w = std::clamp(w, 1, img.cols);
+    h = std::clamp(h, 1, img.rows);
+    if (w <= 0 || h <= 0) return img.clone();
+
+    const cv::Point2f center(static_cast<float>(cx), static_cast<float>(cy));
+    const cv::Mat rot = cv::getRotationMatrix2D(center, angle_deg, 1.0);
+
+    // Warp the full image so the crop region becomes axis-aligned.
+    cv::Mat warped;
+    cv::warpAffine(img, warped, rot, img.size(), cv::INTER_LINEAR,
+                   cv::BORDER_REFLECT_101);
+
+    // After rotation around (cx, cy), the crop center maps to (cx, cy).
+    // Extract the axis-aligned w×h region centered there.
+    int x0 = cx - w / 2;
+    int y0 = cy - h / 2;
+    x0 = std::max(0, std::min(x0, warped.cols - w));
+    y0 = std::max(0, std::min(y0, warped.rows - h));
+    w = std::min(w, warped.cols - x0);
+    h = std::min(h, warped.rows - y0);
+    if (w <= 0 || h <= 0) return img.clone();
+    return warped(cv::Rect(x0, y0, w, h)).clone();
 }
 
 cv::Mat apply_vibrance(const cv::Mat& img, double amount) {
@@ -764,6 +798,11 @@ ImageOpResult apply_image_op_fits(const cv::Mat& input, const nlohmann::json& op
             result.image = apply_crop_fits(input,
                 p["x"].get<int>(), p["y"].get<int>(),
                 p["w"].get<int>(), p["h"].get<int>());
+        } else if (type == "crop_rotated") {
+            result.image = apply_crop_rotated(input,
+                p["cx"].get<int>(), p["cy"].get<int>(),
+                p["w"].get<int>(), p["h"].get<int>(),
+                p["angle"].get<double>());
         } else if (type == "reset") {
             result.image = input.clone();
         } else if (type == "vibrance") {
@@ -848,6 +887,11 @@ ImageOpResult apply_image_op(const cv::Mat& input, const nlohmann::json& op) {
             result.image = apply_crop(input,
                 p["x"].get<int>(), p["y"].get<int>(),
                 p["w"].get<int>(), p["h"].get<int>());
+        } else if (type == "crop_rotated") {
+            result.image = apply_crop_rotated(input,
+                p["cx"].get<int>(), p["cy"].get<int>(),
+                p["w"].get<int>(), p["h"].get<int>(),
+                p["angle"].get<double>());
         } else if (type == "reset") {
             result.image = input.clone();
         } else if (type == "vibrance") {
