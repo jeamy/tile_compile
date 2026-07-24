@@ -476,16 +476,20 @@ bool run_phase_local_metrics(
           aqmh_acceleration.selected == core::AccelerationBackend::opencv_cuda,
           static_cast<size_t>(aqmh_effective_workers));
 
-      auto aqmh_worker = [&](int worker_idx) {
-        // Limit OpenMP thread usage within this worker via the central
-        // omp_effective_threads helper. The outer parallelism is via std::thread
-        // workers; inner OMP loops must not fan out to all cores.
 #if defined(_OPENMP)
-        const int omp_per_worker = std::max(1,
-            static_cast<int>(std::thread::hardware_concurrency()) /
-            std::max(1, aqmh_effective_workers));
-        omp_set_num_threads(omp_per_worker);
+      // OpenMP's default thread count is process-global. Set it once before
+      // creating the outer frame workers instead of racing on omp_set_num_threads
+      // from every worker. The nested loops inside a frame then use a bounded
+      // share of the available cores without changing the caller's setting
+      // after this phase.
+      const int previous_omp_threads = omp_get_max_threads();
+      const int omp_threads_per_worker = std::max(
+          1, static_cast<int>(std::thread::hardware_concurrency()) /
+                 std::max(1, aqmh_effective_workers));
+      omp_set_num_threads(omp_threads_per_worker);
 #endif
+
+      auto aqmh_worker = [&](int worker_idx) {
         while (true) {
           const size_t fi = aqmh_next.fetch_add(1);
           if (fi >= frames.size())
@@ -685,6 +689,10 @@ bool run_phase_local_metrics(
       } else {
         aqmh_worker(0);
       }
+
+#if defined(_OPENMP)
+      omp_set_num_threads(previous_omp_threads);
+#endif
 
       if (aqmh_failed.load(std::memory_order_relaxed)) {
         emitter.phase_end(

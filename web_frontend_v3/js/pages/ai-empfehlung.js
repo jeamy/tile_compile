@@ -512,7 +512,7 @@ async function loadModels() {
     if (statusEl) statusEl.textContent = t("ui.state.model_loaded", "Modelle geladen") + ` (${providerCount} Provider, ${modelCount} Modelle)`;
     if (piVersionEl) piVersionEl.textContent = piVersionStatusText(models?.pi || null);
     filterModelsByProvider(document.getElementById("ai-provider")?.value || "");
-    loadAiAccountStatus(document.getElementById("ai-provider")?.value || "");
+    await loadAiAccountStatus(document.getElementById("ai-provider")?.value || "");
   } catch (e) {
     if (statusEl) statusEl.textContent = t("ui.state.model_load_failed", "Modelle laden fehlgeschlagen") + `: ${e.message}`;
     if (piVersionEl) piVersionEl.textContent = "";
@@ -639,13 +639,15 @@ function renderAiAccountStatus(payload, modelCheck = null) {
     container.appendChild(el("span", {}, t("ui.state.account_unavailable", "Kontostatus nicht verfügbar.")));
     return;
   }
+  const authSource = String(info.auth_source || "");
+  const keyStored = authSource === "auth_storage" || authSource === "storage";
   if (keyStatus) {
-    keyStatus.classList.toggle("tc-hidden", info.auth_source !== "storage");
+    keyStatus.classList.toggle("tc-hidden", !keyStored);
     keyStatus.textContent = "\u2713 " + t("ui.state.saved", "gespeichert");
   }
-  const authSourceNode = info.auth_source === "env"
+  const authSourceNode = authSource === "env"
     ? el("strong", {}, t("ui.ai.auth_env", "Key aus .env"))
-    : info.auth_source === "storage"
+    : keyStored
       ? el("span", {}, t("ui.ai.auth_storage", "Key gespeichert"))
       : el("span", {}, t("ui.ai.auth_missing", "Kein Key gefunden"));
   const billingState = info.credit_query_supported
@@ -735,7 +737,10 @@ async function saveApiKey() {
   try {
     await api.post(API_ENDPOINTS.ai.auth, { provider, api_key: key });
     toastSuccess(t("ui.toast.key_saved", "API-Key gespeichert"));
-    await loadAiAccountStatus(provider);
+    setAiFormData({ apiKey: "" });
+    const keyInput = document.getElementById("ai-apikey");
+    if (keyInput) keyInput.value = "";
+    await loadModels();
   } catch (e) {
     toastError(t("ui.toast.key_save_failed", "Key speichern fehlgeschlagen"), e.message);
   }

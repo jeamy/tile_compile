@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <numeric>
+#include <future>
 #include <thread>
 #include <vector>
 
@@ -813,9 +814,33 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   CUDA_CHECK(cudaEventCreate(&kernel_end));
   CUDA_CHECK(cudaEventCreate(&d2h_end));
 
+  // Prepare the next frame regions while the current chunk is executing on
+  // the device.  The loader owns the returned matrices, so the current chunk
+  // remains immutable until its host packing has completed.  This is a
+  // conservative first overlap step: Q-map/mask loading stays synchronous,
+  // preserving their existing cache and error semantics.
+  std::future<std::vector<Matrix2Df>> next_frame_prefetch;
+  bool have_prefetched_frames = false;
+  std::vector<Matrix2Df> prefetched_frames;
+  const bool can_prefetch_frames = static_cast<bool>(load_frame_region);
+  auto launch_frame_prefetch = [&](int next_y0, int next_rows) {
+    return std::async(std::launch::async, [&, next_y0, next_rows]() {
+      std::vector<Matrix2Df> frames(frame_count);
+      for (size_t fi = 0; fi < frame_count; ++fi) {
+        load_frame_region(fi, next_y0, next_rows, frames[fi]);
+      }
+      return frames;
+    });
+  };
+
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
     const auto host_prepare_start = std::chrono::steady_clock::now();
+
+    if (have_prefetched_frames) {
+      prefetched_frames = next_frame_prefetch.get();
+      have_prefetched_frames = false;
+    }
 
     // Masks must be zeroed each chunk so frames that fail to load are skipped.
     std::fill(h_masks.begin(), h_masks.end(), 0u);
@@ -857,9 +882,16 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       const size_t fi = static_cast<size_t>(fi_ptr);
       Matrix2Df frame_region;
       const auto frame_read_start = std::chrono::steady_clock::now();
-      const bool frame_ok = use_region
-          ? load_frame_region(fi, y0, rows, frame_region)
-          : load_frame(fi, frame_region);
+      bool frame_ok = false;
+      if (use_region && !prefetched_frames.empty() &&
+          fi < prefetched_frames.size()) {
+        frame_region = std::move(prefetched_frames[fi]);
+        frame_ok = frame_region.size() > 0;
+      } else {
+        frame_ok = use_region
+            ? load_frame_region(fi, y0, rows, frame_region)
+            : load_frame(fi, frame_region);
+      }
       frame_read_worker_seconds +=
           std::chrono::duration<double>(
               std::chrono::steady_clock::now() - frame_read_start)
@@ -978,6 +1010,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         std::chrono::duration<double>(
             std::chrono::steady_clock::now() - host_prepare_start)
             .count();
+
+    if (can_prefetch_frames && y0 + rows < height) {
+      const int next_y0 = y0 + rows;
+      const int next_rows = std::min(chunk_rows, height - next_y0);
+      next_frame_prefetch = launch_frame_prefetch(next_y0, next_rows);
+      have_prefetched_frames = true;
+    }
 
     // Upload frame/q-map/mask chunk.
     const size_t used_all_pixels = static_cast<size_t>(frame_count) * rows * width;
