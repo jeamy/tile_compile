@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.4.4 (2026-07-25)
+
+**AQMH GPU- und MAPS-Performanceoptimierungen:**
+
+- **Schnellere AQMH Quality Maps:** Psi-Upsampling und logarithmische Akkumulation wurden fusioniert. Im nativen 64-Frame-A/B-Test sank dieser Hotspot um 19,5 % und die gesamte Quality-Map-Berechnung um 6,7 %; alle Q-Map-Caches blieben bitidentisch.
+- **Schnellere CUDA-Reconstruction:** Die CUDA-Übersetzung aktiviert jetzt OpenMP für die parallele Hostvorbereitung. Bei identischer Chunk-Geometrie sank der Reconstruction-Core im nativen Test von 47,31 auf 31,70 Sekunden (33,0 %); die Host-Vorbereitung sank von 30,33 auf 14,46 Sekunden (52,3 %).
+
 ## v0.4.3 (2026-07-24)
 
 **macOS bug fix:**

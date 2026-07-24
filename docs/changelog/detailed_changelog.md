@@ -1,5 +1,16 @@
 ## Changelog
 
+### (2026-07-25)
+
+**v0.4.4 — AQMH GPU- und MAPS-Performanceoptimierungen:**
+
+- **AQMH_MAPS:** Bilineares Psi-Upsampling und logarithmische Akkumulation wurden zu einem Durchlauf fusioniert. Die große Upsample-Zwischenmatrix entfällt.
+- **MAPS-Laufzeit:** Im nativen 64-Frame-A/B-Test sank Psi-Upsample/Akkumulation um 19,5 % und die gesamte Quality-Map-Berechnung um 6,7 %. Alle 64 Q-Map-Cachedateien blieben bitidentisch.
+- **CUDA-Reconstruction:** Die CUDA-Übersetzung bindet nun `OpenMP::OpenMP_CUDA` ein. Dadurch werden die parallelen Host-Vorbereitungs-Schleifen tatsächlich mit OpenMP kompiliert und ausgeführt.
+- **Reconstruction-Laufzeit:** Im kontrollierten nativen 64-Frame-Test mit identischer Chunk-Geometrie sank der Reconstruction-Core von 47,31 auf 31,70 Sekunden (33,0 %). Die Host-Vorbereitung sank von 30,33 auf 14,46 Sekunden (52,3 %).
+- **Telemetrie:** AQMH-Artefakte erfassen nun getrennte MAPS-Stage-Zeiten sowie CUDA-Hostvorbereitung, H2D, Kernel, D2H, Ergebnisübernahme und summierte Workerzeiten.
+- **Regression:** Das Raw-AQMH-FITS blieb bei identischen `chunk_rows` bitidentisch (0 von 8.507.400 Pixeln verschieden). Die Gesamtsuite bestand mit 240 von 241 Testfällen; der einzige übersprungene CUDA-Unit-Test hatte im Sandbox-Prozess keinen Zugriff auf ein CUDA-Gerät.
+
 ### (2026-07-24)
 
 **v0.4.2 — PI Live Image Editor command suite and reusable editing workflows:**
