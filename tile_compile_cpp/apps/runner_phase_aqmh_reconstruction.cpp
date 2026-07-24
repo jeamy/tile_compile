@@ -944,6 +944,20 @@ bool run_phase_aqmh_reconstruction(
       {"reconstruction_core", reconstruction_core_seconds},
       {"uniform_control_fallback", uniform_control_fallback_seconds},
       {"postprocessing_and_validation", validation_seconds}};
+  artifact["cuda_pipeline_timing_seconds"] = {
+      {"host_region_load_and_pack", aqmh_recon.cuda_host_prepare_seconds},
+      {"host_chunk_setup", aqmh_recon.cuda_host_chunk_setup_seconds},
+      {"host_to_device", aqmh_recon.cuda_h2d_seconds},
+      {"kernel", aqmh_recon.cuda_kernel_seconds},
+      {"device_to_host", aqmh_recon.cuda_d2h_seconds},
+      {"result_commit", aqmh_recon.cuda_result_commit_seconds}};
+  artifact["cuda_host_worker_timing_seconds"] = {
+      {"frame_region_read", aqmh_recon.cuda_host_frame_read_worker_seconds},
+      {"quality_map_read", aqmh_recon.cuda_host_q_map_read_worker_seconds},
+      {"valid_mask_read", aqmh_recon.cuda_host_mask_read_worker_seconds},
+      {"pixel_major_pack", aqmh_recon.cuda_host_pack_worker_seconds}};
+  artifact["cuda_host_worker_timing_semantics"] =
+      "sum_of_parallel_worker_wall_times";
   artifact["sample_layout"] = "pixel_major_soa";
   artifact["sample_bytes_per_frame_pixel"] = 8;
   artifact["persistent_mmap_cache_views"] = true;

@@ -19,6 +19,16 @@ struct AqmhQualityMapDiagnostics {
   float g_snr_summary = std::numeric_limits<float>::quiet_NaN();
   bool g_summary_invalid = false;
   std::vector<int> omitted_scales;
+  double timing_source_mask_seconds = 0.0;
+  double timing_pyramid_prepare_seconds = 0.0;
+  double timing_sharpness_seconds = 0.0;
+  double timing_local_background_seconds = 0.0;
+  double timing_snr_seconds = 0.0;
+  double timing_artifact_seconds = 0.0;
+  double timing_summary_seconds = 0.0;
+  double timing_psi_accumulate_seconds = 0.0;
+  double timing_finalize_seconds = 0.0;
+  double timing_total_seconds = 0.0;
 };
 
 struct AqmhQualityMapResult {

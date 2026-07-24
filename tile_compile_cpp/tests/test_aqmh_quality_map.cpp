@@ -111,6 +111,26 @@ TEST_CASE("aqmh_quality_map_applies_frame_specific_valid_mask") {
   const auto result = tile_compile::metrics::compute_aqmh_quality_map(
       frame, canvas, frame_mask, 32, 32, cfg);
   REQUIRE(result.q_map(10, 11) == 0.0f);
+  const auto &timing = result.diagnostics;
+  REQUIRE(timing.timing_total_seconds > 0.0);
+  REQUIRE(timing.timing_source_mask_seconds >= 0.0);
+  REQUIRE(timing.timing_pyramid_prepare_seconds >= 0.0);
+  REQUIRE(timing.timing_sharpness_seconds >= 0.0);
+  REQUIRE(timing.timing_local_background_seconds >= 0.0);
+  REQUIRE(timing.timing_snr_seconds >= 0.0);
+  REQUIRE(timing.timing_artifact_seconds >= 0.0);
+  REQUIRE(timing.timing_summary_seconds >= 0.0);
+  REQUIRE(timing.timing_psi_accumulate_seconds >= 0.0);
+  REQUIRE(timing.timing_finalize_seconds >= 0.0);
+  const double measured_stages =
+      timing.timing_source_mask_seconds +
+      timing.timing_pyramid_prepare_seconds +
+      timing.timing_sharpness_seconds +
+      timing.timing_local_background_seconds + timing.timing_snr_seconds +
+      timing.timing_artifact_seconds + timing.timing_summary_seconds +
+      timing.timing_psi_accumulate_seconds +
+      timing.timing_finalize_seconds;
+  REQUIRE(measured_stages <= timing.timing_total_seconds + 0.01);
 }
 
 TEST_CASE("aqmh_quality_map_all_canvas_invalid_outputs_zero") {

@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -98,6 +99,23 @@ struct AqmhFrameDiag {
   bool g_summary_invalid = false;
   std::vector<metrics::AqmhRegion> regions;
   std::vector<int> omitted_scales;
+  double timing_frame_load_seconds = 0.0;
+  double timing_normalization_seconds = 0.0;
+  double timing_valid_mask_seconds = 0.0;
+  double timing_cache_write_seconds = 0.0;
+  double timing_map_summary_seconds = 0.0;
+  double timing_global_metrics_seconds = 0.0;
+  double timing_regions_seconds = 0.0;
+  double timing_source_mask_seconds = 0.0;
+  double timing_pyramid_prepare_seconds = 0.0;
+  double timing_sharpness_seconds = 0.0;
+  double timing_local_background_seconds = 0.0;
+  double timing_snr_seconds = 0.0;
+  double timing_artifact_seconds = 0.0;
+  double timing_quality_summary_seconds = 0.0;
+  double timing_psi_accumulate_seconds = 0.0;
+  double timing_finalize_seconds = 0.0;
+  double timing_quality_map_total_seconds = 0.0;
 };
 
 AqmhFrameDiag summarize_aqmh_map(size_t fi, const Matrix2Df &q_map,
@@ -476,20 +494,38 @@ bool run_phase_local_metrics(
             AqmhFrameDiag diag;
             diag.frame_index = fi;
             if (frame_has_data[fi]) {
+              const auto frame_load_start = std::chrono::steady_clock::now();
               Matrix2Df frame = prewarped_frames.load(fi);
+              diag.timing_frame_load_seconds =
+                  std::chrono::duration<double>(
+                      std::chrono::steady_clock::now() - frame_load_start)
+                      .count();
               if (frame.rows() == common_mask_height &&
                   frame.cols() == common_mask_width) {
+                const auto normalization_start =
+                    std::chrono::steady_clock::now();
                 if (apply_normalization_to_tiles && fi < norm_scales.size() &&
                     frame.size() > 0) {
                   image::apply_normalization_inplace(
                       frame, norm_scales[fi], detected_mode,
                       detected_bayer_str, 0, 0);
                 }
+                diag.timing_normalization_seconds =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() -
+                        normalization_start)
+                        .count();
                 cv::cuda::Stream *stream_ptr =
                     aqmh_streams.get(static_cast<size_t>(worker_idx));
+                const auto valid_mask_start =
+                    std::chrono::steady_clock::now();
                 const auto frame_valid_mask = metrics::compute_aqmh_frame_valid_mask(
                     frame, common_valid_mask, common_mask_width,
                     common_mask_height);
+                diag.timing_valid_mask_seconds =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - valid_mask_start)
+                        .count();
                 const auto aqmh_result = metrics::compute_aqmh_quality_map(
                     frame, common_valid_mask, frame_valid_mask, common_mask_width,
                     common_mask_height, cfg.aqmh.pyramid,
@@ -498,15 +534,53 @@ bool run_phase_local_metrics(
                   aqmh_gpu_frames.fetch_add(1, std::memory_order_relaxed);
                 if (aqmh_result.diagnostics.acceleration_fallback)
                   aqmh_gpu_fallbacks.fetch_add(1, std::memory_order_relaxed);
+                diag.timing_source_mask_seconds =
+                    aqmh_result.diagnostics.timing_source_mask_seconds;
+                diag.timing_pyramid_prepare_seconds =
+                    aqmh_result.diagnostics.timing_pyramid_prepare_seconds;
+                diag.timing_sharpness_seconds =
+                    aqmh_result.diagnostics.timing_sharpness_seconds;
+                diag.timing_local_background_seconds =
+                    aqmh_result.diagnostics.timing_local_background_seconds;
+                diag.timing_snr_seconds =
+                    aqmh_result.diagnostics.timing_snr_seconds;
+                diag.timing_artifact_seconds =
+                    aqmh_result.diagnostics.timing_artifact_seconds;
+                diag.timing_quality_summary_seconds =
+                    aqmh_result.diagnostics.timing_summary_seconds;
+                diag.timing_psi_accumulate_seconds =
+                    aqmh_result.diagnostics.timing_psi_accumulate_seconds;
+                diag.timing_finalize_seconds =
+                    aqmh_result.diagnostics.timing_finalize_seconds;
+                diag.timing_quality_map_total_seconds =
+                    aqmh_result.diagnostics.timing_total_seconds;
                 // Each frame has a distinct cache path. QualityMapCache keeps
                 // only its shared statistics/LRU state under a short lock.
+                const auto cache_write_start =
+                    std::chrono::steady_clock::now();
                 frame_mask_store.write(fi, frame_valid_mask);
                 out_aqmh_cache->write(fi, aqmh_result.q_map, frame_valid_mask);
+                diag.timing_cache_write_seconds =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - cache_write_start)
+                        .count();
                 if (collect_map_diagnostics) {
-                  diag = summarize_aqmh_map(
+                  const auto map_summary_start =
+                      std::chrono::steady_clock::now();
+                  const auto map_summary = summarize_aqmh_map(
                       fi, aqmh_result.q_map, aqmh_summary_mask,
                       common_mask_width, common_mask_height,
                       cfg.aqmh.diagnostics.tau_artifact);
+                  diag.map_mean = map_summary.map_mean;
+                  diag.map_p10 = map_summary.map_p10;
+                  diag.map_p50 = map_summary.map_p50;
+                  diag.map_p90 = map_summary.map_p90;
+                  diag.artifact_frac = map_summary.artifact_frac;
+                  diag.timing_map_summary_seconds =
+                      std::chrono::duration<double>(
+                          std::chrono::steady_clock::now() -
+                          map_summary_start)
+                          .count();
                 }
                 diag.frame_index = fi;
                 diag.written = true;
@@ -528,7 +602,15 @@ bool run_phase_local_metrics(
                   diag.g_sharp_summary = aqmh_result.diagnostics.g_sharp_summary;
                 }
                 diag.g_snr_summary = aqmh_result.diagnostics.g_snr_summary;
-                const auto frame_global_metrics = metrics::calculate_frame_metrics(frame, &frame_valid_mask);
+                const auto global_metrics_start =
+                    std::chrono::steady_clock::now();
+                const auto frame_global_metrics =
+                    metrics::calculate_frame_metrics(frame, &frame_valid_mask);
+                diag.timing_global_metrics_seconds =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() -
+                        global_metrics_start)
+                        .count();
                 diag.g_background_penalty_summary =
                     frame_global_metrics.sky_gradient;
                 diag.g_summary_invalid =
@@ -539,10 +621,16 @@ bool run_phase_local_metrics(
                         : (!std::isfinite(diag.g_snr_summary) ||
                            !std::isfinite(diag.g_background_penalty_summary));
                 if (collect_region_diagnostics) {
+                  const auto regions_start =
+                      std::chrono::steady_clock::now();
                   diag.regions = metrics::extract_aqmh_regions(
                       aqmh_result.q_map, frame_valid_mask,
                       cfg.aqmh.diagnostics.q_region,
                       cfg.aqmh.diagnostics.r_morph_canvas_px);
+                  diag.timing_regions_seconds =
+                      std::chrono::duration<double>(
+                          std::chrono::steady_clock::now() - regions_start)
+                          .count();
                 }
                 diag.omitted_scales = aqmh_result.diagnostics.omitted_scales;
                 aqmh_written.fetch_add(1, std::memory_order_relaxed);
@@ -669,6 +757,55 @@ bool run_phase_local_metrics(
           {"estimated_bytes_per_worker",
            aqmh_worker_plan.estimated_bytes_per_worker},
           {"memory_capped", aqmh_worker_plan.memory_capped}};
+      const auto sum_aqmh_timing =
+          [&](double AqmhFrameDiag::*member) {
+            double total = 0.0;
+            for (const auto &diag : aqmh_frame_diag)
+              total += diag.*member;
+            return total;
+          };
+      aqmh_artifact["worker_timing_semantics"] =
+          "sum_of_parallel_frame_worker_wall_times";
+      aqmh_artifact["worker_timing_seconds"] = {
+          {"frame_load",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_frame_load_seconds)},
+          {"normalization",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_normalization_seconds)},
+          {"valid_mask",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_valid_mask_seconds)},
+          {"quality_map_compute",
+           sum_aqmh_timing(
+               &AqmhFrameDiag::timing_quality_map_total_seconds)},
+          {"cache_write",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_cache_write_seconds)},
+          {"map_summary",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_map_summary_seconds)},
+          {"global_frame_metrics",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_global_metrics_seconds)},
+          {"region_diagnostics",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_regions_seconds)}};
+      aqmh_artifact["quality_map_stage_worker_timing_seconds"] = {
+          {"source_mask",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_source_mask_seconds)},
+          {"pyramid_prepare",
+           sum_aqmh_timing(
+               &AqmhFrameDiag::timing_pyramid_prepare_seconds)},
+          {"sharpness",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_sharpness_seconds)},
+          {"local_background",
+           sum_aqmh_timing(
+               &AqmhFrameDiag::timing_local_background_seconds)},
+          {"snr", sum_aqmh_timing(&AqmhFrameDiag::timing_snr_seconds)},
+          {"artifact",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_artifact_seconds)},
+          {"summary",
+           sum_aqmh_timing(
+               &AqmhFrameDiag::timing_quality_summary_seconds)},
+          {"psi_upsample_accumulate",
+           sum_aqmh_timing(
+               &AqmhFrameDiag::timing_psi_accumulate_seconds)},
+          {"finalize",
+           sum_aqmh_timing(&AqmhFrameDiag::timing_finalize_seconds)}};
       aqmh_artifact["frames_written"] =
           static_cast<uint64_t>(aqmh_written.load(std::memory_order_relaxed));
       aqmh_artifact["diagnostics"] = core::json::array();

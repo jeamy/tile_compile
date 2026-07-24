@@ -10,6 +10,7 @@
 #include <device_launch_parameters.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -803,9 +804,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   const dim3 block(32, 8);
   cudaStream_t stream = nullptr;
   CUDA_CHECK(cudaStreamCreate(&stream));
+  cudaEvent_t h2d_start = nullptr;
+  cudaEvent_t kernel_start = nullptr;
+  cudaEvent_t kernel_end = nullptr;
+  cudaEvent_t d2h_end = nullptr;
+  CUDA_CHECK(cudaEventCreate(&h2d_start));
+  CUDA_CHECK(cudaEventCreate(&kernel_start));
+  CUDA_CHECK(cudaEventCreate(&kernel_end));
+  CUDA_CHECK(cudaEventCreate(&d2h_end));
 
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
+    const auto host_prepare_start = std::chrono::steady_clock::now();
 
     // Masks must be zeroed each chunk so frames that fail to load are skipped.
     std::fill(h_masks.begin(), h_masks.end(), 0u);
@@ -821,10 +831,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
                                                                   : canvas_mask[full_i];
       }
     }
-    CUDA_CHECK(cudaMemcpyAsync(
-        bufs.canvas_mask, h_canvas_mask.data(),
-        static_cast<size_t>(rows) * width * sizeof(uint8_t),
-        cudaMemcpyHostToDevice, stream));
+    result.cuda_host_chunk_setup_seconds +=
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - host_prepare_start)
+            .count();
 
     // Load all frames / q-maps / masks for this chunk using region loaders
     // when available (avoids loading full W×H frames per chunk — only rows
@@ -834,15 +844,26 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     const int num_host_threads = std::min(
         static_cast<int>(frame_count),
         std::max(1, static_cast<int>(std::thread::hardware_concurrency())));
+    double frame_read_worker_seconds = 0.0;
+    double q_map_read_worker_seconds = 0.0;
+    double mask_read_worker_seconds = 0.0;
+    double pack_worker_seconds = 0.0;
     #if defined(_OPENMP)
-    #pragma omp parallel for num_threads(num_host_threads) schedule(dynamic, 4)
+    #pragma omp parallel for num_threads(num_host_threads) schedule(dynamic, 4) \
+        reduction(+:frame_read_worker_seconds,q_map_read_worker_seconds, \
+                    mask_read_worker_seconds,pack_worker_seconds)
     #endif
     for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
       const size_t fi = static_cast<size_t>(fi_ptr);
       Matrix2Df frame_region;
+      const auto frame_read_start = std::chrono::steady_clock::now();
       const bool frame_ok = use_region
           ? load_frame_region(fi, y0, rows, frame_region)
           : load_frame(fi, frame_region);
+      frame_read_worker_seconds +=
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - frame_read_start)
+              .count();
       // For full-frame loads (no region loader) the frame has height rows;
       // for region loads it has exactly 'rows' rows.
       const int expected_rows = use_region ? rows : height;
@@ -854,9 +875,14 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
+      const auto q_map_read_start = std::chrono::steady_clock::now();
       Matrix2Df q = use_region
           ? q_map_cache->read_region(fi, y0, rows)
           : q_map_cache->read_cached(fi);
+      q_map_read_worker_seconds +=
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - q_map_read_start)
+              .count();
       const int expected_q_rows = use_region ? rows : height;
       const bool q_map_ok =
           q.rows() == expected_q_rows && q.cols() == width;
@@ -869,28 +895,34 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
 
       std::vector<uint8_t> fm;
       bool mask_ok = true;
+      const auto mask_read_start = std::chrono::steady_clock::now();
       if (load_frame_valid_mask_region && use_region) {
         mask_ok = load_frame_valid_mask_region(fi, y0, rows, fm);
-        if (!mask_ok || fm.size() != static_cast<size_t>(width * rows)) {
-          #if defined(_OPENMP)
-          #pragma omp atomic
-          #endif
-          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-          continue;
-        }
       } else if (load_frame_valid_mask) {
         mask_ok = load_frame_valid_mask(fi, fm);
-        if (!mask_ok || fm.size() != static_cast<size_t>(width * height)) {
-          #if defined(_OPENMP)
-          #pragma omp atomic
-          #endif
-          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-          continue;
-        }
+      }
+      mask_read_worker_seconds +=
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - mask_read_start)
+              .count();
+      const size_t expected_mask_size =
+          (load_frame_valid_mask_region && use_region)
+              ? static_cast<size_t>(width) * rows
+              : (load_frame_valid_mask
+                     ? static_cast<size_t>(width) * height
+                     : 0u);
+      if (!mask_ok ||
+          (expected_mask_size > 0 && fm.size() != expected_mask_size)) {
+        #if defined(_OPENMP)
+        #pragma omp atomic
+        #endif
+        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+        continue;
       }
 
       uint64_t local_missing = 0;
       uint64_t local_finite = 0;
+      const auto pack_start = std::chrono::steady_clock::now();
       for (int yy = 0; yy < rows; ++yy) {
         const int y = y0 + yy;
         for (int x = 0; x < width; ++x) {
@@ -921,6 +953,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           }
         }
       }
+      pack_worker_seconds +=
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - pack_start)
+              .count();
       if (local_missing > 0) {
         #if defined(_OPENMP)
         #pragma omp atomic
@@ -934,9 +970,22 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         result.finite_map_samples += local_finite;
       }
     }
+    result.cuda_host_frame_read_worker_seconds += frame_read_worker_seconds;
+    result.cuda_host_q_map_read_worker_seconds += q_map_read_worker_seconds;
+    result.cuda_host_mask_read_worker_seconds += mask_read_worker_seconds;
+    result.cuda_host_pack_worker_seconds += pack_worker_seconds;
+    result.cuda_host_prepare_seconds +=
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - host_prepare_start)
+            .count();
 
     // Upload frame/q-map/mask chunk.
     const size_t used_all_pixels = static_cast<size_t>(frame_count) * rows * width;
+    CUDA_CHECK(cudaEventRecord(h2d_start, stream));
+    CUDA_CHECK(cudaMemcpyAsync(
+        bufs.canvas_mask, h_canvas_mask.data(),
+        static_cast<size_t>(rows) * width * sizeof(uint8_t),
+        cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(
         bufs.frames, h_frames.data(),
         used_all_pixels * sizeof(float),
@@ -949,6 +998,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         bufs.frame_masks, h_masks.data(),
         used_all_pixels * sizeof(uint8_t),
         cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaEventRecord(kernel_start, stream));
 
     const dim3 grid((width + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
     launch_reconstruction_kernel_for_frame_count(
@@ -957,6 +1007,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, cfg);
     CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventRecord(kernel_end, stream));
 
     // Download outputs.
     const size_t used_chunk_pixels = static_cast<size_t>(rows) * width;
@@ -984,9 +1035,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           used_chunk_pixels * sizeof(float),
           cudaMemcpyDeviceToHost, stream));
     }
+    CUDA_CHECK(cudaEventRecord(d2h_end, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
+    float elapsed_ms = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, h2d_start, kernel_start));
+    result.cuda_h2d_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_start, kernel_end));
+    result.cuda_kernel_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_end, d2h_end));
+    result.cuda_d2h_seconds += static_cast<double>(elapsed_ms) / 1000.0;
 
     // Copy to result matrices.
+    const auto result_commit_start = std::chrono::steady_clock::now();
     for (int yy = 0; yy < rows; ++yy) {
       const int y = y0 + yy;
       for (int x = 0; x < width; ++x) {
@@ -1003,9 +1063,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           result.cherry_pick_k_map(y, x) = h_cherry_k_map[local_i];
       }
     }
+    result.cuda_result_commit_seconds +=
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - result_commit_start)
+            .count();
 
     if (progress) progress(y0 + rows, height);
   }
+
+  cudaEventDestroy(h2d_start);
+  cudaEventDestroy(kernel_start);
+  cudaEventDestroy(kernel_end);
+  cudaEventDestroy(d2h_end);
 
   // Download aggregate pixel counters from device.
   {

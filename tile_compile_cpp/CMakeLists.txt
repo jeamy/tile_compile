@@ -504,6 +504,9 @@ target_link_libraries(tile_compile_lib PUBLIC
 if(OpenMP_CXX_FOUND)
     target_link_libraries(tile_compile_lib PUBLIC OpenMP::OpenMP_CXX)
 endif()
+if(TILE_COMPILE_WITH_CUDA AND OpenMP_CUDA_FOUND)
+    target_link_libraries(tile_compile_lib PUBLIC OpenMP::OpenMP_CUDA)
+endif()
 
 if(nlohmann_json_FOUND)
     target_link_libraries(tile_compile_lib PUBLIC nlohmann_json::nlohmann_json)

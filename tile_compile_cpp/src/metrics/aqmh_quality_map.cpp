@@ -7,6 +7,7 @@
 #include <iostream>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <numeric>
@@ -780,42 +781,57 @@ Matrix2Df robust_zscore(const Matrix2Df &m) {
   return out;
 }
 
-Matrix2Df mask_aware_bilinear_upsample(const Matrix2Df &src, int out_w,
-                                       int out_h, int factor) {
-  Matrix2Df out(out_h, out_w);
-  out.setConstant(nan_value());
+void accumulate_upsampled_log_psi(
+    const Matrix2Df &src, int out_w, int out_h, int factor,
+    Matrix2Dd &log_sum, std::vector<uint8_t> &veto) {
   const int rows = static_cast<int>(src.rows());
   const int cols = static_cast<int>(src.cols());
-  if (factor <= 1 && src.rows() == out_h && src.cols() == out_w)
-    return src;
 #pragma omp parallel for collapse(2) schedule(static)
   for (int y = 0; y < out_h; ++y) {
     for (int x = 0; x < out_w; ++x) {
-      const float sx = (static_cast<float>(x) + 0.5f) / factor - 0.5f;
-      const float sy = (static_cast<float>(y) + 0.5f) / factor - 0.5f;
-      const int x0 = static_cast<int>(std::floor(sx));
-      const int y0 = static_cast<int>(std::floor(sy));
-      double num = 0.0;
-      double den = 0.0;
-      for (int j = 0; j <= 1; ++j) {
-        for (int i = 0; i <= 1; ++i) {
-          const int xx = std::clamp(x0 + i, 0, cols - 1);
-          const int yy = std::clamp(y0 + j, 0, rows - 1);
-          const float wx = 1.0f - std::abs(sx - static_cast<float>(x0 + i));
-          const float wy = 1.0f - std::abs(sy - static_cast<float>(y0 + j));
-          const float w = std::max(wx, 0.0f) * std::max(wy, 0.0f);
-          const float v = src(yy, xx);
-          if (w > 0.0f && finite(v)) {
-            num += w * v;
-            den += w;
+      float value = nan_value();
+      if (factor <= 1 && rows == out_h && cols == out_w) {
+        value = src(y, x);
+      } else {
+        const float sx = (static_cast<float>(x) + 0.5f) / factor - 0.5f;
+        const float sy = (static_cast<float>(y) + 0.5f) / factor - 0.5f;
+        const int x0 = static_cast<int>(std::floor(sx));
+        const int y0 = static_cast<int>(std::floor(sy));
+        double num = 0.0;
+        double den = 0.0;
+        for (int j = 0; j <= 1; ++j) {
+          for (int i = 0; i <= 1; ++i) {
+            const int xx = std::clamp(x0 + i, 0, cols - 1);
+            const int yy = std::clamp(y0 + j, 0, rows - 1);
+            const float wx =
+                1.0f - std::abs(sx - static_cast<float>(x0 + i));
+            const float wy =
+                1.0f - std::abs(sy - static_cast<float>(y0 + j));
+            const float weight =
+                std::max(wx, 0.0f) * std::max(wy, 0.0f);
+            const float sample = src(yy, xx);
+            if (weight > 0.0f && finite(sample)) {
+              num += weight * sample;
+              den += weight;
+            }
           }
         }
+        if (den > 0.0)
+          value = static_cast<float>(num / den);
       }
-      if (den > 0.0)
-        out(y, x) = static_cast<float>(num / den);
+
+      const size_t idx =
+          static_cast<size_t>(y) * static_cast<size_t>(out_w) +
+          static_cast<size_t>(x);
+      if (veto[idx] != 0u)
+        continue;
+      if (!finite(value) || value <= 0.0f) {
+        veto[idx] = 1u;
+      } else {
+        log_sum(y, x) += std::log(static_cast<double>(value));
+      }
     }
   }
-  return out;
 }
 
 Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
@@ -852,14 +868,25 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     const config::AqmhPyramidConfig &cfg,
     core::AccelerationBackend backend,
     cv::cuda::Stream *stream) {
+  const auto total_start = std::chrono::steady_clock::now();
+  const auto elapsed_since = [](const auto &start) {
+    return std::chrono::duration<double>(
+               std::chrono::steady_clock::now() - start)
+        .count();
+  };
   AqmhQualityMapResult result;
   result.q_map = Matrix2Df::Zero(frame.rows(), frame.cols());
-  if (frame.rows() <= 0 || frame.cols() <= 0)
+  if (frame.rows() <= 0 || frame.cols() <= 0) {
+    result.diagnostics.timing_total_seconds = elapsed_since(total_start);
     return result;
+  }
 
+  const auto source_mask_start = std::chrono::steady_clock::now();
   const Matrix2Df masked =
       source_masked_frame(frame, canvas_mask, frame_valid_mask,
                           canvas_mask_width, canvas_mask_height);
+  result.diagnostics.timing_source_mask_seconds +=
+      elapsed_since(source_mask_start);
   const int min_dim = std::min(frame.rows(), frame.cols());
   Matrix2Dd log_sum = Matrix2Dd::Zero(frame.rows(), frame.cols());
   std::vector<uint8_t> veto(static_cast<size_t>(frame.size()), 0u);
@@ -872,9 +899,14 @@ AqmhQualityMapResult compute_aqmh_quality_map(
       continue;
     }
 
+    const auto pyramid_prepare_start = std::chrono::steady_clock::now();
     const Matrix2Df img_s = downsample_valid_mean(masked, factor);
     const int radius = std::max(1, cfg.base_window_px);
     const Matrix2Df laplacian = masked_laplacian(img_s);
+    result.diagnostics.timing_pyramid_prepare_seconds +=
+        elapsed_since(pyramid_prepare_start);
+
+    const auto sharpness_start = std::chrono::steady_clock::now();
     Matrix2Df sharp;
     if (backend == core::AccelerationBackend::cpu) {
       sharp = compute_aqmh_local_variance(laplacian, radius);
@@ -886,16 +918,30 @@ AqmhQualityMapResult compute_aqmh_quality_map(
       sharp = compute_aqmh_local_variance(laplacian, radius);
       result.diagnostics.acceleration_fallback = true;
     }
+    result.diagnostics.timing_sharpness_seconds +=
+        elapsed_since(sharpness_start);
+
+    const auto local_background_start = std::chrono::steady_clock::now();
     const LocalMeanResult local_img = local_mean_and_count(img_s, radius);
+    result.diagnostics.timing_local_background_seconds +=
+        elapsed_since(local_background_start);
+
     bool scene_dependent = false;
+    const auto snr_start = std::chrono::steady_clock::now();
     const Matrix2Df snr = phi_snr(img_s, local_img.mean, local_img.count,
                                   radius, scene_dependent);
+    result.diagnostics.timing_snr_seconds += elapsed_since(snr_start);
+
+    const auto artifact_start = std::chrono::steady_clock::now();
     const Matrix2Df artifact = phi_artifact(
         img_s, local_img.mean, radius, cfg.k_artifact,
         cfg.frac_artifact_max);
+    result.diagnostics.timing_artifact_seconds +=
+        elapsed_since(artifact_start);
     result.diagnostics.scene_dependent_snr =
         result.diagnostics.scene_dependent_snr || scene_dependent;
 
+    const auto summary_start = std::chrono::steady_clock::now();
     if (s == 0) {
       result.diagnostics.sharpness_p50 = finite_median(sharp);
       result.diagnostics.g_sharp_summary = result.diagnostics.sharpness_p50;
@@ -905,31 +951,24 @@ AqmhQualityMapResult compute_aqmh_quality_map(
       result.diagnostics.snr_p50 = finite_median(snr);
       result.diagnostics.g_snr_summary = result.diagnostics.snr_p50;
     }
+    result.diagnostics.timing_summary_seconds +=
+        elapsed_since(summary_start);
 
-    const Matrix2Df psi = mask_aware_bilinear_upsample(
-        compute_psi(sharp, snr, artifact, cfg), frame.cols(), frame.rows(),
-        factor);
-    for (int y = 0; y < frame.rows(); ++y) {
-      for (int x = 0; x < frame.cols(); ++x) {
-        const size_t idx = static_cast<size_t>(y) *
-                               static_cast<size_t>(frame.cols()) +
-                           static_cast<size_t>(x);
-        if (veto[idx] != 0u)
-          continue;
-        const float v = psi(y, x);
-        if (!finite(v) || v <= 0.0f) {
-          veto[idx] = 1u;
-        } else {
-          log_sum(y, x) += std::log(static_cast<double>(v));
-        }
-      }
-    }
+    const auto psi_accumulate_start = std::chrono::steady_clock::now();
+    const Matrix2Df psi = compute_psi(sharp, snr, artifact, cfg);
+    accumulate_upsampled_log_psi(
+        psi, frame.cols(), frame.rows(), factor, log_sum, veto);
+    result.diagnostics.timing_psi_accumulate_seconds +=
+        elapsed_since(psi_accumulate_start);
     ++computed_scales;
   }
 
-  if (computed_scales == 0)
+  if (computed_scales == 0) {
+    result.diagnostics.timing_total_seconds = elapsed_since(total_start);
     return result;
+  }
 
+  const auto finalize_start = std::chrono::steady_clock::now();
   for (int y = 0; y < frame.rows(); ++y) {
     for (int x = 0; x < frame.cols(); ++x) {
       const size_t idx = static_cast<size_t>(y) *
@@ -953,6 +992,8 @@ AqmhQualityMapResult compute_aqmh_quality_map(
   result.diagnostics.g_summary_invalid =
       !finite(result.diagnostics.g_sharp_summary) ||
       !finite(result.diagnostics.g_snr_summary);
+  result.diagnostics.timing_finalize_seconds += elapsed_since(finalize_start);
+  result.diagnostics.timing_total_seconds = elapsed_since(total_start);
 
   return result;
 }

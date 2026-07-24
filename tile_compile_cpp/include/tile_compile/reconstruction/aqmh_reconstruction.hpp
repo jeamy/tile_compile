@@ -70,6 +70,16 @@ struct AqmhReconstructionResult {
   uint64_t cuda_bytes_per_row = 0;
   int cuda_auto_chunk_rows_initial = 0;
   int cuda_allocation_retries = 0;
+  double cuda_host_prepare_seconds = 0.0;
+  double cuda_host_chunk_setup_seconds = 0.0;
+  double cuda_host_frame_read_worker_seconds = 0.0;
+  double cuda_host_q_map_read_worker_seconds = 0.0;
+  double cuda_host_mask_read_worker_seconds = 0.0;
+  double cuda_host_pack_worker_seconds = 0.0;
+  double cuda_h2d_seconds = 0.0;
+  double cuda_kernel_seconds = 0.0;
+  double cuda_d2h_seconds = 0.0;
+  double cuda_result_commit_seconds = 0.0;
 };
 
 using AqmhFrameLoader = std::function<bool(size_t, Matrix2Df&)>;

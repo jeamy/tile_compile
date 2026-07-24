@@ -347,6 +347,16 @@ TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
   REQUIRE(gpu.zero_veto_pixels == cpu.zero_veto_pixels);
   REQUIRE(gpu.finite_map_samples == cpu.finite_map_samples);
   REQUIRE(gpu.missing_map_samples == cpu.missing_map_samples);
+  REQUIRE(gpu.cuda_host_prepare_seconds >=
+          gpu.cuda_host_chunk_setup_seconds);
+  REQUIRE(gpu.cuda_host_frame_read_worker_seconds > 0.0);
+  REQUIRE(gpu.cuda_host_q_map_read_worker_seconds > 0.0);
+  REQUIRE(gpu.cuda_host_mask_read_worker_seconds >= 0.0);
+  REQUIRE(gpu.cuda_host_pack_worker_seconds > 0.0);
+  REQUIRE(gpu.cuda_h2d_seconds >= 0.0);
+  REQUIRE(gpu.cuda_kernel_seconds >= 0.0);
+  REQUIRE(gpu.cuda_d2h_seconds >= 0.0);
+  REQUIRE(gpu.cuda_result_commit_seconds >= 0.0);
   for (int y = 0; y < H; ++y) {
     for (int x = 0; x < W; ++x) {
       REQUIRE(gpu.output(y, x) ==
