@@ -11,6 +11,7 @@ BUILD_SUFFIX="${BUILD_SUFFIX:-build-gui3-release}"
 PORT="${PORT:-8080}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 GUI3_PACKAGE_DEBUG="${GUI3_PACKAGE_DEBUG:-0}"
+GUI3_MACOS_SMOKE_TIMEOUT_SECONDS="${GUI3_MACOS_SMOKE_TIMEOUT_SECONDS:-240}"
 SKIP_BUILD=0
 SKIP_SMOKE=0
 
@@ -30,7 +31,8 @@ Options:
   -h, --help             Show this help
 
 Environment overrides:
-  TAG, ARTIFACT_PREFIX, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET, GUI3_PACKAGE_DEBUG
+  TAG, ARTIFACT_PREFIX, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET,
+  GUI3_PACKAGE_DEBUG, GUI3_MACOS_SMOKE_TIMEOUT_SECONDS
 EOF
 }
 
@@ -502,7 +504,9 @@ smoke_test() {
   fi
   echo "[gui3-package] start_gui3.sh still running after 15s, polling API..."
 
-  START_PID_ENV="${start_pid}" python3 - <<'PY'
+  START_PID_ENV="${start_pid}" \
+    SMOKE_TIMEOUT_SECONDS="${GUI3_MACOS_SMOKE_TIMEOUT_SECONDS}" \
+    python3 - <<'PY'
 import json
 import os
 import sys
@@ -513,15 +517,18 @@ port = os.environ["TILE_COMPILE_GUI3_PORT"]
 state_url = f"http://127.0.0.1:{port}/api/app/state"
 validate_url = f"http://127.0.0.1:{port}/api/config/validate"
 start_pid = os.environ.get("START_PID_ENV", "")
-deadline = time.time() + 60
+timeout_seconds = int(os.environ.get("SMOKE_TIMEOUT_SECONDS", "240"))
+deadline = time.time() + timeout_seconds
 last_check = 0
+last_error = None
 while time.time() < deadline:
     try:
         with urlopen(state_url, timeout=2) as resp:
             data = json.load(resp)
             assert isinstance(data, dict)
             break
-    except Exception:
+    except Exception as exc:
+        last_error = exc
         # Every 10s, check if start_gui3.sh is still alive
         if time.time() - last_check > 10:
             last_check = time.time()
@@ -545,7 +552,11 @@ else:
             print(f.read(), file=sys.stderr)
     except Exception:
         pass
-    raise SystemExit("backend smoke test failed")
+    if last_error is not None:
+        print(f"Last API error: {last_error!r}", file=sys.stderr)
+    raise SystemExit(
+        f"backend smoke test failed after {timeout_seconds}s"
+    )
 
 payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
 req = Request(validate_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")

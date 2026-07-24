@@ -327,7 +327,13 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   presetSaveAsBtn.type = "button";
   presetSaveAsBtn.className = "live-image-viewer__btn";
   presetSaveAsBtn.textContent = t("liveImage.presetSaveAs", "Sichern unter");
-  presetRow.append(presetSelect, presetApplyBtn, presetSaveBtn, presetSaveAsBtn);
+  const presetControls = document.createElement("div");
+  presetControls.className = "live-image-viewer__preset-controls";
+  const presetSaveActions = document.createElement("div");
+  presetSaveActions.className = "live-image-viewer__preset-save-actions";
+  presetSaveActions.append(presetSaveBtn, presetSaveAsBtn);
+  presetControls.append(presetSelect, presetSaveActions);
+  presetRow.append(presetControls, presetApplyBtn);
   chatPanel.appendChild(presetRow);
 
   // Help box
@@ -396,12 +402,12 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   exportRow.className = "live-image-viewer__export-row";
 
   const exportPngBtn = document.createElement("button");
-  exportPngBtn.className = "live-image-viewer__btn live-image-viewer__btn--export";
+  exportPngBtn.className = "live-image-viewer__btn";
   exportPngBtn.textContent = t("liveImage.exportPng", "Export PNG");
   exportPngBtn.addEventListener("click", () => doExport("png"));
 
   const exportFitsBtn = document.createElement("button");
-  exportFitsBtn.className = "live-image-viewer__btn live-image-viewer__btn--export";
+  exportFitsBtn.className = "live-image-viewer__btn";
   exportFitsBtn.textContent = t("liveImage.exportFits", "Export FITS");
   exportFitsBtn.addEventListener("click", () => doExport("fits"));
 
