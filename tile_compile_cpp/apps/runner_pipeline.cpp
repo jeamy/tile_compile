@@ -5427,11 +5427,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // For AQMH the tile_analysis timer spans AQMH map computation which is
         // much longer than classic tile analysis; ratio check is not meaningful.
         const bool ratio_check_applicable = !cfg.aqmh.enabled;
+        runtime_limits_artifact["tile_analysis_ratio_applicable"] =
+            ratio_check_applicable;
         const bool ratio_ok =
-            !ratio_check_applicable ||
+            ratio_check_applicable &&
             ratio <= cfg.runtime_limits.tile_analysis_max_factor_vs_stack;
-        runtime_limits_artifact["tile_analysis_ratio_ok"] = ratio_ok;
-        if (!ratio_ok) {
+        runtime_limits_artifact["tile_analysis_ratio_ok"] =
+            ratio_check_applicable ? core::json(ratio_ok) : core::json(nullptr);
+        if (ratio_check_applicable && !ratio_ok) {
           emitter.warning(
               run_id,
               "Tile-analysis runtime anomaly: ratio=" + std::to_string(ratio) +

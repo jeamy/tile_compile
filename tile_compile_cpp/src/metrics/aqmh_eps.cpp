@@ -23,12 +23,19 @@ float positive_floor() {
 } // namespace
 
 float aqmh_median(std::vector<float> values) {
-  values = finite_only(values);
+  values.erase(
+      std::remove_if(values.begin(), values.end(),
+                     [](float value) { return !std::isfinite(value); }),
+      values.end());
   if (values.empty()) return std::numeric_limits<float>::quiet_NaN();
-  std::sort(values.begin(), values.end());
   const size_t mid = values.size() / 2;
-  return values.size() % 2 ? values[mid]
-                           : 0.5f * (values[mid - 1] + values[mid]);
+  std::nth_element(values.begin(), values.begin() + mid, values.end());
+  const float upper = values[mid];
+  if (values.size() % 2 != 0)
+    return upper;
+  const float lower =
+      *std::max_element(values.begin(), values.begin() + mid);
+  return 0.5f * (lower + upper);
 }
 
 float aqmh_mad(const std::vector<float> &values, float center) {

@@ -248,29 +248,86 @@ Matrix2Df masked_laplacian(const Matrix2Df &img) {
   return out;
 }
 
-Matrix2Df local_variance(const Matrix2Df &m, int r) {
-  Matrix2Df out(m.rows(), m.cols());
+Matrix2Df local_variance_linear(const Matrix2Df &m, int r) {
+  const int rows = static_cast<int>(m.rows());
+  const int cols = static_cast<int>(m.cols());
+  const int radius = std::clamp(r, 0, kMaxWindowR);
+  Matrix2Df horizontal_sum = Matrix2Df::Zero(rows, cols);
+  Matrix2Df horizontal_square_sum = Matrix2Df::Zero(rows, cols);
+  Matrix2Df horizontal_count = Matrix2Df::Zero(rows, cols);
+
+  // Sliding horizontal moments. This replaces a complete window scan per
+  // pixel while retaining the source-valid (finite) support contract.
+#pragma omp parallel for schedule(static)
+  for (int y = 0; y < rows; ++y) {
+    double sum = 0.0;
+    double square_sum = 0.0;
+    int count = 0;
+    for (int x = 0; x <= std::min(radius, cols - 1); ++x) {
+      const float value = m(y, x);
+      if (finite(value)) {
+        sum += value;
+        square_sum += static_cast<double>(value) * value;
+        ++count;
+      }
+    }
+    for (int x = 0; x < cols; ++x) {
+      horizontal_sum(y, x) = static_cast<float>(sum);
+      horizontal_square_sum(y, x) = static_cast<float>(square_sum);
+      horizontal_count(y, x) = static_cast<float>(count);
+      const int add_x = x + radius + 1;
+      if (add_x < cols) {
+        const float value = m(y, add_x);
+        if (finite(value)) {
+          sum += value;
+          square_sum += static_cast<double>(value) * value;
+          ++count;
+        }
+      }
+      const int remove_x = x - radius;
+      if (remove_x >= 0) {
+        const float value = m(y, remove_x);
+        if (finite(value)) {
+          sum -= value;
+          square_sum -= static_cast<double>(value) * value;
+          --count;
+        }
+      }
+    }
+  }
+
+  Matrix2Df out(rows, cols);
   out.setConstant(nan_value());
 #pragma omp parallel for schedule(static)
-  for (int y = 0; y < m.rows(); ++y) {
-    WindowBuf buf;
-    for (int x = 0; x < m.cols(); ++x) {
-      fill_window(m, x, y, r, buf);
-      if (buf.empty())
-        continue;
-      if (buf.size() < 3) {
+  for (int x = 0; x < cols; ++x) {
+    double sum = 0.0;
+    double square_sum = 0.0;
+    double count = 0.0;
+    for (int y = 0; y <= std::min(radius, rows - 1); ++y) {
+      sum += horizontal_sum(y, x);
+      square_sum += horizontal_square_sum(y, x);
+      count += horizontal_count(y, x);
+    }
+    for (int y = 0; y < rows; ++y) {
+      if (count > 0.0 && count < 3.0) {
         out(y, x) = 0.0f;
-        continue;
+      } else if (count >= 3.0) {
+        const double mean = sum / count;
+        out(y, x) = static_cast<float>(
+            std::max(0.0, square_sum / count - mean * mean));
       }
-      double mean = 0.0;
-      for (int i = 0; i < buf.size(); ++i) mean += buf.data[static_cast<size_t>(i)];
-      mean /= buf.size();
-      double var = 0.0;
-      for (int i = 0; i < buf.size(); ++i) {
-        const double d = buf.data[static_cast<size_t>(i)] - mean;
-        var += d * d;
+      const int add_y = y + radius + 1;
+      if (add_y < rows) {
+        sum += horizontal_sum(add_y, x);
+        square_sum += horizontal_square_sum(add_y, x);
+        count += horizontal_count(add_y, x);
       }
-      out(y, x) = static_cast<float>(var / buf.size());
+      const int remove_y = y - radius;
+      if (remove_y >= 0) {
+        sum -= horizontal_sum(remove_y, x);
+        square_sum -= horizontal_square_sum(remove_y, x);
+        count -= horizontal_count(remove_y, x);
+      }
     }
   }
   return out;
@@ -406,6 +463,12 @@ struct LocalMeanResult {
   Matrix2Df count;
 };
 
+struct LocalMeanPairResult {
+  Matrix2Df first_mean;
+  Matrix2Df second_mean;
+  Matrix2Df count;
+};
+
 // Separable box filter. Returning the support count lets callers reuse the
 // same traversal for masked fallback decisions.
 LocalMeanResult local_mean_and_count(const Matrix2Df &m, int r) {
@@ -457,6 +520,97 @@ Matrix2Df local_mean(const Matrix2Df &m, int r) {
   return local_mean_and_count(m, r).mean;
 }
 
+// Fused separable means for matrices with identical finite support. This
+// avoids building and traversing the same support-count intermediates twice.
+LocalMeanPairResult local_mean_pair_and_count(
+    const Matrix2Df &first, const Matrix2Df &second, int r) {
+  const int rows = static_cast<int>(first.rows());
+  const int cols = static_cast<int>(first.cols());
+  Matrix2Df first_hsum = Matrix2Df::Zero(rows, cols);
+  Matrix2Df second_hsum = Matrix2Df::Zero(rows, cols);
+  Matrix2Df hcnt = Matrix2Df::Zero(rows, cols);
+
+#pragma omp parallel for schedule(static)
+  for (int y = 0; y < rows; ++y) {
+    double first_sum = 0.0;
+    double second_sum = 0.0;
+    int count = 0;
+    for (int x = 0; x <= std::min(r, cols - 1); ++x) {
+      const float a = first(y, x);
+      const float b = second(y, x);
+      if (finite(a) && finite(b)) {
+        first_sum += a;
+        second_sum += b;
+        ++count;
+      }
+    }
+    for (int x = 0; x < cols; ++x) {
+      first_hsum(y, x) = static_cast<float>(first_sum);
+      second_hsum(y, x) = static_cast<float>(second_sum);
+      hcnt(y, x) = static_cast<float>(count);
+      const int xadd = x + r + 1;
+      if (xadd < cols) {
+        const float a = first(y, xadd);
+        const float b = second(y, xadd);
+        if (finite(a) && finite(b)) {
+          first_sum += a;
+          second_sum += b;
+          ++count;
+        }
+      }
+      const int xrem = x - r;
+      if (xrem >= 0) {
+        const float a = first(y, xrem);
+        const float b = second(y, xrem);
+        if (finite(a) && finite(b)) {
+          first_sum -= a;
+          second_sum -= b;
+          --count;
+        }
+      }
+    }
+  }
+
+  LocalMeanPairResult result{
+      Matrix2Df(rows, cols), Matrix2Df(rows, cols), Matrix2Df(rows, cols)};
+  result.first_mean.setConstant(nan_value());
+  result.second_mean.setConstant(nan_value());
+  result.count.setZero();
+#pragma omp parallel for schedule(static)
+  for (int x = 0; x < cols; ++x) {
+    double first_sum = 0.0;
+    double second_sum = 0.0;
+    double count = 0.0;
+    for (int y = 0; y <= std::min(r, rows - 1); ++y) {
+      first_sum += first_hsum(y, x);
+      second_sum += second_hsum(y, x);
+      count += hcnt(y, x);
+    }
+    for (int y = 0; y < rows; ++y) {
+      result.count(y, x) = static_cast<float>(count);
+      if (count > 0.0) {
+        result.first_mean(y, x) =
+            static_cast<float>(first_sum / count);
+        result.second_mean(y, x) =
+            static_cast<float>(second_sum / count);
+      }
+      const int yadd = y + r + 1;
+      if (yadd < rows) {
+        first_sum += first_hsum(yadd, x);
+        second_sum += second_hsum(yadd, x);
+        count += hcnt(yadd, x);
+      }
+      const int yrem = y - r;
+      if (yrem >= 0) {
+        first_sum -= first_hsum(yrem, x);
+        second_sum -= second_hsum(yrem, x);
+        count -= hcnt(yrem, x);
+      }
+    }
+  }
+  return result;
+}
+
 Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
                   const Matrix2Df &valid_cnt, int r,
                   bool &scene_dependent) {
@@ -473,29 +627,30 @@ Matrix2Df phi_snr(const Matrix2Df &img, const Matrix2Df &bg,
 
   // Signal = local_mean(max(img - bg, 0), r).
   Matrix2Df sig_img(rows, cols);
+  Matrix2Df abs_dev(rows, cols);
   sig_img.setConstant(nan_value());
+  abs_dev.setConstant(nan_value());
   const auto np = static_cast<std::ptrdiff_t>(img.size());
   const float *img_data = img.data();
   const float *bg_data = bg.data();
   float *sig_data = sig_img.data();
-#pragma omp simd
-  for (std::ptrdiff_t i = 0; i < np; ++i) {
-    const bool valid = finite(img_data[i]) && finite(bg_data[i]);
-    sig_data[i] = valid ? std::max(img_data[i] - bg_data[i], 0.0f)
-                        : nan_value();
-  }
-  const Matrix2Df mu = local_mean(sig_img, r);
-
-  // Noise = 1.4826 * local_mean(|img - bg|, r)  (MAD approximation).
-  Matrix2Df abs_dev(rows, cols);
-  abs_dev.setConstant(nan_value());
   float *abs_dev_data = abs_dev.data();
 #pragma omp simd
   for (std::ptrdiff_t i = 0; i < np; ++i) {
     const bool valid = finite(img_data[i]) && finite(bg_data[i]);
-    abs_dev_data[i] = valid ? std::abs(img_data[i] - bg_data[i]) : nan_value();
+    if (valid) {
+      const float delta = img_data[i] - bg_data[i];
+      sig_data[i] = std::max(delta, 0.0f);
+      abs_dev_data[i] = std::abs(delta);
+    } else {
+      sig_data[i] = nan_value();
+      abs_dev_data[i] = nan_value();
+    }
   }
-  const Matrix2Df noise_map = local_mean(abs_dev, r);
+  const LocalMeanPairResult local_signal_noise =
+      local_mean_pair_and_count(sig_img, abs_dev, r);
+  const Matrix2Df &mu = local_signal_noise.first_mean;
+  const Matrix2Df &noise_map = local_signal_noise.second_mean;
 
   // Assemble phi_snr, with O(R²) fallback for pixels with < 3 valid neighbours.
   Matrix2Df out(rows, cols);
@@ -686,6 +841,10 @@ Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
 
 } // namespace
 
+Matrix2Df compute_aqmh_local_variance(const Matrix2Df &image, int radius) {
+  return local_variance_linear(image, radius);
+}
+
 AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
     const std::vector<uint8_t> &frame_valid_mask,
@@ -718,13 +877,13 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df laplacian = masked_laplacian(img_s);
     Matrix2Df sharp;
     if (backend == core::AccelerationBackend::cpu) {
-      sharp = local_variance(laplacian, radius);
+      sharp = compute_aqmh_local_variance(laplacian, radius);
     } else if (accelerated_local_variance(laplacian, radius, backend, sharp, stream)) {
       result.diagnostics.acceleration_used = true;
     } else {
       // Per-scale CPU fallback: avoids discarding already-computed scales
       // by recursing into a full pyramid restart.
-      sharp = local_variance(laplacian, radius);
+      sharp = compute_aqmh_local_variance(laplacian, radius);
       result.diagnostics.acceleration_fallback = true;
     }
     const LocalMeanResult local_img = local_mean_and_count(img_s, radius);

@@ -28,6 +28,7 @@ const SUB_TABS = {
     { id: "raw-stack", label: t("ui.subtab.raw_stack", "Raw Stack") },
     { id: "astrometry", label: t("ui.subtab.astrometry", "Astrometry") },
     { id: "pcc", label: t("ui.subtab.pcc", "PCC") },
+    { id: "ai-settings", label: t("ui.subtab.ai_settings", "AI & API") },
   ],
   history: [
     { id: "run-history", label: t("ui.subtab.run_history", "Run History") },

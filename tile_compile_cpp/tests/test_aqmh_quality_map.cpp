@@ -6,6 +6,7 @@
 #include "tile_compile/metrics/aqmh_global_quality.hpp"
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
@@ -23,7 +24,52 @@ tile_compile::Matrix2Df make_gradient(int h, int w) {
   return frame;
 }
 
+tile_compile::Matrix2Df naive_local_variance(
+    const tile_compile::Matrix2Df &image, int radius) {
+  const int rows = static_cast<int>(image.rows());
+  const int cols = static_cast<int>(image.cols());
+  tile_compile::Matrix2Df out(image.rows(), image.cols());
+  out.setConstant(std::numeric_limits<float>::quiet_NaN());
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      double sum = 0.0;
+      double square_sum = 0.0;
+      int count = 0;
+      for (int yy = std::max(0, y - radius);
+           yy <= std::min(rows - 1, y + radius); ++yy) {
+        for (int xx = std::max(0, x - radius);
+             xx <= std::min(cols - 1, x + radius); ++xx) {
+          const float value = image(yy, xx);
+          if (!std::isfinite(value))
+            continue;
+          sum += value;
+          square_sum += static_cast<double>(value) * value;
+          ++count;
+        }
+      }
+      if (count > 0 && count < 3) {
+        out(y, x) = 0.0f;
+      } else if (count >= 3) {
+        const double mean = sum / static_cast<double>(count);
+        out(y, x) = static_cast<float>(std::max(
+            0.0, square_sum / static_cast<double>(count) - mean * mean));
+      }
+    }
+  }
+  return out;
+}
+
 } // namespace
+
+TEST_CASE("aqmh_median_selection_preserves_even_and_nonfinite_semantics") {
+  using tile_compile::metrics::aqmh_median;
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float inf = std::numeric_limits<float>::infinity();
+
+  REQUIRE(aqmh_median({9.0f, 1.0f, 5.0f, nan, inf}) == 5.0f);
+  REQUIRE(aqmh_median({8.0f, 2.0f, 6.0f, 4.0f}) == 5.0f);
+  REQUIRE(std::isnan(aqmh_median({nan, inf, -inf})));
+}
 
 TEST_CASE("aqmh_config_validates_q_region") {
   // Config() default sets method="aqmh", so this tests AQMH validation
@@ -132,6 +178,39 @@ TEST_CASE("aqmh_quality_map_is_deterministic_and_clamped") {
       REQUIRE(a.q_map(y, x) == Catch::Approx(b.q_map(y, x)).margin(1.0e-7f));
       REQUIRE(a.q_map(y, x) >= 0.0f);
       REQUIRE(a.q_map(y, x) <= 1.0f);
+    }
+  }
+}
+
+TEST_CASE("aqmh_linear_local_variance_matches_naive_reference") {
+  constexpr int H = 13;
+  constexpr int W = 17;
+  tile_compile::Matrix2Df image(H, W);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      image(y, x) =
+          0.17f * static_cast<float>(x) -
+          0.11f * static_cast<float>(y) +
+          std::sin(0.31f * static_cast<float>(x + 2 * y));
+    }
+  }
+  image(0, 0) = std::numeric_limits<float>::quiet_NaN();
+  image(4, 8) = std::numeric_limits<float>::quiet_NaN();
+  image(12, 16) = std::numeric_limits<float>::quiet_NaN();
+
+  for (const int radius : {0, 1, 3, 8}) {
+    const auto expected = naive_local_variance(image, radius);
+    const auto actual =
+        tile_compile::metrics::compute_aqmh_local_variance(image, radius);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        if (std::isnan(expected(y, x))) {
+          REQUIRE(std::isnan(actual(y, x)));
+        } else {
+          REQUIRE(actual(y, x) ==
+                  Catch::Approx(expected(y, x)).margin(2.0e-6f));
+        }
+      }
     }
   }
 }

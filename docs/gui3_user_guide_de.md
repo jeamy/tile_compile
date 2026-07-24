@@ -120,14 +120,14 @@ Die Parameter-Seite hat einen zweiten Tab: **AI Empfehlung**. Dieser bietet KI-g
 
 1. Auf den Tab **AI Empfehlung** wechseln.
 2. Das Formular ausfüllen: Objektname, Kameratyp, Montierung, Teleskop, Bedingungen und Ziele.
-3. **Provider** und **Modell** wählen. PI unterstützt viele Anbieter (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter und weitere). Die verfügbaren Modelle werden dynamisch vom PI-Sidecar geladen. Entscheidend ist der **API-Key** — den Key für den gewählten Anbieter eintragen und **Key speichern** klicken, um ihn im PI-AuthStorage zu hinterlegen. Ein Key ist erforderlich, bevor eine Analyse gestartet werden kann.
-4. **KI-Analyse erstellen** klicken. Die Anfrage läuft im Hintergrund — Tab-Wechsel ist möglich.
+3. Unter **Tools → KI & API** Provider und Modell wählen. PI unterstützt viele Anbieter (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter und weitere). Den API-Key für den gewählten Provider eintragen und **Key speichern** klicken; anschließend mit **Status abrufen** prüfen. Ein Key ist erforderlich, bevor eine Analyse gestartet werden kann.
+4. Zurück zu **AI Empfehlung** wechseln und **KI-Analyse erstellen** klicken. Die Anfrage läuft im Hintergrund — Tab-Wechsel ist möglich.
 5. Empfehlungen prüfen: Jeder Vorschlag zeigt Parameter-Pfad, neuen Wert und eine Begründung.
 6. Einzelne Empfehlungen per Checkbox auswählen oder **Alle anwenden** für alle verwenden.
 7. **PI Preview** validiert die geplanten Änderungen als YAML-Diff ohne Speichern.
 8. **PI anwenden** speichert die letzte gültige PI-Preview als neue Config-Revision.
 
-> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Mit **Status abrufen** lassen sich Provider-Key und Modell verifizieren. Traffic-Logs zeigen Roh-Request/Response zum Debuggen.
+> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Der Key liegt im lokalen PI-AuthStorage, nicht in Pipeline-Configs, Run-Daten oder Logs. Alternativ kann er als Provider-Variable in einer lokalen `.env` stehen; die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../.env.example). Ein `401 invalid x-api-key` bedeutet, dass der Provider den Key ablehnt.
 
 ### Situation-Assistent
 

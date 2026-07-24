@@ -65,6 +65,16 @@ A live preview alone is not recorded in any history. Only **Apply** creates a hi
 
 ## AI use
 
+### Configure AI and API key
+
+Set up the optional AI integration once under **Tools → AI & API**:
+
+1. Select a provider and a model.
+2. Paste the API key for that provider without leading or trailing whitespace and select **Save Key**.
+3. Use **Fetch status** to verify the connection. A model can use image data when its vision status is shown as supported.
+
+The key is stored in the local PI AuthStorage, not in `tile_compile.yaml`, configuration revisions, run data, image files, or chat history. Alternatively, a provider environment variable can be set in a local `.env` file. The complete current list of supported key and credential variables is in [`.env.example`](../../.env.example). A `401` error such as `invalid x-api-key` means that the provider rejected the active key; save the correct key again for that provider or check the `.env` entry.
+
 When the optional PI sidecar is available, an API key is configured for a provider, and a model is selected, the chat request is sent to that model. The sidecar receives:
 
 - the user instruction;
@@ -73,7 +83,7 @@ When the optional PI sidecar is available, an API key is configured for a provid
 
 The model returns a structured operation and parameters. The C++ backend validates the operation, applies it locally, persists `live_edit.fits`, and returns the new preview. The AI never writes the FITS file directly.
 
-If no model/API key is available, the backend uses a local parser. The command text selects the operation and local image statistics derive conservative strengths for brightness, contrast, and saturation; other operations use safe fallback parameters. No network request is required in this mode.
+If no model/API key is available, the backend uses a local parser for supported simple commands. The command text selects the operation and local image statistics derive conservative strengths for brightness, contrast, and saturation. No network request is required in this mode. For free-form AI instructions with no matching local operation, chat points to **Tools → AI & API**.
 
 API keys are handled by the PI/sidecar authentication mechanisms and are not written into image files, operation history, or FITS headers.
 

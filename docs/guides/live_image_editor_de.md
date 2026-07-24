@@ -65,6 +65,16 @@ Eine reine Live-Preview erscheint in keiner dieser Histories. Erst **Anwenden** 
 
 ## Verwendung der KI
 
+### KI und API-Key einrichten
+
+Die optionale KI-Funktion wird einmalig unter **Tools → KI & API** eingerichtet:
+
+1. Provider auswählen und ein Modell wählen.
+2. Den API-Key dieses Providers ohne führende oder nachgestellte Leerzeichen einfügen und **Key speichern** wählen.
+3. Mit **Status abrufen** die Verbindung prüfen. Ein Modell kann Bilddaten verwenden, wenn der Vision-Status als bildfähig angezeigt wird.
+
+Der Key wird im lokalen PI-AuthStorage gespeichert, nicht in `tile_compile.yaml`, Config-Revisions, Run-Daten, Bilddateien oder Chat-History. Alternativ kann ein Key als Provider-Umgebungsvariable in einer lokalen `.env`-Datei hinterlegt werden. Die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../../.env.example). Ein `401`-Fehler wie `invalid x-api-key` bedeutet, dass der Provider den verwendeten Key ablehnt; in diesem Fall den Key beim richtigen Provider erneut speichern oder den `.env`-Eintrag prüfen.
+
 Wenn der optionale PI-Sidecar läuft, ein API-Key für einen Provider vorhanden ist und ein Modell ausgewählt wurde, wird die Chat-Anfrage an dieses Modell gesendet. Der Sidecar erhält:
 
 - die Anweisung des Benutzers;
@@ -73,7 +83,7 @@ Wenn der optionale PI-Sidecar läuft, ein API-Key für einen Provider vorhanden 
 
 Das Modell liefert eine strukturierte Operation mit Parametern. Das C++-Backend validiert diese Operation, führt sie lokal aus, speichert `live_edit.fits` und liefert die neue Preview zurück. Die KI schreibt niemals direkt in die FITS-Datei.
 
-Wenn kein Modell oder kein API-Key verfügbar ist, verwendet das Backend einen lokalen Parser. Der Text bestimmt die Operation; für Helligkeit, Kontrast und Sättigung werden konservative Stärken aus Bildstatistiken berechnet. Für andere Operationen werden sichere Fallback-Parameter verwendet. Dafür ist keine Netzwerkverbindung nötig.
+Wenn kein Modell oder kein API-Key verfügbar ist, verwendet das Backend für unterstützte einfache Befehle einen lokalen Parser. Der Text bestimmt die Operation; für Helligkeit, Kontrast und Sättigung werden konservative Stärken aus Bildstatistiken berechnet. Dafür ist keine Netzwerkverbindung nötig. Bei freien KI-Anweisungen ohne passende lokale Operation zeigt der Chat einen Hinweis auf **Tools → KI & API**.
 
 API-Keys werden über die PI-/Sidecar-Authentifizierung verwaltet und nicht in Bilddateien, Operations-History oder FITS-Header geschrieben.
 

@@ -120,14 +120,14 @@ The Parameter page has a second tab: **AI Recommendations**. This provides AI-po
 
 1. Switch to the **AI Recommendations** tab.
 2. Fill in the form: object name, camera type, mount type, telescope, conditions, and goals.
-3. Select a **Provider** and **Model**. PI supports many providers (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter, and more). The available models are loaded dynamically from the PI sidecar. The deciding factor is the **API Key** — enter the key for the chosen provider and click **Save Key** to store it in the PI AuthStorage. A key is required before analysis can run.
-4. Click **Create AI Analysis** to start the analysis. The request runs in the background — tab switching is safe.
+3. Under **Tools → AI & API**, select a **Provider** and **Model**. PI supports many providers (Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, xAI, OpenRouter, and more). Enter the key for the chosen provider, select **Save Key**, then use **Fetch status** to verify it. A key is required before analysis can run.
+4. Return to **AI Recommendations** and click **Create AI Analysis**. The request runs in the background — tab switching is safe.
 5. Review the recommendations: each suggestion shows the parameter path, new value, and a brief rationale.
 6. Select individual recommendations with checkboxes, or use **Apply All** to apply all.
 7. Use **PI Preview** to validate the planned changes as a YAML diff without saving.
 8. Use **Apply PI** to save the last valid PI Preview as a new config revision.
 
-> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. Use **Fetch status** to verify the provider key and model. Traffic logs show the raw request/response for debugging.
+> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. The key is kept in local PI AuthStorage, not in pipeline configuration, run data, or logs. Alternatively, it can be provided through a provider variable in a local `.env` file; the complete current list of supported key and credential variables is in [`.env.example`](../.env.example). A `401 invalid x-api-key` error means the provider rejected the key.
 
 ### Situation Assistant
 

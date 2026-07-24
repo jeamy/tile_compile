@@ -317,6 +317,7 @@ TEST_CASE("aqmh_cuda_reconstruction_matches_cpu_streaming_reference") {
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
   cfg.clip_sigma = 2.0f;
   cfg.min_fraction = 0.5f;
+  cfg.compute_uniform_control = true;
 
   const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
       frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
@@ -411,6 +412,7 @@ TEST_CASE("aqmh_native_cuda_reconstruction_matches_cpu_reference") {
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
   cfg.clip_sigma = 2.0f;
   cfg.min_fraction = 0.5f;
+  cfg.compute_uniform_control = true;
 
   const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
       frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
@@ -419,6 +421,10 @@ TEST_CASE("aqmh_native_cuda_reconstruction_matches_cpu_reference") {
       frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
       cfg);
 
+  if (!gpu.acceleration_used) {
+    std::filesystem::remove_all(dir);
+    SKIP("Native CUDA device is not available");
+  }
   REQUIRE(gpu.acceleration_used);
   REQUIRE_FALSE(gpu.acceleration_fallback);
   REQUIRE(gpu.unsupported_pixels == cpu.unsupported_pixels);
@@ -431,6 +437,10 @@ TEST_CASE("aqmh_native_cuda_reconstruction_matches_cpu_reference") {
               Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
       REQUIRE(gpu.weight_sum(y, x) ==
               Catch::Approx(cpu.weight_sum(y, x)).margin(2.0e-4f));
+      REQUIRE(gpu.uniform_control_output(y, x) ==
+              Catch::Approx(cpu.uniform_control_output(y, x)).margin(2.0e-4f));
+      REQUIRE(gpu.uniform_control_valid_mask[static_cast<size_t>(y * W + x)] ==
+              cpu.uniform_control_valid_mask[static_cast<size_t>(y * W + x)]);
     }
   }
   std::filesystem::remove_all(dir);

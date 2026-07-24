@@ -174,6 +174,9 @@ bool run_phase_local_metrics(
   (void)tile_offset_y;
   out_aqmh_cache.reset();
   out_aqmh_global_weights.resize(0);
+  if (out_prefetch_coordinator != nullptr) {
+    out_prefetch_coordinator->reset();
+  }
   const bool compute_classic_local_metrics = !cfg.aqmh.enabled;
   const std::vector<uint8_t> &aqmh_summary_mask =
       aqmh_analysis_common_mask.empty() ? common_valid_mask
@@ -391,24 +394,22 @@ bool run_phase_local_metrics(
           run_dir / "cache" / "aqmh_masks", common_mask_width,
           common_mask_height);
 
-      // Create prefetch coordinator for Q-map I/O overlap (Item 3.1 - Option C)
-      // Only create when AQMH is enabled and we're not in classic local metrics mode
-      std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> local_prefetch_coordinator;
-      if (!compute_classic_local_metrics && cfg.aqmh.enabled) {
-        local_prefetch_coordinator = std::make_unique<reconstruction::AqmhPrefetchCoordinator>(
-            frames.size(), out_aqmh_cache.get());
-        // Transfer ownership to out parameter if provided
-        if (out_prefetch_coordinator != nullptr) {
-          *out_prefetch_coordinator = std::move(local_prefetch_coordinator);
-          prefetch_coordinator = (*out_prefetch_coordinator).get();
-        } else {
-          prefetch_coordinator = local_prefetch_coordinator.get();
-        }
-      }
+      // Reconstruction consumes narrow row regions from every map. Prefetching
+      // complete maps here only churns the small resident LRU and competes with
+      // map generation for CPU and memory bandwidth. Region loading remains
+      // parallel and on-demand in the reconstruction phase.
+      prefetch_coordinator = nullptr;
 
       const auto aqmh_worker_plan = compute_aqmh_map_worker_plan(
           cfg, frames.size(), frames, common_mask_width, common_mask_height);
       const int aqmh_effective_workers = aqmh_worker_plan.effective_workers;
+      const bool collect_map_diagnostics =
+          cfg.aqmh.diagnostics.enabled &&
+          cfg.aqmh.diagnostics.level != "none";
+      const bool collect_region_diagnostics =
+          collect_map_diagnostics &&
+          cfg.aqmh.diagnostics.level == "full" &&
+          cfg.aqmh.diagnostics.regions;
       log_file << "[AQMH] memory worker cap: requested="
                << aqmh_worker_plan.requested_workers
                << " effective=" << aqmh_worker_plan.effective_workers
@@ -501,14 +502,13 @@ bool run_phase_local_metrics(
                 // only its shared statistics/LRU state under a short lock.
                 frame_mask_store.write(fi, frame_valid_mask);
                 out_aqmh_cache->write(fi, aqmh_result.q_map, frame_valid_mask);
-                // Trigger prefetch for this frame's Q-map (Item 3.1 - Option C)
-                if (prefetch_coordinator) {
-                  prefetch_coordinator->publish_frame(fi);
+                if (collect_map_diagnostics) {
+                  diag = summarize_aqmh_map(
+                      fi, aqmh_result.q_map, aqmh_summary_mask,
+                      common_mask_width, common_mask_height,
+                      cfg.aqmh.diagnostics.tau_artifact);
                 }
-                diag = summarize_aqmh_map(
-                    fi, aqmh_result.q_map, aqmh_summary_mask,
-                    common_mask_width, common_mask_height,
-                    cfg.aqmh.diagnostics.tau_artifact);
+                diag.frame_index = fi;
                 diag.written = true;
                 diag.sharpness_p50 = aqmh_result.diagnostics.sharpness_p50;
                 diag.snr_p50 = aqmh_result.diagnostics.snr_p50;
@@ -538,10 +538,12 @@ bool run_phase_local_metrics(
                         ? aqmh_result.diagnostics.g_summary_invalid
                         : (!std::isfinite(diag.g_snr_summary) ||
                            !std::isfinite(diag.g_background_penalty_summary));
-                diag.regions = metrics::extract_aqmh_regions(
-                    aqmh_result.q_map, frame_valid_mask,
-                    cfg.aqmh.diagnostics.q_region,
-                    cfg.aqmh.diagnostics.r_morph_canvas_px);
+                if (collect_region_diagnostics) {
+                  diag.regions = metrics::extract_aqmh_regions(
+                      aqmh_result.q_map, frame_valid_mask,
+                      cfg.aqmh.diagnostics.q_region,
+                      cfg.aqmh.diagnostics.r_morph_canvas_px);
+                }
                 diag.omitted_scales = aqmh_result.diagnostics.omitted_scales;
                 aqmh_written.fetch_add(1, std::memory_order_relaxed);
               }
@@ -594,11 +596,6 @@ bool run_phase_local_metrics(
         }
       } else {
         aqmh_worker(0);
-      }
-
-      // Signal that all frames have been published (Item 3.1 - Option C)
-      if (prefetch_coordinator) {
-        prefetch_coordinator->finish();
       }
 
       if (aqmh_failed.load(std::memory_order_relaxed)) {
@@ -725,7 +722,7 @@ bool run_phase_local_metrics(
       std::filesystem::create_directories(run_dir / "artifacts");
       core::write_text(run_dir / "artifacts" / "aqmh_metrics.json",
                        aqmh_artifact.dump(2));
-      if (cfg.aqmh.diagnostics.regions) {
+      if (collect_region_diagnostics) {
         core::json regions_artifact;
         regions_artifact["analysis_channel"] =
             detected_mode == ColorMode::OSC ? "proxy" : "mono";

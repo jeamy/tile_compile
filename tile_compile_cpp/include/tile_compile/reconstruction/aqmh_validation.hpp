@@ -33,8 +33,28 @@ struct AqmhValidationComparison {
   bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
+struct AqmhValidationStarSample {
+  int x = 0;
+  int y = 0;
+  float peak = 0.0f;
+};
+
+// Prepared immutable comparison side. Candidate searches can reuse its star
+// positions and metrics instead of rescanning the same control image.
+struct AqmhValidationReference {
+  AqmhValidationMetrics metrics;
+  std::vector<AqmhValidationStarSample> stars;
+  int width = 0;
+  int height = 0;
+};
+
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask = {});
+AqmhValidationReference prepare_aqmh_validation_reference(
+    const Matrix2Df &image, const std::vector<uint8_t> &validation_mask = {});
+AqmhValidationComparison compare_aqmh_to_reference(
+    const Matrix2Df &aqmh, const AqmhValidationReference &control,
+    const std::vector<uint8_t> &validation_mask = {});
 AqmhValidationComparison compare_aqmh_to_uniform_control(
     const Matrix2Df &aqmh, const Matrix2Df &control,
     const std::vector<uint8_t> &validation_mask = {});

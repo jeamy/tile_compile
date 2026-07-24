@@ -2086,6 +2086,7 @@
   "ui.subtab.raw_stack": "Raw Stack",
   "ui.subtab.astrometry": "Astrometry",
   "ui.subtab.pcc": "PCC",
+  "ui.subtab.ai_settings": "AI & API",
   "ui.subtab.run_history": "Run History",
   "liveImage.title": "Live Image Editor",
   "liveImage.loading": "Loading...",

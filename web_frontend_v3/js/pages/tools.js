@@ -3,6 +3,7 @@
 import { createRawStackPage } from "./raw-stack.js";
 import { createAstrometryPage } from "./astrometry.js";
 import { createPccPage } from "./pcc.js";
+import { createAiModelSettingsPage } from "./ai-empfehlung.js";
 
 export function createToolsPage(subTab) {
   switch (subTab) {
@@ -12,6 +13,8 @@ export function createToolsPage(subTab) {
       return createAstrometryPage();
     case "pcc":
       return createPccPage();
+    case "ai-settings":
+      return createAiModelSettingsPage();
     default:
       return createRawStackPage();
   }

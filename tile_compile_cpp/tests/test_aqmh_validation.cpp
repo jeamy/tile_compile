@@ -344,6 +344,55 @@ TEST_CASE("aqmh_validation_comparison_uses_common_control_stars") {
   REQUIRE(cmp.aqmh.star_count == cmp.control.star_count);
 }
 
+TEST_CASE("aqmh_prepared_validation_reference_preserves_comparison") {
+  constexpr int W = 160;
+  constexpr int H = 160;
+  const auto control = make_validation_star_field(W, H);
+  auto candidate = make_validation_star_field(W, H, 4);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      candidate(y, x) +=
+          0.03f * std::sin(0.37f * static_cast<float>(x + 2 * y));
+    }
+  }
+  const auto mask = full_mask(W, H);
+
+  const auto direct =
+      recon::compare_aqmh_to_uniform_control(candidate, control, mask);
+  const auto reference =
+      recon::prepare_aqmh_validation_reference(control, mask);
+  const auto cached =
+      recon::compare_aqmh_to_reference(candidate, reference, mask);
+
+  REQUIRE(cached.control.star_count == direct.control.star_count);
+  REQUIRE(cached.aqmh.star_count == direct.aqmh.star_count);
+  REQUIRE(cached.control.seam_score ==
+          Catch::Approx(direct.control.seam_score));
+  REQUIRE(cached.control.fwhm == Catch::Approx(direct.control.fwhm));
+  REQUIRE(cached.control.background_rms ==
+          Catch::Approx(direct.control.background_rms));
+  REQUIRE(cached.aqmh.seam_score == Catch::Approx(direct.aqmh.seam_score));
+  REQUIRE(cached.aqmh.fwhm == Catch::Approx(direct.aqmh.fwhm));
+  REQUIRE(cached.aqmh.background_rms ==
+          Catch::Approx(direct.aqmh.background_rms));
+  REQUIRE(cached.seam_score_regression ==
+          Catch::Approx(direct.seam_score_regression));
+  REQUIRE(cached.fwhm_regression ==
+          Catch::Approx(direct.fwhm_regression));
+  REQUIRE(cached.background_rms_regression ==
+          Catch::Approx(direct.background_rms_regression));
+  REQUIRE(cached.tail11_abs_regression ==
+          Catch::Approx(direct.tail11_abs_regression));
+  REQUIRE(cached.elongation_regression ==
+          Catch::Approx(direct.elongation_regression));
+  REQUIRE(cached.fwhm_applicable == direct.fwhm_applicable);
+  REQUIRE(cached.seam_applicable == direct.seam_applicable);
+  REQUIRE(cached.background_rms_applicable ==
+          direct.background_rms_applicable);
+  REQUIRE(cached.tail_applicable == direct.tail_applicable);
+  REQUIRE(cached.elongation_applicable == direct.elongation_applicable);
+}
+
 TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
   const auto control = make_validation_star_field(160, 160);
   const auto smaller_candidate = make_validation_star_field(96, 96);

@@ -3076,6 +3076,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         // Try AI sidecar unless this is a local-only crop request.
         nlohmann::json ai_result;
         bool sidecar_ok = false;
+        bool ai_model_configured = false;
+        std::string sidecar_error;
         nlohmann::json prompt_history = nlohmann::json::array();
         if (op_history.is_array()) {
             const size_t begin = op_history.size() > 10 ? op_history.size() - 10 : 0;
@@ -3085,6 +3087,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             if (local_crop_request) throw std::runtime_error("crop is local-only");
             auto ai_config = current_pi_ai_config(state);
             if (!ai_config.model.empty()) {
+                ai_model_configured = true;
                 tile_compile::ai::AiSidecarClient client(ai_config);
                 nlohmann::json payload = {
                     {"prompt", message},
@@ -3100,12 +3103,31 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     sidecar_ok = true;
                 }
             }
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            sidecar_error = e.what();
             // Sidecar not available, fall through to local
         }
 
         if (!sidecar_ok) {
             ai_result = fallback_parse_message(message, analysis_image);
+            const auto fallback_operations = ai_result.value("operations", nlohmann::json::array());
+            if (fallback_operations.is_array() && fallback_operations.empty() && !local_crop_request) {
+                if (!ai_model_configured) {
+                    ai_result["summary"] = "PI: Kein KI-Provider/Modell ausgewählt. Bitte unter Tools > KI & API einen Provider und ein Modell auswählen.";
+                } else {
+                    std::string error_lower = sidecar_error;
+                    std::transform(error_lower.begin(), error_lower.end(), error_lower.begin(),
+                                   [](unsigned char c) { return std::tolower(c); });
+                    const bool missing_api_key = error_lower.find("api key") != std::string::npos ||
+                        error_lower.find("api_key") != std::string::npos ||
+                        error_lower.find("authentication") != std::string::npos ||
+                        error_lower.find("unauthorized") != std::string::npos ||
+                        error_lower.find("401") != std::string::npos;
+                    ai_result["summary"] = missing_api_key
+                        ? "PI: Für den ausgewählten Provider wird ein API-Key benötigt. Bitte unter Tools > KI & API eingeben und speichern."
+                        : "PI: Der ausgewählte KI-Provider/Modell ist nicht verbunden. Bitte die Verbindung unter Tools > KI & API prüfen.";
+                }
+            }
         }
 
         // Commands backed by a parameter dialog must resolve to their

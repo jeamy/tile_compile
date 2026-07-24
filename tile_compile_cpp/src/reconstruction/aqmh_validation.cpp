@@ -29,12 +29,6 @@ float regression(float value, float control) {
   return (value - control) / denom;
 }
 
-struct StarSample {
-  int x = 0;
-  int y = 0;
-  float peak = 0.0f;
-};
-
 bool mask_valid(const std::vector<uint8_t> &mask, int width, int height,
                 int x, int y) {
   if (mask.empty()) return true;
@@ -50,62 +44,86 @@ float percentile(std::vector<float> values, float q) {
   return values[idx];
 }
 
-float robust_local_noise_sigma(const Matrix2Df &image,
-                               const std::vector<uint8_t> &validation_mask) {
-  if (image.rows() <= 0 || image.cols() <= 0) return 0.0f;
+float median_inplace(std::vector<float> &values) {
+  if (values.empty()) return std::numeric_limits<float>::quiet_NaN();
+  const size_t mid = values.size() / 2;
+  std::nth_element(values.begin(), values.begin() + mid, values.end());
+  const float upper = values[mid];
+  if (values.size() % 2 != 0)
+    return upper;
+  const float lower =
+      *std::max_element(values.begin(), values.begin() + mid);
+  return 0.5f * (lower + upper);
+}
 
-  // First differences reject slowly varying astronomical signal while
-  // retaining pixel-scale noise. Their sigma is sqrt(2) times source noise.
-  std::vector<float> differences;
-  differences.reserve(static_cast<size_t>(image.rows()) *
-                      static_cast<size_t>(image.cols()) * 2u);
-  constexpr float inv_sqrt_two = 0.7071067811865475f;
+struct RobustFiniteStats {
+  float median = 0.0f;
+  float mad = 0.0f;
+  float eps = std::nextafter(0.0f, 1.0f);
+};
+
+RobustFiniteStats robust_finite_stats_inplace(std::vector<float> &values) {
+  RobustFiniteStats out;
+  if (values.empty()) return out;
+  out.median = median_inplace(values);
+
+  std::vector<float> work(values.size());
+  for (size_t i = 0; i < values.size(); ++i)
+    work[i] = std::abs(values[i] - out.median);
+  out.mad = median_inplace(work);
+
+  for (size_t i = 0; i < values.size(); ++i)
+    work[i] = std::abs(values[i]);
+  const float median_abs = median_inplace(work);
+  out.eps = std::max(std::nextafter(0.0f, 1.0f),
+                     metrics::aqmh_eps_rel *
+                         std::max(median_abs, out.mad));
+  return out;
+}
+
+float robust_noise_from_differences_inplace(
+    std::vector<float> &differences) {
+  if (differences.empty()) return 0.0f;
+  const float median = median_inplace(differences);
+  for (float &value : differences)
+    value = std::abs(value - median);
+  const float mad = median_inplace(differences);
+  return tile_compile::core::kMadToSigma * mad;
+}
+
+RobustFiniteStats finite_image_stats(
+    const Matrix2Df &image,
+    const std::vector<uint8_t> &validation_mask,
+    std::vector<float> &finite) {
+  finite.clear();
+  finite.reserve(static_cast<size_t>(image.size()));
   for (int y = 0; y < image.rows(); ++y) {
     for (int x = 0; x < image.cols(); ++x) {
-      if (!mask_valid(validation_mask, image.cols(), image.rows(), x, y))
-        continue;
-      const float v = image(y, x);
-      if (!std::isfinite(v)) continue;
-      if (x + 1 < image.cols() &&
-          mask_valid(validation_mask, image.cols(), image.rows(), x + 1, y)) {
-        const float right = image(y, x + 1);
-        if (std::isfinite(right))
-          differences.push_back((v - right) * inv_sqrt_two);
-      }
-      if (y + 1 < image.rows() &&
-          mask_valid(validation_mask, image.cols(), image.rows(), x, y + 1)) {
-        const float below = image(y + 1, x);
-        if (std::isfinite(below))
-          differences.push_back((v - below) * inv_sqrt_two);
+      if (mask_valid(validation_mask, image.cols(), image.rows(), x, y) &&
+          std::isfinite(image(y, x))) {
+        finite.push_back(image(y, x));
       }
     }
   }
-  if (differences.empty()) return 0.0f;
-  const float median = metrics::aqmh_median(differences);
-  return tile_compile::core::kMadToSigma * metrics::aqmh_mad(differences, median);
+  return robust_finite_stats_inplace(finite);
 }
 
-std::vector<StarSample> detect_validation_stars(
+std::vector<AqmhValidationStarSample> detect_validation_stars(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask) {
   constexpr int border = 16;
   constexpr int max_stars = 250;
-  std::vector<StarSample> stars;
+  std::vector<AqmhValidationStarSample> stars;
   if (image.rows() < 2 * border + 1 || image.cols() < 2 * border + 1)
     return stars;
 
   std::vector<float> finite;
-  finite.reserve(static_cast<size_t>(image.size()));
-  for (int y = 0; y < image.rows(); ++y)
-    for (int x = 0; x < image.cols(); ++x)
-      if (mask_valid(validation_mask, image.cols(), image.rows(), x, y) &&
-          std::isfinite(image(y, x)))
-        finite.push_back(image(y, x));
+  const auto stats = finite_image_stats(image, validation_mask, finite);
   if (finite.empty()) return stars;
-  const float med = metrics::aqmh_median(finite);
-  const float sigma = std::max(tile_compile::core::kMadToSigma * metrics::aqmh_mad(finite, med),
-                               metrics::eps_scale(finite));
-  const float threshold = std::max(med + 8.0f * sigma,
-                                   percentile(finite, 0.999f));
+  const float sigma =
+      std::max(tile_compile::core::kMadToSigma * stats.mad, stats.eps);
+  const float threshold =
+      std::max(stats.median + 8.0f * sigma,
+               percentile(finite, 0.999f));
   const float sat = percentile(finite, 0.9998f);
 
   stars.reserve(max_stars);
@@ -145,7 +163,8 @@ std::vector<StarSample> detect_validation_stars(
 }
 
 void measure_star_tail_metrics_at_samples(
-    const Matrix2Df &image, const std::vector<StarSample> &stars,
+    const Matrix2Df &image,
+    const std::vector<AqmhValidationStarSample> &stars,
     const std::vector<uint8_t> &validation_mask, AqmhValidationMetrics &out) {
   constexpr float pi = 3.14159265358979323846f;
   const float target = -3.0f * pi / 4.0f;
@@ -260,14 +279,18 @@ void measure_star_tail_metrics_at_samples(
 }
 
 AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
-    const Matrix2Df &image, const std::vector<StarSample> &stars,
+    const Matrix2Df &image,
+    const std::vector<AqmhValidationStarSample> &stars,
     const std::vector<uint8_t> &validation_mask) {
   AqmhValidationMetrics out;
   if (image.rows() <= 0 || image.cols() <= 0) return out;
   std::vector<float> finite;
   finite.reserve(static_cast<size_t>(image.size()));
+  std::vector<float> differences;
+  differences.reserve(static_cast<size_t>(image.size()) * 2u);
   double gradient_sum = 0.0;
   uint64_t gradient_count = 0;
+  constexpr float inv_sqrt_two = 0.7071067811865475f;
   for (int y = 0; y < image.rows(); ++y) {
     for (int x = 0; x < image.cols(); ++x) {
       if (!mask_valid(validation_mask, image.cols(), image.rows(), x, y))
@@ -278,20 +301,25 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
       if (x + 1 < image.cols() &&
           mask_valid(validation_mask, image.cols(), image.rows(), x + 1, y) &&
           std::isfinite(image(y, x + 1))) {
-        gradient_sum += std::abs(v - image(y, x + 1));
+        const float delta = v - image(y, x + 1);
+        gradient_sum += std::abs(delta);
+        differences.push_back(delta * inv_sqrt_two);
         ++gradient_count;
       }
       if (y + 1 < image.rows() &&
           mask_valid(validation_mask, image.cols(), image.rows(), x, y + 1) &&
           std::isfinite(image(y + 1, x))) {
-        gradient_sum += std::abs(v - image(y + 1, x));
+        const float delta = v - image(y + 1, x);
+        gradient_sum += std::abs(delta);
+        differences.push_back(delta * inv_sqrt_two);
         ++gradient_count;
       }
     }
   }
   if (finite.empty()) return out;
-  const float med = metrics::aqmh_median(finite);
-  const float sigma = tile_compile::core::kMadToSigma * metrics::aqmh_mad(finite, med);
+  const auto stats = robust_finite_stats_inplace(finite);
+  const float med = stats.median;
+  const float sigma = tile_compile::core::kMadToSigma * stats.mad;
   Matrix2Df fwhm_image = image;
   if (!validation_mask.empty()) {
     for (int y = 0; y < image.rows(); ++y)
@@ -301,9 +329,10 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
   }
   out.seam_score = gradient_count > 0
       ? static_cast<float>(gradient_sum / gradient_count) /
-            std::max(sigma, metrics::eps_scale(finite))
+            std::max(sigma, stats.eps)
       : 0.0f;
-  out.background_rms = robust_local_noise_sigma(image, validation_mask);
+  out.background_rms =
+      robust_noise_from_differences_inplace(differences);
   // FWHM is a scale-invariant comparison metric here, but its corner/PSF
   // fitting cost grows sharply with the full canvas size. Keep the original
   // image for background, seam, and star-tail metrics; use a bounded-size
@@ -339,19 +368,27 @@ AqmhValidationMetrics measure_aqmh_validation_metrics(
       image, detect_validation_stars(image, validation_mask), validation_mask);
 }
 
-AqmhValidationComparison compare_aqmh_to_uniform_control(
-    const Matrix2Df &aqmh, const Matrix2Df &control,
+AqmhValidationReference prepare_aqmh_validation_reference(
+    const Matrix2Df &image, const std::vector<uint8_t> &validation_mask) {
+  AqmhValidationReference reference;
+  reference.width = static_cast<int>(image.cols());
+  reference.height = static_cast<int>(image.rows());
+  reference.stars = detect_validation_stars(image, validation_mask);
+  reference.metrics = measure_aqmh_validation_metrics_at_samples(
+      image, reference.stars, validation_mask);
+  return reference;
+}
+
+AqmhValidationComparison compare_aqmh_to_reference(
+    const Matrix2Df &aqmh, const AqmhValidationReference &control,
     const std::vector<uint8_t> &validation_mask) {
   AqmhValidationComparison out;
-  // Candidate and control must use the same stars. Independent detections
-  // compare different populations when sharpness or contrast changes and can
-  // manufacture a tail/elongation regression that is not present in the
-  // image pair.
-  const auto common_stars = detect_validation_stars(control, validation_mask);
+  if (aqmh.cols() != control.width || aqmh.rows() != control.height) {
+    return out;
+  }
   out.aqmh = measure_aqmh_validation_metrics_at_samples(
-      aqmh, common_stars, validation_mask);
-  out.control = measure_aqmh_validation_metrics_at_samples(
-      control, common_stars, validation_mask);
+      aqmh, control.stars, validation_mask);
+  out.control = control.metrics;
   out.seam_score_regression = regression(out.aqmh.seam_score,
                                          out.control.seam_score);
   out.fwhm_regression = regression(out.aqmh.fwhm, out.control.fwhm);
@@ -392,6 +429,18 @@ AqmhValidationComparison compare_aqmh_to_uniform_control(
   if (!out.elongation_applicable) out.elongation_regression = 0.0f;
 
   return out;
+}
+
+AqmhValidationComparison compare_aqmh_to_uniform_control(
+    const Matrix2Df &aqmh, const Matrix2Df &control,
+    const std::vector<uint8_t> &validation_mask) {
+  // Candidate and control must use the same stars. Independent detections
+  // compare different populations when sharpness or contrast changes and can
+  // manufacture a tail/elongation regression that is not present in the
+  // image pair.
+  return compare_aqmh_to_reference(
+      aqmh, prepare_aqmh_validation_reference(control, validation_mask),
+      validation_mask);
 }
 
 } // namespace tile_compile::reconstruction

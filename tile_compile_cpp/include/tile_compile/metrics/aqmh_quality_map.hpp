@@ -26,6 +26,10 @@ struct AqmhQualityMapResult {
   AqmhQualityMapDiagnostics diagnostics;
 };
 
+// NaN-aware population variance over a clipped square neighborhood. Exposed so
+// the linear sliding-window implementation can be regression-tested directly.
+Matrix2Df compute_aqmh_local_variance(const Matrix2Df &image, int radius);
+
 AqmhQualityMapResult compute_aqmh_quality_map(
     const Matrix2Df &frame, const std::vector<uint8_t> &canvas_mask,
     const std::vector<uint8_t> &frame_valid_mask,

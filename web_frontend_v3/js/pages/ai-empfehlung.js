@@ -1,4 +1,4 @@
-// js/pages/ai-empfehlung.js – Sub-Tab: AI Empfehlung (innerhalb Parameter)
+// js/pages/ai-empfehlung.js – AI recommendations and model settings
 
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
@@ -10,6 +10,55 @@ import { pollJob } from "../utils/poll.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { getScanData, getQueueItems, getCalValues } from "./input-scan.js";
 import { getScanState } from "../state/scan-state.js";
+
+export function createAiModelSettingsPage() {
+  const page = el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard());
+  loadAiConfig().finally(() => loadModels());
+  return page;
+}
+
+function createAiModelSettingsCard() {
+  const fd = getAiFormData();
+  return el("div", { class: "tc-card" },
+    el("div", { class: "tc-card-title" }, t("ui.title.model_api", "Modell & API-Key")),
+    el("div", { class: "tc-grid-2" },
+      el("div", {},
+        el("label", { class: "tc-label" }, t("ui.field.provider", "Provider")),
+        el("select", { class: "tc-select", id: "ai-provider", title: t("ui.tooltip.ai.provider", "AI-Anbieter fuer Analyse und Empfehlungen."), onchange: (e) => onAiProviderChange(e.target.value) },
+          ...["anthropic", "openai"].map(v => el("option", { value: v, ...(fd.provider === v ? { selected: true } : {}) }, v)),
+        ),
+      ),
+      el("div", {},
+        el("label", { class: "tc-label" }, t("ui.field.model", "Modell")),
+        el("select", { class: "tc-select", id: "ai-model", title: t("ui.tooltip.ai.model", "Modell, das die Scan-Daten und Config bewertet."), onchange: (e) => onAiModelChange(e.target.value) },
+          el("option", { value: fd.model || "", selected: true }, fd.model || t("ui.placeholder.select_model", "Modell wählen")),
+        ),
+      ),
+    ),
+    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
+      el("input", { type: "password", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: fd.apiKey, title: t("ui.tooltip.ai.api_key", "API-Key fuer den ausgewaehlten Provider. Er wird nicht in Tile-Compile-Configs gespeichert."), placeholder: "API-Key", id: "ai-apikey", oninput: (e) => setAiFormData({ apiKey: e.target.value }) }),
+      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.save_key", "Speichert den Key im PI AuthStorage fuer diesen Provider."), onclick: () => saveApiKey() }, t("ui.button.save_key", "Key speichern")),
+      el("span", { class: "tc-badge tc-badge-success tc-hidden", style: { flexShrink: "0", whiteSpace: "nowrap" }, id: "ai-key-status" }, "\u2713 " + t("ui.state.saved", "gespeichert")),
+    ),
+    el("div", { class: "tc-mt-2" }, el("span", { class: "tc-text-sm tc-text-muted", id: "ai-model-status" }, t("ui.state.model_loading", "Modelle werden geladen..."))),
+    el("div", { class: "tc-text-sm tc-text-muted", id: "ai-pi-version-status" }, t("ui.state.not_loaded", "nicht geladen")),
+    el("div", { class: "tc-mt-2 tc-grid-2" },
+      el("div", {},
+        el("label", { class: "tc-label" }, t("ui.label.image_capability", "Bildfähigkeit")),
+        el("select", { class: "tc-select", id: "ai-vision-override", title: t("ui.tooltip.ai.vision_override", "Automatische Bildfähigkeits-Erkennung verwenden oder für dieses Modell manuell überschreiben."), onchange: () => saveVisionOverride() },
+          el("option", { value: "" }, t("ui.option.auto_detect", "Automatisch")),
+          el("option", { value: "true" }, t("ui.option.force_enabled", "Ja erzwingen")),
+          el("option", { value: "false" }, t("ui.option.force_disabled", "Nein erzwingen")),
+        ),
+      ),
+      el("div", {}, el("label", { class: "tc-label" }, t("ui.label.vision_status", "Vision-Status")), el("div", { class: "tc-text-sm tc-text-muted", id: "ai-vision-status" }, t("ui.state.not_loaded", "nicht geladen"))),
+    ),
+    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
+      el("div", { class: "tc-text-sm tc-text-muted", id: "ai-account-status", style: { flex: "1 1 auto", minWidth: "0" } }, t("ui.state.account_loading", "Kontostatus wird geladen...")),
+      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.refresh_account_status", "Prueft Provider-Key und ausgewaehltes Modell ueber den PI Sidecar."), onclick: () => refreshAiProviderStatus() }, t("ui.button.refresh_account_status", "Status abrufen")),
+    ),
+  );
+}
 
 export function createAiEmpfehlungPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -51,61 +100,6 @@ export function createAiEmpfehlungPage() {
     el("div", { class: "tc-mt-2" },
       el("label", { class: "tc-label" }, t("ui.field.notes", "Notizen")),
       el("input", { type: "text", class: "tc-input", id: "ai-notes", value: fd.notes, title: t("ui.tooltip.ai.notes", "Freitext fuer Besonderheiten, die nicht automatisch aus dem Scan erkennbar sind."), placeholder: "Guiding 0.8\", M31, alt-az test", oninput: (e) => updateAiUiConfig({ notes: e.target.value }, true) }),
-    ),
-  );
-
-  // Model & API Key
-  const modelCard = el("div", { class: "tc-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.model_api", "Modell & API-Key")),
-    el("div", { class: "tc-grid-2" },
-      el("div", {},
-        el("label", { class: "tc-label" }, t("ui.field.provider", "Provider")),
-        el("select", { class: "tc-select", id: "ai-provider", title: t("ui.tooltip.ai.provider", "AI-Anbieter fuer Analyse und Empfehlungen."), onchange: (e) => onAiProviderChange(e.target.value) },
-          ...["anthropic", "openai"].map(v => el("option", { value: v, ...(fd.provider === v ? { selected: true } : {}) }, v)),
-        ),
-      ),
-      el("div", {},
-        el("label", { class: "tc-label" }, t("ui.field.model", "Modell")),
-        el("select", { class: "tc-select", id: "ai-model", title: t("ui.tooltip.ai.model", "Modell, das die Scan-Daten und Config bewertet."), onchange: (e) => onAiModelChange(e.target.value) },
-          el("option", { value: fd.model || "", selected: true }, fd.model || t("ui.placeholder.select_model", "Modell wählen")),
-        ),
-      ),
-    ),
-    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
-      el("input", { type: "password", class: "tc-input", style: { flex: "1 1 auto", minWidth: "0" }, value: fd.apiKey, title: t("ui.tooltip.ai.api_key", "API-Key fuer den ausgewaehlten Provider. Er wird nicht in Tile-Compile-Configs gespeichert."), placeholder: "API-Key", id: "ai-apikey", oninput: (e) => setAiFormData({ apiKey: e.target.value }) }),
-      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.save_key", "Speichert den Key im PI AuthStorage fuer diesen Provider."), onclick: () => saveApiKey() }, t("ui.button.save_key", "Key speichern")),
-      el("span", { class: "tc-badge tc-badge-success tc-hidden", style: { flexShrink: "0", whiteSpace: "nowrap" }, id: "ai-key-status" }, "\u2713 " + t("ui.state.saved", "gespeichert")),
-    ),
-    el("div", { class: "tc-mt-2" },
-      el("span", { class: "tc-text-sm tc-text-muted", id: "ai-model-status" }, t("ui.state.model_loading", "Modelle werden geladen...")),
-    ),
-    el("div", { class: "tc-text-sm tc-text-muted", id: "ai-pi-version-status" }, t("ui.state.not_loaded", "nicht geladen")),
-    el("div", { class: "tc-mt-2 tc-grid-2" },
-      el("div", {},
-        el("label", { class: "tc-label" }, t("ui.label.image_capability", "Bildfähigkeit")),
-        el("select", {
-          class: "tc-select",
-          id: "ai-vision-override",
-          title: t("ui.tooltip.ai.vision_override", "Automatische Bildfähigkeits-Erkennung verwenden oder für dieses Modell manuell überschreiben."),
-          onchange: () => saveVisionOverride(),
-        },
-          el("option", { value: "" }, t("ui.option.auto_detect", "Automatisch")),
-          el("option", { value: "true" }, t("ui.option.force_enabled", "Ja erzwingen")),
-          el("option", { value: "false" }, t("ui.option.force_disabled", "Nein erzwingen")),
-        ),
-      ),
-      el("div", {},
-        el("label", { class: "tc-label" }, t("ui.label.vision_status", "Vision-Status")),
-        el("div", { class: "tc-text-sm tc-text-muted", id: "ai-vision-status" }, t("ui.state.not_loaded", "nicht geladen")),
-      ),
-    ),
-    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
-      el("div", { class: "tc-text-sm tc-text-muted", id: "ai-account-status", style: { flex: "1 1 auto", minWidth: "0" } },
-        t("ui.state.account_loading", "Kontostatus wird geladen..."),
-      ),
-      el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.refresh_account_status", "Prueft Provider-Key und ausgewaehltes Modell ueber den PI Sidecar."), onclick: () => refreshAiProviderStatus() },
-        t("ui.button.refresh_account_status", "Status abrufen"),
-      ),
     ),
   );
 
@@ -227,7 +221,7 @@ export function createAiEmpfehlungPage() {
     ),
   );
 
-  page.append(scanCtx, modelCard, actions, recs, applyBar, piPreview, piStorage, piMemories, piAudit, traffic);
+  page.append(scanCtx, actions, recs, applyBar, piPreview, piStorage, piMemories, piAudit, traffic);
 
   // Load persisted provider/model before loading the model registry.
   loadAiConfig().finally(() => loadModels());
@@ -739,7 +733,7 @@ async function saveApiKey() {
   const key = document.getElementById("ai-apikey")?.value || "";
   if (!provider || !key) return;
   try {
-    await api.post(API_ENDPOINTS.ai.authProvider(provider), { api_key: key });
+    await api.post(API_ENDPOINTS.ai.auth, { provider, api_key: key });
     toastSuccess(t("ui.toast.key_saved", "API-Key gespeichert"));
     await loadAiAccountStatus(provider);
   } catch (e) {
