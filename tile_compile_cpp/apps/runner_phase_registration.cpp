@@ -954,11 +954,6 @@ bool run_phase_registration_prewarp(
         int current_reg_pass_workers = reg_workers;
         std::string current_reg_pass_label = "direct";
         auto reg_worker = [&]() {
-          const int cv_threads_per_worker = std::max(1,
-              static_cast<int>(std::thread::hardware_concurrency()) /
-              std::max(1, current_reg_pass_workers));
-          cv::setNumThreads(cv_threads_per_worker);
-
           while (true) {
             const size_t job = reg_next.fetch_add(1);
             const size_t job_count =
@@ -1112,6 +1107,7 @@ bool run_phase_registration_prewarp(
             current_reg_targets = nullptr;
             return;
           }
+          ScopedOpenCvThreadLimit cv_thread_limit(current_reg_pass_workers);
           if (current_reg_pass_workers > 1) {
             std::vector<std::thread> workers;
             workers.reserve(static_cast<size_t>(current_reg_pass_workers));
@@ -3190,11 +3186,6 @@ bool run_phase_registration_prewarp(
       static_cast<size_t>(prewarp_workers));
 
   auto prewarp_worker = [&](int worker_index) {
-    const int cv_threads_per_worker = std::max(1,
-        static_cast<int>(std::thread::hardware_concurrency()) /
-        std::max(1, prewarp_workers));
-    cv::setNumThreads(cv_threads_per_worker);
-
     std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
     while (true) {
       const size_t fi = prewarp_next.fetch_add(1);
@@ -3292,19 +3283,22 @@ bool run_phase_registration_prewarp(
         std::move(local_overlap_coverage);
   };
 
-  if (prewarp_workers > 1) {
-    std::vector<std::thread> workers;
-    workers.reserve(static_cast<size_t>(prewarp_workers));
-    for (int w = 0; w < prewarp_workers; ++w) {
-      workers.emplace_back(prewarp_worker, w);
-    }
-    for (auto &worker : workers) {
-      if (worker.joinable()) {
-        worker.join();
+  {
+    ScopedOpenCvThreadLimit cv_thread_limit(prewarp_workers);
+    if (prewarp_workers > 1) {
+      std::vector<std::thread> workers;
+      workers.reserve(static_cast<size_t>(prewarp_workers));
+      for (int w = 0; w < prewarp_workers; ++w) {
+        workers.emplace_back(prewarp_worker, w);
       }
+      for (auto &worker : workers) {
+        if (worker.joinable()) {
+          worker.join();
+        }
+      }
+    } else {
+      prewarp_worker(0);
     }
-  } else {
-    prewarp_worker(0);
   }
 
   if (prewarp_failed.load(std::memory_order_relaxed)) {

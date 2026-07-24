@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <opencv2/core/utility.hpp>
 #include <sstream>
 #include <thread>
 
@@ -153,6 +154,42 @@ int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
 }
 
 } // namespace
+
+ScopedOpenCvThreadLimit::ScopedOpenCvThreadLimit(int outer_workers) noexcept {
+#if defined(__APPLE__)
+  // OpenCV's GCD backend does not support positive thread limits. More
+  // importantly, cv::setNumThreads() is process-global and must never be
+  // called concurrently by the application-level workers used on macOS.
+  (void)outer_workers;
+#else
+  try {
+    previous_threads_ = cv::getNumThreads();
+    const unsigned int hardware_threads = std::thread::hardware_concurrency();
+    const int available_threads =
+        hardware_threads == 0 ? 1 : static_cast<int>(hardware_threads);
+    const int target_threads =
+        std::max(1, available_threads / std::max(1, outer_workers));
+    if (target_threads != previous_threads_) {
+      cv::setNumThreads(target_threads);
+      changed_ = true;
+    }
+  } catch (...) {
+    changed_ = false;
+  }
+#endif
+}
+
+ScopedOpenCvThreadLimit::~ScopedOpenCvThreadLimit() noexcept {
+#if !defined(__APPLE__)
+  if (!changed_) {
+    return;
+  }
+  try {
+    cv::setNumThreads(previous_threads_);
+  } catch (...) {
+  }
+#endif
+}
 
 /// @brief Inverts affine warp.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation

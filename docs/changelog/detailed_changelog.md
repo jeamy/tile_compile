@@ -9,7 +9,7 @@
 - **Levels:** Added `levels` with validated `black` (`0…1`), `white` (`0…1`), and `gamma` (`0.1…5`) parameters. Black/white ordering is enforced in backend validation and frontend controls.
 - **Curves:** Added the GUI-only `curves` operation with 2–32 control points. The editor displays a gamma-style graph, supports click-to-add, drag-to-move, and double-click/right-click removal, and uses the same clamped Catmull-Rom spline in frontend and backend. Curves is excluded from the AI operation prompt.
 - **Shadow Recovery:** Added `shadow_recovery` with strength `0…1`.
-- **Highlight Recovery:** Added `highlight_recovery` with strength `0…1`. Explicit highlight/spitzlichter requests are routed to the dedicated dialog even when an AI model proposes generic brightness plus recovery operations.
+- **Highlight Recovery:** Added `highlight_recovery` with strength `0…1`. Explicit highlight/spitzlicht requests are routed to the dedicated dialog even when an AI model proposes generic brightness plus recovery operations.
 - **Color Balance:** Added global red/green/blue correction plus optional shadow, midtone, and highlight RGB adjustments with luminance-weighted deterministic application.
 - **Local Contrast:** Added `local_contrast` with strength `0…1` and radius `0.5…10`.
 - **Chroma Denoise:** Added `chroma_denoise` with strength, structure protection, and `soft`/`strong` modes.

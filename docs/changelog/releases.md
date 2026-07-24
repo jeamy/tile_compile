@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.3 (2026-07-24)
+
+**macOS bug fix:**
+
+- Fixed a segmentation fault (`exit 139`) during the registration phase on Intel Macs.
+- OpenCV's process-global `cv::setNumThreads()` is no longer called concurrently from normalization, global-metrics, registration, or prewarp workers.
+- On macOS, Tile Compile leaves OpenCV's GCD thread pool unchanged and uses its own application-level worker management.
+- On other platforms, OpenCV's thread limit is now configured once outside the worker threads and restored safely after they finish.
+
 ## v0.4.2 (2026-07-24)
 
 **PI Live Image Editor commands, editable AI proposals, and reusable timelines:**

@@ -64,6 +64,22 @@ int compute_adaptive_worker_count(
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
 
+/// Temporarily limits OpenCV's global worker pool while application-level
+/// workers run. Construction and destruction must happen outside all worker
+/// threads because cv::setNumThreads() is process-global and not thread-safe.
+class ScopedOpenCvThreadLimit {
+public:
+  explicit ScopedOpenCvThreadLimit(int outer_workers) noexcept;
+  ~ScopedOpenCvThreadLimit() noexcept;
+
+  ScopedOpenCvThreadLimit(const ScopedOpenCvThreadLimit &) = delete;
+  ScopedOpenCvThreadLimit &operator=(const ScopedOpenCvThreadLimit &) = delete;
+
+private:
+  int previous_threads_ = 0;
+  bool changed_ = false;
+};
+
 /// Memory-aware worker plan for full-resolution AQMH quality-map generation.
 /// AQMH_MAPS allocates several full-canvas intermediate matrices per worker;
 /// its ordinary CPU worker heuristic must therefore be capped separately.
