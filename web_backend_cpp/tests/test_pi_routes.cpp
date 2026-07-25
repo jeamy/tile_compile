@@ -834,6 +834,8 @@ int main(int argc, char** argv) {
         expect_true(undo_resp.contains("image_base64"), "live-image-chat undo has image_base64");
         expect_true(undo_resp.contains("can_undo"), "live-image-chat undo has can_undo");
         expect_true(undo_resp.contains("can_redo"), "live-image-chat undo has can_redo");
+        expect_true(undo_resp.contains("next_undo"), "live-image-chat undo has next_undo tooltip operation");
+        expect_true(undo_resp.contains("next_redo"), "live-image-chat undo has next_redo tooltip operation");
 
         // 7. Redo
         const auto redo_resp = harness.post_json("/api/pi/live-image-chat/redo", {
@@ -842,6 +844,8 @@ int main(int argc, char** argv) {
         expect_equal(redo_resp["_http_status"].get<long>(), 200L,
                      "live-image-chat redo status");
         expect_true(redo_resp.contains("image_base64"), "live-image-chat redo has image_base64");
+        expect_true(redo_resp.contains("next_undo"), "live-image-chat redo has next_undo tooltip operation");
+        expect_true(redo_resp.contains("next_redo"), "live-image-chat redo has next_redo tooltip operation");
 
         // 8. Export PNG
         const auto export_resp = harness.post_json("/api/pi/live-image-chat/export", {

@@ -49,6 +49,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     repeatActive: false,
     canUndo: false,
     canRedo: false,
+    nextUndo: null,
+    nextRedo: null,
     chatHistory: [],
     isLoading: false,
     scale: 1,
@@ -87,6 +89,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   const undoBtn = document.createElement("button");
   undoBtn.className = "live-image-viewer__btn live-image-viewer__btn--undo";
   undoBtn.textContent = t("liveImage.undo", "Undo");
+  undoBtn.title = t("liveImage.undoUnavailable", "Nothing to undo");
   undoBtn.disabled = true;
   undoBtn.addEventListener("click", () => doUndo());
   toolbarBtns.appendChild(undoBtn);
@@ -94,6 +97,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   const redoBtn = document.createElement("button");
   redoBtn.className = "live-image-viewer__btn live-image-viewer__btn--redo";
   redoBtn.textContent = t("liveImage.redo", "Redo");
+  redoBtn.title = t("liveImage.redoUnavailable", "Nothing to redo");
   redoBtn.disabled = true;
   redoBtn.addEventListener("click", () => doRedo());
   toolbarBtns.appendChild(redoBtn);
@@ -566,7 +570,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     try {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.reapply, { session_id: state.sessionId, operations: [operation] });
       addChatBubble("assistant", resp.summary || t("liveImage.operationApplied", "Operation angewendet."), resp.operations || [operation]);
-      commitOperation(resp.image_base64, beforeSrc); updateUndoRedo(resp.can_undo === true, resp.can_redo === true); renderOperationEditor(resp.operations || [operation]);
+      commitOperation(resp.image_base64, beforeSrc); updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo); renderOperationEditor(resp.operations || [operation]);
     } catch (err) { cancelOperation(); addChatBubble("assistant", `Error: ${err.message}`); }
     finally { setLoading(false); }
   }
@@ -615,7 +619,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       });
       addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation erneut angewendet."), resp.operations || operations);
       commitOperation(resp.image_base64, beforeSrc);
-      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
       updateAdjustControls(false, "", 0);
       updateRepeatControl(false);
     } catch (err) {
@@ -801,11 +805,27 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   });
   presetApplyBtn.addEventListener("click", () => doApplyPreset());
 
-  function updateUndoRedo(canUndo, canRedo) {
+  function operationLabel(operation) {
+    const type = String(operation?.type || "").trim();
+    if (!type) return t("liveImage.operationUnknown", "the last operation");
+    return type
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+
+  function updateUndoRedo(canUndo, canRedo, nextUndo = null, nextRedo = null) {
     state.canUndo = canUndo;
     state.canRedo = canRedo;
+    state.nextUndo = nextUndo || null;
+    state.nextRedo = nextRedo || null;
     undoBtn.disabled = !canUndo;
     redoBtn.disabled = !canRedo;
+    undoBtn.title = canUndo
+      ? t("liveImage.undoNext", "Undo: {operation}", { operation: operationLabel(nextUndo) })
+      : t("liveImage.undoUnavailable", "Nothing to undo");
+    redoBtn.title = canRedo
+      ? t("liveImage.redoNext", "Redo: {operation}", { operation: operationLabel(nextRedo) })
+      : t("liveImage.redoUnavailable", "Nothing to redo");
   }
 
   async function open() {
@@ -821,7 +841,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         restoreChatHistory(resp.chat_history);
       }
 
-      updateUndoRedo(false, false);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
       await loadPresets();
     } catch (err) {
       addChatBubble("assistant", `Error: ${err.message}`);
@@ -838,7 +858,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.presetApply, { session_id: state.sessionId, preset_id: state.selectedPresetId });
       addChatBubble("assistant", t("liveImage.presetApplied", "Preset angewendet."));
       commitOperation(resp.image_base64, beforeSrc);
-      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
       updateAdjustControls(false, "", 0);
       updateRepeatControl(false);
     } catch (err) { cancelOperation(); addChatBubble("assistant", `Error: ${err.message}`); }
@@ -868,7 +888,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         addChatBubble("assistant", resp.summary || "", resp.operations);
         commitOperation(resp.image_base64, beforeSrc);
       }
-      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
 
       if (resp.adjustable) {
         const label = resp.adjust_step?.label || resp.adjust_step?.type || t("liveImage.adjustStep", "Adjust");
@@ -900,6 +920,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       });
       commitOperation(resp.image_base64, beforeSrc);
       updateAdjustControls(true, state.adjustLabel, resp.adjust_count || 0);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
     } catch (err) {
       cancelOperation();
       addChatBubble("assistant", `Error: ${err.message}`);
@@ -918,7 +939,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       });
       addChatBubble("assistant", resp.summary || t("liveImage.repeatDone", "Operation applied again."), resp.operations);
       commitOperation(resp.image_base64, beforeSrc);
-      updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+      updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
       updateRepeatControl(resp.repeatable !== false);
     } catch (err) {
       cancelOperation();
@@ -938,11 +959,11 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         session_id: state.sessionId,
       });
       commitOperation(resp.image_base64, beforeSrc);
-      updateUndoRedo(resp.can_undo, resp.can_redo);
+      updateUndoRedo(resp.can_undo, resp.can_redo, resp.next_undo, resp.next_redo);
     } catch (err) {
       cancelOperation();
       if (err.status === 404) {
-        updateUndoRedo(false, state.canRedo);
+        updateUndoRedo(false, state.canRedo, null, state.nextRedo);
       } else {
         addChatBubble("assistant", `Error: ${err.message}`);
       }
@@ -960,11 +981,11 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         session_id: state.sessionId,
       });
       commitOperation(resp.image_base64, beforeSrc);
-      updateUndoRedo(resp.can_undo, resp.can_redo);
+      updateUndoRedo(resp.can_undo, resp.can_redo, resp.next_undo, resp.next_redo);
     } catch (err) {
       cancelOperation();
       if (err.status === 404) {
-        updateUndoRedo(state.canUndo, false);
+        updateUndoRedo(state.canUndo, false, state.nextUndo, null);
       } else {
         addChatBubble("assistant", `Error: ${err.message}`);
       }
@@ -1346,7 +1367,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
       }).then((resp) => {
         addChatBubble("assistant", resp.summary || "");
         commitOperation(resp.image_base64, beforeSrc);
-        updateUndoRedo(resp.can_undo === true, resp.can_redo === true);
+        updateUndoRedo(resp.can_undo === true, resp.can_redo === true, resp.next_undo, resp.next_redo);
         updateRepeatControl(resp.repeatable === true && !resp.adjustable);
       }).catch((err) => {
         cancelOperation();
