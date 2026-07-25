@@ -2,14 +2,20 @@
 
 ### (2026-07-25)
 
-**v0.4.4 — AQMH GPU- und MAPS-Performanceoptimierungen:**
+**v0.4.5 — PI API key configuration bug fix:**
 
-- **AQMH_MAPS:** Bilineares Psi-Upsampling und logarithmische Akkumulation wurden zu einem Durchlauf fusioniert. Die große Upsample-Zwischenmatrix entfällt.
-- **MAPS-Laufzeit:** Im nativen 64-Frame-A/B-Test sank Psi-Upsample/Akkumulation um 19,5 % und die gesamte Quality-Map-Berechnung um 6,7 %. Alle 64 Q-Map-Cachedateien blieben bitidentisch.
-- **CUDA-Reconstruction:** Die CUDA-Übersetzung bindet nun `OpenMP::OpenMP_CUDA` ein. Dadurch werden die parallelen Host-Vorbereitungs-Schleifen tatsächlich mit OpenMP kompiliert und ausgeführt.
-- **Reconstruction-Laufzeit:** Im kontrollierten nativen 64-Frame-Test mit identischer Chunk-Geometrie sank der Reconstruction-Core von 47,31 auf 31,70 Sekunden (33,0 %). Die Host-Vorbereitung sank von 30,33 auf 14,46 Sekunden (52,3 %).
-- **Telemetrie:** AQMH-Artefakte erfassen nun getrennte MAPS-Stage-Zeiten sowie CUDA-Hostvorbereitung, H2D, Kernel, D2H, Ergebnisübernahme und summierte Workerzeiten.
-- **Regression:** Das Raw-AQMH-FITS blieb bei identischen `chunk_rows` bitidentisch (0 von 8.507.400 Pixeln verschieden). Die Gesamtsuite bestand mit 240 von 241 Testfällen; der einzige übersprungene CUDA-Unit-Test hatte im Sandbox-Prozess keinen Zugriff auf ein CUDA-Gerät.
+- Corrected the PI sidecar/frontend status contract: the frontend recognises `auth_storage` as a stored API key and no longer incorrectly displays it as missing.
+- After **Save Key**, the UI immediately reloads providers, models, and key status. The sidecar activates the key during saving, so a browser refresh is no longer necessary.
+- The API key input field is cleared after a successful save for safety and clarity.
+
+**v0.4.4 — AQMH GPU and MAPS performance optimizations:**
+
+- **AQMH_MAPS:** Bilinear Psi upsampling and logarithmic accumulation were fused into one pass, eliminating the large intermediate upsample matrix.
+- **MAPS runtime:** In the native 64-frame A/B test, Psi upsampling/accumulation decreased by 19.5% and total quality-map computation by 6.7%. All 64 Q-map cache files remained bit-identical.
+- **CUDA reconstruction:** The CUDA build now links `OpenMP::OpenMP_CUDA`, so the parallel host-preparation loops are compiled and executed with OpenMP.
+- **Reconstruction runtime:** In the controlled native 64-frame test with identical chunk geometry, the reconstruction core decreased from 47.31 to 31.70 seconds (33.0%). Host preparation decreased from 30.33 to 14.46 seconds (52.3%).
+- **Telemetry:** AQMH artifacts now record separate MAPS-stage timings as well as CUDA host preparation, H2D, kernel, D2H, result commit, and summed worker timings.
+- **Regression:** Raw AQMH FITS remained bit-identical with identical `chunk_rows` (0 of 8,507,400 pixels differ). The full suite passed 240 of 241 test cases; the only skipped CUDA unit test had no CUDA-device access in the sandbox process.
 
 ### (2026-07-24)
 

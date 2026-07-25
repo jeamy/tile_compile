@@ -1,11 +1,19 @@
 # Release Notes
 
+## v0.4.5 (2026-07-25)
+
+**PI API key configuration bug fix:**
+
+- Provider and model lists are reloaded immediately after saving an API key; a page refresh is no longer required.
+- The status display now correctly recognises the sidecar status `auth_storage` and no longer incorrectly reports stored keys as missing.
+- The API key input field is cleared after a successful save.
+
 ## v0.4.4 (2026-07-25)
 
-**AQMH GPU- und MAPS-Performanceoptimierungen:**
+**AQMH GPU and MAPS performance optimizations:**
 
-- **Schnellere AQMH Quality Maps:** Psi-Upsampling und logarithmische Akkumulation wurden fusioniert. Im nativen 64-Frame-A/B-Test sank dieser Hotspot um 19,5 % und die gesamte Quality-Map-Berechnung um 6,7 %; alle Q-Map-Caches blieben bitidentisch.
-- **Schnellere CUDA-Reconstruction:** Die CUDA-Übersetzung aktiviert jetzt OpenMP für die parallele Hostvorbereitung. Bei identischer Chunk-Geometrie sank der Reconstruction-Core im nativen Test von 47,31 auf 31,70 Sekunden (33,0 %); die Host-Vorbereitung sank von 30,33 auf 14,46 Sekunden (52,3 %).
+- **Faster AQMH quality maps:** Psi upsampling and logarithmic accumulation were fused. In the native 64-frame A/B test, this hotspot decreased by 19.5% and total quality-map computation by 6.7%; all Q-map caches remained bit-identical.
+- **Faster CUDA reconstruction:** The CUDA build now enables OpenMP for parallel host preparation. With identical chunk geometry, the reconstruction core decreased from 47.31 to 31.70 seconds (33.0%) in the native test; host preparation decreased from 30.33 to 14.46 seconds (52.3%).
 
 ## v0.4.3 (2026-07-24)
 
