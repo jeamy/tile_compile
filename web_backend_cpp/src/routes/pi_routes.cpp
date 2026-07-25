@@ -27,6 +27,7 @@
 #include <regex>
 #include <functional>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -658,7 +659,8 @@ nlohmann::json fallback_parse_message(const std::string& msg, const cv::Mat& ima
         angle = std::clamp(angle, -180.0, 180.0);
         operations.push_back({{"type", "crop_rotated"}, {"params", {{"cx", cx}, {"cy", cy}, {"w", cw}, {"h", ch}, {"angle", angle}}}});
         summary = "Bild gedreht zugeschnitten.";
-    } else if (has("crop") || has("zuschneid") || has("beschneid") || has("rand abschneiden")) {
+    } else if (has("crop") || has("zuschneid") || has("beschneid") ||
+               has("schneide") || has("rand abschneiden") || has("rand ab")) {
         int cx = 0, cy = 0, cw = 0, ch = 0;
         std::smatch pxmatch;
         if (std::regex_search(lower, pxmatch,
@@ -793,12 +795,10 @@ tile_compile::ai::AiConfig current_pi_ai_config(const std::shared_ptr<AppState>&
         }
     }
     nlohmann::json merged = tile_compile::ai::merge_ai_config_json(
-        tile_compile::ai::ai_config_to_json(tile_compile::ai::default_ai_config(state->runtime)),
-        read_pi_ai_config_file(state),
-        state->runtime);
+        tile_compile::ai::ai_config_to_json(tile_compile::ai::default_ai_config()),
+        read_pi_ai_config_file(state));
     return tile_compile::ai::ai_config_from_json(
-        tile_compile::ai::merge_ai_config_json(merged, memory_config, state->runtime),
-        state->runtime);
+        tile_compile::ai::merge_ai_config_json(merged, memory_config));
 }
 
 std::filesystem::path pi_run_chat_history_path(const std::shared_ptr<AppState>& state,
@@ -886,6 +886,7 @@ nlohmann::json read_pi_live_image_chat_history(const std::shared_ptr<AppState>& 
                 {"run_id", run_id},
                 {"chat_history", nlohmann::json::array()},
                 {"operation_history", nlohmann::json::array()},
+                {"redo_history", nlohmann::json::array()},
                 {"edit_history", nlohmann::json::array()}};
     std::ifstream in(path);
     auto data = nlohmann::json::parse(in, nullptr, false);
@@ -894,6 +895,7 @@ nlohmann::json read_pi_live_image_chat_history(const std::shared_ptr<AppState>& 
                 {"run_id", run_id},
                 {"chat_history", nlohmann::json::array()},
                 {"operation_history", nlohmann::json::array()},
+                {"redo_history", nlohmann::json::array()},
                 {"edit_history", nlohmann::json::array()}};
     return data;
 }
@@ -909,6 +911,8 @@ void write_pi_live_image_chat_history(const std::shared_ptr<AppState>& state,
         history["chat_history"] = nlohmann::json::array();
     if (!history.contains("operation_history") || !history["operation_history"].is_array())
         history["operation_history"] = nlohmann::json::array();
+    if (!history.contains("redo_history") || !history["redo_history"].is_array())
+        history["redo_history"] = nlohmann::json::array();
     if (!history.contains("edit_history") || !history["edit_history"].is_array())
         history["edit_history"] = nlohmann::json::array();
     history["last_updated"] = utc_now_iso();
@@ -932,11 +936,13 @@ void persist_live_session(const std::shared_ptr<AppState>& state,
     if (run_id.empty()) return;
     const auto chat_history = store->get_chat_history(session_id);
     const auto operation_history = store->get_operation_history(session_id);
+    nlohmann::json redo_history = nlohmann::json::array();
     nlohmann::json edit_history = nlohmann::json::array();
     store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        redo_history = s.redo_stack;
         edit_history = s.edit_history;
     });
-    if (chat_history.empty() && operation_history.empty() && edit_history.empty()) {
+    if (chat_history.empty() && operation_history.empty() && redo_history.empty() && edit_history.empty()) {
         std::error_code ec;
         std::filesystem::remove(pi_live_image_chat_history_path(state, run_id), ec);
         return;
@@ -944,6 +950,7 @@ void persist_live_session(const std::shared_ptr<AppState>& state,
     write_pi_live_image_chat_history(state, run_id, {
         {"chat_history", chat_history},
         {"operation_history", operation_history},
+        {"redo_history", redo_history},
         {"edit_history", edit_history},
         {"created_at", utc_now_iso()}
     });
@@ -980,6 +987,84 @@ nlohmann::json stack_top_label(const std::vector<nlohmann::json>& stack) {
     const auto& top = stack.back();
     if (!top.is_object() || !top.contains("type")) return nullptr;
     return top;
+}
+
+struct LiveImageStateSnapshot {
+    bool found{false};
+    cv::Mat image;
+    std::string image_base64;
+    int width{0};
+    int height{0};
+    bool can_undo{false};
+    bool can_redo{false};
+    nlohmann::json next_undo{nullptr};
+    nlohmann::json next_redo{nullptr};
+    int adjust_count{0};
+};
+
+LiveImageStateSnapshot live_image_state_snapshot(
+    const std::shared_ptr<tile_compile::pi::LiveImageSessionStore>& store,
+    const std::string& session_id,
+    bool encode_preview = true) {
+    LiveImageStateSnapshot snapshot;
+    snapshot.found = store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+        snapshot.image = s.current_fits.clone();
+        snapshot.width = s.current_fits.cols;
+        snapshot.height = s.current_fits.rows;
+        snapshot.can_undo = !s.undo_stack.empty();
+        snapshot.can_redo = !s.redo_stack.empty();
+        snapshot.next_undo = stack_top_label(s.undo_stack);
+        snapshot.next_redo = stack_top_label(s.redo_stack);
+        snapshot.adjust_count = s.adjust_count;
+    });
+    if (snapshot.found && encode_preview && !snapshot.image.empty()) {
+        snapshot.image_base64 = mat_to_jpeg_base64(snapshot.image, 85);
+    }
+    return snapshot;
+}
+
+void add_live_image_state(nlohmann::json& response,
+                          const LiveImageStateSnapshot& snapshot,
+                          bool include_dimensions = false) {
+    response["image_base64"] = snapshot.image_base64;
+    response["image_mime"] = "image/jpeg";
+    response["can_undo"] = snapshot.can_undo;
+    response["can_redo"] = snapshot.can_redo;
+    response["next_undo"] = snapshot.next_undo;
+    response["next_redo"] = snapshot.next_redo;
+    if (include_dimensions) {
+        response["image_width"] = snapshot.width;
+        response["image_height"] = snapshot.height;
+    }
+}
+
+std::optional<std::string> try_persist_live_session(
+    const std::shared_ptr<AppState>& state,
+    const std::shared_ptr<tile_compile::pi::LiveImageSessionStore>& store,
+    const std::string& session_id) {
+    try {
+        persist_live_session(state, store, session_id);
+        return std::nullopt;
+    } catch (const std::exception& e) {
+        std::cerr << "[PI] Failed to persist live-image session " << session_id
+                  << ": " << e.what() << '\n';
+        return e.what();
+    } catch (...) {
+        std::cerr << "[PI] Failed to persist live-image session " << session_id
+                  << ": unknown error\n";
+        return "unknown persistence error";
+    }
+}
+
+void add_persistence_status(nlohmann::json& response,
+                            const std::optional<std::string>& error) {
+    response["persisted"] = !error.has_value();
+    if (error) {
+        response["warnings"].push_back({
+            {"code", "LIVE_SESSION_PERSIST_FAILED"},
+            {"message", *error}
+        });
+    }
 }
 
 nlohmann::json read_live_preset(const std::shared_ptr<AppState>& state,
@@ -2959,6 +3044,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             // the canonical current working image from a previous session.
             auto saved = read_pi_live_image_chat_history(state, run_id);
             nlohmann::json op_history = saved.value("operation_history", nlohmann::json::array());
+            nlohmann::json redo_history = saved.value("redo_history", nlohmann::json::array());
             const bool has_live_edit = fs::exists(live_edit_path);
             const bool resumed = has_live_edit || !op_history.empty() ||
                 !saved.value("chat_history", nlohmann::json::array()).empty();
@@ -3006,35 +3092,35 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                         replay = std::move(replay_result.image);
                     }
                 }
+                // Redo is a LIFO stack. Rebuild its post-operation snapshots
+                // from the active replay image, traversing the stack from its
+                // next entry (back) towards the farthest entry (front).
+                if (redo_history.is_array()) {
+                    for (const auto& history_op : redo_history) {
+                        if (history_op.is_object()) s.redo_stack.push_back(history_op);
+                    }
+                    cv::Mat redo_replay = replay;
+                    for (auto it = s.redo_stack.rbegin(); it != s.redo_stack.rend(); ++it) {
+                        auto redo_result = tile_compile::pi::apply_image_op_fits(redo_replay, *it);
+                        if (!redo_result.success) {
+                            s.redo_stack.clear();
+                            s.redo_snapshots.clear();
+                            break;
+                        }
+                        redo_replay = std::move(redo_result.image);
+                        s.redo_snapshots.insert(s.redo_snapshots.begin(), redo_replay.clone());
+                    }
+                }
             });
 
-            std::string preview_b64;
-            int img_w = 0, img_h = 0;
-            bool can_undo = false, can_redo = false;
-            nlohmann::json next_undo_op, next_redo_op;
-            live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-                preview_b64 = mat_to_jpeg_base64(s.current_fits, 85);
-                img_w = s.current_fits.cols;
-                img_h = s.current_fits.rows;
-                can_undo = !s.undo_stack.empty();
-                can_redo = !s.redo_stack.empty();
-                next_undo_op = stack_top_label(s.undo_stack);
-                next_redo_op = stack_top_label(s.redo_stack);
-            });
+            const auto snapshot = live_image_state_snapshot(live_store, session_id);
 
             nlohmann::json resp = {
                 {"session_id", session_id},
                 {"run_id", run_id},
-                {"image_base64", preview_b64},
-                {"image_mime", "image/jpeg"},
-                {"image_width", img_w},
-                {"image_height", img_h},
-                {"resumed", resumed},
-                {"can_undo", can_undo},
-                {"can_redo", can_redo},
-                {"next_undo", next_undo_op},
-                {"next_redo", next_redo_op}
+                {"resumed", resumed}
             };
+            add_live_image_state(resp, snapshot, true);
             nlohmann::json chat_history = saved.value("chat_history", nlohmann::json::array());
             if (!chat_history.empty()) {
                 resp["chat_history"] = chat_history;
@@ -3090,7 +3176,9 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const bool local_crop_request = lower_message.find("crop") != std::string::npos ||
             lower_message.find("zuschneid") != std::string::npos ||
             lower_message.find("beschneid") != std::string::npos ||
-            lower_message.find("rand abschneiden") != std::string::npos;
+            lower_message.find("schneide") != std::string::npos ||
+            lower_message.find("rand abschneiden") != std::string::npos ||
+            lower_message.find("rand ab") != std::string::npos;
 
         // Try AI sidecar unless this is a local-only crop request.
         nlohmann::json ai_result;
@@ -3260,19 +3348,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         // Persist the float working copy and render preview
         if (!applied_ops.empty()) persist_live_edit_fits(state, live_store, session_id);
 
-        std::string updated_b64;
-        int img_w = 0, img_h = 0;
-        bool can_undo = false, can_redo = false;
-        nlohmann::json next_undo_op, next_redo_op;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            updated_b64 = mat_to_jpeg_base64(s.current_fits, 85);
-            img_w = s.current_fits.cols;
-            img_h = s.current_fits.rows;
-            can_undo = !s.undo_stack.empty();
-            can_redo = !s.redo_stack.empty();
-            next_undo_op = stack_top_label(s.undo_stack);
-            next_redo_op = stack_top_label(s.redo_stack);
-        });
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
 
         nlohmann::json resp = {
             {"schema_version", "pi.live-image-chat.v1"},
@@ -3280,25 +3356,18 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             {"summary", summary},
             {"operations", requires_confirmation ? proposed_ops : applied_ops},
             {"requires_confirmation", requires_confirmation && !proposed_ops.empty()},
-            {"image_base64", updated_b64},
-            {"image_mime", "image/jpeg"},
-            {"image_width", img_w},
-            {"image_height", img_h},
             {"adjustable", adjustable},
             {"repeatable", repeatable},
-            {"can_undo", can_undo},
-            {"can_redo", can_redo},
-            {"next_undo", next_undo_op},
-            {"next_redo", next_redo_op},
             {"mode", ai_result.value("mode", sidecar_ok ? "sidecar" : "local_fallback")}
         };
+        add_live_image_state(resp, snapshot, true);
         resp["warnings"] = warnings;
         if (!effective_adjust_step.is_null())
             resp["adjust_step"] = effective_adjust_step;
         if (!last_error.empty())
             resp["last_error"] = last_error;
 
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        add_persistence_status(resp, try_persist_live_session(state, live_store, session_id));
         return json_resp(resp);
     });
 
@@ -3318,27 +3387,17 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         });
         live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", repeated_op);
         persist_live_edit_fits(state, live_store, session_id);
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        bool can_undo = false, can_redo = false;
-        nlohmann::json next_undo_op, next_redo_op;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            can_undo = !s.undo_stack.empty();
-            can_redo = !s.redo_stack.empty();
-            next_undo_op = stack_top_label(s.undo_stack);
-            next_redo_op = stack_top_label(s.redo_stack);
-        });
-        return json_resp({
+        const auto persistence_error = try_persist_live_session(state, live_store, session_id);
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {
             {"session_id", session_id},
             {"summary", "Operation erneut angewendet."},
             {"operations", repeated_op.is_null() ? nlohmann::json::array() : nlohmann::json::array({repeated_op})},
-            {"image_base64", mat_to_jpeg_base64(result.image, 85)},
-            {"image_mime", "image/jpeg"},
-            {"can_undo", can_undo},
-            {"can_redo", can_redo},
-            {"next_undo", next_undo_op},
-            {"next_redo", next_redo_op},
             {"repeatable", true}
-        });
+        };
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, persistence_error);
+        return json_resp(response);
     });
 
     // Reapply an operation recorded in a chat message without invoking AI.
@@ -3355,17 +3414,16 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!result.success) return err_resp("REAPPLY_FAILED", result.error, 400);
         live_store->append_chat(session_id, "assistant", "Operation erneut angewendet.", operations);
         persist_live_edit_fits(state, live_store, session_id);
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        bool can_undo = false;
-        nlohmann::json next_undo_op;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            can_undo = !s.undo_stack.empty();
-            next_undo_op = stack_top_label(s.undo_stack);
-        });
-        return json_resp({{"ok", true}, {"summary", "Operation erneut angewendet."},
-                          {"operations", operations}, {"image_base64", mat_to_jpeg_base64(result.image, 85)},
-                          {"image_mime", "image/jpeg"}, {"can_undo", can_undo}, {"can_redo", false},
-                          {"next_undo", next_undo_op}, {"next_redo", nullptr}});
+        const auto persistence_error = try_persist_live_session(state, live_store, session_id);
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {
+            {"ok", true},
+            {"summary", "Operation erneut angewendet."},
+            {"operations", operations}
+        };
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, persistence_error);
+        return json_resp(response);
     });
 
     CROW_ROUTE(app, "/api/pi/live-image-chat/preview-operation").methods("POST"_method)
@@ -3400,30 +3458,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
         persist_live_edit_fits(state, live_store, session_id);
 
-        std::string b64;
-        int adjust_count = 0;
-        bool can_undo = false, can_redo = false;
-        nlohmann::json next_undo_op, next_redo_op;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            b64 = mat_to_jpeg_base64(s.current_fits, 85);
-            adjust_count = s.adjust_count;
-            can_undo = !s.undo_stack.empty();
-            can_redo = !s.redo_stack.empty();
-            next_undo_op = stack_top_label(s.undo_stack);
-            next_redo_op = stack_top_label(s.redo_stack);
-        });
-
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        return json_resp({
-            {"image_base64", b64},
-            {"image_mime", "image/jpeg"},
-            {"adjust_count", adjust_count},
-            {"direction", direction},
-            {"can_undo", can_undo},
-            {"can_redo", can_redo},
-            {"next_undo", next_undo_op},
-            {"next_redo", next_redo_op}
-        });
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {
+            {"adjust_count", snapshot.adjust_count},
+            {"direction", direction}
+        };
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, try_persist_live_session(state, live_store, session_id));
+        return json_resp(response);
     });
 
     // 4. POST /api/pi/live-image-chat/undo
@@ -3440,21 +3482,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
         persist_live_edit_fits(state, live_store, session_id);
 
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        nlohmann::json next_undo_op, next_redo_op;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            next_undo_op = stack_top_label(s.undo_stack);
-            next_redo_op = stack_top_label(s.redo_stack);
-        });
-        return json_resp({
-            {"image_base64", mat_to_jpeg_base64(res.image, 85)},
-            {"image_mime", "image/jpeg"},
-            {"summary", res.summary},
-            {"can_undo", res.can_undo},
-            {"can_redo", res.can_redo},
-            {"next_undo", next_undo_op},
-            {"next_redo", next_redo_op}
-        });
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {{"summary", res.summary}};
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, try_persist_live_session(state, live_store, session_id));
+        return json_resp(response);
     });
 
     // 5. POST /api/pi/live-image-chat/redo
@@ -3471,21 +3503,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
         persist_live_edit_fits(state, live_store, session_id);
 
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        nlohmann::json next_undo_op_r, next_redo_op_r;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
-            next_undo_op_r = stack_top_label(s.undo_stack);
-            next_redo_op_r = stack_top_label(s.redo_stack);
-        });
-        return json_resp({
-            {"image_base64", mat_to_jpeg_base64(res.image, 85)},
-            {"image_mime", "image/jpeg"},
-            {"summary", res.summary},
-            {"can_undo", res.can_undo},
-            {"can_redo", res.can_redo},
-            {"next_undo", next_undo_op_r},
-            {"next_redo", next_redo_op_r}
-        });
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {{"summary", res.summary}};
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, try_persist_live_session(state, live_store, session_id));
+        return json_resp(response);
     });
 
     // 6. POST /api/pi/live-image-chat/reset
@@ -3675,12 +3697,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         live_store->append_chat(session_id, "assistant", "Preset angewendet: " + preset.value("name", id),
                                 preset.value("operations", nlohmann::json::array()));
         persist_live_edit_fits(state, live_store, session_id);
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
-        bool can_undo = false;
-        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) { can_undo = !s.undo_stack.empty(); });
-        return json_resp({{"ok", true}, {"preset", live_preset_summary(preset)},
-                          {"image_base64", mat_to_jpeg_base64(result.image, 85)}, {"image_mime", "image/jpeg"},
-                          {"can_undo", can_undo}, {"can_redo", false}});
+        const auto snapshot = live_image_state_snapshot(live_store, session_id);
+        nlohmann::json response = {
+            {"ok", true},
+            {"preset", live_preset_summary(preset)}
+        };
+        add_live_image_state(response, snapshot);
+        add_persistence_status(response, try_persist_live_session(state, live_store, session_id));
+        return json_resp(response);
     });
 
     // 8. GET /api/pi/live-image-chat/history
@@ -3700,8 +3724,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const std::string session_id = body->value("session_id", std::string());
         if (session_id.empty()) return err_resp("BAD_REQUEST", "session_id is required", 400);
 
-        // Persist chat and operation history before closing
-        try { persist_live_session(state, live_store, session_id); } catch (...) {}
+        // Do not discard the in-memory session if durable persistence failed.
+        if (const auto error = try_persist_live_session(state, live_store, session_id)) {
+            return err_resp("LIVE_SESSION_PERSIST_FAILED", *error, 500);
+        }
 
         live_store->close(session_id);
         return json_resp({{"ok", true}});

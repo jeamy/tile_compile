@@ -111,14 +111,13 @@ json current_ai_config_json(const std::shared_ptr<AppState>& state) {
         }
     }
     json merged = tile_compile::ai::merge_ai_config_json(
-        tile_compile::ai::ai_config_to_json(tile_compile::ai::default_ai_config(state->runtime)),
-        file_config,
-        state->runtime);
-    return tile_compile::ai::merge_ai_config_json(merged, memory_config, state->runtime);
+        tile_compile::ai::ai_config_to_json(tile_compile::ai::default_ai_config()),
+        file_config);
+    return tile_compile::ai::merge_ai_config_json(merged, memory_config);
 }
 
 tile_compile::ai::AiConfig current_ai_config(const std::shared_ptr<AppState>& state) {
-    return tile_compile::ai::ai_config_from_json(current_ai_config_json(state), state->runtime);
+    return tile_compile::ai::ai_config_from_json(current_ai_config_json(state));
 }
 
 bool store_ai_config_json(const std::shared_ptr<AppState>& state, const json& config) {
@@ -141,6 +140,32 @@ json sidecar_unavailable_payload(const std::exception& e) {
             {"message", e.what()}
         }}
     };
+}
+
+crow::response sidecar_error_response(const std::exception& e, int fallback_status = 502) {
+    if (const auto* upstream = dynamic_cast<const tile_compile::ai::AiSidecarHttpError*>(&e)) {
+        json payload = upstream->payload();
+        if (!payload.is_object()) payload = json::object();
+        payload["available"] = false;
+        payload["_upstream_status"] = upstream->status();
+        if (!payload.contains("error")) {
+            payload["error"] = {
+                {"code", "AI_PROVIDER_REQUEST_FAILED"},
+                {"message", upstream->what()}
+            };
+        }
+        return json_resp(payload, static_cast<int>(upstream->status()));
+    }
+    return json_resp(sidecar_unavailable_payload(e), fallback_status);
+}
+
+crow::response sidecar_read_error_response(const std::exception& e) {
+    if (dynamic_cast<const tile_compile::ai::AiSidecarHttpError*>(&e)) {
+        return sidecar_error_response(e);
+    }
+    // Read-only discovery endpoints remain non-fatal when the sidecar itself is
+    // unreachable, preserving the frontend's offline fallback contract.
+    return json_resp(sidecar_unavailable_payload(e));
 }
 
 json latest_analysis(const InMemoryJobStore& store) {
@@ -1340,8 +1365,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const json merged = tile_compile::ai::merge_ai_config_json(
             current_ai_config_json(state),
-            *body,
-            state->runtime);
+            *body);
         if (!store_ai_config_json(state, merged)) {
             return err_resp("AI_CONFIG_SAVE_FAILED", "AI config could not be written", 500);
         }
@@ -1355,7 +1379,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.get("/models"));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e));
+            return sidecar_read_error_response(e);
         }
     });
 
@@ -1369,7 +1393,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.get(path));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e));
+            return sidecar_read_error_response(e);
         }
     });
 
@@ -1383,7 +1407,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.get(path));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e));
+            return sidecar_read_error_response(e);
         }
     });
 
@@ -1395,7 +1419,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.post("/test", *body));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e), 502);
+            return sidecar_error_response(e);
         }
     });
 
@@ -1407,7 +1431,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.post("/auth", *body));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e), 502);
+            return sidecar_error_response(e);
         }
     });
 
@@ -1417,7 +1441,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             tile_compile::ai::AiSidecarClient client(current_ai_config(state));
             return json_resp(client.del("/auth/" + provider));
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e), 502);
+            return sidecar_error_response(e);
         }
     });
 
@@ -1572,7 +1596,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                              analysis["analysis_context"]);
             return json_resp(analysis);
         } catch (const std::exception& e) {
-            return json_resp(sidecar_unavailable_payload(e), 502);
+            return sidecar_error_response(e);
         }
     });
 

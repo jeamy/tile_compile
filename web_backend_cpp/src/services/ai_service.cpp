@@ -150,7 +150,7 @@ double json_double_field(const nlohmann::json& value,
 
 } // namespace
 
-AiConfig default_ai_config(const BackendRuntime& runtime) {
+AiConfig default_ai_config() {
     AiConfig config;
     config.enabled = env_bool("AI_SCAN_ENABLED", false);
     config.model = env_string("AI_SCAN_MODEL", env_string("AI_RESEARCH_MODEL", ""));
@@ -160,7 +160,6 @@ AiConfig default_ai_config(const BackendRuntime& runtime) {
     config.max_tokens = env_int("AI_SCAN_MAX_TOKENS", 8000, 1, 200000);
     config.timeout_ms = env_int("AI_SCAN_TIMEOUT_MS", 600000, 1000, 1200000);
     config.sidecar_url = env_string("AI_AGENT_URL", "http://127.0.0.1:3001");
-    (void)runtime;
     return config;
 }
 
@@ -179,8 +178,34 @@ nlohmann::json ai_config_to_json(const AiConfig& config) {
     };
 }
 
-AiConfig ai_config_from_json(const nlohmann::json& value, const BackendRuntime& runtime) {
-    AiConfig config = default_ai_config(runtime);
+nlohmann::json redact_ai_payload_for_log(const nlohmann::json& payload) {
+    if (payload.is_object()) {
+        nlohmann::json redacted = payload;
+        for (auto it = redacted.begin(); it != redacted.end(); ++it) {
+            std::string key = it.key();
+            std::transform(key.begin(), key.end(), key.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (key.find("key") != std::string::npos ||
+                key.find("token") != std::string::npos ||
+                key.find("secret") != std::string::npos ||
+                key == "authorization") {
+                it.value() = "[REDACTED]";
+            } else {
+                it.value() = redact_ai_payload_for_log(it.value());
+            }
+        }
+        return redacted;
+    }
+    if (payload.is_array()) {
+        nlohmann::json redacted = nlohmann::json::array();
+        for (const auto& item : payload) redacted.push_back(redact_ai_payload_for_log(item));
+        return redacted;
+    }
+    return payload;
+}
+
+AiConfig ai_config_from_json(const nlohmann::json& value) {
+    AiConfig config = default_ai_config();
     if (!value.is_object()) return config;
     config.enabled = json_bool_field(value, "enabled", config.enabled);
     config.mode = json_string_field(value, "mode", config.mode);
@@ -196,9 +221,8 @@ AiConfig ai_config_from_json(const nlohmann::json& value, const BackendRuntime& 
 }
 
 nlohmann::json merge_ai_config_json(const nlohmann::json& base,
-                                    const nlohmann::json& patch,
-                                    const BackendRuntime& runtime) {
-    nlohmann::json merged = ai_config_to_json(ai_config_from_json(base, runtime));
+                                    const nlohmann::json& patch) {
+    nlohmann::json merged = ai_config_to_json(ai_config_from_json(base));
     for (const char* key : {"ui", "vision_overrides"}) {
         if (base.is_object() && base.contains(key)) merged[key] = base[key];
     }
@@ -216,7 +240,7 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
     for (const char* key : {"ui", "vision_overrides"}) {
         if (patch.contains(key)) merged[key] = patch[key];
     }
-    nlohmann::json normalized = ai_config_to_json(ai_config_from_json(merged, runtime));
+    nlohmann::json normalized = ai_config_to_json(ai_config_from_json(merged));
     for (const char* key : {"ui", "vision_overrides"}) {
         if (merged.contains(key)) normalized[key] = merged[key];
     }
@@ -224,6 +248,19 @@ nlohmann::json merge_ai_config_json(const nlohmann::json& base,
 }
 
 AiSidecarClient::AiSidecarClient(AiConfig config) : _config(std::move(config)) {}
+
+AiSidecarHttpError::AiSidecarHttpError(long status,
+                                       nlohmann::json payload,
+                                       const std::string& message)
+    : std::runtime_error(message), _status(status), _payload(std::move(payload)) {}
+
+long AiSidecarHttpError::status() const noexcept {
+    return _status;
+}
+
+const nlohmann::json& AiSidecarHttpError::payload() const noexcept {
+    return _payload;
+}
 
 nlohmann::json AiSidecarClient::get(const std::string& endpoint) const {
     return request("GET", endpoint, nullptr);
@@ -247,8 +284,11 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
     const std::string url = join_url(_config.sidecar_url, endpoint);
     const std::string payload_text = payload ? payload->dump() : std::string();
 
-    // Debug: log payload being sent
-    std::cerr << "[AI_SIDECAR] Request to " << endpoint << ": " << payload_text.substr(0, 2000) << std::endl;
+    std::cerr << "[AI_SIDECAR] " << method << " " << endpoint;
+    if (payload) {
+        std::cerr << " payload=" << redact_ai_payload_for_log(*payload).dump().substr(0, 2000);
+    }
+    std::cerr << std::endl;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
@@ -283,7 +323,7 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
         throw std::runtime_error(std::string("AI sidecar unavailable: ") + curl_easy_strerror(rc));
     }
 
-    std::cerr << "[AI_SIDECAR] Response status " << status << ": " << response_body.substr(0, 2000) << std::endl;
+    std::cerr << "[AI_SIDECAR] Response status " << status << " for " << endpoint << std::endl;
 
     auto parsed = nlohmann::json::parse(response_body, nullptr, false);
     if (parsed.is_discarded()) {
@@ -296,7 +336,7 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
             error_msg = parsed["message"].get<std::string>();
         }
         std::cerr << "[AI_SIDECAR] Error: " << error_msg << std::endl;
-        throw std::runtime_error(error_msg);
+        throw AiSidecarHttpError(status, std::move(parsed), error_msg);
     }
     return parsed;
 }

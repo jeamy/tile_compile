@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "services/ai_service.hpp"
 
 #include <arpa/inet.h>
 #include <atomic>
@@ -38,8 +39,8 @@ int reserve_port() {
 
 class FakeSidecar {
 public:
-    explicit FakeSidecar(nlohmann::json response)
-        : _response(std::move(response)), _port(reserve_port()) {}
+    explicit FakeSidecar(nlohmann::json response, int status = 200)
+        : _response(std::move(response)), _status(status), _port(reserve_port()) {}
 
     ~FakeSidecar() {
         if (_thread.joinable()) {
@@ -114,7 +115,7 @@ private:
             }
             const std::string body = _response.dump();
             const std::string http =
-                "HTTP/1.1 200 OK\r\n"
+                "HTTP/1.1 " + std::to_string(_status) + (_status >= 400 ? " Error\r\n" : " OK\r\n") +
                 "Content-Type: application/json\r\n"
                 "Content-Length: " + std::to_string(body.size()) + "\r\n"
                 "Connection: close\r\n\r\n" + body;
@@ -126,6 +127,7 @@ private:
     }
 
     nlohmann::json _response;
+    int _status{200};
     std::string _request_body;
     int _port{0};
     std::atomic<bool> _ready{false};
@@ -680,6 +682,35 @@ int main(int argc, char** argv) {
         expect_equal(models["_http_status"].get<long>(), 200L, "ai models unavailable status is non-fatal");
         expect_true(!models["available"].get<bool>(), "ai models unavailable flag");
         expect_equal(models["error"]["code"].get<std::string>(), "AI_AGENT_UNAVAILABLE", "ai models unavailable code");
+
+        const auto redacted = tile_compile::ai::redact_ai_payload_for_log({
+            {"provider", "anthropic"},
+            {"api_key", "secret-key"},
+            {"nested", {{"access_token", "secret-token"}}}
+        });
+        expect_equal(redacted["api_key"].get<std::string>(), "[REDACTED]", "ai log redacts api key");
+        expect_equal(redacted["nested"]["access_token"].get<std::string>(), "[REDACTED]",
+                     "ai log redacts nested token");
+
+        FakeSidecar auth_error_sidecar({
+            {"error", {
+                {"code", "INVALID_API_KEY"},
+                {"message", "invalid x-api-key"}
+            }}
+        }, 401);
+        auth_error_sidecar.start();
+        const auto auth_error_config = harness.patch_json("/api/ai/config", {
+            {"sidecar_url", auth_error_sidecar.url()}
+        });
+        expect_equal(auth_error_config["_http_status"].get<long>(), 200L, "ai auth error sidecar config status");
+        const auto auth_error = harness.post_json("/api/ai/auth", {
+            {"provider", "anthropic"},
+            {"api_key", "secret-key"}
+        });
+        expect_equal(auth_error["_http_status"].get<long>(), 401L, "ai auth preserves upstream status");
+        expect_equal(auth_error["_upstream_status"].get<long>(), 401L, "ai auth exposes upstream status");
+        expect_equal(auth_error["error"]["code"].get<std::string>(), "INVALID_API_KEY",
+                     "ai auth preserves upstream error payload");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

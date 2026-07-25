@@ -81,8 +81,6 @@ private:
     std::mutex m_mutex;
     std::vector<std::unique_ptr<LiveImageSession>> m_sessions;
     std::string generate_uuid() const;
-    void trim_snapshots(LiveImageSession& s, size_t max = 10);
-    void rebuild_current_fits(LiveImageSession& s);
 };
 
 } // namespace tile_compile::pi

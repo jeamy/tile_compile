@@ -326,6 +326,8 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
     add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
     add_backend_cpp_test(web_backend_cpp_ai_routes tests/test_ai_routes.cpp)
+    target_sources(web_backend_cpp_ai_routes PRIVATE src/services/ai_service.cpp)
+    target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl)
     add_backend_cpp_test(web_backend_cpp_pi_action_plan tests/test_pi_action_plan.cpp)
     target_sources(web_backend_cpp_pi_action_plan PRIVATE
         src/services/pi/pi_action_plan.cpp

@@ -2,6 +2,7 @@
 
 #include "backend_runtime.hpp"
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
 
 namespace tile_compile::ai {
@@ -19,12 +20,24 @@ struct AiConfig {
     std::string sidecar_url{"http://127.0.0.1:3001"};
 };
 
-AiConfig default_ai_config(const BackendRuntime& runtime);
+AiConfig default_ai_config();
 nlohmann::json ai_config_to_json(const AiConfig& config);
-AiConfig ai_config_from_json(const nlohmann::json& value, const BackendRuntime& runtime);
+nlohmann::json redact_ai_payload_for_log(const nlohmann::json& payload);
+AiConfig ai_config_from_json(const nlohmann::json& value);
 nlohmann::json merge_ai_config_json(const nlohmann::json& base,
-                                    const nlohmann::json& patch,
-                                    const BackendRuntime& runtime);
+                                    const nlohmann::json& patch);
+
+class AiSidecarHttpError : public std::runtime_error {
+public:
+    AiSidecarHttpError(long status, nlohmann::json payload, const std::string& message);
+
+    long status() const noexcept;
+    const nlohmann::json& payload() const noexcept;
+
+private:
+    long _status;
+    nlohmann::json _payload;
+};
 
 class AiSidecarClient {
 public:

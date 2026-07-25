@@ -3,8 +3,6 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include <random>
-#include <iostream>
-#include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -58,34 +56,6 @@ void LiveImageSessionStore::close(const std::string& session_id) {
         m_sessions.end());
 }
 
-void LiveImageSessionStore::trim_snapshots(LiveImageSession& /*s*/, size_t /*max*/) {
-    // Snapshot lifetime is bounded by the undo/redo stacks. The parameter is
-    // retained for API compatibility with the session store.
-}
-
-void LiveImageSessionStore::rebuild_current_fits(LiveImageSession& s) {
-    s.current_fits = s.original_fits.clone();
-    std::ofstream dbg("/tmp/crop_debug.log", std::ios::app);
-    dbg << "[CROP_DEBUG] rebuild: stack_size=" << s.undo_stack.size()
-        << " original=" << s.original_fits.cols << "x" << s.original_fits.rows << "\n";
-    for (const auto& entry : s.undo_stack) {
-        nlohmann::json op = entry;
-        op.erase("snapshot_b64");
-        const std::string op_type = op.value("type", std::string());
-        dbg << "[CROP_DEBUG]   applying op: " << op_type
-            << " input=" << s.current_fits.cols << "x" << s.current_fits.rows
-            << " params=" << op.value("params", nlohmann::json::object()).dump() << "\n";
-        auto res = apply_image_op_fits(s.current_fits, op);
-        dbg << "[CROP_DEBUG]   result: success=" << res.success
-            << " error=" << res.error
-            << " output=" << res.image.cols << "x" << res.image.rows << "\n";
-        if (res.success) {
-            s.current_fits = std::move(res.image);
-        }
-    }
-    dbg << "[CROP_DEBUG] rebuild done: " << s.current_fits.cols << "x" << s.current_fits.rows << "\n";
-}
-
 void LiveImageSessionStore::evict_expired(int max_age_seconds, size_t max_sessions) {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto now = std::chrono::steady_clock::now();
@@ -133,13 +103,6 @@ ImageOpResult LiveImageSessionStore::apply_operation(const std::string& session_
             s->last_accessed = std::chrono::steady_clock::now();
             const cv::Mat before = s->current_fits.clone();
             result = apply_image_op_fits(s->current_fits, op);
-            {
-                std::ofstream dbg("/tmp/crop_debug.log", std::ios::app);
-                dbg << "[CROP_DEBUG] apply_operation: type=" << op.value("type", "")
-                    << " success=" << result.success
-                    << " input=" << s->current_fits.cols << "x" << s->current_fits.rows
-                    << " output=" << result.image.cols << "x" << result.image.rows << "\n";
-            }
             if (result.success) {
                 if (op.value("type", "") == "reset") {
                     s->current_fits = s->original_fits.clone();
@@ -165,8 +128,6 @@ ImageOpResult LiveImageSessionStore::apply_operation(const std::string& session_
                     s->operation_history = s->undo_stack;
                     s->edit_history.push_back({{"action", "apply"}, {"operation", stack_entry}});
                     s->last_repeat_operation = op;
-                    std::ofstream dbg2("/tmp/crop_debug.log", std::ios::app);
-                    dbg2 << "[CROP_DEBUG]   pushed to stack, size=" << s->undo_stack.size() << "\n";
                 }
             }
             return result;

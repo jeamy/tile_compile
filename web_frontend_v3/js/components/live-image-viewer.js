@@ -4,6 +4,79 @@ import { t } from "../i18n/i18n.js";
 
 const FEATURE_PHASE = 2;
 
+const OPERATION_LABELS = {
+  sharpen: ["liveImage.operation.sharpen", "Sharpen"],
+  denoise: ["liveImage.operation.denoise", "Reduce noise"],
+  rmgreen: ["liveImage.operation.rmgreen", "Remove green cast"],
+  clahe: ["liveImage.operation.clahe", "Apply local contrast"],
+  bilateral: ["liveImage.operation.bilateral", "Apply detail-preserving denoise"],
+  threshold: ["liveImage.operation.threshold", "Apply threshold"],
+  invert: ["liveImage.operation.invert", "Invert image"],
+  crop: ["liveImage.operation.crop", "Crop image"],
+  crop_rotated: ["liveImage.operation.cropRotated", "Rotate and crop image"],
+  reset: ["liveImage.operation.reset", "Reset image"],
+  unpurple: ["liveImage.operation.unpurple", "Remove purple fringing"],
+  fixbanding: ["liveImage.operation.fixbanding", "Reduce banding"],
+  star_desaturation: ["liveImage.operation.starDesaturation", "Desaturate bright stars"],
+  dehaze: ["liveImage.operation.dehaze", "Reduce haze"],
+  levels: ["liveImage.operation.levels", "Adjust levels"],
+  curves: ["liveImage.operation.curves", "Adjust curves"],
+  shadow_recovery: ["liveImage.operation.shadowRecovery", "Recover shadows"],
+  highlight_recovery: ["liveImage.operation.highlightRecovery", "Recover highlights"],
+  color_balance: ["liveImage.operation.colorBalance", "Adjust color balance"],
+  local_contrast: ["liveImage.operation.localContrast", "Increase local contrast"],
+  chroma_denoise: ["liveImage.operation.chromaDenoise", "Reduce color noise"],
+  config_optimization: ["liveImage.operation.configOptimization", "Apply configuration optimization"],
+};
+
+function signedOperationLabel(type, params) {
+  const value = Number(
+    type === "brightness"
+      ? (params.midtones ?? params.shadows ?? params.highlights ?? 0)
+      : (params.amount ?? 0)
+  );
+  if (type === "brightness") {
+    if (Number(params.shadows) > 0) return ["liveImage.operation.shadowsUp", "Brighten shadows"];
+    if (Number(params.highlights) < 0) return ["liveImage.operation.highlightsDown", "Recover highlights"];
+    return value < 0
+      ? ["liveImage.operation.brightnessDown", "Decrease brightness"]
+      : ["liveImage.operation.brightnessUp", "Increase brightness"];
+  }
+  if (type === "contrast") {
+    return value < 0
+      ? ["liveImage.operation.contrastDown", "Decrease contrast"]
+      : ["liveImage.operation.contrastUp", "Increase contrast"];
+  }
+  if (type === "saturation") {
+    return value < 0
+      ? ["liveImage.operation.saturationDown", "Decrease saturation"]
+      : ["liveImage.operation.saturationUp", "Increase saturation"];
+  }
+  if (type === "vibrance") {
+    return value < 0
+      ? ["liveImage.operation.vibranceDown", "Decrease vibrance"]
+      : ["liveImage.operation.vibranceUp", "Increase vibrance"];
+  }
+  return value < 0
+    ? ["liveImage.operation.temperatureCool", "Cool colors"]
+    : ["liveImage.operation.temperatureWarm", "Warm colors"];
+}
+
+export function liveImageOperationLabel(operation, translate = t) {
+  const type = String(operation?.type || "").trim();
+  if (!type) return translate("liveImage.operationUnknown", "the last operation");
+  const params = operation?.params && typeof operation.params === "object"
+    ? operation.params
+    : {};
+  const label = ["brightness", "contrast", "saturation", "vibrance", "color_temperature"].includes(type)
+    ? signedOperationLabel(type, params)
+    : OPERATION_LABELS[type];
+  if (label) return translate(label[0], label[1]);
+  return type
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 const PRESET_COMMANDS = [
   { category: "brightness", label: "liveImage.cmd.brightnessUp", command: "helle das Bild auf", help: "liveImage.cmd.brightnessUp.help", phase: 1 },
   { category: "brightness", label: "liveImage.cmd.brightnessDown", command: "dunkle das Bild ab", help: "liveImage.cmd.brightnessDown.help", phase: 1 },
@@ -805,14 +878,6 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   });
   presetApplyBtn.addEventListener("click", () => doApplyPreset());
 
-  function operationLabel(operation) {
-    const type = String(operation?.type || "").trim();
-    if (!type) return t("liveImage.operationUnknown", "the last operation");
-    return type
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase());
-  }
-
   function updateUndoRedo(canUndo, canRedo, nextUndo = null, nextRedo = null) {
     state.canUndo = canUndo;
     state.canRedo = canRedo;
@@ -821,10 +886,10 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     undoBtn.disabled = !canUndo;
     redoBtn.disabled = !canRedo;
     undoBtn.title = canUndo
-      ? t("liveImage.undoNext", "Undo: {operation}", { operation: operationLabel(nextUndo) })
+      ? t("liveImage.undoNext", "Undo: {operation}", { operation: liveImageOperationLabel(nextUndo) })
       : t("liveImage.undoUnavailable", "Nothing to undo");
     redoBtn.title = canRedo
-      ? t("liveImage.redoNext", "Redo: {operation}", { operation: operationLabel(nextRedo) })
+      ? t("liveImage.redoNext", "Redo: {operation}", { operation: liveImageOperationLabel(nextRedo) })
       : t("liveImage.redoUnavailable", "Nothing to redo");
   }
 

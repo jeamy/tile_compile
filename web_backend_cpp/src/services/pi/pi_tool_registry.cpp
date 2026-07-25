@@ -14,7 +14,12 @@ namespace {
 
 nlohmann::json tool_def(const std::string& name,
                         const std::string& version,
-                        const std::string& description) {
+                        const std::string& description,
+                        nlohmann::json input_schema = {
+                            {"type", "object"},
+                            {"properties", nlohmann::json::object()},
+                            {"additionalProperties", false}
+                        }) {
     return {
         {"name", name},
         {"tool_version", version},
@@ -24,7 +29,7 @@ nlohmann::json tool_def(const std::string& name,
         {"mutation_free", true},
         {"write_policy", "no_direct_writes_use_action_plan_preview_apply"},
         {"description", description},
-        {"input_schema", {{"type", "object"}, {"additionalProperties", false}}},
+        {"input_schema", std::move(input_schema)},
         {"output_schema", {{"type", "object"}}}
     };
 }
@@ -191,7 +196,11 @@ nlohmann::json prerequisite_phase_summary(const nlohmann::json& status, const st
         const std::string item_phase = item.value("phase", std::string());
         if (item_phase == phase) break;
         const std::string item_status = item.value("status", std::string("unknown"));
-        const bool phase_ok = item_status == "ok" || item_status == "skipped";
+        const bool phase_ok =
+            item_status != "failed" &&
+            item_status != "error" &&
+            item_status != "cancelled" &&
+            item_status != "canceled";
         if (!phase_ok) result["ok"] = false;
         result["items"].push_back({
             {"phase", item_phase},
@@ -245,7 +254,7 @@ nlohmann::json build_phase_preview_plan(const std::shared_ptr<AppState>& state,
         {"config_source", config_source},
         {"config_valid", config_valid},
         {"validation", validation},
-        {"ready", run_exists && config_valid},
+        {"ready", run_exists && config_valid && prerequisites.value("ok", false)},
         {"status", status_summary(status)},
         {"phase_state", phase_state(status, phase)},
         {"prerequisites", prerequisites},
@@ -270,17 +279,46 @@ PiToolRegistry::PiToolRegistry(std::shared_ptr<AppState> state)
     : _state(std::move(state)) {}
 
 nlohmann::json PiToolRegistry::list_tools() const {
+    const nlohmann::json run_input_schema = {
+        {"type", "object"},
+        {"properties", {
+            {"run_id", {{"type", "string"}}}
+        }},
+        {"additionalProperties", false}
+    };
+    const nlohmann::json preview_input_schema = {
+        {"type", "object"},
+        {"properties", {
+            {"run_id", {{"type", "string"}}},
+            {"yaml", {{"type", "string"}}}
+        }},
+        {"additionalProperties", false}
+    };
+    const nlohmann::json resume_input_schema = {
+        {"type", "object"},
+        {"properties", {
+            {"run_id", {{"type", "string"}}},
+            {"yaml", {{"type", "string"}}},
+            {"from_phase", {{"type", "string"}}},
+            {"phase", {{"type", "string"}}}
+        }},
+        {"anyOf", nlohmann::json::array({
+            {{{"required", nlohmann::json::array({"from_phase"})}}},
+            {{{"required", nlohmann::json::array({"phase"})}}}
+        })},
+        {"additionalProperties", false}
+    };
     return {
         {"schema_version", "pi.tools-list.v1"},
         {"tool_registry_version", "1.1.0"},
         {"tools", nlohmann::json::array({
             tool_def("context.overview", "1.0.0", "Return compact read-only Tile Compile runtime, state, and recent-job context."),
             tool_def("config.schema.summary", "1.0.0", "Return compact read-only summary of the Tile Compile config schema."),
-            tool_def("run.artifacts.summary", "1.0.0", "Return compact read-only summary of artifacts for a run."),
-            tool_def("run.report.summary", "1.0.0", "Return compact read-only run status and existing report summary metadata."),
-            tool_def("preview.bge.plan", "1.0.0", "Validate and return a mutation-free BGE resume preview plan for a run."),
-            tool_def("preview.hms.plan", "1.0.0", "Validate and return a mutation-free Hypermetric Stretch resume preview plan for a run."),
-            tool_def("preview.resume.plan", "1.0.0", "Validate and return a mutation-free resume preview plan for a requested phase.")
+            tool_def("run.artifacts.summary", "1.0.0", "Return compact read-only summary of artifacts for a run.", run_input_schema),
+            tool_def("run.report.summary", "1.0.0", "Return compact read-only run status and existing report summary metadata.", run_input_schema),
+            tool_def("preview.bge.plan", "1.0.0", "Validate and return a mutation-free BGE resume preview plan for a run.", preview_input_schema),
+            tool_def("preview.hms.plan", "1.0.0", "Validate and return a mutation-free Hypermetric Stretch resume preview plan for a run.", preview_input_schema),
+            tool_def("preview.resume.plan", "1.0.0", "Validate and return a mutation-free resume preview plan for a requested phase.", resume_input_schema)
         })}
     };
 }

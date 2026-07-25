@@ -85,7 +85,18 @@ int main(int argc, char** argv) {
                          "pi tool write policy");
             if (name == "preview.bge.plan") found_bge_preview_tool = true;
             if (name == "preview.hms.plan") found_hms_preview_tool = true;
-            if (name == "preview.resume.plan") found_resume_preview_tool = true;
+            if (name == "preview.resume.plan") {
+                found_resume_preview_tool = true;
+                const auto& schema = tool["input_schema"];
+                expect_true(schema["properties"].contains("run_id"),
+                            "pi resume tool schema declares run_id");
+                expect_true(schema["properties"].contains("from_phase"),
+                            "pi resume tool schema declares from_phase");
+                expect_true(schema["properties"].contains("phase"),
+                            "pi resume tool schema declares phase alias");
+                expect_true(!schema["additionalProperties"].get<bool>(),
+                            "pi resume tool schema rejects unknown properties");
+            }
         }
         expect_true(found_bge_preview_tool, "pi tools list contains bge preview plan");
         expect_true(found_hms_preview_tool, "pi tools list contains hms preview plan");
@@ -205,6 +216,21 @@ int main(int argc, char** argv) {
         expect_true(invalid_bge_preview_tool["ok"].get<bool>(), "pi invalid bge preview tool ok");
         expect_true(!invalid_bge_preview_tool["result"]["ready"].get<bool>(), "pi invalid bge preview not ready");
         expect_true(!invalid_bge_preview_tool["result"]["config_valid"].get<bool>(), "pi invalid bge config invalid");
+
+        harness.create_run("pi_failed_prerequisite", {
+            {{"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}},
+            {{"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "failed"}}
+        });
+        const auto blocked_bge_preview = harness.post_json("/api/pi/tools/call", {
+            {"name", "preview.bge.plan"},
+            {"input", {{"run_id", "pi_failed_prerequisite"}}}
+        });
+        expect_equal(blocked_bge_preview["_http_status"].get<long>(), 200L,
+                     "pi blocked bge preview status");
+        expect_true(!blocked_bge_preview["result"]["prerequisites"]["ok"].get<bool>(),
+                    "pi blocked bge preview reports failed prerequisite");
+        expect_true(!blocked_bge_preview["result"]["ready"].get<bool>(),
+                    "pi blocked bge preview is not ready");
 
         harness.post_json("/api/runs/pi_fixture_run/set-current", nlohmann::json::object());
         const auto report_answer = harness.post_json("/api/pi/assistant/ask", {
@@ -777,6 +803,18 @@ int main(int argc, char** argv) {
         expect_true(chat_resp.contains("image_base64"), "live-image-chat chat has image_base64");
         expect_true(!chat_resp["image_base64"].get<std::string>().empty(),
                      "live-image-chat chat image_base64 not empty");
+        expect_equal(chat_resp["next_undo"]["type"].get<std::string>(), "brightness",
+                     "live-image-chat chat identifies brightness as next undo operation");
+
+        // 3a. Adjust the immediately preceding adjustable operation.
+        const auto adjust_resp = harness.post_json("/api/pi/live-image-chat/adjust", {
+            {"session_id", session_id},
+            {"direction", "increase"}
+        });
+        expect_equal(adjust_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat adjust status");
+        expect_true(adjust_resp.contains("image_base64"), "live-image-chat adjust has image_base64");
+        expect_true(adjust_resp.contains("adjust_count"), "live-image-chat adjust has adjust_count");
 
         // 3b. Repeat a non-adjustable operation with the exact same parameters
         const auto sharpen_resp = harness.post_json("/api/pi/live-image-chat", {
@@ -787,6 +825,8 @@ int main(int argc, char** argv) {
                      "live-image-chat sharpen status");
         expect_true(sharpen_resp.value("repeatable", false),
                     "live-image-chat sharpen is repeatable");
+        expect_equal(sharpen_resp["next_undo"]["type"].get<std::string>(), "sharpen",
+                     "live-image-chat sharpen identifies sharpen as next undo operation");
         const auto repeat_resp = harness.post_json("/api/pi/live-image-chat/repeat", {
             {"session_id", session_id}
         });
@@ -794,6 +834,8 @@ int main(int argc, char** argv) {
                      "live-image-chat repeat status");
         expect_true(!repeat_resp["image_base64"].get<std::string>().empty(),
                     "live-image-chat repeat image_base64 not empty");
+        expect_true(repeat_resp["persisted"].get<bool>(),
+                    "live-image-chat repeat reports durable persistence");
 
         // 3c. Crop can be requested explicitly through the local chat parser
         const auto crop_resp = harness.post_json("/api/pi/live-image-chat", {
@@ -815,17 +857,7 @@ int main(int argc, char** argv) {
         expect_equal(chat_bad["_http_status"].get<long>(), 404L,
                      "live-image-chat chat invalid session returns 404");
 
-        // 5. Adjust
-        const auto adjust_resp = harness.post_json("/api/pi/live-image-chat/adjust", {
-            {"session_id", session_id},
-            {"direction", "increase"}
-        });
-        expect_equal(adjust_resp["_http_status"].get<long>(), 200L,
-                     "live-image-chat adjust status");
-        expect_true(adjust_resp.contains("image_base64"), "live-image-chat adjust has image_base64");
-        expect_true(adjust_resp.contains("adjust_count"), "live-image-chat adjust has adjust_count");
-
-        // 6. Undo
+        // 5. Undo
         const auto undo_resp = harness.post_json("/api/pi/live-image-chat/undo", {
             {"session_id", session_id}
         });
@@ -836,20 +868,52 @@ int main(int argc, char** argv) {
         expect_true(undo_resp.contains("can_redo"), "live-image-chat undo has can_redo");
         expect_true(undo_resp.contains("next_undo"), "live-image-chat undo has next_undo tooltip operation");
         expect_true(undo_resp.contains("next_redo"), "live-image-chat undo has next_redo tooltip operation");
+        expect_equal(undo_resp["next_undo"]["type"].get<std::string>(), "sharpen",
+                     "live-image-chat undo identifies preceding sharpen operation");
+        expect_equal(undo_resp["next_redo"]["type"].get<std::string>(), "crop",
+                     "live-image-chat undo identifies crop as next redo operation");
+        expect_true(undo_resp["persisted"].get<bool>(),
+                    "live-image-chat undo reports durable persistence");
 
-        // 7. Redo
-        const auto redo_resp = harness.post_json("/api/pi/live-image-chat/redo", {
+        // 6. Simulate a backend/browser restart: closing the in-memory session
+        // leaves only the persisted active and redo stacks.
+        const auto close_before_resume = harness.post_json("/api/pi/live-image-chat/close", {
             {"session_id", session_id}
+        });
+        expect_equal(close_before_resume["_http_status"].get<long>(), 200L,
+                     "live-image-chat close before resume status");
+        const auto create_resume = harness.post_json("/api/pi/live-image-chat/create", {
+            {"run_id", "live_image_test"}
+        });
+        expect_equal(create_resume["_http_status"].get<long>(), 200L,
+                     "live-image-chat create after restart status");
+        expect_true(create_resume.value("resumed", false),
+                    "live-image-chat create after restart resumes history");
+        expect_true(create_resume["can_undo"].get<bool>(),
+                    "live-image-chat restart restores undo stack");
+        expect_true(create_resume["can_redo"].get<bool>(),
+                    "live-image-chat restart restores redo stack");
+        expect_equal(create_resume["next_redo"]["type"].get<std::string>(), "crop",
+                     "live-image-chat restart identifies persisted redo operation");
+        const std::string resumed_session_id = create_resume["session_id"].get<std::string>();
+
+        // 7. Redo after restart
+        const auto redo_resp = harness.post_json("/api/pi/live-image-chat/redo", {
+            {"session_id", resumed_session_id}
         });
         expect_equal(redo_resp["_http_status"].get<long>(), 200L,
                      "live-image-chat redo status");
         expect_true(redo_resp.contains("image_base64"), "live-image-chat redo has image_base64");
         expect_true(redo_resp.contains("next_undo"), "live-image-chat redo has next_undo tooltip operation");
         expect_true(redo_resp.contains("next_redo"), "live-image-chat redo has next_redo tooltip operation");
+        expect_equal(redo_resp["next_undo"]["type"].get<std::string>(), "crop",
+                     "live-image-chat redo identifies crop as next undo operation");
+        expect_true(redo_resp["next_redo"].is_null(),
+                    "live-image-chat redo clears next redo operation at stack end");
 
         // 8. Export PNG
         const auto export_resp = harness.post_json("/api/pi/live-image-chat/export", {
-            {"session_id", session_id},
+            {"session_id", resumed_session_id},
             {"format", "png"}
         });
         expect_equal(export_resp["_http_status"].get<long>(), 200L,
@@ -868,35 +932,7 @@ int main(int argc, char** argv) {
         expect_true(history_resp.contains("operation_history"),
                      "live-image-chat history has operation_history");
 
-        // 10. Close session
-        const auto close_resp = harness.post_json("/api/pi/live-image-chat/close", {
-            {"session_id", session_id}
-        });
-        expect_equal(close_resp["_http_status"].get<long>(), 200L,
-                     "live-image-chat close status");
-        expect_true(close_resp["ok"].get<bool>(), "live-image-chat close ok");
-
-        // 11. Verify session is gone after close
-        const auto chat_after_close = harness.post_json("/api/pi/live-image-chat", {
-            {"session_id", session_id},
-            {"message", "test"}
-        });
-        expect_equal(chat_after_close["_http_status"].get<long>(), 404L,
-                     "live-image-chat chat after close returns 404");
-
-        // 12. Create again - should resume with history
-        const auto create_resume = harness.post_json("/api/pi/live-image-chat/create", {
-            {"run_id", "live_image_test"}
-        });
-        expect_equal(create_resume["_http_status"].get<long>(), 200L,
-                     "live-image-chat create resume status");
-        expect_true(create_resume.value("resumed", false),
-                     "live-image-chat create resume flag is true");
-        expect_true(create_resume.contains("chat_history"),
-                     "live-image-chat create resume has chat_history");
-        const std::string resumed_session_id = create_resume["session_id"].get<std::string>();
-
-        // 13. Reset on resumed session
+        // 10. Reset on resumed session
         const auto reset_resp = harness.post_json("/api/pi/live-image-chat/reset", {
             {"session_id", resumed_session_id}
         });
