@@ -39,7 +39,7 @@ Die Reglergrenzen entsprechen der Backend-Validierung. Dazu gehören beispielswe
 
 Unterstützt werden Helligkeit, Kontrast, Sättigung, Schärfen, Entrauschen, Bilateralfilter, Grünentfernung, CLAHE/lokale Details, Levels, Shadow Recovery, Highlight Recovery, Color Balance, Local Contrast, Chroma-Denoise, Curves, Zuschneiden, Invertieren, Zurücksetzen, Vibrance, Farbtemperatur, Entfernung lila Farbsäume, Banding-Reduktion, Sternentsättigung und Dehaze. Das Backend validiert und begrenzt Parameter vor der Anwendung.
 
-Crop ist über den Chat mit einer ausdrücklichen Anweisung wie „schneide 10% Rand ab“ verfügbar. Das Backend wandelt den Prozentwert in Pixelkoordinaten um und begrenzt das Rechteck auf die aktuelle Bildgröße.
+Crop ist eine rein deterministische Operation und wird nie an die KI gesendet.
 
 Signierte Operationen wie Helligkeit, Kontrast, Sättigung, Vibrance und Farbtemperatur können `+/-`-Regler anzeigen. Nicht-invertierbare oder einseitige Operationen verwenden keine `+/-`-Regler.
 
@@ -73,7 +73,7 @@ Die optionale KI-Funktion wird einmalig unter **Tools → KI & API** eingerichte
 2. Den API-Key dieses Providers ohne führende oder nachgestellte Leerzeichen einfügen und **Key speichern** wählen.
 3. Mit **Status abrufen** die Verbindung prüfen. Ein Modell kann Bilddaten verwenden, wenn der Vision-Status als bildfähig angezeigt wird.
 
-Der Key wird im lokalen PI-AuthStorage gespeichert, nicht in `tile_compile.yaml`, Config-Revisions, Run-Daten, Bilddateien oder Chat-History. Alternativ kann ein Key als Provider-Umgebungsvariable in einer lokalen `.env`-Datei hinterlegt werden. Die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../../.env.example). Ein `401`-Fehler wie `invalid x-api-key` bedeutet, dass der Provider den verwendeten Key ablehnt; in diesem Fall den Key beim richtigen Provider erneut speichern oder den `.env`-Eintrag prüfen.
+Der Key wird im lokalen PI-AuthStorage gespeichert, nicht in `tile_compile.yaml`, Config-Revisions, Run-Daten, Bilddateien oder Chat-History. Alternativ kann ein Key als Provider-Umgebungsvariable in einer lokalen `.env`-Datei hinterlegt werden. Die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../env.example). Ein `401`-Fehler wie `invalid x-api-key` bedeutet, dass der Provider den verwendeten Key ablehnt; in diesem Fall den Key beim richtigen Provider erneut speichern oder den `.env`-Eintrag prüfen.
 
 Wenn der optionale PI-Sidecar läuft, ein API-Key für einen Provider vorhanden ist und ein Modell ausgewählt wurde, wird die Chat-Anfrage an dieses Modell gesendet. Der Sidecar erhält:
 

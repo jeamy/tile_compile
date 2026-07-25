@@ -39,7 +39,7 @@ Slider limits match backend validation. Examples include `0.5…5` for sharpenin
 
 The editor supports brightness, contrast, saturation, sharpening, denoising, bilateral filtering, green removal, CLAHE/local detail, levels, shadow recovery, highlight recovery, color balance, local contrast, chroma denoise, curves, crop, inversion, reset, vibrance, color temperature, purple-fringe removal, banding reduction, star desaturation, and dehaze. Parameters are validated and clamped by the backend before the operation is applied.
 
-Crop is available from chat with an explicit instruction such as “crop 10% border”. The backend converts the percentage into pixel coordinates and clamps the rectangle to the current image dimensions.
+Crop is a purely deterministic operation and is never sent to the AI.
 
 Signed operations such as brightness, contrast, saturation, vibrance, and color temperature can expose `+/-` adjustment controls. Non-invertible or one-sided operations do not use `+/-`.
 
@@ -73,7 +73,7 @@ Set up the optional AI integration once under **Tools → AI & API**:
 2. Paste the API key for that provider without leading or trailing whitespace and select **Save Key**.
 3. Use **Fetch status** to verify the connection. A model can use image data when its vision status is shown as supported.
 
-The key is stored in the local PI AuthStorage, not in `tile_compile.yaml`, configuration revisions, run data, image files, or chat history. Alternatively, a provider environment variable can be set in a local `.env` file. The complete current list of supported key and credential variables is in [`.env.example`](../../.env.example). A `401` error such as `invalid x-api-key` means that the provider rejected the active key; save the correct key again for that provider or check the `.env` entry.
+The key is stored in the local PI AuthStorage, not in `tile_compile.yaml`, configuration revisions, run data, image files, or chat history. Alternatively, a provider environment variable can be set in a local `.env` file. The complete current list of supported key and credential variables is in [`.env.example`](../env.example). A `401` error such as `invalid x-api-key` means that the provider rejected the active key; save the correct key again for that provider or check the `.env` entry.
 
 When the optional PI sidecar is available, an API key is configured for a provider, and a model is selected, the chat request is sent to that model. The sidecar receives:
 

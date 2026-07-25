@@ -127,7 +127,7 @@ Die Parameter-Seite hat einen zweiten Tab: **AI Empfehlung**. Dieser bietet KI-g
 7. **PI Preview** validiert die geplanten Änderungen als YAML-Diff ohne Speichern.
 8. **PI anwenden** speichert die letzte gültige PI-Preview als neue Config-Revision.
 
-> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Der Key liegt im lokalen PI-AuthStorage, nicht in Pipeline-Configs, Run-Daten oder Logs. Alternativ kann er als Provider-Variable in einer lokalen `.env` stehen; die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../.env.example). Ein `401 invalid x-api-key` bedeutet, dass der Provider den Key ablehnt.
+> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Der Key liegt im lokalen PI-AuthStorage, nicht in Pipeline-Configs, Run-Daten oder Logs. Alternativ kann er als Provider-Variable in einer lokalen `.env` stehen; die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](env.example). Ein `401 invalid x-api-key` bedeutet, dass der Provider den Key ablehnt.
 
 ### Situation-Assistent
 

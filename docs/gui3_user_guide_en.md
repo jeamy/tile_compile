@@ -127,7 +127,7 @@ The Parameter page has a second tab: **AI Recommendations**. This provides AI-po
 7. Use **PI Preview** to validate the planned changes as a YAML diff without saving.
 8. Use **Apply PI** to save the last valid PI Preview as a new config revision.
 
-> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. The key is kept in local PI AuthStorage, not in pipeline configuration, run data, or logs. Alternatively, it can be provided through a provider variable in a local `.env` file; the complete current list of supported key and credential variables is in [`.env.example`](../.env.example). A `401 invalid x-api-key` error means the provider rejected the key.
+> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. The key is kept in local PI AuthStorage, not in pipeline configuration, run data, or logs. Alternatively, it can be provided through a provider variable in a local `.env` file; the complete current list of supported key and credential variables is in [`.env.example`](env.example). A `401 invalid x-api-key` error means the provider rejected the key.
 
 ### Situation Assistant
 
@@ -463,7 +463,7 @@ Pipeline steps:
 12. HyperMetric Stretch (optional)
 13. Report
 
-> Detailed documentation: [docs/raw_stack_gui_de.md](raw_stack_gui_de.md)
+> Detailed documentation: [docs/raw_stack_gui_de.md](raw_stack_gui_en.md)
 
 ---
 
