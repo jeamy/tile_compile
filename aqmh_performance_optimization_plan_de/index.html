@@ -1,0 +1,3611 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/aqmh_performance_optimization_plan_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AQMH-Performance-Optimierungsplan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#aqmh-performance-optimierungsplan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AQMH-Performance-Optimierungsplan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/workflow/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../PI/scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/aqmh_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Overview (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/aqmh_overview_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH Übersicht (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_1_registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_2_normalization_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Normalization & Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_3_tile_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Tile Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_4_local_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Local Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_5_tile_reconstruction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Reconstruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_6_clustering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Clustering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_7_final_stacking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 7 – Final Stacking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_8_aqmh_extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 8 – AQMH Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#statuslegende" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statuslegende
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unveranderliche-anforderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unveränderliche Anforderungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-messung-und-korrekte-telemetrie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Messung und korrekte Telemetrie
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-uniform-control-nur-einmal-berechnen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Uniform-Control nur einmal berechnen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-q-map-prefetch-und-region-streaming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Q-Map-Prefetch und Region-Streaming
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-diagnostik-nur-bei-anforderung-berechnen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Diagnostik nur bei Anforderung berechnen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-validierungsreferenzen-wiederverwenden" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Validierungsreferenzen wiederverwenden
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-lineare-lokale-varianz-in-aqmh_maps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: Lineare lokale Varianz in AQMH_MAPS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-7-cuda-sigma-clip-und-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7: CUDA-Sigma-Clip und Selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-8-build-tests-und-laufzeitvergleich" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 8: Build, Tests und Laufzeitvergleich
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-9-auswertung-des-nativen-gpu-laufs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 9: Auswertung des nativen GPU-Laufs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-10-kandidatensuche-und-ablehnungsdiagnostik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 10: Kandidatensuche und Ablehnungsdiagnostik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-11-verbleibender-aqmh_maps-engpass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 11: Verbleibender AQMH_MAPS-Engpass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-12-registrierungs-guard-prufen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 12: Registrierungs-Guard prüfen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-13-zweite-rekonstruktionsoptimierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 13: Zweite Rekonstruktionsoptimierung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-14-opti2-vollrun" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 14: Opti2-Vollrun
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-15-cuda-pipelineprofil" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 15: CUDA-Pipelineprofil
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-16-reconstruction-host-unterprofil" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 16: Reconstruction-Host-Unterprofil
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-17-aqmh_maps-unterprofil" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 17: AQMH_MAPS-Unterprofil
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-18-openmp-fur-cuda-hostvorbereitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 18: OpenMP für CUDA-Hostvorbereitung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-19-opti3-vollrun-und-maps-speicherverifikation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 19: Opti3-Vollrun und MAPS-Speicherverifikation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#geplanter-reconstruction-overlap-kandidat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geplanter Reconstruction-Overlap-Kandidat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nachste-prioritat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nächste Priorität
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="aqmh-performance-optimierungsplan">AQMH-Performance-Optimierungsplan<a class="headerlink" href="#aqmh-performance-optimierungsplan" title="Permanent link">&para;</a></h1>
+<p>Stand: 24. Juli 2026</p>
+<p>Ausgangspunkt ist der Run
+<code>M31-default-afix1_20260722_111345</code> mit 645 Frames und einem Canvas von
+3924 × 2310 Pixeln. <code>AQMH_MAPS</code> benötigte 1191,9 Sekunden,
+<code>AQMH_RECONSTRUCTION</code> 2622,0 Sekunden. Zusammen entsprechen beide Phasen
+79,3 % der gesamten Run-Laufzeit.</p>
+<h2 id="statuslegende">Statuslegende<a class="headerlink" href="#statuslegende" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>offen</code>: noch nicht implementiert</li>
+<li><code>in Arbeit</code>: Implementierung oder Verifikation läuft</li>
+<li><code>erledigt</code>: implementiert und mit den im Abschnitt genannten Tests geprüft</li>
+<li><code>teilweise erledigt</code>: nutzbarer Teil umgesetzt; ausdrücklich genannter Rest
+  bleibt offen</li>
+</ul>
+<h2 id="unveranderliche-anforderungen">Unveränderliche Anforderungen<a class="headerlink" href="#unveranderliche-anforderungen" title="Permanent link">&para;</a></h2>
+<ul>
+<li>AQMH und Classic Tile Compile bleiben unabhängige Rekonstruktionsmethoden.</li>
+<li>Die Roh-AQMH-Ausgabe und der Uniform-Control bleiben als unveränderliche
+  Validierungsreferenzen erhalten.</li>
+<li>Star-Tail- und Elongationsvergleiche verwenden identische Sternpositionen.</li>
+<li>CPU-, OpenCL- und CUDA-Pfade behalten dieselben Masken-, NaN-, Zero-Veto-,
+  Sigma-Clip- und Resume-Verträge.</li>
+<li>Optimierungen dürfen die vorhandenen Qualitäts-Gates nicht umgehen.</li>
+</ul>
+<h2 id="phase-1-messung-und-korrekte-telemetrie">Phase 1: Messung und korrekte Telemetrie<a class="headerlink" href="#phase-1-messung-und-korrekte-telemetrie" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>Teilzeiten für Rekonstruktionskern, Uniform-Control und
+  Postprocessing/Validierung erfassen.</li>
+<li><code>uniform_control_same_pass</code> nur dann melden, wenn das Control tatsächlich im
+  selben Datenpass erzeugt wurde.</li>
+<li>den tatsächlich verwendeten Selection-/Sortieralgorithmus melden.</li>
+<li>den AQMH-Laufzeitvergleich mit Classic-Stacking als <code>nicht anwendbar</code>
+  kennzeichnen, statt <code>ratio_ok=true</code> zu melden.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Artefakte unterscheiden anwendbar, bestanden und nicht anwendbar.</li>
+<li>Telemetrie behauptet weder Quickselect noch Same-Pass, wenn der ausgeführte
+  Pfad etwas anderes verwendet.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li><code>timing_seconds</code> trennt Rekonstruktionskern, optionalen
+  Uniform-Control-Fallback und Postprocessing/Validierung.</li>
+<li><code>uniform_control_same_pass</code>, <code>uniform_control_mode</code>,
+  <code>weighted_selection</code> und <code>prefetch_strategy</code> beschreiben den tatsächlich
+  ausgeführten Pfad.</li>
+<li>Der Classic-Laufzeitvergleich erhält für AQMH
+  <code>tile_analysis_ratio_applicable=false</code> und
+  <code>tile_analysis_ratio_ok=null</code>.</li>
+</ul>
+<h2 id="phase-2-uniform-control-nur-einmal-berechnen">Phase 2: Uniform-Control nur einmal berechnen<a class="headerlink" href="#phase-2-uniform-control-nur-einmal-berechnen" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>Im CUDA-Datenpass Summe und Anzahl aller gültigen Framewerte je Pixel
+  mitführen.</li>
+<li>daraus den ungewichteten Uniform-Control und seine Valid-Mask erzeugen.</li>
+<li>den separaten sigma-geclippten CUDA-Control-Kernel nicht mehr starten.</li>
+<li>den nachgeschalteten CPU-Komplettdurchlauf nur noch als Fallback verwenden,
+  wenn ein Backend keinen gültigen Uniform-Control geliefert hat.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Uniform-Control entspricht der bisherigen CPU-Referenz innerhalb der
+  dokumentierten Float-Toleranz.</li>
+<li>gültige echte Nullpixel bleiben über die separate Valid-Mask gültig.</li>
+<li>CUDA liest die Prewarp-Frames nicht erneut für einen CPU-Control-Durchlauf.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li>Der gewichtete CUDA-Kernel berechnet den ungewichteten Mittelwert aus allen
+  gültigen Samples im selben Frame-Datenpass.</li>
+<li>Eine separate Byte-Maske unterscheidet gültige Nullwerte von nicht
+  unterstützten Pixeln.</li>
+<li>Der frühere separate CUDA-Control-Kernel wurde entfernt.</li>
+<li>Der Runner startet den CPU-Regionendurchlauf nur, wenn das gewählte Backend
+  keinen vollständigen Control samt Valid-Maske geliefert hat.</li>
+</ul>
+<h2 id="phase-3-q-map-prefetch-und-region-streaming">Phase 3: Q-Map-Prefetch und Region-Streaming<a class="headerlink" href="#phase-3-q-map-prefetch-und-region-streaming" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>den Full-Map-Prefetch entfernen, wenn die Rekonstruktion Regionen streamt.</li>
+<li>keine 645 vollständigen Maps in einen LRU mit nur wenigen residenten Maps
+  laden.</li>
+<li>Regionen weiterhin parallel und bedarfsgesteuert pro Chunk laden.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li><code>AQMH_MAPS</code> liest nicht mehr jede gerade geschriebene Map vollständig zurück.</li>
+<li>Rekonstruktion und Resume funktionieren weiterhin mit dem vorhandenen
+  diskbasierten Cache.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li><code>AQMH_MAPS</code> erzeugt keinen Full-Map-Prefetch-Coordinator mehr und publiziert
+  keine frisch geschriebenen Maps in den kleinen LRU.</li>
+<li>Die bestehende parallele, bedarfsgesteuerte Regionsbeladung der
+  Rekonstruktionschunks bleibt unverändert aktiv.</li>
+</ul>
+<h2 id="phase-4-diagnostik-nur-bei-anforderung-berechnen">Phase 4: Diagnostik nur bei Anforderung berechnen<a class="headerlink" href="#phase-4-diagnostik-nur-bei-anforderung-berechnen" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>Regionen nur bei aktivierter Full-Diagnostik und <code>regions=true</code> extrahieren.</li>
+<li>reine Diagnosequantile bei deaktivierter Diagnostik überspringen.</li>
+<li>für globale Gewichte erforderliche Sharpness-, SNR- und
+  Hintergrundzusammenfassungen unabhängig davon weiter berechnen.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li><code>regions=false</code> führt zu keinem Connected-Component-/Region-Durchlauf.</li>
+<li>AQMH-Globalgewichte bleiben vorhanden und endlich.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li>Map-Quantile werden nur bei aktivierter Diagnostik mit einem Level ungleich
+  <code>none</code> berechnet.</li>
+<li>Regionen werden nur für aktivierte Full-Diagnostik mit <code>regions=true</code>
+  extrahiert und geschrieben.</li>
+<li>Sharpness-, SNR- und Hintergrundwerte für die globalen Gewichte werden davon
+  unabhängig weiterhin erzeugt.</li>
+</ul>
+<h2 id="phase-5-validierungsreferenzen-wiederverwenden">Phase 5: Validierungsreferenzen wiederverwenden<a class="headerlink" href="#phase-5-validierungsreferenzen-wiederverwenden" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>Sternpositionen und Metriken für unveränderlichen Raw-AQMH- und
+  Uniform-Control einmal vorbereiten.</li>
+<li>bei Kandidaten nur die Kandidatenseite neu messen.</li>
+<li>dieselben vorbereiteten Sternpositionen für alle Vergleiche gegen dieselbe
+  Referenz verwenden.</li>
+<li>die zwölfstufige Abschwächungssuche behält eine abschließende vollständige
+  Qualitätsprüfung.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>keine unabhängigen Sternpopulationen in Vergleichsmetriken.</li>
+<li>identische Gate-Entscheidungen in Regressionstests.</li>
+<li>Baseline-Metriken werden nicht in jeder Suchiteration erneut berechnet.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li><code>AqmhValidationReference</code> speichert Referenzmetriken und die einmal
+  detektierten Sternpositionen.</li>
+<li>Uniform-Control und Raw-AQMH werden je einmal vorbereitet; alle Kandidaten
+  einschließlich der Abschwächungssuche verwenden diese Referenzen erneut.</li>
+<li>Ein Regressionstest vergleicht den gecachten und den bisherigen direkten
+  Vergleich über alle Metriken, Anwendbarkeitsflags und Regressionen.</li>
+</ul>
+<h2 id="phase-6-lineare-lokale-varianz-in-aqmh_maps">Phase 6: Lineare lokale Varianz in AQMH_MAPS<a class="headerlink" href="#phase-6-lineare-lokale-varianz-in-aqmh_maps" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>die naive Fensteriteration durch separierbare Summen, Quadratsummen und
+  Support-Counts ersetzen.</li>
+<li>NaN- und Maskenverhalten sowie die Sonderbehandlung für weniger als drei
+  gültige Samples erhalten.</li>
+<li>vorhandene Mittelwert-/Count-Zwischenergebnisse nach Möglichkeit
+  wiederverwenden.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Vergleichstests gegen die bisherige Referenz für Innenbereich, Ränder, NaNs
+  und kleine Supports.</li>
+<li>asymptotische Laufzeit <code>O(Breite × Höhe)</code> unabhängig von der Fensterfläche.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li>Horizontale und vertikale Sliding-Window-Summen berechnen Summe,
+  Quadratsumme und gültigen Support in linearer Zeit.</li>
+<li>Ein direkter Vergleich gegen die naive Fensterreferenz prüft mehrere Radien,
+  Ränder, NaNs und kleine Supports.</li>
+</ul>
+<h2 id="phase-7-cuda-sigma-clip-und-selection">Phase 7: CUDA-Sigma-Clip und Selection<a class="headerlink" href="#phase-7-cuda-sigma-clip-und-selection" title="Permanent link">&para;</a></h2>
+<p>Status: <code>teilweise erledigt</code></p>
+<ul>
+<li>bereits sortierte Ordnungsinformationen innerhalb einer Iteration
+  wiederverwenden.</li>
+<li>redundante Sortierungen für Noise-Floor und MAD entfernen.</li>
+<li>den großen threadlokalen Scratch-Bedarf reduzieren.</li>
+<li>als weiterführenden Schritt die threadserielle Sortierung durch eine
+  deterministische Warp-/Block-Selection ersetzen, sofern CUDA-Regressionstests
+  die CPU-Semantik bestätigen.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>CUDA- und CPU-Ergebnisse stimmen in den bestehenden AQMH-Toleranzen überein.</li>
+<li>weniger vollständige Sortierungen je Sigma-Clip-Iteration.</li>
+<li>keine falsche Quickselect-Angabe im Artefakt.</li>
+</ul>
+<p>Umgesetzt:</p>
+<ul>
+<li>Die bereits wertsortierte Ordnung liefert den ungewichteten Median für den
+  Noise-Floor, bevor der Weighted-MAD-Schritt sie überschreibt.</li>
+<li>Zwei <code>MaxFrames</code> große threadlokale Float-Scratch-Arrays wurden entfernt;
+  Small-N-Mediane verwenden nun ebenfalls den gemeinsamen Indexpuffer.</li>
+<li>Die Artefaktangabe benennt die aktuelle threadserielle Sortierung korrekt.</li>
+</ul>
+<p>Offen:</p>
+<ul>
+<li>Die vollständige Umstellung auf Warp-/Block-Selection bleibt ausstehend.
+  Sie verändert den zentralen numerischen CUDA-Pfad und darf gemäß
+  GPU-Semantikvertrag erst mit nativen CPU/CUDA-Vergleichstests auf realer
+  Hardware abgeschlossen werden. Der neue M31-Lauf bestätigt zwar die native
+  CUDA-Ausführung ohne Fallback, ersetzt aber keinen kontrollierten
+  CPU-/CUDA-Vergleich mit identischer Eingabe.</li>
+</ul>
+<h2 id="phase-8-build-tests-und-laufzeitvergleich">Phase 8: Build, Tests und Laufzeitvergleich<a class="headerlink" href="#phase-8-build-tests-und-laufzeitvergleich" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>relevante AQMH-Unit-Tests ausführen.</li>
+<li><code>tile_compile_runner</code> und vollständige C++-Tests bauen.</li>
+<li>vollständige Testsuite ausführen.</li>
+<li>CUDA-Tests nur mit tatsächlich verfügbarem GPU-Zugriff als native
+  CUDA-Verifikation werten.</li>
+<li>einen neuen Bildverarbeitungsrun ausschließlich nach ausdrücklicher Freigabe
+  starten; vorhandene Runs bleiben unverändert.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Build und relevante Tests sind erfolgreich.</li>
+<li>verbleibende Risiken und nicht nativ geprüfte GPU-Pfade sind dokumentiert.</li>
+</ul>
+<p>Ergebnis:</p>
+<ul>
+<li><code>tile_compile_runner</code> und das C++-Testtarget wurden einschließlich der
+  CUDA-Übersetzung erfolgreich gebaut.</li>
+<li>AQMH: 73 Testfälle, davon 72 erfolgreich und ein nativer CUDA-Test wegen
+  fehlendem CUDA-Gerät übersprungen; 12.515 von 12.515 Assertions erfolgreich.</li>
+<li>Gesamtsuite: 240 Testfälle, davon 239 erfolgreich und derselbe native
+  CUDA-Test übersprungen; 27.830 von 27.830 Assertions erfolgreich.</li>
+<li>Der übersprungene Test meldet
+  <code>no CUDA-capable device is detected</code>. Das ist als ausstehende
+  Hardwareverifikation und nicht als bestandener CUDA-Lauf dokumentiert.</li>
+<li>Es wurde kein neuer Bildverarbeitungsrun gestartet und kein vorhandener Run
+  verändert.</li>
+</ul>
+<h2 id="phase-9-auswertung-des-nativen-gpu-laufs">Phase 9: Auswertung des nativen GPU-Laufs<a class="headerlink" href="#phase-9-auswertung-des-nativen-gpu-laufs" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Ausgewertet wurde der vom Benutzer bereitgestellte Run
+<code>m31-default-gpu-opti1_20260724_124627</code>. Direkter Konfigurationsvergleich ist
+<code>M31-default-afix-picking1_20260722_132406</code>; der einzige relevante Unterschied
+ist das im neuen Lauf deaktivierte AQMH-Cherry-Picking.</p>
+<p>Ergebnis:</p>
+<ul>
+<li>Gesamtlaufzeit: 3247 statt 4025 Sekunden, also 19,3 % schneller.</li>
+<li><code>AQMH_RECONSTRUCTION</code>: 1221 statt 2049 Sekunden, also 40,4 % schneller.</li>
+<li>Gegenüber dem ursprünglichen Ausgangslauf sank die Gesamtlaufzeit um 32,5 %
+  und die Rekonstruktionszeit um 53,4 %.</li>
+<li>Der native Pfad meldet <code>cuda_native_v0_2</code>, 28 Chunks,
+  keinen Beschleunigungs-Fallback und keine CUDA-Allokationswiederholung.</li>
+<li>Der Uniform-Control wurde im selben GPU-Datenpass erzeugt; sein
+  nachgeschalteter Fallback benötigte 0 Sekunden.</li>
+<li><code>AQMH_MAPS</code> schrieb 2,923 GB Cache-Daten, las sie aber nicht mehr unmittelbar
+  vollständig zurück. Die Phase blieb mit 1110 Sekunden dennoch nahezu
+  unverändert und ist damit der größte verbleibende Einzelengpass.</li>
+<li>Das globale Hintergrund-RMS verbesserte sich gegenüber dem
+  Cherry-Pick-Vergleich um 26,4 %. Die globale FWHM änderte sich nur um
+  +0,069 % und ist damit praktisch stabil.</li>
+<li>Cherry-Picking bleibt für diesen Datensatz deaktiviert: Der Vergleichslauf
+  lag beim AQMH-Hintergrund 71,4 % über dem Uniform-Control, der neue Lauf bei
+  20,2 %.</li>
+</ul>
+<p>Qualitätsentscheidung:</p>
+<ul>
+<li>Der unveränderte Raw-AQMH-Kandidat verfehlt weiterhin ausschließlich das
+  Hintergrund-Gate gegenüber dem Uniform-Control.</li>
+<li>Der vollständige strukturmaskierte Kandidat besteht alle Gates gegenüber dem
+  Uniform-Control und verbessert dort FWHM und Hintergrund.</li>
+<li>Gegenüber der unveränderlichen Raw-AQMH-Referenz verschlechtert er den
+  Seam-Score jedoch um 6,29 % bei erlaubten 5 %. Die Auswahl von Raw-AQMH war
+  deshalb korrekt; der Grenzwert wird nicht gelockert.</li>
+<li>Alle drei betrachteten Runs enden technisch vollständig, werden aber wegen
+  dieses AQMH-Qualitäts-Gates als <code>failed</code> markiert.</li>
+</ul>
+<h2 id="phase-10-kandidatensuche-und-ablehnungsdiagnostik">Phase 10: Kandidatensuche und Ablehnungsdiagnostik<a class="headerlink" href="#phase-10-kandidatensuche-und-ablehnungsdiagnostik" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<ul>
+<li>Den Vergleich des vollständigen strukturmaskierten Kandidaten gegen die
+  unveränderliche Raw-AQMH-Referenz im Rekonstruktionsartefakt ausgeben.</li>
+<li>Strategie, Zahl der Prüfungen, Zahl zulässiger Kandidaten und bestes Alpha
+  der Abschwächungssuche protokollieren.</li>
+<li>Die bisherige binäre Suche ersetzen: Die kombinierte Gate-Entscheidung ist
+  über Alpha nicht zwingend monoton, weil Uniform-Control und vollständiger
+  Detailkandidat an unterschiedlichen Gates scheitern können.</li>
+<li>Alpha zunächst in absteigenden Achtelschritten prüfen und nur den höchsten
+  zulässigen Bereich vier Schritte lokal verfeinern.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Jeder Kandidat muss weiterhin sowohl gegen Uniform-Control als auch gegen
+  immutable Raw-AQMH bestehen.</li>
+<li>Kein Qualitätsgrenzwert wird gelockert.</li>
+<li>Ein Lauf ohne zulässigen Grobkandidaten benötigt sieben statt zwölf
+  Alpha-Prüfungen; unveränderliche Referenzmetriken und Sternpositionen werden
+  weiterhin wiederverwendet.</li>
+<li>Das Artefakt erklärt direkt, welches Raw-AQMH-Gate den vollständigen
+  Strukturkandidaten abgelehnt hat.</li>
+</ul>
+<p>Verifikation:</p>
+<ul>
+<li><code>tile_compile_runner</code> und das vollständige C++-Testtarget bauen erfolgreich.</li>
+<li>AQMH-Auswahl: 74 Testfälle, davon 73 erfolgreich und der native CUDA-Test
+  mangels sichtbarem CUDA-Gerät übersprungen; 12.519 Assertions erfolgreich.</li>
+<li>Gesamtsuite: 240 Testfälle, davon 239 erfolgreich und derselbe CUDA-Test
+  übersprungen; 27.830 Assertions erfolgreich.</li>
+</ul>
+<h2 id="phase-11-verbleibender-aqmh_maps-engpass">Phase 11: Verbleibender AQMH_MAPS-Engpass<a class="headerlink" href="#phase-11-verbleibender-aqmh_maps-engpass" title="Permanent link">&para;</a></h2>
+<p>Status: <code>teilweise erledigt</code></p>
+<ul>
+<li>Teilzeiten pro Frame für lokale Varianz, Strukturtensor, Schärfe, SNR,
+  Hintergrund und Cache-Schreiben erfassen.</li>
+<li>Die Speicherplanung prüfen: Der neue Lauf reduzierte bei acht angeforderten
+  Workern auf sieben effektive Worker. Eine Erhöhung darf nur erfolgen, wenn
+  gemessener Spitzenbedarf und bestehendes Speicherbudget sie sicher erlauben.</li>
+<li>Erst anhand dieser Teilzeiten den dominanten Rechenkern optimieren.</li>
+<li>Keine GPU-Portierung beginnen, bevor CPU-Profil und Transferkosten einen
+  belastbaren Nutzen zeigen.</li>
+</ul>
+<p>Umgesetzt und nativ gemessen:</p>
+<ul>
+<li>robuste Mediane verwenden lineare Ordnungsstatistik statt vollständiger
+  Sortierung; NaN-Filterung erfolgt ohne eine zusätzliche Vollkopie.</li>
+<li>Signal- und Noise-Mean in <code>phi_snr</code> teilen sich einen fusionierten
+  separierbaren Fensterdurchlauf und eine gemeinsame Support-Count-Map.</li>
+<li>Der vollständige 645-Frame-Test benötigte 628,7 statt 1110 Sekunden:
+  43,4 % weniger Laufzeit.</li>
+<li>Der Test konnte acht statt sieben Worker verwenden. Der gemessene Gewinn
+  enthält deshalb sowohl die Codeoptimierung als auch den Wegfall der früheren
+  speicherbedingten Workerbegrenzung.</li>
+</ul>
+<p>Offen:</p>
+<ul>
+<li>Teilzeiten innerhalb einer einzelnen Map-Berechnung ergänzen, damit
+  Codegewinn und Worker-Skalierung getrennt quantifiziert werden können.</li>
+<li>Spitzen-RSS pro Worker messen und die Schätzung von 887 MB gegen den
+  tatsächlichen Bedarf validieren.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Die Summe der Teilzeiten erklärt den Großteil der <code>AQMH_MAPS</code>-Laufzeit.</li>
+<li>Workerplanung dokumentiert Budget, Schätzung und tatsächlich beobachteten
+  Spitzenbedarf konsistent.</li>
+<li>NaN-, Masken-, Rand- und Resume-Semantik bleiben durch Vergleichstests
+  unverändert.</li>
+</ul>
+<h2 id="phase-12-registrierungs-guard-prufen">Phase 12: Registrierungs-Guard prüfen<a class="headerlink" href="#phase-12-registrierungs-guard-prufen" title="Permanent link">&para;</a></h2>
+<p>Status: <code>offen</code></p>
+<p>Der neue Lauf dämpfte 44 Frames über den AQMH-Registrierungs-Guard; im direkten
+Vergleichslauf waren es 8. Gleichzeitig sank die Registrierungszeit von etwa
+215 auf 195 Sekunden. Die Laufzeitverbesserung allein erklärt die deutlich
+größere gedämpfte Population nicht.</p>
+<ul>
+<li>die 44 betroffenen Frame-IDs, Registrierungsquellen, Chain-Depths,
+  Korrelationswerte und Dämpfungsfaktoren gegen den Vergleichslauf stellen.</li>
+<li>unterscheiden, ob sich die Registrierungsergebnisse geändert haben oder nur
+  die Guard-Auswertung beziehungsweise Telemetrie.</li>
+<li>prüfen, ob die gedämpften Frames räumlich oder zeitlich gehäuft sind und ob
+  sie die AQMH-Hintergrundregression beeinflussen.</li>
+<li>Schwellenwerte erst nach dieser Ursachenanalyse ändern.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>Jede zusätzliche Dämpfung ist auf eine konkrete Änderung der
+  Registrierungsmetrik oder des Quellpfads zurückgeführt.</li>
+<li>Unveränderte Eingaben ergeben deterministische Guard-Entscheidungen.</li>
+<li>Eine eventuelle Korrektur wird gegen globale Ausgabe, Raw-AQMH,
+  Uniform-Control und Registrierungsartefakte geprüft.</li>
+</ul>
+<h2 id="phase-13-zweite-rekonstruktionsoptimierung">Phase 13: Zweite Rekonstruktionsoptimierung<a class="headerlink" href="#phase-13-zweite-rekonstruktionsoptimierung" title="Permanent link">&para;</a></h2>
+<p>Status: <code>teilweise erledigt</code></p>
+<p>Umgesetzt:</p>
+<ul>
+<li>Vollbilddaten für Seam-Score und First-Difference-Hintergrundrauschen in
+  einem gemeinsamen Durchlauf erfassen.</li>
+<li>Median, MAD und Epsilon-Skala ohne wiederholte vollständige Sortierungen und
+  Zwischenkopien berechnen.</li>
+<li>die Alpha-Suche bei vollständig unzulässigen Kandidaten von zwölf auf sieben
+  Vollbildprüfungen begrenzen.</li>
+<li>Referenzmetriken und identische Sternpositionen weiterhin unverändert
+  wiederverwenden.</li>
+</ul>
+<p>Native Vollmessung:</p>
+<ul>
+<li>Im 64-Frame-GPU-Smoke-Test benötigte
+  <code>postprocessing_and_validation</code> 18,6 Sekunden.</li>
+<li>Im vollständigen 645-Frame-Resume sank derselbe Abschnitt von 224,0 auf
+  14,68 Sekunden: 93,4 % schneller beziehungsweise 209,3 Sekunden eingespart.</li>
+<li>Raw-AQMH-, Uniform-Control- und Strukturkandidaten-Metriken reproduzieren den
+  Referenzlauf; <code>raw_aqmh</code> bleibt aus demselben Seam-Guard-Grund ausgewählt.</li>
+<li>Das Raw-FITS ist nicht bitidentisch: 1,14 % der Pixel unterscheiden sich,
+  bei einer mittleren absoluten Differenz von 0,0148. Der Referenzlauf
+  verwendete 84, der Resume 86 Chunk-Zeilen. Vor weiteren Kerneländerungen ist
+  deshalb ein kontrollierter 84/86-Chunk-Invarianzvergleich erforderlich.</li>
+<li>Bei unveränderter Referenz-Kernzeit ergäbe das 1011,6 statt 1221 Sekunden für
+  die gesamte Rekonstruktionsphase, also 17,2 % weniger.</li>
+<li>Der gemessene Resume-Kern benötigte wegen deutlich langsamerer
+  Region-I/O 1308,1 statt 996,9 Sekunden. Die tatsächliche Resume-Phase lag
+  deshalb bei 1323,0 Sekunden. Dieser I/O-beeinflusste Wert ist kein
+  Kernel-Speedupvergleich.</li>
+</ul>
+<p>Verworfene Kandidaten:</p>
+<ul>
+<li>Thread-serieller CUDA-Quickselect: bei 645 Frames nur 89 von 2310 Zeilen
+  nach rund 164 Sekunden und damit klar langsamer als Shellsort. Nicht
+  übernommen.</li>
+<li>Frame-major-Eingabelayout: anfangs schnellere Chunks, über 65 % des Canvas
+  jedoch keine Verbesserung gegenüber pixel-major. Nicht übernommen.</li>
+<li>Qualitätsgrenzen und numerische Semantik wurden für keinen
+  Performanceversuch verändert.</li>
+</ul>
+<p>Verifikation:</p>
+<ul>
+<li>Runner und Testtarget bauen einschließlich CUDA-Übersetzung erfolgreich.</li>
+<li>AQMH: 75 Testfälle, 74 erfolgreich, nativer CUDA-Unit-Test mangels im
+  Sandbox-Prozess sichtbarem Gerät übersprungen; 12.522 Assertions erfolgreich.</li>
+<li>Gesamtsuite: 241 Testfälle, 240 erfolgreich, derselbe CUDA-Test
+  übersprungen; 27.833 Assertions erfolgreich.</li>
+<li>Der native 645-Frame-Resume lief ohne CUDA-Fallback oder
+  Allokationswiederholung bis <code>resume_end: ok</code>.</li>
+</ul>
+<p>Nächster Rekonstruktionsschritt:</p>
+<ul>
+<li>Chunk-Zeilen 84 und 86 bei identischen Caches fest vorgeben und die
+  verbleibende Ausgabedifferenz auf Cache-Region-Decode oder CUDA-Kern
+  zurückführen.</li>
+<li>CUDA-Events für Region-I/O/Host-Packing, H2D, Kernel und D2H getrennt
+  erfassen.</li>
+<li>danach Host-Packing und GPU-Kernel mit zwei Chunk-Puffern überlappen.</li>
+<li>Warp-/Block-Selection nur als kooperative Auswahl implementieren; ein
+  weiterer thread-serieller Auswahlalgorithmus ist durch den nativen Test
+  widerlegt.</li>
+</ul>
+<h2 id="phase-14-opti2-vollrun">Phase 14: Opti2-Vollrun<a class="headerlink" href="#phase-14-opti2-vollrun" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Direkt verglichen wurden
+<code>m31-default-gpu-opti1_20260724_124627</code> und
+<code>m31-default-gpu-opti2_20260724_171239</code>. Beide verarbeiten dieselben 645
+Frames. Die gespeicherten YAML-Dateien unterscheiden sich nur bei
+Defaultfeldern beziehungsweise ihrer Serialisierung; die wirksamen
+Verarbeitungsparameter sind gleich.</p>
+<p>Ergebnis:</p>
+<ul>
+<li>Gesamtlaufzeit: 3247 auf 2445 Sekunden, also 24,7 % schneller.</li>
+<li><code>AQMH_MAPS</code>: 1110 auf 601 Sekunden, also 45,9 % schneller.</li>
+<li><code>AQMH_RECONSTRUCTION</code>: 1221 auf 981 Sekunden, also 19,7 % schneller.</li>
+<li>Rekonstruktionskern: 996,89 auf 966,00 Sekunden, also 3,1 % schneller.</li>
+<li>Postprocessing/Validierung: 224,00 auf 14,29 Sekunden, also 93,6 %
+  schneller.</li>
+<li>MAPS verwendete in Opti2 acht statt sieben Worker. Der Phasengewinn ist
+  deshalb nicht vollständig als algorithmischer Speedup zu interpretieren.</li>
+<li>Opti2 verwendete wegen der zum Start geringeren freien GPU-Speichermenge 80
+  statt 84 Zeilen pro Chunk und 29 statt 28 Chunks.</li>
+<li>Globale Ausgabe- und AQMH-Gate-Metriken sind unverändert. Beide Runs wählen
+  korrekt <code>raw_aqmh</code>; es gab keinen CUDA-Fallback und keine
+  Allokationswiederholung.</li>
+</ul>
+<h2 id="phase-15-cuda-pipelineprofil">Phase 15: CUDA-Pipelineprofil<a class="headerlink" href="#phase-15-cuda-pipelineprofil" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Umgesetzt:</p>
+<ul>
+<li>Das Rekonstruktionsartefakt enthält unter
+  <code>cuda_pipeline_timing_seconds</code> getrennte Zeiten für
+  <code>host_region_load_and_pack</code>, H2D, Kernel, D2H und <code>result_commit</code>.</li>
+<li>CUDA-Events messen die drei GPU-Abschnitte auf demselben Stream.</li>
+<li>Host-Regionen/Packen und Ergebnisübernahme werden mit monotonic wall time
+  gemessen.</li>
+</ul>
+<p>Native Messung:</p>
+<ul>
+<li>Ein frischer M31-Testlauf mit 64 Frames, drei Chunks und
+  <code>cuda_native_v0_2</code> benötigte 37,92 Sekunden im Rekonstruktionskern.</li>
+<li>Davon entfielen 21,64 Sekunden beziehungsweise 57,1 % auf
+  Host-Regionen/Packen und 14,11 Sekunden beziehungsweise 37,2 % auf den
+  Kernel.</li>
+<li>H2D benötigte 0,677 Sekunden, D2H 0,016 Sekunden und die
+  Ergebnisübernahme 0,026 Sekunden. Transfers sind damit aktuell kein
+  primärer Engpass.</li>
+<li>Postprocessing/Validierung benötigte 15,56 Sekunden. <code>raw_aqmh</code> blieb
+  ausgewählt, es gab weder fehlende Maps noch einen CUDA-Fallback.</li>
+</ul>
+<p>Verworfener Kandidat:</p>
+<ul>
+<li>Eine statische OpenMP-Zuteilung in 16-Frame-Blöcken erhöhte im kontrollierten
+  64-Frame-Test Host-Regionen/Packen von 21,64 auf 22,81 Sekunden und den Kern
+  von 37,92 auf 39,04 Sekunden. Ursache waren nur vier Arbeitspakete für acht
+  Worker. Die Änderung wurde zurückgenommen.</li>
+<li>Eine feinere 8-Frame-Variante wurde nicht übernommen, weil der erforderliche
+  native A/B-Test wegen des externen Ausführungslimits nicht mehr gestartet
+  werden konnte.</li>
+</ul>
+<h2 id="phase-16-reconstruction-host-unterprofil">Phase 16: Reconstruction-Host-Unterprofil<a class="headerlink" href="#phase-16-reconstruction-host-unterprofil" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Umgesetzt:</p>
+<ul>
+<li><code>cuda_pipeline_timing_seconds.host_region_load_and_pack</code> bleibt die reale
+  Wall-Time des vollständigen Host-Abschnitts.</li>
+<li><code>cuda_pipeline_timing_seconds.host_chunk_setup</code> misst als Teilmenge davon
+  Masken-Initialisierung und Canvas-Mask-Slice.</li>
+<li><code>cuda_host_worker_timing_seconds</code> trennt Frame-Region-Read, Q-Map-Read,
+  Valid-Mask-Read und pixel-major Packing.</li>
+<li>Die Unterzeiten sind ausdrücklich
+  <code>sum_of_parallel_worker_wall_times</code>. Sie beschreiben die Verteilung der
+  Workerarbeit, nicht die serielle Phasenlaufzeit.</li>
+</ul>
+<p>Verifikation:</p>
+<ul>
+<li>CUDA-Übersetzung, Runner und vollständiges Testtarget bauen erfolgreich.</li>
+<li>Der native CUDA-Regressionstest prüft nichtnegative Unterzeiten und die
+  Beziehung zwischen Host-Gesamt- und Setup-Zeit.</li>
+<li>Die native Ausführung dieses Tests bleibt im Sandbox-Prozess mangels
+  sichtbarem CUDA-Gerät übersprungen.</li>
+<li>Ein nativer 64-Frame-Lauf mit drei Chunks benötigte vor der
+  OpenMP-Korrektur 30,33 Sekunden für Host-Regionen/Packen. Davon waren
+  15,60 Worker-Sekunden pixel-major Packing, 9,33 Q-Map-Read, 4,15
+  Frame-Read und 1,21 Valid-Mask-Read.</li>
+<li>Die Worker-Summen lagen unerwartet in der Größenordnung der Host-Wall-Time.
+  Das Unterprofil hat damit belegt, dass die OpenMP-Pragmas in der
+  CUDA-Übersetzung nicht aktiv waren.</li>
+</ul>
+<h2 id="phase-17-aqmh_maps-unterprofil">Phase 17: AQMH_MAPS-Unterprofil<a class="headerlink" href="#phase-17-aqmh_maps-unterprofil" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Umgesetzt:</p>
+<ul>
+<li><code>worker_timing_seconds</code> im MAPS-Artefakt trennt Frame-Load,
+  Normalisierung, Valid-Maske, Quality-Map-Berechnung, Cache-Write,
+  Map-Zusammenfassung, globale Frame-Metriken und Regionsdiagnostik.</li>
+<li><code>quality_map_stage_worker_timing_seconds</code> trennt innerhalb der
+  Quality-Map Source-Mask, Pyramid-Vorbereitung, Sharpness, lokalen
+  Hintergrund, SNR, Artifact, Summary, Psi-Upsample/Akkumulation und
+  Finalisierung.</li>
+<li>Beide Gruppen verwenden summierte parallele Frame-Worker-Wall-Times; die
+  Semantik wird im Artefakt explizit angegeben.</li>
+</ul>
+<p>Verifikation:</p>
+<ul>
+<li>Der Quality-Map-Test prüft alle Stage-Zeiten auf nichtnegative Werte und
+  stellt sicher, dass ihre Summe die gemessene Gesamtzeit nicht überschreitet.</li>
+<li>AQMH: 75 Testfälle, 74 erfolgreich, ein nativer CUDA-Test übersprungen;
+  12.533 Assertions erfolgreich.</li>
+<li>Gesamtsuite: 241 Testfälle, 240 erfolgreich, derselbe CUDA-Test
+  übersprungen; 27.844 Assertions erfolgreich.</li>
+<li>Im nativen 64-Frame-Profil benötigte die Quality-Map-Berechnung summiert
+  390,20 Worker-Sekunden. Der größte Einzelabschnitt war
+  Psi-Upsample/Akkumulation mit 137,92 Sekunden beziehungsweise 35,3 %,
+  gefolgt von Artifact mit 96,17 und SNR mit 68,10 Sekunden.</li>
+</ul>
+<p>Optimierung:</p>
+<ul>
+<li>Bilineares Psi-Upsampling und logarithmische Akkumulation laufen nun in
+  einem fusionierten Durchlauf; die vollständige Upsample-Zwischenmatrix
+  entfällt.</li>
+<li>Im nativen A/B-Test sank Psi-Upsample/Akkumulation von 137,92 auf
+  111,00 Worker-Sekunden, also um 19,5 %. Die gesamte
+  Quality-Map-Berechnung sank von 390,20 auf 364,07 Worker-Sekunden
+  beziehungsweise um 6,7 %.</li>
+<li>Die MAPS-Phase sank im groben Sekundenartefakt von 63 auf 61 Sekunden.</li>
+<li>Alle 64 binären Q-Map-Cachedateien sind gegenüber der Referenz bitidentisch.</li>
+</ul>
+<h2 id="phase-18-openmp-fur-cuda-hostvorbereitung">Phase 18: OpenMP für CUDA-Hostvorbereitung<a class="headerlink" href="#phase-18-openmp-fur-cuda-hostvorbereitung" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Ursache:</p>
+<ul>
+<li><code>OpenMP_CUDA</code> wurde von CMake erkannt, aber nicht an
+  <code>tile_compile_lib</code> gebunden. Der NVCC-Kompilierungsbefehl enthielt deshalb
+  kein <code>-fopenmp</code>; die OpenMP-Schleifen in
+  <code>aqmh_reconstruction_cuda.cu</code> liefen seriell.</li>
+</ul>
+<p>Umsetzung:</p>
+<ul>
+<li>Bei aktivem CUDA und gefundenem <code>OpenMP_CUDA</code> wird nun zusätzlich
+  <code>OpenMP::OpenMP_CUDA</code> gelinkt.</li>
+<li>Der erzeugte NVCC-Kompilierungsbefehl enthält nach der Neukonfiguration
+  <code>-fopenmp</code>.</li>
+</ul>
+<p>Native A/B-Messung:</p>
+<ul>
+<li>Bei automatischer Chunk-Planung sank der Rekonstruktionskern von 47,31 auf
+  31,50 Sekunden, also um 33,4 %. Die Host-Wall-Time sank von 30,33 auf
+  14,78 Sekunden beziehungsweise um 51,3 %.</li>
+<li>Bei kontrolliert identischen <code>chunk_rows=790</code> sank der Kern von 47,31 auf
+  31,70 Sekunden, also um 33,0 %. Host-Regionen/Packen benötigten 14,46,
+  der CUDA-Kernel 14,69 Sekunden.</li>
+<li>Das kontrollierte Raw-AQMH-FITS ist bitidentisch: 0 von 8.507.400 Pixeln
+  unterscheiden sich. Es gab keinen CUDA-Fallback, keine fehlenden
+  Map-Samples und dieselbe Raw-AQMH-Auswahl.</li>
+<li>Der vorherige Vergleich mit automatisch gewählten 860 statt 790
+  Chunk-Zeilen unterschied 0,207 % der Pixel. Der feste
+  Chunk-Geometrievergleich weist diese Abweichung der Geometrie und nicht
+  einer OpenMP-Race-Condition zu.</li>
+</ul>
+<p>Verifikation:</p>
+<ul>
+<li>Runner und vollständiges Testtarget bauen einschließlich der
+  CUDA-Übersetzung erfolgreich.</li>
+<li>Gesamtsuite: 241 Testfälle, 240 erfolgreich, ein nativer CUDA-Unit-Test im
+  Sandbox-Prozess übersprungen; 27.844 Assertions erfolgreich.</li>
+</ul>
+<h2 id="phase-19-opti3-vollrun-und-maps-speicherverifikation">Phase 19: Opti3-Vollrun und MAPS-Speicherverifikation<a class="headerlink" href="#phase-19-opti3-vollrun-und-maps-speicherverifikation" title="Permanent link">&para;</a></h2>
+<p>Status: <code>erledigt</code></p>
+<p>Vergleich:</p>
+<ul>
+<li><code>m31-default-gpu-opti3_20260724_201231</code> verarbeitet dieselben 645 Frames und
+  dieselben wirksamen Parameter wie Opti2. Unterschiede in der YAML-Datei
+  betreffen nur Defaultfelder und ihre Reihenfolge.</li>
+<li>Die technische Gesamtlaufzeit stieg dadurch von 2445,1 auf 2485,9 Sekunden
+  (+1,7 %). Der Reconstruction-Gewinn wurde durch die langsamere MAPS-Phase
+  und längere Vorphasen überkompensiert; die nächste Optimierung muss daher
+  MAPS beziehungsweise die Speicher-/Worker-Situation adressieren.</li>
+<li>AQMH_MAPS benötigte in Opti3 686,75 statt 600,43 Sekunden. Ursache ist die
+  Speicherbegrenzung: verfügbar waren 8,75 GiB, deshalb wurden sechs statt
+  acht Worker zugelassen (<code>capped=true</code>).</li>
+<li>AQMH_RECONSTRUCTION sank trotz kleinerer automatisch gewählter Chunks von
+  980,57 auf 842,30 Sekunden (14,1 %). Der Reconstruction-Core sank von
+  966,00 auf 826,58 Sekunden (14,4 %).</li>
+<li>Alle Q-Map-Caches sind bitidentisch. Das Raw-FITS unterscheidet sich nur in
+  280 von 9.059.200 Pixeln (0,0031 %; mittlere absolute Differenz
+  0,0000308); die Abweichung stammt aus der unterschiedlichen Chunk-Geometrie
+  <code>80</code> beziehungsweise <code>67</code>.</li>
+<li>Die Qualitätsmetriken und Gate-Entscheidungen bleiben praktisch gleich:
+  beide Läufe wählen <code>raw_aqmh</code>, bestehen die gleichen globalen Gates und
+  melden keine fehlenden Maps.</li>
+</ul>
+<p>Speicher-A/B-Test:</p>
+<ul>
+<li>Ein isolierter 64-Frame-Lauf mit 28,05 GiB verfügbarer Speicherplanung ließ
+  acht Worker zu und meldete <code>capped=false</code>.</li>
+<li>Die maximale Prozess-RSS betrug 8,75 GiB. Damit ist die derzeitige
+  Schätzung von rund 891 MiB pro MAPS-Worker konservativ, aber plausibel.</li>
+<li>Die Worker-Cap-Berechnung wird deshalb nicht pauschal gelockert. Eine
+  Lockerung bei nur rund 9 GiB verfügbarem RAM könnte den Prozess durch
+  parallele OpenCV-Zwischenmatrizen in Speicherdruck bringen.</li>
+<li>Der isolierte Test hatte keinen sichtbaren CUDA-Device-Zugriff und fiel nur
+  in Reconstruction auf CPU zurück; die MAPS-Speichermessung selbst war
+  vollständig und erfolgreich.</li>
+<li>Die OpenMP-Steuerung wurde im MAPS-Worker-Pool zentralisiert: Die Threadzahl
+  wird einmal vor dem Start der äußeren Worker gesetzt und nach dem Join wieder
+  auf den vorherigen Prozesswert zurückgestellt. Ein neuer 64-Frame-Lauf lief
+  mit acht Workern vollständig durch; MAPS und Reconstruction endeten mit
+  <code>status=ok</code>, Reconstruction nutzte mangels sichtbarem CUDA-Gerät den CPU-
+  Fallback.</li>
+</ul>
+<h2 id="geplanter-reconstruction-overlap-kandidat">Geplanter Reconstruction-Overlap-Kandidat<a class="headerlink" href="#geplanter-reconstruction-overlap-kandidat" title="Permanent link">&para;</a></h2>
+<p>Der Kandidat wird erst nach der nächsten nativen Unterprofil-Messung
+implementiert:</p>
+<ul>
+<li>zwei Host-Eingabepuffer mit jeweils ungefähr halber bisheriger Chunk-Höhe;</li>
+<li>nur ein Device-Puffer und ein Output-Staging-Puffer;</li>
+<li>Vorbereitung von Chunk <code>n+1</code> parallel zum Kernel von Chunk <code>n</code>;</li>
+<li>dadurch bleibt der Host-Eingabepufferbedarf ungefähr auf dem heutigen
+  Niveau, statt sich durch einen vollständigen Doppelpuffer zu verdoppeln;</li>
+<li>H2D, Kernel und D2H bleiben auf demselben Stream geordnet;</li>
+<li>der vorbereitende Worker liefert Statistik und Fehlerzustand zurück und
+  verändert das Reconstruction-Result nicht nebenläufig.</li>
+</ul>
+<p>Abnahme:</p>
+<ul>
+<li>gleicher Cache, feste Chunk-Geometrie und identische Qualitäts-Gates für
+  seriellen und überlappten Pfad;</li>
+<li>kein höherer beobachteter Host-Spitzenbedarf als beim bisherigen
+  Auto-Chunk-Pfad;</li>
+<li>messbarer Core-Speedup; andernfalls bleibt der serielle Pfad Standard;</li>
+<li>bitweiser beziehungsweise toleranzbasierter Vergleich von Raw-AQMH,
+  Weight-Sum, Uniform-Control und Valid-Maske.</li>
+</ul>
+<h2 id="nachste-prioritat">Nächste Priorität<a class="headerlink" href="#nachste-prioritat" title="Permanent link">&para;</a></h2>
+<ol>
+<li>die nächste Overlap-Stufe für Q-Map-/Maskenlesen prüfen; die erste sichere
+   Stufe lädt den nächsten Frame-Region-Chunk parallel zur laufenden
+   Geräteverarbeitung vor. Der native 64-Frame-CUDA-Test mit fester
+   Chunk-Höhe 790 sank von 64,75 auf 53,91 Sekunden (-16,7 %). Das
+   rekonstruierte FITS ist bitidentisch zur Referenz. Mit automatischer
+   Chunk-Höhe 781 wurden 47,35 Sekunden erreicht (-26,9 %), dieser Wert
+   enthält jedoch zusätzlich den kleinen Geometrieunterschied.</li>
+<li>den Artifact-Abschnitt in AQMH_MAPS unterprofilieren und optimieren</li>
+<li>die zentrale OpenMP-Threadsteuerung im nativen CUDA-Lauf messen und gegen
+   Oversubscription absichern</li>
+<li>kooperative Warp-/Block-Selection mit CPU-/CUDA-Vergleich</li>
+<li>Chunk-Geometrieabhängigkeit separat untersuchen; sie ist klein, aber bei
+   bitidentischen Anforderungen relevant</li>
+<li>Registrierungs-Guard-Differenz der 44 Frames erklären</li>
+</ol>
+<p>Die bereits umgesetzten Schritte haben den größten belegten
+Validierungsanteil und die MAPS-Phase deutlich reduziert. Die nächste
+Rekonstruktionsstufe konzentriert sich auf die nun gleich großen Host- und
+Kernelabschnitte, damit auf messbare I/O-/Kernel-Überlappung und anschließend
+kooperative GPU-Auswahl; die
+wissenschaftlichen Qualitäts-Gates bleiben unverändert.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
