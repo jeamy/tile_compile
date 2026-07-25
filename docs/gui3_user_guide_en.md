@@ -9,7 +9,7 @@ GUI3 consists of three main areas:
 | Tab | Sub-Tabs | Purpose |
 |-----|----------|---------|
 | **Processing** | Input & Scan, Parameter, Run Monitor | Main workflow: scan input, adjust parameters, start and monitor runs |
-| **Tools** | Raw Stack, Astrometry, PCC | Standalone tools for preprocessing, plate solving, and color calibration |
+| **Tools** | Raw Stack, Astrometry, PCC, Live Image Editor | Standalone tools for preprocessing, plate solving, color calibration, and non-destructive FITS editing |
 | **History** | Run History | Browse, compare, and generate reports for completed runs |
 
 ---
@@ -127,7 +127,7 @@ The Parameter page has a second tab: **AI Recommendations**. This provides AI-po
 7. Use **PI Preview** to validate the planned changes as a YAML diff without saving.
 8. Use **Apply PI** to save the last valid PI Preview as a new config revision.
 
-> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. The key is kept in local PI AuthStorage, not in pipeline configuration, run data, or logs. Alternatively, it can be provided through a provider variable in a local `.env` file; the complete current list of supported key and credential variables is in [`.env.example`](../.env.example). A `401 invalid x-api-key` error means the provider rejected the key.
+> The AI sidecar (`tile_compile_pi_agent`) must be running for analysis to work. The key is kept in local PI AuthStorage, not in pipeline configuration, run data, or logs. Alternatively, it can be provided through a provider variable in a local `.env` file; the complete current list of supported key and credential variables is in [`.env.example`](https://github.com/jeamy/tile_compile/blob/main/.env.example). A `401 invalid x-api-key` error means the provider rejected the key.
 
 ### Situation Assistant
 
@@ -393,6 +393,12 @@ The report includes:
 - BGE diagnostics
 - Validation metrics (including tile-pattern indicators)
 - Pipeline timeline and frame-usage funnel
+
+### Live Image Editor
+
+Open the **Live Editor** from the **Latest image** panel in Run Monitor, or click the image preview. The editor creates and updates a separate `live_edit.fits` working file, so the source FITS remains unchanged.
+
+It provides deterministic image operations, live parameter previews, **Apply**/**Cancel**, undo/redo, repeat, before/current comparison, PNG/FITS export, and optional AI proposals. See the full [Live Image Editor guide](guides/live_image_editor_en.md) for the workflow, storage behavior, supported operations, and API-key setup.
 
 ---
 

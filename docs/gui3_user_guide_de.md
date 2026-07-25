@@ -9,7 +9,7 @@ GUI3 besteht aus drei Hauptbereichen:
 | Tab | Sub-Tabs | Zweck |
 |-----|----------|------|
 | **Processing** | Input & Scan, Parameter, Run Monitor | Hauptworkflow: Eingabe scannen, Parameter einstellen, Run starten und überwachen |
-| **Tools** | Raw Stack, Astrometry, PCC | Eigenständige Werkzeuge für Vorverarbeitung, Plate Solving und Farbkalibrierung |
+| **Tools** | Raw Stack, Astrometry, PCC, Live Image Editor | Eigenständige Werkzeuge für Vorverarbeitung, Plate Solving, Farbkalibrierung und nicht-destruktive FITS-Bearbeitung |
 | **History** | Run History | Abgeschlossene Runs durchsuchen, vergleichen und Reports generieren |
 
 ---
@@ -127,7 +127,7 @@ Die Parameter-Seite hat einen zweiten Tab: **AI Empfehlung**. Dieser bietet KI-g
 7. **PI Preview** validiert die geplanten Änderungen als YAML-Diff ohne Speichern.
 8. **PI anwenden** speichert die letzte gültige PI-Preview als neue Config-Revision.
 
-> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Der Key liegt im lokalen PI-AuthStorage, nicht in Pipeline-Configs, Run-Daten oder Logs. Alternativ kann er als Provider-Variable in einer lokalen `.env` stehen; die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](../.env.example). Ein `401 invalid x-api-key` bedeutet, dass der Provider den Key ablehnt.
+> Der AI-Sidecar (`tile_compile_pi_agent`) muss laufen, damit die Analyse funktioniert. Der Key liegt im lokalen PI-AuthStorage, nicht in Pipeline-Configs, Run-Daten oder Logs. Alternativ kann er als Provider-Variable in einer lokalen `.env` stehen; die vollständige aktuelle Liste aller unterstützten Key-/Credential-Variablen steht in der [`.env.example`](https://github.com/jeamy/tile_compile/blob/main/.env.example). Ein `401 invalid x-api-key` bedeutet, dass der Provider den Key ablehnt.
 
 ### Situation-Assistent
 
@@ -406,6 +406,12 @@ Der Bericht enthält:
 - BGE-Diagnostik
 - Validierungsmetriken (inkl. Tile-Pattern-Indikatoren)
 - Pipeline-Zeitachse und Frame-Usage-Funnel
+
+### Live Image Editor
+
+Den **Live Editor** im Bereich **Letztes Bild** des Run Monitors öffnen oder auf die Bild-Preview klicken. Der Editor erzeugt und aktualisiert eine getrennte Arbeitsdatei `live_edit.fits`; das Quell-FITS bleibt unverändert.
+
+Er bietet deterministische Bildoperationen, Live-Previews für Parameter, **Anwenden**/**Abbrechen**, Undo/Redo, Wiederholen, Vorher/Aktuell-Vergleich, PNG-/FITS-Export und optionale KI-Vorschläge. Der vollständige Ablauf, die Speicherung, unterstützte Operationen und die API-Key-Konfiguration stehen im [Live-Image-Editor-Handbuch](guides/live_image_editor_de.md).
 
 ---
 

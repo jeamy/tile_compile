@@ -16,6 +16,7 @@ Tile-Compile is a scientific-grade image stacking pipeline designed for astropho
 - **HyperMetric Stretch (HMS)** — VeraLux-based post-PCC stretch
 - **Modern GUI3** — Browser-based interface with full workflow support
 - **AI-Assisted Configuration** — Parameter Intelligence (PI) module for data-driven recommendations
+- **Live Image Editor** — Non-destructive FITS editing after a run, with live preview, undo/redo, repeatable operations, and optional AI proposals
 
 Designed for smart telescope data (DWARF, Seestar, ZWO SeeStar, etc.) but works with any FITS input.
 
