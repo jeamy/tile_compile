@@ -365,9 +365,20 @@ registriert und auf einen gemeinsamen Output-Canvas prewarped sein.
 
 ### 2.3 Mehrskalige Pyramide
 
-Identisch zu v0.2.0 §2.3. Die vier Skalen, die Auslassungsregel, die Berechnung
-von Schärfe, SNR und Artefakt sowie die geometrische Mittelwertfusion bleiben
-unverändert.
+Die vier Skalen, die Auslassungsregel, die Berechnung von Schärfe, SNR und
+Artefakt sowie die geometrische Mittelwertfusion bleiben wie in v0.2.0.
+
+**Post-v0.2.1-Erweiterung — lokale Sigmoid-Temperatur.** Der lokale
+Qualitätsscore pro Skala wird vor dem Sigmoid mit `score_scale` multipliziert:
+
+```
+score_s(x,y) = score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))
+Psi_s(x,y)  = sigmoid(score_s(x,y)) * Phi_artifact_s(x,y)
+```
+
+`score_scale` muss `> 0` sein und hat den aktuellen Betriebsdefault `1.8`.
+Werte über `1.0` erhöhen die lokale Selektivität der Quality-Map, ohne den
+gebundenen Wertebereich `[0,1]` oder das Artefakt-Veto zu verändern.
 
 ### 2.4 Mehrskalen-Fusion
 
@@ -583,9 +594,30 @@ scheinbar qualitätsverbesserter Wert aus einer zu kleinen Restmenge entstehen.
 
 ### 5.3 Cherry-Pick-Stacking-Modus
 
-Identisch zu v0.2.0 §5.3. Das Run-Level-`K_nominal_median`-Floor, die
-Per-Pixel-Regel `K(p) = max(k_min_required, K_nominal(p))`, Tiering und die
-Rank-Separation-Diagnostik bleiben unverändert.
+Cherry-Pick bleibt ein expliziter Opt-in-Modus und muss in der Diagnostik
+berichtet werden. Der Standardselektor fuer aktiviertes Cherry-Pick ist jetzt
+`mode = auto_reject`: Die vollständige AQMH-gewichtete Sample-Menge bleibt
+erhalten, solange ein Sample kein klarer lokaler Low-Score-Ausreißer ist.
+
+Für `auto_reject` werden lokal rankbare Samples nach Score
+`S_f(p) = G_f * max(0, Q_f(p))` nur zur Schwellwertbestimmung sortiert:
+
+```
+S_best(p) = max_f S_f(p)
+T(p) = reject_below_best_fraction * S_best(p)
+K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+```
+
+Samples unterhalb von `T(p)` sind verwerfbar, aber die behaltene Menge muss
+mindestens `K_floor(p)` Samples enthalten. Liegt der Score-Abstand zwischen
+letztem behaltenen und erstem verworfenen Sample unter `margin_min`, wird lokal
+nichts verworfen. Dadurch bleibt der Selektor konservativ: Er soll extreme
+lokale Defekte entfernen, nicht AQMH in einen festen Small-N-Stack verwandeln.
+
+`mode = top_k` bleibt als Legacy-Selektor mit fester Fraktion aus v0.2.0
+verfuegbar. In diesem Modus gelten `k_frac`, Tiering, `K_nominal_median` und
+die alte Per-Pixel-Regel `K(p) = max(k_min_required, K_nominal(p))`
+unveraendert.
 
 ---
 
@@ -814,12 +846,13 @@ Per-Frame-Diagnostiken in `aqmh_metrics.json` umfassen:
   eingeführt, damit Beispiel-Config-Defaults Kamera-Metadaten nicht
   überschreiben.
 
-### 9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)
+### 9.2 AQMH-Kernparameter
 
 - `aqmh.pyramid.scales = 4`
 - `aqmh.pyramid.base_window_px = 4`
 - `aqmh.pyramid.w_sharp = 0.6`
 - `aqmh.pyramid.w_snr = 0.4`
+- `aqmh.pyramid.score_scale = 1.8`
 - `aqmh.pyramid.k_artifact = 3.0`
 - `aqmh.pyramid.frac_artifact_max = 0.25`
 - `aqmh.storage.resolution_divisor = 1`
@@ -863,9 +896,12 @@ Die v0.2.1-Referenzwerte waren `low_q=0.70`, `high_q=0.97`, Blur-Sigma
 `2 px`; die aktuellen Betriebswerte sind weiter, um mittelgradientige
 Struktur zu erhalten.
 
-### 9.6 Cherry-Pick (unverändert)
+### 9.6 Cherry-Pick
 
 - `aqmh.cherry_pick.enabled = false` standardmäßig.
+- `mode = auto_reject`
+- `reject_below_best_fraction = 0.25`
+- `min_keep_fraction = 0.90`
 - `k_frac = 0.30`
 - `k_min_required = 20`
 - `margin_min = 0.02`

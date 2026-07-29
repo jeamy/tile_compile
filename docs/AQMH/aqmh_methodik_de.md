@@ -187,13 +187,14 @@ Scene-Dependence-Guard: `Phi_snr_s` ist ein lokaler Support-Qualitaetsproxy, kei
 
 Die Qualitaetskarte pro Skala `Psi_s(x,y)` ist definiert als:
 
-`Psi_s(x,y) = sigmoid(w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s)) * Phi_artifact_s(x,y)`
+`Psi_s(x,y) = sigmoid(score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))) * Phi_artifact_s(x,y)`
 
 wobei:
 
 - `z(Phi)` die robuste z-score-Normalisierung ist: `z(Phi)(x,y) = (Phi(x,y) - median(Phi_s)) / max(1.4826 * MAD(Phi_s), eps_aqmh)`, angewendet ueber alle endlichen, canvas-gueltigen Pixel auf Skala `s`
 - `sigmoid(v) = 1 / (1 + exp(-v))`
 - `w_sharp`, `w_snr` konfigurierbare Gewichte sind (spezifizierte Defaults: `w_sharp = 0.6`, `w_snr = 0.4`)
+- `score_scale` die lokale Sigmoid-Temperatur ist (aktueller Betriebsdefault: `1.8`, muss `> 0` sein)
 - der Artefaktterm `Phi_artifact_s` als multiplikatives Gate wirkt: Er unterdrueckt Regionen mit zu hoher Outlier-Dichte unabhaengig von Schaerfe oder SNR.
 
 Bindende Bedingung: `Psi_s(x,y) in [0, 1]` fuer alle endlichen Eingaben. Der Sigmoid-Term ist strikt positiv, aber das multiplikative Artefakt-Gate kann `Psi_s` exakt auf null setzen.
@@ -391,13 +392,28 @@ Diese Regionen werden im Diagnoseartefakt `aqmh_regions.json` pro Frame berichte
 
 ### 5.3 Optionaler Cherry-Pick-Stacking-Modus
 
-Wenn `aqmh.cherry_pick.enabled = true`, verwendet pixelweises Stacking nur die **Top-K Frames** nach Qualitaet statt aller Frames:
+Wenn `aqmh.cherry_pick.enabled = true`, verwendet pixelweises Stacking einen
+explizit berichteten Selektionsmodus. Standard ist `mode = auto_reject`: AQMH
+behaelt die meisten lokal nutzbaren Frames und verwirft nur klare lokale
+Low-Score-Ausreisser.
 
-`K(p) = min(N_valid(p), max(k_min, floor(k_frac * N_valid(p))))`
+Fuer jedes Pixel `p` werden rankbare Samples nach dem cross-frame kalibrierten
+Score `S_f(p) = G_{f,c} * Q_map_{f,c}(p)` bewertet. Im Modus `auto_reject`
+gelten:
 
-wobei `N_valid(p) = |V_c^{I}(p)|` die Anzahl endlicher Intensitaetssamples an Pixel `p` ist (die Intensitaets-Sample-Menge aus Abschnitt 4.3), mit spezifizierten Defaults `k_min = 3`, `k_frac = 0.3`.
+```
+S_best(p) = max_f S_f(p)
+T(p) = reject_below_best_fraction * S_best(p)
+K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+```
 
-Fuer jedes Pixel `p` sortiere `V_c^{I}(p)` nach dem cross-frame kalibrierten Score `S_f(p) = G_{f,c} * Q_map_{f,c}(p)` absteigend und behalte nur die Top-`K(p)` Frames. Frames mit nicht verfuegbaren/nicht-endlichen Maps erhalten `S_f(p) = 0`. Die gewichtete Rekonstruktion laeuft ueber diese reduzierte Menge.
+Samples unterhalb `T(p)` sind verwerfbar, aber mindestens `K_floor(p)` Samples
+bleiben erhalten. Ist der Score-Abstand zwischen letztem behaltenen und erstem
+verworfenen Sample kleiner als `margin_min`, wird lokal nichts verworfen.
+
+`mode = top_k` bleibt als Legacy-Regel verfuegbar:
+
+`K(p) = min(N_valid(p), max(k_min_required, floor(k_frac * N_valid(p))))`
 
 **Warnung (bindend):** Cherry-Pick-Modus verletzt die Default-AQMH-No-Frame-Selection-Invariante auf Pixelebene, auch wenn er keine ganzen Frames verwirft. Er darf nur verwendet werden, wenn der Nutzer ihn explizit aktiviert, und muss in Diagnoseausgaben klar markiert werden. Default ist `disabled`.
 
@@ -460,6 +476,7 @@ aqmh:
     base_window_px: 4   # Fensterradius R_s in downscaled Pixeln (Default: 4)
     w_sharp: 0.6        # Schaerfegewicht im pro-Skala-Sigmoid (Default: 0.6)
     w_snr: 0.4          # SNR-Gewicht im pro-Skala-Sigmoid (Default: 0.4)
+    score_scale: 1.8    # lokale Sigmoid-Temperatur (Default: 1.8)
     k_artifact: 3.0     # Outlier-Erkennungsschwelle (Default: 3.0)
     frac_artifact_max: 0.25  # Artefakt-Gate-Schwelle (Default: 0.25)
 ```
@@ -483,8 +500,11 @@ Der Speicherdefault (`resolution_divisor = 2`, `dtype = float32`) entspricht der
 aqmh:
   cherry_pick:
     enabled: false      # muss explizit aktiviert werden; bricht No-Frame-Selection-Invariante auf Pixelebene
-    k_min: 3
-    k_frac: 0.30
+    mode: auto_reject
+    k_min_required: 20
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.90
+    k_frac: 0.30       # nur fuer mode: top_k
 ```
 
 ### 7.5 Diagnostikkonfiguration
@@ -512,6 +532,7 @@ Alle `eps_aqmh`-Konstanten haben den Default `1e-6`, sofern nicht anders angegeb
 | `frac_artifact_max` | `0.25` | Maximal tolerierte Outlier-Fraktion pro Fenster |
 | `w_sharp` | `0.6` | Schaerfegewicht im pro-Skala-Qualitaetssigmoid |
 | `w_snr` | `0.4` | SNR-Gewicht im pro-Skala-Qualitaetssigmoid |
+| `score_scale` | `1.8` | lokale Sigmoid-Temperatur der AQMH-Quality-Map |
 | `P` | `4` | Maximale Anzahl Pyramidenskalen; tatsaechliche Anzahl kann wegen Omission-Regel in Abschnitt 2.3.1 niedriger sein |
 | `R_s` | `4` | Fensterradius auf jeder Skala (in downscaled Pixeln) |
 | `q_region` | `0.75` | Qualitaetsquantilschwelle fuer Regionsextraktion |

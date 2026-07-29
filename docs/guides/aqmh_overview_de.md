@@ -14,7 +14,7 @@ Für jedes Frame f, Kanal c:
          Phi_sharp = lokale Varianz des maskierten Laplacian (Schärfe)
          Phi_snr   = lokales SNR = mu / max(1.4826*MAD, eps)
          Phi_artifact = 1 - clip(outlier_frac / frac_artifact_max, 0, 1)
-    3. Psi_s = sigmoid(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr)) * Phi_artifact
+    3. Psi_s = sigmoid(score_scale*(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr))) * Phi_artifact
        (z = robuster z-Score; Artefakt-Gate ist multiplikativ — eine schlechte Skala vetoed den Pixel)
     4. Psi_s auf Canvas-Auflösung hochskalieren (maskenbewusstes Bilinear)
   Q_map_{f,c} = geometrisches Mittel über Skalen(Psi_s)  # alle Skalen müssen übereinstimmen
@@ -34,13 +34,15 @@ Rekonstruktion (pro Canvas-gültigem Pixel p):
 | `aqmh.pyramid.base_window_px` | `4` | Fenstergröße auf der untersten Pyramiden-Stufe |
 | `aqmh.pyramid.w_sharp` | `0.6` | Schärfe-Gewicht im Qualitätsindex |
 | `aqmh.pyramid.w_snr` | `0.4` | SNR-Gewicht im Qualitätsindex |
+| `aqmh.pyramid.score_scale` | `1.8` | Lokale Selektivität der Quality-Map |
 | `aqmh.pyramid.k_artifact` | `3.0` | MAD-Multiplikator für Artefakt-Erkennung (höher = toleranter) |
 | `aqmh.pyramid.frac_artifact_max` | `0.25` | Max. Artefakt-Anteil pro Fenster vor Verwurf |
 | `aqmh.storage.resolution_divisor` | `2` | Qualitätskarten-Cache-Auflösung (1/2/4) |
 | `aqmh.storage.dtype` | `uint16` | Cache-Datentyp (`float32`, `uint16` oder `uint8`) |
 | `aqmh.storage.max_resident_maps` | `2` | Max. Qualitätskarten gleichzeitig im RAM |
-| `aqmh.cherry_pick.enabled` | `false` | Nur die besten Frames stapeln |
-| `aqmh.cherry_pick.k_frac` | `0.30` | Anteil der besten Frames (0.30 = beste 30%) |
+| `aqmh.cherry_pick.enabled` | `false` | Konservative Frame-Selektion pro Pixel aktivieren |
+| `aqmh.cherry_pick.mode` | `auto_reject` | Die meisten Frames behalten; nur klare Low-Score-Ausreißer verwerfen |
+| `aqmh.cherry_pick.k_frac` | `0.30` | Nur Legacy-Anteil fuer `top_k` |
 | `aqmh.cherry_pick.k_min_required` | `20` | Run-Gate und min. behaltene Samples pro Pixel |
 | `aqmh.diagnostics.enabled` | `true` | AQMH-Diagnose-Phase aktivieren |
 | `aqmh.diagnostics.level` | `full` | Detailgrad: `none`, `summary` oder `full` |
@@ -59,7 +61,7 @@ Praktische Beispiele: [Konfigurationsbeispiele — AQMH-Abschnitt](../configurat
 |-----------|------------|
 | Standard / die meisten Sessions | **AQMH** (standardmäßig aktiviert) |
 | Tile-Nähte oder OLA-Artefakte sichtbar | **AQMH** eliminiert Nähte vollständig |
-| Stark schwankende Frame-Qualität (Seeing, Wolken) | **AQMH** mit `cherry_pick.enabled: true`, `resolution_divisor: 1`, `dtype: float32` |
+| Stark schwankende Frame-Qualität (Seeing, Wolken) | **AQMH** mit `cherry_pick.enabled: true`, `cherry_pick.mode: auto_reject`, `resolution_divisor: 1`, `dtype: float32` |
 | Sehr große Sessions, RAM-begrenzt | **AQMH** mit `storage.resolution_divisor: 4`, `dtype: uint8` |
 | Sessions mit Satellitenspuren / kosmetischen Problemen | **AQMH** mit `k_artifact: 5.0`, `frac_artifact_max: 0.35` |
 | Forschung mit TBQR-Tile-gewichteter OLA | Klassisch (`aqmh.enabled: false`) |

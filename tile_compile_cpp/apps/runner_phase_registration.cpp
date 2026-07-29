@@ -3108,7 +3108,8 @@ bool run_phase_registration_prewarp(
   const auto prewarp_acceleration =
       acceleration.selection_for(core::AccelerationPhase::prewarp);
   const core::AccelerationOps prewarp_ops(
-      acceleration, core::AccelerationPhase::prewarp);
+      acceleration, core::AccelerationPhase::prewarp,
+      cfg.aqmh.reconstruction.prewarp_interpolation);
   const auto prewarp_input_batch =
       core::make_device_frame_batch(frames.size(), height, width, 1);
   const auto prewarp_output_batch =
@@ -3117,7 +3118,9 @@ bool run_phase_registration_prewarp(
   {
     std::ostringstream msg;
     msg << "PREWARP acceleration "
-        << core::acceleration_selection_summary(prewarp_acceleration);
+        << core::acceleration_selection_summary(prewarp_acceleration)
+        << " interpolation="
+        << cfg.aqmh.reconstruction.prewarp_interpolation;
     if (!prewarp_acceleration.request_honored &&
         !prewarp_acceleration.fallback_reason.empty()) {
       emitter.warning(run_id, msg.str(), log_file);
@@ -3172,6 +3175,8 @@ bool run_phase_registration_prewarp(
             << " gpu=" << (prewarp_acceleration.using_gpu ? "yes" : "no")
             << " backend="
             << core::acceleration_backend_name(prewarp_acceleration.selected)
+            << " interpolation="
+            << cfg.aqmh.reconstruction.prewarp_interpolation
             << std::endl;
   std::mutex prewarp_log_mutex;
   std::mutex prewarp_progress_mutex;

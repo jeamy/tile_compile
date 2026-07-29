@@ -305,6 +305,7 @@ aqmh:
     base_window_px: 4    # Fenstergrösse auf unterster Pyramidenstufe
     w_sharp: 0.6         # Gewicht Schaerfe-Metrik im Qualitaetsindex
     w_snr: 0.4           # Gewicht SNR-Metrik im Qualitaetsindex
+    score_scale: 1.8        # lokale AQMH-Selektivitaet
     k_artifact: 3.0      # MAD-Multiplikator Artefakt-Erkennung (hoeher = toleranter)
     frac_artifact_max: 0.25 # max. Artefaktanteil pro Fenster (0.30-0.40 bei Satellitenspuren)
 
@@ -322,11 +323,14 @@ aqmh:
     dtype: uint16           # float32|uint16|uint8
     max_resident_maps: 4    # max. Quality Maps gleichzeitig im RAM (0 = unbegrenzt)
   cherry_pick:
-    enabled: false  # true: nur beste k_frac*N Frames stacken
+    enabled: false  # true: konservative AQMH-Frame-Selektion aktivieren
+    mode: auto_reject
     k_min_required: 20 # Lauf-Gate und Untergrenze erhaltener Samples pro Pixel
-    k_frac: 0.30    # Anteil bester Frames (0.30 = beste 30%)
+    k_frac: 0.30    # nur fuer mode: top_k
     margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
     tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.9
 
   # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
   validation:
@@ -356,6 +360,7 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: true
+    prewarp_interpolation: linear
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35

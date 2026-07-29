@@ -372,8 +372,20 @@ to a common output canvas before AQMH map computation.
 
 ### 2.3 Multi-Scale Pyramid
 
-Identical to v0.2.0 §2.3. The four scales, omission rule, sharpness, SNR and
-artifact computations, and the geometric-mean fusion are unchanged.
+The four scales, omission rule, sharpness, SNR and artifact computations, and
+the geometric-mean fusion remain as in v0.2.0.
+
+**Post-v0.2.1 extension — local sigmoid temperature.** The local per-scale
+quality score is multiplied by `score_scale` before the sigmoid:
+
+```
+score_s(x,y) = score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))
+Psi_s(x,y)  = sigmoid(score_s(x,y)) * Phi_artifact_s(x,y)
+```
+
+`score_scale` must be `> 0` and has the current operating default `1.8`.
+Values above `1.0` increase local quality-map selectivity without changing the
+bounded `[0,1]` range or the artifact veto.
 
 ### 2.4 Multi-Scale Fusion
 
@@ -578,9 +590,29 @@ minimum fraction `min_fraction`.
 
 ### 5.3 Cherry-Pick Stacking Mode
 
-Identical to v0.2.0 §5.3. The run-level `K_nominal_median` floor,
-per-pixel `K(p) = max(k_min_required, K_nominal(p))` rule, tiering and
-rank-separation diagnostics are unchanged.
+Cherry-pick is still an explicit opt-in mode and must be reported in
+diagnostics. The default selector for enabled cherry-pick is now
+`mode = auto_reject`, which keeps the full AQMH weighted sample set unless a
+sample is a clear local low-score outlier.
+
+For `auto_reject`, sort locally rankable samples by score
+`S_f(p) = G_f * max(0, Q_f(p))` only for threshold estimation:
+
+```
+S_best(p) = max_f S_f(p)
+T(p) = reject_below_best_fraction * S_best(p)
+K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+```
+
+Samples below `T(p)` are rejectable, but the retained set must contain at least
+`K_floor(p)` samples. If the score margin between the last retained and first
+rejected sample is below `margin_min`, no local rejection is applied. This makes
+the selector conservative: it is intended to remove extreme local defects, not
+to turn AQMH into a fixed small-N stack.
+
+`mode = top_k` remains available as the legacy fixed-fraction selector from
+v0.2.0. In that mode `k_frac`, tiering, `K_nominal_median`, and the legacy
+per-pixel `K(p) = max(k_min_required, K_nominal(p))` rule apply unchanged.
 
 ---
 
@@ -813,12 +845,13 @@ Per-frame diagnostics in `aqmh_metrics.json` include:
   the header has no Bayer metadata. This change was introduced to prevent
   example-config defaults from overriding camera metadata.
 
-### 9.2 AQMH Core Parameters (unchanged from v0.2.0)
+### 9.2 AQMH Core Parameters
 
 - `aqmh.pyramid.scales = 4`
 - `aqmh.pyramid.base_window_px = 4`
 - `aqmh.pyramid.w_sharp = 0.6`
 - `aqmh.pyramid.w_snr = 0.4`
+- `aqmh.pyramid.score_scale = 1.8`
 - `aqmh.pyramid.k_artifact = 3.0`
 - `aqmh.pyramid.frac_artifact_max = 0.25`
 - `aqmh.storage.resolution_divisor = 1`
@@ -860,9 +893,12 @@ The v0.2.1 reference values were `low_q=0.70`, `high_q=0.97`, blur sigma
 `2 px`; the current operating defaults are wider to preserve mid-gradient
 structure.
 
-### 9.6 Cherry-Pick (unchanged)
+### 9.6 Cherry-Pick
 
 - `aqmh.cherry_pick.enabled = false` by default.
+- `mode = auto_reject`
+- `reject_below_best_fraction = 0.25`
+- `min_keep_fraction = 0.90`
 - `k_frac = 0.30`
 - `k_min_required = 20`
 - `margin_min = 0.02`

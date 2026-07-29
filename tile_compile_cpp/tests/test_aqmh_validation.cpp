@@ -100,6 +100,39 @@ TEST_CASE("aqmh_weighted_mad_quickselect_is_deterministic") {
     REQUIRE(a.retained[i].frame_index == b.retained[i].frame_index);
 }
 
+TEST_CASE("aqmh_cherry_pick_auto_reject_keeps_most_frames") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  for (int i = 0; i < 10; ++i) {
+    samples.push_back({static_cast<float>(i), 1.0f, 1.0f,
+                       static_cast<size_t>(i)});
+  }
+  samples.push_back({10.0f, 0.05f, 0.05f, 10u});
+  samples.push_back({11.0f, 0.04f, 0.04f, 11u});
+
+  int nominal = 0;
+  float margin = -1.0f;
+  const auto selected = recon::aqmh_select_auto_reject(
+      samples, 3, 0.25f, 0.80f, 0.02f, &nominal, &margin);
+  REQUIRE(nominal == 12);
+  REQUIRE(selected.size() == 10);
+  REQUIRE(margin > 0.02f);
+}
+
+TEST_CASE("aqmh_cherry_pick_auto_reject_preserves_low_separation_samples") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  for (int i = 0; i < 12; ++i) {
+    const float score = 1.0f - 0.01f * static_cast<float>(i);
+    samples.push_back({static_cast<float>(i), score, score,
+                       static_cast<size_t>(i)});
+  }
+
+  float margin = -1.0f;
+  const auto selected = recon::aqmh_select_auto_reject(
+      samples, 3, 0.95f, 0.50f, 0.02f, nullptr, &margin);
+  REQUIRE(selected.size() == samples.size());
+  REQUIRE(margin < 0.02f);
+}
+
 TEST_CASE("aqmh_symmetric_clipping_preserves_background_location") {
   std::vector<recon::AqmhWeightedSample> samples;
   samples.reserve(401);

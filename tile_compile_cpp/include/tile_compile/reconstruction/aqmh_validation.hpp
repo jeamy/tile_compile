@@ -1,7 +1,9 @@
 #pragma once
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
+#include <string>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -33,6 +35,12 @@ struct AqmhValidationComparison {
   bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
+struct AqmhRawBaselineGuardDecision {
+  bool ok = false;
+  bool relaxed = false;
+  std::string reason;
+};
+
 struct AqmhValidationStarSample {
   int x = 0;
   int y = 0;
@@ -58,5 +66,11 @@ AqmhValidationComparison compare_aqmh_to_reference(
 AqmhValidationComparison compare_aqmh_to_uniform_control(
     const Matrix2Df &aqmh, const Matrix2Df &control,
     const std::vector<uint8_t> &validation_mask = {});
+
+AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
+    const AqmhValidationComparison &candidate_vs_raw,
+    const AqmhValidationComparison &raw_vs_control,
+    const AqmhValidationComparison &candidate_vs_control,
+    const config::AqmhValidationConfig &cfg);
 
 } // namespace tile_compile::reconstruction

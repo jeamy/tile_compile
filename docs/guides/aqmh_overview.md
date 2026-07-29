@@ -14,7 +14,7 @@ For each frame f, channel c:
          Phi_sharp = local variance of masked Laplacian (sharpness)
          Phi_snr   = local SNR = mu / max(1.4826*MAD, eps)
          Phi_artifact = 1 - clip(outlier_frac / frac_artifact_max, 0, 1)
-    3. Psi_s = sigmoid(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr)) * Phi_artifact
+    3. Psi_s = sigmoid(score_scale*(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr))) * Phi_artifact
        (z = robust z-score; artifact gate is multiplicative — one bad scale vetos pixel)
     4. Upsample Psi_s to canvas resolution (mask-aware bilinear)
   Q_map_{f,c} = geometric_mean over scales(Psi_s)  # all scales must agree
@@ -34,13 +34,15 @@ Reconstruction (per canvas-valid pixel p):
 | `aqmh.pyramid.base_window_px` | `4` | Window size at lowest pyramid level |
 | `aqmh.pyramid.w_sharp` | `0.6` | Sharpness weight in quality index |
 | `aqmh.pyramid.w_snr` | `0.4` | SNR weight in quality index |
+| `aqmh.pyramid.score_scale` | `1.8` | Local quality-map selectivity |
 | `aqmh.pyramid.k_artifact` | `3.0` | MAD multiplier for artifact detection (higher = more tolerant) |
 | `aqmh.pyramid.frac_artifact_max` | `0.25` | Max artifact fraction per window before discard |
 | `aqmh.storage.resolution_divisor` | `2` | Quality map cache resolution (1/2/4) |
 | `aqmh.storage.dtype` | `uint16` | Cache data type (`float32`, `uint16`, or `uint8`) |
 | `aqmh.storage.max_resident_maps` | `2` | Max quality maps in RAM simultaneously |
-| `aqmh.cherry_pick.enabled` | `false` | Stack only top-quality frames |
-| `aqmh.cherry_pick.k_frac` | `0.30` | Fraction of best frames to use (0.30 = best 30%) |
+| `aqmh.cherry_pick.enabled` | `false` | Enable conservative per-pixel frame selection |
+| `aqmh.cherry_pick.mode` | `auto_reject` | Keep most frames; reject only clear low-score outliers |
+| `aqmh.cherry_pick.k_frac` | `0.30` | Legacy `top_k` fraction only |
 | `aqmh.cherry_pick.k_min_required` | `20` | Run gate and minimum retained samples per pixel |
 | `aqmh.diagnostics.enabled` | `true` | Enable AQMH diagnostics phase |
 | `aqmh.diagnostics.level` | `full` | Detail level: `none`, `summary`, or `full` |
@@ -59,7 +61,7 @@ Practical examples: [Configuration Examples — AQMH section](../configuration_e
 |-----------|----------------|
 | Default / most sessions | **AQMH** (enabled by default) |
 | Tile seams or OLA artifacts visible | **AQMH** eliminates seams entirely |
-| Strongly varying frame quality (seeing, clouds) | **AQMH** with `cherry_pick.enabled: true`, `resolution_divisor: 1`, `dtype: float32` |
+| Strongly varying frame quality (seeing, clouds) | **AQMH** with `cherry_pick.enabled: true`, `cherry_pick.mode: auto_reject`, `resolution_divisor: 1`, `dtype: float32` |
 | Very large sessions, RAM-limited | **AQMH** with `storage.resolution_divisor: 4`, `dtype: uint8` |
 | Sessions with satellite trails / cosmetic issues | **AQMH** with `k_artifact: 5.0`, `frac_artifact_max: 0.35` |
 | Research requiring TBQR tile-weighted OLA | Classic (`aqmh.enabled: false`) |

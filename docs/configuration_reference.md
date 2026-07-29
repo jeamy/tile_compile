@@ -1450,6 +1450,18 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 
 ---
 
+#### `aqmh.pyramid.score_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.8` |
+
+**Zweck:** Skaliert den kombinierten lokalen AQMH-Score vor dem Sigmoid. Höhere Werte erhöhen die Pixel-Selektivität der Qualitätskarten, damit scharfe Frames lokal stärker bevorzugt werden; die Karte bleibt weiterhin auf `[0,1]` begrenzt.
+
+---
+
 #### `aqmh.pyramid.k_artifact`
 
 | Eigenschaft | Wert |
@@ -1527,7 +1539,19 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert selektives Stacking — nur die qualitativ besten Frames werden für die AQMH-Rekonstruktion herangezogen. Nützlich bei großen Frame-Mengen mit stark variierender Qualität (z.B. mit Wolken durchsetzte Sessions).
+**Zweck:** Aktiviert selektive AQMH-Framebehandlung während der Rekonstruktion. Der Standardmodus behält fast alle nutzbaren Frames und verwirft nur klare lokale Ausreißer mit sehr niedrigem Score.
+
+---
+
+#### `aqmh.cherry_pick.mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `auto_reject`, `top_k` |
+| **Default** | `auto_reject` |
+
+**Zweck:** `auto_reject` ist der konservative Modus für produktives Stacking: Er behält die meisten lokal rankbaren Frames und entfernt nur extreme lokale Qualitätsausreißer. `top_k` ist die alte feste Anteils-Auswahl und kann das Rauschen erhöhen, wenn viele eigentlich brauchbare Frames verworfen werden.
 
 ---
 
@@ -1551,7 +1575,31 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | **Bereich** | >0 – 1 |
 | **Default** | `0.30` |
 
-**Zweck:** Anteil der besten Frames (nach AQMH-Qualität sortiert), der für das Cherry-Pick-Stacking verwendet wird. `0.30` = die besten 30% der Frames.
+**Zweck:** Anteil der besten Frames, der nur bei `aqmh.cherry_pick.mode: top_k` verwendet wird. Der Standardmodus `auto_reject` ignoriert diesen Wert.
+
+---
+
+#### `aqmh.cherry_pick.reject_below_best_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Zweck:** Im Modus `auto_reject` wird ein lokales Sample nur dann verwerfbar, wenn sein AQMH-Score unter diesem Anteil des lokal besten Scores liegt.
+
+---
+
+#### `aqmh.cherry_pick.min_keep_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.90` |
+
+**Zweck:** Im Modus `auto_reject` bleibt mindestens dieser Anteil der lokal rankbaren Samples erhalten. Das begrenzt Rauschzuwachs durch zu aggressiven lokalen Frame-Verwurf.
 
 ---
 
@@ -1815,6 +1863,18 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Default** | `true` |
 
 **Zweck:** Steuert, ob der diskbasierte Cache `cache/prewarped_frames` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
+
+----
+
+#### `aqmh.reconstruction.prewarp_interpolation`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `linear`, `cubic`, `lanczos4` |
+| **Default** | `linear` |
+
+**Zweck:** Wählt den Interpolationskern, mit dem registrierte Frames vor AQMH-Rekonstruktion und Stacking auf die gemeinsame Arbeitsfläche vorverzerrt werden. `linear` ist der konservative Default. `cubic` und `lanczos4` sind explizite Tuning-Optionen, die mehr Hochfrequenzdetail erhalten können, aber Hintergrundrauschen oder Ringing verstärken können.
 
 ----
 

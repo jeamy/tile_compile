@@ -312,6 +312,7 @@ aqmh:
     base_window_px: 4
     w_sharp: 0.6
     w_snr: 0.4
+    score_scale: 1.8        # lokale AQMH-Selektivitaet
     k_artifact: 3.0
     frac_artifact_max: 0.25
 
@@ -330,10 +331,13 @@ aqmh:
     max_resident_maps: 2
   cherry_pick:
     enabled: false
+    mode: auto_reject
     k_min_required: 20
     k_frac: 0.30
     margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
     tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.9
 
   # Validierungsgrenzen fuer rekonstruierte Tiles (v0.2.0)
   validation:
@@ -363,6 +367,7 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: true
+    prewarp_interpolation: linear
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35

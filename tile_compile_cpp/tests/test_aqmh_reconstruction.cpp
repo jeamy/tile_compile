@@ -150,6 +150,7 @@ TEST_CASE("aqmh_cherry_pick_run_gate_forces_small_nominal_selection_off") {
   tile_compile::VectorXf weights = tile_compile::VectorXf::Ones(25);
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
   cfg.cherry_pick = true;
+  cfg.cherry_pick_mode = "top_k";
   cfg.cherry_pick_k_frac = 0.30f;
   cfg.cherry_pick_k_min_required = 20;
   const auto out = tile_compile::reconstruction::reconstruct_aqmh_weighted(
@@ -174,6 +175,7 @@ TEST_CASE("aqmh_cherry_pick_enforces_positive_sample_floor") {
   }
   tile_compile::reconstruction::AqmhReconstructionConfig cfg;
   cfg.cherry_pick = true;
+  cfg.cherry_pick_mode = "top_k";
   cfg.cherry_pick_k_frac = 0.30f;
   cfg.cherry_pick_k_min_required = 20;
   cfg.clip_iterations = 0;
@@ -513,5 +515,43 @@ TEST_CASE("aqmh_phase_result_preserves_raw_output_separately") {
 
   REQUIRE(result.raw_output(0, 0) == Catch::Approx(1.0f));
   REQUIRE(result.output(0, 0) == Catch::Approx(2.0f));
+}
+
+TEST_CASE("aqmh_raw_baseline_guard_allows_repair_of_invalid_raw_background") {
+  tile_compile::config::AqmhValidationConfig cfg;
+  tile_compile::reconstruction::AqmhValidationComparison raw_vs_control;
+  raw_vs_control.background_rms_regression = 0.26f;
+  raw_vs_control.fwhm_regression = 0.01f;
+  raw_vs_control.seam_score_regression = -0.06f;
+  raw_vs_control.tail_applicable = true;
+  raw_vs_control.elongation_applicable = true;
+  raw_vs_control.tail11_abs_regression = -0.04f;
+  raw_vs_control.elongation_regression = 0.0f;
+
+  tile_compile::reconstruction::AqmhValidationComparison candidate_vs_control;
+  candidate_vs_control.background_rms_regression = 0.02f;
+  candidate_vs_control.fwhm_regression = -0.01f;
+  candidate_vs_control.seam_score_regression = 0.01f;
+  candidate_vs_control.tail_applicable = true;
+  candidate_vs_control.elongation_applicable = true;
+  candidate_vs_control.tail11_abs_regression = -0.03f;
+  candidate_vs_control.elongation_regression = 0.0f;
+
+  tile_compile::reconstruction::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.background_rms_regression = -0.19f;
+  candidate_vs_raw.fwhm_regression = -0.02f;
+  candidate_vs_raw.seam_score_regression = 0.073f;
+  candidate_vs_raw.tail_applicable = true;
+  candidate_vs_raw.elongation_applicable = true;
+  candidate_vs_raw.tail11_abs_regression = 0.01f;
+  candidate_vs_raw.elongation_regression = 0.002f;
+
+  const auto decision =
+      tile_compile::reconstruction::aqmh_raw_baseline_guard_decision(
+          candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+
+  REQUIRE(decision.ok);
+  REQUIRE(decision.relaxed);
+  REQUIRE(decision.reason == "raw_invalid_candidate_repairs_failed_gate");
 }
 #endif

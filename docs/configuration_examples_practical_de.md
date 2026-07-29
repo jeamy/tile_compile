@@ -53,6 +53,7 @@ aqmh:
     base_window_px: 4
     w_sharp: 0.6        # Schärfe-Gewicht im Qualitätsindex
     w_snr: 0.4          # SNR-Gewicht im Qualitätsindex
+    score_scale: 1.8    # Selektivität der lokalen AQMH-Qualitätskarte
     k_artifact: 3.0     # MAD-Multiplikator für Artefakt-Erkennung
     frac_artifact_max: 0.25  # max. Artefaktanteil pro Fenster
   storage:
@@ -67,6 +68,7 @@ aqmh:
     g_k_scale: 1.5         # begrenzte Sigmoid-Temperatur
   reconstruction:
     delete_prewarped_cache_after_run: true  # false fuer Resume; Cache liegt unter cache/prewarped_frames
+    prewarp_interpolation: linear            # konservativer Prewarp; cubic/lanczos4 gezielt auf Schaerfe testen
     clip_sigma: 2.0
     clip_sigma_low: 2.0
     clip_sigma_high: 2.0
@@ -106,7 +108,7 @@ aqmh:
     frac_artifact_max: 0.35
 ```
 
-**Cherry-Pick-Modus (nur beste 30% der Frames stacken):**
+**Cherry-Pick Auto-Reject (meiste Frames behalten, nur Extremfälle verwerfen):**
 
 ```yaml
 aqmh:
@@ -116,8 +118,10 @@ aqmh:
     dtype: float32
   cherry_pick:
     enabled: true
+    mode: auto_reject
     k_min_required: 20  # Lauf-Gate und Untergrenze Samples pro Pixel
-    k_frac: 0.30  # beste 30%
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.90
 ```
 
 **Speichersparend (große Sessions, RAM-knapp):**

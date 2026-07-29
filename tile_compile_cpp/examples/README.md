@@ -51,14 +51,15 @@ They are kept in sync with the active runner/config parser defaults, including:
   - **Experimentell**: ersetzt die Tile-OLA-Rekonstruktion durch einen unabhängigen, pixelgenauen AQMH-Pfad.
   - Für jeden Frame wird eine Qualitätskarte (Schärfe + SNR, Laplacian-Pyramide) berechnet.
   - `aqmh.enabled: true` aktiviert AQMH; `false` fällt auf klassisches Tile-OLA zurück.
-  - `pyramid.*`: steuert Pyramidenstufen, Fenstergröße, Gewichtung Schärfe/SNR, Artefakt-Gate.
-    - `k_artifact`: MAD-Multiplikator — höher = toleranter gegenüber Ausreißern (Default 5.0)
+  - `pyramid.*`: steuert Pyramidenstufen, Fenstergröße, Gewichtung Schärfe/SNR, lokale Score-Skalierung und Artefakt-Gate.
+    - `score_scale`: lokale AQMH-Selektivitaet vor dem Sigmoid; hoeher = schaerfere lokale Frame-Bevorzugung (Default 1.8)
+    - `k_artifact`: MAD-Multiplikator — höher = toleranter gegenüber Ausreißern (Default 3.0)
     - `frac_artifact_max`: max. Artefaktanteil pro Fenster (auf 0.30–0.40 erhöhen bei Satellitenspuren)
   - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint16/uint8), `max_resident_maps` — Standard `2`/`uint16`; Cherry-Pick benötigt `1`/`float32`.
   - `global_quality.*`: begrenzte Sigmoid-Gewichtung mit `g_floor: 0.03`, `g_w_sharp: 0.55`, `g_w_snr: 0.30`, `g_w_background_penalty: 0.25`, `g_k_scale: 1.5`.
-  - `reconstruction.*`: asymmetrisches AQMH-Clipping (`2.0` unten, `1.5` oben, vier Iterationen), Registrierungs-Gewichtsschutz und Strukturmaske (`0.40`/`0.90`, Sigma `4.0`). `delete_prewarped_cache_after_run: false` behält den Prewarp-Cache für spätere Resumes.
+  - `reconstruction.*`: asymmetrisches AQMH-Clipping (`2.0` unten, `1.5` oben, vier Iterationen), konservativer Prewarp (`prewarp_interpolation: linear`), Registrierungs-Gewichtsschutz und Strukturmaske (`0.40`/`0.90`, Sigma `4.0`). `delete_prewarped_cache_after_run: false` behält den Prewarp-Cache für spätere Resumes.
   - `validation.*`: jeder Nachverarbeitungskandidat muss die Grenzwerte sowohl gegen das uniforme Kontrollmittel als auch gegen das rohe AQMH bestehen.
-  - `cherry_pick.*`: selektives Stacking — nur beste `k_frac` Frames (Default disabled; `k_min_required` schützt vor Unterbestimmung).
+  - `cherry_pick.*`: selektive AQMH-Framebehandlung. `mode: auto_reject` behaelt die meisten Frames und verwirft nur klare Low-Score-Ausreisser; `top_k` ist die Legacy-Auswahl ueber `k_frac` (Default disabled; `k_min_required` schuetzt vor Unterbestimmung).
   - `diagnostics.*`: Schwellen für `artifacts/aqmh.json` Diagnose-Output.
   - Logs erscheinen unter `[AQMH]`; Ergebnis in `artifacts/aqmh.json`.
 - `bge.*` (Background Gradient Extraction, v3.3 §6.3)

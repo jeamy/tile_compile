@@ -463,7 +463,14 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     cv::Mat c_cv(dims.sub_h, dims.sub_w, CV_32F, sub.c.data());
     cv::Mat d_cv(dims.sub_h, dims.sub_w, CV_32F, sub.d.data());
 
-    int interp_flag = (interpolation == "nearest") ? cv::INTER_NEAREST : cv::INTER_LINEAR;
+    int interp_flag = cv::INTER_LINEAR;
+    if (interpolation == "nearest") {
+        interp_flag = cv::INTER_NEAREST;
+    } else if (interpolation == "cubic") {
+        interp_flag = cv::INTER_CUBIC;
+    } else if (interpolation == "lanczos4") {
+        interp_flag = cv::INTER_LANCZOS4;
+    }
     int flags = interp_flag | cv::WARP_INVERSE_MAP;
 
     int border_flag = cv::BORDER_CONSTANT;

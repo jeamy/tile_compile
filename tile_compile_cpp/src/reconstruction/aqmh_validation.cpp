@@ -362,6 +362,96 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
 
 } // namespace
 
+AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
+    const AqmhValidationComparison &candidate_vs_raw,
+    const AqmhValidationComparison &raw_vs_control,
+    const AqmhValidationComparison &candidate_vs_control,
+    const config::AqmhValidationConfig &cfg) {
+  auto background_ok = [](const AqmhValidationComparison &v, float threshold) {
+    return !v.background_rms_applicable ||
+           v.background_rms_regression <= threshold;
+  };
+  auto fwhm_ok = [](const AqmhValidationComparison &v, float threshold) {
+    return !v.fwhm_applicable || v.fwhm_regression <= threshold;
+  };
+  auto seam_ok = [](const AqmhValidationComparison &v, float threshold) {
+    return !v.seam_applicable || v.seam_score_regression <= threshold;
+  };
+  auto tail_ok = [](const AqmhValidationComparison &v, float tail_threshold,
+                    float elongation_threshold) {
+    return !v.tail_applicable ||
+           (v.tail11_abs_regression <= tail_threshold &&
+            v.elongation_regression <= elongation_threshold);
+  };
+  auto all_ok = [&](const AqmhValidationComparison &v) {
+    return background_ok(v, cfg.max_background_rms_regression) &&
+           fwhm_ok(v, cfg.max_fwhm_regression) &&
+           seam_ok(v, cfg.max_seam_score_regression) &&
+           tail_ok(v, cfg.max_tail11_abs_regression,
+                   cfg.max_elongation_regression);
+  };
+
+  if (all_ok(candidate_vs_raw)) {
+    return {true, false, "strict_raw_baseline_pass"};
+  }
+  if (all_ok(raw_vs_control)) {
+    return {false, false, "raw_baseline_valid_and_candidate_regresses_raw"};
+  }
+  if (!all_ok(candidate_vs_control)) {
+    return {false, false, "candidate_fails_uniform_control"};
+  }
+
+  bool repairs_failed_raw_gate = false;
+  if (!background_ok(raw_vs_control, cfg.max_background_rms_regression)) {
+    repairs_failed_raw_gate =
+        repairs_failed_raw_gate ||
+        (!candidate_vs_raw.background_rms_applicable ||
+         candidate_vs_raw.background_rms_regression <= 0.0f);
+  }
+  if (!fwhm_ok(raw_vs_control, cfg.max_fwhm_regression)) {
+    repairs_failed_raw_gate =
+        repairs_failed_raw_gate ||
+        (!candidate_vs_raw.fwhm_applicable ||
+         candidate_vs_raw.fwhm_regression <= 0.0f);
+  }
+  if (!seam_ok(raw_vs_control, cfg.max_seam_score_regression)) {
+    repairs_failed_raw_gate =
+        repairs_failed_raw_gate ||
+        (!candidate_vs_raw.seam_applicable ||
+         candidate_vs_raw.seam_score_regression <= 0.0f);
+  }
+  if (!tail_ok(raw_vs_control, cfg.max_tail11_abs_regression,
+               cfg.max_elongation_regression)) {
+    repairs_failed_raw_gate =
+        repairs_failed_raw_gate ||
+        (!candidate_vs_raw.tail_applicable ||
+         (candidate_vs_raw.tail11_abs_regression <= 0.0f &&
+          candidate_vs_raw.elongation_regression <= 0.0f));
+  }
+  if (!repairs_failed_raw_gate) {
+    return {false, false, "candidate_does_not_repair_failed_raw_gate"};
+  }
+
+  const bool background_relaxed_ok =
+      background_ok(candidate_vs_raw, cfg.max_background_rms_regression) ||
+      (candidate_vs_raw.background_rms_applicable &&
+       candidate_vs_raw.background_rms_regression <= 0.0f);
+  const bool fwhm_relaxed_ok =
+      fwhm_ok(candidate_vs_raw, cfg.max_fwhm_regression) ||
+      (candidate_vs_raw.fwhm_applicable &&
+       candidate_vs_raw.fwhm_regression <= 0.0f);
+  const bool seam_relaxed_ok =
+      seam_ok(candidate_vs_raw, cfg.max_seam_score_regression * 2.0f);
+  const bool tail_relaxed_ok =
+      tail_ok(candidate_vs_raw, cfg.max_tail11_abs_regression,
+              cfg.max_elongation_regression);
+  if (background_relaxed_ok && fwhm_relaxed_ok && seam_relaxed_ok &&
+      tail_relaxed_ok) {
+    return {true, true, "raw_invalid_candidate_repairs_failed_gate"};
+  }
+  return {false, false, "candidate_exceeds_relaxed_raw_baseline_guard"};
+}
+
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask) {
   return measure_aqmh_validation_metrics_at_samples(

@@ -847,7 +847,8 @@ Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
       if (!finite(z_sharp(y, x)) || !finite(z_snr(y, x)) ||
           !finite(artifact(y, x)))
         continue;
-      const float score = cfg.w_sharp * z_sharp(y, x) + cfg.w_snr * z_snr(y, x);
+      const float score = cfg.score_scale *
+          (cfg.w_sharp * z_sharp(y, x) + cfg.w_snr * z_snr(y, x));
       const float sigmoid = 1.0f / (1.0f + std::exp(-score));
       out(y, x) = std::clamp(sigmoid * artifact(y, x), 0.0f, 1.0f);
     }

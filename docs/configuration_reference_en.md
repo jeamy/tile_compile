@@ -1243,6 +1243,18 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
+#### `aqmh.pyramid.score_scale`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >0 |
+| **Default** | `1.8` |
+
+**Purpose:** Scales the combined local AQMH score before the sigmoid. Higher values increase per-pixel quality-map selectivity so sharper frames are favored more strongly; the map remains bounded to `[0,1]`.
+
+---
+
 #### `aqmh.pyramid.k_artifact`
 
 | Property | Value |
@@ -1320,7 +1332,19 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Enables selective stacking — only the highest-quality frames are used for AQMH reconstruction. Useful for large datasets with strongly varying quality (e.g. sessions interrupted by clouds).
+**Purpose:** Enables selective AQMH frame handling during reconstruction. The default mode keeps almost all usable frames and rejects only clear local low-score outliers.
+
+---
+
+#### `aqmh.cherry_pick.mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `auto_reject`, `top_k` |
+| **Default** | `auto_reject` |
+
+**Purpose:** `auto_reject` is the conservative mode for production stacking: it keeps most locally rankable frames and only removes extreme local quality outliers. `top_k` is the legacy fixed-fraction selector and can increase noise when it discards many otherwise useful frames.
 
 ---
 
@@ -1344,7 +1368,31 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Range** | >0 – 1 |
 | **Default** | `0.30` |
 
-**Purpose:** Fraction of best frames (sorted by AQMH quality) used for cherry-pick stacking. `0.30` = best 30% of frames.
+**Purpose:** Fraction of best frames used only when `aqmh.cherry_pick.mode: top_k`. It is ignored by the default `auto_reject` mode.
+
+---
+
+#### `aqmh.cherry_pick.reject_below_best_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Purpose:** In `auto_reject` mode, a local sample becomes rejectable only when its AQMH score is below this fraction of the local best score.
+
+---
+
+#### `aqmh.cherry_pick.min_keep_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.90` |
+
+**Purpose:** In `auto_reject` mode, retains at least this fraction of locally rankable samples. This limits noise growth by preventing aggressive per-pixel frame removal.
 
 ---
 
@@ -1608,6 +1656,18 @@ Per-pixel weighted reconstruction parameters.
 | **Default** | `true` |
 
 **Purpose:** Controls whether the disk-backed `cache/prewarped_frames` directory is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
+
+----
+
+#### `aqmh.reconstruction.prewarp_interpolation`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `linear`, `cubic`, `lanczos4` |
+| **Default** | `linear` |
+
+**Purpose:** Selects the interpolation kernel used when registered frames are prewarped onto the common canvas before AQMH reconstruction and stacking. `linear` is the conservative default. `cubic` and `lanczos4` are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing.
 
 ----
 

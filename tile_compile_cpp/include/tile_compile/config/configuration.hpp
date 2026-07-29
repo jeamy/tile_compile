@@ -240,6 +240,7 @@ struct AqmhPyramidConfig {
   int base_window_px = 4;
   float w_sharp = 0.6f;
   float w_snr = 0.4f;
+  float score_scale = 1.8f;
   float k_artifact = 3.0f;
   float frac_artifact_max = 0.25f;
 };
@@ -268,6 +269,7 @@ struct AqmhReconstructionConfig {
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
   bool delete_prewarped_cache_after_run = true;
+  std::string prewarp_interpolation = "linear";
   bool registration_weight_guard = true;
   float registration_weight_floor = 0.30f;
   float registration_cc_floor = 0.35f;
@@ -309,9 +311,12 @@ struct AqmhCherryPickConfig {
     float k_frac = 0.30f;
   };
   bool enabled = false;
+  std::string mode = "auto_reject"; // "auto_reject" | "top_k"
   float k_frac = 0.30f;
   int k_min_required = 20;
   float margin_min = 0.02f;
+  float reject_below_best_fraction = 0.25f;
+  float min_keep_fraction = 0.90f;
   std::vector<Tier> tiered_k_frac;
 };
 

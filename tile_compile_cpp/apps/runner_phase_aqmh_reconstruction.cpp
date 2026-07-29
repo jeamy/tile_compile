@@ -413,9 +413,14 @@ bool run_phase_aqmh_reconstruction(
   aqmh_recon_cfg.min_fraction = cfg.aqmh.reconstruction.min_fraction;
   aqmh_recon_cfg.min_n_eff = cfg.aqmh.reconstruction.min_n_eff;
   aqmh_recon_cfg.cherry_pick = cfg.aqmh.cherry_pick.enabled;
+  aqmh_recon_cfg.cherry_pick_mode = cfg.aqmh.cherry_pick.mode;
   aqmh_recon_cfg.cherry_pick_k_frac = cfg.aqmh.cherry_pick.k_frac;
   aqmh_recon_cfg.cherry_pick_k_min_required = cfg.aqmh.cherry_pick.k_min_required;
   aqmh_recon_cfg.cherry_pick_margin_min = cfg.aqmh.cherry_pick.margin_min;
+  aqmh_recon_cfg.cherry_pick_reject_below_best_fraction =
+      cfg.aqmh.cherry_pick.reject_below_best_fraction;
+  aqmh_recon_cfg.cherry_pick_min_keep_fraction =
+      cfg.aqmh.cherry_pick.min_keep_fraction;
   aqmh_recon_cfg.tiered_k_frac = cfg.aqmh.cherry_pick.tiered_k_frac;
   aqmh_recon_cfg.parallel_workers = std::max(1, cfg.runtime_limits.parallel_workers);
   // Bridge from user-facing config to internal config with fallback logic
@@ -536,6 +541,8 @@ bool run_phase_aqmh_reconstruction(
   bool structure_masked_detail_applied = false;
   float structure_masked_detail_alpha = 0.0f;
   bool raw_aqmh_preserved_by_guard = false;
+  bool raw_baseline_guard_relaxed_used = false;
+  std::string raw_baseline_guard_reason = "not_evaluated";
   std::vector<uint8_t> uniform_control_validation_mask;
   if (aqmh_recon.uniform_control_valid_mask.size() ==
       static_cast<size_t>(canvas_width * canvas_height)) {
@@ -651,10 +658,13 @@ bool run_phase_aqmh_reconstruction(
       const bool candidate_tail_ok =
           aqmh_tail_ok(structure_masked_detail_validation,
                        cfg.aqmh.validation);
-      const bool candidate_preserves_raw = validation_gate_ok(
+      const auto candidate_raw_guard =
+          reconstruction::aqmh_raw_baseline_guard_decision(
           full_structure_masked_detail_vs_raw_validation,
+          raw_validation,
+          structure_masked_detail_validation,
           cfg.aqmh.validation);
-      full_structure_masked_detail_preserves_raw = candidate_preserves_raw;
+      full_structure_masked_detail_preserves_raw = candidate_raw_guard.ok;
       const bool improves_fwhm =
           structure_masked_detail_validation.fwhm_applicable &&
           structure_masked_detail_validation.aqmh.fwhm > 0.0f &&
@@ -666,11 +676,13 @@ bool run_phase_aqmh_reconstruction(
           structure_masked_detail_validation.aqmh.seam_score <
           raw_validation.control.seam_score;
       if (candidate_background_ok && candidate_fwhm_ok && candidate_seam_ok &&
-          candidate_tail_ok && candidate_preserves_raw &&
+          candidate_tail_ok && candidate_raw_guard.ok &&
           (improves_fwhm || improves_seam)) {
         aqmh_recon.output = std::move(structure_masked);
         structure_masked_detail_applied = true;
         structure_masked_detail_alpha = 1.0f;
+        raw_baseline_guard_relaxed_used = candidate_raw_guard.relaxed;
+        raw_baseline_guard_reason = candidate_raw_guard.reason;
         emitter.warning(
             run_id,
             "AQMH structure-masked detail applied: background_rms=" +
@@ -713,9 +725,13 @@ bool run_phase_aqmh_reconstruction(
           const auto baseline_validation =
               reconstruction::compare_aqmh_to_reference(
                   attenuated, raw_aqmh_reference, validation_common_mask);
-          const bool ok = validation_gate_ok(validation, cfg.aqmh.validation) &&
-                          validation_gate_ok(baseline_validation,
-                                             cfg.aqmh.validation);
+          const auto baseline_guard =
+              reconstruction::aqmh_raw_baseline_guard_decision(
+              baseline_validation, raw_validation, validation,
+              cfg.aqmh.validation);
+          const bool ok =
+              validation_gate_ok(validation, cfg.aqmh.validation) &&
+              baseline_guard.ok;
           ++structure_attenuation_evaluations;
           if (ok) {
             ++structure_attenuation_feasible_candidates;
@@ -744,10 +760,13 @@ bool run_phase_aqmh_reconstruction(
                 reconstruction::compare_aqmh_to_reference(
                     attenuated, raw_aqmh_reference,
                     validation_common_mask);
+            const auto baseline_guard =
+                reconstruction::aqmh_raw_baseline_guard_decision(
+                baseline_validation, raw_validation, validation,
+                cfg.aqmh.validation);
             const bool ok =
                 validation_gate_ok(validation, cfg.aqmh.validation) &&
-                validation_gate_ok(baseline_validation,
-                                   cfg.aqmh.validation);
+                baseline_guard.ok;
             ++structure_attenuation_evaluations;
             if (ok) {
               ++structure_attenuation_feasible_candidates;
@@ -774,13 +793,20 @@ bool run_phase_aqmh_reconstruction(
               best_validation.seam_applicable &&
               best_validation.aqmh.seam_score <
               raw_validation.control.seam_score;
+          const auto selected_baseline_guard =
+              reconstruction::aqmh_raw_baseline_guard_decision(
+                  best_vs_raw, raw_validation, best_validation,
+                  cfg.aqmh.validation);
           if (validation_gate_ok(best_validation, cfg.aqmh.validation) &&
-              validation_gate_ok(best_vs_raw, cfg.aqmh.validation) &&
+              selected_baseline_guard.ok &&
               (attenuated_improves_fwhm || attenuated_improves_seam)) {
             aqmh_recon.output = std::move(attenuated);
             structure_masked_detail_validation = best_validation;
             structure_masked_detail_applied = true;
             structure_masked_detail_alpha = best_alpha;
+            raw_baseline_guard_relaxed_used =
+                selected_baseline_guard.relaxed;
+            raw_baseline_guard_reason = selected_baseline_guard.reason;
             emitter.warning(
                 run_id,
                 "AQMH attenuated structure-masked detail applied: alpha=" +
@@ -871,7 +897,10 @@ bool run_phase_aqmh_reconstruction(
   auto final_vs_raw_validation =
       reconstruction::compare_aqmh_to_reference(
           aqmh_recon.output, raw_aqmh_reference, validation_common_mask);
-  if (!validation_gate_ok(final_vs_raw_validation, cfg.aqmh.validation)) {
+  const auto final_raw_guard = reconstruction::aqmh_raw_baseline_guard_decision(
+      final_vs_raw_validation, raw_control_validation, out.control_validation,
+      cfg.aqmh.validation);
+  if (!final_raw_guard.ok) {
     emitter.warning(
         run_id,
         "AQMH final candidate rejected because it regresses the raw AQMH "
@@ -881,9 +910,15 @@ bool run_phase_aqmh_reconstruction(
     aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     raw_aqmh_preserved_by_guard = true;
     out.control_validation = raw_control_validation;
+    raw_baseline_guard_relaxed_used = false;
+    raw_baseline_guard_reason = final_raw_guard.reason;
     final_vs_raw_validation =
         reconstruction::compare_aqmh_to_reference(
             aqmh_recon.output, raw_aqmh_reference, validation_common_mask);
+  } else {
+    raw_baseline_guard_relaxed_used =
+        raw_baseline_guard_relaxed_used || final_raw_guard.relaxed;
+    raw_baseline_guard_reason = final_raw_guard.reason;
   }
   const double validation_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
@@ -1030,6 +1065,9 @@ bool run_phase_aqmh_reconstruction(
   artifact["structure_masked_detail_applied"] =
       structure_masked_detail_applied;
   artifact["structure_masked_detail_alpha"] = structure_masked_detail_alpha;
+  artifact["raw_baseline_guard"] = {
+      {"relaxed_used", raw_baseline_guard_relaxed_used},
+      {"reason", raw_baseline_guard_reason}};
   if (low_frequency_neutralization_evaluated) {
     artifact["low_frequency_neutralization"] =
         validation_comparison_json(low_frequency_neutralization_validation, &cfg.aqmh.validation);
@@ -1171,8 +1209,13 @@ bool run_phase_aqmh_reconstruction(
   // Cherry-pick diagnostics
   artifact["cherry_pick_enabled"] = cfg.aqmh.cherry_pick.enabled;
   if (cfg.aqmh.cherry_pick.enabled) {
+    artifact["cherry_pick_mode"] = cfg.aqmh.cherry_pick.mode;
     artifact["cherry_pick_k_min_required"] = cfg.aqmh.cherry_pick.k_min_required;
     artifact["cherry_pick_k_frac_cfg"] = cfg.aqmh.cherry_pick.k_frac;
+    artifact["cherry_pick_reject_below_best_fraction"] =
+        cfg.aqmh.cherry_pick.reject_below_best_fraction;
+    artifact["cherry_pick_min_keep_fraction"] =
+        cfg.aqmh.cherry_pick.min_keep_fraction;
     artifact["cherry_pick_per_pixel_mode"] = aqmh_recon.cherry_pick_per_pixel_mode;
     artifact["cherry_pick_active_frac"] = aqmh_recon.cherry_pick_active_frac;
     artifact["cherry_pick_mean_k"] = aqmh_recon.cherry_pick_mean_k;
