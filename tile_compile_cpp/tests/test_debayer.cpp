@@ -155,6 +155,51 @@ TEST_CASE("debayer_bilinear_wrong_origin_swaps_channels") {
   REQUIRE(err_b > 50.0f);
 }
 
+TEST_CASE("debayer_opencv_respects_tile_origin_parity") {
+  using tile_compile::Matrix2Df;
+  using tile_compile::BayerPattern;
+
+  const float Rv = 100.0f;
+  const float Gv = 200.0f;
+  const float Bv = 300.0f;
+
+  for (BayerPattern p : {BayerPattern::RGGB, BayerPattern::BGGR, BayerPattern::GRBG,
+                        BayerPattern::GBRG}) {
+    auto off = offsets_for(p);
+
+    for (int origin_y = 0; origin_y < 2; ++origin_y) {
+      for (int origin_x = 0; origin_x < 2; ++origin_x) {
+        Matrix2Df mosaic(8, 8);
+        for (int y = 0; y < mosaic.rows(); ++y) {
+          for (int x = 0; x < mosaic.cols(); ++x) {
+            int py = (origin_y + y) & 1;
+            int px = (origin_x + x) & 1;
+            if (py == off.r_row && px == off.r_col) {
+              mosaic(y, x) = Rv;
+            } else if (py == off.b_row && px == off.b_col) {
+              mosaic(y, x) = Bv;
+            } else {
+              mosaic(y, x) = Gv;
+            }
+          }
+        }
+
+        for (bool ahd : {false, true}) {
+          auto out = tile_compile::image::debayer_opencv(
+              mosaic, p, origin_x, origin_y, ahd);
+          for (int y = 3; y < mosaic.rows() - 3; ++y) {
+            for (int x = 3; x < mosaic.cols() - 3; ++x) {
+              REQUIRE(out.R(y, x) == Catch::Approx(Rv).margin(2.0));
+              REQUIRE(out.G(y, x) == Catch::Approx(Gv).margin(2.0));
+              REQUIRE(out.B(y, x) == Catch::Approx(Bv).margin(2.0));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 #else
 int tile_compile_tests_debayer_stub() { return 0; }
 #endif

@@ -46,6 +46,29 @@ Matrix2Df low_frequency_neutralized_aqmh(const Matrix2Df &aqmh,
   return out;
 }
 
+Matrix2Df unsharp_masked_aqmh(const Matrix2Df &base, float sigma_px,
+                              float amount) {
+  if (base.rows() <= 0 || base.cols() <= 0 || !(sigma_px > 0.0f) ||
+      !(amount > 0.0f)) {
+    return base;
+  }
+  cv::Mat base_view(base.rows(), base.cols(), CV_32F,
+                    const_cast<float *>(base.data()),
+                    static_cast<size_t>(base.outerStride()) * sizeof(float));
+  cv::Mat low_freq;
+  cv::GaussianBlur(base_view, low_freq, cv::Size(0, 0),
+                   static_cast<double>(sigma_px),
+                   static_cast<double>(sigma_px), cv::BORDER_REFLECT101);
+  Matrix2Df out = base;
+  for (int y = 0; y < out.rows(); ++y) {
+    const float *low_row = low_freq.ptr<float>(y);
+    for (int x = 0; x < out.cols(); ++x) {
+      out(y, x) += amount * (base(y, x) - low_row[x]);
+    }
+  }
+  return out;
+}
+
 float quantile_inplace(std::vector<float> &values, float q) {
   if (values.empty()) return 0.0f;
   const size_t idx = static_cast<size_t>(std::clamp(q, 0.0f, 1.0f) *
@@ -539,6 +562,7 @@ bool run_phase_aqmh_reconstruction(
   bool low_frequency_neutralization_applied = false;
   bool low_frequency_neutralization_evaluated = false;
   bool structure_masked_detail_applied = false;
+  bool star_core_sharpening_applied = false;
   float structure_masked_detail_alpha = 0.0f;
   bool raw_aqmh_preserved_by_guard = false;
   bool raw_baseline_guard_relaxed_used = false;
@@ -560,6 +584,8 @@ bool run_phase_aqmh_reconstruction(
   }
   reconstruction::AqmhValidationComparison low_frequency_neutralization_validation;
   reconstruction::AqmhValidationComparison structure_masked_detail_validation;
+  reconstruction::AqmhValidationComparison star_core_sharpening_validation;
+  bool star_core_sharpening_evaluated = false;
   reconstruction::AqmhValidationComparison
       full_structure_masked_detail_vs_raw_validation;
   bool full_structure_masked_detail_vs_raw_evaluated = false;
@@ -826,6 +852,78 @@ bool run_phase_aqmh_reconstruction(
                 log_file);
           }
         }
+      }
+    }
+
+    // Star-core sharpening candidate: unsharp mask at the core scale of the
+    // stacked CFA mosaic. The Gaussian sigma (2 px) suppresses the 2 px CFA
+    // grid so the detail band targets star cores (~6-7 px FWHM), not the
+    // Bayer pattern. Same validation contract as the other post-processing
+    // candidates: must pass every gate against the uniform control, must
+    // preserve the immutable raw AQMH baseline, and must measurably improve
+    // FWHM against the control. Otherwise raw AQMH is preserved.
+    {
+      constexpr float sharpen_sigma_px = 2.0f;
+      constexpr float sharpen_amount = 0.6f;
+      Matrix2Df sharpened =
+          unsharp_masked_aqmh(aqmh_recon.output, sharpen_sigma_px,
+                              sharpen_amount);
+      star_core_sharpening_validation =
+          reconstruction::compare_aqmh_to_reference(
+              sharpened, uniform_control_reference,
+              uniform_control_validation_mask);
+      star_core_sharpening_evaluated = true;
+      const auto &sharpened_validation = star_core_sharpening_validation;
+      const auto sharpened_vs_raw =
+          reconstruction::compare_aqmh_to_reference(
+              sharpened, raw_aqmh_reference, validation_common_mask);
+      const auto sharpened_raw_guard =
+          reconstruction::aqmh_raw_baseline_guard_decision(
+              sharpened_vs_raw, raw_control_validation, sharpened_validation,
+              cfg.aqmh.validation);
+      const bool sharpen_improves_fwhm =
+          sharpened_validation.fwhm_applicable &&
+          sharpened_validation.aqmh.fwhm > 0.0f &&
+          raw_control_validation.control.fwhm > 0.0f &&
+          sharpened_validation.aqmh.fwhm <
+              raw_control_validation.control.fwhm;
+      if (validation_gate_ok(sharpened_validation, cfg.aqmh.validation) &&
+          sharpened_raw_guard.ok && sharpen_improves_fwhm) {
+        aqmh_recon.output = std::move(sharpened);
+        star_core_sharpening_applied = true;
+        raw_baseline_guard_relaxed_used =
+            raw_baseline_guard_relaxed_used || sharpened_raw_guard.relaxed;
+        raw_baseline_guard_reason = sharpened_raw_guard.reason;
+        emitter.warning(
+            run_id,
+            "AQMH star-core sharpening applied: sigma_px=2.0 amount=0.6"
+            " fwhm=" +
+                std::to_string(sharpened_validation.aqmh.fwhm) +
+                " control_fwhm=" +
+                std::to_string(sharpened_validation.control.fwhm) +
+                " background_rms=" +
+                std::to_string(sharpened_validation.aqmh.background_rms) +
+                " control_background_rms=" +
+                std::to_string(sharpened_validation.control.background_rms),
+            log_file);
+      } else {
+        log_file << "[AQMH_RECONSTRUCTION] star-core sharpening candidate "
+                    "rejected: gate_ok="
+                 << (validation_gate_ok(sharpened_validation,
+                                        cfg.aqmh.validation)
+                         ? "true"
+                         : "false")
+                 << " raw_guard=" << sharpened_raw_guard.reason
+                 << " improves_fwhm="
+                 << (sharpen_improves_fwhm ? "true" : "false")
+                 << " fwhm=" << sharpened_validation.aqmh.fwhm
+                 << " control_fwhm=" << sharpened_validation.control.fwhm
+                 << " fwhm_regression="
+                 << sharpened_validation.fwhm_regression
+                 << " background_rms_regression="
+                 << sharpened_validation.background_rms_regression
+                 << " seam_regression="
+                 << sharpened_validation.seam_score_regression << std::endl;
       }
     }
   }
@@ -1103,16 +1201,28 @@ bool run_phase_aqmh_reconstruction(
       {"evaluations", structure_attenuation_evaluations},
       {"feasible_candidates", structure_attenuation_feasible_candidates},
       {"best_alpha", structure_attenuation_best_alpha}};
+  artifact["star_core_sharpening_applied"] = star_core_sharpening_applied;
+  if (star_core_sharpening_evaluated) {
+    artifact["star_core_sharpening"] =
+        validation_comparison_json(star_core_sharpening_validation,
+                                   &cfg.aqmh.validation);
+    artifact["star_core_sharpening"].update({
+        {"sigma_px", 2.0f},
+        {"amount", 0.6f},
+        {"applied", star_core_sharpening_applied}});
+  }
   artifact["uniform_control_gate_triggered"] = aqmh_control_fallback;
   artifact["raw_aqmh_preserved_by_guard"] = raw_aqmh_preserved_by_guard;
   artifact["selected_candidate"] =
       raw_aqmh_preserved_by_guard
           ? "raw_aqmh"
-          : (structure_masked_detail_applied
-                 ? "structure_masked_detail"
-                 : (low_frequency_neutralization_applied
-                        ? "low_frequency_neutralized"
-                        : "raw_aqmh"));
+          : (star_core_sharpening_applied
+                 ? "star_core_sharpening"
+                 : (structure_masked_detail_applied
+                        ? "structure_masked_detail"
+                        : (low_frequency_neutralization_applied
+                               ? "low_frequency_neutralized"
+                               : "raw_aqmh")));
   artifact["uniform_control_gate"] = {
       {"background_rms_ok", aqmh_background_ok},
       {"fwhm_ok", aqmh_fwhm_ok},

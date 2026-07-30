@@ -762,4 +762,101 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
     return out;
 }
 
+/// @brief Implements opencv bayer code.
+/// @details Maps the Bayer pattern at the given subregion origin to the
+/// matching OpenCV demosaicing code so CFA parity is preserved for mosaics
+/// living on an offset canvas lattice.
+static int opencv_bayer_code(BayerPattern pattern, int origin_x, int origin_y,
+                             bool ahd) {
+    if (pattern == BayerPattern::UNKNOWN) {
+        pattern = BayerPattern::GBRG;
+    }
+    uint8_t lut[4] = {0, 0, 0, 0};
+    fill_bayer_color_lut(pattern, lut);
+    const int c00 = lut[((origin_y & 1) << 1) | (origin_x & 1)];
+    const int c01 = lut[((origin_y & 1) << 1) | ((origin_x + 1) & 1)];
+    // Empirically verified OpenCV code mapping (differs from the naive
+    // first-row reading): standard RGGB -> BayerBG, BGGR -> BayerRG,
+    // GRBG -> BayerGB, GBRG -> BayerGR.
+    if (c00 == static_cast<int>(CfaColor::Blue)) {
+        return ahd ? cv::COLOR_BayerRG2RGB_EA : cv::COLOR_BayerRG2RGB_VNG;
+    }
+    if (c00 == static_cast<int>(CfaColor::Green) &&
+        c01 == static_cast<int>(CfaColor::Blue)) {
+        return ahd ? cv::COLOR_BayerGR2RGB_EA : cv::COLOR_BayerGR2RGB_VNG;
+    }
+    if (c00 == static_cast<int>(CfaColor::Red)) {
+        return ahd ? cv::COLOR_BayerBG2RGB_EA : cv::COLOR_BayerBG2RGB_VNG;
+    }
+    return ahd ? cv::COLOR_BayerGB2RGB_EA : cv::COLOR_BayerGB2RGB_VNG;
+}
+
+void debayer_opencv_into(const Matrix2Df& mosaic,
+                         BayerPattern pattern,
+                         int origin_x,
+                         int origin_y,
+                         bool ahd,
+                         Matrix2Df& R_out,
+                         Matrix2Df& G_out,
+                         Matrix2Df& B_out) {
+    const int h = static_cast<int>(mosaic.rows());
+    const int w = static_cast<int>(mosaic.cols());
+    if (h <= 0 || w <= 0) {
+        R_out.resize(0, 0);
+        G_out.resize(0, 0);
+        B_out.resize(0, 0);
+        return;
+    }
+    // cv::demosaicing supports only integer input: 16U for EA/AHD, 8U for
+    // VNG. Map the float mosaic linearly to the full integer range and back;
+    // the affine transform preserves channel ratios.
+    cv::Mat src(h, w, CV_32F, const_cast<float*>(mosaic.data()),
+                static_cast<size_t>(w) * sizeof(float));
+    double v_min = 0.0, v_max = 0.0;
+    cv::minMaxLoc(src, &v_min, &v_max);
+    const double range = v_max - v_min;
+    if (!(range > 0.0) || !std::isfinite(range)) {
+        R_out = Matrix2Df::Constant(h, w, static_cast<float>(v_min));
+        G_out = Matrix2Df::Constant(h, w, static_cast<float>(v_min));
+        B_out = Matrix2Df::Constant(h, w, static_cast<float>(v_min));
+        return;
+    }
+    cv::Mat rgb32;
+    if (ahd) {
+        cv::Mat src16, rgb16;
+        src.convertTo(src16, CV_16U, 65535.0 / range, -v_min * 65535.0 / range);
+        cv::demosaicing(src16, rgb16,
+                        opencv_bayer_code(pattern, origin_x, origin_y, true));
+        rgb16.convertTo(rgb32, CV_32F, range / 65535.0, v_min);
+    } else {
+        cv::Mat src8, rgb8;
+        src.convertTo(src8, CV_8U, 255.0 / range, -v_min * 255.0 / range);
+        cv::demosaicing(src8, rgb8,
+                        opencv_bayer_code(pattern, origin_x, origin_y, false));
+        rgb8.convertTo(rgb32, CV_32F, range / 255.0, v_min);
+    }
+    R_out.resize(h, w);
+    G_out.resize(h, w);
+    B_out.resize(h, w);
+    for (int y = 0; y < h; ++y) {
+        const cv::Vec3f* row = rgb32.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < w; ++x) {
+            R_out(y, x) = row[x][0];
+            G_out(y, x) = row[x][1];
+            B_out(y, x) = row[x][2];
+        }
+    }
+}
+
+DebayerResult debayer_opencv(const Matrix2Df& mosaic,
+                             BayerPattern pattern,
+                             int origin_x,
+                             int origin_y,
+                             bool ahd) {
+    DebayerResult out;
+    debayer_opencv_into(mosaic, pattern, origin_x, origin_y, ahd,
+                        out.R, out.G, out.B);
+    return out;
+}
+
 } // namespace tile_compile::image

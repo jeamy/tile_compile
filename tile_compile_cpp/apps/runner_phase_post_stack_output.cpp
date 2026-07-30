@@ -144,10 +144,10 @@ bool write_post_stack_outputs(
   if (detected_mode == ColorMode::OSC && !have_rgb) {
     // Same Bayer-parity rule as the primary DEBAYER phase: the mosaic lives on
     // the registration canvas lattice, so the canvas tile offset defines the
-    // CFA origin. Bilinear demosaicing avoids 2x2 block artifacts on stars.
-    auto debayer = image::debayer_bilinear(
+    // CFA origin. Edge-adaptive (AHD) demosaicing preserves sharp star cores.
+    auto debayer = image::debayer_opencv(
         recon, string_to_bayer_pattern(detected_bayer_str),
-        -debayer_tile_offset_x, -debayer_tile_offset_y);
+        -debayer_tile_offset_x, -debayer_tile_offset_y, /*ahd=*/true);
     recon_R = std::move(debayer.R);
     recon_G = std::move(debayer.G);
     recon_B = std::move(debayer.B);
