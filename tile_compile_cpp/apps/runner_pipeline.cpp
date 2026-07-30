@@ -5526,9 +5526,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         G_out = std::move(recon_G);
         B_out = std::move(recon_B);
       } else {
-        // Fallback (should be rare): debayer luminance proxy.
-        auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
+        // The AQMH output mosaic keeps the Bayer parity of the registration
+        // canvas lattice, so the canvas tile offset must be applied here as
+        // well. Forcing origin (0,0) flips the CFA phase on odd offsets and
+        // produces color casts and checkerboard artifacts on bright cores.
+        // Bilinear demosaicing avoids the 2x2 block structure of
+        // nearest-neighbor debayering on star profiles.
+        auto debayer = image::debayer_bilinear(
+            recon, detected_bayer, -debayer_tile_offset_x,
+            -debayer_tile_offset_y);
         R_out = std::move(debayer.R);
         G_out = std::move(debayer.G);
         B_out = std::move(debayer.B);

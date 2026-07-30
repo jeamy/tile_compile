@@ -12,10 +12,15 @@
 
 Version `v0.2.1` is a strict superset of `v0.2.0`. All mathematical definitions,
 invariants, normative defaults and diagnostic requirements of `v0.2.0` remain
-binding. `v0.2.1` formalises three main additions that were introduced in the
+binding. `v0.2.1` formalises four main additions that were introduced in the
 reference implementation after the `v0.2.0` baseline:
 
-1. **Background-gradient penalty in global frame quality (§1.5, §4.2).**  
+1. **Sigmoid temperature scaling in per-scale quality maps (§2.3.3).**  
+   A configurable `score_scale` parameter (default 1.8) multiplies the
+   combined z-score before applying the sigmoid function. This increases
+   per-pixel frame selectivity while preserving the [0,1] map range.
+
+2. **Background-gradient penalty in global frame quality (§1.5, §4.2).**  
    A third global-quality signal penalises frames with strong large-scale
    background gradients (e.g. light pollution, moon glow). The signal is
    derived from a quadrant-based sky-gradient estimator, not from the AQMH
@@ -23,14 +28,14 @@ reference implementation after the `v0.2.0` baseline:
    **cross-infrastructure extension** that remains compatible with the AQMH
    independence principle (§0.4).
 
-2. **Registration-weight guard (§4.3).**  
+3. **Registration-weight guard (§4.3).**  
    Before the per-pixel weighted reconstruction, each frame's global AQMH
    weight can be damped by a registration-confidence factor derived from the
    shared global-registration artifact. This guard is purely a robustness
    measure; it does not change the reconstruction formula and it remains a
    frame-level multiplier.
 
-3. **Adaptive low-frequency neutralisation and structure-masked detail
+4. **Adaptive low-frequency neutralisation and structure-masked detail
    blending (§6.3, §6.4).**  
    After the ordinary AQMH reconstruction, an optional post-processing stage
    removes low-frequency "veil" residuals by subtracting a heavily blurred

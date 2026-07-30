@@ -1805,7 +1805,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
-    if (restore_aqmh_output_scaling) {
+    const bool have_resume_rgb_recon =
+        detected_mode == ColorMode::OSC && recon_R.size() == recon.size() &&
+        recon_G.size() == recon.size() && recon_B.size() == recon.size() &&
+        recon_R.size() > 0;
+    const bool defer_aqmh_osc_scaling_to_rgb_writer =
+        restore_aqmh_output_scaling && cfg.aqmh.enabled &&
+        detected_mode == ColorMode::OSC && !have_resume_rgb_recon;
+    if (restore_aqmh_output_scaling && !defer_aqmh_osc_scaling_to_rgb_writer) {
       image::apply_output_scaling_inplace(
           recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
           detected_mode, detected_bayer_str, aqmh_output_scaling.scale_mono,
