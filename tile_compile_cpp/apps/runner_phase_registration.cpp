@@ -3249,11 +3249,62 @@ bool run_phase_registration_prewarp(
         bool warped_has_data = false;
 
         if (debayer_before_stack) {
-          // Debayer-first path: AHD demosaic on the normalized CFA frame,
-          // then warp each RGB channel as MONO independently.
+          // Debayer-first path: AHD demosaic on the raw-ADU CFA frame.
+          // We undo the CFA normalization (background subtraction) first so
+          // that AHD operates on realistic ADU values with correct channel
+          // ratios. After debayering, each channel is re-normalized by
+          // subtracting its respective background.
           const BayerPattern pattern = string_to_bayer_pattern(detected_bayer_str);
+
+          // Undo per-channel CFA normalization (restore raw ADU levels)
+          const auto &ns = norm_scales[fi];
+          {
+            const int rows_img = static_cast<int>(img.rows());
+            const int cols_img = static_cast<int>(img.cols());
+            float *data = img.data();
+            for (int y = 0; y < rows_img; ++y) {
+              for (int x = 0; x < cols_img; ++x) {
+                // Determine which CFA channel this pixel belongs to (GBRG)
+                // Re-add the background that was subtracted during normalization.
+                // The normalization was: pixel -= B_channel
+                // So reverse is: pixel += B_channel
+                float bg = ns.background_g; // default for G
+                const int py = y & 1;
+                const int px = x & 1;
+                if (detected_bayer_str == "GBRG") {
+                  if (py == 0 && px == 0) bg = ns.background_g;
+                  else if (py == 0 && px == 1) bg = ns.background_b;
+                  else if (py == 1 && px == 0) bg = ns.background_r;
+                  else bg = ns.background_g;
+                } else if (detected_bayer_str == "RGGB") {
+                  if (py == 0 && px == 0) bg = ns.background_r;
+                  else if (py == 0 && px == 1) bg = ns.background_g;
+                  else if (py == 1 && px == 0) bg = ns.background_g;
+                  else bg = ns.background_b;
+                } else if (detected_bayer_str == "BGGR") {
+                  if (py == 0 && px == 0) bg = ns.background_b;
+                  else if (py == 0 && px == 1) bg = ns.background_g;
+                  else if (py == 1 && px == 0) bg = ns.background_g;
+                  else bg = ns.background_r;
+                } else if (detected_bayer_str == "GRBG") {
+                  if (py == 0 && px == 0) bg = ns.background_g;
+                  else if (py == 0 && px == 1) bg = ns.background_r;
+                  else if (py == 1 && px == 0) bg = ns.background_b;
+                  else bg = ns.background_g;
+                }
+                data[y * cols_img + x] += bg;
+              }
+            }
+          }
+
+          // AHD demosaic on raw-ADU data (correct color ratios)
           auto deb = image::debayer_opencv(img, pattern, 0, 0, /*ahd=*/true);
           img.resize(0, 0); // release CFA memory
+
+          // Re-normalize each debayered channel: subtract per-channel background
+          deb.R.array() -= ns.background_r;
+          deb.G.array() -= ns.background_g;
+          deb.B.array() -= ns.background_b;
 
           // Warp each channel to canvas (as MONO — no CFA subplane handling)
           Matrix2Df warped_r, warped_g, warped_b;
