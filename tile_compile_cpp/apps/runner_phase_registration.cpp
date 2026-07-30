@@ -3176,6 +3176,10 @@ bool run_phase_registration_prewarp(
         dbs_cache / "G", frames.size(), canvas_height, canvas_width);
     prewarped_B = std::make_unique<DiskCacheFrameStore>(
         dbs_cache / "B", frames.size(), canvas_height, canvas_width);
+    // Preserve files across moves/destruction so tile stacking can read them.
+    prewarped_R->set_preserve_files(true);
+    prewarped_G->set_preserve_files(true);
+    prewarped_B->set_preserve_files(true);
     std::cout << "[PREWARP] debayer_before_stack=true: storing RGB channels"
               << std::endl;
   }

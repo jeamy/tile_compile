@@ -2503,6 +2503,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Debayer-before-stack: RGB channels already prewarped — reuse them directly.
     const bool debayer_before_stack_active =
         phase_registration_ctx.debayer_before_stack_active;
+    std::cout << "[Phase 6] debayer_before_stack_active="
+              << debayer_before_stack_active
+              << " prewarped_R=" << (phase_registration_ctx.prewarped_R ? "yes" : "null")
+              << " prewarped_G=" << (phase_registration_ctx.prewarped_G ? "yes" : "null")
+              << " prewarped_B=" << (phase_registration_ctx.prewarped_B ? "yes" : "null")
+              << std::endl;
     if (debayer_before_stack_active && osc_mode &&
         phase_registration_ctx.prewarped_R &&
         phase_registration_ctx.prewarped_G &&
