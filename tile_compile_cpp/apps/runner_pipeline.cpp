@@ -2499,7 +2499,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_b;
     bool use_full_frame_osc_rgb_cache = false;
-    if (osc_mode && !frames.empty()) {
+
+    // Debayer-before-stack: RGB channels already prewarped — reuse them directly.
+    const bool debayer_before_stack_active =
+        phase_registration_ctx.debayer_before_stack_active;
+    if (debayer_before_stack_active && osc_mode &&
+        phase_registration_ctx.prewarped_R &&
+        phase_registration_ctx.prewarped_G &&
+        phase_registration_ctx.prewarped_B) {
+      osc_rgb_cache_r = std::move(phase_registration_ctx.prewarped_R);
+      osc_rgb_cache_g = std::move(phase_registration_ctx.prewarped_G);
+      osc_rgb_cache_b = std::move(phase_registration_ctx.prewarped_B);
+      use_full_frame_osc_rgb_cache = true;
+      std::cout << "[Phase 6] Using debayer_before_stack RGB channels directly"
+                << std::endl;
+    } else if (osc_mode && !frames.empty()) {
       const size_t budget_bytes =
           static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
           1024ull * 1024ull;
@@ -2522,7 +2536,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   << " MiB; using tile-local debayer fallback" << std::endl;
       }
     }
-    if (osc_mode && use_full_frame_osc_rgb_cache && !frames.empty()) {
+    if (osc_mode && use_full_frame_osc_rgb_cache && !frames.empty() &&
+        !debayer_before_stack_active) {
       const fs::path cache_root = run_dir / "cache" / "phase9_osc_rgb";
       osc_rgb_cache_r = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
           cache_root / "R", frames.size(), canvas_height, canvas_width);

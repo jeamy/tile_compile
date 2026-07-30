@@ -59,6 +59,10 @@ properties:
         type: string
         description: Bayer matrix pattern for OSC CFA data (e.g. RGGB, BGGR, GBRG, GRBG). NONE for monochrome data. Auto-detected from FITS header if available.
         default: auto
+      debayer_before_stack:
+        type: boolean
+        description: When true and color_mode=OSC, each frame is debayered (AHD) after normalization and before registration/prewarp. Produces sharper star cores at the cost of 3x prewarp memory/compute. Default false (classic CFA-through-stack flow).
+        default: false
   linearity:
     type: object
     properties:

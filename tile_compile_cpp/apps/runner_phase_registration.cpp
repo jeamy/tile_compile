@@ -3161,6 +3161,25 @@ bool run_phase_registration_prewarp(
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
       run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
+
+  // Debayer-before-stack: create per-channel stores for RGB prewarped frames.
+  const bool debayer_before_stack =
+      cfg.data.debayer_before_stack && detected_mode == ColorMode::OSC;
+  std::unique_ptr<DiskCacheFrameStore> prewarped_R;
+  std::unique_ptr<DiskCacheFrameStore> prewarped_G;
+  std::unique_ptr<DiskCacheFrameStore> prewarped_B;
+  if (debayer_before_stack) {
+    const fs::path dbs_cache = run_dir / "cache" / "prewarped_rgb";
+    prewarped_R = std::make_unique<DiskCacheFrameStore>(
+        dbs_cache / "R", frames.size(), canvas_height, canvas_width);
+    prewarped_G = std::make_unique<DiskCacheFrameStore>(
+        dbs_cache / "G", frames.size(), canvas_height, canvas_width);
+    prewarped_B = std::make_unique<DiskCacheFrameStore>(
+        dbs_cache / "B", frames.size(), canvas_height, canvas_width);
+    std::cout << "[PREWARP] debayer_before_stack=true: storing RGB channels"
+              << std::endl;
+  }
+
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -3224,14 +3243,66 @@ bool run_phase_registration_prewarp(
         Matrix2Df warped;
         std::vector<uint8_t> warped_valid_mask;
         bool warped_has_data = false;
-        prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
-                                      canvas_height, canvas_width, offset_x,
-                                      offset_y, warped, &warped_valid_mask,
-                                      &warped_has_data,
-                                      prewarp_streams.get(
-                                          static_cast<size_t>(worker_index)));
+
+        if (debayer_before_stack) {
+          // Debayer-first path: AHD demosaic on the normalized CFA frame,
+          // then warp each RGB channel as MONO independently.
+          const BayerPattern pattern = string_to_bayer_pattern(detected_bayer_str);
+          auto deb = image::debayer_opencv(img, pattern, 0, 0, /*ahd=*/true);
+          img.resize(0, 0); // release CFA memory
+
+          // Warp each channel to canvas (as MONO — no CFA subplane handling)
+          Matrix2Df warped_r, warped_g, warped_b;
+          std::vector<uint8_t> mask_r;
+          bool has_r = false, has_g = false, has_b = false;
+          prewarp_ops.warp_affine_frame(std::move(deb.R), w, ColorMode::MONO,
+                                        canvas_height, canvas_width, offset_x,
+                                        offset_y, warped_r, &mask_r,
+                                        &has_r,
+                                        prewarp_streams.get(
+                                            static_cast<size_t>(worker_index)));
+          prewarp_ops.warp_affine_frame(std::move(deb.G), w, ColorMode::MONO,
+                                        canvas_height, canvas_width, offset_x,
+                                        offset_y, warped_g, nullptr,
+                                        &has_g,
+                                        prewarp_streams.get(
+                                            static_cast<size_t>(worker_index)));
+          prewarp_ops.warp_affine_frame(std::move(deb.B), w, ColorMode::MONO,
+                                        canvas_height, canvas_width, offset_x,
+                                        offset_y, warped_b, nullptr,
+                                        &has_b,
+                                        prewarp_streams.get(
+                                            static_cast<size_t>(worker_index)));
+
+          warped_has_data = has_r && has_g && has_b;
+          warped_valid_mask = std::move(mask_r);
+
+          if (warped_has_data && warped_r.size() > 0) {
+            // Store per-channel
+            prewarped_R->store(fi, warped_r);
+            prewarped_G->store(fi, warped_g);
+            prewarped_B->store(fi, warped_b);
+
+            // Compute and store luminance for quality metrics / AQMH maps
+            // Luma weights: 0.25R + 0.5G + 0.25B (matching pipeline convention)
+            warped.resize(canvas_height, canvas_width);
+            warped = warped_r * 0.25f + warped_g * 0.5f + warped_b * 0.25f;
+            prewarped_frames.store(fi, warped);
+          }
+        } else {
+          // Classic CFA-through-stack path
+          prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
+                                        canvas_height, canvas_width, offset_x,
+                                        offset_y, warped, &warped_valid_mask,
+                                        &warped_has_data,
+                                        prewarp_streams.get(
+                                            static_cast<size_t>(worker_index)));
+        }
+
         if (warped.size() > 0) {
-          prewarped_frames.store(fi, warped);
+          if (!debayer_before_stack) {
+            prewarped_frames.store(fi, warped);
+          }
           const bool stored = prewarped_frames.has_data(fi);
           if (stored && warped_has_data) {
             frame_has_data[fi] = 1;
@@ -3361,6 +3432,7 @@ bool run_phase_registration_prewarp(
       {"tile_offset_x", offset_x},
       {"tile_offset_y", offset_y},
       {"workers", prewarp_workers},
+      {"debayer_before_stack", debayer_before_stack},
       {"common_overlap_mode", "inline_prewarp_coverage"},
       {"required_common_frames", required_common_frames},
       {"acceleration",
@@ -3374,6 +3446,12 @@ bool run_phase_registration_prewarp(
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);
+  out.debayer_before_stack_active = debayer_before_stack;
+  if (debayer_before_stack) {
+    out.prewarped_R = std::move(prewarped_R);
+    out.prewarped_G = std::move(prewarped_G);
+    out.prewarped_B = std::move(prewarped_B);
+  }
   out.min_valid_frames = required_common_frames;
   return true;
 }
