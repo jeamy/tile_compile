@@ -27,15 +27,7 @@ class RunnerFrameCache;
 /// FITS files.
 struct PhaseRegistrationContext {
   /// Disk-backed prewarped frames on the common canvas.
-  /// In debayer_before_stack mode this holds the luminance (0.25R+0.5G+0.25B).
   DiskCacheFrameStore prewarped_frames;
-  /// Per-channel prewarped frames for debayer_before_stack mode.
-  /// Empty/unused when debayer_before_stack is false.
-  std::unique_ptr<DiskCacheFrameStore> prewarped_R;
-  std::unique_ptr<DiskCacheFrameStore> prewarped_G;
-  std::unique_ptr<DiskCacheFrameStore> prewarped_B;
-  /// True when the prewarp stored debayered RGB channels.
-  bool debayer_before_stack_active = false;
   /// Per-input-frame flag indicating whether the prewarp store contains data.
   std::vector<uint8_t> frame_has_data;
   /// Per-canvas-pixel count of usable prewarped frames contributing data.

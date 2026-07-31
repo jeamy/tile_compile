@@ -272,8 +272,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.data.bayer_pattern = d["bayer_pattern"].as<std::string>();
     if (yaml_has_value(d["linear_required"]))
       cfg.data.linear_required = d["linear_required"].as<bool>();
-    if (yaml_has_value(d["debayer_before_stack"]))
-      cfg.data.debayer_before_stack = d["debayer_before_stack"].as<bool>();
   }
 
   if (node["linearity"]) {
@@ -1228,7 +1226,6 @@ YAML::Node Config::to_yaml() const {
   node["data"]["color_mode"] = data.color_mode;
   node["data"]["bayer_pattern"] = data.bayer_pattern;
   node["data"]["linear_required"] = data.linear_required;
-  node["data"]["debayer_before_stack"] = data.debayer_before_stack;
 
   node["linearity"]["enabled"] = linearity.enabled;
   node["linearity"]["max_frames"] = linearity.max_frames;
@@ -1719,10 +1716,6 @@ void Config::validate() const {
   if (data.linear_required && data.color_mode == "RGB") {
     throw ValidationError(
         "data.linear_required should be false for already debayered RGB data");
-  }
-  if (data.debayer_before_stack && data.color_mode != "OSC") {
-    throw ValidationError(
-        "data.debayer_before_stack is only valid for color_mode=OSC");
   }
 
   if (linearity.max_frames < 1) {

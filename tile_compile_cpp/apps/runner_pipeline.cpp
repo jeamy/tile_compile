@@ -2499,27 +2499,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_b;
     bool use_full_frame_osc_rgb_cache = false;
-
-    // Debayer-before-stack: RGB channels already prewarped — reuse them directly.
-    const bool debayer_before_stack_active =
-        phase_registration_ctx.debayer_before_stack_active;
-    std::cout << "[Phase 6] debayer_before_stack_active="
-              << debayer_before_stack_active
-              << " prewarped_R=" << (phase_registration_ctx.prewarped_R ? "yes" : "null")
-              << " prewarped_G=" << (phase_registration_ctx.prewarped_G ? "yes" : "null")
-              << " prewarped_B=" << (phase_registration_ctx.prewarped_B ? "yes" : "null")
-              << std::endl;
-    if (debayer_before_stack_active && osc_mode &&
-        phase_registration_ctx.prewarped_R &&
-        phase_registration_ctx.prewarped_G &&
-        phase_registration_ctx.prewarped_B) {
-      osc_rgb_cache_r = std::move(phase_registration_ctx.prewarped_R);
-      osc_rgb_cache_g = std::move(phase_registration_ctx.prewarped_G);
-      osc_rgb_cache_b = std::move(phase_registration_ctx.prewarped_B);
-      use_full_frame_osc_rgb_cache = true;
-      std::cout << "[Phase 6] Using debayer_before_stack RGB channels directly"
-                << std::endl;
-    } else if (osc_mode && !frames.empty()) {
+    if (osc_mode && !frames.empty()) {
       const size_t budget_bytes =
           static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
           1024ull * 1024ull;
@@ -2542,8 +2522,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   << " MiB; using tile-local debayer fallback" << std::endl;
       }
     }
-    if (osc_mode && use_full_frame_osc_rgb_cache && !frames.empty() &&
-        !debayer_before_stack_active) {
+    if (osc_mode && use_full_frame_osc_rgb_cache && !frames.empty()) {
       const fs::path cache_root = run_dir / "cache" / "phase9_osc_rgb";
       osc_rgb_cache_r = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
           cache_root / "R", frames.size(), canvas_height, canvas_width);
@@ -5547,15 +5526,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         G_out = std::move(recon_G);
         B_out = std::move(recon_B);
       } else {
-        // The AQMH output mosaic keeps the Bayer parity of the registration
-        // canvas lattice, so the canvas tile offset must be applied here as
-        // well. Forcing origin (0,0) flips the CFA phase on odd offsets and
-        // produces color casts and checkerboard artifacts on bright cores.
-        // Edge-adaptive (AHD) demosaicing preserves sharp star cores where
-        // bilinear demosaicing flattens them across the CFA lattice.
-        auto debayer = image::debayer_opencv(
-            recon, detected_bayer, -debayer_tile_offset_x,
-            -debayer_tile_offset_y, /*ahd=*/true);
+        // Fallback (should be rare): debayer luminance proxy.
+        auto debayer = image::debayer_nearest_neighbor(
+            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
         R_out = std::move(debayer.R);
         G_out = std::move(debayer.G);
         B_out = std::move(debayer.B);

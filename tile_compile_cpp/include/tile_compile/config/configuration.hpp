@@ -26,12 +26,6 @@ struct DataConfig {
   std::string color_mode = "OSC";
   std::string bayer_pattern = "auto";
   bool linear_required = true;
-  // When true and color_mode==OSC, each frame is debayered (AHD) after
-  // normalization and before registration/prewarp. The pipeline then operates
-  // on 3 full-resolution RGB channels instead of a single CFA mosaic. This
-  // produces sharper star cores (~10-20% improvement) at the cost of 3x memory
-  // and compute during prewarp/reconstruction.
-  bool debayer_before_stack = false;
 };
 
 struct LinearityConfig {
