@@ -4,9 +4,9 @@
 **Branch:** `debayer-first-aqmh`
 **Referenzen:**
 
-- `docs/sharpnes-v3_strategien_siril_schaerfe.md` (Strategien, Abschnitt 9)
+- Schärfe-Strategiedokument, Abschnitt 9
 - `docs/sharpnes-v3_code_review_und_naechste_schritte.md`
-- `docs/m31_20260729_stacked_rgb_vergleich.md` (Experiment D, D+, Siril-Analyse)
+- `docs/m31_20260729_stacked_rgb_vergleich.md` (Experiment D, D+, stacking program-Analyse)
 
 ---
 
@@ -226,7 +226,7 @@ Die bestehende Konfiguration bleibt fast vollstaendig erhalten. Debayer-First-AQ
 
 ### 2.1 Uebersicht
 
-Der Plan folgt der in `docs/sharpnes-v3_strategien_siril_schaerfe.md` definierten Reihenfolge:
+Der Plan folgt der im Schärfe-Strategiedokument, Abschnitt 9, definierten Reihenfolge:
 
 ```text
 9.1 Speicherbegrenzter Prototyp (32-64 Frames)
@@ -343,10 +343,11 @@ Resume-Validierung muss erkennen, ob ein Run im DF-Modus war, und die entspreche
      - `std::string rgb_memory_strategy = "sequential";`
 
 2. `tile_compile_cpp/tile_compile.schema.json` und `.schema.yaml`:
-   - Entsprechende Properties hinzufuegen.
+   - Entsprechende Properties und Defaults validieren.
 
-3. `tile_compile_cpp/tile_compile.yaml`:
+3. `tile_compile_cpp/tile_compile.yaml` und die aktiven Beispielprofile:
    - Defaults explizit dokumentieren, insbesondere `debayer_first: true` sowie die jeweiligen String-Defaults.
+   - Fuer 9.1 sind nur `shared_luma` und `sequential` freigegeben; nicht implementierte Alternativen muessen mit einer Validierungsfehlermeldung abgelehnt werden.
 
 4. Parser/Serializer in `config_parser.cpp` oder aehnlich:
    - Neue Felder parsen und serialisieren.
@@ -389,11 +390,18 @@ auto debayered = image::debayer_opencv(
 // debayered.R, debayered.G, debayered.B
 ```
 
+**Artefakte:**
+
+- `artifacts/pre_debayer_metadata.json` mit Formatversion, Vollstaendigkeitsmarker, Frame-Anzahl, Dimensionen, Bayer-Pattern, Methode, Kanalreihenfolge, Luminanzgewichten und Cache-Pfaden;
+- `cache/debayered_frames/` fuer normierte, debayerte RGB-Frames;
+- `cache/prewarped_frames_rgb/` fuer die nachfolgenden RGB-Prewarp-Frames.
+
 **Tests:**
 
 - Unit-Test: Pre-Debayer erzeugt korrekte RGB-Dimensionen (2x CFA);
 - Unit-Test: Bayer-Origin wird korrekt weitergegeben;
-- Integration-Test: 4-Frame-Mini-Run mit `debayer_first=true`.
+- Integration-Test: 4-Frame-Mini-Run mit `debayer_first=true`;
+- Metadaten-Test: unvollstaendiger RGB-Cache wird als nicht resumierbar markiert.
 
 #### 9.1.3 RGB-Prewarp implementieren
 
@@ -474,8 +482,10 @@ if (cfg.aqmh.reconstruction.debayer_first) {
     //   Kanal 0 (R) vollstaendig reconstructen, dann G, dann B.
     //   Nur ein Kanal gleichzeitig im RAM.
     //
-    // parallel-Modus (spaeter):
-    //   Alle 3 Kanaele gleichzeitig (3x Speicher).
+    // Andere Modi:
+    //   rgb_q_map_mode=per_channel und rgb_memory_strategy=parallel werden
+    //   im Prototyp explizit abgelehnt, bis eigene Q-Map-/Speichervertraege
+    //   und Tests implementiert sind.
 } else {
     // Bestehender CFA-AQMH-Reconstruction-Pfad
 }
@@ -486,14 +496,18 @@ if (cfg.aqmh.reconstruction.debayer_first) {
 - `AqmhFrameLoader` muss angepasst werden, um aus `DiskCacheFrameStoreRGB` zu laden;
 - `AqmhFrameRegionLoader` muss fuer RGB-Region-Streaming angepasst werden;
 - Sigma-Clip, Cherry-Pick, Structure-Mask-Blending: pro Kanal anwenden;
-- Validierung (Raw-Baseline-Guard, Uniform-Control-Gate): auf Luminanz durchfuehren.
+- pro Kanal eigene Valid-Mask, Supportkarte und Weight-Sum ableiten;
+- Validierung auf Luminanz und zusaetzlich pro Kanal durchfuehren;
+- nicht implementierte Q-Map-/Speicherstrategien vor dem Start ablehnen.
 
 **Tests:**
 
 - Unit-Test: 4-Frame-DF-Reconstruction erzeugt 3 Kanaele mit korrekten Dimensionen;
 - Unit-Test: Shared-Q-Map-Modus verwendet dieselbe Q-Map fuer alle 3 Kanaele;
 - Unit-Test: Sequential-Modus gibt Speicher pro Kanal frei;
-- Integration-Test: Mini-Run mit Validierung.
+- Unit-Test: pro Kanal werden Valid-Mask und Supportdaten erzeugt;
+- Integration-Test: Mini-Run mit Validierung;
+- Negativtest: `per_channel` und `parallel` werden im 9.1-Prototyp abgelehnt.
 
 #### 9.1.6 Post-Stack-Output anpassen
 
@@ -514,8 +528,9 @@ if (debayer_first_was_used) {
 **Tests:**
 
 - Unit-Test: DF-Output ist RGB mit 3 Kanaelen;
-- Unit-Test: Kein Debayer-Aufruf bei DF;
-- Output-FITS-Header markiert `DEBAYER=PRE_STACK`.
+- Unit-Test: Kein Post-Stack-Debayer-Aufruf bei DF;
+- Output-FITS-Header aller RGB-Ausgaben markiert `DEBAYER=PRE_STACK`;
+- Integrationstest liest den Header von `stacked_rgb.fits` und den drei Kanaldateien.
 
 #### 9.1.7 Resume-Vertrag erweitern
 
@@ -527,8 +542,10 @@ if (debayer_first_was_used) {
 - `is_aqmh_cache_resume_phase`: keine Aenderung;
 - Resume-Validierung:
   - Erkennen, ob Run im DF-Modus war (aus `effective_config.json`);
-  - Wenn DF: `cache/prewarped_frames_rgb/` validieren statt `cache/prewarped_frames/`;
-  - `pre_debayer_metadata.json` validieren.
+  - Wenn DF: `cache/prewarped_frames_rgb/` und alle drei Kanäle je Frame validieren;
+  - `artifacts/pre_debayer_metadata.json` auf Formatversion, Vollstaendigkeit, Frame-Anzahl, Dimensionen, Bayer-Pattern und Kanalreihenfolge validieren;
+  - bei DF niemals den CFA-Cache als Ersatz fuer fehlende RGB-Frames verwenden;
+  - bei fehlendem oder inkompatiblem RGB-Cache Resume mit einem eindeutigen Fehler abbrechen.
 
 **Tests:**
 
@@ -544,7 +561,6 @@ if (debayer_first_was_used) {
 data:
   color_mode: OSC
   bayer_pattern: auto
-  max_frames: 64              # Neuer Parameter oder runtime_limits
 aqmh:
   enabled: true
   reconstruction:
@@ -653,7 +669,7 @@ hypermetric_stretch:
 3. BGE/PCC/HMS erfolgreich durchlaufen;
 4. positionsgematchte FWHM und Peak/Flux besser als CFA-AQMH-Baseline;
 5. kein einzelner RGB-Kanal verletzt die pro-Kanal-Raw-Baseline oder die Background-/Support-Gates;
-6. Vergleich mit Siril `result.fit` erfolgt numerisch im linearen Datenraum mit identischem Crop und derselben Sternliste:
+6. Vergleich mit stacking program `result.fit` erfolgt numerisch im linearen Datenraum mit identischem Crop und derselben Sternliste:
    - radiale FWHM und Peak/Flux werden mindestens nicht schlechter als die festgelegte Toleranz;
    - Background-RMS, Seam und Tail bleiben innerhalb der festgelegten Gates;
    - mindestens 400 gueltige positionsgematchte Sternpaare;
@@ -818,7 +834,7 @@ Alle CFA-spezifischen Dateien bleiben unveraendert:
 Nach Abschluss von 9.2:
 
 - positionsgematchte Paaranalyse gegen CFA-AQMH-Baseline (`M31-s1_guardfix_20260731_1`);
-- positionsgematchte Paaranalyse gegen Siril `result.fit`;
+- positionsgematchte Paaranalyse gegen stacking program `result.fit`;
 - Metriken: radiale FWHM, Peak/Flux, Background-RMS, Seam, Tail;
 - Visueller Vergleich: Screenshots beider Bilder.
 
@@ -834,7 +850,7 @@ Nach Abschluss von 9.2:
 | GPU/CPU-Divergenz bei RGB-Warp | niedrig | Bestehende Toleranztests auf RGB erweitern |
 | Resume bricht bei DF-Cache | mittel | Resume-Tests früh im Prototyp |
 | Validierung auf Luminanz verdeckt Kanalprobleme | mittel | Zusaetzliche pro-Kanal-Background-Pruefung |
-| Siril-Paaranalyse unzuverlaessig | niedrig | Positionsgematchte Metrik mit ausreichend Paaren (>400) |
+| stacking program-Paaranalyse unzuverlaessig | niedrig | Positionsgematchte Metrik mit ausreichend Paaren (>400) |
 
 ---
 
@@ -862,7 +878,7 @@ Keine konkreten Zeitschaetzungen. Die Schritte sind sequenziell und jeder Schrit
     - GPU-Optimierung
     - Validierung auf RGB
     - BGE/PCC/HMS aktivieren
-    - Vollstaendiger Run mit Siril-Vergleich
+    - Vollstaendiger Run mit stacking program-Vergleich
 
 9.3 Dither-Analyse:
     - Coverage-Skript

@@ -785,6 +785,37 @@ bool run_phase_channel_split_normalization_global_metrics(
                      artifact.dump(2));
   }
 
+  if (out.rgb_frame_cache) {
+    bool complete = true;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (!out.rgb_frame_cache->has_data(fi)) {
+        complete = false;
+        break;
+      }
+    }
+    core::json metadata = {
+        {"format_version", 1},
+        {"complete", complete},
+        {"frame_count", frames.size()},
+        {"rows", out.rgb_frame_cache->rows()},
+        {"cols", out.rgb_frame_cache->cols()},
+        {"color_mode", "OSC"},
+        {"bayer_pattern", detected_bayer_str},
+        {"pre_debayer_method", cfg.aqmh.reconstruction.pre_debayer_method},
+        {"rgb_cache_dir", "cache/debayered_frames"},
+        {"prewarped_rgb_cache_dir", "cache/prewarped_frames_rgb"},
+        {"channel_order", core::json::array({"R", "G", "B"})},
+        {"luma_weights", {0.25, 0.5, 0.25}},
+        {"normalization_domain", "CFA"}};
+    core::write_text(run_dir / "artifacts" / "pre_debayer_metadata.json",
+                     metadata.dump(2));
+    if (!complete) {
+      emitter.warning(run_id,
+                      "DF RGB cache incomplete; resume metadata marked incomplete",
+                      log_file);
+    }
+  }
+
   if (expose_global_metrics) {
     emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
                       {

@@ -36,6 +36,9 @@ struct AqmhReconstructionPhaseResult {
   Matrix2Df df_weight_sum_R;
   Matrix2Df df_weight_sum_G;
   Matrix2Df df_weight_sum_B;
+  std::vector<uint8_t> df_valid_mask_R;
+  std::vector<uint8_t> df_valid_mask_G;
+  std::vector<uint8_t> df_valid_mask_B;
   bool debayer_first_used = false;
 };
 

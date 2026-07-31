@@ -414,6 +414,30 @@ bool run_phase_aqmh_reconstruction(
   // The active channel is controlled by `df_active_channel` and iterated
   // R(0) -> G(1) -> B(2) in the sequential reconstruction loop below.
   const bool debayer_first = prewarped_frames_rgb != nullptr;
+  if (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+      osc_mode && !debayer_first) {
+    const std::string err =
+        "Debayer-First-AQMH requested but RGB prewarp cache is unavailable";
+    emitter.phase_end(run_id, reconstruction_phase, "error",
+                      {{"error", err}}, log_file);
+    return false;
+  }
+  if (debayer_first && cfg.aqmh.reconstruction.rgb_q_map_mode != "shared_luma") {
+    const std::string err =
+        "Debayer-First-AQMH currently supports only rgb_q_map_mode=shared_luma";
+    emitter.phase_end(run_id, reconstruction_phase, "error",
+                      {{"error", err}, {"configured_mode", cfg.aqmh.reconstruction.rgb_q_map_mode}},
+                      log_file);
+    return false;
+  }
+  if (debayer_first && cfg.aqmh.reconstruction.rgb_memory_strategy != "sequential") {
+    const std::string err =
+        "Debayer-First-AQMH currently supports only rgb_memory_strategy=sequential";
+    emitter.phase_end(run_id, reconstruction_phase, "error",
+                      {{"error", err}, {"configured_strategy", cfg.aqmh.reconstruction.rgb_memory_strategy}},
+                      log_file);
+    return false;
+  }
   int df_active_channel = 0;
 
   auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
@@ -543,6 +567,28 @@ bool run_phase_aqmh_reconstruction(
     out.df_weight_sum_R = std::move(df_wR);
     out.df_weight_sum_G = std::move(df_wG);
     out.df_weight_sum_B = std::move(df_wB);
+    const auto build_channel_valid_mask = [&](const Matrix2Df &image,
+                                               const Matrix2Df &weights) {
+      std::vector<uint8_t> mask(static_cast<size_t>(canvas_width) *
+                                    static_cast<size_t>(canvas_height), 0u);
+      if (image.rows() != canvas_height || image.cols() != canvas_width ||
+          weights.rows() != canvas_height || weights.cols() != canvas_width) {
+        return mask;
+      }
+      for (size_t i = 0; i < mask.size(); ++i) {
+        mask[i] = (std::isfinite(image.data()[i]) &&
+                   std::isfinite(weights.data()[i]) && weights.data()[i] > 0.0f)
+                      ? 1u
+                      : 0u;
+      }
+      return mask;
+    };
+    out.df_valid_mask_R = build_channel_valid_mask(out.df_output_R,
+                                                     out.df_weight_sum_R);
+    out.df_valid_mask_G = build_channel_valid_mask(out.df_output_G,
+                                                     out.df_weight_sum_G);
+    out.df_valid_mask_B = build_channel_valid_mask(out.df_output_B,
+                                                     out.df_weight_sum_B);
     out.debayer_first_used = true;
   } else {
   aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
@@ -1115,6 +1161,16 @@ bool run_phase_aqmh_reconstruction(
   artifact["num_frames"] = static_cast<int>(frames.size());
   artifact["canvas_width"] = canvas_width;
   artifact["canvas_height"] = canvas_height;
+  artifact["debayer_first_used"] = debayer_first;
+  if (debayer_first) {
+    artifact["rgb_q_map_mode"] = cfg.aqmh.reconstruction.rgb_q_map_mode;
+    artifact["rgb_memory_strategy"] = cfg.aqmh.reconstruction.rgb_memory_strategy;
+    artifact["channel_order"] = core::json::array({"R", "G", "B"});
+    artifact["channel_valid_pixels"] = {
+        {"R", std::count(out.df_valid_mask_R.begin(), out.df_valid_mask_R.end(), 1u)},
+        {"G", std::count(out.df_valid_mask_G.begin(), out.df_valid_mask_G.end(), 1u)},
+        {"B", std::count(out.df_valid_mask_B.begin(), out.df_valid_mask_B.end(), 1u)}};
+  }
   artifact["map_stream_id"] = aqmh_cache->map_stream_id();
   artifact["cache_dir"] = aqmh_cache->cache_dir().string();
   artifact["unsupported_pixels"] = aqmh_recon.unsupported_pixels;

@@ -107,6 +107,33 @@ bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
          kPhases.end();
 }
 
+bool validate_df_cache_metadata(const fs::path &run_dir, size_t frame_count,
+                                int rows, int cols, std::string &error_out) {
+  const fs::path metadata_path =
+      run_dir / "artifacts" / "pre_debayer_metadata.json";
+  try {
+    const auto metadata = tile_compile::core::json::parse(
+        tile_compile::core::read_text(metadata_path));
+    if (metadata.value("format_version", 0) != 1 ||
+        !metadata.value("complete", false) ||
+        metadata.value("frame_count", 0u) != frame_count ||
+        metadata.value("rows", 0) != rows || metadata.value("cols", 0) != cols ||
+        metadata.value("color_mode", std::string()) != "OSC" ||
+        metadata.value("channel_order", tile_compile::core::json::array()) !=
+            tile_compile::core::json::array({"R", "G", "B"}) ||
+        metadata.value("luma_weights", tile_compile::core::json::array()) !=
+            tile_compile::core::json::array({0.25, 0.5, 0.25})) {
+      error_out = "DF metadata is incomplete or incompatible";
+      return false;
+    }
+  } catch (const std::exception &e) {
+    error_out = "cannot read DF metadata " + metadata_path.string() + ": " +
+                e.what();
+    return false;
+  }
+  return true;
+}
+
 struct ResumeOutputScaling {
   float scale_mono = 1.0f;
   float scale_r = 1.0f;
@@ -1129,31 +1156,52 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     runner::DiskCacheFrameStore prewarped_frames(
         run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
         canvas_width, true);
-    // Debayer-First-AQMH: attach RGB prewarped cache if present.
+    const bool df_requested =
+        cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+        io::detect_color_mode(resume_header, 2) == ColorMode::OSC;
+    // Debayer-First-AQMH: attach and validate the complete RGB prewarp cache.
     std::unique_ptr<runner::DiskCacheFrameStoreRGB> prewarped_frames_rgb;
     const fs::path rgb_cache_dir =
         run_dir / "cache" / "prewarped_frames_rgb";
-    if (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
-        io::detect_color_mode(resume_header, 2) == ColorMode::OSC &&
-        fs::is_directory(rgb_cache_dir)) {
+    if (df_requested && fs::is_directory(rgb_cache_dir)) {
       prewarped_frames_rgb = std::make_unique<runner::DiskCacheFrameStoreRGB>(
           rgb_cache_dir, frame_count, canvas_height, canvas_width, true);
+    }
+    if (df_requested) {
+      std::string df_error;
+      if (!prewarped_frames_rgb ||
+          !validate_df_cache_metadata(run_dir, frame_count, canvas_height,
+                                      canvas_width, df_error)) {
+        core::emit_event("resume_end", run_id,
+                         {{"success", false},
+                          {"status", "df_cache_invalid"},
+                          {"reason", df_error.empty()
+                                         ? "RGB prewarp cache missing"
+                                         : df_error}},
+                         log_file);
+        std::cerr << "Error: invalid Debayer-First RGB cache: " << df_error
+                  << std::endl;
+        return 1;
+      }
     }
     std::vector<uint8_t> frame_has_data(frame_count, 0u);
     size_t available_frames = 0;
     for (size_t fi = 0; fi < frame_count; ++fi) {
-      frame_has_data[fi] = prewarped_frames.has_data(fi) ? 1u : 0u;
-      available_frames += frame_has_data[fi] != 0u;
+      const bool has_data = df_requested
+                                ? prewarped_frames_rgb->has_data(fi)
+                                : prewarped_frames.has_data(fi);
+      frame_has_data[fi] = has_data ? 1u : 0u;
+      available_frames += has_data;
     }
     if (available_frames == 0) {
       core::emit_event("resume_end", run_id,
                        {{"success", false},
                         {"status", "prewarped_cache_missing"},
                         {"reason", "no_reusable_prewarped_cache_frames"},
-                        {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}},
+                        {"cache_dir", (df_requested ? rgb_cache_dir
+                                                      : run_dir / "cache" / "prewarped_frames").string()}},
                        log_file);
-      std::cerr << "Error: no reusable cache/prewarped_frames frames found"
-                << std::endl;
+      std::cerr << "Error: no reusable prewarped frames found" << std::endl;
       return 1;
     }
 

@@ -161,7 +161,9 @@ bool write_post_stack_outputs(
                recon_G.size() == recon.size() &&
                recon_B.size() == recon.size();
   }
+  io::FitsHeader rgb_output_hdr = first_hdr;
   if (detected_mode == ColorMode::OSC && have_rgb) {
+    rgb_output_hdr.set("DEBAYER", "PRE_STACK");
     if (!cfg.output_stretch) {
       // Restore photometric scale and background for absolute-ADU output
       recon_R.array() = recon_R.array() * scaling.scale_r + scaling.bg_r;
@@ -211,9 +213,9 @@ bool write_post_stack_outputs(
 
     // Write per-channel
     try {
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", recon_R, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", recon_G, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", recon_B, first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", recon_R, rgb_output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", recon_G, rgb_output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", recon_B, rgb_output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("reconstructed channel write failed: ") + e.what();
       return false;
@@ -241,10 +243,10 @@ bool write_post_stack_outputs(
     try {
       if (cfg.output_stretch) {
         io::write_fits_rgb_u32(run_dir / "outputs" / "stacked_rgb.fits",
-                               R_disk, G_disk, B_disk, first_hdr);
+                               R_disk, G_disk, B_disk, rgb_output_hdr);
       } else {
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
-                           recon_R, recon_G, recon_B, first_hdr);
+                           recon_R, recon_G, recon_B, rgb_output_hdr);
       }
       // Linear version for plate solving — always includes background for
       // absolute ADU context that astrometry tools expect.
@@ -257,11 +259,11 @@ bool write_post_stack_outputs(
         Matrix2Df B_solve = recon_B * scaling.scale_b;
         B_solve.array() += scaling.bg_b;
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
-                           R_solve, G_solve, B_solve, first_hdr);
+                           R_solve, G_solve, B_solve, rgb_output_hdr);
       } else {
         // Without stretch: recon_R/G/B already have bg restored
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
-                           recon_R, recon_G, recon_B, first_hdr);
+                           recon_R, recon_G, recon_B, rgb_output_hdr);
       }
     } catch (const std::exception &e) {
       out.error = std::string("stacked_rgb write failed: ") + e.what();
