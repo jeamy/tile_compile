@@ -1019,6 +1019,26 @@ Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode
              : registration::downsample2x2_mean(img);
 }
 
+Matrix2Df build_registration_proxy_rgb_luma(const Matrix2Df &R,
+                                            const Matrix2Df &G,
+                                            const Matrix2Df &B) {
+  if (R.size() <= 0 || G.size() <= 0 || B.size() <= 0 ||
+      R.rows() != G.rows() || R.cols() != G.cols() ||
+      R.rows() != B.rows() || R.cols() != B.cols()) {
+    return Matrix2Df();
+  }
+  Matrix2Df luma(R.rows(), R.cols());
+  const float* rd = R.data();
+  const float* gd = G.data();
+  const float* bd = B.data();
+  float* ld = luma.data();
+  const size_t n = static_cast<size_t>(R.size());
+  for (size_t i = 0; i < n; ++i) {
+    ld[i] = 0.25f * rd[i] + 0.5f * gd[i] + 0.25f * bd[i];
+  }
+  return registration::downsample2x2_mean(luma);
+}
+
 /// @brief Implements bge diag to json.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -1770,6 +1790,72 @@ void RunnerFrameCache::cleanup() {
   std::lock_guard<std::mutex> lock(proxy_mutex_);
   has_registration_proxy_.clear();
   registration_proxies_.clear();
+}
+
+// ---- DiskCacheFrameStoreRGB ----
+
+DiskCacheFrameStoreRGB::DiskCacheFrameStoreRGB() = default;
+
+DiskCacheFrameStoreRGB::DiskCacheFrameStoreRGB(const fs::path &cache_dir,
+                                               size_t n_frames, int rows,
+                                               int cols, bool attach_existing)
+    : channels_{DiskCacheFrameStore(cache_dir / "R", n_frames, rows, cols, attach_existing),
+                DiskCacheFrameStore(cache_dir / "G", n_frames, rows, cols, attach_existing),
+                DiskCacheFrameStore(cache_dir / "B", n_frames, rows, cols, attach_existing)} {}
+
+DiskCacheFrameStoreRGB::~DiskCacheFrameStoreRGB() = default;
+
+DiskCacheFrameStoreRGB::DiskCacheFrameStoreRGB(DiskCacheFrameStoreRGB &&o) noexcept {
+  for (int c = 0; c < 3; ++c)
+    channels_[c] = std::move(o.channels_[c]);
+}
+
+DiskCacheFrameStoreRGB &DiskCacheFrameStoreRGB::operator=(DiskCacheFrameStoreRGB &&o) noexcept {
+  if (this != &o) {
+    for (int c = 0; c < 3; ++c)
+      channels_[c] = std::move(o.channels_[c]);
+  }
+  return *this;
+}
+
+void DiskCacheFrameStoreRGB::store(size_t fi, const Matrix2Df &R,
+                                   const Matrix2Df &G, const Matrix2Df &B) {
+  channels_[0].store(fi, R);
+  channels_[1].store(fi, G);
+  channels_[2].store(fi, B);
+}
+
+Matrix2Df DiskCacheFrameStoreRGB::load_channel(size_t fi, int channel) const {
+  if (channel < 0 || channel > 2) return Matrix2Df();
+  return channels_[channel].load(fi);
+}
+
+DiskCacheFrameStoreRGB::RGBFrame DiskCacheFrameStoreRGB::load(size_t fi) const {
+  return {channels_[0].load(fi), channels_[1].load(fi), channels_[2].load(fi)};
+}
+
+bool DiskCacheFrameStoreRGB::has_data(size_t fi) const {
+  return channels_[0].has_data(fi) && channels_[1].has_data(fi) &&
+         channels_[2].has_data(fi);
+}
+
+size_t DiskCacheFrameStoreRGB::size() const { return channels_[0].size(); }
+int DiskCacheFrameStoreRGB::rows() const { return channels_[0].rows(); }
+int DiskCacheFrameStoreRGB::cols() const { return channels_[0].cols(); }
+
+void DiskCacheFrameStoreRGB::cleanup() {
+  for (int c = 0; c < 3; ++c)
+    channels_[c].cleanup();
+}
+
+void DiskCacheFrameStoreRGB::set_preserve_files(bool preserve) {
+  for (int c = 0; c < 3; ++c)
+    channels_[c].set_preserve_files(preserve);
+}
+
+void DiskCacheFrameStoreRGB::clear_mappings() const {
+  for (int c = 0; c < 3; ++c)
+    channels_[c].clear_mappings();
 }
 
 int default_parallel_workers(size_t items, int requested_workers) {

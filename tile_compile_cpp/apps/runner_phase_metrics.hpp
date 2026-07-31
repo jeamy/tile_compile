@@ -15,6 +15,7 @@
 namespace tile_compile::runner {
 
 class RunnerFrameCache;
+class DiskCacheFrameStoreRGB;
 
 /// Shared outputs from CHANNEL_SPLIT, NORMALIZATION, and GLOBAL_METRICS.
 ///
@@ -33,6 +34,11 @@ struct PhaseMetricsContext {
   VectorXf global_weights;
   /// Disk cache containing normalized full-frame images for later phases.
   std::shared_ptr<RunnerFrameCache> frame_cache;
+  /// Disk cache containing debayered RGB frames (Debayer-First-AQMH only).
+  /// Populated when `aqmh.reconstruction.debayer_first` is true and the input
+  /// mode is OSC. Later phases (prewarp, Q-maps, reconstruction) read from this
+  /// cache instead of the CFA `frame_cache`.
+  std::shared_ptr<DiskCacheFrameStoreRGB> rgb_frame_cache;
   /// Pedestal applied when restoring output scaling after reconstruction.
   float output_pedestal = 0.0f;
   /// Mono/luma output scale used by final output restoration.

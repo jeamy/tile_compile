@@ -618,6 +618,7 @@ if(BUILD_TESTS)
             tests/test_aqmh_reconstruction.cpp
             tests/test_aqmh_validation.cpp
             tests/test_aqmh_config.cpp
+            tests/test_disk_cache_frame_store_rgb.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

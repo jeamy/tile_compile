@@ -780,6 +780,19 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(r["structure_mask_blur_sigma_px"]))
         cfg.aqmh.reconstruction.structure_mask_blur_sigma_px =
             r["structure_mask_blur_sigma_px"].as<float>();
+      // Debayer-First-AQMH (v0.3)
+      if (yaml_has_value(r["debayer_first"]))
+        cfg.aqmh.reconstruction.debayer_first =
+            r["debayer_first"].as<bool>();
+      if (yaml_has_value(r["pre_debayer_method"]))
+        cfg.aqmh.reconstruction.pre_debayer_method =
+            r["pre_debayer_method"].as<std::string>();
+      if (yaml_has_value(r["rgb_q_map_mode"]))
+        cfg.aqmh.reconstruction.rgb_q_map_mode =
+            r["rgb_q_map_mode"].as<std::string>();
+      if (yaml_has_value(r["rgb_memory_strategy"]))
+        cfg.aqmh.reconstruction.rgb_memory_strategy =
+            r["rgb_memory_strategy"].as<std::string>();
     }
     if (yaml_has_value(a["validation"])) {
       auto v = a["validation"];
@@ -1483,6 +1496,15 @@ YAML::Node Config::to_yaml() const {
       aqmh.reconstruction.structure_mask_high_q;
   node["aqmh"]["reconstruction"]["structure_mask_blur_sigma_px"] =
       aqmh.reconstruction.structure_mask_blur_sigma_px;
+  // Debayer-First-AQMH (v0.3)
+  node["aqmh"]["reconstruction"]["debayer_first"] =
+      aqmh.reconstruction.debayer_first;
+  node["aqmh"]["reconstruction"]["pre_debayer_method"] =
+      aqmh.reconstruction.pre_debayer_method;
+  node["aqmh"]["reconstruction"]["rgb_q_map_mode"] =
+      aqmh.reconstruction.rgb_q_map_mode;
+  node["aqmh"]["reconstruction"]["rgb_memory_strategy"] =
+      aqmh.reconstruction.rgb_memory_strategy;
   node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
   node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
   node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
@@ -2135,6 +2157,23 @@ void Config::validate() const {
     throw ValidationError(
         "aqmh.reconstruction structure mask values are invalid");
   }
+  // Debayer-First-AQMH (v0.3) validation
+  if (aqmh.reconstruction.pre_debayer_method != "edge_aware" &&
+      aqmh.reconstruction.pre_debayer_method != "bilinear" &&
+      aqmh.reconstruction.pre_debayer_method != "nearest") {
+    throw ValidationError(
+        "aqmh.reconstruction.pre_debayer_method must be edge_aware, bilinear, or nearest");
+  }
+  if (aqmh.reconstruction.rgb_q_map_mode != "shared_luma" &&
+      aqmh.reconstruction.rgb_q_map_mode != "per_channel") {
+    throw ValidationError(
+        "aqmh.reconstruction.rgb_q_map_mode must be shared_luma or per_channel");
+  }
+  if (aqmh.reconstruction.rgb_memory_strategy != "sequential" &&
+      aqmh.reconstruction.rgb_memory_strategy != "parallel") {
+    throw ValidationError(
+        "aqmh.reconstruction.rgb_memory_strategy must be sequential or parallel");
+  }
 
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
     throw ValidationError(
@@ -2617,7 +2656,7 @@ std::string get_schema_json() {
                       "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"default":2,"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"default":"uint16","description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"default":2,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
                       "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.03},"g_w_sharp":{"type":"number","minimum":0,"default":0.55},"g_w_snr":{"type":"number","minimum":0,"default":0.30},"g_w_background_penalty":{"type":"number","minimum":0,"default":0.25},"g_k_scale":{"type":"number","exclusiveMinimum":0,"default":1.5,"description":"Sigmoid temperature for global AQMH quality. The resulting frame weight remains bounded to [g_floor, 1]."}}},
                       "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","default":false,"description":"Enables per-pixel AQMH frame selection during reconstruction."},"mode":{"type":"string","enum":["auto_reject","top_k"],"default":"auto_reject","description":"auto_reject keeps most locally usable frames and rejects only clear low-score outliers; top_k is the legacy fixed best-k selection."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.30,"description":"Fraction retained in legacy mode=top_k."},"k_min_required":{"type":"integer","minimum":1,"default":20},"margin_min":{"type":"number","minimum":0,"maximum":1,"default":0.02},"reject_below_best_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25,"description":"In mode=auto_reject, reject samples only when their local score is below this fraction of the local best score."},"min_keep_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.9,"description":"In mode=auto_reject, retain at least this fraction of locally rankable samples."},"tiered_k_frac":{"type":"array","default":[],"items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_iterations":{"type":"integer","minimum":0,"default":4},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"delete_prewarped_cache_after_run":{"type":"boolean","default":true,"description":"Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."},"prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"linear","description":"Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. linear is the conservative default; cubic and lanczos4 are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing."},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.30},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.92},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.50},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15},"structure_mask_low_q":{"type":"number","minimum":0,"maximum":1,"default":0.40},"structure_mask_high_q":{"type":"number","minimum":0,"maximum":1,"default":0.90},"structure_mask_blur_sigma_px":{"type":"number","minimum":0,"default":4.0}}},
+                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_iterations":{"type":"integer","minimum":0,"default":4},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"delete_prewarped_cache_after_run":{"type":"boolean","default":true,"description":"Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."},"prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"linear","description":"Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. linear is the conservative default; cubic and lanczos4 are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing."},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.30},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.92},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.50},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15},"structure_mask_low_q":{"type":"number","minimum":0,"maximum":1,"default":0.40},"structure_mask_high_q":{"type":"number","minimum":0,"maximum":1,"default":0.90},"structure_mask_blur_sigma_px":{"type":"number","minimum":0,"default":4.0},"debayer_first":{"type":"boolean","default":true,"description":"Master switch for Debayer-First-AQMH. true: pre-debayer each frame before registration/prewarp and run AQMH reconstruction per RGB channel on the debayered grid. false: keep the legacy CFA-domain pipeline (prewarp on CFA subplanes, post-stack debayer). Default is true because DF-AQMH is the intended production path; the CFA path remains available as an explicit fallback."},"pre_debayer_method":{"type":"string","enum":["edge_aware","bilinear","nearest"],"default":"edge_aware","description":"Demosaicing algorithm used for pre-debayering when debayer_first is true. edge_aware preserves star edges best; bilinear is the fast fallback; nearest is a diagnostic-only option."},"rgb_q_map_mode":{"type":"string","enum":["shared_luma","per_channel"],"default":"shared_luma","description":"Quality-map mode for Debayer-First-AQMH. shared_luma computes Q-maps once on debayered luminance (0.25*R + 0.5*G + 0.25*B) and applies them to all three channels. per_channel computes separate Q-maps per channel (higher memory, may be added later)."},"rgb_memory_strategy":{"type":"string","enum":["sequential","parallel"],"default":"sequential","description":"Memory strategy for per-channel AQMH reconstruction. sequential reconstructs one channel at a time, keeping only the active channel resident. parallel reconstructs all three channels simultaneously (higher memory)."}}},
                       "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.05},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.05},"max_tail11_abs_regression":{"type":"number","minimum":0,"default":0.10},"max_elongation_regression":{"type":"number","minimum":0,"default":0.08}}},
                       "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
     "synthetic": { "type":"object",

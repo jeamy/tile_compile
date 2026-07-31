@@ -28,6 +28,11 @@ class RunnerFrameCache;
 struct PhaseRegistrationContext {
   /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
+  /// Disk-backed prewarped RGB frames (Debayer-First-AQMH only).
+  /// Populated when `aqmh.reconstruction.debayer_first` is true and the input
+  /// mode is OSC. When active, downstream phases read from this store instead
+  /// of `prewarped_frames`.
+  DiskCacheFrameStoreRGB prewarped_frames_rgb;
   /// Per-input-frame flag indicating whether the prewarp store contains data.
   std::vector<uint8_t> frame_has_data;
   /// Per-canvas-pixel count of usable prewarped frames contributing data.
@@ -78,6 +83,7 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out);
+    PhaseRegistrationContext &out,
+    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache = nullptr);
 
 } // namespace tile_compile::runner

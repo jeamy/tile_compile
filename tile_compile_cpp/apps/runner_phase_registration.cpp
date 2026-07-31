@@ -250,7 +250,8 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_header,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out) {
+    PhaseRegistrationContext &out,
+    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
   // Auto-engine: detect conditions where the configured engine would fail and
@@ -3159,8 +3160,14 @@ bool run_phase_registration_prewarp(
   //
   // Disk-backed: frames are written as raw float binaries and mmap'd on
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
+  const bool debayer_first =
+      cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+      detected_mode == ColorMode::OSC && rgb_frame_cache != nullptr;
   DiskCacheFrameStore prewarped_frames(
       run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
+  DiskCacheFrameStoreRGB prewarped_frames_rgb(
+      run_dir / "cache" / "prewarped_frames_rgb", frames.size(), canvas_height,
+      canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -3206,6 +3213,69 @@ bool run_phase_registration_prewarp(
         continue;
       }
       try {
+        if (debayer_first) {
+          // Debayer-First-AQMH: warp each RGB channel independently.
+          // Channels are regular grids, so we use MONO mode warping per channel.
+          auto rgb = rgb_frame_cache->load(fi);
+          if (rgb.R.size() <= 0 || rgb.G.size() <= 0 || rgb.B.size() <= 0) {
+            continue;
+          }
+          const auto &w = global_frame_warps[fi];
+          Matrix2Df warped_R, warped_G, warped_B;
+          std::vector<uint8_t> warped_valid_mask;
+          bool warped_has_data = false;
+          // Warp each channel; use the R channel warp result for validity.
+          prewarp_ops.warp_affine_frame(
+              std::move(rgb.R), w, ColorMode::MONO, canvas_height, canvas_width,
+              offset_x, offset_y, warped_R, &warped_valid_mask,
+              &warped_has_data,
+              prewarp_streams.get(static_cast<size_t>(worker_index)));
+          prewarp_ops.warp_affine_frame(
+              std::move(rgb.G), w, ColorMode::MONO, canvas_height, canvas_width,
+              offset_x, offset_y, warped_G, nullptr, nullptr,
+              prewarp_streams.get(static_cast<size_t>(worker_index)));
+          prewarp_ops.warp_affine_frame(
+              std::move(rgb.B), w, ColorMode::MONO, canvas_height, canvas_width,
+              offset_x, offset_y, warped_B, nullptr, nullptr,
+              prewarp_streams.get(static_cast<size_t>(worker_index)));
+          if (warped_R.size() > 0 && warped_G.size() > 0 &&
+              warped_B.size() > 0) {
+            prewarped_frames_rgb.store(fi, warped_R, warped_G, warped_B);
+            // Also store luminance in the CFA cache for downstream compatibility
+            // (overlap coverage, common valid mask use the luminance proxy).
+            Matrix2Df luma(canvas_height, canvas_width);
+            const float *rd = warped_R.data();
+            const float *gd = warped_G.data();
+            const float *bd = warped_B.data();
+            float *ld = luma.data();
+            for (size_t pi = 0; pi < canvas_px; ++pi) {
+              ld[pi] = 0.25f * rd[pi] + 0.5f * gd[pi] + 0.25f * bd[pi];
+            }
+            prewarped_frames.store(fi, luma);
+            if (warped_has_data) {
+              frame_has_data[fi] = 1;
+              n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
+              if (warped_valid_mask.size() == canvas_px) {
+                for (size_t pi = 0; pi < canvas_px; ++pi) {
+                  if (warped_valid_mask[pi] != 0 &&
+                      local_overlap_coverage[pi] <
+                          std::numeric_limits<uint16_t>::max()) {
+                    ++local_overlap_coverage[pi];
+                  }
+                }
+              } else {
+                const float *warped_ptr = luma.data();
+                for (size_t pi = 0; pi < canvas_px; ++pi) {
+                  if (std::isfinite(warped_ptr[pi]) &&
+                      local_overlap_coverage[pi] <
+                          std::numeric_limits<uint16_t>::max()) {
+                    ++local_overlap_coverage[pi];
+                  }
+                }
+              }
+            }
+          }
+        } else {
         Matrix2Df img = load_frame_normalized(fi);
         if (img.size() <= 0) {
           continue;
@@ -3256,6 +3326,7 @@ bool run_phase_registration_prewarp(
             }
           }
         }
+        } // end else (CFA path)
       } catch (const std::exception &e) {
         prewarp_failed.store(true, std::memory_order_relaxed);
         std::lock_guard<std::mutex> lock(prewarp_log_mutex);
@@ -3374,6 +3445,7 @@ bool run_phase_registration_prewarp(
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);
+  out.prewarped_frames_rgb = std::move(prewarped_frames_rgb);
   out.min_valid_frames = required_common_frames;
   return true;
 }

@@ -1223,6 +1223,29 @@
               "exclusiveMinimum": 0,
               "default": 4.0,
               "description": "Gaussian blur sigma for soft structure mask transition."
+            },
+            "debayer_first": {
+              "type": "boolean",
+              "default": true,
+              "description": "Master switch for Debayer-First-AQMH. true: pre-debayer each frame before registration/prewarp and run AQMH reconstruction per RGB channel on the debayered grid. false: keep the legacy CFA-domain pipeline (prewarp on CFA subplanes, post-stack debayer). Default is true because DF-AQMH is the intended production path; the CFA path remains available as an explicit fallback."
+            },
+            "pre_debayer_method": {
+              "type": "string",
+              "enum": ["edge_aware", "bilinear", "nearest"],
+              "default": "edge_aware",
+              "description": "Demosaicing algorithm used for pre-debayering when debayer_first is true. edge_aware preserves star edges best; bilinear is the fast fallback; nearest is a diagnostic-only option."
+            },
+            "rgb_q_map_mode": {
+              "type": "string",
+              "enum": ["shared_luma", "per_channel"],
+              "default": "shared_luma",
+              "description": "Quality-map mode for Debayer-First-AQMH. shared_luma computes Q-maps once on debayered luminance (0.25*R + 0.5*G + 0.25*B) and applies them to all three channels. per_channel computes separate Q-maps per channel (higher memory, may be added later)."
+            },
+            "rgb_memory_strategy": {
+              "type": "string",
+              "enum": ["sequential", "parallel"],
+              "default": "sequential",
+              "description": "Memory strategy for per-channel AQMH reconstruction. sequential reconstructs one channel at a time, keeping only the active channel resident. parallel reconstructs all three channels simultaneously (higher memory)."
             }
           }
         },

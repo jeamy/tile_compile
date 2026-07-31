@@ -282,6 +282,11 @@ struct AqmhReconstructionConfig {
   float structure_mask_low_q = 0.40f;             // gradient quantile mapped to mask=0 (was 0.70)
   float structure_mask_high_q = 0.90f;            // gradient quantile mapped to mask=1 (was 0.97)
   float structure_mask_blur_sigma_px = 4.0f;      // soft mask blur sigma (was 2.0)
+  // Debayer-First-AQMH (v0.3): pre-debayer before registration/prewarp, RGB-domain reconstruction.
+  bool debayer_first = true;                      // master switch; CFA path remains as explicit fallback (false)
+  std::string pre_debayer_method = "edge_aware";  // "edge_aware" | "bilinear" | "nearest"
+  std::string rgb_q_map_mode = "shared_luma";     // "shared_luma" | "per_channel"
+  std::string rgb_memory_strategy = "sequential"; // "sequential" | "parallel"
 };
 
 struct AqmhValidationConfig {

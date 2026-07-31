@@ -196,4 +196,125 @@ aqmh:
   REQUIRE(cfg.aqmh.diagnostics.level == "full");
   REQUIRE_NOTHROW(cfg.validate());
 }
+
+TEST_CASE("debayer_first_defaults_to_true") {
+  YAML::Node defaults = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(defaults);
+  REQUIRE(cfg.aqmh.reconstruction.debayer_first);
+  REQUIRE(cfg.aqmh.reconstruction.pre_debayer_method == "edge_aware");
+  REQUIRE(cfg.aqmh.reconstruction.rgb_q_map_mode == "shared_luma");
+  REQUIRE(cfg.aqmh.reconstruction.rgb_memory_strategy == "sequential");
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("debayer_first_explicit_false_parses") {
+  YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    debayer_first: false
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_FALSE(cfg.aqmh.reconstruction.debayer_first);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("debayer_first_pre_debayer_method_validates_enum") {
+  for (const auto* m : {"edge_aware", "bilinear", "nearest"}) {
+    YAML::Node node = YAML::Load(std::string("\n") +
+                                 "method: aqmh\n"
+                                 "aqmh:\n"
+                                 "  enabled: true\n"
+                                 "  reconstruction:\n"
+                                 "    pre_debayer_method: " + m + "\n");
+    auto cfg = tile_compile::config::Config::from_yaml(node);
+    REQUIRE(cfg.aqmh.reconstruction.pre_debayer_method == m);
+    REQUIRE_NOTHROW(cfg.validate());
+  }
+  YAML::Node bad = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    pre_debayer_method: vng
+)");
+  auto cfg_bad = tile_compile::config::Config::from_yaml(bad);
+  REQUIRE_THROWS(cfg_bad.validate());
+}
+
+TEST_CASE("debayer_first_rgb_q_map_mode_validates_enum") {
+  for (const auto* m : {"shared_luma", "per_channel"}) {
+    YAML::Node node = YAML::Load(std::string("\n") +
+                                 "method: aqmh\n"
+                                 "aqmh:\n"
+                                 "  enabled: true\n"
+                                 "  reconstruction:\n"
+                                 "    rgb_q_map_mode: " + m + "\n");
+    auto cfg = tile_compile::config::Config::from_yaml(node);
+    REQUIRE(cfg.aqmh.reconstruction.rgb_q_map_mode == m);
+    REQUIRE_NOTHROW(cfg.validate());
+  }
+  YAML::Node bad = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    rgb_q_map_mode: hybrid
+)");
+  auto cfg_bad = tile_compile::config::Config::from_yaml(bad);
+  REQUIRE_THROWS(cfg_bad.validate());
+}
+
+TEST_CASE("debayer_first_rgb_memory_strategy_validates_enum") {
+  for (const auto* m : {"sequential", "parallel"}) {
+    YAML::Node node = YAML::Load(std::string("\n") +
+                                 "method: aqmh\n"
+                                 "aqmh:\n"
+                                 "  enabled: true\n"
+                                 "  reconstruction:\n"
+                                 "    rgb_memory_strategy: " + m + "\n");
+    auto cfg = tile_compile::config::Config::from_yaml(node);
+    REQUIRE(cfg.aqmh.reconstruction.rgb_memory_strategy == m);
+    REQUIRE_NOTHROW(cfg.validate());
+  }
+  YAML::Node bad = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    rgb_memory_strategy: streaming
+)");
+  auto cfg_bad = tile_compile::config::Config::from_yaml(bad);
+  REQUIRE_THROWS(cfg_bad.validate());
+}
+
+TEST_CASE("debayer_first_roundtrips_through_serialization") {
+  YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    debayer_first: false
+    pre_debayer_method: bilinear
+    rgb_q_map_mode: per_channel
+    rgb_memory_strategy: parallel
+)");
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_FALSE(cfg.aqmh.reconstruction.debayer_first);
+  REQUIRE(cfg.aqmh.reconstruction.pre_debayer_method == "bilinear");
+  REQUIRE(cfg.aqmh.reconstruction.rgb_q_map_mode == "per_channel");
+  REQUIRE(cfg.aqmh.reconstruction.rgb_memory_strategy == "parallel");
+  REQUIRE_NOTHROW(cfg.validate());
+  YAML::Node serialized = cfg.to_yaml();
+  auto reparsed = tile_compile::config::Config::from_yaml(serialized);
+  REQUIRE_FALSE(reparsed.aqmh.reconstruction.debayer_first);
+  REQUIRE(reparsed.aqmh.reconstruction.pre_debayer_method == "bilinear");
+  REQUIRE(reparsed.aqmh.reconstruction.rgb_q_map_mode == "per_channel");
+  REQUIRE(reparsed.aqmh.reconstruction.rgb_memory_strategy == "parallel");
+}
 #endif

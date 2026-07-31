@@ -1997,6 +1997,85 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.debayer_first`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Hauptschalter für Debayer-First-AQMH. Wenn `true`, wird jeder Frame vor
+Registration und Prewarp debayert; die AQMH-Reconstruction läuft dann pro RGB-Kanal
+auf dem debayerten Raster. Wenn `false`, bleibt der bisherige CFA-Pfad aktiv
+(Prewarp auf CFA-Subplanes, Post-Stack-Debayer). Default ist `true`, weil
+DF-AQMH der angestrebte Produktionspfad ist; `false` ist der explizite
+CFA-Fallback.
+
+**Interaktionen:** Nur wirksam mit `method: aqmh` und `data.color_mode: OSC`.
+Bestehende Runs werden über ihre gespeicherte effektive Konfiguration eindeutig
+dem ursprünglichen Pfad zugeordnet; ein Resume wechselt nicht stillschweigend
+den Pfad.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Zulässige Werte** | `edge_aware`, `bilinear`, `nearest` |
+| **Default** | `edge_aware` |
+
+**Zweck:** Demosaicing-Algorithmus für das Pre-Debayering, wenn `debayer_first`
+aktiv ist. `edge_aware` erhält Sternkanten am besten und ist der Default;
+`bilinear` ist der schnelle Fallback; `nearest` ist nur für Diagnosezwecke.
+
+**Fallback:** Bei unbekanntem Bayer-Pattern oder nicht-OSC-Daten wird der
+Parameter ignoriert und der CFA-Pfad verwendet.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Zulässige Werte** | `shared_luma`, `per_channel` |
+| **Default** | `shared_luma` |
+
+**Zweck:** Modus der Q-Maps für Debayer-First-AQMH. `shared_luma` berechnet die
+Q-Maps einmal auf der debayerten Luminanz `0.25·R + 0.5·G + 0.25·B` und wendet
+sie auf alle drei Kanäle an. `per_channel` berechnet separate Q-Maps pro Kanal
+(höherer Speicherbedarf, wird in einer späteren Phase implementiert).
+
+**Nicht anwendbar:** Wenn `debayer_first: false`, hat der Parameter keinen
+Effekt.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Zulässige Werte** | `sequential`, `parallel` |
+| **Default** | `sequential` |
+
+**Zweck:** Speicherstrategie der kanalweisen AQMH-Reconstruction. `sequential`
+rekonstruiert einen Kanal nach dem anderen und hält nur den aktiven Kanal im
+RAM. `parallel` rekonstruiert alle drei Kanäle gleichzeitig (höherer
+Speicherbedarf, ca. 3×).
+
+**Interaktionen:** Mit `runtime_limits.memory_budget_mb` bzw.
+`aqmh.reconstruction.memory_budget_mb` wird der kleinere gesetzte Wert als
+harte Prozessgrenze interpretiert. Bei knappen Budgets sollte `sequential`
+verwendet werden.
+
+**Nicht anwendbar:** Wenn `debayer_first: false`, hat der Parameter keinen
+Effekt.
+
+----
+
 ### `aqmh.validation.*` — Output-Validierung
 
 Regressions-Schwellen für Vergleiche eines Nachverarbeitungskandidaten sowohl mit dem uniformen Kontrollmittel als auch mit der unveränderten rohen AQMH-Baseline. Tail- und Elongationswerte werden an denselben, in der jeweiligen Referenz erkannten Sternpositionen gemessen.

@@ -564,6 +564,15 @@ astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode,
                                    const std::string &detected_bayer_str);
 
+/// Build a luminance-based registration proxy from debayered RGB channels.
+///
+/// Computes luminance as `0.25*R + 0.5*G + 0.25*B` and applies a 2x2 mean
+/// downsample. Used by the Debayer-First-AQMH path where the registration
+/// proxy is derived from debayered luminance instead of the CFA green channel.
+Matrix2Df build_registration_proxy_rgb_luma(const Matrix2Df &R,
+                                            const Matrix2Df &G,
+                                            const Matrix2Df &B);
+
 /// Serialize BGE diagnostics into the artifact/report JSON shape.
 tile_compile::core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
                                           bool requested,
@@ -702,6 +711,48 @@ private:
   mutable std::mutex proxy_mutex_;
   std::vector<uint8_t> has_registration_proxy_;
   std::vector<Matrix2Df> registration_proxies_;
+};
+
+/// Disk-backed cache for debayered RGB frames (Debayer-First-AQMH).
+///
+/// Stores three single-channel float matrices (R, G, B) per frame in a
+/// run-local cache directory. Each channel is persisted as a separate .raw
+/// file so the sequential reconstruction strategy can load one channel at a
+/// time without touching the others. The class is a thin aggregate over three
+/// DiskCacheFrameStore instances and shares their mmap-based load semantics.
+class DiskCacheFrameStoreRGB {
+public:
+  DiskCacheFrameStoreRGB();
+  DiskCacheFrameStoreRGB(const std::filesystem::path &cache_dir,
+                         size_t n_frames, int rows, int cols,
+                         bool attach_existing = false);
+  ~DiskCacheFrameStoreRGB();
+
+  DiskCacheFrameStoreRGB(const DiskCacheFrameStoreRGB &) = delete;
+  DiskCacheFrameStoreRGB &operator=(const DiskCacheFrameStoreRGB &) = delete;
+  DiskCacheFrameStoreRGB(DiskCacheFrameStoreRGB &&o) noexcept;
+  DiskCacheFrameStoreRGB &operator=(DiskCacheFrameStoreRGB &&o) noexcept;
+
+  /// Persist all three channels for frame `fi`.
+  void store(size_t fi, const Matrix2Df &R, const Matrix2Df &G,
+             const Matrix2Df &B);
+  /// Load one channel (0=R, 1=G, 2=B) for frame `fi`.
+  Matrix2Df load_channel(size_t fi, int channel) const;
+  /// Load all three channels for frame `fi`.
+  struct RGBFrame { Matrix2Df R, G, B; };
+  RGBFrame load(size_t fi) const;
+  /// Whether all three channels are stored for `fi`.
+  bool has_data(size_t fi) const;
+  /// Number of frame slots.
+  size_t size() const;
+  int rows() const;
+  int cols() const;
+  void cleanup();
+  void set_preserve_files(bool preserve);
+  void clear_mappings() const;
+
+private:
+  DiskCacheFrameStore channels_[3];
 };
 
 } // namespace tile_compile::runner

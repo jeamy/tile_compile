@@ -1790,6 +1790,81 @@ Per-pixel weighted reconstruction parameters.
 
 ----
 
+#### `aqmh.reconstruction.debayer_first`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Master switch for Debayer-First-AQMH. When `true`, every frame is
+debayered before registration and prewarp; AQMH reconstruction then runs per
+RGB channel on the debayered grid. When `false`, the legacy CFA path stays
+active (prewarp on CFA subplanes, post-stack debayer). Default is `true`
+because DF-AQMH is the intended production path; `false` is the explicit
+CFA fallback.
+
+**Interactions:** Only effective with `method: aqmh` and
+`data.color_mode: OSC`. Existing runs remain bound to their stored effective
+configuration; a resume never silently switches paths.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Allowed values** | `edge_aware`, `bilinear`, `nearest` |
+| **Default** | `edge_aware` |
+
+**Purpose:** Demosaicing algorithm used for pre-debayering when `debayer_first`
+is active. `edge_aware` preserves star edges best and is the default; `bilinear`
+is the fast fallback; `nearest` is a diagnostic-only option.
+
+**Fallback:** For unknown Bayer patterns or non-OSC data the parameter is
+ignored and the CFA path is used.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Allowed values** | `shared_luma`, `per_channel` |
+| **Default** | `shared_luma` |
+
+**Purpose:** Quality-map mode for Debayer-First-AQMH. `shared_luma` computes
+the Q-maps once on debayered luminance `0.25·R + 0.5·G + 0.25·B` and applies
+them to all three channels. `per_channel` computes separate Q-maps per channel
+(higher memory, to be implemented in a later phase).
+
+**Non-applicable:** When `debayer_first: false`, this parameter has no effect.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Allowed values** | `sequential`, `parallel` |
+| **Default** | `sequential` |
+
+**Purpose:** Memory strategy for per-channel AQMH reconstruction. `sequential`
+reconstructs one channel at a time, keeping only the active channel resident.
+`parallel` reconstructs all three channels simultaneously (higher memory,
+roughly 3×).
+
+**Interactions:** With `runtime_limits.memory_budget_mb` or
+`aqmh.reconstruction.memory_budget_mb`, the smaller value is interpreted as
+the hard process limit. Under tight budgets, `sequential` should be used.
+
+**Non-applicable:** When `debayer_first: false`, this parameter has no effect.
+
+----
+
 ### `aqmh.validation.*` — Output validation
 
 Regression thresholds comparing every post-processing candidate against both the uniform-control mean and the immutable raw AQMH baseline. Tail and elongation are measured at the same star positions detected in the respective reference.

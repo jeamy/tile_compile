@@ -1791,7 +1791,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           run_id, cfg, frames, run_dir, height, width, detected_mode,
           detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
           first_header, acceleration, emitter, log_file,
-          phase_registration_ctx)) {
+          phase_registration_ctx, phase_metrics_ctx.rgb_frame_cache)) {
     return 1;
   }
   if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {

@@ -82,6 +82,10 @@ aqmh:
     structure_mask_low_q: 0.40
     structure_mask_high_q: 0.90
     structure_mask_blur_sigma_px: 4.0
+    debayer_first: true                    # DF-AQMH: pre-debayer before prewarp, RGB reconstruction
+    pre_debayer_method: edge_aware         # edge_aware | bilinear | nearest
+    rgb_q_map_mode: shared_luma            # shared_luma | per_channel
+    rgb_memory_strategy: sequential        # sequential | parallel
   cherry_pick:
     enabled: false
   validation:

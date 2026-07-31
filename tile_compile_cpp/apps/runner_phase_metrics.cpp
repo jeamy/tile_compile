@@ -59,6 +59,33 @@ std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
   return std::nullopt;
 }
 
+/// Debayer a normalized CFA frame and store the RGB channels in the RGB cache.
+/// Also builds and stores a luminance-based registration proxy when the RGB
+/// cache is active. Used by the Debayer-First-AQMH path during normalization.
+void debayer_and_store_rgb(size_t fi, const Matrix2Df &cfa_img,
+                           const config::Config &cfg, ColorMode detected_mode,
+                           const std::string &detected_bayer_str,
+                           DiskCacheFrameStoreRGB &rgb_cache,
+                           RunnerFrameCache &frame_cache) {
+  if (detected_mode != ColorMode::OSC || cfa_img.size() <= 0) return;
+  const auto pattern = tile_compile::string_to_bayer_pattern(detected_bayer_str);
+  if (pattern == tile_compile::BayerPattern::UNKNOWN) return;
+  const auto &rc = cfg.aqmh.reconstruction;
+  Matrix2Df R, G, B;
+  if (rc.pre_debayer_method == "bilinear") {
+    image::debayer_bilinear_into(cfa_img, pattern, 0, 0, R, G, B);
+  } else if (rc.pre_debayer_method == "nearest") {
+    image::debayer_nearest_neighbor_into(cfa_img, pattern, 0, 0, R, G, B);
+  } else {
+    // edge_aware (default): OpenCV EA demosaicing
+    image::debayer_opencv_into(cfa_img, pattern, 0, 0, /*ahd=*/true, R, G, B);
+  }
+  if (R.size() <= 0 || G.size() <= 0 || B.size() <= 0) return;
+  rgb_cache.store(fi, R, G, B);
+  frame_cache.store_registration_proxy(
+      fi, build_registration_proxy_rgb_luma(R, G, B));
+}
+
 } // namespace
 
 /// @brief Runs phase channel split normalization global metrics.
@@ -157,6 +184,13 @@ bool run_phase_channel_split_normalization_global_metrics(
         out.frame_cache = std::make_shared<RunnerFrameCache>(
             run_dir / "cache" / "normalized_frames", frames.size(), cache_height,
             cache_width);
+        // Debayer-First-AQMH: allocate RGB cache for debayered frames.
+        if (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+            detected_mode == ColorMode::OSC) {
+          out.rgb_frame_cache = std::make_shared<DiskCacheFrameStoreRGB>(
+              run_dir / "cache" / "debayered_frames", frames.size(),
+              cache_height, cache_width);
+        }
       }
     } catch (const std::exception &e) {
       emitter.warning(run_id,
@@ -176,9 +210,15 @@ bool run_phase_channel_split_normalization_global_metrics(
                                          0);
       if (out.frame_cache) {
         out.frame_cache->store_normalized(frame_index, img);
-        out.frame_cache->store_registration_proxy(
-            frame_index,
-            build_registration_proxy(img, detected_mode, detected_bayer_str));
+        if (out.rgb_frame_cache && !out.rgb_frame_cache->has_data(frame_index)) {
+          debayer_and_store_rgb(frame_index, img, cfg, detected_mode,
+                                detected_bayer_str, *out.rgb_frame_cache,
+                                *out.frame_cache);
+        } else {
+          out.frame_cache->store_registration_proxy(
+              frame_index,
+              build_registration_proxy(img, detected_mode, detected_bayer_str));
+        }
       }
     }
     return img;
@@ -418,9 +458,15 @@ bool run_phase_channel_split_normalization_global_metrics(
           image::apply_normalization_inplace(img, s, detected_mode,
                                              detected_bayer_str, 0, 0);
           out.frame_cache->store_normalized(i, img);
-          out.frame_cache->store_registration_proxy(
-              i, build_registration_proxy(img, detected_mode,
-                                          detected_bayer_str));
+          if (out.rgb_frame_cache && !out.rgb_frame_cache->has_data(i)) {
+            debayer_and_store_rgb(i, img, cfg, detected_mode,
+                                  detected_bayer_str, *out.rgb_frame_cache,
+                                  *out.frame_cache);
+          } else {
+            out.frame_cache->store_registration_proxy(
+                i, build_registration_proxy(img, detected_mode,
+                                            detected_bayer_str));
+          }
         }
       } catch (const std::exception &e) {
         norm_failed.store(true, std::memory_order_relaxed);
