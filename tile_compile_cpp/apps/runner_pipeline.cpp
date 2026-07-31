@@ -1825,6 +1825,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   prewarped_frames.set_preserve_files(
       !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  auto &prewarped_frames_rgb = phase_registration_ctx.prewarped_frames_rgb;
+  if (prewarped_frames_rgb.size() > 0) {
+    prewarped_frames_rgb.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  }
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
@@ -2319,7 +2324,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
-              aqmh_recon_result, aqmh_prefetch_coordinator.get())) {
+              aqmh_recon_result, aqmh_prefetch_coordinator.get(),
+              phase_registration_ctx.prewarped_frames_rgb.size() > 0
+                  ? &phase_registration_ctx.prewarped_frames_rgb
+                  : nullptr)) {
         return 1;
       }
       recon = aqmh_recon_result.output;
@@ -2345,7 +2353,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   << e.what() << std::endl;
         return 1;
       }
-      if (aqmh_recon_result.osc_rgb_cleared) {
+      if (aqmh_recon_result.debayer_first_used) {
+        // Debayer-First-AQMH: populate RGB channels from per-channel
+        // reconstruction results so downstream output writes RGB FITS.
+        recon_R = std::move(aqmh_recon_result.df_output_R);
+        recon_G = std::move(aqmh_recon_result.df_output_G);
+        recon_B = std::move(aqmh_recon_result.df_output_B);
+      } else if (aqmh_recon_result.osc_rgb_cleared) {
         recon_R.resize(0, 0);
         recon_G.resize(0, 0);
         recon_B.resize(0, 0);
@@ -4634,8 +4648,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // for an AQMH reconstruction resume after the run ends.
     if (cfg.aqmh.reconstruction.delete_prewarped_cache_after_run) {
       prewarped_frames.cleanup();
+      if (prewarped_frames_rgb.size() > 0) prewarped_frames_rgb.cleanup();
     } else {
       prewarped_frames.clear_mappings();
+      if (prewarped_frames_rgb.size() > 0) prewarped_frames_rgb.clear_mappings();
     }
     { std::vector<uint8_t>().swap(frame_has_data); }
 

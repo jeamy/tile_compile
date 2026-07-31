@@ -510,8 +510,14 @@ bool run_phase_local_metrics(
                     std::chrono::steady_clock::now();
                 if (apply_normalization_to_tiles && fi < norm_scales.size() &&
                     frame.size() > 0) {
+                  // Debayer-First-AQMH: prewarped frame is luminance, not CFA.
+                  const ColorMode norm_mode =
+                      (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+                       detected_mode == ColorMode::OSC)
+                          ? ColorMode::MONO
+                          : detected_mode;
                   image::apply_normalization_inplace(
-                      frame, norm_scales[fi], detected_mode,
+                      frame, norm_scales[fi], norm_mode,
                       detected_bayer_str, 0, 0);
                 }
                 diag.timing_normalization_seconds =

@@ -1129,6 +1129,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     runner::DiskCacheFrameStore prewarped_frames(
         run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
         canvas_width, true);
+    // Debayer-First-AQMH: attach RGB prewarped cache if present.
+    std::unique_ptr<runner::DiskCacheFrameStoreRGB> prewarped_frames_rgb;
+    const fs::path rgb_cache_dir =
+        run_dir / "cache" / "prewarped_frames_rgb";
+    if (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
+        io::detect_color_mode(resume_header, 2) == ColorMode::OSC &&
+        fs::is_directory(rgb_cache_dir)) {
+      prewarped_frames_rgb = std::make_unique<runner::DiskCacheFrameStoreRGB>(
+          rgb_cache_dir, frame_count, canvas_height, canvas_width, true);
+    }
     std::vector<uint8_t> frame_has_data(frame_count, 0u);
     size_t available_frames = 0;
     for (size_t fi = 0; fi < frame_count; ++fi) {
@@ -1176,7 +1186,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             io::detect_color_mode(resume_header, 2) == ColorMode::OSC,
             prewarped_frames, aqmh_cache,
             global_weights, acceleration, emitter, log_file, phase_started,
-            cv::getNumThreads(), phase_result)) {
+            cv::getNumThreads(), phase_result, nullptr,
+            prewarped_frames_rgb.get())) {
       return 1;
     }
     try {
@@ -1184,6 +1195,18 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                            resume_header);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
                            phase_result.output, resume_header);
+      // Debayer-First-AQMH: persist per-channel RGB reconstructions.
+      if (phase_result.debayer_first_used) {
+        if (phase_result.df_output_R.size() > 0)
+          io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit",
+                               phase_result.df_output_R, resume_header);
+        if (phase_result.df_output_G.size() > 0)
+          io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit",
+                               phase_result.df_output_G, resume_header);
+        if (phase_result.df_output_B.size() > 0)
+          io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit",
+                               phase_result.df_output_B, resume_header);
+      }
     } catch (const std::exception &e) {
       std::cerr << "Error: cannot persist AQMH resume output: " << e.what()
                 << std::endl;

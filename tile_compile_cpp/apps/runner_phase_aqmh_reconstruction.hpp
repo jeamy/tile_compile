@@ -29,6 +29,14 @@ struct AqmhReconstructionPhaseResult {
   Matrix2Df output;
   Matrix2Df weight_sum;
   bool osc_rgb_cleared = false;
+  // Debayer-First-AQMH: per-channel reconstructed outputs.
+  Matrix2Df df_output_R;
+  Matrix2Df df_output_G;
+  Matrix2Df df_output_B;
+  Matrix2Df df_weight_sum_R;
+  Matrix2Df df_weight_sum_G;
+  Matrix2Df df_weight_sum_B;
+  bool debayer_first_used = false;
 };
 
 bool run_phase_aqmh_reconstruction(
@@ -48,6 +56,7 @@ bool run_phase_aqmh_reconstruction(
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr,
+    const DiskCacheFrameStoreRGB *prewarped_frames_rgb = nullptr);
 
 } // namespace tile_compile::runner

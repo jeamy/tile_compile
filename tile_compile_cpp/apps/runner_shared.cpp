@@ -1830,6 +1830,13 @@ Matrix2Df DiskCacheFrameStoreRGB::load_channel(size_t fi, int channel) const {
   return channels_[channel].load(fi);
 }
 
+bool DiskCacheFrameStoreRGB::extract_tile_into_channel(
+    size_t fi, int channel, const Tile &t, Matrix2Df &out, int offset_x,
+    int offset_y) const {
+  if (channel < 0 || channel > 2) return false;
+  return channels_[channel].extract_tile_into(fi, t, out, offset_x, offset_y);
+}
+
 DiskCacheFrameStoreRGB::RGBFrame DiskCacheFrameStoreRGB::load(size_t fi) const {
   return {channels_[0].load(fi), channels_[1].load(fi), channels_[2].load(fi)};
 }

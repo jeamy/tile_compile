@@ -360,7 +360,8 @@ bool run_phase_aqmh_reconstruction(
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator,
+    const DiskCacheFrameStoreRGB *prewarped_frames_rgb) {
 
   const Phase reconstruction_phase = Phase::AQMH_RECONSTRUCTION;
 
@@ -408,12 +409,23 @@ bool run_phase_aqmh_reconstruction(
       : static_cast<size_t>(cfg.runtime_limits.memory_budget);
   aqmh_recon_cfg.compute_uniform_control = true;
 
+  // Debayer-First-AQMH: when RGB prewarped frames are provided, the frame
+  // loaders read from the RGB cache's active channel instead of the CFA cache.
+  // The active channel is controlled by `df_active_channel` and iterated
+  // R(0) -> G(1) -> B(2) in the sequential reconstruction loop below.
+  const bool debayer_first = prewarped_frames_rgb != nullptr;
+  int df_active_channel = 0;
+
   auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
     if (fi >= frames.size() || fi >= frame_has_data.size() ||
         frame_has_data[fi] == 0u) {
       return false;
     }
-    output = prewarped_frames.load(fi);
+    if (debayer_first) {
+      output = prewarped_frames_rgb->load_channel(fi, df_active_channel);
+    } else {
+      output = prewarped_frames.load(fi);
+    }
     return output.rows() == canvas_height && output.cols() == canvas_width;
   };
   metrics::FrameValidMaskStore aqmh_mask_store(
@@ -426,6 +438,10 @@ bool run_phase_aqmh_reconstruction(
       [&](size_t fi, int y0, int rows, Matrix2Df &output) -> bool {
     if (fi >= frames.size() || fi >= frame_has_data.size() ||
         frame_has_data[fi] == 0u) return false;
+    if (debayer_first) {
+      return prewarped_frames_rgb->extract_tile_into_channel(
+          fi, df_active_channel, Tile{0, y0, canvas_width, rows}, output);
+    }
     return prewarped_frames.extract_tile_into(
         fi, Tile{0, y0, canvas_width, rows}, output);
   };
@@ -479,12 +495,63 @@ bool run_phase_aqmh_reconstruction(
             << std::endl;
   const auto reconstruction_core_started_at =
       std::chrono::steady_clock::now();
+  if (debayer_first) {
+    // Debayer-First-AQMH: reconstruct R, G, B channels sequentially with
+    // shared Q-maps (computed on debayered luminance). The luminance result
+    // is used for downstream validation and post-processing.
+    Matrix2Df df_R, df_G, df_B, df_wR, df_wG, df_wB;
+    for (int ch = 0; ch < 3; ++ch) {
+      df_active_channel = ch;
+      const char *ch_name = ch == 0 ? "R" : (ch == 1 ? "G" : "B");
+      std::cout << "[AQMH-DF] Reconstructing channel " << ch_name << std::endl;
+      auto ch_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
+          frames.size(), aqmh_frame_loader, aqmh_cache.get(),
+          effective_aqmh_global_weights,
+          reconstruction_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
+          nullptr, aqmh_mask_loader, aqmh_frame_region_loader,
+          aqmh_mask_region_loader, progress_callback);
+      if (ch == 0) { df_R = ch_recon.output; df_wR = ch_recon.weight_sum; }
+      else if (ch == 1) { df_G = ch_recon.output; df_wG = ch_recon.weight_sum; }
+      else { df_B = ch_recon.output; df_wB = ch_recon.weight_sum; }
+      // Use the first channel's result as the base for validation/post-processing.
+      // After the loop, we replace the output with the luminance combination.
+      if (ch == 0) {
+        aqmh_recon = ch_recon;
+      }
+    }
+    // Combine channels into luminance for downstream validation.
+    if (df_R.size() > 0 && df_G.size() > 0 && df_B.size() > 0 &&
+        df_R.rows() == canvas_height && df_R.cols() == canvas_width) {
+      Matrix2Df luma(canvas_height, canvas_width);
+      for (int i = 0; i < canvas_height * canvas_width; ++i) {
+        luma.data()[i] = 0.25f * df_R.data()[i] + 0.5f * df_G.data()[i] +
+                         0.25f * df_B.data()[i];
+      }
+      aqmh_recon.output = luma;
+      // Use average weight sum for luminance.
+      Matrix2Df wsum(canvas_height, canvas_width);
+      for (int i = 0; i < canvas_height * canvas_width; ++i) {
+        wsum.data()[i] = (df_wR.size() > 0 ? df_wR.data()[i] : 0.0f) * 0.25f +
+                         (df_wG.size() > 0 ? df_wG.data()[i] : 0.0f) * 0.5f +
+                         (df_wB.size() > 0 ? df_wB.data()[i] : 0.0f) * 0.25f;
+      }
+      aqmh_recon.weight_sum = wsum;
+    }
+    out.df_output_R = std::move(df_R);
+    out.df_output_G = std::move(df_G);
+    out.df_output_B = std::move(df_B);
+    out.df_weight_sum_R = std::move(df_wR);
+    out.df_weight_sum_G = std::move(df_wG);
+    out.df_weight_sum_B = std::move(df_wB);
+    out.debayer_first_used = true;
+  } else {
   aqmh_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
       frames.size(), aqmh_frame_loader, aqmh_cache.get(),
       effective_aqmh_global_weights,
       reconstruction_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
       nullptr, aqmh_mask_loader, aqmh_frame_region_loader,
       aqmh_mask_region_loader, progress_callback);
+  } // end else (CFA path)
   const double reconstruction_core_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     reconstruction_core_started_at)

@@ -738,6 +738,10 @@ public:
              const Matrix2Df &B);
   /// Load one channel (0=R, 1=G, 2=B) for frame `fi`.
   Matrix2Df load_channel(size_t fi, int channel) const;
+  /// Extract a tile from one channel into an existing matrix.
+  bool extract_tile_into_channel(size_t fi, int channel, const Tile &t,
+                                 Matrix2Df &out, int offset_x = 0,
+                                 int offset_y = 0) const;
   /// Load all three channels for frame `fi`.
   struct RGBFrame { Matrix2Df R, G, B; };
   RGBFrame load(size_t fi) const;
