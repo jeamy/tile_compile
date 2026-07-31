@@ -1837,8 +1837,9 @@ ignored and the CFA path is used.
 
 **Purpose:** Quality-map mode for Debayer-First-AQMH. `shared_luma` computes
 the Q-maps once on debayered luminance `0.25·R + 0.5·G + 0.25·B` and applies
-them to all three channels. `per_channel` computes separate Q-maps per channel
-(higher memory, to be implemented in a later phase).
+them to all three channels. `per_channel` is reserved; until dedicated
+per-channel Q-map caches are implemented, this mode is rejected with a
+configuration validation error.
 
 **Non-applicable:** When `debayer_first: false`, this parameter has no effect.
 
@@ -1854,8 +1855,8 @@ them to all three channels. `per_channel` computes separate Q-maps per channel
 
 **Purpose:** Memory strategy for per-channel AQMH reconstruction. `sequential`
 reconstructs one channel at a time, keeping only the active channel resident.
-`parallel` reconstructs all three channels simultaneously (higher memory,
-roughly 3×).
+`parallel` is reserved and is rejected with a configuration validation error
+until the parallel RGB memory path is implemented.
 
 **Interactions:** With `runtime_limits.memory_budget_mb` or
 `aqmh.reconstruction.memory_budget_mb`, the smaller value is interpreted as

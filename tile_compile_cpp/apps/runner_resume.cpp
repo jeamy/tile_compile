@@ -108,7 +108,7 @@ bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
 }
 
 bool validate_df_cache_metadata(const fs::path &run_dir, size_t frame_count,
-                                int rows, int cols, std::string &error_out) {
+                                std::string &error_out) {
   const fs::path metadata_path =
       run_dir / "artifacts" / "pre_debayer_metadata.json";
   try {
@@ -117,7 +117,7 @@ bool validate_df_cache_metadata(const fs::path &run_dir, size_t frame_count,
     if (metadata.value("format_version", 0) != 1 ||
         !metadata.value("complete", false) ||
         metadata.value("frame_count", 0u) != frame_count ||
-        metadata.value("rows", 0) != rows || metadata.value("cols", 0) != cols ||
+        metadata.value("rows", 0) <= 0 || metadata.value("cols", 0) <= 0 ||
         metadata.value("color_mode", std::string()) != "OSC" ||
         metadata.value("channel_order", tile_compile::core::json::array()) !=
             tile_compile::core::json::array({"R", "G", "B"}) ||
@@ -1140,18 +1140,22 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                 << e.what() << std::endl;
       return 1;
     }
-    if (common_overlap_mask_image.rows() != canvas_height ||
-        common_overlap_mask_image.cols() != canvas_width) {
-      std::cerr << "Error: AQMH common-overlap mask dimensions differ from "
-                   "the reconstruction cache"
-                << std::endl;
-      return 1;
-    }
     std::vector<uint8_t> common_valid_mask(
         static_cast<size_t>(canvas_width) * canvas_height, 0u);
-    for (size_t i = 0; i < common_valid_mask.size(); ++i)
-      common_valid_mask[i] =
-          common_overlap_mask_image.data()[i] > 0.0f ? 1u : 0u;
+    if (common_overlap_mask_image.rows() == canvas_height &&
+        common_overlap_mask_image.cols() == canvas_width) {
+      for (size_t i = 0; i < common_valid_mask.size(); ++i)
+        common_valid_mask[i] =
+            common_overlap_mask_image.data()[i] > 0.0f ? 1u : 0u;
+    } else {
+      // STACKING may have persisted a cropped overlap mask while AQMH caches
+      // retain the full reconstruction canvas. Reuse the validated full
+      // reconstruction mask rather than rejecting an otherwise valid resume.
+      common_valid_mask = reconstruction_valid_mask;
+      std::cerr << "Warning: cropped common-overlap mask differs from AQMH "
+                   "cache; using the full reconstruction mask for resume"
+                << std::endl;
+    }
 
     runner::DiskCacheFrameStore prewarped_frames(
         run_dir / "cache" / "prewarped_frames", frame_count, canvas_height,
@@ -1170,8 +1174,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (df_requested) {
       std::string df_error;
       if (!prewarped_frames_rgb ||
-          !validate_df_cache_metadata(run_dir, frame_count, canvas_height,
-                                      canvas_width, df_error)) {
+          prewarped_frames_rgb->size() != frame_count ||
+          prewarped_frames_rgb->rows() != canvas_height ||
+          prewarped_frames_rgb->cols() != canvas_width ||
+          !validate_df_cache_metadata(run_dir, frame_count, df_error)) {
         core::emit_event("resume_end", run_id,
                          {{"success", false},
                           {"status", "df_cache_invalid"},
@@ -1245,15 +1251,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                            phase_result.output, resume_header);
       // Debayer-First-AQMH: persist per-channel RGB reconstructions.
       if (phase_result.debayer_first_used) {
+        io::FitsHeader resume_rgb_header = resume_header;
+        resume_rgb_header.set("DEBAYER", "PRE_STACK");
         if (phase_result.df_output_R.size() > 0)
           io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit",
-                               phase_result.df_output_R, resume_header);
+                               phase_result.df_output_R, resume_rgb_header);
         if (phase_result.df_output_G.size() > 0)
           io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit",
-                               phase_result.df_output_G, resume_header);
+                               phase_result.df_output_G, resume_rgb_header);
         if (phase_result.df_output_B.size() > 0)
           io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit",
-                               phase_result.df_output_B, resume_header);
+                               phase_result.df_output_B, resume_rgb_header);
       }
     } catch (const std::exception &e) {
       std::cerr << "Error: cannot persist AQMH resume output: " << e.what()

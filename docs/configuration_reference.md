@@ -2045,8 +2045,9 @@ Parameter ignoriert und der CFA-Pfad verwendet.
 
 **Zweck:** Modus der Q-Maps für Debayer-First-AQMH. `shared_luma` berechnet die
 Q-Maps einmal auf der debayerten Luminanz `0.25·R + 0.5·G + 0.25·B` und wendet
-sie auf alle drei Kanäle an. `per_channel` berechnet separate Q-Maps pro Kanal
-(höherer Speicherbedarf, wird in einer späteren Phase implementiert).
+sie auf alle drei Kanäle an. `per_channel` ist reserviert; bis zur vollständigen
+Implementierung eigener Q-Map-Caches wird dieser Modus mit einer
+Validierungsfehlermeldung abgelehnt.
 
 **Nicht anwendbar:** Wenn `debayer_first: false`, hat der Parameter keinen
 Effekt.
@@ -2063,8 +2064,8 @@ Effekt.
 
 **Zweck:** Speicherstrategie der kanalweisen AQMH-Reconstruction. `sequential`
 rekonstruiert einen Kanal nach dem anderen und hält nur den aktiven Kanal im
-RAM. `parallel` rekonstruiert alle drei Kanäle gleichzeitig (höherer
-Speicherbedarf, ca. 3×).
+RAM. `parallel` ist reserviert und wird bis zur Implementierung des parallelen
+RGB-Speicherpfads mit einer Validierungsfehlermeldung abgelehnt.
 
 **Interaktionen:** Mit `runtime_limits.memory_budget_mb` bzw.
 `aqmh.reconstruction.memory_budget_mb` wird der kleinere gesetzte Wert als

@@ -59,6 +59,7 @@ bool write_post_stack_outputs(
   out.success = false;
   out.crop_box = {0, 0, static_cast<int>(recon.cols()), static_cast<int>(recon.rows())};
   out.crop_applied = false;
+  io::FitsHeader output_hdr = first_hdr;
 
   // --- Crop to non-zero bounding box ---
   if (cfg.crop_to_nonzero_bbox && recon.size() > 0) {
@@ -101,6 +102,18 @@ bool write_post_stack_outputs(
       debayer_tile_offset_x -= crop.x;
       debayer_tile_offset_y -= crop.y;
 
+      // CRPIX uses one-based FITS pixel coordinates while crop offsets are
+      // zero-based image indices. Subtracting the crop origin preserves the
+      // world-coordinate reference for the cropped image.
+      if (const auto crpix1 = output_hdr.get_double("CRPIX1"))
+        output_hdr.set("CRPIX1", *crpix1 - static_cast<double>(crop.x));
+      else if (const auto crpix1_int = output_hdr.get_int("CRPIX1"))
+        output_hdr.set("CRPIX1", *crpix1_int - crop.x);
+      if (const auto crpix2 = output_hdr.get_double("CRPIX2"))
+        output_hdr.set("CRPIX2", *crpix2 - static_cast<double>(crop.y));
+      else if (const auto crpix2_int = output_hdr.get_int("CRPIX2"))
+        output_hdr.set("CRPIX2", *crpix2_int - crop.y);
+
       // Crop masks
       std::vector<uint8_t> cropped_mask(
           static_cast<size_t>(crop.height * crop.width), 0u);
@@ -124,10 +137,10 @@ bool write_post_stack_outputs(
       std::string mask_error;
       write_canvas_mask_fits_impl(
           run_dir / "outputs" / "canvas_mask.fits",
-          common_valid_mask, crop.height, crop.width, first_hdr, mask_error);
+          common_valid_mask, crop.height, crop.width, output_hdr, mask_error);
       write_canvas_mask_fits_impl(
           run_dir / "outputs" / "common_overlap_mask.fits",
-          analysis_valid_mask, crop.height, crop.width, first_hdr, mask_error);
+          analysis_valid_mask, crop.height, crop.width, output_hdr, mask_error);
 
       out.crop_applied = true;
     }
@@ -161,7 +174,7 @@ bool write_post_stack_outputs(
                recon_G.size() == recon.size() &&
                recon_B.size() == recon.size();
   }
-  io::FitsHeader rgb_output_hdr = first_hdr;
+  io::FitsHeader rgb_output_hdr = output_hdr;
   if (detected_mode == ColorMode::OSC && have_rgb) {
     rgb_output_hdr.set("DEBAYER", "PRE_STACK");
     if (!cfg.output_stretch) {
@@ -201,8 +214,8 @@ bool write_post_stack_outputs(
     }
 
     try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("stacked.fits write failed: ") + e.what();
       return false;
@@ -300,8 +313,8 @@ bool write_post_stack_outputs(
     }
 
     try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("stacked.fits write failed: ") + e.what();
       return false;

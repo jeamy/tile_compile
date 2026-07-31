@@ -5537,6 +5537,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     if (detected_mode == ColorMode::OSC) {
       std::string debayer_method = "precomputed_rgb";
+      io::FitsHeader rgb_output_hdr = first_hdr;
+      rgb_output_hdr.set("DEBAYER", "PRE_STACK");
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
           recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
         R_out = std::move(recon_R);
@@ -5565,15 +5567,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                         reconstruction_valid_mask);
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
-                           first_hdr);
+                           rgb_output_hdr);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,
-                           first_hdr);
+                           rgb_output_hdr);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
-                           first_hdr);
-      write_output_rgb_snapshot(stacked_rgb_path, R_out, G_out, B_out, first_hdr,
-                                "STACKING");
+                           rgb_output_hdr);
+      write_output_rgb_snapshot(stacked_rgb_path, R_out, G_out, B_out,
+                                rgb_output_hdr, "STACKING");
       // Write an additional linear (non-stretched) cube for plate solving.
-      io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
+      io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out,
+                         rgb_output_hdr);
 
       emitter.phase_end(
           run_id, Phase::DEBAYER, "ok",

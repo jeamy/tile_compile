@@ -324,7 +324,7 @@ Resume-Validierung muss erkennen, ob ein Run im DF-Modus war, und die entspreche
 
 **Rahmen:**
 
-- 32-64 Frames über `runtime_limits.max_frames`;
+- 32-64 Frames über den Runner-Aufruf `--max-frames` (die Konfigurationsdatei steuert nur `linearity.max_frames` fuer die Stichprobe);
 - maximal 2 Worker;
 - kein BGE/PCC/HMS;
 - gemeinsame Luminanz-Q-Maps (`rgb_q_map_mode: "shared_luma"`);
@@ -572,8 +572,9 @@ aqmh:
     memory_budget_mb: 4096
 runtime_limits:
   parallel_workers: 2
-  max_frames: 64
   memory_budget_mb: 4096
+
+# Runner-Aufruf: tile_compile_runner run --max-frames 64
 bge:
   enabled: false
 pcc:
@@ -669,7 +670,7 @@ hypermetric_stretch:
 3. BGE/PCC/HMS erfolgreich durchlaufen;
 4. positionsgematchte FWHM und Peak/Flux besser als CFA-AQMH-Baseline;
 5. kein einzelner RGB-Kanal verletzt die pro-Kanal-Raw-Baseline oder die Background-/Support-Gates;
-6. Vergleich mit stacking program `result.fit` erfolgt numerisch im linearen Datenraum mit identischem Crop und derselben Sternliste:
+6. Vergleich mit der Referenz des stacking program (`result.fit`) erfolgt numerisch im linearen Datenraum mit identischem Crop und derselben Sternliste:
    - radiale FWHM und Peak/Flux werden mindestens nicht schlechter als die festgelegte Toleranz;
    - Background-RMS, Seam und Tail bleiben innerhalb der festgelegten Gates;
    - mindestens 400 gueltige positionsgematchte Sternpaare;
@@ -782,9 +783,10 @@ Vor der Auswertung gegen reale Runs muss das Skript mit synthetischen Shifts get
 | `tile_compile_cpp/src/config/config_parser.cpp` (oder aehnlich) | Neue Parameter parsen/serialisieren |
 | `tile_compile_cpp/apps/runner_pipeline.cpp` | DF-Pfad-Verzweigung in Phasen 1, 5, 7, 9, 11 |
 | `tile_compile_cpp/apps/runner_phase_registration.cpp` | RGB-Prewarp-Pfad |
-| `tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp` | Kanalweise Reconstruction mit shared Q-Maps |
+| `tile_compile_cpp/apps/runner_phase_metrics.cpp` | Pre-Debayer-RGB-Cache und Metadaten |
+| `tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp` | Kanalweise Reconstruction mit shared Q-Maps und Valid-Masks |
 | `tile_compile_cpp/apps/runner_phase_aqmh_maps.cpp` | Q-Maps auf debayerter Luminanz |
-| `tile_compile_cpp/apps/runner_phase_post_stack_output.cpp` | DF-Output ohne Post-Debayer |
+| `tile_compile_cpp/apps/runner_phase_post_stack_output.cpp` | DF-Output ohne Post-Debayer und mit `DEBAYER=PRE_STACK` |
 | `tile_compile_cpp/apps/runner_phase_post_stack_output.hpp` | DF-Output-Struct |
 | `tile_compile_cpp/apps/runner_resume.cpp` | DF-Cache-Validierung |
 | `tile_compile_cpp/apps/runner_shared.hpp` | `DiskCacheFrameStoreRGB`-Deklaration |
@@ -834,7 +836,7 @@ Alle CFA-spezifischen Dateien bleiben unveraendert:
 Nach Abschluss von 9.2:
 
 - positionsgematchte Paaranalyse gegen CFA-AQMH-Baseline (`M31-s1_guardfix_20260731_1`);
-- positionsgematchte Paaranalyse gegen stacking program `result.fit`;
+- positionsgematchte Paaranalyse gegen die Referenz des stacking program;
 - Metriken: radiale FWHM, Peak/Flux, Background-RMS, Seam, Tail;
 - Visueller Vergleich: Screenshots beider Bilder.
 
