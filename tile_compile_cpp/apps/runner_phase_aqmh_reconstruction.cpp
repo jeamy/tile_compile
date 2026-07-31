@@ -18,6 +18,25 @@
 namespace tile_compile::runner {
 namespace {
 
+Matrix2Df gaussian_blur_aqmh(const Matrix2Df &image, float sigma_px) {
+  if (image.rows() <= 0 || image.cols() <= 0 || !(sigma_px > 0.0f))
+    return image;
+  cv::Mat image_view(image.rows(), image.cols(), CV_32F,
+                     const_cast<float *>(image.data()),
+                     static_cast<size_t>(image.outerStride()) * sizeof(float));
+  cv::Mat blurred_view;
+  cv::GaussianBlur(image_view, blurred_view, cv::Size(0, 0),
+                   static_cast<double>(sigma_px),
+                   static_cast<double>(sigma_px), cv::BORDER_REFLECT101);
+  Matrix2Df blurred(image.rows(), image.cols());
+  for (int y = 0; y < blurred.rows(); ++y) {
+    const float *source_row = blurred_view.ptr<float>(y);
+    for (int x = 0; x < blurred.cols(); ++x)
+      blurred(y, x) = source_row[x];
+  }
+  return blurred;
+}
+
 Matrix2Df low_frequency_neutralized_aqmh(const Matrix2Df &aqmh,
                                          const Matrix2Df &control,
                                          float sigma_px) {
@@ -26,23 +45,11 @@ Matrix2Df low_frequency_neutralized_aqmh(const Matrix2Df &aqmh,
     return aqmh;
   }
 
-  Matrix2Df residual = aqmh - control;
-  cv::Mat residual_view(residual.rows(), residual.cols(), CV_32F,
-                        residual.data(),
-                        static_cast<size_t>(residual.outerStride()) *
-                            sizeof(float));
-  cv::Mat low_freq;
-  cv::GaussianBlur(residual_view, low_freq, cv::Size(0, 0),
-                   static_cast<double>(sigma_px),
-                   static_cast<double>(sigma_px), cv::BORDER_REFLECT101);
-
+  const Matrix2Df low_freq = gaussian_blur_aqmh(aqmh - control, sigma_px);
   Matrix2Df out = aqmh;
-  for (int y = 0; y < out.rows(); ++y) {
-    const float *low_row = low_freq.ptr<float>(y);
-    for (int x = 0; x < out.cols(); ++x) {
-      out(y, x) -= low_row[x];
-    }
-  }
+  for (int y = 0; y < out.rows(); ++y)
+    for (int x = 0; x < out.cols(); ++x)
+      out(y, x) -= low_freq(y, x);
   return out;
 }
 
@@ -52,20 +59,11 @@ Matrix2Df unsharp_masked_aqmh(const Matrix2Df &base, float sigma_px,
       !(amount > 0.0f)) {
     return base;
   }
-  cv::Mat base_view(base.rows(), base.cols(), CV_32F,
-                    const_cast<float *>(base.data()),
-                    static_cast<size_t>(base.outerStride()) * sizeof(float));
-  cv::Mat low_freq;
-  cv::GaussianBlur(base_view, low_freq, cv::Size(0, 0),
-                   static_cast<double>(sigma_px),
-                   static_cast<double>(sigma_px), cv::BORDER_REFLECT101);
+  const Matrix2Df low_freq = gaussian_blur_aqmh(base, sigma_px);
   Matrix2Df out = base;
-  for (int y = 0; y < out.rows(); ++y) {
-    const float *low_row = low_freq.ptr<float>(y);
-    for (int x = 0; x < out.cols(); ++x) {
-      out(y, x) += amount * (base(y, x) - low_row[x]);
-    }
-  }
+  for (int y = 0; y < out.rows(); ++y)
+    for (int x = 0; x < out.cols(); ++x)
+      out(y, x) += amount * (base(y, x) - low_freq(y, x));
   return out;
 }
 
@@ -146,48 +144,6 @@ struct RegistrationWeightGuardResult {
   std::map<std::string, int> source_counts;
 };
 
-bool aqmh_tail_ok(const reconstruction::AqmhValidationComparison &v,
-                  const config::AqmhValidationConfig &cfg) {
-  // If tail/elongation metrics are not applicable (insufficient stars in
-  // either image), the gate passes — it must not block the output for
-  // star-poor fields like galaxies, IFN, or sparse regions.
-  if (!v.tail_applicable) return true;
-  return v.tail11_abs_regression <= cfg.max_tail11_abs_regression &&
-         v.elongation_regression <= cfg.max_elongation_regression;
-}
-
-bool background_gate_ok(const reconstruction::AqmhValidationComparison &v,
-                        float threshold) {
-  return !v.background_rms_applicable ||
-         v.background_rms_regression <= threshold;
-}
-
-bool fwhm_gate_ok(const reconstruction::AqmhValidationComparison &v,
-                  float threshold) {
-  return !v.fwhm_applicable || v.fwhm_regression <= threshold;
-}
-
-bool seam_gate_ok(const reconstruction::AqmhValidationComparison &v,
-                  float threshold) {
-  return !v.seam_applicable || v.seam_score_regression <= threshold;
-}
-
-bool tail_gate_ok(const reconstruction::AqmhValidationComparison &v,
-                  float tail_threshold, float elongation_threshold) {
-  return !v.tail_applicable ||
-         (v.tail11_abs_regression <= tail_threshold &&
-          v.elongation_regression <= elongation_threshold);
-}
-
-bool validation_gate_ok(const reconstruction::AqmhValidationComparison &v,
-                        const config::AqmhValidationConfig &cfg) {
-  return background_gate_ok(v, cfg.max_background_rms_regression) &&
-         fwhm_gate_ok(v, cfg.max_fwhm_regression) &&
-         seam_gate_ok(v, cfg.max_seam_score_regression) &&
-         tail_gate_ok(v, cfg.max_tail11_abs_regression,
-                      cfg.max_elongation_regression);
-}
-
 std::string metric_reason(bool applicable, const char *not_applicable_reason,
                           bool ok) {
   if (!applicable) return not_applicable_reason;
@@ -233,40 +189,39 @@ nlohmann::json validation_comparison_json(
           {"tail_applicable", v.tail_applicable},
           {"elongation_applicable", v.elongation_applicable}};
   if (cfg) {
+    const auto gates = reconstruction::evaluate_aqmh_validation_gates(v, *cfg);
     j["metrics"] = {
         {"background_rms",
          gate_metric_json(v.background_rms_applicable,
-                          background_gate_ok(v, cfg->max_background_rms_regression),
+                          gates.background_ok,
                           v.aqmh.background_rms, v.control.background_rms,
                           v.background_rms_regression,
                           cfg->max_background_rms_regression,
                           "control_background_rms_degenerate")},
         {"fwhm",
          gate_metric_json(v.fwhm_applicable,
-                          fwhm_gate_ok(v, cfg->max_fwhm_regression),
+                          gates.fwhm_ok,
                           v.aqmh.fwhm, v.control.fwhm,
                           v.fwhm_regression,
                           cfg->max_fwhm_regression,
                           "fwhm_not_measurable")},
         {"seam_score",
          gate_metric_json(v.seam_applicable,
-                          seam_gate_ok(v, cfg->max_seam_score_regression),
+                          gates.seam_ok,
                           v.aqmh.seam_score, v.control.seam_score,
                           v.seam_score_regression,
                           cfg->max_seam_score_regression,
                           "control_seam_score_degenerate")},
         {"tail11_abs",
          gate_metric_json(v.tail_applicable,
-                          tail_gate_ok(v, cfg->max_tail11_abs_regression,
-                                       cfg->max_elongation_regression),
+                          gates.tail_ok,
                           v.aqmh.tail11_abs_median, v.control.tail11_abs_median,
                           v.tail11_abs_regression,
                           cfg->max_tail11_abs_regression,
                           "insufficient_comparable_star_samples")},
         {"elongation",
          gate_metric_json(v.elongation_applicable,
-                          tail_gate_ok(v, cfg->max_tail11_abs_regression,
-                                       cfg->max_elongation_regression),
+                          gates.tail_ok,
                           v.aqmh.elongation_median, v.control.elongation_median,
                           v.elongation_regression,
                           cfg->max_elongation_regression,
@@ -565,7 +520,6 @@ bool run_phase_aqmh_reconstruction(
   bool star_core_sharpening_applied = false;
   float structure_masked_detail_alpha = 0.0f;
   bool raw_aqmh_preserved_by_guard = false;
-  bool raw_baseline_guard_relaxed_used = false;
   std::string raw_baseline_guard_reason = "not_evaluated";
   std::vector<uint8_t> uniform_control_validation_mask;
   if (aqmh_recon.uniform_control_valid_mask.size() ==
@@ -628,9 +582,10 @@ bool run_phase_aqmh_reconstruction(
         low_frequency_neutralization_validation.background_rms_applicable &&
         low_frequency_neutralization_validation.background_rms_regression <
         raw_validation.background_rms_regression;
-    const bool neutralized_background_ok =
-        background_gate_ok(low_frequency_neutralization_validation,
-                           cfg.aqmh.validation.max_background_rms_regression);
+    const auto neutralized_gates =
+        reconstruction::evaluate_aqmh_validation_gates(
+            low_frequency_neutralization_validation, cfg.aqmh.validation);
+    const bool neutralized_background_ok = neutralized_gates.background_ok;
     // Neutralisation guard: only apply if AQMH has *worse* background than
     // control. If raw AQMH already improves background (regression <= 0),
     // neutralisation would destroy that improvement.
@@ -639,9 +594,9 @@ bool run_phase_aqmh_reconstruction(
         raw_validation.background_rms_regression > 0.0f;
     const bool neutralized_selected =
         neutralized_background_improved && aqmh_background_worse_than_control &&
-        validation_gate_ok(low_frequency_neutralization_validation,
-                           cfg.aqmh.validation) &&
-        validation_gate_ok(neutralized_vs_raw, cfg.aqmh.validation);
+        neutralized_gates.all_ok &&
+        reconstruction::evaluate_aqmh_validation_gates(
+            neutralized_vs_raw, cfg.aqmh.validation).all_ok;
     low_frequency_neutralization_applied = neutralized_selected;
     const Matrix2Df &neutralization_base =
         neutralized_selected ? neutralized : raw_aqmh_output;
@@ -672,18 +627,13 @@ bool run_phase_aqmh_reconstruction(
           reconstruction::compare_aqmh_to_reference(
               structure_masked, raw_aqmh_reference, validation_common_mask);
       full_structure_masked_detail_vs_raw_evaluated = true;
-      const bool candidate_background_ok =
-          background_gate_ok(structure_masked_detail_validation,
-                             cfg.aqmh.validation.max_background_rms_regression);
-      const bool candidate_fwhm_ok =
-          fwhm_gate_ok(structure_masked_detail_validation,
-                       cfg.aqmh.validation.max_fwhm_regression);
-      const bool candidate_seam_ok =
-          seam_gate_ok(structure_masked_detail_validation,
-                       cfg.aqmh.validation.max_seam_score_regression);
-      const bool candidate_tail_ok =
-          aqmh_tail_ok(structure_masked_detail_validation,
-                       cfg.aqmh.validation);
+      const auto candidate_gates =
+          reconstruction::evaluate_aqmh_validation_gates(
+              structure_masked_detail_validation, cfg.aqmh.validation);
+      const bool candidate_background_ok = candidate_gates.background_ok;
+      const bool candidate_fwhm_ok = candidate_gates.fwhm_ok;
+      const bool candidate_seam_ok = candidate_gates.seam_ok;
+      const bool candidate_tail_ok = candidate_gates.tail_ok;
       const auto candidate_raw_guard =
           reconstruction::aqmh_raw_baseline_guard_decision(
           full_structure_masked_detail_vs_raw_validation,
@@ -707,7 +657,6 @@ bool run_phase_aqmh_reconstruction(
         aqmh_recon.output = std::move(structure_masked);
         structure_masked_detail_applied = true;
         structure_masked_detail_alpha = 1.0f;
-        raw_baseline_guard_relaxed_used = candidate_raw_guard.relaxed;
         raw_baseline_guard_reason = candidate_raw_guard.reason;
         emitter.warning(
             run_id,
@@ -756,7 +705,8 @@ bool run_phase_aqmh_reconstruction(
               baseline_validation, raw_validation, validation,
               cfg.aqmh.validation);
           const bool ok =
-              validation_gate_ok(validation, cfg.aqmh.validation) &&
+              reconstruction::evaluate_aqmh_validation_gates(
+              validation, cfg.aqmh.validation).all_ok &&
               baseline_guard.ok;
           ++structure_attenuation_evaluations;
           if (ok) {
@@ -791,7 +741,8 @@ bool run_phase_aqmh_reconstruction(
                 baseline_validation, raw_validation, validation,
                 cfg.aqmh.validation);
             const bool ok =
-                validation_gate_ok(validation, cfg.aqmh.validation) &&
+                reconstruction::evaluate_aqmh_validation_gates(
+              validation, cfg.aqmh.validation).all_ok &&
                 baseline_guard.ok;
             ++structure_attenuation_evaluations;
             if (ok) {
@@ -823,15 +774,14 @@ bool run_phase_aqmh_reconstruction(
               reconstruction::aqmh_raw_baseline_guard_decision(
                   best_vs_raw, raw_validation, best_validation,
                   cfg.aqmh.validation);
-          if (validation_gate_ok(best_validation, cfg.aqmh.validation) &&
+          if (reconstruction::evaluate_aqmh_validation_gates(
+                  best_validation, cfg.aqmh.validation).all_ok &&
               selected_baseline_guard.ok &&
               (attenuated_improves_fwhm || attenuated_improves_seam)) {
             aqmh_recon.output = std::move(attenuated);
             structure_masked_detail_validation = best_validation;
             structure_masked_detail_applied = true;
             structure_masked_detail_alpha = best_alpha;
-            raw_baseline_guard_relaxed_used =
-                selected_baseline_guard.relaxed;
             raw_baseline_guard_reason = selected_baseline_guard.reason;
             emitter.warning(
                 run_id,
@@ -887,12 +837,11 @@ bool run_phase_aqmh_reconstruction(
           raw_control_validation.control.fwhm > 0.0f &&
           sharpened_validation.aqmh.fwhm <
               raw_control_validation.control.fwhm;
-      if (validation_gate_ok(sharpened_validation, cfg.aqmh.validation) &&
+      if (reconstruction::evaluate_aqmh_validation_gates(
+              sharpened_validation, cfg.aqmh.validation).all_ok &&
           sharpened_raw_guard.ok && sharpen_improves_fwhm) {
         aqmh_recon.output = std::move(sharpened);
         star_core_sharpening_applied = true;
-        raw_baseline_guard_relaxed_used =
-            raw_baseline_guard_relaxed_used || sharpened_raw_guard.relaxed;
         raw_baseline_guard_reason = sharpened_raw_guard.reason;
         emitter.warning(
             run_id,
@@ -909,8 +858,8 @@ bool run_phase_aqmh_reconstruction(
       } else {
         log_file << "[AQMH_RECONSTRUCTION] star-core sharpening candidate "
                     "rejected: gate_ok="
-                 << (validation_gate_ok(sharpened_validation,
-                                        cfg.aqmh.validation)
+                 << (reconstruction::evaluate_aqmh_validation_gates(
+                         sharpened_validation, cfg.aqmh.validation).all_ok
                          ? "true"
                          : "false")
                  << " raw_guard=" << sharpened_raw_guard.reason
@@ -947,20 +896,13 @@ bool run_phase_aqmh_reconstruction(
       cfg.aqmh.validation.max_tail11_abs_regression;
   const float effective_elongation_threshold =
       cfg.aqmh.validation.max_elongation_regression;
-  const bool aqmh_background_ok =
-      !pre_fallback_control_validation.background_rms_applicable ||
-      pre_fallback_control_validation.background_rms_regression <=
-      effective_background_threshold;
-  const bool aqmh_fwhm_ok =
-      !pre_fallback_control_validation.fwhm_applicable ||
-      pre_fallback_control_validation.fwhm_regression <=
-      cfg.aqmh.validation.max_fwhm_regression;
-  const bool aqmh_seam_ok =
-      !pre_fallback_control_validation.seam_applicable ||
-      pre_fallback_control_validation.seam_score_regression <=
-      effective_seam_threshold;
-  const bool aqmh_tail_gate_ok =
-      aqmh_tail_ok(pre_fallback_control_validation, cfg.aqmh.validation);
+  const auto pre_fallback_gates =
+      reconstruction::evaluate_aqmh_validation_gates(
+          pre_fallback_control_validation, cfg.aqmh.validation);
+  const bool aqmh_background_ok = pre_fallback_gates.background_ok;
+  const bool aqmh_fwhm_ok = pre_fallback_gates.fwhm_ok;
+  const bool aqmh_seam_ok = pre_fallback_gates.seam_ok;
+  const bool aqmh_tail_gate_ok = pre_fallback_gates.tail_ok;
   const bool aqmh_control_fallback =
       aqmh_recon.uniform_control_output.rows() == aqmh_recon.output.rows() &&
       aqmh_recon.uniform_control_output.cols() == aqmh_recon.output.cols() &&
@@ -1008,14 +950,11 @@ bool run_phase_aqmh_reconstruction(
     aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     raw_aqmh_preserved_by_guard = true;
     out.control_validation = raw_control_validation;
-    raw_baseline_guard_relaxed_used = false;
     raw_baseline_guard_reason = final_raw_guard.reason;
     final_vs_raw_validation =
         reconstruction::compare_aqmh_to_reference(
             aqmh_recon.output, raw_aqmh_reference, validation_common_mask);
   } else {
-    raw_baseline_guard_relaxed_used =
-        raw_baseline_guard_relaxed_used || final_raw_guard.relaxed;
     raw_baseline_guard_reason = final_raw_guard.reason;
   }
   const double validation_seconds =
@@ -1164,7 +1103,7 @@ bool run_phase_aqmh_reconstruction(
       structure_masked_detail_applied;
   artifact["structure_masked_detail_alpha"] = structure_masked_detail_alpha;
   artifact["raw_baseline_guard"] = {
-      {"relaxed_used", raw_baseline_guard_relaxed_used},
+      {"relaxed_used", false},
       {"reason", raw_baseline_guard_reason}};
   if (low_frequency_neutralization_evaluated) {
     artifact["low_frequency_neutralization"] =

@@ -517,7 +517,7 @@ TEST_CASE("aqmh_phase_result_preserves_raw_output_separately") {
   REQUIRE(result.output(0, 0) == Catch::Approx(2.0f));
 }
 
-TEST_CASE("aqmh_raw_baseline_guard_allows_repair_of_invalid_raw_background") {
+TEST_CASE("aqmh_raw_baseline_guard_rejects_unrelated_seam_regression") {
   tile_compile::config::AqmhValidationConfig cfg;
   tile_compile::reconstruction::AqmhValidationComparison raw_vs_control;
   raw_vs_control.background_rms_regression = 0.26f;
@@ -550,8 +550,7 @@ TEST_CASE("aqmh_raw_baseline_guard_allows_repair_of_invalid_raw_background") {
       tile_compile::reconstruction::aqmh_raw_baseline_guard_decision(
           candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
 
-  REQUIRE(decision.ok);
-  REQUIRE(decision.relaxed);
-  REQUIRE(decision.reason == "raw_invalid_candidate_repairs_failed_gate");
+  REQUIRE_FALSE(decision.ok);
+  REQUIRE(decision.reason == "candidate_exceeds_raw_baseline_guard");
 }
 #endif

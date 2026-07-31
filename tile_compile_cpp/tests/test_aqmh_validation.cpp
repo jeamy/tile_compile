@@ -434,6 +434,68 @@ TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
       recon::compare_aqmh_to_uniform_control(smaller_candidate, control));
 }
 
+TEST_CASE("aqmh_validation_gates_centralize_metric_decisions") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison comparison;
+  comparison.background_rms_regression = 0.06f;
+  comparison.fwhm_regression = 0.01f;
+  comparison.seam_score_regression = 0.04f;
+  comparison.tail_applicable = true;
+  comparison.tail11_abs_regression = 0.11f;
+  comparison.elongation_regression = 0.01f;
+
+  const auto gates = recon::evaluate_aqmh_validation_gates(comparison, cfg);
+  REQUIRE_FALSE(gates.background_ok);
+  REQUIRE(gates.fwhm_ok);
+  REQUIRE(gates.seam_ok);
+  REQUIRE_FALSE(gates.tail_ok);
+  REQUIRE_FALSE(gates.all_ok);
+}
+
+TEST_CASE("aqmh_raw_guard_does_not_relax_valid_seam_metric") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  raw_vs_control.background_rms_regression = 0.20f;
+
+  recon::AqmhValidationComparison candidate_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.background_rms_regression = -0.01f;
+  candidate_vs_raw.seam_score_regression = 0.08f;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE_FALSE(decision.ok);
+  REQUIRE(decision.reason == "candidate_exceeds_raw_baseline_guard");
+}
+
+TEST_CASE("aqmh_raw_guard_accepts_candidate_improving_failed_metric") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  raw_vs_control.background_rms_regression = 0.20f;
+
+  recon::AqmhValidationComparison candidate_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.background_rms_regression = -0.01f;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE(decision.ok);
+  REQUIRE(decision.reason == "strict_raw_baseline_pass");
+}
+
+TEST_CASE("aqmh_raw_guard_rejects_regression_when_raw_is_valid") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.seam_score_regression = 0.06f;
+  recon::AqmhValidationComparison candidate_vs_control;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE_FALSE(decision.ok);
+  REQUIRE(decision.reason == "raw_baseline_valid_and_candidate_regresses_raw");
+}
+
 TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
   constexpr int W = 256;
   constexpr int H = 192;

@@ -5520,15 +5520,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         run_dir / "outputs" / "stacked_rgb_bge_linear.fits";
 
     if (detected_mode == ColorMode::OSC) {
+      std::string debayer_method = "precomputed_rgb";
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
           recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
         R_out = std::move(recon_R);
         G_out = std::move(recon_G);
         B_out = std::move(recon_B);
       } else {
-        // Fallback (should be rare): debayer luminance proxy.
-        auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
+        // Fallback (should be rare): use the same edge-aware CFA output path
+        // as resume so normal and resumed AQMH outputs share debayer semantics.
+        auto debayer = image::debayer_opencv(
+            recon, detected_bayer, -debayer_tile_offset_x,
+            -debayer_tile_offset_y, /*ahd=*/true);
+        debayer_method = "edge_aware";
         R_out = std::move(debayer.R);
         G_out = std::move(debayer.G);
         B_out = std::move(debayer.B);
@@ -5559,6 +5563,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           run_id, Phase::DEBAYER, "ok",
           {{"mode", "OSC"},
            {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
+           {"debayer_method", debayer_method},
            {"output_rgb", stacked_rgb_path.string()},
            {"output_rgb_solve", stacked_rgb_solve_path.string()}},
           log_file);

@@ -155,6 +155,41 @@ TEST_CASE("debayer_bilinear_wrong_origin_swaps_channels") {
   REQUIRE(err_b > 50.0f);
 }
 
+TEST_CASE("debayer_opencv_wrong_origin_swaps_channels") {
+  using tile_compile::Matrix2Df;
+  using tile_compile::BayerPattern;
+
+  const float Rv = 100.0f;
+  const float Gv = 200.0f;
+  const float Bv = 300.0f;
+  const BayerPattern p = BayerPattern::GBRG;
+  const auto off = offsets_for(p);
+  const int origin_y = 1;
+  const int origin_x = 1;
+  Matrix2Df mosaic(8, 8);
+  for (int y = 0; y < mosaic.rows(); ++y) {
+    for (int x = 0; x < mosaic.cols(); ++x) {
+      const int py = (origin_y + y) & 1;
+      const int px = (origin_x + x) & 1;
+      if (py == off.r_row && px == off.r_col)
+        mosaic(y, x) = Rv;
+      else if (py == off.b_row && px == off.b_col)
+        mosaic(y, x) = Bv;
+      else
+        mosaic(y, x) = Gv;
+    }
+  }
+
+  const auto wrong = tile_compile::image::debayer_opencv(mosaic, p, 0, 0,
+                                                           true);
+  const float err_r =
+      (wrong.R.block(3, 3, 2, 2).array() - Rv).abs().maxCoeff();
+  const float err_b =
+      (wrong.B.block(3, 3, 2, 2).array() - Bv).abs().maxCoeff();
+  REQUIRE(err_r > 50.0f);
+  REQUIRE(err_b > 50.0f);
+}
+
 TEST_CASE("debayer_opencv_respects_tile_origin_parity") {
   using tile_compile::Matrix2Df;
   using tile_compile::BayerPattern;

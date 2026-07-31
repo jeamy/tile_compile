@@ -35,9 +35,16 @@ struct AqmhValidationComparison {
   bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
+struct AqmhValidationGateDecision {
+  bool background_ok = true;
+  bool fwhm_ok = true;
+  bool seam_ok = true;
+  bool tail_ok = true;
+  bool all_ok = true;
+};
+
 struct AqmhRawBaselineGuardDecision {
   bool ok = false;
-  bool relaxed = false;
   std::string reason;
 };
 
@@ -55,6 +62,10 @@ struct AqmhValidationReference {
   int width = 0;
   int height = 0;
 };
+
+AqmhValidationGateDecision evaluate_aqmh_validation_gates(
+    const AqmhValidationComparison &comparison,
+    const config::AqmhValidationConfig &cfg);
 
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask = {});

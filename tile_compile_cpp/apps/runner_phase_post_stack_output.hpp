@@ -43,6 +43,7 @@ struct PostStackOutputResult {
   bool success = false;
   CropBox crop_box{0, 0, 0, 0};
   bool crop_applied = false;
+  std::string debayer_method = "none";
   std::string error;
 };
 
@@ -59,8 +60,8 @@ struct PostStackOutputResult {
 ///     stacked_rgb.fits, stacked_rgb_solve.fits
 ///   - Canvas mask FITS update after crop
 ///
-/// Both runner_pipeline.cpp and runner_resume.cpp must call this function
-/// instead of implementing their own output logic.
+/// The resume path uses this helper; the main pipeline's additional BGE/PCC
+/// output flow remains separate until output-parity fixtures cover the merge.
 ///
 /// @param recon         Mono/luma reconstruction (modified in place for crop).
 /// @param recon_R       Red channel (empty for MONO).

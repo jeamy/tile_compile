@@ -1886,7 +1886,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},
          {"crop_height", stacking_crop_box.height},
-         {"output_luma", (run_dir / "outputs" / "stacked.fits").string()}},
+         {"output_luma", (run_dir / "outputs" / "stacked.fits").string()},
+         {"debayer_method", post_result.debayer_method}},
         log_file);
     if (abort_if_runtime_limit_exceeded("STACKING")) {
       return 1;
