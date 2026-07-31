@@ -358,45 +358,127 @@ für non-AQMH (classic Mean/Sigma-Clip) Stacking relevant und dort
 nicht in die Hauptpipeline integriert (das Experiment-D-Skript unter
 `/tmp/debayer_first_exp.py` dokumentiert den isolierten Effekt).
 
-### Verbleibende Hebel für Schärfeverbesserung (AQMH-Pipeline)
+### Siril-Pipeline-Analyse (2026-07-31)
 
-Die Lücke zu Siril (~14 % breitere Kerne) entsteht aus:
+Durch Auswertung der FITS-Header und Verzeichnisstruktur der Siril-
+Referenz (`DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/`)
+wurde die exakte Siril-Pipeline rekonstruiert:
 
-1. **Prewarp-Interpolation im CFA-Gitter:** Lineare Interpolation
-   verschmiert bei Sub-Pixel-Shifts. Siril nutzt Lanczos nach dem
-   Debayering (volle Auflösung pro Kanal).
+| Schritt | Siril v1.2.4 / 1.4.1 | tile_compile |
+|---|---|---|
+| Debayering | **vor** Registration (pro Frame) | **nach** Stacking (auf AQMH-Mosaik) |
+| Registration | auf full-res RGB (3, 2160, 3840) | auf CFA-Mosaik (halbe Aufl. pro Kanal) |
+| Warp/Interpolation | Lanczos auf full-res RGB | bilinear auf CFA |
+| Stacking | Mean/Sigma-Clip auf RGB | AQMH per-Pixel-Qualitätsgewichtung auf CFA |
+| Frames | 655 (STACKCNT=655) | 645 (645 valid) |
 
-   → **Nächster Hebel:** `prewarp_interpolation: lanczos4` prüfen.
-   Der Run `sharpnes_v3_lanczos4_guard_rescue` (5.36 px linear) war
-   marginal besser als bilinear (5.55 px); eine erneute Messung auf
-   HMS ist ausstehend.
+**Beweise:**
 
-2. **AQMH-per-Pixel-Gewichtung optimieren:** Die Pyramid-Parameter
-   (w_sharp, base_window_px, score_scale) kontrollieren wie aggressiv
-   scharfe Pixel bevorzugt werden. Eine höhere `w_sharp` oder kleinere
-   `base_window_px` könnte die Kernschärfe verbessern (Risiko:
-   Rauscherhöhung an schwachen Sternen).
+- `r_pp_light_*.fit` (registrierte Frames): Shape (3, 2160, 3840) RGB
+  float32 → Siril debayert **vor** der Registration. Die registrierten
+  Frames sind voll aufgelöstes RGB, kein CFA.
+- `selct_*.fit` (ausgewählte Frames): Shape (3, 2160, 3840) RGB uint16,
+  PROGRAM=Siril 1.4.1 → Frame-Selektion und Stacking mit neuerer
+  Siril-Version (Jan 2026).
+- `result.fit`: STACKCNT=655, LIVETIME=6550.0, PROGRAM=Siril v1.2.4 →
+  alle 655 Frames gestackt.
+- `m31.fits`: (3, 2160, 3840) uint16, BAYERPAT=GBRG, EXPTIME=6540.0 →
+  linearer Stack (vor Streckung), 654×10s.
+- `Modul.fit`: (3, 1763, 3008) → gecroppter Stack (Overlap-Bereich).
 
-3. **Post-Stack Sharpening auf dem Endbild:** Deconvolution (z.B.
-   Richardson-Lucy oder Wiener) auf der gestreckten Luminanz. Muss
-   signalabhängig maskiert werden (nur Sternkerne, nicht Background).
-   Kandidat C (Unsharp-Mask auf CFA) wurde vom Gate-System wegen
-   +63 % Background-RMS korrekt abgelehnt; ein lokal-adaptiver Ansatz
-   (nur oberhalb eines SNR-Thresholds) wäre der nächste Versuch.
+**Root Cause (bestätigt):** Die Schärfelücke entsteht primär durch
+CFA-Domain-Processing. Wenn auf dem CFA-Mosaik gewarpt wird, hat jeder
+Kanal nur halbe räumliche Auflösung. Bilineare Interpolation auf diesem
+Subsampled-Gitter verwischt Sternkerne stärker als Lanczos auf
+voll aufgelöstem RGB. AQMH's per-Pixel-Gewichtung kompensiert teilweise,
+kann aber nicht verlorene Auflösung wiederherstellen.
 
-4. **AQMH pro Kanal (3× Compute):** AQMH-Rekonstruktion auf R, G, B
-   getrennt statt nur Luminanz. Theoretisch der sauberste Ansatz für
-   debayer-first + AQMH, aber 3× Rechenzeit und erfordert eine
-   kanaldifferenzierte Qualitätskarte. Großer architektonischer
-   Aufwand, fraglicher Mehrwert gegenüber Hebel 1+2.
+### Aktuelle Paaranalyse (HMS, 2026-07-31)
 
-5. **Sigma-Clip auf prewarped CFA vor AQMH:** Outlier-Rejection vor
-   der Qualitätsgewichtung entfernt Satelliten-Trails und Hot-Pixel-
-   Reste, die sonst als „scharfe" Pixel fehlgewichtet werden können.
-   Geringer Implementierungsaufwand, potenziell 1–2 % Verbesserung.
+| Run vs. Siril resultHMS | Paare | FWHM_rad ratio (run/ref) | Peak2Flux ratio | Siril schärfer |
+|---|---|---|---|---|
+| `lanczos4_guard_rescue` | 17 | 1.77 | 0.46 | 94 % |
+| `M31-s1` (D+) | 87 | 1.20 | 0.75 | 79 % |
 
-### Empfohlene Reihenfolge
+Anmerkung: Die 17 Paare für `lanczos4_guard_rescue` sind unreliable
+(Shift-Detection-Problem bei unterschiedlichen Bildgrößen). Die 87
+Paare für D+ sind verlässlicher: **~20 % breitere Kerne, ~25 %
+niedrigere Spitzen** gegenüber Siril.
 
-1. `prewarp_interpolation: lanczos4` messen (HMS-FWHM, einfach)
-2. Lokal-adaptives Post-Stack Sharpening (SNR-gesteuert)
-3. AQMH-Pyramid-Tuning (w_sharp ↑, base_window_px ↓)
+### Mögliche Ansätze und Wege
+
+#### Ansatz 1: Post-Stack Deconvolution (schnell, niedriges Risiko)
+
+Richardson-Lucy- oder Wiener-Deconvolution auf der gestreckten
+Luminanz, mit PSF aus Sternen im Bild geschätzt. Maskiert auf
+Sternkerne (SNR-Threshold), nicht auf Background.
+
+- **Vorteile:** Keine Pipeline-Änderung; direkt auf existierendem
+  `stacked_rgb_hms.fits` testbar; reversibel.
+- **Risiken:** Rauschen wird verstärkt; braucht sorgfältige Maske
+  (Kandidat C mit Unsharp-Mask wurde vom Gate wegen +63 %
+  Background-RMS abgelehnt – SNR-gesteuerte Maske ist kritisch).
+- **Aufwand:** Python-Prototyp in <1h; Pipeline-Integration als
+  Post-Processing-Phase mittelfristig.
+- **Erwartete Verbesserung:** 5–15 % schärfere Kerne, abhängig von
+  PSF-Qualität und Maskierung.
+
+#### Ansatz 2: Proper Debayer-First AQMH (architektonisch, "richtige" Lösung)
+
+Debayer nach Normalisierung, vor Prewarp. AQMH-Qualitätskarten auf
+debayerter Luminanz berechnen (shared für R/G/B). AQMH-Reconstruction
+**per Kanal** mit Per-Pixel-Weights aus den shared Maps.
+
+- **Vorteile:** Behebt die Root Cause (CFA-Subsampling-Blur);
+  kombiniert Debayer-First-Vorteil mit AQMH-Per-Pixel-Gewichtung;
+  Qualitätskarten nur 1× berechnet (auf Luminanz).
+- **Risiken:** Großer Eingriff in die Pipeline (Prewarp-Phase,
+  AQMH-Maps-Phase, AQMH-Reconstruction-Phase); 3× Rechenzeit für
+  Warp und Reconstruction; Speicherbedarf 3× (drei Kanäle statt
+  ein Mosaik).
+- **Aufwand:** Mehrere Tage Implementierung; umfasst Prewarp-Phase,
+  AQMH-Maps-Phase, AQMH-Reconstruction-Phase, Post-Stack-Output-Phase.
+- **Erwartete Verbesserung:** 10–20 % schärfere Kerne (basierend auf
+  D-Experiment + AQMH-Kompensation).
+- **Abgrenzung zu D+:** D+ nutzte nur Frame-Level-Weights (Global
+  Quality), keine Per-Pixel-Weights. Dieser Ansatz behält die
+  Per-Pixel-Qualitätskarten bei, wendet sie aber auf debayerte Kanäle
+  an statt auf das CFA-Mosaik.
+
+#### Ansatz 3: AQMH Weight Tuning (schnell, mittleres Risiko)
+
+`w_sharp` von 0.6 → 0.8–0.9, `base_window_px` von 4 → 2–3.
+Aggressivere Auswahl scharfer Pixel in der AQMH-Pyramide.
+
+- **Vorteile:** Nur Config-Änderung; sofort testbar; keine
+  Code-Änderung.
+- **Risiken:** Rauschen an schwachen Sternen; mögliche Artefakte
+  bei zu kleiner Window-Größe.
+- **Aufwand:** Config-Änderung + 1 Run.
+- **Erwartete Verbesserung:** 1–5 % (marginal, da AQMH bereits
+  gut optimiert ist).
+
+#### Ansatz 4: Kombination 1+3 (pragmatisch)
+
+Erst Weight Tuning (quick), dann Post-Stack Deconvolution. Beides
+ohne Pipeline-Änderung.
+
+- **Vorteile:** Kumulative Effekte; keine architektonischen Risiken.
+- **Risiken:** Additive Rauschen-Effekte.
+- **Aufwand:** 2 Runs + 1 Python-Prototyp.
+- **Erwartete Verbesserung:** 6–18 % kombiniert.
+
+#### Weitere Hebel (niedrigere Priorität)
+
+- **`prewarp_interpolation: lanczos4`**: Der Run
+  `sharpnes_v3_lanczos4_guard_rescue` war marginal besser linear
+  (5.36 vs. 5.55 px), HMS-Messung mit 17 Paaren unreliable. Eine
+  wiederholte Messung mit verbesserter Shift-Detection steht aus.
+  Geringer erwarteter Mehrwert, da CFA-Subsampling-Blur dominant.
+- **Sigma-Clip auf prewarped CFA vor AQMH**: Outlier-Rejection vor
+  Qualitätsgewichtung. Geringer Aufwand, potenziell 1–2 %.
+- **Registration auf debayerter Luminanz**: Siril registriert auf
+  full-res RGB. Eine verbesserte Sub-Pixel-Alignment durch
+  Registration auf debayerter Luminanz (ohne vollständige
+  Debayer-First-Pipeline) könnte die Warps präzisieren. Mittlerer
+  Aufwand, unklarer Mehrwert ohne gleichzeitig bessere Interpolation.
