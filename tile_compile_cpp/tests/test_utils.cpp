@@ -300,6 +300,16 @@
      REQUIRE(corrected(4, 3) == Catch::Approx(120.0f).epsilon(1e-5));
      REQUIRE(corrected(3, 4) == Catch::Approx(120.0f).epsilon(1e-5));
  }
+
+ TEST_CASE("two_pass_sigma_clipped_mean_rejects_outliers") {
+     // 99 samples at 100.0, one bright outlier at 8000.0.
+     std::vector<float> samples(99, 100.0f);
+     samples.push_back(8000.0f);
+     const float mean =
+         tile_compile::core::two_pass_sigma_clipped_mean(samples);
+     // The outlier must not pull the mean above the inlier level.
+     REQUIRE(mean == Catch::Approx(100.0f).margin(0.5f));
+ }
  #else
  int tile_compile_tests_utils_stub() { return 0; }
  #endif

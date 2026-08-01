@@ -7,6 +7,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 
 #include <cstdint>
+#include <opencv2/core.hpp>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -20,6 +21,10 @@
 #include <vector>
 
 namespace tile_compile::runner {
+
+/// Fixed background model grid resolution (internal cache format version 1).
+constexpr int kBackgroundGridRows = 72;
+constexpr int kBackgroundGridCols = 128;
 
 /// Aggregate local tile metrics across multiple frames into a single median-based profile.
 std::vector<tile_compile::TileMetrics> aggregate_tile_metrics_across_frames(
@@ -757,6 +762,163 @@ public:
 
 private:
   DiskCacheFrameStore channels_[3];
+};
+
+/// Per-frame coarse background model grid with per-channel values and support.
+///
+/// Stores a multi-channel (1 for mono, 3 for RGB, 4 for CFA) grid of background
+/// reference values. Each cell carries a support mask indicating whether the
+/// value was measured, interpolated, or is invalid.
+class BackgroundModelGrid {
+public:
+  /// Support bits.
+  static constexpr uint8_t kMeasured = 0x01;
+  static constexpr uint8_t kInterpolated = 0x02;
+  static constexpr uint8_t kScalarFallback = 0x04;
+
+  BackgroundModelGrid();
+  BackgroundModelGrid(int rows, int cols, int channels);
+
+  int rows() const;
+  int cols() const;
+  int channels() const;
+  size_t size() const;
+
+  float value(int r, int c, int ch) const;
+  float &value(int r, int c, int ch);
+
+  uint8_t support(int r, int c, int ch) const;
+  uint8_t &support(int r, int c, int ch);
+
+  bool valid(int r, int c, int ch) const;
+  bool measured(int r, int c, int ch) const;
+  bool interpolated(int r, int c, int ch) const;
+  bool scalar_fallback(int r, int c, int ch) const;
+
+  /// Reset all values and support bits to zero.
+  void clear();
+
+  /// Multiply every stored value by `s` (used to convert raw to reference
+  /// domain by dividing with `1/p`).
+  void scale_values(float s);
+
+  /// If channel `ch` has no measured or interpolated cells, fill the entire
+  /// plane with `value` and mark it as `kScalarFallback`.
+  void fill_if_empty_channel(int ch, float value);
+
+  /// Fill empty cells by inverse-distance weighted interpolation from valid
+  /// neighbors within a 3x3 window. Cells that cannot be filled remain invalid.
+  void interpolate_empty_cells();
+
+  /// Upsample a single channel to a full-resolution matrix using bilinear
+  /// interpolation. Invalid source cells produce NaN in the output unless
+  /// surrounded by valid cells.
+  Matrix2Df upsample_channel(int ch, int out_rows, int out_cols) const;
+
+  const std::vector<float> &values() const;
+  std::vector<float> &values();
+  const std::vector<uint8_t> &support_mask() const;
+  std::vector<uint8_t> &support_mask();
+
+  /// Estimate a background grid from a raw image and a background mask.
+  ///
+  /// For OSC input the grid contains four channels (R, G1, G2, B). The two
+  /// green positions are derived from the Bayer pattern. For MONO input the
+  /// grid contains one channel. The returned grid has measured and
+  /// interpolated cells marked accordingly.
+  static BackgroundModelGrid from_image(
+      const Matrix2Df &img, const cv::Mat1b &bg_mask, ColorMode mode,
+      const std::string &bayer_pattern, int grid_rows, int grid_cols);
+
+private:
+  int rows_ = 0;
+  int cols_ = 0;
+  int channels_ = 0;
+  std::vector<float> values_;
+  std::vector<uint8_t> support_;
+};
+
+/// Disk-backed cache for per-frame background model grids.
+///
+/// One `.raw`/`.mask` file pair per frame and per channel in a
+/// `cache_dir/<channel_name>/<fi>.raw` layout.
+class BackgroundModelGridStore {
+public:
+  BackgroundModelGridStore();
+  BackgroundModelGridStore(const std::filesystem::path &cache_dir,
+                           size_t n_frames, int rows, int cols,
+                           const std::vector<std::string> &channel_names,
+                           bool attach_existing = false);
+
+  BackgroundModelGridStore(const BackgroundModelGridStore &) = delete;
+  BackgroundModelGridStore &operator=(const BackgroundModelGridStore &) = delete;
+  BackgroundModelGridStore(BackgroundModelGridStore &&) = delete;
+  BackgroundModelGridStore &operator=(BackgroundModelGridStore &&) = delete;
+
+  /// Store all channels of the grid for frame `fi`.
+  void store(size_t fi, const BackgroundModelGrid &grid);
+  /// Load all channels of the grid for frame `fi`.
+  BackgroundModelGrid load(size_t fi) const;
+  /// Whether both `.raw` and `.mask` files exist for all channels of `fi`.
+  bool has_data(size_t fi) const;
+
+  size_t size() const;
+  int rows() const;
+  int cols() const;
+  int channels() const;
+  const std::vector<std::string> &channel_names() const;
+  const std::filesystem::path &cache_dir() const;
+
+  /// Remove all cached files and clear state.
+  void cleanup();
+  /// Keep or remove cached files when the store is destroyed/cleaned up.
+  void set_preserve_files(bool preserve);
+
+private:
+  std::filesystem::path channel_file_path(size_t fi, int ch,
+                                          const std::string &ext) const;
+
+  std::filesystem::path cache_dir_;
+  std::vector<std::string> channel_names_;
+  size_t n_frames_ = 0;
+  int rows_ = 0;
+  int cols_ = 0;
+  int channels_ = 0;
+  std::vector<uint8_t> has_data_;
+  bool preserve_files_ = false;
+};
+
+/// Accumulates per-frame background model grids onto a common canvas grid.
+///
+/// Each `accumulate()` call takes a per-frame background grid (in the frame
+/// domain), upsamples it to full resolution, warps it to the common canvas,
+/// then downsamples it onto the canvas grid. Values are accumulated as an
+/// unweighted mean across frames; support is marked where at least one valid
+/// sample contributes.
+class BackgroundMapCanvas {
+public:
+  BackgroundMapCanvas();
+  BackgroundMapCanvas(int rows, int cols, int channels);
+
+  int rows() const;
+  int cols() const;
+  int channels() const;
+
+  /// Accumulate one frame's background grid warped onto the canvas grid.
+  void accumulate(const BackgroundModelGrid &frame_grid, int frame_rows,
+                  int frame_cols, int canvas_rows, int canvas_cols,
+                  const WarpMatrix &warp);
+
+  /// Return the accumulated canvas grid. Cells with no contribution are
+  /// invalid; the caller may call `interpolate_empty_cells()` on the result.
+  BackgroundModelGrid finalize() const;
+
+private:
+  int rows_ = 0;
+  int cols_ = 0;
+  int channels_ = 0;
+  std::vector<double> value_sum_;
+  std::vector<size_t> count_;
 };
 
 } // namespace tile_compile::runner

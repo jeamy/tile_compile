@@ -447,6 +447,37 @@ float estimate_background_sigma_clip(std::vector<float> pixels) {
     return median_of(pixels);
 }
 
+/// @brief Computes a two-pass sigma-clipped mean.
+/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
+/// localized in this translation unit and preserves the surrounding phase,
+/// artifact, and error-handling semantics expected by callers.
+float two_pass_sigma_clipped_mean(std::vector<float> pixels) {
+    if (pixels.empty()) return 0.0f;
+    const float med = median_of(pixels);
+
+    std::vector<float> abs_dev;
+    abs_dev.reserve(pixels.size());
+    for (float x : pixels) {
+        abs_dev.push_back(std::fabs(x - med));
+    }
+    const float mad = median_of(abs_dev);
+    const float sigma = kMadToSigma * mad;
+
+    const float thr = 3.0f * sigma;
+    double sum = 0.0;
+    size_t n = 0;
+    for (float x : pixels) {
+        if (std::fabs(x - med) <= thr) {
+            sum += static_cast<double>(x);
+            ++n;
+        }
+    }
+    if (n > 0) {
+        return static_cast<float>(sum / static_cast<double>(n));
+    }
+    return med;
+}
+
 /// @brief Implements sample indices.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,

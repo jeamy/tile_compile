@@ -58,6 +58,12 @@ struct PhaseRegistrationContext {
   int tile_offset_x = 0;
   /// Y offset from original frame coordinates into canvas coordinates.
   int tile_offset_y = 0;
+  /// Disk-backed prewarped per-frame background model grids on the canvas grid.
+  /// Populated in Stufe B and consumed by the reconstruction phase.
+  std::shared_ptr<BackgroundModelGridStore> prewarped_background_grid_store;
+  /// Number of rows/cols in the prewarped background grid canvas domain.
+  int background_grid_rows = 0;
+  int background_grid_cols = 0;
 };
 
 /// Run the REGISTRATION and PREWARP phases and fill downstream phase context.
@@ -84,6 +90,7 @@ bool run_phase_registration_prewarp(
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
     PhaseRegistrationContext &out,
-    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache = nullptr);
+    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache = nullptr,
+    const std::shared_ptr<BackgroundModelGridStore> &background_grid_store = nullptr);
 
 } // namespace tile_compile::runner

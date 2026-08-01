@@ -251,7 +251,8 @@ bool run_phase_registration_prewarp(
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
     PhaseRegistrationContext &out,
-    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache) {
+    const std::shared_ptr<DiskCacheFrameStoreRGB> &rgb_frame_cache,
+    const std::shared_ptr<BackgroundModelGridStore> &background_grid_store) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
   // Auto-engine: detect conditions where the configured engine would fail and
@@ -3168,6 +3169,31 @@ bool run_phase_registration_prewarp(
   DiskCacheFrameStoreRGB prewarped_frames_rgb(
       run_dir / "cache" / "prewarped_frames_rgb", frames.size(), canvas_height,
       canvas_width);
+
+  // Stufe B: optional prewarped background-model grids on the canvas grid.
+  int canvas_bg_grid_rows = 0;
+  int canvas_bg_grid_cols = 0;
+  std::shared_ptr<BackgroundModelGridStore> prewarped_background_grid_store;
+  if (background_grid_store && background_grid_store->size() > 0) {
+    const int cell_h = std::max(1, height / kBackgroundGridRows);
+    const int cell_w = std::max(1, width / kBackgroundGridCols);
+    canvas_bg_grid_rows =
+        (canvas_height + cell_h - 1) / std::max(1, cell_h);
+    canvas_bg_grid_cols =
+        (canvas_width + cell_w - 1) / std::max(1, cell_w);
+    std::vector<std::string> channel_names =
+        background_grid_store->channel_names();
+    if (channel_names.empty()) {
+      channel_names = (detected_mode == ColorMode::OSC)
+                          ? std::vector<std::string>{"R", "G1", "G2", "B"}
+                          : std::vector<std::string>{"L"};
+    }
+    prewarped_background_grid_store =
+        std::make_shared<BackgroundModelGridStore>(
+            run_dir / "cache" / "prewarped_background_models", frames.size(),
+            canvas_bg_grid_rows, canvas_bg_grid_cols, channel_names);
+  }
+
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -3199,6 +3225,28 @@ bool run_phase_registration_prewarp(
 
   auto prewarp_worker = [&](int worker_index) {
     std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
+
+    auto maybe_prewarp_background =
+        [&](size_t fi, int frame_rows, int frame_cols,
+            const WarpMatrix &w) {
+          if (!prewarped_background_grid_store || !background_grid_store)
+            return;
+          if (!background_grid_store->has_data(fi))
+            return;
+          auto frame_grid = background_grid_store->load(fi);
+          if (frame_grid.channels() !=
+              prewarped_background_grid_store->channels())
+            return;
+          BackgroundMapCanvas acc(canvas_bg_grid_rows, canvas_bg_grid_cols,
+                                  frame_grid.channels());
+          acc.accumulate(frame_grid, frame_rows, frame_cols, canvas_height,
+                         canvas_width, w);
+          auto canvas_grid = acc.finalize();
+          if (canvas_grid.channels() > 0) {
+            prewarped_background_grid_store->store(fi, canvas_grid);
+          }
+        };
+
     while (true) {
       const size_t fi = prewarp_next.fetch_add(1);
       if (fi >= frames.size()) {
@@ -3220,6 +3268,8 @@ bool run_phase_registration_prewarp(
           if (rgb.R.size() <= 0 || rgb.G.size() <= 0 || rgb.B.size() <= 0) {
             continue;
           }
+          const int frame_rows = rgb.R.rows();
+          const int frame_cols = rgb.R.cols();
           const auto &w = global_frame_warps[fi];
           Matrix2Df warped_R, warped_G, warped_B;
           std::vector<uint8_t> warped_valid_mask;
@@ -3274,6 +3324,7 @@ bool run_phase_registration_prewarp(
                 }
               }
             }
+            maybe_prewarp_background(fi, frame_rows, frame_cols, w);
           }
         } else {
         Matrix2Df img = load_frame_normalized(fi);
@@ -3290,6 +3341,8 @@ bool run_phase_registration_prewarp(
                 img, cfg.stacking.per_frame_cosmetic_correction_sigma, true);
           }
         }
+        const int frame_rows = img.rows();
+        const int frame_cols = img.cols();
         const auto &w = global_frame_warps[fi];
         Matrix2Df warped;
         std::vector<uint8_t> warped_valid_mask;
@@ -3325,6 +3378,7 @@ bool run_phase_registration_prewarp(
               }
             }
           }
+          maybe_prewarp_background(fi, frame_rows, frame_cols, w);
         }
         } // end else (CFA path)
       } catch (const std::exception &e) {
@@ -3403,6 +3457,10 @@ bool run_phase_registration_prewarp(
   out.canvas_height = canvas_height;
   out.tile_offset_x = offset_x;
   out.tile_offset_y = offset_y;
+  out.background_grid_rows = canvas_bg_grid_rows;
+  out.background_grid_cols = canvas_bg_grid_cols;
+  out.prewarped_background_grid_store =
+      std::move(prewarped_background_grid_store);
   out.overlap_coverage_count.assign(canvas_px, 0);
   for (const auto &local_overlap_coverage : worker_overlap_coverage) {
     if (local_overlap_coverage.size() != canvas_px) {

@@ -619,6 +619,7 @@ if(BUILD_TESTS)
             tests/test_aqmh_validation.cpp
             tests/test_aqmh_config.cpp
             tests/test_disk_cache_frame_store_rgb.cpp
+            tests/test_background_model_grid_store.cpp
             tests/test_post_stack_output.cpp
             apps/runner_phase_post_stack_output.cpp
         )

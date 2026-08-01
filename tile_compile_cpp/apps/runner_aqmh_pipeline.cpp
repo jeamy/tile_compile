@@ -50,7 +50,7 @@ bool run_aqmh_phases(
           prewarped_frames, out.aqmh_cache, out.aqmh_global_weights,
           acceleration, emitter, log_file,
           recon_started_at, prev_cv_threads, recon_phase_result,
-          out.prefetch_coordinator.get())) {
+          out.prefetch_coordinator.get(), nullptr, nullptr)) {
     return false;
   }
 

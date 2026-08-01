@@ -1782,6 +1782,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::vector<uint8_t> df_valid_mask_G;
   std::vector<uint8_t> df_valid_mask_B;
   Matrix2Df weight_sum;
+  runner::BackgroundModelGrid aqmh_background_map_canvas_grid;
 
   Matrix2Df first_img;
   io::FitsHeader first_hdr;
@@ -1794,7 +1795,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           run_id, cfg, frames, run_dir, height, width, detected_mode,
           detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
           first_header, acceleration, emitter, log_file,
-          phase_registration_ctx, phase_metrics_ctx.rgb_frame_cache)) {
+          phase_registration_ctx, phase_metrics_ctx.rgb_frame_cache,
+          phase_metrics_ctx.background_grid_store)) {
     return 1;
   }
   if (abort_if_runtime_limit_exceeded("REGISTRATION_PREWARP")) {
@@ -2330,12 +2332,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               aqmh_recon_result, aqmh_prefetch_coordinator.get(),
               phase_registration_ctx.prewarped_frames_rgb.size() > 0
                   ? &phase_registration_ctx.prewarped_frames_rgb
-                  : nullptr)) {
+                  : nullptr,
+              phase_registration_ctx.prewarped_background_grid_store.get())) {
         return 1;
       }
       recon = aqmh_recon_result.output;
       weight_sum = aqmh_recon_result.weight_sum;
       aqmh_control_validation = aqmh_recon_result.control_validation;
+      aqmh_background_map_canvas_grid =
+          std::move(aqmh_recon_result.background_map_canvas_grid);
       try {
         io::write_fits_float(
             run_dir / "outputs" / "aqmh_reconstructed_raw.fit",
@@ -4886,21 +4891,44 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
 	    auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
 	      Matrix2Df recon_out = stack_luma;
+      // Stufe B: add accumulated background map to residual before output-scale
+      // restoration; no extra scalar background is added.
+      {
+        const auto &bg_grid = aqmh_background_map_canvas_grid;
+        if (bg_grid.channels() > 0 && bg_grid.rows() > 0 &&
+            bg_grid.cols() > 0) {
+          Matrix2Df bg_luma;
+          if (bg_grid.channels() == 4) {
+            const Matrix2Df bg_R =
+                bg_grid.upsample_channel(0, canvas_height, canvas_width);
+            const Matrix2Df G1 =
+                bg_grid.upsample_channel(1, canvas_height, canvas_width);
+            const Matrix2Df G2 =
+                bg_grid.upsample_channel(2, canvas_height, canvas_width);
+            const Matrix2Df bg_B =
+                bg_grid.upsample_channel(3, canvas_height, canvas_width);
+            bg_luma = 0.25f * bg_R + 0.25f * (G1 + G2) + 0.25f * bg_B;
+          } else if (bg_grid.channels() == 1) {
+            bg_luma =
+                bg_grid.upsample_channel(0, canvas_height, canvas_width);
+          }
+          if (bg_luma.size() > 0 &&
+              static_cast<size_t>(bg_luma.size()) ==
+                  static_cast<size_t>(recon_out.size())) {
+            recon_out += bg_luma;
+          }
+        }
+      }
       if (detected_mode == ColorMode::OSC) {
         const float scale_luma = 0.25f * output_scale_r + 0.5f * output_scale_g +
                                  0.25f * output_scale_b;
-        const float bg_luma = 0.25f * output_bg_r + 0.5f * output_bg_g +
-                              0.25f * output_bg_b;
         recon_out *= scale_luma;
-        recon_out.array() += (bg_luma + output_pedestal);
-	      } else {
-	        image::apply_output_scaling_inplace(recon_out, -debayer_tile_offset_x,
-	            -debayer_tile_offset_y, detected_mode,
-	            detected_bayer_str, output_scale_mono, output_scale_r,
-	            output_scale_g, output_scale_b, output_bg_mono, output_bg_r,
-	            output_bg_g, output_bg_b, output_pedestal);
-	      }
-	      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+        recon_out.array() += output_pedestal;
+      } else {
+        recon_out *= output_scale_mono;
+        recon_out.array() += output_pedestal;
+      }
+      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
 	        if (static_cast<size_t>(k) >= output_valid_mask.size() ||
 	            output_valid_mask[static_cast<size_t>(k)] == 0) {
 	          recon_out.data()[k] = 0.0f;
@@ -5562,15 +5590,53 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = std::move(debayer.B);
       }
       have_rgb = true;
-      // TODO(bg-model): global scalar background restore is a placeholder.
-      // Per-frame background is not preserved here; replace with Background-
-      // Model-Cache accumulation once Stufe A/B is implemented.
+      // Stufe B: add accumulated background map to residual, then apply
+      // output-scale restoration (no extra scalar background term).
+      {
+        const auto &bg_grid = aqmh_background_map_canvas_grid;
+        if (bg_grid.channels() > 0 && bg_grid.rows() > 0 &&
+            bg_grid.cols() > 0) {
+          Matrix2Df bg_R, bg_G, bg_B;
+          if (bg_grid.channels() == 4) {
+            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
+            const Matrix2Df G1 =
+                bg_grid.upsample_channel(1, canvas_height, canvas_width);
+            const Matrix2Df G2 =
+                bg_grid.upsample_channel(2, canvas_height, canvas_width);
+            bg_G = 0.5f * (G1 + G2);
+            bg_B = bg_grid.upsample_channel(3, canvas_height, canvas_width);
+          } else if (bg_grid.channels() == 1) {
+            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
+            bg_G = bg_R;
+            bg_B = bg_R;
+          } else if (bg_grid.channels() == 3) {
+            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
+            bg_G = bg_grid.upsample_channel(1, canvas_height, canvas_width);
+            bg_B = bg_grid.upsample_channel(2, canvas_height, canvas_width);
+          }
+          if (bg_R.size() > 0 &&
+              static_cast<size_t>(bg_R.size()) ==
+                  static_cast<size_t>(R_out.size())) {
+            R_out += bg_R;
+          }
+          if (bg_G.size() > 0 &&
+              static_cast<size_t>(bg_G.size()) ==
+                  static_cast<size_t>(G_out.size())) {
+            G_out += bg_G;
+          }
+          if (bg_B.size() > 0 &&
+              static_cast<size_t>(bg_B.size()) ==
+                  static_cast<size_t>(B_out.size())) {
+            B_out += bg_B;
+          }
+        }
+      }
       R_out *= output_scale_r;
       G_out *= output_scale_g;
       B_out *= output_scale_b;
-      R_out.array() += (output_bg_r + output_pedestal);
-      G_out.array() += (output_bg_g + output_pedestal);
-      B_out.array() += (output_bg_b + output_pedestal);
+      R_out.array() += output_pedestal;
+      G_out.array() += output_pedestal;
+      B_out.array() += output_pedestal;
       image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out,
                                         reconstruction_valid_mask);
 

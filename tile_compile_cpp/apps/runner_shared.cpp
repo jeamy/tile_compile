@@ -2,6 +2,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/normalization.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/registration/global_registration.hpp"
@@ -2000,6 +2001,526 @@ fs::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
 #endif
 
   return {};
+}
+
+// ---- BackgroundModelGrid ----
+
+BackgroundModelGrid::BackgroundModelGrid() = default;
+
+BackgroundModelGrid::BackgroundModelGrid(int rows, int cols, int channels)
+    : rows_(rows), cols_(cols), channels_(channels),
+      values_(static_cast<size_t>(rows) * cols * channels, 0.0f),
+      support_(static_cast<size_t>(rows) * cols * channels, 0) {}
+
+int BackgroundModelGrid::rows() const { return rows_; }
+int BackgroundModelGrid::cols() const { return cols_; }
+int BackgroundModelGrid::channels() const { return channels_; }
+size_t BackgroundModelGrid::size() const { return values_.size(); }
+
+float BackgroundModelGrid::value(int r, int c, int ch) const {
+  return values_[(static_cast<size_t>(ch) * rows_ + r) * cols_ + c];
+}
+float &BackgroundModelGrid::value(int r, int c, int ch) {
+  return values_[(static_cast<size_t>(ch) * rows_ + r) * cols_ + c];
+}
+
+uint8_t BackgroundModelGrid::support(int r, int c, int ch) const {
+  return support_[(static_cast<size_t>(ch) * rows_ + r) * cols_ + c];
+}
+uint8_t &BackgroundModelGrid::support(int r, int c, int ch) {
+  return support_[(static_cast<size_t>(ch) * rows_ + r) * cols_ + c];
+}
+
+bool BackgroundModelGrid::valid(int r, int c, int ch) const {
+  return (support(r, c, ch) & (kMeasured | kInterpolated | kScalarFallback)) != 0;
+}
+bool BackgroundModelGrid::measured(int r, int c, int ch) const {
+  return (support(r, c, ch) & kMeasured) != 0;
+}
+bool BackgroundModelGrid::interpolated(int r, int c, int ch) const {
+  return (support(r, c, ch) & kInterpolated) != 0;
+}
+bool BackgroundModelGrid::scalar_fallback(int r, int c, int ch) const {
+  return (support(r, c, ch) & kScalarFallback) != 0;
+}
+
+void BackgroundModelGrid::clear() {
+  std::fill(values_.begin(), values_.end(), 0.0f);
+  std::fill(support_.begin(), support_.end(), 0);
+}
+
+void BackgroundModelGrid::scale_values(float s) {
+  for (float &v : values_) {
+    v *= s;
+  }
+}
+
+void BackgroundModelGrid::fill_if_empty_channel(int ch, float value) {
+  bool any = false;
+  for (int r = 0; r < rows_ && !any; ++r) {
+    for (int c = 0; c < cols_ && !any; ++c) {
+      const uint8_t s = support(r, c, ch);
+      if ((s & (kMeasured | kInterpolated)) != 0) {
+        any = true;
+      }
+    }
+  }
+  if (any) {
+    return;
+  }
+  const size_t offset = static_cast<size_t>(ch) * rows_ * cols_;
+  std::fill(values_.begin() + offset, values_.begin() + offset + rows_ * cols_,
+            value);
+  for (int r = 0; r < rows_; ++r) {
+    for (int c = 0; c < cols_; ++c) {
+      support(r, c, ch) = kScalarFallback;
+    }
+  }
+}
+
+void BackgroundModelGrid::interpolate_empty_cells() {
+  for (int ch = 0; ch < channels_; ++ch) {
+    for (int r = 0; r < rows_; ++r) {
+      for (int c = 0; c < cols_; ++c) {
+        if (valid(r, c, ch))
+          continue;
+        float vsum = 0.0f;
+        float wsum = 0.0f;
+        int valid_neighbors = 0;
+        for (int dr = -1; dr <= 1; ++dr) {
+          const int nr = r + dr;
+          if (nr < 0 || nr >= rows_)
+            continue;
+          for (int dc = -1; dc <= 1; ++dc) {
+            if (dr == 0 && dc == 0)
+              continue;
+            const int nc = c + dc;
+            if (nc < 0 || nc >= cols_)
+              continue;
+            if (!valid(nr, nc, ch))
+              continue;
+            const float dist =
+                std::sqrt(static_cast<float>(dr * dr + dc * dc));
+            const float w = 1.0f / (1.0f + dist);
+            vsum += w * value(nr, nc, ch);
+            wsum += w;
+            ++valid_neighbors;
+          }
+        }
+        if (valid_neighbors >= 3 && wsum > 0.0f) {
+          value(r, c, ch) = vsum / wsum;
+          support(r, c, ch) = kInterpolated;
+        }
+      }
+    }
+  }
+}
+
+Matrix2Df BackgroundModelGrid::upsample_channel(int ch, int out_rows,
+                                                int out_cols) const {
+  Matrix2Df out(out_rows, out_cols);
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  for (int y = 0; y < out_rows; ++y) {
+    const float fy =
+        (static_cast<float>(y) + 0.5f) * rows_ / out_rows - 0.5f;
+    const int r0 = static_cast<int>(std::floor(fy));
+    const int r1 = r0 + 1;
+    const float wr1 = fy - static_cast<float>(r0);
+    const float wr0 = 1.0f - wr1;
+    for (int x = 0; x < out_cols; ++x) {
+      const float fx =
+          (static_cast<float>(x) + 0.5f) * cols_ / out_cols - 0.5f;
+      const int c0 = static_cast<int>(std::floor(fx));
+      const int c1 = c0 + 1;
+      const float wc1 = fx - static_cast<float>(c0);
+      const float wc0 = 1.0f - wc1;
+      float wsum = 0.0f;
+      float vsum = 0.0f;
+      for (int rr = r0; rr <= r1; ++rr) {
+        if (rr < 0 || rr >= rows_)
+          continue;
+        const float wr = (rr == r0) ? wr0 : wr1;
+        for (int cc = c0; cc <= c1; ++cc) {
+          if (cc < 0 || cc >= cols_)
+            continue;
+          if (!valid(rr, cc, ch))
+            continue;
+          const float wc = (cc == c0) ? wc0 : wc1;
+          const float w = wr * wc;
+          vsum += w * value(rr, cc, ch);
+          wsum += w;
+        }
+      }
+      out(y, x) = (wsum > 0.0f) ? (vsum / wsum) : nan;
+    }
+  }
+  return out;
+}
+
+const std::vector<float> &BackgroundModelGrid::values() const {
+  return values_;
+}
+std::vector<float> &BackgroundModelGrid::values() { return values_; }
+const std::vector<uint8_t> &BackgroundModelGrid::support_mask() const {
+  return support_;
+}
+std::vector<uint8_t> &BackgroundModelGrid::support_mask() { return support_; }
+
+BackgroundModelGrid BackgroundModelGrid::from_image(
+    const Matrix2Df &img, const cv::Mat1b &bg_mask, ColorMode mode,
+    const std::string &bayer_pattern, int grid_rows, int grid_cols) {
+  const int channels = (mode == ColorMode::OSC) ? 4 : 1;
+  BackgroundModelGrid grid(grid_rows, grid_cols, channels);
+  if (grid_rows <= 0 || grid_cols <= 0 || img.size() <= 0 ||
+      bg_mask.rows != img.rows() || bg_mask.cols != img.cols()) {
+    return grid;
+  }
+
+  const int cell_h = img.rows() / grid_rows;
+  const int cell_w = img.cols() / grid_cols;
+  if (cell_h <= 0 || cell_w <= 0) {
+    return grid;
+  }
+
+  std::vector<std::vector<float>> samples(
+      static_cast<size_t>(channels) * grid_rows * grid_cols);
+  const auto sample_index = [&](int ch, int r, int c) -> size_t {
+    return (static_cast<size_t>(ch) * grid_rows + r) * grid_cols + c;
+  };
+
+  if (mode == ColorMode::OSC) {
+    const auto pattern = tile_compile::string_to_bayer_pattern(bayer_pattern);
+    const auto off = tile_compile::get_bayer_offsets(pattern);
+
+    // Locate the two green positions in the 2x2 Bayer block.
+    int g1_row = -1, g1_col = -1, g2_row = -1, g2_col = -1;
+    int seen = 0;
+    for (int py = 0; py < 2; ++py) {
+      for (int px = 0; px < 2; ++px) {
+        if ((py == off.r_row && px == off.r_col) ||
+            (py == off.b_row && px == off.b_col)) {
+          continue;
+        }
+        if (seen == 0) {
+          g1_row = py;
+          g1_col = px;
+          ++seen;
+        } else {
+          g2_row = py;
+          g2_col = px;
+        }
+      }
+    }
+    if (g1_row < 0 || g2_row < 0) {
+      // Unrecognised or degenerate Bayer pattern: fall back to a single G.
+      g1_row = g2_row = (off.r_row == 0 ? 1 : 0);
+      g1_col = g2_col = (off.r_col == 0 ? 1 : 0);
+    }
+
+    for (int y = 0; y < img.rows(); ++y) {
+      const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+      const int py = y & 1;
+      const int cell_r = std::min(y / cell_h, grid_rows - 1);
+      for (int x = 0; x < img.cols(); ++x) {
+        const float v = img(y, x);
+        if (!std::isfinite(v) || mrow[x] == 0) {
+          continue;
+        }
+        const int px = x & 1;
+        const int cell_c = std::min(x / cell_w, grid_cols - 1);
+        int ch = -1;
+        if (py == off.r_row && px == off.r_col) {
+          ch = 0; // R
+        } else if (py == off.b_row && px == off.b_col) {
+          ch = 3; // B
+        } else if (py == g1_row && px == g1_col) {
+          ch = 1; // G1
+        } else if (py == g2_row && px == g2_col) {
+          ch = 2; // G2
+        }
+        if (ch < 0) {
+          continue;
+        }
+        samples[sample_index(ch, cell_r, cell_c)].push_back(v);
+      }
+    }
+  } else {
+    for (int y = 0; y < img.rows(); ++y) {
+      const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+      const int cell_r = std::min(y / cell_h, grid_rows - 1);
+      for (int x = 0; x < img.cols(); ++x) {
+        const float v = img(y, x);
+        if (!std::isfinite(v) || mrow[x] == 0) {
+          continue;
+        }
+        const int cell_c = std::min(x / cell_w, grid_cols - 1);
+        samples[sample_index(0, cell_r, cell_c)].push_back(v);
+      }
+    }
+  }
+
+  // Compute the robust center per cell.
+  for (int ch = 0; ch < channels; ++ch) {
+    for (int r = 0; r < grid_rows; ++r) {
+      for (int c = 0; c < grid_cols; ++c) {
+        auto &s = samples[sample_index(ch, r, c)];
+        if (!s.empty()) {
+          const float val = core::two_pass_sigma_clipped_mean(s);
+          if (std::isfinite(val)) {
+            grid.value(r, c, ch) = val;
+            grid.support(r, c, ch) = kMeasured;
+          }
+        }
+      }
+    }
+  }
+
+  grid.interpolate_empty_cells();
+  return grid;
+}
+
+// ---- BackgroundModelGridStore ----
+
+BackgroundModelGridStore::BackgroundModelGridStore() = default;
+
+BackgroundModelGridStore::BackgroundModelGridStore(
+    const fs::path &cache_dir, size_t n_frames, int rows, int cols,
+    const std::vector<std::string> &channel_names, bool attach_existing)
+    : cache_dir_(cache_dir), channel_names_(channel_names),
+      n_frames_(n_frames), rows_(rows), cols_(cols),
+      channels_(static_cast<int>(channel_names.size())),
+      has_data_(n_frames, 0), preserve_files_(false) {
+  fs::create_directories(cache_dir_);
+  for (const auto &name : channel_names_) {
+    fs::create_directories(cache_dir_ / name);
+  }
+  if (attach_existing) {
+    for (size_t fi = 0; fi < n_frames_; ++fi) {
+      if (has_data(fi))
+        has_data_[fi] = 1;
+    }
+  }
+}
+
+fs::path BackgroundModelGridStore::channel_file_path(size_t fi, int ch,
+                                                     const std::string &ext) const {
+  return cache_dir_ / channel_names_[ch] / (std::to_string(fi) + ext);
+}
+
+void BackgroundModelGridStore::store(size_t fi,
+                                     const BackgroundModelGrid &grid) {
+  if (fi >= n_frames_)
+    return;
+  if (grid.rows() != rows_ || grid.cols() != cols_ ||
+      grid.channels() != channels_) {
+    has_data_[fi] = 0;
+    return;
+  }
+  const size_t raw_bytes =
+      static_cast<size_t>(rows_) * cols_ * sizeof(float);
+  const size_t mask_bytes = static_cast<size_t>(rows_) * cols_;
+  bool ok = true;
+  for (int ch = 0; ch < channels_; ++ch) {
+    const size_t offset = static_cast<size_t>(ch) * rows_ * cols_;
+    const float *vptr = grid.values().data() + offset;
+    const uint8_t *mptr = grid.support_mask().data() + offset;
+    {
+      std::ofstream raw(channel_file_path(fi, ch, ".raw"), std::ios::binary);
+      if (!raw) {
+        ok = false;
+        break;
+      }
+      raw.write(reinterpret_cast<const char *>(vptr), raw_bytes);
+      if (!raw) {
+        ok = false;
+        break;
+      }
+    }
+    {
+      std::ofstream mask(channel_file_path(fi, ch, ".mask"), std::ios::binary);
+      if (!mask) {
+        ok = false;
+        break;
+      }
+      mask.write(reinterpret_cast<const char *>(mptr), mask_bytes);
+      if (!mask) {
+        ok = false;
+        break;
+      }
+    }
+  }
+  has_data_[fi] = ok ? 1 : 0;
+}
+
+BackgroundModelGrid BackgroundModelGridStore::load(size_t fi) const {
+  if (fi >= n_frames_)
+    return BackgroundModelGrid();
+  BackgroundModelGrid grid(rows_, cols_, channels_);
+  const size_t raw_bytes =
+      static_cast<size_t>(rows_) * cols_ * sizeof(float);
+  const size_t mask_bytes = static_cast<size_t>(rows_) * cols_;
+  for (int ch = 0; ch < channels_; ++ch) {
+    const size_t offset = static_cast<size_t>(ch) * rows_ * cols_;
+    const fs::path raw_path = channel_file_path(fi, ch, ".raw");
+    const fs::path mask_path = channel_file_path(fi, ch, ".mask");
+    std::error_code ec;
+    if (!fs::is_regular_file(raw_path, ec) || ec ||
+        !fs::is_regular_file(mask_path, ec) || ec) {
+      continue;
+    }
+    if (fs::file_size(raw_path, ec) != raw_bytes || ec) {
+      continue;
+    }
+    if (fs::file_size(mask_path, ec) != mask_bytes || ec) {
+      continue;
+    }
+    {
+      std::ifstream raw(raw_path, std::ios::binary);
+      if (!raw) continue;
+      raw.read(reinterpret_cast<char *>(grid.values().data() + offset),
+               raw_bytes);
+      if (!raw) continue;
+    }
+    {
+      std::ifstream mask(mask_path, std::ios::binary);
+      if (!mask) continue;
+      mask.read(reinterpret_cast<char *>(grid.support_mask().data() + offset),
+                mask_bytes);
+    }
+  }
+  return grid;
+}
+
+bool BackgroundModelGridStore::has_data(size_t fi) const {
+  if (fi >= n_frames_)
+    return false;
+  if (has_data_[fi])
+    return true;
+  const size_t raw_bytes =
+      static_cast<size_t>(rows_) * cols_ * sizeof(float);
+  const size_t mask_bytes = static_cast<size_t>(rows_) * cols_;
+  for (int ch = 0; ch < channels_; ++ch) {
+    const fs::path raw_path = channel_file_path(fi, ch, ".raw");
+    const fs::path mask_path = channel_file_path(fi, ch, ".mask");
+    std::error_code ec;
+    if (!fs::is_regular_file(raw_path, ec) || ec)
+      return false;
+    if (fs::file_size(raw_path, ec) != raw_bytes || ec)
+      return false;
+    if (!fs::is_regular_file(mask_path, ec) || ec)
+      return false;
+    if (fs::file_size(mask_path, ec) != mask_bytes || ec)
+      return false;
+  }
+  return true;
+}
+
+size_t BackgroundModelGridStore::size() const { return n_frames_; }
+int BackgroundModelGridStore::rows() const { return rows_; }
+int BackgroundModelGridStore::cols() const { return cols_; }
+int BackgroundModelGridStore::channels() const { return channels_; }
+const std::vector<std::string> &BackgroundModelGridStore::channel_names() const {
+  return channel_names_;
+}
+
+const fs::path &BackgroundModelGridStore::cache_dir() const {
+  return cache_dir_;
+}
+
+void BackgroundModelGridStore::cleanup() {
+  if (!preserve_files_ && !cache_dir_.empty() && fs::exists(cache_dir_)) {
+    std::error_code ec;
+    fs::remove_all(cache_dir_, ec);
+  }
+  has_data_.clear();
+  cache_dir_.clear();
+  channel_names_.clear();
+  n_frames_ = 0;
+  rows_ = 0;
+  cols_ = 0;
+  channels_ = 0;
+  preserve_files_ = false;
+}
+
+void BackgroundModelGridStore::set_preserve_files(bool preserve) {
+  preserve_files_ = preserve;
+}
+
+// ---- BackgroundMapCanvas ----
+
+BackgroundMapCanvas::BackgroundMapCanvas() = default;
+
+BackgroundMapCanvas::BackgroundMapCanvas(int rows, int cols, int channels)
+    : rows_(rows), cols_(cols), channels_(channels),
+      value_sum_(static_cast<size_t>(channels) * rows * cols, 0.0),
+      count_(static_cast<size_t>(channels) * rows * cols, 0) {}
+
+int BackgroundMapCanvas::rows() const { return rows_; }
+int BackgroundMapCanvas::cols() const { return cols_; }
+int BackgroundMapCanvas::channels() const { return channels_; }
+
+void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
+                                     int frame_rows, int frame_cols,
+                                     int canvas_rows, int canvas_cols,
+                                     const WarpMatrix &warp) {
+  if (frame_grid.channels() != channels_)
+    return;
+  if (rows_ <= 0 || cols_ <= 0 || frame_rows <= 0 || frame_cols <= 0 ||
+      canvas_rows <= 0 || canvas_cols <= 0)
+    return;
+
+  const int cell_h = canvas_rows / rows_;
+  const int cell_w = canvas_cols / cols_;
+  if (cell_h <= 0 || cell_w <= 0)
+    return;
+
+  for (int ch = 0; ch < channels_; ++ch) {
+    // Upsample the background grid to full frame resolution.
+    Matrix2Df full_val =
+        frame_grid.upsample_channel(ch, frame_rows, frame_cols);
+    Matrix2Df full_no_nan(frame_rows, frame_cols);
+    Matrix2Df full_sup(frame_rows, frame_cols);
+    for (int y = 0; y < frame_rows; ++y) {
+      for (int x = 0; x < frame_cols; ++x) {
+        const float v = full_val(y, x);
+        const bool valid = std::isfinite(v);
+        full_no_nan(y, x) = valid ? v : 0.0f;
+        full_sup(y, x) = valid ? 1.0f : 0.0f;
+      }
+    }
+
+    // Warp value (bilinear) and support (nearest) to the common canvas.
+    Matrix2Df warped_val = image::apply_global_warp(
+        full_no_nan, warp, ColorMode::MONO, canvas_rows, canvas_cols, "linear");
+    Matrix2Df warped_sup = image::apply_global_warp(
+        full_sup, warp, ColorMode::MONO, canvas_rows, canvas_cols, "nearest");
+
+    // Downsample by averaging over canvas-grid cells.
+    const size_t plane_offset =
+        static_cast<size_t>(ch) * rows_ * cols_;
+    for (int y = 0; y < canvas_rows; ++y) {
+      const int cr = std::min(y / cell_h, rows_ - 1);
+      for (int x = 0; x < canvas_cols; ++x) {
+        if (warped_sup(y, x) > 0.5f) {
+          const int cc = std::min(x / cell_w, cols_ - 1);
+          const size_t idx = plane_offset + cr * cols_ + cc;
+          value_sum_[idx] += static_cast<double>(warped_val(y, x));
+          ++count_[idx];
+        }
+      }
+    }
+  }
+}
+
+BackgroundModelGrid BackgroundMapCanvas::finalize() const {
+  BackgroundModelGrid out(rows_, cols_, channels_);
+  for (size_t i = 0; i < value_sum_.size(); ++i) {
+    if (count_[i] > 0) {
+      out.values()[i] = static_cast<float>(value_sum_[i] / static_cast<double>(count_[i]));
+      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
+    }
+  }
+  return out;
 }
 
 } // namespace tile_compile::runner

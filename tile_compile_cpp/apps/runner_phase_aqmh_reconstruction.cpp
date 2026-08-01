@@ -341,6 +341,44 @@ RegistrationWeightGuardResult apply_registration_weight_guard(
   return result;
 }
 
+/// @brief Accumulate per-frame prewarped background grids into a single canvas
+/// grid. Empty or unsupported cells remain invalid.
+BackgroundModelGrid accumulate_prewarped_background_maps(
+    const BackgroundModelGridStore &store,
+    const std::vector<uint8_t> &frame_has_data) {
+  const int rows = store.rows();
+  const int cols = store.cols();
+  const int channels = store.channels();
+  BackgroundModelGrid out(rows, cols, channels);
+  std::vector<double> sum(static_cast<size_t>(channels) * rows * cols, 0.0);
+  std::vector<size_t> count(static_cast<size_t>(channels) * rows * cols, 0);
+
+  for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
+    if (frame_has_data[fi] == 0 || !store.has_data(fi))
+      continue;
+    auto grid = store.load(fi);
+    if (grid.rows() != rows || grid.cols() != cols ||
+        grid.channels() != channels)
+      continue;
+    for (size_t i = 0; i < grid.values().size(); ++i) {
+      if (grid.support_mask()[i] & BackgroundModelGrid::kMeasured) {
+        if (std::isfinite(grid.values()[i])) {
+          sum[i] += static_cast<double>(grid.values()[i]);
+          ++count[i];
+        }
+      }
+    }
+  }
+
+  for (size_t i = 0; i < sum.size(); ++i) {
+    if (count[i] > 0) {
+      out.values()[i] = static_cast<float>(sum[i] / static_cast<double>(count[i]));
+      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
+    }
+  }
+  return out;
+}
+
 } // namespace
 
 bool run_phase_aqmh_reconstruction(
@@ -361,7 +399,8 @@ bool run_phase_aqmh_reconstruction(
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
     reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator,
-    const DiskCacheFrameStoreRGB *prewarped_frames_rgb) {
+    const DiskCacheFrameStoreRGB *prewarped_frames_rgb,
+    const BackgroundModelGridStore *prewarped_background_grid_store) {
 
   const Phase reconstruction_phase = Phase::AQMH_RECONSTRUCTION;
 
@@ -1111,6 +1150,15 @@ bool run_phase_aqmh_reconstruction(
   out.output = aqmh_recon.output;
   out.weight_sum = aqmh_recon.weight_sum;
   out.osc_rgb_cleared = osc_mode;
+
+  // Stufe B: accumulate prewarped background model grids independently of
+  // AQMH weights.
+  if (prewarped_background_grid_store &&
+      prewarped_background_grid_store->size() > 0) {
+    out.background_map_canvas_grid =
+        accumulate_prewarped_background_maps(*prewarped_background_grid_store,
+                                             frame_has_data);
+  }
 
   cv::setNumThreads(prev_cv_threads);
 

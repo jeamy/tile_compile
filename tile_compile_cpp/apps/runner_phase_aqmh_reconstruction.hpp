@@ -40,6 +40,10 @@ struct AqmhReconstructionPhaseResult {
   std::vector<uint8_t> df_valid_mask_G;
   std::vector<uint8_t> df_valid_mask_B;
   bool debayer_first_used = false;
+  // Stufe B: accumulated per-frame background model grids on the canvas grid
+  // (reference domain). The output stage upsamples and adds these before
+  // applying output-scale restoration.
+  BackgroundModelGrid background_map_canvas_grid;
 };
 
 bool run_phase_aqmh_reconstruction(
@@ -60,7 +64,8 @@ bool run_phase_aqmh_reconstruction(
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
     reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr,
-    const DiskCacheFrameStoreRGB *prewarped_frames_rgb = nullptr
+    const DiskCacheFrameStoreRGB *prewarped_frames_rgb = nullptr,
+    const BackgroundModelGridStore *prewarped_background_grid_store = nullptr
 );
 
 } // namespace tile_compile::runner

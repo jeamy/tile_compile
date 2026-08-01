@@ -50,6 +50,7 @@ float robust_sigma_mad(std::vector<float>& pixels); // returns 0.0f if empty
 float percentile_from_sorted(const std::vector<float>& sorted, float pct); // returns 0.0f if empty
 float percentile_of(std::vector<float>& values, float pct);               // returns 0.0f if empty
 float estimate_background_sigma_clip(std::vector<float> pixels);          // returns 0.0f if empty
+float two_pass_sigma_clipped_mean(std::vector<float> pixels);             // returns 0.0f if empty
 std::vector<size_t> sample_indices(size_t count, int max_samples);
 
 // Robust z-score normalization: (x - median) / (1.4826 * MAD)

@@ -13,6 +13,7 @@
 #include <limits>
 #include <mutex>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -57,6 +58,80 @@ std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
     }
   }
   return std::nullopt;
+}
+
+/// @brief Subtract the upsampled per-frame background grid from an image
+/// already scaled to the reference domain (raw / photometric scale).
+///
+/// For OSC the four grid channels R/G1/G2/B are treated as separate Bayer
+/// planes and subtracted at the correct pixel parity. For mono the single
+/// channel is subtracted from every pixel.
+void subtract_background_grid_inplace(Matrix2Df &img,
+                                      const BackgroundModelGrid &grid,
+                                      ColorMode mode,
+                                      const std::string &bayer_pattern) {
+  if (img.size() <= 0 || grid.channels() <= 0)
+    return;
+  if (mode == ColorMode::OSC && grid.channels() == 4) {
+    const auto pattern = tile_compile::string_to_bayer_pattern(bayer_pattern);
+    const auto off = tile_compile::get_bayer_offsets(pattern);
+
+    int g1_row = -1, g1_col = -1, g2_row = -1, g2_col = -1;
+    int seen = 0;
+    for (int py = 0; py < 2; ++py) {
+      for (int px = 0; px < 2; ++px) {
+        if ((py == off.r_row && px == off.r_col) ||
+            (py == off.b_row && px == off.b_col)) {
+          continue;
+        }
+        if (seen == 0) {
+          g1_row = py;
+          g1_col = px;
+          ++seen;
+        } else {
+          g2_row = py;
+          g2_col = px;
+        }
+      }
+    }
+    if (g1_row < 0 || g2_row < 0) {
+      g1_row = g2_row = (off.r_row == 0 ? 1 : 0);
+      g1_col = g2_col = (off.r_col == 0 ? 1 : 0);
+    }
+
+    Matrix2Df R = grid.upsample_channel(0, img.rows(), img.cols());
+    Matrix2Df G1 = grid.upsample_channel(1, img.rows(), img.cols());
+    Matrix2Df G2 = grid.upsample_channel(2, img.rows(), img.cols());
+    Matrix2Df B = grid.upsample_channel(3, img.rows(), img.cols());
+
+    for (int y = 0; y < img.rows(); ++y) {
+      const int py = y & 1;
+      for (int x = 0; x < img.cols(); ++x) {
+        const int px = x & 1;
+        float bg = 0.0f;
+        if (py == off.r_row && px == off.r_col) {
+          bg = R(y, x);
+        } else if (py == off.b_row && px == off.b_col) {
+          bg = B(y, x);
+        } else if (py == g1_row && px == g1_col) {
+          bg = G1(y, x);
+        } else if (py == g2_row && px == g2_col) {
+          bg = G2(y, x);
+        }
+        if (std::isfinite(bg))
+          img(y, x) -= bg;
+      }
+    }
+  } else {
+    Matrix2Df L = grid.upsample_channel(0, img.rows(), img.cols());
+    for (int y = 0; y < img.rows(); ++y) {
+      for (int x = 0; x < img.cols(); ++x) {
+        const float bg = L(y, x);
+        if (std::isfinite(bg))
+          img(y, x) -= bg;
+      }
+    }
+  }
 }
 
 /// Debayer a normalized CFA frame and store the RGB channels in the RGB cache.
@@ -184,6 +259,16 @@ bool run_phase_channel_split_normalization_global_metrics(
         out.frame_cache = std::make_shared<RunnerFrameCache>(
             run_dir / "cache" / "normalized_frames", frames.size(), cache_height,
             cache_width);
+
+        // Background-Model-Cache (Stufe A): one grid per frame, per channel.
+        const std::vector<std::string> bg_channel_names =
+            (detected_mode == ColorMode::OSC)
+                ? std::vector<std::string>{"R", "G1", "G2", "B"}
+                : std::vector<std::string>{"L"};
+        out.background_grid_store = std::make_shared<BackgroundModelGridStore>(
+            run_dir / "cache" / "background_models", frames.size(),
+            kBackgroundGridRows, kBackgroundGridCols, bg_channel_names);
+
         // Debayer-First-AQMH: allocate RGB cache for debayered frames.
         if (cfg.aqmh.enabled && cfg.aqmh.reconstruction.debayer_first &&
             detected_mode == ColorMode::OSC) {
@@ -261,6 +346,7 @@ bool run_phase_channel_split_normalization_global_metrics(
         Matrix2Df img = io::read_fits_pixels_float(path);
 
         image::NormalizationScales s;
+        std::optional<BackgroundModelGrid> bg_grid;
         {
           const size_t pixel_count = static_cast<size_t>(img.size());
           cv::Mat coarse_cv(img.rows(), img.cols(), CV_32F, img.data());
@@ -452,11 +538,49 @@ bool run_phase_channel_split_normalization_global_metrics(
             B_mono[i] = b;
             P_mono[i] = p;
           }
+
+          // Stufe A: estimate and store the per-frame background model grid.
+          if (out.background_grid_store && img.size() > 0) {
+            auto g = BackgroundModelGrid::from_image(
+                img, bg_mask, detected_mode, detected_bayer_str,
+                kBackgroundGridRows, kBackgroundGridCols);
+            if (detected_mode == ColorMode::OSC) {
+              g.scale_values(1.0f / std::max(P_r[i], eps_b));
+              g.fill_if_empty_channel(
+                  0, B_r[i] / std::max(P_r[i], eps_b));
+              g.fill_if_empty_channel(
+                  1, B_g[i] / std::max(P_g[i], eps_b));
+              g.fill_if_empty_channel(
+                  2, B_g[i] / std::max(P_g[i], eps_b));
+              g.fill_if_empty_channel(
+                  3, B_b[i] / std::max(P_b[i], eps_b));
+            } else {
+              g.scale_values(1.0f / std::max(P_mono[i], eps_b));
+              g.fill_if_empty_channel(
+                  0, B_mono[i] / std::max(P_mono[i], eps_b));
+            }
+            out.background_grid_store->store(i, g);
+            bg_grid = std::move(g);
+          }
+
+          // Stufe B: residual = raw/p - background_reference_grid.
+          // Drop scalar background from norm_scales; the grid is used instead.
+          if (detected_mode == ColorMode::OSC) {
+            s.background_r = 0.0f;
+            s.background_g = 0.0f;
+            s.background_b = 0.0f;
+          } else {
+            s.background_mono = 0.0f;
+          }
         }
         norm_scales[i] = s;
         if (out.frame_cache && img.size() > 0) {
           image::apply_normalization_inplace(img, s, detected_mode,
                                              detected_bayer_str, 0, 0);
+          if (bg_grid.has_value()) {
+            subtract_background_grid_inplace(img, bg_grid.value(), detected_mode,
+                                             detected_bayer_str);
+          }
           out.frame_cache->store_normalized(i, img);
           if (out.rgb_frame_cache && !out.rgb_frame_cache->has_data(i)) {
             debayer_and_store_rgb(i, img, cfg, detected_mode,
@@ -557,6 +681,88 @@ bool run_phase_channel_split_normalization_global_metrics(
     }
     core::write_text(run_dir / "artifacts" / "normalization.json",
                      artifact.dump(2));
+  }
+
+  // Stufe A: write background_model.json artifact.
+  {
+    core::json bg;
+    bg["format_version"] = 1;
+    bg["grid_rows"] = kBackgroundGridRows;
+    bg["grid_cols"] = kBackgroundGridCols;
+    bg["map_dtype"] = "float32";
+    bg["mask_dtype"] = "uint8";
+    bg["aggregation"] = "two_pass_sigma_clipped_mean";
+    bg["value_domain"] = "reference";
+    bg["mode"] = (detected_mode == ColorMode::OSC) ? "OSC" : "MONO";
+    bg["bayer_pattern"] = detected_bayer_str;
+    bg["frame_count"] = frames.size();
+    bg["cache_dir"] = out.background_grid_store
+                          ? out.background_grid_store->cache_dir()
+                          : "";
+    bg["frames"] = core::json::array();
+
+    size_t measured_total = 0;
+    size_t interpolated_total = 0;
+    size_t fallback_total = 0;
+    if (out.background_grid_store) {
+      const auto &names = out.background_grid_store->channel_names();
+      for (size_t i = 0; i < frames.size(); ++i) {
+        core::json frame_info;
+        frame_info["frame_index"] = static_cast<int>(i);
+        frame_info["photometric_scale"] =
+            (detected_mode == ColorMode::OSC) ? P_r[i] : P_mono[i];
+        frame_info["cached"] = out.background_grid_store->has_data(i);
+        frame_info["channels"] = core::json::array();
+        if (out.background_grid_store->has_data(i)) {
+          auto grid = out.background_grid_store->load(i);
+          for (int ch = 0; ch < grid.channels(); ++ch) {
+            int measured = 0;
+            int interpolated = 0;
+            int fallback = 0;
+            for (int r = 0; r < grid.rows(); ++r) {
+              for (int c = 0; c < grid.cols(); ++c) {
+                if (grid.measured(r, c, ch))
+                  ++measured;
+                if (grid.interpolated(r, c, ch))
+                  ++interpolated;
+                if (grid.scalar_fallback(r, c, ch))
+                  ++fallback;
+              }
+            }
+            measured_total += measured;
+            interpolated_total += interpolated;
+            fallback_total += fallback;
+            core::json ch_info;
+            ch_info["name"] = names[ch];
+            ch_info["measured"] = measured;
+            ch_info["interpolated"] = interpolated;
+            ch_info["scalar_fallback"] = fallback;
+            frame_info["channels"].push_back(ch_info);
+          }
+        }
+        bg["frames"].push_back(frame_info);
+      }
+      const size_t cells_per_frame =
+          static_cast<size_t>(out.background_grid_store->channels()) *
+          kBackgroundGridRows * kBackgroundGridCols;
+      const size_t total_budget_bytes =
+          frames.size() * cells_per_frame * (sizeof(float) + sizeof(uint8_t));
+      bg["memory_budget_bytes"] = total_budget_bytes;
+      bg["measured_cells_total"] = measured_total;
+      bg["interpolated_cells_total"] = interpolated_total;
+      bg["fallback_cells_total"] = fallback_total;
+      bg["complete"] = (frames.size() > 0) &&
+                       (out.background_grid_store->has_data(0) ||
+                        out.background_grid_store->has_data(frames.size() - 1));
+    } else {
+      bg["memory_budget_bytes"] = 0;
+      bg["measured_cells_total"] = 0;
+      bg["interpolated_cells_total"] = 0;
+      bg["fallback_cells_total"] = 0;
+      bg["complete"] = false;
+    }
+    core::write_text(run_dir / "artifacts" / "background_model.json",
+                     bg.dump(2));
   }
 
   out.output_pedestal = 0.0f;

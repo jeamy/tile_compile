@@ -1241,7 +1241,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             prewarped_frames, aqmh_cache,
             global_weights, acceleration, emitter, log_file, phase_started,
             cv::getNumThreads(), phase_result, nullptr,
-            prewarped_frames_rgb.get())) {
+            prewarped_frames_rgb.get(), nullptr)) {
       return 1;
     }
     try {
