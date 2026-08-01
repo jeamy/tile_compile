@@ -661,6 +661,17 @@ bool run_phase_aqmh_reconstruction(
   float structure_masked_detail_alpha = 0.0f;
   bool raw_aqmh_preserved_by_guard = false;
   std::string raw_baseline_guard_reason = "not_evaluated";
+  enum class AqmhSelectedPostProcess {
+    raw,
+    neutralized,
+    structure_masked,
+    attenuated,
+    sharpened
+  };
+  AqmhSelectedPostProcess aqmh_selected_candidate =
+      AqmhSelectedPostProcess::raw;
+  AqmhSelectedPostProcess aqmh_selected_base_for_sharpen =
+      AqmhSelectedPostProcess::raw;
   std::vector<uint8_t> uniform_control_validation_mask;
   if (aqmh_recon.uniform_control_valid_mask.size() ==
       static_cast<size_t>(canvas_width * canvas_height)) {
@@ -738,6 +749,8 @@ bool run_phase_aqmh_reconstruction(
         reconstruction::evaluate_aqmh_validation_gates(
             neutralized_vs_raw, cfg.aqmh.validation).all_ok;
     low_frequency_neutralization_applied = neutralized_selected;
+    if (neutralized_selected)
+      aqmh_selected_candidate = AqmhSelectedPostProcess::neutralized;
     const Matrix2Df &neutralization_base =
         neutralized_selected ? neutralized : raw_aqmh_output;
     log_file << "[AQMH_RECONSTRUCTION] adaptive low-frequency neutralization: "
@@ -797,6 +810,7 @@ bool run_phase_aqmh_reconstruction(
         aqmh_recon.output = std::move(structure_masked);
         structure_masked_detail_applied = true;
         structure_masked_detail_alpha = 1.0f;
+        aqmh_selected_candidate = AqmhSelectedPostProcess::structure_masked;
         raw_baseline_guard_reason = candidate_raw_guard.reason;
         emitter.warning(
             run_id,
@@ -922,6 +936,7 @@ bool run_phase_aqmh_reconstruction(
             structure_masked_detail_validation = best_validation;
             structure_masked_detail_applied = true;
             structure_masked_detail_alpha = best_alpha;
+            aqmh_selected_candidate = AqmhSelectedPostProcess::attenuated;
             raw_baseline_guard_reason = selected_baseline_guard.reason;
             emitter.warning(
                 run_id,
@@ -953,6 +968,9 @@ bool run_phase_aqmh_reconstruction(
     // preserve the immutable raw AQMH baseline, and must measurably improve
     // FWHM against the control. Otherwise raw AQMH is preserved.
     {
+      // Stufe D: remember what the sharpened output was built from so the same
+      // post-processing chain can be applied to per-channel DF outputs.
+      aqmh_selected_base_for_sharpen = aqmh_selected_candidate;
       constexpr float sharpen_sigma_px = 2.0f;
       constexpr float sharpen_amount = 0.6f;
       Matrix2Df sharpened =
@@ -982,6 +1000,7 @@ bool run_phase_aqmh_reconstruction(
           sharpened_raw_guard.ok && sharpen_improves_fwhm) {
         aqmh_recon.output = std::move(sharpened);
         star_core_sharpening_applied = true;
+        aqmh_selected_candidate = AqmhSelectedPostProcess::sharpened;
         raw_baseline_guard_reason = sharpened_raw_guard.reason;
         emitter.warning(
             run_id,
@@ -1055,6 +1074,8 @@ bool run_phase_aqmh_reconstruction(
     // baseline whenever no AQMH-derived post-processing candidate passes.
     aqmh_recon.output = raw_aqmh_output;
     aqmh_recon.weight_sum = raw_aqmh_weight_sum;
+    aqmh_selected_candidate = AqmhSelectedPostProcess::raw;
+    aqmh_selected_base_for_sharpen = AqmhSelectedPostProcess::raw;
     emitter.warning(
         run_id,
         "AQMH postprocessing rejected by quality gate: background_rms=" +
@@ -1089,6 +1110,8 @@ bool run_phase_aqmh_reconstruction(
     aqmh_recon.output = raw_aqmh_output;
     aqmh_recon.weight_sum = raw_aqmh_weight_sum;
     raw_aqmh_preserved_by_guard = true;
+    aqmh_selected_candidate = AqmhSelectedPostProcess::raw;
+    aqmh_selected_base_for_sharpen = AqmhSelectedPostProcess::raw;
     out.control_validation = raw_control_validation;
     raw_baseline_guard_reason = final_raw_guard.reason;
     final_vs_raw_validation =
@@ -1130,6 +1153,82 @@ bool run_phase_aqmh_reconstruction(
                     "post-clipping numerical guard: " +
                         std::to_string(aqmh_recon.numerical_guard_pixels),
                     log_file);
+  }
+
+  // Stufe D: apply the selected luma post-processing candidate to the
+  // per-channel DF-RGB outputs, so the same decision is reflected
+  // consistently across luma and RGB.
+  if (debayer_first) {
+    const float structure_low_q = cfg.aqmh.reconstruction.structure_mask_low_q;
+    const float structure_high_q =
+        cfg.aqmh.reconstruction.structure_mask_high_q;
+    const float structure_mask_blur_sigma_px =
+        cfg.aqmh.reconstruction.structure_mask_blur_sigma_px;
+    constexpr float neutralization_sigma_px = 96.0f;
+    constexpr float sharpen_sigma_px = 2.0f;
+    constexpr float sharpen_amount = 0.6f;
+
+    auto apply_to_channel = [&](Matrix2Df base,
+                                const Matrix2Df &control) -> Matrix2Df {
+      switch (aqmh_selected_candidate) {
+      case AqmhSelectedPostProcess::raw:
+        return base;
+      case AqmhSelectedPostProcess::neutralized:
+        return low_frequency_neutralized_aqmh(base, control,
+                                              neutralization_sigma_px);
+      case AqmhSelectedPostProcess::structure_masked:
+      case AqmhSelectedPostProcess::attenuated:
+      case AqmhSelectedPostProcess::sharpened: {
+        Matrix2Df working = base;
+        const bool needs_low_freq_for_final =
+            low_frequency_neutralization_applied &&
+            (aqmh_selected_candidate != AqmhSelectedPostProcess::sharpened ||
+             aqmh_selected_base_for_sharpen !=
+                 AqmhSelectedPostProcess::raw);
+        if (needs_low_freq_for_final)
+          working = low_frequency_neutralized_aqmh(working, control,
+                                                   neutralization_sigma_px);
+        Matrix2Df sm = structure_masked_aqmh_detail(
+            working, control, structure_low_q, structure_high_q,
+            structure_mask_blur_sigma_px);
+        if (aqmh_selected_candidate ==
+            AqmhSelectedPostProcess::structure_masked)
+          return sm;
+        const float alpha =
+            std::max(0.0f, std::min(1.0f, structure_masked_detail_alpha));
+        working = control + alpha * (sm - control);
+        if (aqmh_selected_candidate == AqmhSelectedPostProcess::attenuated)
+          return working;
+        // sharpened: build sharpen base from the same intermediate as luma
+        switch (aqmh_selected_base_for_sharpen) {
+        case AqmhSelectedPostProcess::raw:
+          working = base;
+          break;
+        case AqmhSelectedPostProcess::neutralized:
+          working = low_frequency_neutralization_applied
+                        ? low_frequency_neutralized_aqmh(base, control,
+                                                          neutralization_sigma_px)
+                        : base;
+          break;
+        case AqmhSelectedPostProcess::structure_masked:
+          working = sm;
+          break;
+        case AqmhSelectedPostProcess::attenuated:
+          // already computed above
+          break;
+        default:
+          break;
+        }
+        return unsharp_masked_aqmh(working, sharpen_sigma_px, sharpen_amount);
+      }
+      default:
+        return base;
+      }
+    };
+
+    out.df_output_R = apply_to_channel(out.df_output_R, out.df_control_R);
+    out.df_output_G = apply_to_channel(out.df_output_G, out.df_control_G);
+    out.df_output_B = apply_to_channel(out.df_output_B, out.df_control_B);
   }
 
   out.recon = aqmh_recon;
@@ -1311,16 +1410,30 @@ bool run_phase_aqmh_reconstruction(
   }
   artifact["uniform_control_gate_triggered"] = aqmh_control_fallback;
   artifact["raw_aqmh_preserved_by_guard"] = raw_aqmh_preserved_by_guard;
-  artifact["selected_candidate"] =
-      raw_aqmh_preserved_by_guard
-          ? "raw_aqmh"
-          : (star_core_sharpening_applied
-                 ? "star_core_sharpening"
-                 : (structure_masked_detail_applied
-                        ? "structure_masked_detail"
-                        : (low_frequency_neutralization_applied
-                               ? "low_frequency_neutralized"
-                               : "raw_aqmh")));
+  auto candidate_to_string = [](AqmhSelectedPostProcess c) -> std::string {
+    switch (c) {
+    case AqmhSelectedPostProcess::neutralized:
+      return "low_frequency_neutralized";
+    case AqmhSelectedPostProcess::structure_masked:
+      return "structure_masked_detail";
+    case AqmhSelectedPostProcess::attenuated:
+      return "attenuated";
+    case AqmhSelectedPostProcess::sharpened:
+      return "star_core_sharpening";
+    default:
+      return "raw_aqmh";
+    }
+  };
+  artifact["selected_candidate"] = candidate_to_string(aqmh_selected_candidate);
+  artifact["selected_candidate_base_for_sharpen"] =
+      candidate_to_string(aqmh_selected_base_for_sharpen);
+  if (debayer_first) {
+    artifact["per_channel_post_process"] = {
+        {"applied", true},
+        {"selected_candidate", artifact["selected_candidate"]},
+        {"selected_candidate_base_for_sharpen",
+         artifact["selected_candidate_base_for_sharpen"]}};
+  }
   artifact["uniform_control_gate"] = {
       {"background_rms_ok", aqmh_background_ok},
       {"fwhm_ok", aqmh_fwhm_ok},

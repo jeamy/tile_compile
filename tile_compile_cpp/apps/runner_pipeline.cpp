@@ -4938,11 +4938,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	        }
 	      }
 
+      // Stufe D: keep reconstructed_L.fit linear. stacked.fits is the
+      // (optionally stretched) presentation file derived from it.
+      Matrix2Df luma_presentation = recon_out;
       if (cfg.stacking.output_stretch) {
         const auto stretch =
-            core::stretch_to_u16_linear_from_zero_inplace(recon_out);
+            core::stretch_to_u16_linear_from_zero_inplace(luma_presentation);
         if (stretch.applied) {
-          std::cout << "[Stacking] Output linear stretch ["
+          std::cout << "[Stacking] Output luma linear stretch ["
                     << stretch.low << ".." << stretch.high
                     << "] -> [0..65535] samples=" << stretch.sample_count
                     << std::endl;
@@ -4976,10 +4979,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
-                             first_hdr);
         io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
                              recon_out, first_hdr);
+        io::write_fits_float(run_dir / "outputs" / "stacked.fits",
+                             luma_presentation, first_hdr);
       } catch (const std::exception &e) {
         const bool disk_full = message_indicates_disk_full(e.what());
         const std::string msg =

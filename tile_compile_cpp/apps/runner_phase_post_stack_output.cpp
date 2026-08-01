@@ -153,11 +153,10 @@ bool write_post_stack_outputs(
   }
 
   // --- Apply output scaling ---
-  // When output_stretch is enabled, skip the background re-addition entirely.
-  // The stretch maps [0, p99.9] to the full output range — adding the pedestal
-  // back would waste >50% of the range on a constant offset that the stretch
-  // then compresses out anyway. Without stretch, we restore the original ADU
-  // context for downstream tools that expect absolute values.
+  // Stufe D: linear outputs (reconstructed_*) are always restored with
+  // background, photometric scale and a small pedestal. The stretched
+  // presentation files (stacked.fits, stacked_rgb.fits) are derived from those
+  // linear images and never replace the linear originals.
   bool have_rgb = recon.size() > 0 &&
                   recon_R.size() == recon.size() &&
                   recon_G.size() == recon.size() &&
@@ -182,27 +181,26 @@ bool write_post_stack_outputs(
   io::FitsHeader rgb_output_hdr = output_hdr;
   if (detected_mode == ColorMode::OSC && have_rgb) {
     rgb_output_hdr.set("DEBAYER", "PRE_STACK");
-    if (!cfg.output_stretch) {
-      // TODO(bg-model): global scalar background restore is a placeholder.
-      // Replace with per-frame background model once Background-Model-Cache
-      // (Stufe A/B) is implemented.
-      recon_R.array() *= scaling.scale_r;
-      recon_G.array() *= scaling.scale_g;
-      recon_B.array() *= scaling.scale_b;
-      recon_R.array() += scaling.bg_r;
-      recon_G.array() += scaling.bg_g;
-      recon_B.array() += scaling.bg_b;
-    }
-    // Luma for stacked.fits
+
+    // Stufe D: linear RGB always gets background + photometric scale + pedestal.
+    recon_R.array() *= scaling.scale_r;
+    recon_G.array() *= scaling.scale_g;
+    recon_B.array() *= scaling.scale_b;
+    recon_R.array() += scaling.bg_r;
+    recon_G.array() += scaling.bg_g;
+    recon_B.array() += scaling.bg_b;
+    recon_R.array() += scaling.pedestal;
+    recon_G.array() += scaling.pedestal;
+    recon_B.array() += scaling.pedestal;
+
+    // Luma for stacked.fits / reconstructed_L.fit
     const float scale_luma = 0.25f * scaling.scale_r + 0.5f * scaling.scale_g +
                              0.25f * scaling.scale_b;
     Matrix2Df recon_luma = recon;
     recon_luma *= scale_luma;
-    if (!cfg.output_stretch) {
-      const float bg_luma = 0.25f * scaling.bg_r + 0.5f * scaling.bg_g +
-                            0.25f * scaling.bg_b;
-      recon_luma.array() += (bg_luma + scaling.pedestal);
-    }
+    const float bg_luma = 0.25f * scaling.bg_r + 0.5f * scaling.bg_g +
+                          0.25f * scaling.bg_b;
+    recon_luma.array() += (bg_luma + scaling.pedestal);
 
     // Enforce canvas mask on luma
     for (Eigen::Index k = 0; k < recon_luma.size(); ++k) {
@@ -211,10 +209,20 @@ bool write_post_stack_outputs(
         recon_luma.data()[k] = 0.0f;
     }
 
-    // Stretch and write luma
-    Matrix2Df recon_out = recon_luma;
+    // Linear luma file is always written unchanged.
+    try {
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
+                           recon_luma, output_hdr);
+    } catch (const std::exception &e) {
+      out.error = std::string("reconstructed_L.fit write failed: ") + e.what();
+      return false;
+    }
+
+    // Stretched luma presentation file is derived from the linear one.
+    Matrix2Df luma_presentation = recon_luma;
     if (cfg.output_stretch) {
-      const auto stretch = core::stretch_to_u16_linear_from_zero_inplace(recon_out);
+      const auto stretch =
+          core::stretch_to_u16_linear_from_zero_inplace(luma_presentation);
       if (stretch.applied) {
         std::cout << "[STACKING] Output luma linear stretch ["
                   << stretch.low << ".." << stretch.high
@@ -224,8 +232,8 @@ bool write_post_stack_outputs(
     }
 
     try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, output_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits",
+                           luma_presentation, output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("stacked.fits write failed: ") + e.what();
       return false;
@@ -249,17 +257,29 @@ bool write_post_stack_outputs(
       }
     }
 
-    // Write per-channel
+    // Linear per-channel files are always restored.
     try {
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", recon_R, rgb_output_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", recon_G, rgb_output_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", recon_B, rgb_output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", recon_R,
+                           rgb_output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", recon_G,
+                           rgb_output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", recon_B,
+                           rgb_output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("reconstructed channel write failed: ") + e.what();
       return false;
     }
 
-    // Write stretched RGB cube
+    // Linear solve reference matches reconstructed_R/G/B.
+    try {
+      io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
+                         recon_R, recon_G, recon_B, rgb_output_hdr);
+    } catch (const std::exception &e) {
+      out.error = std::string("stacked_rgb_solve.fits write failed: ") + e.what();
+      return false;
+    }
+
+    // Stretched RGB presentation file (or float RGB if no stretch).
     Matrix2Df R_disk = recon_R;
     Matrix2Df G_disk = recon_G;
     Matrix2Df B_disk = recon_B;
@@ -276,48 +296,31 @@ bool write_post_stack_outputs(
                   << "] -> [0..4294967295] (robust p99.9)"
                   << " samples=" << stretch.sample_count << std::endl;
       }
-    }
-
-    try {
-      if (cfg.output_stretch) {
+      try {
         io::write_fits_rgb_u32(run_dir / "outputs" / "stacked_rgb.fits",
                                R_disk, G_disk, B_disk, rgb_output_hdr);
-      } else {
+      } catch (const std::exception &e) {
+        out.error = std::string("stacked_rgb.fits write failed: ") + e.what();
+        return false;
+      }
+    } else {
+      try {
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits",
                            recon_R, recon_G, recon_B, rgb_output_hdr);
+      } catch (const std::exception &e) {
+        out.error = std::string("stacked_rgb.fits write failed: ") + e.what();
+        return false;
       }
-      // Linear version for plate solving — always includes background for
-      // absolute ADU context that astrometry tools expect.
-      if (cfg.output_stretch) {
-        // With stretch: recon_R/G/B are unscaled signal-only; add bg for solve
-        Matrix2Df R_solve = recon_R * scaling.scale_r;
-        R_solve.array() += scaling.bg_r;
-        Matrix2Df G_solve = recon_G * scaling.scale_g;
-        G_solve.array() += scaling.bg_g;
-        Matrix2Df B_solve = recon_B * scaling.scale_b;
-        B_solve.array() += scaling.bg_b;
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
-                           R_solve, G_solve, B_solve, rgb_output_hdr);
-      } else {
-        // Without stretch: recon_R/G/B already have bg restored
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
-                           recon_R, recon_G, recon_B, rgb_output_hdr);
-      }
-    } catch (const std::exception &e) {
-      out.error = std::string("stacked_rgb write failed: ") + e.what();
-      return false;
     }
 
   } else {
     // MONO path
-    if (!cfg.output_stretch) {
-      image::apply_output_scaling_inplace(
-          recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
-          detected_mode, detected_bayer_str,
-          scaling.scale_mono, scaling.scale_r, scaling.scale_g, scaling.scale_b,
-          scaling.bg_mono, scaling.bg_r, scaling.bg_g, scaling.bg_b,
-          scaling.pedestal);
-    }
+    image::apply_output_scaling_inplace(
+        recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
+        detected_mode, detected_bayer_str,
+        scaling.scale_mono, scaling.scale_r, scaling.scale_g, scaling.scale_b,
+        scaling.bg_mono, scaling.bg_r, scaling.bg_g, scaling.bg_b,
+        scaling.pedestal);
 
     // Enforce canvas mask
     for (Eigen::Index k = 0; k < recon.size(); ++k) {
@@ -326,11 +329,22 @@ bool write_post_stack_outputs(
         recon.data()[k] = 0.0f;
     }
 
-    Matrix2Df recon_out = recon;
+    // Linear mono file is always restored.
+    try {
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon,
+                           output_hdr);
+    } catch (const std::exception &e) {
+      out.error = std::string("reconstructed_L.fit write failed: ") + e.what();
+      return false;
+    }
+
+    // Stretched mono presentation file is derived from the linear one.
+    Matrix2Df luma_presentation = recon;
     if (cfg.output_stretch) {
-      const auto stretch = core::stretch_to_u16_linear_from_zero_inplace(recon_out);
+      const auto stretch =
+          core::stretch_to_u16_linear_from_zero_inplace(luma_presentation);
       if (stretch.applied) {
-        std::cout << "[STACKING] Output linear stretch ["
+        std::cout << "[STACKING] Output luma linear stretch ["
                   << stretch.low << ".." << stretch.high
                   << "] -> [0..65535] samples=" << stretch.sample_count
                   << std::endl;
@@ -338,8 +352,8 @@ bool write_post_stack_outputs(
     }
 
     try {
-      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, output_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, output_hdr);
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits",
+                           luma_presentation, output_hdr);
     } catch (const std::exception &e) {
       out.error = std::string("stacked.fits write failed: ") + e.what();
       return false;
