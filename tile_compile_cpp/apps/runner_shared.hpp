@@ -896,13 +896,15 @@ private:
 ///
 /// Each `accumulate()` call takes a per-frame background grid (in the frame
 /// domain), upsamples it to full resolution, warps it to the common canvas,
-/// then downsamples it onto the canvas grid. Values are accumulated as an
-/// unweighted mean across frames; support is marked where at least one valid
-/// sample contributes.
+/// then downsamples it onto the canvas grid. Values are accumulated per cell
+/// and finalized via a two-pass sigma-clipped mean (median +/- 3*MAD). Cells
+/// with fewer than `ceil(0.5 * expected_frame_count)` contributions are marked
+/// invalid, matching the coverage contract from the implementation plan.
 class BackgroundMapCanvas {
 public:
   BackgroundMapCanvas();
-  BackgroundMapCanvas(int rows, int cols, int channels);
+  BackgroundMapCanvas(int rows, int cols, int channels,
+                      size_t expected_frame_count = 0);
 
   int rows() const;
   int cols() const;
@@ -921,12 +923,14 @@ private:
   int rows_ = 0;
   int cols_ = 0;
   int channels_ = 0;
-  std::vector<double> value_sum_;
-  std::vector<size_t> count_;
+  size_t expected_frame_count_ = 0;
+  /// Per-cell sample lists for two-pass sigma-clipped mean finalization.
+  std::vector<std::vector<float>> samples_;
 };
 
 /// @brief Accumulate per-frame prewarped background grids into a single canvas
-/// grid. Empty or unsupported cells remain invalid.
+/// grid. Empty or unsupported cells remain invalid. Uses two-pass sigma-clipped
+/// mean and a 50% coverage threshold.
 BackgroundModelGrid accumulate_prewarped_background_maps(
     const BackgroundModelGridStore &store,
     const std::vector<uint8_t> &frame_has_data);

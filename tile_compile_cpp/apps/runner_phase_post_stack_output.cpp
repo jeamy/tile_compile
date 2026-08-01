@@ -291,8 +291,10 @@ bool write_post_stack_outputs(
       const auto stretch = core::stretch_rgb_to_u32_linear_from_zero_inplace(
           R_disk, G_disk, B_disk, statistics_mask);
       if (stretch.applied) {
-        std::cout << "[STACKING] RGB output stretch ["
-                  << stretch.low << ".." << stretch.high
+        std::cout << "[STACKING] RGB output per-channel stretch "
+                  << "R[" << stretch.low_r << ".." << stretch.high_r << "] "
+                  << "G[" << stretch.low_g << ".." << stretch.high_g << "] "
+                  << "B[" << stretch.low_b << ".." << stretch.high_b
                   << "] -> [0..4294967295] (robust p99.9)"
                   << " samples=" << stretch.sample_count << std::endl;
       }
@@ -389,8 +391,11 @@ void write_stretched_rgb_snapshot(
     const auto stretch = core::stretch_rgb_to_u32_linear_from_zero_inplace(
         R_disk, G_disk, B_disk, statistics_mask);
     if (stretch.applied) {
-      std::cout << "[" << stage_tag << "] RGB output stretch ["
-                << stretch.low << ".." << stretch.high
+      std::cout << "[" << stage_tag
+                << "] RGB output per-channel stretch "
+                << "R[" << stretch.low_r << ".." << stretch.high_r << "] "
+                << "G[" << stretch.low_g << ".." << stretch.high_g << "] "
+                << "B[" << stretch.low_b << ".." << stretch.high_b
                 << "] -> [0..4294967295] (robust p99.9)"
                 << " samples=" << stretch.sample_count << std::endl;
     }

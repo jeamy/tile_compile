@@ -584,13 +584,24 @@ bool run_phase_registration_prewarp(
     }
     if (out.prewarped_background_grid_store &&
         out.prewarped_background_grid_store->size() > 0) {
+      // Forward the background model content hash so the resume path can
+      // validate cache compatibility against the stored artifact.
+      std::string bg_hash;
+      try {
+        const fs::path bg_artifact = run_dir / "artifacts" / "background_model.json";
+        if (fs::is_regular_file(bg_artifact)) {
+          const auto bg_j = core::json::parse(core::read_text(bg_artifact));
+          bg_hash = bg_j.value("content_hash", "");
+        }
+      } catch (...) { /* hash stays empty */ }
       j["prewarped_background_grid"] = core::json{
           {"cache_dir", (run_dir / "cache" / "prewarped_background_models")
                             .string()},
           {"num_frames", static_cast<int>(frames.size())},
           {"rows", out.prewarped_background_grid_store->rows()},
           {"cols", out.prewarped_background_grid_store->cols()},
-          {"channels", out.prewarped_background_grid_store->channels()}};
+          {"channels", out.prewarped_background_grid_store->channels()},
+          {"content_hash", bg_hash}};
     }
     core::write_text(run_dir / "artifacts" / "global_registration.json",
                      j.dump(2));
@@ -3248,8 +3259,11 @@ bool run_phase_registration_prewarp(
           if (frame_grid.channels() !=
               prewarped_background_grid_store->channels())
             return;
+          // This accumulator represents exactly one input frame. The
+          // cross-frame robust aggregation happens later in
+          // accumulate_prewarped_background_maps().
           BackgroundMapCanvas acc(canvas_bg_grid_rows, canvas_bg_grid_cols,
-                                  frame_grid.channels());
+                                  frame_grid.channels(), 1);
           acc.accumulate(frame_grid, frame_rows, frame_cols, canvas_height,
                          canvas_width, w);
           auto canvas_grid = acc.finalize();

@@ -618,10 +618,9 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     return stretch_rgb_to_u32_linear_from_zero_inplace(r, g, b, empty_mask);
 }
 
-/// @brief Implements stretch rgb to u32 linear from zero inplace using a robust
-/// maximum (p99.9 across all channels). Pixels above the robust max are clamped
-/// to the target ceiling. This prevents a single bright star core from
-/// compressing the entire nebula signal into <1% of the output range.
+/// @brief Implements per-channel RGB stretch to u32 linear from zero inplace.
+/// Each channel gets its own robust p1 floor and p99.9 ceiling; this prevents
+/// channels with different dynamic ranges from clipping each other.
 StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
@@ -635,61 +634,75 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
         return result;
     }
 
-    // Collect all finite positive values to compute a robust maximum.
-    // Using p99.9 ensures that star cores (typically <0.1% of pixels) don't
-    // define the scale, while all diffuse structure is faithfully represented.
+    // Compute p1 floor and p99.9 ceiling per channel, then apply per channel.
     std::vector<float> all_values;
     all_values.reserve(static_cast<size_t>(r.size()) * 3 / 4);
-    for (Matrix2Df* ch : {&r, &g, &b}) {
-        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+
+    auto compute_channel_stretch = [&](const Matrix2Df& ch,
+                                       float& floor_level,
+                                       float& robust_max) -> size_t {
+        std::vector<float> values;
+        values.reserve(static_cast<size_t>(ch.size()));
+        for (Eigen::Index i = 0; i < ch.size(); ++i) {
             if (!statistics_mask.empty() &&
                 statistics_mask[static_cast<size_t>(i)] == 0) {
                 continue;
             }
-            const float v = ch->data()[i];
+            const float v = ch.data()[i];
             if (std::isfinite(v) && v > 0.0f)
-                all_values.push_back(v);
+                values.push_back(v);
         }
-    }
+        if (values.empty())
+            return 0;
+        const size_t idx_1 = static_cast<size_t>(
+            std::clamp(0.01, 0.0, 1.0) *
+            static_cast<double>(values.size() - 1));
+        std::nth_element(values.begin(), values.begin() + idx_1,
+                         values.end());
+        floor_level = values[idx_1];
 
+        const size_t idx_999 = static_cast<size_t>(
+            std::clamp(0.999, 0.0, 1.0) *
+            static_cast<double>(values.size() - 1));
+        std::nth_element(values.begin(), values.begin() + idx_999,
+                         values.end());
+        robust_max = values[idx_999];
+
+        std::copy(values.begin(), values.end(), std::back_inserter(all_values));
+        return values.size();
+    };
+
+    size_t r_count = compute_channel_stretch(r, result.low_r, result.high_r);
+    size_t g_count = compute_channel_stretch(g, result.low_g, result.high_g);
+    size_t b_count = compute_channel_stretch(b, result.low_b, result.high_b);
     result.sample_count = all_values.size();
-    if (all_values.empty()) return result;
+    if (r_count == 0 && g_count == 0 && b_count == 0)
+        return result;
 
-    // Compute p1 as floor and p99.9 as robust maximum.
-    // The stretch maps [floor, robust_max] -> [0, target].  Using p1 (not p10
-    // or the background itself) as the floor keeps below-background pixels
-    // visible: the sky background lands at a small positive value instead of
-    // consuming >60% of the range, and only the darkest 1% of noise clips to 0.
-    const size_t idx_1 = static_cast<size_t>(
-        std::clamp(0.01, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
-    std::nth_element(all_values.begin(), all_values.begin() + idx_1,
-                     all_values.end());
-    const float floor_level = all_values[idx_1];
+    result.low = std::min({result.low_r, result.low_g, result.low_b});
+    result.high = std::max({result.high_r, result.high_g, result.high_b});
 
-    const size_t idx_999 = static_cast<size_t>(
-        std::clamp(0.999, 0.0, 1.0) * static_cast<double>(all_values.size() - 1));
-    std::nth_element(all_values.begin(), all_values.begin() + idx_999,
-                     all_values.end());
-    const float robust_max = all_values[idx_999];
-
-    result.low = floor_level;
-    result.high = robust_max;
-    const float range = robust_max - floor_level;
-    if (!(range > 1.0e-6f)) return result;
-
-    constexpr float target = 4294967295.0f;
-    const float scale = target / range;
-    for (Matrix2Df* ch : {&r, &g, &b}) {
-        for (Eigen::Index i = 0; i < ch->size(); ++i) {
-            const float v = ch->data()[i];
+    auto apply_channel = [](Matrix2Df& ch, float floor_level,
+                            float robust_max) {
+        const float range = robust_max - floor_level;
+        if (!(range > 1.0e-6f))
+            return;
+        constexpr float target = 4294967295.0f;
+        const float scale = target / range;
+        for (Eigen::Index i = 0; i < ch.size(); ++i) {
+            const float v = ch.data()[i];
             if (std::isfinite(v)) {
                 const float stretched = (v - floor_level) * scale;
-                ch->data()[i] = std::clamp(stretched, 0.0f, target);
+                ch.data()[i] = std::clamp(stretched, 0.0f, target);
             } else {
-                ch->data()[i] = 0.0f;
+                ch.data()[i] = 0.0f;
             }
         }
-    }
+    };
+
+    apply_channel(r, result.low_r, result.high_r);
+    apply_channel(g, result.low_g, result.high_g);
+    apply_channel(b, result.low_b, result.high_b);
 
     result.applied = true;
     return result;

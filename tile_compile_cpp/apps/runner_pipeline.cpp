@@ -4934,7 +4934,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
 	        if (static_cast<size_t>(k) >= output_valid_mask.size() ||
 	            output_valid_mask[static_cast<size_t>(k)] == 0) {
-	          recon_out.data()[k] = 0.0f;
+	          recon_out.data()[k] = std::numeric_limits<float>::quiet_NaN();
 	        }
 	      }
 
@@ -5571,10 +5571,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               R_ch, G_ch, B_ch, statistics_mask);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
-                << "] RGB output "
-                << "linear"
-                << " stretch ["
-                << stretch.low << ".." << stretch.high << "] -> [0..4294967295]"
+                << "] RGB output per-channel linear stretch "
+                << "R[" << stretch.low_r << ".." << stretch.high_r << "] "
+                << "G[" << stretch.low_g << ".." << stretch.high_g << "] "
+                << "B[" << stretch.low_b << ".." << stretch.high_b
+                << "] -> [0..4294967295]"
                 << " samples=" << stretch.sample_count << std::endl;
       return true;
     };

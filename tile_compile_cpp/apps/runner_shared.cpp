@@ -2463,8 +2463,18 @@ BackgroundModelGrid accumulate_prewarped_background_maps(
   BackgroundModelGrid out(rows, cols, channels);
   if (rows <= 0 || cols <= 0 || channels <= 0)
     return out;
-  std::vector<double> sum(static_cast<size_t>(channels) * rows * cols, 0.0);
-  std::vector<size_t> count(static_cast<size_t>(channels) * rows * cols, 0);
+
+  // Count expected contributing frames for the 50% coverage threshold.
+  size_t expected = 0;
+  for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
+    if (frame_has_data[fi] != 0 && store.has_data(fi))
+      ++expected;
+  }
+  const size_t coverage_floor =
+      std::max<size_t>(1, (expected + 1) / 2); // ceil(0.5 * expected)
+
+  const size_t plane = static_cast<size_t>(channels) * rows * cols;
+  std::vector<std::vector<float>> samples(plane);
 
   for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
     if (frame_has_data[fi] == 0 || !store.has_data(fi))
@@ -2475,19 +2485,18 @@ BackgroundModelGrid accumulate_prewarped_background_maps(
       continue;
     for (size_t i = 0; i < grid.values().size(); ++i) {
       if (grid.support_mask()[i] & BackgroundModelGrid::kMeasured) {
-        if (std::isfinite(grid.values()[i])) {
-          sum[i] += static_cast<double>(grid.values()[i]);
-          ++count[i];
-        }
+        const float v = grid.values()[i];
+        if (std::isfinite(v))
+          samples[i].push_back(v);
       }
     }
   }
 
-  for (size_t i = 0; i < sum.size(); ++i) {
-    if (count[i] > 0) {
-      out.values()[i] = static_cast<float>(sum[i] / static_cast<double>(count[i]));
-      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
-    }
+  for (size_t i = 0; i < samples.size(); ++i) {
+    if (samples[i].size() < coverage_floor)
+      continue; // insufficient coverage -> stays invalid
+    out.values()[i] = core::two_pass_sigma_clipped_mean(std::move(samples[i]));
+    out.support_mask()[i] = BackgroundModelGrid::kMeasured;
   }
   return out;
 }
@@ -2496,10 +2505,11 @@ BackgroundModelGrid accumulate_prewarped_background_maps(
 
 BackgroundMapCanvas::BackgroundMapCanvas() = default;
 
-BackgroundMapCanvas::BackgroundMapCanvas(int rows, int cols, int channels)
+BackgroundMapCanvas::BackgroundMapCanvas(int rows, int cols, int channels,
+                                         size_t expected_frame_count)
     : rows_(rows), cols_(cols), channels_(channels),
-      value_sum_(static_cast<size_t>(channels) * rows * cols, 0.0),
-      count_(static_cast<size_t>(channels) * rows * cols, 0) {}
+      expected_frame_count_(expected_frame_count),
+      samples_(static_cast<size_t>(channels) * rows * cols) {}
 
 int BackgroundMapCanvas::rows() const { return rows_; }
 int BackgroundMapCanvas::cols() const { return cols_; }
@@ -2541,7 +2551,8 @@ void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
     Matrix2Df warped_sup = image::apply_global_warp(
         full_sup, warp, ColorMode::MONO, canvas_rows, canvas_cols, "nearest");
 
-    // Downsample by averaging over canvas-grid cells.
+    // Downsample by averaging over canvas-grid cells. Collect per-cell samples
+    // so finalize() can apply a two-pass sigma-clipped mean.
     const size_t plane_offset =
         static_cast<size_t>(ch) * rows_ * cols_;
     for (int y = 0; y < canvas_rows; ++y) {
@@ -2550,8 +2561,7 @@ void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
         if (warped_sup(y, x) > 0.5f) {
           const int cc = std::min(x / cell_w, cols_ - 1);
           const size_t idx = plane_offset + cr * cols_ + cc;
-          value_sum_[idx] += static_cast<double>(warped_val(y, x));
-          ++count_[idx];
+          samples_[idx].push_back(warped_val(y, x));
         }
       }
     }
@@ -2560,11 +2570,13 @@ void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
 
 BackgroundModelGrid BackgroundMapCanvas::finalize() const {
   BackgroundModelGrid out(rows_, cols_, channels_);
-  for (size_t i = 0; i < value_sum_.size(); ++i) {
-    if (count_[i] > 0) {
-      out.values()[i] = static_cast<float>(value_sum_[i] / static_cast<double>(count_[i]));
-      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
-    }
+  const size_t coverage_floor =
+      std::max<size_t>(1, (expected_frame_count_ + 1) / 2);
+  for (size_t i = 0; i < samples_.size(); ++i) {
+    if (samples_[i].size() < coverage_floor)
+      continue; // insufficient coverage -> stays invalid
+    out.values()[i] = core::two_pass_sigma_clipped_mean(std::move(samples_[i]));
+    out.support_mask()[i] = BackgroundModelGrid::kMeasured;
   }
   return out;
 }

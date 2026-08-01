@@ -265,6 +265,43 @@ bool run_phase_channel_split_normalization_global_metrics(
             (detected_mode == ColorMode::OSC)
                 ? std::vector<std::string>{"R", "G1", "G2", "B"}
                 : std::vector<std::string>{"L"};
+        // OOM budget check: persistent grid storage is
+        // frames * grid_h * grid_w * channels * (sizeof(float) + sizeof(uint8)).
+        // A temporary full-res upsampling buffer per frame adds
+        // frame_w * frame_h * channels * sizeof(float); we reserve 25% of the
+        // budget for that and other overhead.
+        const int bg_channels = static_cast<int>(bg_channel_names.size());
+        const size_t persistent_bytes =
+            frames.size() * static_cast<size_t>(kBackgroundGridRows) *
+            static_cast<size_t>(kBackgroundGridCols) *
+            static_cast<size_t>(bg_channels) *
+            (sizeof(float) + sizeof(uint8_t));
+        const size_t tmp_upsample_bytes =
+            static_cast<size_t>(cache_width) *
+            static_cast<size_t>(cache_height) *
+            static_cast<size_t>(bg_channels) * sizeof(float);
+        const size_t estimated_total_bytes =
+            persistent_bytes + tmp_upsample_bytes;
+        const size_t budget_bytes =
+            static_cast<size_t>(cfg.runtime_limits.memory_budget) *
+            static_cast<size_t>(1024) * static_cast<size_t>(1024);
+        if (budget_bytes > 0 &&
+            estimated_total_bytes > (budget_bytes * 3) / 4) {
+          const std::string oom_msg =
+              "background_model_oom: estimated background model storage (" +
+              std::to_string(estimated_total_bytes >> 20) +
+              " MiB) exceeds 75% of memory budget (" +
+              std::to_string(budget_bytes >> 20) + " MiB)";
+          emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
+                            {{"error", "background_model_oom"},
+                             {"message", oom_msg}},
+                            log_file);
+          emitter.run_end(run_id, false, "error", log_file,
+                          {{"message", oom_msg}});
+          std::cerr << "Error during NORMALIZATION: " << oom_msg << std::endl;
+          log_file << "Error during NORMALIZATION: " << oom_msg << std::endl;
+          return false;
+        }
         out.background_grid_store = std::make_shared<BackgroundModelGridStore>(
             run_dir / "cache" / "background_models", frames.size(),
             kBackgroundGridRows, kBackgroundGridCols, bg_channel_names);
@@ -701,11 +738,39 @@ bool run_phase_channel_split_normalization_global_metrics(
                           : "";
     bg["frames"] = core::json::array();
 
+    // Content hash: SHA-256 over configuration, input frame paths, and cache
+    // directory. Used by the resume path to detect cache incompatibility.
+    {
+      std::ostringstream hash_input;
+      hash_input << "format_version=1\n"
+                 << "grid=" << kBackgroundGridRows << "x" << kBackgroundGridCols
+                 << "\n"
+                 << "mode=" << bg["mode"].get<std::string>() << "\n"
+                 << "bayer=" << detected_bayer_str << "\n"
+                 << "normalization_mode=" << cfg.normalization.mode << "\n"
+                 << "per_channel=" << cfg.normalization.per_channel << "\n"
+                 << "debayer_first=" << cfg.aqmh.reconstruction.debayer_first
+                 << "\n"
+                 << "frames:\n";
+      for (const auto &f : frames)
+        hash_input << "  " << f.string() << "\n";
+      hash_input << "cache_dir=" << bg["cache_dir"].get<std::string>() << "\n";
+      const std::string payload = hash_input.str();
+      const std::vector<uint8_t> payload_bytes(payload.begin(),
+                                                payload.end());
+      bg["content_hash"] = core::sha256_bytes(payload_bytes);
+    }
+
     size_t measured_total = 0;
     size_t interpolated_total = 0;
     size_t fallback_total = 0;
+    bool fallback_violation = false; // >1% scalar fallback in any frame
     if (out.background_grid_store) {
       const auto &names = out.background_grid_store->channel_names();
+      const size_t cells_per_plane =
+          static_cast<size_t>(kBackgroundGridRows) * kBackgroundGridCols;
+      const size_t fallback_limit =
+          std::max<size_t>(1, cells_per_plane / 100); // 1% of cells
       for (size_t i = 0; i < frames.size(); ++i) {
         core::json frame_info;
         frame_info["frame_index"] = static_cast<int>(i);
@@ -732,6 +797,8 @@ bool run_phase_channel_split_normalization_global_metrics(
             measured_total += measured;
             interpolated_total += interpolated;
             fallback_total += fallback;
+            if (static_cast<size_t>(fallback) > fallback_limit)
+              fallback_violation = true;
             core::json ch_info;
             ch_info["name"] = names[ch];
             ch_info["measured"] = measured;
@@ -751,18 +818,45 @@ bool run_phase_channel_split_normalization_global_metrics(
       bg["measured_cells_total"] = measured_total;
       bg["interpolated_cells_total"] = interpolated_total;
       bg["fallback_cells_total"] = fallback_total;
-      bg["complete"] = (frames.size() > 0) &&
-                       (out.background_grid_store->has_data(0) ||
-                        out.background_grid_store->has_data(frames.size() - 1));
+      bool complete = !frames.empty();
+      for (size_t fi = 0; fi < frames.size() && complete; ++fi) {
+        complete = out.background_grid_store->has_data(fi);
+      }
+      bg["complete"] = complete;
+      bg["fallback_violation"] = fallback_violation;
+      bg["dynamiktreu"] = !fallback_violation;
+      if (fallback_violation) {
+        std::cout
+            << "[NORMALIZATION] Warning: background_model fallback violation: "
+            << "at least one frame has >1% scalar-fallback cells; the run is "
+            << "not considered dynamics-preserving." << std::endl;
+        log_file << "[NORMALIZATION] background_model fallback violation "
+                    "(>1% scalar fallback in at least one frame)"
+                 << std::endl;
+      }
     } else {
       bg["memory_budget_bytes"] = 0;
       bg["measured_cells_total"] = 0;
       bg["interpolated_cells_total"] = 0;
       bg["fallback_cells_total"] = 0;
       bg["complete"] = false;
+      bg["fallback_violation"] = false;
+      bg["dynamiktreu"] = false;
     }
     core::write_text(run_dir / "artifacts" / "background_model.json",
                      bg.dump(2));
+    if (fallback_violation) {
+      const std::string msg =
+          "background_model fallback violation: >1% scalar-fallback cells";
+      emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
+                        {{"error", "background_model_fallback_violation"},
+                         {"message", msg}},
+                        log_file);
+      emitter.run_end(run_id, false, "error", log_file,
+                      {{"message", msg}});
+      std::cerr << "Error during NORMALIZATION: " << msg << std::endl;
+      return false;
+    }
   }
 
   out.output_pedestal = 0.0f;

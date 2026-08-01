@@ -110,7 +110,8 @@ bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
 }
 
 /// @brief Load the prewarped background-model grid cache from the registration
-/// artifact, if present.
+/// artifact, if present. Validates the cache against the content hash stored in
+/// artifacts/background_model.json; returns nullptr on hash mismatch.
 std::shared_ptr<runner::BackgroundModelGridStore>
 load_prewarped_background_grid_store(const fs::path &run_dir) {
   const fs::path artifact_path = run_dir / "artifacts" / "global_registration.json";
@@ -127,6 +128,7 @@ load_prewarped_background_grid_store(const fs::path &run_dir) {
     const int channels = p.value("channels", 0);
     const size_t num_frames = p.value("num_frames", 0u);
     const std::string cache_dir_str = p.value("cache_dir", "");
+    const std::string expected_hash = p.value("content_hash", "");
     if (rows <= 0 || cols <= 0 || channels <= 0 || num_frames == 0 ||
         cache_dir_str.empty())
       return nullptr;
@@ -135,6 +137,30 @@ load_prewarped_background_grid_store(const fs::path &run_dir) {
       cache_dir = run_dir / cache_dir;
     if (!fs::is_directory(cache_dir))
       return nullptr;
+
+    // Validate the complete background-model contract and cache hash.
+    const fs::path bg_artifact = run_dir / "artifacts" / "background_model.json";
+    if (!fs::is_regular_file(bg_artifact))
+      return nullptr;
+    const auto bg_j = tile_compile::core::json::parse(
+        tile_compile::core::read_text(bg_artifact));
+    if (bg_j.value("format_version", 0) != 1 ||
+        !bg_j.value("complete", false) ||
+        bg_j.value("frame_count", 0u) != num_frames ||
+        bg_j.value("grid_rows", 0) != rows ||
+        bg_j.value("grid_cols", 0) != cols)
+      return nullptr;
+    if (!expected_hash.empty()) {
+      const std::string stored_hash = bg_j.value("content_hash", "");
+      if (stored_hash.empty() || stored_hash != expected_hash) {
+        std::cout
+            << "[RESUME] Background model cache hash mismatch or missing hash; "
+               "ignoring stale cache."
+            << std::endl;
+        return nullptr;
+      }
+    }
+
     std::vector<std::string> channel_names;
     if (channels == 4)
       channel_names = {"R", "G1", "G2", "B"};
@@ -144,6 +170,10 @@ load_prewarped_background_grid_store(const fs::path &run_dir) {
       return nullptr;
     auto store = std::make_shared<runner::BackgroundModelGridStore>(
         cache_dir, num_frames, rows, cols, channel_names, /*attach_existing=*/true);
+    for (size_t fi = 0; fi < num_frames; ++fi) {
+      if (!store->has_data(fi))
+        return nullptr;
+    }
     store->set_preserve_files(true);
     return store;
   } catch (const std::exception &e) {
@@ -2098,6 +2128,40 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     post_cfg.crop_to_nonzero_bbox = false;  // crop already handled above
     post_cfg.aqmh_enabled = cfg.aqmh.enabled;
     post_cfg.cosmetic_correction = false;
+
+    // Stufe C: build per-channel valid masks for the resume path. The main
+    // pipeline derives them from weight_sum > 0; in resume we only have the
+    // stacked recon_R/G/B and the common_valid_mask, so a pixel is valid when
+    // it is finite and the common mask is set.
+    std::vector<uint8_t> resume_df_valid_R;
+    std::vector<uint8_t> resume_df_valid_G;
+    std::vector<uint8_t> resume_df_valid_B;
+    const size_t canvas_px = static_cast<size_t>(
+        std::max<Eigen::Index>(0, recon.rows()) *
+        std::max<Eigen::Index>(0, recon.cols()));
+    auto build_resume_valid_mask =
+        [&](const Matrix2Df &channel) -> std::vector<uint8_t> {
+      std::vector<uint8_t> mask(canvas_px, 0u);
+      if (channel.size() != static_cast<Eigen::Index>(canvas_px) ||
+          common_valid_mask.size() != canvas_px)
+        return mask;
+      for (size_t i = 0; i < canvas_px; ++i) {
+        mask[i] = (std::isfinite(channel.data()[i]) &&
+                   common_valid_mask[i] != 0u)
+                      ? 1u
+                      : 0u;
+      }
+      return mask;
+    };
+    if (detected_mode == ColorMode::OSC &&
+        recon_R.size() == static_cast<Eigen::Index>(canvas_px) &&
+        recon_G.size() == static_cast<Eigen::Index>(canvas_px) &&
+        recon_B.size() == static_cast<Eigen::Index>(canvas_px)) {
+      resume_df_valid_R = build_resume_valid_mask(recon_R);
+      resume_df_valid_G = build_resume_valid_mask(recon_G);
+      resume_df_valid_B = build_resume_valid_mask(recon_B);
+    }
+
     runner::PostStackOutputResult post_result;
     if (!runner::write_post_stack_outputs(
             recon, recon_R, recon_G, recon_B,
@@ -2106,7 +2170,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             debayer_tile_offset_x, debayer_tile_offset_y,
             first_hdr, post_cfg, run_dir, run_id,
             emitter, log_file, post_result,
-            nullptr, nullptr, nullptr)) {
+            nullptr,
+            resume_df_valid_R.empty() ? nullptr : &resume_df_valid_R,
+            resume_df_valid_G.empty() ? nullptr : &resume_df_valid_G,
+            resume_df_valid_B.empty() ? nullptr : &resume_df_valid_B)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "output_write_failed"},
                          {"error", post_result.error}},

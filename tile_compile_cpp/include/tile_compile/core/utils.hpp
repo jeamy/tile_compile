@@ -65,6 +65,10 @@ struct StretchResult {
     float low = 0.0f;
     float high = 0.0f;
     size_t sample_count = 0;
+    // Per-channel RGB stretch bounds (only valid for RGB stretch variants).
+    float low_r = 0.0f, high_r = 0.0f;
+    float low_g = 0.0f, high_g = 0.0f;
+    float low_b = 0.0f, high_b = 0.0f;
 };
 
 StretchResult stretch_to_u16_linear_from_zero_inplace(
