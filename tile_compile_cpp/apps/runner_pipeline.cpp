@@ -1960,14 +1960,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   auto &overlap_coverage_count = *overlap_coverage_count_ptr;
   std::vector<uint8_t> common_valid_mask;
+  std::vector<uint8_t> analysis_valid_mask;
   if (overlap_coverage_count.size() == canvas_px) {
     auto masks = runner::compute_overlap_masks(overlap_coverage_count,
                                                required_common_frames);
     common_valid_mask = std::move(masks.analysis_common);
     reconstruction_valid_mask = std::move(masks.reconstruction_support);
+    analysis_valid_mask = std::move(masks.analysis_valid);
   } else {
     common_valid_mask.assign(canvas_px, 0u);
     reconstruction_valid_mask.assign(canvas_px, 0u);
+    analysis_valid_mask.assign(canvas_px, 0u);
   }
   const bool aqmh_uses_reconstruction_canvas =
       cfg.aqmh.enabled && reconstruction_valid_mask.size() == canvas_px;
@@ -2094,7 +2097,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           run_dir / "outputs" / "common_overlap_mask.fits";
       const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_write_error;
-      if (!write_canvas_mask_fits(common_mask_path, common_valid_mask,
+      if (!write_canvas_mask_fits(common_mask_path, analysis_valid_mask,
                                   canvas_height, canvas_width, first_hdr,
                                   mask_write_error) ||
           !write_canvas_mask_fits(mask_path, output_valid_mask, canvas_height,
@@ -5385,12 +5388,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         std::vector<uint8_t> cropped_common_mask(
             static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+        std::vector<uint8_t> cropped_analysis_mask(
+            static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
         std::vector<uint8_t> cropped_recon_mask;
         const bool have_recon_mask =
             (reconstruction_valid_mask.size() == full_mask_px);
         if (have_recon_mask) {
           cropped_recon_mask.assign(static_cast<size_t>(crop_h * crop_w),
                                      static_cast<uint8_t>(0));
+        }
+
+        std::vector<uint8_t> cropped_df_valid_mask_R;
+        std::vector<uint8_t> cropped_df_valid_mask_G;
+        std::vector<uint8_t> cropped_df_valid_mask_B;
+        const bool have_df_valid_masks =
+            df_valid_mask_R.size() == static_cast<size_t>(full_mask_px) &&
+            df_valid_mask_G.size() == static_cast<size_t>(full_mask_px) &&
+            df_valid_mask_B.size() == static_cast<size_t>(full_mask_px);
+        if (have_df_valid_masks) {
+          cropped_df_valid_mask_R.assign(static_cast<size_t>(crop_h * crop_w), 0u);
+          cropped_df_valid_mask_G.assign(static_cast<size_t>(crop_h * crop_w), 0u);
+          cropped_df_valid_mask_B.assign(static_cast<size_t>(crop_h * crop_w), 0u);
         }
 
         for (int y = 0; y < crop_h; ++y) {
@@ -5403,13 +5421,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             const int sx = crop_x + x;
             cropped_common_mask[dst_row_off + static_cast<size_t>(x)] =
                 common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            cropped_analysis_mask[dst_row_off + static_cast<size_t>(x)] =
+                analysis_valid_mask[src_row_off + static_cast<size_t>(sx)];
             if (have_recon_mask) {
               cropped_recon_mask[dst_row_off + static_cast<size_t>(x)] =
                   reconstruction_valid_mask[src_row_off + static_cast<size_t>(sx)];
             }
+            if (have_df_valid_masks) {
+              cropped_df_valid_mask_R[dst_row_off + static_cast<size_t>(x)] =
+                  df_valid_mask_R[src_row_off + static_cast<size_t>(sx)];
+              cropped_df_valid_mask_G[dst_row_off + static_cast<size_t>(x)] =
+                  df_valid_mask_G[src_row_off + static_cast<size_t>(sx)];
+              cropped_df_valid_mask_B[dst_row_off + static_cast<size_t>(x)] =
+                  df_valid_mask_B[src_row_off + static_cast<size_t>(sx)];
+            }
           }
         }
         common_valid_mask.swap(cropped_common_mask);
+        analysis_valid_mask.swap(cropped_analysis_mask);
+        if (have_df_valid_masks) {
+          df_valid_mask_R.swap(cropped_df_valid_mask_R);
+          df_valid_mask_G.swap(cropped_df_valid_mask_G);
+          df_valid_mask_B.swap(cropped_df_valid_mask_B);
+        }
         if (have_recon_mask) {
           reconstruction_valid_mask.swap(cropped_recon_mask);
         }
@@ -5418,7 +5452,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             run_dir / "outputs" / "common_overlap_mask.fits";
         const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
         std::string mask_write_error;
-        if (!write_canvas_mask_fits(common_mask_path, common_valid_mask, crop_h,
+        if (!write_canvas_mask_fits(common_mask_path, analysis_valid_mask, crop_h,
                                     crop_w, first_hdr, mask_write_error) ||
             !write_canvas_mask_fits(mask_path, output_valid_mask, crop_h,
                                     crop_w, first_hdr, mask_write_error)) {
@@ -5524,9 +5558,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                       Matrix2Df& B_ch,
                                       const char* stage_tag) -> bool {
       const std::vector<uint8_t>& statistics_mask =
-          common_valid_mask.size() == static_cast<size_t>(R_ch.size())
-              ? common_valid_mask
-              : reconstruction_valid_mask;
+          analysis_valid_mask.size() == static_cast<size_t>(R_ch.size())
+              ? analysis_valid_mask
+              : (common_valid_mask.size() == static_cast<size_t>(R_ch.size())
+                     ? common_valid_mask
+                     : reconstruction_valid_mask);
       const auto stretch =
           core::stretch_rgb_to_u32_linear_from_zero_inplace(
               R_ch, G_ch, B_ch, statistics_mask);

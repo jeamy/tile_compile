@@ -39,6 +39,10 @@ struct PhaseRegistrationContext {
   std::vector<uint16_t> overlap_coverage_count;
   /// Binary common-overlap mask used to gate local metrics and reconstruction.
   std::vector<uint8_t> common_valid_mask;
+  /// Analysis mask: pixels with coverage >= 0.5 * max coverage are usable for
+  /// photometric and validation analysis even if not part of the strict common
+  /// overlap region.
+  std::vector<uint8_t> analysis_valid_mask;
   /// Per-input-frame flag: 1 if the warp was supplied by the field-rotation
   /// model (model_interpolated / model_blended / model_global_poly /
   /// model_local_poly / model_nearest_copy) rather than directly measured.

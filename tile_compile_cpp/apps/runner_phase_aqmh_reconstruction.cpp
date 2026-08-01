@@ -341,44 +341,6 @@ RegistrationWeightGuardResult apply_registration_weight_guard(
   return result;
 }
 
-/// @brief Accumulate per-frame prewarped background grids into a single canvas
-/// grid. Empty or unsupported cells remain invalid.
-BackgroundModelGrid accumulate_prewarped_background_maps(
-    const BackgroundModelGridStore &store,
-    const std::vector<uint8_t> &frame_has_data) {
-  const int rows = store.rows();
-  const int cols = store.cols();
-  const int channels = store.channels();
-  BackgroundModelGrid out(rows, cols, channels);
-  std::vector<double> sum(static_cast<size_t>(channels) * rows * cols, 0.0);
-  std::vector<size_t> count(static_cast<size_t>(channels) * rows * cols, 0);
-
-  for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
-    if (frame_has_data[fi] == 0 || !store.has_data(fi))
-      continue;
-    auto grid = store.load(fi);
-    if (grid.rows() != rows || grid.cols() != cols ||
-        grid.channels() != channels)
-      continue;
-    for (size_t i = 0; i < grid.values().size(); ++i) {
-      if (grid.support_mask()[i] & BackgroundModelGrid::kMeasured) {
-        if (std::isfinite(grid.values()[i])) {
-          sum[i] += static_cast<double>(grid.values()[i]);
-          ++count[i];
-        }
-      }
-    }
-  }
-
-  for (size_t i = 0; i < sum.size(); ++i) {
-    if (count[i] > 0) {
-      out.values()[i] = static_cast<float>(sum[i] / static_cast<double>(count[i]));
-      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
-    }
-  }
-  return out;
-}
-
 } // namespace
 
 bool run_phase_aqmh_reconstruction(
@@ -564,6 +526,7 @@ bool run_phase_aqmh_reconstruction(
     // shared Q-maps (computed on debayered luminance). The luminance result
     // is used for downstream validation and post-processing.
     Matrix2Df df_R, df_G, df_B, df_wR, df_wG, df_wB;
+    Matrix2Df df_uc_R, df_uc_G, df_uc_B;
     for (int ch = 0; ch < 3; ++ch) {
       df_active_channel = ch;
       const char *ch_name = ch == 0 ? "R" : (ch == 1 ? "G" : "B");
@@ -574,11 +537,22 @@ bool run_phase_aqmh_reconstruction(
           reconstruction_valid_mask, canvas_width, canvas_height, aqmh_recon_cfg,
           nullptr, aqmh_mask_loader, aqmh_frame_region_loader,
           aqmh_mask_region_loader, progress_callback);
-      if (ch == 0) { df_R = ch_recon.output; df_wR = ch_recon.weight_sum; }
-      else if (ch == 1) { df_G = ch_recon.output; df_wG = ch_recon.weight_sum; }
-      else { df_B = ch_recon.output; df_wB = ch_recon.weight_sum; }
+      if (ch == 0) {
+        df_R = ch_recon.output;
+        df_wR = ch_recon.weight_sum;
+        df_uc_R = ch_recon.uniform_control_output;
+      } else if (ch == 1) {
+        df_G = ch_recon.output;
+        df_wG = ch_recon.weight_sum;
+        df_uc_G = ch_recon.uniform_control_output;
+      } else {
+        df_B = ch_recon.output;
+        df_wB = ch_recon.weight_sum;
+        df_uc_B = ch_recon.uniform_control_output;
+      }
       // Use the first channel's result as the base for validation/post-processing.
-      // After the loop, we replace the output with the luminance combination.
+      // After the loop, we replace the output and uniform control with the
+      // luminance combination.
       if (ch == 0) {
         aqmh_recon = ch_recon;
       }
@@ -600,10 +574,23 @@ bool run_phase_aqmh_reconstruction(
                          (df_wB.size() > 0 ? df_wB.data()[i] : 0.0f) * 0.25f;
       }
       aqmh_recon.weight_sum = wsum;
+      if (df_uc_R.size() > 0 && df_uc_G.size() > 0 && df_uc_B.size() > 0 &&
+          df_uc_R.rows() == canvas_height && df_uc_R.cols() == canvas_width) {
+        Matrix2Df luma_control(canvas_height, canvas_width);
+        for (int i = 0; i < canvas_height * canvas_width; ++i) {
+          luma_control.data()[i] =
+              0.25f * df_uc_R.data()[i] + 0.5f * df_uc_G.data()[i] +
+              0.25f * df_uc_B.data()[i];
+        }
+        aqmh_recon.uniform_control_output = std::move(luma_control);
+      }
     }
     out.df_output_R = std::move(df_R);
     out.df_output_G = std::move(df_G);
     out.df_output_B = std::move(df_B);
+    out.df_control_R = std::move(df_uc_R);
+    out.df_control_G = std::move(df_uc_G);
+    out.df_control_B = std::move(df_uc_B);
     out.df_weight_sum_R = std::move(df_wR);
     out.df_weight_sum_G = std::move(df_wG);
     out.df_weight_sum_B = std::move(df_wB);

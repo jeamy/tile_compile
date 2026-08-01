@@ -44,6 +44,10 @@ struct AqmhReconstructionPhaseResult {
   // (reference domain). The output stage upsamples and adds these before
   // applying output-scale restoration.
   BackgroundModelGrid background_map_canvas_grid;
+  // Stufe C: per-channel uniform control maps for Debayer-First-AQMH.
+  Matrix2Df df_control_R;
+  Matrix2Df df_control_G;
+  Matrix2Df df_control_B;
 };
 
 bool run_phase_aqmh_reconstruction(

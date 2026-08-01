@@ -514,11 +514,19 @@ OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
   OverlapMasks masks;
   masks.analysis_common.assign(coverage.size(), 0u);
   masks.reconstruction_support.assign(coverage.size(), 0u);
+  masks.analysis_valid.assign(coverage.size(), 0u);
+  int max_coverage = 0;
+  for (size_t i = 0; i < coverage.size(); ++i) {
+    max_coverage = std::max(max_coverage, static_cast<int>(coverage[i]));
+  }
   const int common_floor = std::max(1, required_common_frames);
+  const int analysis_floor =
+      std::max(1, static_cast<int>(std::ceil(0.5f * static_cast<float>(max_coverage))));
   for (size_t i = 0; i < coverage.size(); ++i) {
     const int count = static_cast<int>(coverage[i]);
     masks.reconstruction_support[i] = count > 0 ? 1u : 0u;
     masks.analysis_common[i] = count >= common_floor ? 1u : 0u;
+    masks.analysis_valid[i] = count >= analysis_floor ? 1u : 0u;
   }
   return masks;
 }
@@ -2444,6 +2452,44 @@ void BackgroundModelGridStore::cleanup() {
 
 void BackgroundModelGridStore::set_preserve_files(bool preserve) {
   preserve_files_ = preserve;
+}
+
+BackgroundModelGrid accumulate_prewarped_background_maps(
+    const BackgroundModelGridStore &store,
+    const std::vector<uint8_t> &frame_has_data) {
+  const int rows = store.rows();
+  const int cols = store.cols();
+  const int channels = store.channels();
+  BackgroundModelGrid out(rows, cols, channels);
+  if (rows <= 0 || cols <= 0 || channels <= 0)
+    return out;
+  std::vector<double> sum(static_cast<size_t>(channels) * rows * cols, 0.0);
+  std::vector<size_t> count(static_cast<size_t>(channels) * rows * cols, 0);
+
+  for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
+    if (frame_has_data[fi] == 0 || !store.has_data(fi))
+      continue;
+    auto grid = store.load(fi);
+    if (grid.rows() != rows || grid.cols() != cols ||
+        grid.channels() != channels)
+      continue;
+    for (size_t i = 0; i < grid.values().size(); ++i) {
+      if (grid.support_mask()[i] & BackgroundModelGrid::kMeasured) {
+        if (std::isfinite(grid.values()[i])) {
+          sum[i] += static_cast<double>(grid.values()[i]);
+          ++count[i];
+        }
+      }
+    }
+  }
+
+  for (size_t i = 0; i < sum.size(); ++i) {
+    if (count[i] > 0) {
+      out.values()[i] = static_cast<float>(sum[i] / static_cast<double>(count[i]));
+      out.support_mask()[i] = BackgroundModelGrid::kMeasured;
+    }
+  }
+  return out;
 }
 
 // ---- BackgroundMapCanvas ----

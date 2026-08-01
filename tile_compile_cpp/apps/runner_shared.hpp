@@ -105,6 +105,10 @@ AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
 struct OverlapMasks {
   std::vector<uint8_t> analysis_common;
   std::vector<uint8_t> reconstruction_support;
+  /// Pixels with coverage >= ceil(0.5 * max_coverage). Used for photometric
+  /// analysis and output-stretch statistics, even if not in the strict common
+  /// overlap region.
+  std::vector<uint8_t> analysis_valid;
 };
 
 /// Build independent analysis and output masks from per-pixel frame coverage.
@@ -920,5 +924,11 @@ private:
   std::vector<double> value_sum_;
   std::vector<size_t> count_;
 };
+
+/// @brief Accumulate per-frame prewarped background grids into a single canvas
+/// grid. Empty or unsupported cells remain invalid.
+BackgroundModelGrid accumulate_prewarped_background_maps(
+    const BackgroundModelGridStore &store,
+    const std::vector<uint8_t> &frame_has_data);
 
 } // namespace tile_compile::runner

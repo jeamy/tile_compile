@@ -43,6 +43,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
+using tile_compile::ColorMode;
+using tile_compile::Matrix2Df;
 using tile_compile::Tile;
 using tile_compile::TileGrid;
 using tile_compile::TileMetrics;
@@ -105,6 +107,156 @@ bool is_aqmh_cache_resume_phase(const std::string &phase_upper) {
       "AQMH_DIAGNOSTICS", "STACKING"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
+}
+
+/// @brief Load the prewarped background-model grid cache from the registration
+/// artifact, if present.
+std::shared_ptr<runner::BackgroundModelGridStore>
+load_prewarped_background_grid_store(const fs::path &run_dir) {
+  const fs::path artifact_path = run_dir / "artifacts" / "global_registration.json";
+  if (!fs::is_regular_file(artifact_path))
+    return nullptr;
+  try {
+    const auto j =
+        tile_compile::core::json::parse(tile_compile::core::read_text(artifact_path));
+    if (!j.contains("prewarped_background_grid"))
+      return nullptr;
+    const auto &p = j["prewarped_background_grid"];
+    const int rows = p.value("rows", 0);
+    const int cols = p.value("cols", 0);
+    const int channels = p.value("channels", 0);
+    const size_t num_frames = p.value("num_frames", 0u);
+    const std::string cache_dir_str = p.value("cache_dir", "");
+    if (rows <= 0 || cols <= 0 || channels <= 0 || num_frames == 0 ||
+        cache_dir_str.empty())
+      return nullptr;
+    fs::path cache_dir = cache_dir_str;
+    if (cache_dir.is_relative())
+      cache_dir = run_dir / cache_dir;
+    if (!fs::is_directory(cache_dir))
+      return nullptr;
+    std::vector<std::string> channel_names;
+    if (channels == 4)
+      channel_names = {"R", "G1", "G2", "B"};
+    else if (channels == 1)
+      channel_names = {"L"};
+    else
+      return nullptr;
+    auto store = std::make_shared<runner::BackgroundModelGridStore>(
+        cache_dir, num_frames, rows, cols, channel_names, /*attach_existing=*/true);
+    store->set_preserve_files(true);
+    return store;
+  } catch (const std::exception &e) {
+    std::cout << "[RESUME] Warning: cannot load prewarped background grid store: "
+              << e.what() << std::endl;
+    return nullptr;
+  }
+}
+
+/// @brief Upsample a background model grid to a full canvas RGB image.
+/// For a 4-channel CFA grid, G is averaged from G1 and G2.
+void upsample_background_grid_rgb(const runner::BackgroundModelGrid &grid,
+                                  int rows, int cols, Matrix2Df &out_R,
+                                  Matrix2Df &out_G, Matrix2Df &out_B) {
+  const int channels = grid.channels();
+  if (channels == 4) {
+    out_R = grid.upsample_channel(0, rows, cols);
+    const Matrix2Df G1 = grid.upsample_channel(1, rows, cols);
+    const Matrix2Df G2 = grid.upsample_channel(2, rows, cols);
+    out_G = 0.5f * (G1 + G2);
+    out_B = grid.upsample_channel(3, rows, cols);
+  } else if (channels == 1) {
+    out_R = grid.upsample_channel(0, rows, cols);
+    out_G = out_R;
+    out_B = out_R;
+  } else if (channels == 3) {
+    out_R = grid.upsample_channel(0, rows, cols);
+    out_G = grid.upsample_channel(1, rows, cols);
+    out_B = grid.upsample_channel(2, rows, cols);
+  }
+}
+
+/// @brief Add a canvas background map to the reconstruction canvas.
+///
+/// For OSC with precomputed RGB, the RGB channels receive the per-channel
+/// background and the luma `recon` is recomputed from them. For OSC without
+/// precomputed RGB, the CFA mosaic gets the per-Bayer background. For mono the
+/// single channel is added to `recon`.
+void add_background_map_to_canvas(
+    Matrix2Df &recon, Matrix2Df &recon_R, Matrix2Df &recon_G,
+    Matrix2Df &recon_B, const runner::BackgroundModelGrid &grid,
+    ColorMode mode, const std::string &bayer_pattern) {
+  if (grid.channels() <= 0 || grid.rows() <= 0 || grid.cols() <= 0 ||
+      recon.size() <= 0)
+    return;
+  const int rows = recon.rows();
+  const int cols = recon.cols();
+  if (mode == ColorMode::OSC && grid.channels() == 4) {
+    const bool have_rgb = recon_R.size() == recon.size() &&
+                          recon_G.size() == recon.size() &&
+                          recon_B.size() == recon.size() && recon.size() > 0;
+    Matrix2Df bg_R, bg_G, bg_B;
+    upsample_background_grid_rgb(grid, rows, cols, bg_R, bg_G, bg_B);
+    if (have_rgb) {
+      recon_R += bg_R;
+      recon_G += bg_G;
+      recon_B += bg_B;
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+    } else {
+      const auto pattern = tile_compile::string_to_bayer_pattern(bayer_pattern);
+      const auto off = tile_compile::get_bayer_offsets(pattern);
+      int g1_row = -1, g1_col = -1, g2_row = -1, g2_col = -1;
+      int seen = 0;
+      for (int py = 0; py < 2; ++py) {
+        for (int px = 0; px < 2; ++px) {
+          if ((py == off.r_row && px == off.r_col) ||
+              (py == off.b_row && px == off.b_col)) {
+            continue;
+          }
+          if (seen == 0) {
+            g1_row = py;
+            g1_col = px;
+            ++seen;
+          } else {
+            g2_row = py;
+            g2_col = px;
+          }
+        }
+      }
+      if (g1_row < 0 || g2_row < 0) {
+        g1_row = g2_row = (off.r_row == 0 ? 1 : 0);
+        g1_col = g2_col = (off.r_col == 0 ? 1 : 0);
+      }
+      const Matrix2Df R = grid.upsample_channel(0, rows, cols);
+      const Matrix2Df G1 = grid.upsample_channel(1, rows, cols);
+      const Matrix2Df G2 = grid.upsample_channel(2, rows, cols);
+      const Matrix2Df B = grid.upsample_channel(3, rows, cols);
+      for (int y = 0; y < rows; ++y) {
+        const int py = y & 1;
+        for (int x = 0; x < cols; ++x) {
+          const int px = x & 1;
+          float bg = 0.0f;
+          if (py == off.r_row && px == off.r_col) {
+            bg = R(y, x);
+          } else if (py == off.b_row && px == off.b_col) {
+            bg = B(y, x);
+          } else if (py == g1_row && px == g1_col) {
+            bg = G1(y, x);
+          } else if (py == g2_row && px == g2_col) {
+            bg = G2(y, x);
+          }
+          if (std::isfinite(bg))
+            recon(y, x) += bg;
+        }
+      }
+    }
+  } else {
+    const Matrix2Df L = grid.upsample_channel(0, rows, cols);
+    for (Eigen::Index k = 0; k < recon.size(); ++k) {
+      if (std::isfinite(L.data()[k]))
+        recon.data()[k] += L.data()[k];
+    }
+  }
 }
 
 bool validate_df_cache_metadata(const fs::path &run_dir, size_t frame_count,
@@ -1091,6 +1243,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
 
+    const auto prewarped_bg_store = load_prewarped_background_grid_store(run_dir);
+
     Matrix2Df canvas_mask_image;
     io::FitsHeader resume_header;
     try {
@@ -1241,7 +1395,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             prewarped_frames, aqmh_cache,
             global_weights, acceleration, emitter, log_file, phase_started,
             cv::getNumThreads(), phase_result, nullptr,
-            prewarped_frames_rgb.get(), nullptr)) {
+            prewarped_frames_rgb.get(),
+            prewarped_bg_store ? prewarped_bg_store.get() : nullptr)) {
       return 1;
     }
     try {
@@ -1284,6 +1439,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
     emitter.phase_progress(run_id, Phase::STACKING, 0.0f,
                            "preparing cached reconstruction", log_file);
+
+    const auto prewarped_bg_store = load_prewarped_background_grid_store(run_dir);
 
     std::vector<std::pair<int, fs::path>> synthetic_entries;
     const fs::path outputs_dir = run_dir / "outputs";
@@ -1746,6 +1903,22 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
+    // Stufe B: add the accumulated background map to the residual before output
+    // scaling. The scalar background term in the scaling is disabled below to
+    // avoid double-adding.
+    runner::BackgroundModelGrid bg_map_canvas_grid;
+    if (prewarped_bg_store && prewarped_bg_store->size() > 0) {
+      std::vector<uint8_t> frame_has_data(prewarped_bg_store->size(), 0u);
+      for (size_t fi = 0; fi < frame_has_data.size(); ++fi)
+        frame_has_data[fi] = prewarped_bg_store->has_data(fi) ? 1u : 0u;
+      bg_map_canvas_grid =
+          runner::accumulate_prewarped_background_maps(*prewarped_bg_store,
+                                                       frame_has_data);
+      add_background_map_to_canvas(recon, recon_R, recon_G, recon_B,
+                                   bg_map_canvas_grid, detected_mode,
+                                   detected_bayer_str);
+    }
+
     emitter.phase_progress(run_id, Phase::STACKING, 0.75f,
                            "applied post-stack processing", log_file);
     auto stretch_luma_for_output = [&](Matrix2Df &luma) {
@@ -1891,24 +2064,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const bool defer_aqmh_osc_scaling_to_rgb_writer =
         restore_aqmh_output_scaling && cfg.aqmh.enabled &&
         detected_mode == ColorMode::OSC && !have_resume_rgb_recon;
-    if (restore_aqmh_output_scaling && !defer_aqmh_osc_scaling_to_rgb_writer) {
-      image::apply_output_scaling_inplace(
-          recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
-          detected_mode, detected_bayer_str, aqmh_output_scaling.scale_mono,
-          aqmh_output_scaling.scale_r, aqmh_output_scaling.scale_g,
-          aqmh_output_scaling.scale_b, aqmh_output_scaling.bg_mono,
-          aqmh_output_scaling.bg_r, aqmh_output_scaling.bg_g,
-          aqmh_output_scaling.bg_b, 0.0f);
-      if (recon_R.size() == recon.size() && recon_G.size() == recon.size() &&
-          recon_B.size() == recon.size()) {
-        recon_R.array() = recon_R.array() * aqmh_output_scaling.scale_r +
-                          aqmh_output_scaling.bg_r;
-        recon_G.array() = recon_G.array() * aqmh_output_scaling.scale_g +
-                          aqmh_output_scaling.bg_g;
-        recon_B.array() = recon_B.array() * aqmh_output_scaling.scale_b +
-                          aqmh_output_scaling.bg_b;
-      }
-    }
+    // Output scaling is handled by write_post_stack_outputs below. The
+    // pre-scale block is removed so the Background-Model-Grid can be added
+    // before a single scaling step.
+    (void)defer_aqmh_osc_scaling_to_rgb_writer;
 
     emitter.phase_progress(run_id, Phase::STACKING, 0.9f,
                            "writing stacked output", log_file);
@@ -1925,6 +2084,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       resume_scaling.bg_b = aqmh_output_scaling.bg_b;
       resume_scaling.bg_mono = aqmh_output_scaling.bg_mono;
       resume_scaling.pedestal = 0.0f;
+      if (bg_map_canvas_grid.channels() > 0) {
+        // Background already added via the Background-Model-Grid; avoid the
+        // scalar restore term in write_post_stack_outputs.
+        resume_scaling.bg_r = 0.0f;
+        resume_scaling.bg_g = 0.0f;
+        resume_scaling.bg_b = 0.0f;
+        resume_scaling.bg_mono = 0.0f;
+      }
     }
     runner::PostStackOutputConfig post_cfg;
     post_cfg.output_stretch = cfg.stacking.output_stretch;
@@ -1938,7 +2105,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             resume_scaling, detected_mode, detected_bayer_str,
             debayer_tile_offset_x, debayer_tile_offset_y,
             first_hdr, post_cfg, run_dir, run_id,
-            emitter, log_file, post_result)) {
+            emitter, log_file, post_result,
+            nullptr, nullptr, nullptr)) {
       emitter.phase_end(run_id, Phase::STACKING, "error",
                         {{"reason", "output_write_failed"},
                          {"error", post_result.error}},

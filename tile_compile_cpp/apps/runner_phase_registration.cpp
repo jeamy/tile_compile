@@ -582,6 +582,16 @@ bool run_phase_registration_prewarp(
       j["dithering"]["detected_count"] = shifts_detected;
       j["dithering"]["total_frames"] = static_cast<int>(frames.size());
     }
+    if (out.prewarped_background_grid_store &&
+        out.prewarped_background_grid_store->size() > 0) {
+      j["prewarped_background_grid"] = core::json{
+          {"cache_dir", (run_dir / "cache" / "prewarped_background_models")
+                            .string()},
+          {"num_frames", static_cast<int>(frames.size())},
+          {"rows", out.prewarped_background_grid_store->rows()},
+          {"cols", out.prewarped_background_grid_store->cols()},
+          {"channels", out.prewarped_background_grid_store->channels()}};
+    }
     core::write_text(run_dir / "artifacts" / "global_registration.json",
                      j.dump(2));
   };
@@ -3192,6 +3202,7 @@ bool run_phase_registration_prewarp(
         std::make_shared<BackgroundModelGridStore>(
             run_dir / "cache" / "prewarped_background_models", frames.size(),
             canvas_bg_grid_rows, canvas_bg_grid_cols, channel_names);
+    prewarped_background_grid_store->set_preserve_files(true);
   }
 
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
@@ -3475,10 +3486,22 @@ bool run_phase_registration_prewarp(
     }
   }
   out.common_valid_mask.assign(canvas_px, static_cast<uint8_t>(0));
+  int max_coverage = 0;
   for (size_t pi = 0; pi < canvas_px; ++pi) {
+    max_coverage =
+        std::max(max_coverage, static_cast<int>(out.overlap_coverage_count[pi]));
     if (static_cast<int>(out.overlap_coverage_count[pi]) >=
         required_common_frames) {
       out.common_valid_mask[pi] = static_cast<uint8_t>(1);
+    }
+  }
+  const int analysis_coverage_threshold =
+      static_cast<int>(std::ceil(0.5f * static_cast<float>(max_coverage)));
+  out.analysis_valid_mask.assign(canvas_px, static_cast<uint8_t>(0));
+  for (size_t pi = 0; pi < canvas_px; ++pi) {
+    if (static_cast<int>(out.overlap_coverage_count[pi]) >=
+        analysis_coverage_threshold) {
+      out.analysis_valid_mask[pi] = static_cast<uint8_t>(1);
     }
   }
 

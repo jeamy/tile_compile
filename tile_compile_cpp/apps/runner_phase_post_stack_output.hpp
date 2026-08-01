@@ -100,7 +100,11 @@ bool write_post_stack_outputs(
     const std::string &run_id,
     core::EventEmitter &emitter,
     std::ostream &log_file,
-    PostStackOutputResult &out);
+    PostStackOutputResult &out,
+    const BackgroundModelGrid *background_map_canvas_grid = nullptr,
+    const std::vector<uint8_t> *df_valid_mask_R = nullptr,
+    const std::vector<uint8_t> *df_valid_mask_G = nullptr,
+    const std::vector<uint8_t> *df_valid_mask_B = nullptr);
 
 /// Write a stretched RGB snapshot (used for BGE/PCC intermediate outputs).
 /// Applies canvas mask, then robust p99.9 stretch if requested, writes as

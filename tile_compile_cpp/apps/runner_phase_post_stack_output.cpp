@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 namespace tile_compile::runner {
 namespace {
@@ -53,7 +54,11 @@ bool write_post_stack_outputs(
     const std::string &run_id,
     core::EventEmitter &emitter,
     std::ostream &log_file,
-    PostStackOutputResult &out) {
+    PostStackOutputResult &out,
+    const BackgroundModelGrid *background_map_canvas_grid,
+    const std::vector<uint8_t> *df_valid_mask_R,
+    const std::vector<uint8_t> *df_valid_mask_G,
+    const std::vector<uint8_t> *df_valid_mask_B) {
   namespace fs = std::filesystem;
 
   out.success = false;
@@ -228,6 +233,21 @@ bool write_post_stack_outputs(
 
     // Enforce canvas mask on RGB
     image::enforce_canvas_mask_on_rgb(recon_R, recon_G, recon_B, common_valid_mask);
+
+    // Apply per-channel valid masks. Pixels with no contributing frame are
+    // marked as NaN instead of a physical 0.
+    if (df_valid_mask_R && df_valid_mask_R->size() ==
+                              static_cast<size_t>(recon_R.size()) &&
+        recon_R.size() > 0) {
+      for (size_t i = 0; i < static_cast<size_t>(recon_R.size()); ++i) {
+        if ((*df_valid_mask_R)[i] == 0u)
+          recon_R.data()[i] = std::numeric_limits<float>::quiet_NaN();
+        if ((*df_valid_mask_G)[i] == 0u)
+          recon_G.data()[i] = std::numeric_limits<float>::quiet_NaN();
+        if ((*df_valid_mask_B)[i] == 0u)
+          recon_B.data()[i] = std::numeric_limits<float>::quiet_NaN();
+      }
+    }
 
     // Write per-channel
     try {
