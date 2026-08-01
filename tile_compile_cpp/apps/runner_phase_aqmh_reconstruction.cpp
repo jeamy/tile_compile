@@ -468,6 +468,7 @@ bool run_phase_aqmh_reconstruction(
     }
     return prewarped_frames.extract_tile_into(
         fi, Tile{0, y0, canvas_width, rows}, output);
+
   };
   auto aqmh_mask_region_loader =
       [&](size_t fi, int y0, int rows,

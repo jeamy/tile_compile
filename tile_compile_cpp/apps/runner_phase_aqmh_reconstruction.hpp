@@ -60,6 +60,7 @@ bool run_phase_aqmh_reconstruction(
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
     reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr,
-    const DiskCacheFrameStoreRGB *prewarped_frames_rgb = nullptr);
+    const DiskCacheFrameStoreRGB *prewarped_frames_rgb = nullptr
+);
 
 } // namespace tile_compile::runner

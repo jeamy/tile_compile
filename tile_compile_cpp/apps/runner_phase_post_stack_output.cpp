@@ -178,10 +178,15 @@ bool write_post_stack_outputs(
   if (detected_mode == ColorMode::OSC && have_rgb) {
     rgb_output_hdr.set("DEBAYER", "PRE_STACK");
     if (!cfg.output_stretch) {
-      // Restore photometric scale and background for absolute-ADU output
-      recon_R.array() = recon_R.array() * scaling.scale_r + scaling.bg_r;
-      recon_G.array() = recon_G.array() * scaling.scale_g + scaling.bg_g;
-      recon_B.array() = recon_B.array() * scaling.scale_b + scaling.bg_b;
+      // TODO(bg-model): global scalar background restore is a placeholder.
+      // Replace with per-frame background model once Background-Model-Cache
+      // (Stufe A/B) is implemented.
+      recon_R.array() *= scaling.scale_r;
+      recon_G.array() *= scaling.scale_g;
+      recon_B.array() *= scaling.scale_b;
+      recon_R.array() += scaling.bg_r;
+      recon_G.array() += scaling.bg_g;
+      recon_B.array() += scaling.bg_b;
     }
     // Luma for stacked.fits
     const float scale_luma = 0.25f * scaling.scale_r + 0.5f * scaling.scale_g +

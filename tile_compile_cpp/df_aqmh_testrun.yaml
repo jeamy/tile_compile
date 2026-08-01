@@ -223,7 +223,7 @@ stacking:
   method: rej
   common_overlap_required_fraction: 1
   tile_common_valid_min_fraction: 1
-  output_stretch: false
+  output_stretch: true
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true
@@ -240,7 +240,7 @@ stacking:
     cap_ratio: 20
 bge:
   enabled: false
-  method: autobge
+  method: none
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -294,7 +294,7 @@ bge:
     rbf_lambda: 0.01
     rbf_epsilon: 1
 pcc:
-  enabled: false
+  enabled: true
   source: siril
   mag_limit: 14
   mag_bright_limit: 6
@@ -317,7 +317,7 @@ pcc:
   max_condition_number: 3
   max_residual_rms: 0.9
 hypermetric_stretch:
-  enabled: false
+  enabled: true
   require_successful_pcc: true
   mode: ready_to_use
   sensor_profile: rec709

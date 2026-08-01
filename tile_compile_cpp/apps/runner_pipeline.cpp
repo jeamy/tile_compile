@@ -1778,6 +1778,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   Matrix2Df recon_R;
   Matrix2Df recon_G;
   Matrix2Df recon_B;
+  std::vector<uint8_t> df_valid_mask_R;
+  std::vector<uint8_t> df_valid_mask_G;
+  std::vector<uint8_t> df_valid_mask_B;
   Matrix2Df weight_sum;
 
   Matrix2Df first_img;
@@ -2359,6 +2362,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         recon_R = std::move(aqmh_recon_result.df_output_R);
         recon_G = std::move(aqmh_recon_result.df_output_G);
         recon_B = std::move(aqmh_recon_result.df_output_B);
+        df_valid_mask_R = std::move(aqmh_recon_result.df_valid_mask_R);
+        df_valid_mask_G = std::move(aqmh_recon_result.df_valid_mask_G);
+        df_valid_mask_B = std::move(aqmh_recon_result.df_valid_mask_B);
       } else if (aqmh_recon_result.osc_rgb_cleared) {
         recon_R.resize(0, 0);
         recon_G.resize(0, 0);
@@ -5556,7 +5562,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = std::move(debayer.B);
       }
       have_rgb = true;
-      // Restore photometric scale and additive background per channel.
+      // TODO(bg-model): global scalar background restore is a placeholder.
+      // Per-frame background is not preserved here; replace with Background-
+      // Model-Cache accumulation once Stufe A/B is implemented.
       R_out *= output_scale_r;
       G_out *= output_scale_g;
       B_out *= output_scale_b;
@@ -5565,6 +5573,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       B_out.array() += (output_bg_b + output_pedestal);
       image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out,
                                         reconstruction_valid_mask);
+
+      // Apply per-channel valid masks. Pixels with no contributing frame
+      // (weight_sum == 0) are marked as NaN instead of a physical 0.
+      if (df_valid_mask_R.size() == static_cast<size_t>(R_out.size()) &&
+          R_out.size() > 0) {
+        for (size_t i = 0; i < static_cast<size_t>(R_out.size()); ++i) {
+          if (df_valid_mask_R[i] == 0u) R_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
+          if (df_valid_mask_G[i] == 0u) G_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
+          if (df_valid_mask_B[i] == 0u) B_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
+        }
+      }
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            rgb_output_hdr);

@@ -1930,6 +1930,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     post_cfg.output_stretch = cfg.stacking.output_stretch;
     post_cfg.crop_to_nonzero_bbox = false;  // crop already handled above
     post_cfg.aqmh_enabled = cfg.aqmh.enabled;
+    post_cfg.cosmetic_correction = false;
     runner::PostStackOutputResult post_result;
     if (!runner::write_post_stack_outputs(
             recon, recon_R, recon_G, recon_B,
