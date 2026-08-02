@@ -2464,15 +2464,6 @@ BackgroundModelGrid accumulate_prewarped_background_maps(
   if (rows <= 0 || cols <= 0 || channels <= 0)
     return out;
 
-  // Count expected contributing frames for the 50% coverage threshold.
-  size_t expected = 0;
-  for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
-    if (frame_has_data[fi] != 0 && store.has_data(fi))
-      ++expected;
-  }
-  const size_t coverage_floor =
-      std::max<size_t>(1, (expected + 1) / 2); // ceil(0.5 * expected)
-
   const size_t plane = static_cast<size_t>(channels) * rows * cols;
   std::vector<std::vector<float>> samples(plane);
 
@@ -2491,6 +2482,16 @@ BackgroundModelGrid accumulate_prewarped_background_maps(
       }
     }
   }
+
+  // Determine the maximum per-cell coverage across all cells. The 50%
+  // coverage floor is relative to this maximum (not to the total frame
+  // count), because canvas expansion and field rotation cause edge cells
+  // to have fewer contributing frames than the center.
+  size_t max_count = 0;
+  for (const auto &s : samples)
+    max_count = std::max(max_count, s.size());
+  const size_t coverage_floor =
+      std::max<size_t>(1, (max_count + 1) / 2); // ceil(0.5 * max_count)
 
   for (size_t i = 0; i < samples.size(); ++i) {
     if (samples[i].size() < coverage_floor)
@@ -2570,8 +2571,14 @@ void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
 
 BackgroundModelGrid BackgroundMapCanvas::finalize() const {
   BackgroundModelGrid out(rows_, cols_, channels_);
+  // Determine max per-cell coverage. The 50% floor is relative to this
+  // maximum, not to the total frame count, because canvas expansion and
+  // field rotation cause edge cells to have fewer contributing frames.
+  size_t max_count = 0;
+  for (const auto &s : samples_)
+    max_count = std::max(max_count, s.size());
   const size_t coverage_floor =
-      std::max<size_t>(1, (expected_frame_count_ + 1) / 2);
+      std::max<size_t>(1, (max_count + 1) / 2); // ceil(0.5 * max_count)
   for (size_t i = 0; i < samples_.size(); ++i) {
     if (samples_[i].size() < coverage_floor)
       continue; // insufficient coverage -> stays invalid

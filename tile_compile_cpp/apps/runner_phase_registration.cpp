@@ -3486,6 +3486,16 @@ bool run_phase_registration_prewarp(
   out.background_grid_cols = canvas_bg_grid_cols;
   out.prewarped_background_grid_store =
       std::move(prewarped_background_grid_store);
+  // Re-write the registration artifact now that the prewarped background
+  // grid store is available, so the prewarped_background_grid entry (with
+  // cache_dir, dimensions and content_hash) is persisted for the resume path.
+  if (global_reg_status == "ok" && out.prewarped_background_grid_store &&
+      out.prewarped_background_grid_store->size() > 0) {
+    try {
+      write_global_registration_artifact(global_reg_scale);
+    } catch (...) {
+    }
+  }
   out.overlap_coverage_count.assign(canvas_px, 0);
   for (const auto &local_overlap_coverage : worker_overlap_coverage) {
     if (local_overlap_coverage.size() != canvas_px) {
