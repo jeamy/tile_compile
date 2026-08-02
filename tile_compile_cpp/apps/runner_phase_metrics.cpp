@@ -3,6 +3,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 
@@ -25,6 +26,20 @@ namespace io = tile_compile::io;
 namespace metrics = tile_compile::metrics;
 
 namespace {
+
+void apply_per_frame_cosmetic_correction(Matrix2Df &img,
+                                         const config::Config &cfg,
+                                         ColorMode detected_mode) {
+  if (!cfg.stacking.per_frame_cosmetic_correction || img.size() <= 0) {
+    return;
+  }
+  const float sigma = cfg.stacking.per_frame_cosmetic_correction_sigma;
+  if (detected_mode == ColorMode::OSC) {
+    img = image::cosmetic_correction_cfa(img, sigma, true, 0, 0);
+  } else {
+    img = image::cosmetic_correction(img, sigma, true);
+  }
+}
 
 /// @brief Extracts exposure seconds.
 /// @details Part of the channel metadata, normalization, and global-metrics phase implementation; this helper keeps the implementation
@@ -330,6 +345,7 @@ bool run_phase_channel_split_normalization_global_metrics(
       image::apply_normalization_inplace(img, norm_scales[frame_index],
                                          detected_mode, detected_bayer_str, 0,
                                          0);
+      apply_per_frame_cosmetic_correction(img, cfg, detected_mode);
       if (out.frame_cache) {
         out.frame_cache->store_normalized(frame_index, img);
         if (out.rgb_frame_cache && !out.rgb_frame_cache->has_data(frame_index)) {
@@ -618,6 +634,7 @@ bool run_phase_channel_split_normalization_global_metrics(
             subtract_background_grid_inplace(img, bg_grid.value(), detected_mode,
                                              detected_bayer_str);
           }
+          apply_per_frame_cosmetic_correction(img, cfg, detected_mode);
           out.frame_cache->store_normalized(i, img);
           if (out.rgb_frame_cache && !out.rgb_frame_cache->has_data(i)) {
             debayer_and_store_rgb(i, img, cfg, detected_mode,

@@ -382,6 +382,8 @@ prep::Config parse_preprocessing_config(const json& j) {
         json_float(h, "color_grip", cfg.hypermetric_stretch.color_grip);
     cfg.hypermetric_stretch.shadow_convergence =
         json_float(h, "shadow_convergence", cfg.hypermetric_stretch.shadow_convergence);
+    cfg.hypermetric_stretch.shadow_color_floor =
+        json_float(h, "shadow_color_floor", cfg.hypermetric_stretch.shadow_color_floor);
     cfg.hypermetric_stretch.linear_expansion =
         json_float(h, "linear_expansion", cfg.hypermetric_stretch.linear_expansion);
     cfg.hypermetric_stretch.write_channels =
@@ -499,6 +501,7 @@ json config_to_json(const prep::Config& cfg) {
           {"fixed_color_strategy", cfg.hypermetric_stretch.fixed_color_strategy},
           {"color_grip", cfg.hypermetric_stretch.color_grip},
           {"shadow_convergence", cfg.hypermetric_stretch.shadow_convergence},
+          {"shadow_color_floor", cfg.hypermetric_stretch.shadow_color_floor},
           {"linear_expansion", cfg.hypermetric_stretch.linear_expansion},
           {"write_channels", cfg.hypermetric_stretch.write_channels},
           {"output_rgb", cfg.hypermetric_stretch.output_rgb},
@@ -1619,6 +1622,7 @@ PreprocessPostprocessResult run_preprocess_postprocess(
         hms_cfg.fixed_color_strategy = cfg.hypermetric_stretch.fixed_color_strategy;
         hms_cfg.color_grip = cfg.hypermetric_stretch.color_grip;
         hms_cfg.shadow_convergence = cfg.hypermetric_stretch.shadow_convergence;
+        hms_cfg.shadow_color_floor = cfg.hypermetric_stretch.shadow_color_floor;
         hms_cfg.linear_expansion = cfg.hypermetric_stretch.linear_expansion;
         hms_cfg.write_channels = cfg.hypermetric_stretch.write_channels;
         hms_cfg.output_rgb = cfg.hypermetric_stretch.output_rgb;

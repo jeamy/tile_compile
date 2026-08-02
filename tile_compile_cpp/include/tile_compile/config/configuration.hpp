@@ -507,6 +507,7 @@ struct HyperMetricStretchConfig {
   float fixed_color_strategy = 0.0f;       // [-1,1]
   float color_grip = 1.0f;
   float shadow_convergence = 0.0f;
+  float shadow_color_floor = 1.0f;
   float linear_expansion = 0.0f;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";

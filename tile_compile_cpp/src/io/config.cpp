@@ -1091,6 +1091,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["shadow_convergence"]))
       cfg.hypermetric_stretch.shadow_convergence =
           h["shadow_convergence"].as<float>();
+    if (yaml_has_value(h["shadow_color_floor"]))
+      cfg.hypermetric_stretch.shadow_color_floor =
+          h["shadow_color_floor"].as<float>();
     if (yaml_has_value(h["linear_expansion"]))
       cfg.hypermetric_stretch.linear_expansion =
           h["linear_expansion"].as<float>();
@@ -1655,6 +1658,8 @@ YAML::Node Config::to_yaml() const {
   node["hypermetric_stretch"]["color_grip"] = hypermetric_stretch.color_grip;
   node["hypermetric_stretch"]["shadow_convergence"] =
       hypermetric_stretch.shadow_convergence;
+  node["hypermetric_stretch"]["shadow_color_floor"] =
+      hypermetric_stretch.shadow_color_floor;
   node["hypermetric_stretch"]["linear_expansion"] =
       hypermetric_stretch.linear_expansion;
   node["hypermetric_stretch"]["write_channels"] =

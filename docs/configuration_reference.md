@@ -3070,15 +3070,16 @@ VeraLux HyperMetric Stretch (HMS) ist eine optionale finale RGB-Stretch-Phase na
 
 **Zweck:** Steuert die VeraLux-GUI-Farbstrategie. Der Default `fixed: 0` entspricht dem Python-Slider-Default ohne zusätzliche StarPressure-Automatik.
 
-### `hypermetric_stretch.color_grip`, `hypermetric_stretch.shadow_convergence`, `hypermetric_stretch.linear_expansion`
+### `hypermetric_stretch.color_grip`, `hypermetric_stretch.shadow_convergence`, `hypermetric_stretch.shadow_color_floor`, `hypermetric_stretch.linear_expansion`
 
 | Key | Typ | Default | Constraint |
 |-----|-----|---------|------------|
 | `hypermetric_stretch.color_grip` | number | `1.0` | 0 – 1 |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` | >= 0 |
+| `hypermetric_stretch.shadow_color_floor` | number | `1.0` | 0 – 1 |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` | 0 – 1 |
 
-**Zweck:** Direkte VeraLux-Parameter. `linear_expansion` wirkt nur in `mode: scientific`; in `ready_to_use` wird es wie in der Python-Vorlage ignoriert.
+**Zweck:** Direkte VeraLux-Parameter. `shadow_color_floor` blendet extreme Einzelkanal-Farbwerte in dunklen Bildbereichen zu einer gemeinsamen Luma-Farbe zusammen: `1.0` entspricht dem vollen Floor (Default, gut für Hintergrundrauschen wie im M31-Run), `0.0` schaltet ihn ab (nützlich für Objekte mit echten, stark gesättigten Schattenfarben wie Narrowband-HOO/SHO oder hohe Kontrastnebel). `linear_expansion` wirkt nur in `mode: scientific`; in `ready_to_use` wird es wie in der Python-Vorlage ignoriert.
 
 ### `hypermetric_stretch.write_channels`, `hypermetric_stretch.output_rgb`
 
@@ -3346,7 +3347,7 @@ farbneutral oder leicht entsättigt erscheinen.
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Optionale kosmetische Korrektur (z. B. Hotpixel) nach dem Stacking.
+**Zweck:** Optionale kosmetische Korrektur nach dem Stacking. Erkennt sowohl helle Hotpixel als auch dunkle/kalte Dead-Pixel-Ausreißer.
 
 ---
 
@@ -3377,7 +3378,7 @@ farbneutral oder leicht entsättigt erscheinen.
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Hotpixel-Korrektur **pro Frame vor PREWARP/Stacking**.
+**Zweck:** Korrektur heller Hotpixel und dunkler/kalter Dead-Pixel **pro Frame vor PREWARP/Stacking**.
 
 Diese Option zielt auf **fixe Sensordefekte** (RGB-Einzelpixel), die in jedem Frame an der gleichen Position auftreten und deshalb durch Sigma-Clipping im Stack nicht zuverlässig entfernt werden.
 
@@ -4053,7 +4054,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `hypermetric_stretch.target_bg`: Zielhintergrund fuer Auto-LogD und Ready-to-Use-Scaling.
 - `hypermetric_stretch.protect_b`, `convergence_power`: VeraLux-Stretch- und Farbkonvergenzparameter.
 - `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatische oder fixe Stretch-Stärke.
-- `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: Farbstrategie und Hybrid-Grip-Parameter.
+- `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`, `shadow_color_floor`: Farbstrategie, Hybrid-Grip-Parameter und Schatten-Farb-Floor (1.0 = volle Farbflachlegung in dunklen Bereichen, 0.0 = aus; fuer farbstarke Objekte/Narrowband reduzieren).
 - `hypermetric_stretch.linear_expansion`: nur in `mode: scientific` wirksame lineare Expansion.
 - `hypermetric_stretch.write_channels`, `output_rgb`: HMS-Ausgabeoptionen.
 - `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).

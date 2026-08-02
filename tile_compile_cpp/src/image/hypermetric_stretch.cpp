@@ -83,6 +83,39 @@ float sanitize01(float v) {
   return std::clamp(v, 0.0f, 1.0f);
 }
 
+/// @brief Prevents extreme per-channel ratios in the stretched shadows.
+/// @details When one RGB channel falls below the anchor, the standard stretch
+/// produces a near-zero channel while the others remain positive, leading to
+/// colored speckles and red/blue gradients in the background. This helper adds
+/// a luma-proportional floor to the dark channels and renormalizes so the
+/// weighted luma is preserved. The effect fades out as luma approaches 1.0,
+/// leaving bright saturated colors untouched. The @p strength parameter (0–1)
+/// lets callers disable the floor or tune its aggressiveness per object.
+void apply_shadow_color_floor(float &r, float &g, float &b, float luma,
+                              float strength,
+                              const std::array<float, 3> &w) {
+  if (luma <= 0.0f || strength <= 0.0f) {
+    return;
+  }
+  const float q = std::max(0.0f, 1.0f - luma);
+  const float floor_frac =
+      strength * (0.50f * q + 0.15f * q * q);
+  const float min_v = floor_frac * luma;
+  if (r >= min_v && g >= min_v && b >= min_v) {
+    return;
+  }
+  r = std::max(r, min_v);
+  g = std::max(g, min_v);
+  b = std::max(b, min_v);
+  const float sum_luma = w[0] * r + w[1] * g + w[2] * b;
+  if (sum_luma > 0.0f) {
+    const float scale = luma / sum_luma;
+    r *= scale;
+    g *= scale;
+    b *= scale;
+  }
+}
+
 void normalize_rgb_input_inplace(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const std::vector<uint8_t> *statistics_mask,
@@ -548,9 +581,15 @@ void adaptive_output_scaling(
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
-      R(y, x) = expand(R(y, x));
-      G(y, x) = expand(G(y, x));
-      B(y, x) = expand(B(y, x));
+      const float luma = w[0] * sanitize01(R(y, x)) +
+                         w[1] * sanitize01(G(y, x)) +
+                         w[2] * sanitize01(B(y, x));
+      const float scaled_luma = expand(luma);
+      const float chroma_scale =
+          luma > 1.0e-9f ? scaled_luma / luma : 0.0f;
+      R(y, x) = std::clamp(sanitize01(R(y, x)) * chroma_scale, 0.0f, 1.0f);
+      G(y, x) = std::clamp(sanitize01(G(y, x)) * chroma_scale, 0.0f, 1.0f);
+      B(y, x) = std::clamp(sanitize01(B(y, x)) * chroma_scale, 0.0f, 1.0f);
     }
   }
 
@@ -873,6 +912,8 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   shadow_conv = std::max(0.0f, shadow_conv);
   diag.color_grip = color_grip;
   diag.shadow_convergence = shadow_conv;
+  diag.shadow_color_floor =
+      std::clamp(cfg.shadow_color_floor, 0.0f, 1.0f);
 
   const float D = std::pow(10.0f, diag.log_d);
   Matrix2Df Ls(rows, cols);
@@ -921,6 +962,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
         gv = gv * grip + scalar_g * (1.0f - grip);
         bv = bv * grip + scalar_b * (1.0f - grip);
       }
+
+      apply_shadow_color_floor(rv, gv, bv, Ls(y, x),
+                               diag.shadow_color_floor, w);
 
       R(y, x) = std::clamp(rv * 0.995f + 0.005f, 0.0f, 1.0f);
       G(y, x) = std::clamp(gv * 0.995f + 0.005f, 0.0f, 1.0f);

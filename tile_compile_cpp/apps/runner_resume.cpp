@@ -956,6 +956,7 @@ tile_compile::image::HyperMetricStretchConfig to_image_hms_config(
   dst.fixed_color_strategy = src.fixed_color_strategy;
   dst.color_grip = src.color_grip;
   dst.shadow_convergence = src.shadow_convergence;
+  dst.shadow_color_floor = src.shadow_color_floor;
   dst.linear_expansion = src.linear_expansion;
   dst.write_channels = src.write_channels;
   dst.output_rgb = src.output_rgb;
@@ -1239,6 +1240,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
          {"color_strategy", hms_diag.color_strategy},
          {"color_grip", hms_diag.color_grip},
          {"shadow_convergence", hms_diag.shadow_convergence},
+         {"shadow_color_floor", hms_diag.shadow_color_floor},
          {"black_clip_percent", hms_diag.black_clip_percent},
          {"white_clip_percent", hms_diag.white_clip_percent}},
         log_file);
@@ -3094,6 +3096,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
            {"color_strategy", hms_diag.color_strategy},
            {"color_grip", hms_diag.color_grip},
            {"shadow_convergence", hms_diag.shadow_convergence},
+           {"shadow_color_floor", hms_diag.shadow_color_floor},
            {"black_clip_percent", hms_diag.black_clip_percent},
            {"white_clip_percent", hms_diag.white_clip_percent}},
           log_file);

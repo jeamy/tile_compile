@@ -8517,6 +8517,7 @@ function rawStackDefaultHmsConfig() {
     fixed_color_strategy: 0.0,
     color_grip: 1.0,
     shadow_convergence: 0.0,
+    shadow_color_floor: 1.0,
     linear_expansion: 0.0,
     write_channels: false,
     output_rgb: "stacked_rgb_hms.fits",

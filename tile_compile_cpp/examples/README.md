@@ -22,8 +22,8 @@ They are kept in sync with the active runner/config parser defaults, including:
     - aggressive
   - in MONO profile this block is intentionally present but disabled for completeness.
 - `stacking.per_frame_cosmetic_correction*`
-  - optional per-frame hot-pixel correction before stacking.
-  - recommended when fixed sensor defects (RGB single-pixel speckles) survive sigma clipping.
+  - optional per-frame correction of bright hot pixels and dark/cold dead pixels before stacking.
+  - recommended when fixed sensor defects (RGB single-pixel speckles) survive sigma clipping; the setting is applied before DF-AQMH debayer/prewarp as well.
 - `stacking.cluster_quality_weighting.*`
   - includes full v3.2.2 cluster-quality weighting block:
     - `enabled`
@@ -112,6 +112,7 @@ They are kept in sync with the active runner/config parser defaults, including:
   - `mode: ready_to_use` writes a directly viewable VeraLux-stretched RGB with target-background scaling and final soft clip.
   - `mode: scientific` skips the ready-to-use final scaling/soft clip and allows `linear_expansion`.
   - Default `color_strategy: fixed` and `fixed_color_strategy: 0` match the VeraLux Python slider default without extra StarPressure color automation.
+  - `shadow_color_floor` (default `1.0`) limits extreme per-channel color ratios in dark regions. Reduce toward `0.0` for objects with genuine strong shadow color (e.g., narrowband HOO/SHO or high-contrast nebulae).
   - `sensor_profile` defaults to explicit `rec709`; use one of the named VeraLux sensor profiles listed in `docs/configuration_reference.md` / `docs/configuration_reference_en.md` when the camera is known.
   - Writes `outputs/stacked_rgb_hms.fits` unless `output_rgb` is overridden.
 

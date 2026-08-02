@@ -8,7 +8,7 @@ const FIELDS = {
   adaptive_anchor: true, target_bg: 0.15, protect_b: 6, convergence_power: 3.5,
   log_d_mode: ["auto", "fixed"], fixed_log_d: 2,
   color_strategy: ["auto", "fixed"], fixed_color_strategy: 0,
-  color_grip: 1, shadow_convergence: 0, linear_expansion: 0,
+  color_grip: 1, shadow_convergence: 0, shadow_color_floor: 1, linear_expansion: 0,
 };
 
 const SENSOR_PROFILES = [
@@ -178,7 +178,7 @@ export function openHmsPreview({ runId, runDir, yaml, onApply }) {
     field("convergence_power", t("param.hypermetric_stretch.convergence_power.label", "Convergence power"), { numeric:true,min:1,max:10,step:.1 }), field("log_d_mode", t("param.hypermetric_stretch.log_d_mode.label", "log D mode")),
     field("fixed_log_d", t("param.hypermetric_stretch.fixed_log_d.label", "Fixed log D"), { numeric:true,min:0,max:7,step:.05 }), field("color_strategy", t("param.hypermetric_stretch.color_strategy.label", "Color strategy")),
     field("fixed_color_strategy", t("param.hypermetric_stretch.fixed_color_strategy.label", "Fixed color strategy"), { numeric:true,min:-1,max:1,step:.01 }), field("color_grip", t("param.hypermetric_stretch.color_grip.label", "Color grip"), { numeric:true,min:0,max:1,step:.05 }),
-    field("shadow_convergence", t("param.hypermetric_stretch.shadow_convergence.label", "Shadow convergence"), { numeric:true,min:0,max:3,step:.1 }), field("linear_expansion", t("param.hypermetric_stretch.linear_expansion.label", "Linear expansion"), { numeric:true,min:0,max:1,step:.01 })
+    field("shadow_convergence", t("param.hypermetric_stretch.shadow_convergence.label", "Shadow convergence"), { numeric:true,min:0,max:3,step:.1 }), field("shadow_color_floor", t("param.hypermetric_stretch.shadow_color_floor.label", "Shadow color floor"), { numeric:true,min:0,max:1,step:.05 }), field("linear_expansion", t("param.hypermetric_stretch.linear_expansion.label", "Linear expansion"), { numeric:true,min:0,max:1,step:.01 })
   );
   const backdrop = el("div", { style: "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px" });
   const modal = el("div", { class: "tc-card", role: "dialog", "aria-modal": "true", style: "width:min(1500px,96vw);max-height:95vh;overflow:auto" });

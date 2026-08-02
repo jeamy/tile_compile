@@ -245,6 +245,18 @@
      REQUIRE(B(4, 5) == Catch::Approx(100.0f).epsilon(1e-5));
  }
 
+ TEST_CASE("cosmetic_correction_fixes_cold_dead_pixel") {
+     tile_compile::Matrix2Df frame =
+         tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+     frame(4, 4) = 0.0f;
+
+     const auto corrected =
+         tile_compile::image::cosmetic_correction(frame, 2.5f, true);
+
+     REQUIRE(corrected(4, 4) == Catch::Approx(100.0f).epsilon(1e-5));
+     REQUIRE(corrected(3, 3) == Catch::Approx(100.0f).epsilon(1e-5));
+ }
+
  TEST_CASE("cosmetic_correction_cfa_fixes_local_same_parity_outlier") {
      tile_compile::Matrix2Df mosaic = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
 

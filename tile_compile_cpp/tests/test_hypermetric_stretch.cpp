@@ -255,4 +255,146 @@ TEST_CASE("hypermetric_uses_common_overlap_statistics_without_cropping_output") 
   REQUIRE(G(8, 8) == Catch::Approx(G_common_only(8, 8)).margin(1e-6f));
   REQUIRE(B(8, 8) == Catch::Approx(B_common_only(8, 8)).margin(1e-6f));
 }
+
+TEST_CASE("hypermetric_ready_to_use_limits_shadow_color_speckles") {
+  constexpr int kSize = 64;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+
+  // Dark, noisy background with tiny per-channel differences.
+  // Several pixels have one channel exactly at/just below the anchor.
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float base = 0.015f + 0.0001f * static_cast<float>(x + y);
+      R(y, x) = base * 1.08f;
+      G(y, x) = base;
+      B(y, x) = base * 0.92f;
+    }
+  }
+
+  // Simulate defect/hot pixels where one channel is missing (below anchor).
+  R(10, 10) = 0.0025f;
+  G(10, 10) = 0.015f;
+  B(10, 10) = 0.015f;
+  R(20, 20) = 0.015f;
+  G(20, 20) = 0.0025f;
+  B(20, 20) = 0.015f;
+  R(30, 30) = 0.015f;
+  G(30, 30) = 0.015f;
+  B(30, 30) = 0.0025f;
+
+  // A few bright stars to ensure color is still preserved in highlights.
+  R(50, 50) = 0.80f;
+  G(50, 50) = 0.75f;
+  B(50, 50) = 0.70f;
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.sensor_profile = "rec709";
+  cfg.adaptive_anchor = true;
+  cfg.log_d_mode = "auto";
+
+  const auto diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+  REQUIRE(diag.success);
+
+  // No valid pixel should lose a full channel to zero in the shadow.
+  size_t zero_channel = 0;
+  size_t extreme_ratio = 0;
+  float max_ratio = 0.0f;
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      if (R(y, x) <= 1e-7f || G(y, x) <= 1e-7f || B(y, x) <= 1e-7f) {
+        ++zero_channel;
+      }
+      if (R(y, x) > 0.0f && G(y, x) > 0.0f && B(y, x) > 0.0f) {
+        const float rg = R(y, x) / G(y, x);
+        const float bg = B(y, x) / G(y, x);
+        const float rb = R(y, x) / B(y, x);
+        const float local_max = std::max({rg, bg, rb, 1.0f / rg, 1.0f / bg, 1.0f / rb});
+        max_ratio = std::max(max_ratio, local_max);
+        if (rg > 5.0f || rg < 0.2f || bg > 5.0f || bg < 0.2f ||
+            rb > 5.0f || rb < 0.2f) {
+          ++extreme_ratio;
+        }
+      }
+    }
+  }
+
+  REQUIRE(zero_channel < 10);
+  REQUIRE(extreme_ratio < 50);
+  REQUIRE(max_ratio < 8.0f);
+}
+
+TEST_CASE("hypermetric_shadow_color_floor_is_tunable") {
+  constexpr int kSize = 64;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float base = 0.015f + 0.0001f * static_cast<float>(x + y);
+      R(y, x) = base * 1.08f;
+      G(y, x) = base;
+      B(y, x) = base * 0.92f;
+    }
+  }
+  R(30, 30) = 0.015f;
+  G(30, 30) = 0.015f;
+  B(30, 30) = 0.0025f;
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.sensor_profile = "rec709";
+  cfg.adaptive_anchor = true;
+  cfg.log_d_mode = "auto";
+
+  // With floor disabled the same scene must produce large color ratios.
+  cfg.shadow_color_floor = 0.0f;
+  const auto diag_off =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+  REQUIRE(diag_off.success);
+  REQUIRE(diag_off.shadow_color_floor == Catch::Approx(0.0f));
+
+  float max_ratio_off = 0.0f;
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      if (R(y, x) > 0.0f && G(y, x) > 0.0f && B(y, x) > 0.0f) {
+        const float rg = R(y, x) / G(y, x);
+        const float bg = B(y, x) / G(y, x);
+        const float rb = R(y, x) / B(y, x);
+        const float local_max =
+            std::max({rg, bg, rb, 1.0f / rg, 1.0f / bg, 1.0f / rb});
+        max_ratio_off = std::max(max_ratio_off, local_max);
+      }
+    }
+  }
+  // With the floor disabled, the input color ratio remains less constrained.
+
+  // With the full floor the same scene is constrained again.
+  cfg.shadow_color_floor = 1.0f;
+  const auto diag_on =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+  REQUIRE(diag_on.success);
+  REQUIRE(diag_on.shadow_color_floor == Catch::Approx(1.0f));
+
+  float max_ratio_on = 0.0f;
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      if (R(y, x) > 0.0f && G(y, x) > 0.0f && B(y, x) > 0.0f) {
+        const float rg = R(y, x) / G(y, x);
+        const float bg = B(y, x) / G(y, x);
+        const float rb = R(y, x) / B(y, x);
+        const float local_max =
+            std::max({rg, bg, rb, 1.0f / rg, 1.0f / bg, 1.0f / rb});
+        max_ratio_on = std::max(max_ratio_on, local_max);
+      }
+    }
+  }
+  REQUIRE(max_ratio_on < 8.0f);
+}
 #endif

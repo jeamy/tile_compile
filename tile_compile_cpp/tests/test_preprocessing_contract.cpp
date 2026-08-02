@@ -32,6 +32,7 @@ TEST_CASE("preprocessing_contract_defaults_are_separate_from_main_pipeline") {
   REQUIRE(cfg.hypermetric_stretch.fixed_color_strategy == 0.0f);
   REQUIRE(cfg.hypermetric_stretch.color_grip == 1.0f);
   REQUIRE(cfg.hypermetric_stretch.shadow_convergence == 0.0f);
+  REQUIRE(cfg.hypermetric_stretch.shadow_color_floor == 1.0f);
   REQUIRE(cfg.hypermetric_stretch.linear_expansion == 0.0f);
   REQUIRE_FALSE(cfg.hypermetric_stretch.write_channels);
   REQUIRE(cfg.hypermetric_stretch.output_rgb == "stacked_rgb_hms.fits");

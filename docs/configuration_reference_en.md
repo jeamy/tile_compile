@@ -2651,6 +2651,7 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.fixed_color_strategy` | number | `0.0` | -1 - 1 |
 | `hypermetric_stretch.color_grip` | number | `1.0` | 0 - 1 |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` | >= 0 |
+| `hypermetric_stretch.shadow_color_floor` | number | `1.0` | 0 - 1 |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` | 0 - 1 |
 | `hypermetric_stretch.write_channels` | boolean | `false` | |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |
@@ -2851,7 +2852,7 @@ appear color-neutral or slightly desaturated.
 | **Minimum** | >0 |
 | **Default** | `5.0` |
 
-**Purpose:** MAD-sigma threshold for `stacking.cosmetic_correction`.
+**Purpose:** MAD-sigma threshold for `stacking.cosmetic_correction`, which detects both bright hot pixels and dark/cold dead-pixel outliers.
 
 - Lower value = more aggressive.
 - **Note:** In the stacked image, bright object cores can have high local contrast. Too aggressive settings can treat real signal peaks as hot pixels.
@@ -2870,7 +2871,7 @@ appear color-neutral or slightly desaturated.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Hot-pixel correction **per frame before PREWARP/stacking**.
+**Purpose:** Correction of bright hot pixels and dark/cold dead pixels **per frame before PREWARP/stacking**.
 
 This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at the same coordinates in every frame and therefore can survive stack sigma clipping.
 
@@ -3113,6 +3114,7 @@ HMS is enabled by default. Its detailed parameters match the normal Tile-Compile
 | `hypermetric_stretch.fixed_color_strategy` | number | `0.0` |
 | `hypermetric_stretch.color_grip` | number | `1.0` |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` |
+| `hypermetric_stretch.shadow_color_floor` | number | `1.0` |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` |
 | `hypermetric_stretch.write_channels` | boolean | `false` |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
@@ -3266,7 +3268,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `hypermetric_stretch.sensor_profile`, `fallback_profile`: VeraLux luminance weights.
 - `hypermetric_stretch.adaptive_anchor`, `target_bg`, `protect_b`, `convergence_power`: anchor, background target, and stretch controls.
 - `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatic or fixed stretch strength.
-- `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: color strategy and hybrid grip controls.
+- `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`, `shadow_color_floor`: color strategy, hybrid grip, and shadow color floor controls (1.0 = full floor (default), 0.0 = off; reduce for objects with strong genuine shadow color such as narrowband HOO/SHO or high-contrast nebulae).
 - `hypermetric_stretch.linear_expansion`: scientific-mode-only linear expansion.
 - `hypermetric_stretch.write_channels`, `output_rgb`: HMS output controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).

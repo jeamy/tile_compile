@@ -86,6 +86,7 @@
   "param.hypermetric_stretch.protect_b.label": "Protect B",
   "param.hypermetric_stretch.require_successful_pcc.label": "Require PCC success",
   "param.hypermetric_stretch.sensor_profile.label": "Sensor profile",
+  "param.hypermetric_stretch.shadow_color_floor.label": "Shadow color floor",
   "param.hypermetric_stretch.shadow_convergence.label": "Shadow convergence",
   "param.hypermetric_stretch.target_bg.label": "Target background",
   "param.hypermetric_stretch.write_channels.label": "Write channels",

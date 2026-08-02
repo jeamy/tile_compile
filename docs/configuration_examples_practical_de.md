@@ -299,6 +299,7 @@ hypermetric_stretch:
   linear_expansion: 0.25
   color_grip: 1.0
   shadow_convergence: 0.0
+  shadow_color_floor: 1.0
 ```
 
 `scientific` überspringt das finale Ready-to-Use-Scaling und den Soft Clip und erlaubt `linear_expansion`. Sinnvoll, wenn ein weniger poliertes, kontrollierteres Stretch-Ergebnis für weitere Bearbeitung gewünscht ist.

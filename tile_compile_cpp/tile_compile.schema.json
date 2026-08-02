@@ -1687,6 +1687,13 @@
           "description": "Shadow convergence parameter. Controls how aggressively dark regions are stretched. Higher values = more shadow detail. Range 0\u20132.0. Recommended: 0.5.",
           "default": 0.0
         },
+        "shadow_color_floor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Shadow color floor strength. Reduces extreme per-channel ratios in dark regions by adding a luma-proportional floor to the dark channel(s). 0 = disabled, 1 = full floor (default). Lower for objects with strong genuine shadow color (e.g., narrowband or high-contrast nebulae). Range 0\u20131. Recommended: 1.0.",
+          "default": 1.0
+        },
         "linear_expansion": {
           "type": "number",
           "minimum": 0,

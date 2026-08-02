@@ -251,6 +251,7 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
         cfg.fixed_color_strategy = value<float>(params, "fixed_color_strategy", cfg.fixed_color_strategy);
         cfg.color_grip = value<float>(params, "color_grip", cfg.color_grip);
         cfg.shadow_convergence = value<float>(params, "shadow_convergence", cfg.shadow_convergence);
+        cfg.shadow_color_floor = value<float>(params, "shadow_color_floor", cfg.shadow_color_floor);
         cfg.linear_expansion = value<float>(params, "linear_expansion", cfg.linear_expansion);
         std::vector<std::string> invalid;
         auto invalid_enum = [&invalid](const char* name, const std::string& actual,
@@ -277,6 +278,7 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
         invalid_number("fixed_color_strategy", cfg.fixed_color_strategy, -1.f, 1.f);
         invalid_number("color_grip", cfg.color_grip, 0.f, 1.f);
         invalid_number("shadow_convergence", cfg.shadow_convergence, 0.f, 3.f);
+        invalid_number("shadow_color_floor", cfg.shadow_color_floor, 0.f, 1.f);
         invalid_number("linear_expansion", cfg.linear_expansion, 0.f, 1.f);
         if (!invalid.empty()) {
             std::ostringstream message;

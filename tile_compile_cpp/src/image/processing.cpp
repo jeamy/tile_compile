@@ -260,38 +260,46 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     const float median = core::median_of(frame_values);
     const float mad = core::mad_of(frame_values, median);
 
-    float sigma = core::kMadToSigma * mad;
-    float threshold = median + sigma_threshold * sigma;
-    float neighbor_threshold = median + (0.5f * sigma_threshold) * sigma;
-    
+    const float sigma = core::kMadToSigma * mad;
+    const float threshold = median + sigma_threshold * sigma;
+    const float cold_threshold = median - sigma_threshold * sigma;
+    const float neighbor_threshold = median + (0.5f * sigma_threshold) * sigma;
+    const float cold_neighbor_threshold =
+        median - (0.5f * sigma_threshold) * sigma;
+
     if (correct_hot) {
         for (int y = 1; y < h - 1; ++y) {
             for (int x = 1; x < w - 1; ++x) {
-                if (frame(y, x) > threshold) {
-                    int hot_neighbor_count = 0;
-                    for (int dy = -1; dy <= 1; ++dy) {
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            if (dy == 0 && dx == 0) continue;
-                            if (frame(y + dy, x + dx) > neighbor_threshold) {
-                                ++hot_neighbor_count;
-                            }
-                        }
+                int hot_neighbor_count = 0;
+                int cold_neighbor_count = 0;
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        if (dy == 0 && dx == 0) continue;
+                        const float neighbor = frame(y + dy, x + dx);
+                        if (neighbor > neighbor_threshold) ++hot_neighbor_count;
+                        if (neighbor < cold_neighbor_threshold) ++cold_neighbor_count;
                     }
-                    if (hot_neighbor_count <= 1) {
-                        float sum = 0.0f;
-                        int n = 0;
-                        if (y - 2 >= 0) { sum += frame(y - 2, x); ++n; }
-                        if (y + 2 < h) { sum += frame(y + 2, x); ++n; }
-                        if (x - 2 >= 0) { sum += frame(y, x - 2); ++n; }
-                        if (x + 2 < w) { sum += frame(y, x + 2); ++n; }
-                        if (n >= 2) {
-                            result(y, x) = sum / static_cast<float>(n);
-                        } else {
-                            float neighbors = (frame(y-1, x) + frame(y+1, x) + 
-                                               frame(y, x-1) + frame(y, x+1)) / 4.0f;
-                            result(y, x) = neighbors;
-                        }
-                    }
+                }
+
+                const float value = frame(y, x);
+                const bool hot_outlier =
+                    value > threshold && hot_neighbor_count <= 1;
+                const bool cold_outlier =
+                    value < cold_threshold && cold_neighbor_count <= 1;
+                if (!hot_outlier && !cold_outlier) continue;
+
+                float sum = 0.0f;
+                int n = 0;
+                if (y - 2 >= 0) { sum += frame(y - 2, x); ++n; }
+                if (y + 2 < h) { sum += frame(y + 2, x); ++n; }
+                if (x - 2 >= 0) { sum += frame(y, x - 2); ++n; }
+                if (x + 2 < w) { sum += frame(y, x + 2); ++n; }
+                if (n >= 2) {
+                    result(y, x) = sum / static_cast<float>(n);
+                } else {
+                    result(y, x) = (frame(y - 1, x) + frame(y + 1, x) +
+                                    frame(y, x - 1) + frame(y, x + 1)) /
+                                   4.0f;
                 }
             }
         }

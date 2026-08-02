@@ -219,6 +219,9 @@ void validate(const Config& config) {
   if (config.hypermetric_stretch.shadow_convergence < 0.0f) {
     throw ValidationError("preprocessing.hypermetric_stretch.shadow_convergence must be >= 0");
   }
+  if (!in_unit_interval(config.hypermetric_stretch.shadow_color_floor)) {
+    throw ValidationError("preprocessing.hypermetric_stretch.shadow_color_floor must be in [0,1]");
+  }
   if (!in_unit_interval(config.hypermetric_stretch.linear_expansion)) {
     throw ValidationError("preprocessing.hypermetric_stretch.linear_expansion must be in [0,1]");
   }
