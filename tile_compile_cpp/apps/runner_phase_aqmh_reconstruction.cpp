@@ -1244,6 +1244,29 @@ bool run_phase_aqmh_reconstruction(
     out.background_map_canvas_grid =
         accumulate_prewarped_background_maps(*prewarped_background_grid_store,
                                              frame_has_data);
+    // Log accumulated background-map coverage so a missing/empty grid (which
+    // would leave the output as a background-free residual) is visible.
+    const auto &bgm = out.background_map_canvas_grid;
+    size_t bg_valid = 0;
+    float bg_min = 1e30f, bg_max = -1e30f, bg_sum = 0;
+    for (size_t i = 0; i < bgm.support_mask().size(); ++i) {
+      if (bgm.support_mask()[i] & tile_compile::runner::BackgroundModelGrid::kMeasured) {
+        ++bg_valid;
+        const float v = bgm.values()[i];
+        bg_min = std::min(bg_min, v);
+        bg_max = std::max(bg_max, v);
+        bg_sum += v;
+      }
+    }
+    std::cout << "[AQMH] background_map_canvas_grid: channels=" << bgm.channels()
+              << " rows=" << bgm.rows() << " cols=" << bgm.cols()
+              << " valid=" << bg_valid << "/" << bgm.support_mask().size()
+              << " min=" << bg_min << " max=" << bg_max
+              << " mean=" << (bg_valid > 0 ? bg_sum / bg_valid : 0) << std::endl;
+  } else {
+    std::cout << "[AQMH] prewarped_background_grid_store is "
+              << (prewarped_background_grid_store ? "empty" : "null")
+              << "; output will be a background-free residual" << std::endl;
   }
 
   cv::setNumThreads(prev_cv_threads);

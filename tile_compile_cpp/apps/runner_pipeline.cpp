@@ -4593,7 +4593,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             output_bg_g, output_bg_b, output_pedestal);
         for (Eigen::Index pi = 0; pi < out.size(); ++pi) {
           if (valid_mask.data()[pi] == 0.0f) {
-            out.data()[pi] = 0.0f;
+            out.data()[pi] = std::numeric_limits<float>::quiet_NaN();
           }
         }
         io::write_fits_float(run_dir / "outputs" / fname, out, first_hdr);
@@ -4892,35 +4892,25 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
+    // Stufe B: background-model maps aligned with the (possibly cropped) output
+    // canvas. The accumulated background grid spans the full canvas, but the
+    // reconstruction output is cropped to its valid bounding box below. These
+    // maps are upsampled to the full canvas and cropped to the same box after
+    // the crop is known, so the luma and RGB output paths can add them without a
+    // silent size-mismatch skip. Populated after the crop box is finalized.
+    Matrix2Df bg_map_luma_out;
+    Matrix2Df bg_map_R_out;
+    Matrix2Df bg_map_G_out;
+    Matrix2Df bg_map_B_out;
+
 	    auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
 	      Matrix2Df recon_out = stack_luma;
-      // Stufe B: add accumulated background map to residual before output-scale
-      // restoration; no extra scalar background is added.
-      {
-        const auto &bg_grid = aqmh_background_map_canvas_grid;
-        if (bg_grid.channels() > 0 && bg_grid.rows() > 0 &&
-            bg_grid.cols() > 0) {
-          Matrix2Df bg_luma;
-          if (bg_grid.channels() == 4) {
-            const Matrix2Df bg_R =
-                bg_grid.upsample_channel(0, canvas_height, canvas_width);
-            const Matrix2Df G1 =
-                bg_grid.upsample_channel(1, canvas_height, canvas_width);
-            const Matrix2Df G2 =
-                bg_grid.upsample_channel(2, canvas_height, canvas_width);
-            const Matrix2Df bg_B =
-                bg_grid.upsample_channel(3, canvas_height, canvas_width);
-            bg_luma = 0.25f * bg_R + 0.25f * (G1 + G2) + 0.25f * bg_B;
-          } else if (bg_grid.channels() == 1) {
-            bg_luma =
-                bg_grid.upsample_channel(0, canvas_height, canvas_width);
-          }
-          if (bg_luma.size() > 0 &&
-              static_cast<size_t>(bg_luma.size()) ==
-                  static_cast<size_t>(recon_out.size())) {
-            recon_out += bg_luma;
-          }
-        }
+      // Stufe B: add the crop-aligned accumulated background map to the residual
+      // before output-scale restoration; no extra scalar background is added.
+      if (bg_map_luma_out.size() > 0 &&
+          static_cast<size_t>(bg_map_luma_out.size()) ==
+              static_cast<size_t>(recon_out.size())) {
+        recon_out += bg_map_luma_out;
       }
       if (detected_mode == ColorMode::OSC) {
         const float scale_luma = 0.25f * output_scale_r + 0.5f * output_scale_g +
@@ -5476,6 +5466,65 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
+    // Stufe B: build the crop-aligned background-model maps now that the crop
+    // box is finalized. The accumulated grid spans the full canvas; we upsample
+    // it to the full canvas and then extract the output crop box so the maps
+    // match the (possibly cropped) reconstruction outputs exactly. Without this
+    // the earlier size-equality guard silently dropped the background whenever
+    // crop_to_nonzero_bbox trimmed even a single row/column.
+    {
+      const auto &bg_grid = aqmh_background_map_canvas_grid;
+      if (bg_grid.channels() > 0 && bg_grid.rows() > 0 && bg_grid.cols() > 0) {
+        const int cx = stacking_crop_box.x;
+        const int cy = stacking_crop_box.y;
+        const int cw = stacking_crop_box.width;
+        const int chh = stacking_crop_box.height;
+        auto crop_full = [&](Matrix2Df full) -> Matrix2Df {
+          if (full.rows() == canvas_height && full.cols() == canvas_width &&
+              cx >= 0 && cy >= 0 && cw > 0 && chh > 0 &&
+              cy + chh <= canvas_height && cx + cw <= canvas_width &&
+              (cx != 0 || cy != 0 || cw != canvas_width ||
+               chh != canvas_height)) {
+            return full.block(cy, cx, chh, cw).eval();
+          }
+          return full;
+        };
+        if (bg_grid.channels() == 4) {
+          Matrix2Df bR = crop_full(
+              bg_grid.upsample_channel(0, canvas_height, canvas_width));
+          const Matrix2Df G1 =
+              bg_grid.upsample_channel(1, canvas_height, canvas_width);
+          const Matrix2Df G2 =
+              bg_grid.upsample_channel(2, canvas_height, canvas_width);
+          Matrix2Df bG = crop_full(0.5f * (G1 + G2));
+          Matrix2Df bB = crop_full(
+              bg_grid.upsample_channel(3, canvas_height, canvas_width));
+          bg_map_luma_out = 0.25f * bR + 0.5f * bG + 0.25f * bB;
+          bg_map_R_out = std::move(bR);
+          bg_map_G_out = std::move(bG);
+          bg_map_B_out = std::move(bB);
+        } else if (bg_grid.channels() == 3) {
+          Matrix2Df bR = crop_full(
+              bg_grid.upsample_channel(0, canvas_height, canvas_width));
+          Matrix2Df bG = crop_full(
+              bg_grid.upsample_channel(1, canvas_height, canvas_width));
+          Matrix2Df bB = crop_full(
+              bg_grid.upsample_channel(2, canvas_height, canvas_width));
+          bg_map_luma_out = 0.25f * bR + 0.5f * bG + 0.25f * bB;
+          bg_map_R_out = std::move(bR);
+          bg_map_G_out = std::move(bG);
+          bg_map_B_out = std::move(bB);
+        } else if (bg_grid.channels() == 1) {
+          Matrix2Df bL = crop_full(
+              bg_grid.upsample_channel(0, canvas_height, canvas_width));
+          bg_map_luma_out = bL;
+          bg_map_R_out = bL;
+          bg_map_G_out = bL;
+          bg_map_B_out = std::move(bL);
+        }
+      }
+    }
+
     if (!write_stacking_outputs(recon)) {
       return 1;
     }
@@ -5630,46 +5679,24 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = std::move(debayer.B);
       }
       have_rgb = true;
-      // Stufe B: add accumulated background map to residual, then apply
-      // output-scale restoration (no extra scalar background term).
-      {
-        const auto &bg_grid = aqmh_background_map_canvas_grid;
-        if (bg_grid.channels() > 0 && bg_grid.rows() > 0 &&
-            bg_grid.cols() > 0) {
-          Matrix2Df bg_R, bg_G, bg_B;
-          if (bg_grid.channels() == 4) {
-            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
-            const Matrix2Df G1 =
-                bg_grid.upsample_channel(1, canvas_height, canvas_width);
-            const Matrix2Df G2 =
-                bg_grid.upsample_channel(2, canvas_height, canvas_width);
-            bg_G = 0.5f * (G1 + G2);
-            bg_B = bg_grid.upsample_channel(3, canvas_height, canvas_width);
-          } else if (bg_grid.channels() == 1) {
-            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
-            bg_G = bg_R;
-            bg_B = bg_R;
-          } else if (bg_grid.channels() == 3) {
-            bg_R = bg_grid.upsample_channel(0, canvas_height, canvas_width);
-            bg_G = bg_grid.upsample_channel(1, canvas_height, canvas_width);
-            bg_B = bg_grid.upsample_channel(2, canvas_height, canvas_width);
-          }
-          if (bg_R.size() > 0 &&
-              static_cast<size_t>(bg_R.size()) ==
-                  static_cast<size_t>(R_out.size())) {
-            R_out += bg_R;
-          }
-          if (bg_G.size() > 0 &&
-              static_cast<size_t>(bg_G.size()) ==
-                  static_cast<size_t>(G_out.size())) {
-            G_out += bg_G;
-          }
-          if (bg_B.size() > 0 &&
-              static_cast<size_t>(bg_B.size()) ==
-                  static_cast<size_t>(B_out.size())) {
-            B_out += bg_B;
-          }
-        }
+      // Stufe B: add the crop-aligned accumulated background map to the residual,
+      // then apply output-scale restoration (no extra scalar background term).
+      // The maps were built above against the finalized output crop box, so they
+      // line up with the (possibly cropped) R/G/B channels.
+      if (bg_map_R_out.size() > 0 &&
+          static_cast<size_t>(bg_map_R_out.size()) ==
+              static_cast<size_t>(R_out.size())) {
+        R_out += bg_map_R_out;
+      }
+      if (bg_map_G_out.size() > 0 &&
+          static_cast<size_t>(bg_map_G_out.size()) ==
+              static_cast<size_t>(G_out.size())) {
+        G_out += bg_map_G_out;
+      }
+      if (bg_map_B_out.size() > 0 &&
+          static_cast<size_t>(bg_map_B_out.size()) ==
+              static_cast<size_t>(B_out.size())) {
+        B_out += bg_map_B_out;
       }
       R_out *= output_scale_r;
       G_out *= output_scale_g;

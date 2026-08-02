@@ -3327,6 +3327,16 @@ Sichtbare Tile-Grenzen werden stattdessen über Laufzeit-Artefakte aus `TILE_REC
 
 **Zweck:** Optionales lineares Nachskalieren der Ausgabedaten von `0..max` auf den vollen Bereich `0..65535`.
 
+**Hinweis:** Bei OSC-Daten erfolgt der Stretch **pro Kanal** (R, G, B
+unabhängig), mit je einem robusten p1-Floor und p99.9-Ceiling. Das
+verhindert, dass ein dunkler Kanal (z. B. G bei niedrigem Hintergrund) durch
+einen gemeinsamen Floor auf 0 geclippt wird. Da jeder Kanal auf den vollen
+Ausgangsbereich gestreckt wird, geht die relative Helligkeitsbeziehung
+zwischen den Kanälen verloren. Eine nachfolgende photometrische
+Farbkalibrierung (PCC) ist erforderlich, um eine physikalisch korrekte
+Farbbalance wiederherzustellen. Ohne PCC kann das gestretchte Bild
+farbneutral oder leicht entsättigt erscheinen.
+
 ---
 
 ### `stacking.cosmetic_correction`

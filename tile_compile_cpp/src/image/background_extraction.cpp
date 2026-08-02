@@ -605,9 +605,13 @@ void enforce_canvas_mask_on_rgb(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     for (int x = 0; x < cols; ++x) {
       const size_t idx = row_off + static_cast<size_t>(x);
       if (mask[idx] == 0) {
-        R(y, x) = 0.0f;
-        G(y, x) = 0.0f;
-        B(y, x) = 0.0f;
+        // Use NaN to distinguish "no data" from a valid zero-ADU pixel.
+        // The stretch and FITS writer treat NaN as 0 in the final u32 output,
+        // but downstream metrics and analysis can detect invalid pixels.
+        constexpr float nan = std::numeric_limits<float>::quiet_NaN();
+        R(y, x) = nan;
+        G(y, x) = nan;
+        B(y, x) = nan;
       }
     }
   }

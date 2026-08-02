@@ -206,7 +206,7 @@ bool write_post_stack_outputs(
     for (Eigen::Index k = 0; k < recon_luma.size(); ++k) {
       if (static_cast<size_t>(k) >= common_valid_mask.size() ||
           common_valid_mask[static_cast<size_t>(k)] == 0)
-        recon_luma.data()[k] = 0.0f;
+        recon_luma.data()[k] = std::numeric_limits<float>::quiet_NaN();
     }
 
     // Linear luma file is always written unchanged.
@@ -328,7 +328,7 @@ bool write_post_stack_outputs(
     for (Eigen::Index k = 0; k < recon.size(); ++k) {
       if (static_cast<size_t>(k) >= common_valid_mask.size() ||
           common_valid_mask[static_cast<size_t>(k)] == 0)
-        recon.data()[k] = 0.0f;
+        recon.data()[k] = std::numeric_limits<float>::quiet_NaN();
     }
 
     // Linear mono file is always restored.

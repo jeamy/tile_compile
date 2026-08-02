@@ -150,15 +150,22 @@ load_prewarped_background_grid_store(const fs::path &run_dir) {
         bg_j.value("grid_rows", 0) != rows ||
         bg_j.value("grid_cols", 0) != cols)
       return nullptr;
-    if (!expected_hash.empty()) {
-      const std::string stored_hash = bg_j.value("content_hash", "");
-      if (stored_hash.empty() || stored_hash != expected_hash) {
-        std::cout
-            << "[RESUME] Background model cache hash mismatch or missing hash; "
-               "ignoring stale cache."
-            << std::endl;
-        return nullptr;
-      }
+    // A missing expected_hash means the registration artifact was written by
+    // an older runner version without hash support. Reject the cache rather
+    // than silently accepting an unvalidated background model.
+    if (expected_hash.empty()) {
+      std::cout << "[RESUME] Background model cache rejected: registration "
+                   "artifact has no content_hash (stale or incompatible run)."
+                << std::endl;
+      return nullptr;
+    }
+    const std::string stored_hash = bg_j.value("content_hash", "");
+    if (stored_hash.empty() || stored_hash != expected_hash) {
+      std::cout
+          << "[RESUME] Background model cache hash mismatch or missing hash; "
+             "ignoring stale cache."
+          << std::endl;
+      return nullptr;
     }
 
     std::vector<std::string> channel_names;

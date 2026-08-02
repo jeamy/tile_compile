@@ -621,6 +621,14 @@ StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
 /// @brief Implements per-channel RGB stretch to u32 linear from zero inplace.
 /// Each channel gets its own robust p1 floor and p99.9 ceiling; this prevents
 /// channels with different dynamic ranges from clipping each other.
+///
+/// @note Per-channel stretch eliminates cross-channel clipping (e.g. a dim G
+/// channel being crushed to 0 by an R-derived floor), but it also normalises
+/// each channel to the full output range, which removes the *relative*
+/// brightness relationship between channels. A subsequent photometric color
+/// calibration (PCC) step is required to restore a physically correct color
+/// balance. Without PCC the stretched image may appear color-neutral or
+/// slightly desaturated rather than preserving the original channel ratios.
 StretchResult stretch_rgb_to_u32_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,

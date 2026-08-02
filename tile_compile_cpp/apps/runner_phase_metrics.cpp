@@ -769,8 +769,9 @@ bool run_phase_channel_split_normalization_global_metrics(
       const auto &names = out.background_grid_store->channel_names();
       const size_t cells_per_plane =
           static_cast<size_t>(kBackgroundGridRows) * kBackgroundGridCols;
+      // 1% of cells, but at least 10 to avoid false positives on tiny grids.
       const size_t fallback_limit =
-          std::max<size_t>(1, cells_per_plane / 100); // 1% of cells
+          std::max<size_t>(10, cells_per_plane / 100);
       for (size_t i = 0; i < frames.size(); ++i) {
         core::json frame_info;
         frame_info["frame_index"] = static_cast<int>(i);

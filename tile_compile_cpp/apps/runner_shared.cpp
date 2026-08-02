@@ -2526,8 +2526,12 @@ void BackgroundMapCanvas::accumulate(const BackgroundModelGrid &frame_grid,
       canvas_rows <= 0 || canvas_cols <= 0)
     return;
 
-  const int cell_h = canvas_rows / rows_;
-  const int cell_w = canvas_cols / cols_;
+  // Use ceil division so the last row/column does not absorb all remaining
+  // pixels.  With floor division (e.g. 3924/131 = 29) the last column would
+  // cover 154 px instead of 29, inflating its sample count by ~5x and
+  // raising the coverage floor so much that every other cell is rejected.
+  const int cell_h = (canvas_rows + rows_ - 1) / rows_;
+  const int cell_w = (canvas_cols + cols_ - 1) / cols_;
   if (cell_h <= 0 || cell_w <= 0)
     return;
 

@@ -2823,6 +2823,15 @@ Visible tile boundaries are instead analyzed through runtime artifacts written b
 
 **Purpose:** Optional linear post-scaling of the output data from `0..max` to the full `0..65535` range.
 
+**Note:** For OSC data the stretch is applied **per channel** (R, G, B
+independently), each with its own robust p1 floor and p99.9 ceiling. This
+prevents a dim channel (e.g. G with a low background) from being crushed to
+0 by a shared floor. Because each channel is stretched to the full output
+range, the relative brightness relationship between channels is lost. A
+subsequent photometric color calibration (PCC) step is required to restore
+a physically correct color balance. Without PCC the stretched image may
+appear color-neutral or slightly desaturated.
+
 ### `stacking.cosmetic_correction`
 
 | Property | Value |

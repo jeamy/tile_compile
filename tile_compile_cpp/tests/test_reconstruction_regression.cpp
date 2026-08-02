@@ -284,12 +284,13 @@ TEST_CASE("canvas_mask_zeroes_rgb_channels_consistently") {
   REQUIRE(R(0, 0) == Catch::Approx(10.0f).margin(1e-6));
   REQUIRE(G(0, 0) == Catch::Approx(11.0f).margin(1e-6));
   REQUIRE(B(0, 0) == Catch::Approx(12.0f).margin(1e-6));
-  REQUIRE(R(0, 1) == Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE(G(0, 1) == Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE(B(0, 1) == Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE(R(1, 1) == Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE(G(1, 1) == Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE(B(1, 1) == Catch::Approx(0.0f).margin(1e-6));
+  // Masked pixels are set to NaN to distinguish "no data" from valid 0 ADU.
+  REQUIRE(std::isnan(R(0, 1)));
+  REQUIRE(std::isnan(G(0, 1)));
+  REQUIRE(std::isnan(B(0, 1)));
+  REQUIRE(std::isnan(R(1, 1)));
+  REQUIRE(std::isnan(G(1, 1)));
+  REQUIRE(std::isnan(B(1, 1)));
 }
 
 TEST_CASE("wiener_tile_filter_preserves_high_snr_tiles_and_returns_finite_output") {
