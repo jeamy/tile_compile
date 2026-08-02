@@ -233,7 +233,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 2
+  per_frame_cosmetic_correction_sigma: 2.5
   sigma_clip:
     sigma_low: 2
     sigma_high: 1.5

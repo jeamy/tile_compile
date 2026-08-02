@@ -210,7 +210,8 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                     (v > local_median + local_floor) &&
                     (same_color_support <= 1);
                 extreme_outlier =
-                    (v > local_median + 5.0f * local_floor);
+                    (v > local_median + 5.0f * local_floor) &&
+                    (same_color_support <= 1);
                 cold_outlier =
                     (v < local_median - local_floor);
                 replacement_value = local_median;
