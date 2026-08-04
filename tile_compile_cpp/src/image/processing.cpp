@@ -188,6 +188,7 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             bool local_candidate = false;
             bool extreme_outlier = false;
             bool cold_outlier = false;
+            bool global_candidate_cold_supported = global_candidate_cold;
             float replacement_value = 0.0f;
             if (same_color_neighbors.size() >= 4u) {
                 const float local_median = core::median_of(same_color_neighbors);
@@ -200,10 +201,16 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                      1.0e-6f});
                 const float support_threshold =
                     local_median + 0.5f * local_floor;
+                const float cold_support_threshold =
+                    local_median - 0.5f * local_floor;
                 int same_color_support = 0;
+                int same_color_cold_support = 0;
                 for (float neighbor : same_color_neighbors) {
                     if (neighbor > support_threshold) {
                         ++same_color_support;
+                    }
+                    if (neighbor < cold_support_threshold) {
+                        ++same_color_cold_support;
                     }
                 }
                 local_candidate =
@@ -213,13 +220,16 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                     (v > local_median + 5.0f * local_floor) &&
                     (same_color_support <= 1);
                 cold_outlier =
-                    (v < local_median - local_floor);
+                    (v < local_median - local_floor) &&
+                    (same_color_cold_support <= 1);
+                global_candidate_cold_supported =
+                    global_candidate_cold && (same_color_cold_support <= 1);
                 replacement_value = local_median;
             }
 
             const bool should_correct =
                 (global_candidate_raw || local_candidate || extreme_outlier ||
-                 global_candidate_cold || cold_outlier);
+                 global_candidate_cold_supported || cold_outlier);
 
             if (should_correct) {
                 if (same_color_neighbors.size() >= 4u) {

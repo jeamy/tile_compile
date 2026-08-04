@@ -2937,8 +2937,17 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 |-------------|------|
 | **Typ** | number |
 | **Default** | `1.0` |
+| **Bereich** | `[0.0, 1.0]` |
 
-**Zweck:** Globaler Staerkefaktor fuer Chroma-Korrektur bei PCC-Apply.
+**Zweck:** Globaler Staerkefaktor fuer Chroma-Korrektur bei PCC-Apply. Bei
+diagonalen Farbmatrizen (Standardfall bei OSC-Kameras) dampft dieser Parameter
+die diagonalen Verstaerkungen Richtung 1.0: `damped = 1.0 + strength * (gain - 1.0)`.
+Bei `strength=1.0` wird die volle Stern-kalibrierte Matrix angewendet; bei
+`strength=0.0` wird die Matrix auf die Identitaet reduziert (keine
+Farbkalibrierung). Bei nicht-diagonalen Matrizen steuert der Parameter die
+adaptive Daempfungssuche gegenueber dem Hintergrund-Chroma-Guard. Ein Wert
+unter 1.0 erhaehlt mehr natuerliche Farbe des Objekts, kann aber die
+Sternfarben-Kalibrierung abschwaechen.
 
 ### `pcc.k_max`
 

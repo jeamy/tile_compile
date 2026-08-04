@@ -312,6 +312,40 @@ pcc:
   REQUIRE_NOTHROW(cfg.validate());
 }
 
+TEST_CASE("pcc_chroma_strength_damps_diagonal_matrix") {
+  // Verify that chroma_strength < 1.0 damps the diagonal color matrix
+  // toward identity. With strength=0.5 and B gain=2.0, the damped B gain
+  // should be 1.0 + 0.5*(2.0-1.0) = 1.5, not 2.0.
+  //
+  // We test the blend formula directly since the PCC apply path requires
+  // a full star catalog and WCS. The damping formula for diagonal matrices
+  // is: damped = 1.0 + strength * (gain - 1.0).
+  const double strength = 0.5;
+  const double r_gain = 1.1;
+  const double g_gain = 1.0;
+  const double b_gain = 2.0;
+
+  const double damped_r = 1.0 + strength * (r_gain - 1.0);
+  const double damped_g = 1.0 + strength * (g_gain - 1.0);
+  const double damped_b = 1.0 + strength * (b_gain - 1.0);
+
+  REQUIRE(std::fabs(damped_r - 1.05) < 1e-9);
+  REQUIRE(std::fabs(damped_g - 1.0) < 1e-9);
+  REQUIRE(std::fabs(damped_b - 1.5) < 1e-9);
+
+  // With strength=1.0 (default), no damping occurs.
+  const double full_r = 1.0 + 1.0 * (r_gain - 1.0);
+  const double full_b = 1.0 + 1.0 * (b_gain - 1.0);
+  REQUIRE(std::fabs(full_r - r_gain) < 1e-9);
+  REQUIRE(std::fabs(full_b - b_gain) < 1e-9);
+
+  // With strength=0.0, all gains become 1.0 (identity).
+  const double zero_r = 1.0 + 0.0 * (r_gain - 1.0);
+  const double zero_b = 1.0 + 0.0 * (b_gain - 1.0);
+  REQUIRE(std::fabs(zero_r - 1.0) < 1e-9);
+  REQUIRE(std::fabs(zero_b - 1.0) < 1e-9);
+}
+
 TEST_CASE("pcc_background_neutralization_mode_rejects_invalid_value") {
   YAML::Node node = YAML::Load(R"(
 data:

@@ -295,6 +295,35 @@
      REQUIRE(corrected(5, 5) == Catch::Approx(100.0f).epsilon(1e-5));
  }
 
+ TEST_CASE("cosmetic_correction_cfa_fixes_cold_dead_pixel") {
+     tile_compile::Matrix2Df mosaic =
+         tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+     mosaic(4, 4) = 0.0f;
+
+     const auto corrected =
+         tile_compile::image::cosmetic_correction_cfa(mosaic, 2.5f, true, 0, 0);
+
+     REQUIRE(corrected(4, 4) == Catch::Approx(100.0f).epsilon(1e-5));
+     REQUIRE(corrected(2, 2) == Catch::Approx(100.0f).epsilon(1e-5));
+ }
+
+ TEST_CASE("cosmetic_correction_cfa_preserves_supported_noise_dip") {
+     tile_compile::Matrix2Df mosaic =
+         tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+     mosaic(2, 2) = 98.0f;
+     mosaic(2, 4) = 95.0f;
+     mosaic(4, 2) = 96.0f;
+     mosaic(4, 4) = 97.0f;
+
+     const auto corrected =
+         tile_compile::image::cosmetic_correction_cfa(mosaic, 2.5f, true, 0, 0);
+
+     REQUIRE(corrected(4, 4) == Catch::Approx(97.0f).epsilon(1e-5));
+     REQUIRE(corrected(2, 2) == Catch::Approx(98.0f).epsilon(1e-5));
+     REQUIRE(corrected(2, 4) == Catch::Approx(95.0f).epsilon(1e-5));
+     REQUIRE(corrected(4, 2) == Catch::Approx(96.0f).epsilon(1e-5));
+ }
+
  TEST_CASE("cosmetic_correction_cfa_corrects_strong_outlier_near_broad_structure") {
      tile_compile::Matrix2Df mosaic = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
 

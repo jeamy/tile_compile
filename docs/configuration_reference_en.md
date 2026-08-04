@@ -2616,8 +2616,17 @@ Photometric Color Calibration settings.
 |----------|-------|
 | **Type** | number |
 | **Default** | `1.0` |
+| **Range** | `[0.0, 1.0]` |
 
 **Purpose:** Global strength factor for PCC chroma correction during apply.
+For diagonal color matrices (the standard case with OSC cameras), this
+parameter damps the diagonal gains toward 1.0:
+`damped = 1.0 + strength * (gain - 1.0)`. At `strength=1.0` the full
+star-calibrated matrix is applied; at `strength=0.0` the matrix reduces to
+identity (no color calibration). For non-diagonal matrices, this parameter
+governs the adaptive damping search against the background-chroma guard. A
+value below 1.0 preserves more of the object's natural color at the cost of
+less accurate stellar color calibration.
 
 ### `pcc.k_max`
 

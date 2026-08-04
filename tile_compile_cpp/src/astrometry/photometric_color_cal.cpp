@@ -2611,6 +2611,20 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
 
         if (matrix_is_diagonal) {
+            if (chroma_strength < 0.999) {
+                const double damped_r = 1.0 + chroma_strength * (result.matrix[0][0] - 1.0);
+                const double damped_g = 1.0 + chroma_strength * (result.matrix[1][1] - 1.0);
+                const double damped_b = 1.0 + chroma_strength * (result.matrix[2][2] - 1.0);
+                std::cout << "[PCC] Diagonal chroma strength damping: "
+                          << "R " << result.matrix[0][0] << " -> " << damped_r
+                          << ", G " << result.matrix[1][1] << " -> " << damped_g
+                          << ", B " << result.matrix[2][2] << " -> " << damped_b
+                          << " (strength=" << chroma_strength << ")" << std::endl;
+                result.matrix[0][0] = damped_r;
+                result.matrix[1][1] = damped_g;
+                result.matrix[2][2] = damped_b;
+                update_result_matrix_metrics(&result);
+            }
             apply_diagonal_color_matrix_affine(R, G, B, result.matrix, true,
                                                analysis_mask_ptr,
                                                output_mask_ptr);
