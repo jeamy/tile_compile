@@ -26,8 +26,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
-  frames_min: 50
-  frames_reduced_threshold: 150
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
   use_bias: false

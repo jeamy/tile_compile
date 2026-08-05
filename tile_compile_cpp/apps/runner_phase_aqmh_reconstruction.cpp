@@ -827,12 +827,16 @@ bool run_phase_aqmh_reconstruction(
                 " control_seam_score=" +
                 std::to_string(structure_masked_detail_validation.control.seam_score),
             log_file);
-      } else if (candidate_fwhm_ok && candidate_seam_ok &&
+      } else if (candidate_background_ok && candidate_fwhm_ok &&
                  (improves_fwhm || improves_seam)) {
         // Passing both immutable references is not monotonic in alpha: the
         // uniform-control endpoint and the full-detail endpoint can fail
         // different gates while an interior candidate passes. Probe the
         // interval explicitly, then refine only the highest feasible region.
+        // Note: we do not require candidate_seam_ok or candidate_tail_ok here
+        // because the full candidate may introduce seam/tail artifacts that a
+        // partial (lower-alpha) blend avoids. The attenuation search itself
+        // enforces all gates including seam and tail for each probed alpha.
         structure_attenuation_strategy =
             "descending_eighths_then_four_step_refinement";
         reconstruction::AqmhValidationComparison best_validation;

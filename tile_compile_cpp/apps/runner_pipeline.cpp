@@ -5708,16 +5708,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out,
                                         reconstruction_valid_mask);
 
-      // Apply per-channel valid masks. Pixels with no contributing frame
-      // (weight_sum == 0) are marked as NaN instead of a physical 0.
-      if (df_valid_mask_R.size() == static_cast<size_t>(R_out.size()) &&
-          R_out.size() > 0) {
-        for (size_t i = 0; i < static_cast<size_t>(R_out.size()); ++i) {
-          if (df_valid_mask_R[i] == 0u) R_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
-          if (df_valid_mask_G[i] == 0u) G_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
-          if (df_valid_mask_B[i] == 0u) B_out.data()[i] = std::numeric_limits<float>::quiet_NaN();
-        }
-      }
+      // Per-channel df_valid_mask NaN-masking removed: the debayer-first
+      // support mask must not carve additional NaN holes into the output,
+      // because downstream BGE/PCC/HMS treat finite pixels as valid samples.
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            rgb_output_hdr);
@@ -6370,28 +6363,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
         const size_t expected_size =
             static_cast<size_t>(rows) * static_cast<size_t>(cols);
-        if (common_valid_mask.size() != expected_size) {
+        if (reconstruction_valid_mask.size() != expected_size) {
           emitter.phase_end(run_id, Phase::PCC, "error",
                             {{"reason", "analysis_mask_invalid"},
-                             {"error", "common_valid_mask size mismatch"},
+                             {"error", "reconstruction_valid_mask size mismatch"},
                              {"mask_pixels",
-                              static_cast<uint64_t>(common_valid_mask.size())},
+                              static_cast<uint64_t>(reconstruction_valid_mask.size())},
                              {"expected_pixels",
                               static_cast<uint64_t>(expected_size)},
                              {"input_rgb_bge", pcc_input_rgb_path.string()}},
                             log_file);
           emitter.run_end(run_id, false, "error", log_file,
-                          {{"message", "common_valid_mask size mismatch for PCC analysis"}});
-          std::cerr << "Error: common_valid_mask size mismatch for PCC analysis"
+                          {{"message", "reconstruction_valid_mask size mismatch for PCC analysis"}});
+          std::cerr << "Error: reconstruction_valid_mask size mismatch for PCC analysis"
                     << std::endl;
           return 1;
         }
-        pcc_cfg.common_valid_mask = common_valid_mask;
+        pcc_cfg.common_valid_mask = reconstruction_valid_mask;
         pcc_cfg.common_mask_rows = rows;
         pcc_cfg.common_mask_cols = cols;
         pcc_cfg.output_mask_rows = rows;
         pcc_cfg.output_mask_cols = cols;
-        std::cout << "[PCC] Using COMMON_OVERLAP analysis mask and reconstruction output canvas mask ("
+        std::cout << "[PCC] Using reconstruction_support (finite-only) analysis mask and reconstruction output canvas mask ("
                   << cols << "x" << rows << ")" << std::endl;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
@@ -6536,8 +6529,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             static_cast<size_t>(hms_rows) * static_cast<size_t>(hms_cols);
         const std::vector<uint8_t> *hms_statistics_mask = nullptr;
         const std::vector<uint8_t> *hms_output_mask = nullptr;
-        if (common_valid_mask.size() == hms_pixels) {
-          hms_statistics_mask = &common_valid_mask;
+        if (reconstruction_valid_mask.size() == hms_pixels) {
+          hms_statistics_mask = &reconstruction_valid_mask;
         }
         if (output_valid_mask.size() == hms_pixels) {
           hms_output_mask = &output_valid_mask;

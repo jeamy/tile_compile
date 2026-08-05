@@ -2889,9 +2889,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       int analysis_rows = 0;
       int analysis_cols = 0;
       fs::path analysis_mask_path =
-          run_dir / "outputs" / "common_overlap_mask.fits";
+          run_dir / "outputs" / "canvas_mask.fits";
       if (!fs::exists(analysis_mask_path)) {
-        analysis_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+        analysis_mask_path = run_dir / "outputs" / "common_overlap_mask.fits";
       }
       if (!tile_compile::runner::load_canvas_mask_for_rgb(
               analysis_mask_path, rgb.R, rgb.G, rgb.B, analysis_mask,
@@ -2911,7 +2911,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       pcc_cfg.common_mask_cols = analysis_cols;
       pcc_cfg.output_mask_rows = rows;
       pcc_cfg.output_mask_cols = cols;
-      std::cout << "[PCC][resume] Using COMMON_OVERLAP analysis mask and full output canvas mask ("
+      std::cout << "[PCC][resume] Using reconstruction_support (finite-only) analysis mask and full output canvas mask ("
                 << cols << "x" << rows << ")" << std::endl;
     }
 
