@@ -625,6 +625,10 @@ TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
   REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(2.0f));
   REQUIRE(reconstruction.clip_iterations == 4);
   REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.debayer_first);
+  REQUIRE(reconstruction.pre_debayer_method == "edge_aware");
+  REQUIRE(reconstruction.rgb_q_map_mode == "shared_luma");
+  REQUIRE(reconstruction.rgb_memory_strategy == "sequential");
   REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
   REQUIRE(reconstruction.registration_sequential_factor == Catch::Approx(0.92f));
   REQUIRE(reconstruction.registration_predicted_factor == Catch::Approx(0.50f));
@@ -652,6 +656,10 @@ TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
   REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 2.0);
   REQUIRE(reconstruction.at("clip_iterations").at("default") == 4);
   REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
+  REQUIRE(reconstruction.at("debayer_first").at("default") == true);
+  REQUIRE(reconstruction.at("pre_debayer_method").at("default") == "edge_aware");
+  REQUIRE(reconstruction.at("rgb_q_map_mode").at("default") == "shared_luma");
+  REQUIRE(reconstruction.at("rgb_memory_strategy").at("default") == "sequential");
   REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);
   REQUIRE(reconstruction.at("registration_predicted_factor").at("default") == 0.50);
   REQUIRE(reconstruction.contains("structure_mask_low_q"));

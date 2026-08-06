@@ -270,6 +270,10 @@ struct AqmhReconstructionConfig {
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
   bool delete_prewarped_cache_after_run = true;
   std::string prewarp_interpolation = "linear";
+  bool debayer_first = true;          // OSC: demosaic before prewarp/AQMH, then reconstruct RGB channels directly
+  std::string pre_debayer_method = "edge_aware"; // "bilinear" | "nearest" | "vng" | "edge_aware"
+  std::string rgb_q_map_mode = "shared_luma";  // RGB channel reconstruction reuses luma Q-maps
+  std::string rgb_memory_strategy = "sequential"; // reconstruct RGB channels one after another
   bool registration_weight_guard = true;
   float registration_weight_floor = 0.30f;
   float registration_cc_floor = 0.35f;

@@ -69,6 +69,10 @@ aqmh:
   reconstruction:
     delete_prewarped_cache_after_run: true  # false fuer Resume; Cache liegt unter cache/prewarped_frames
     prewarp_interpolation: linear            # konservativer Prewarp; cubic/lanczos4 gezielt auf Schaerfe testen
+    debayer_first: true                      # OSC: vor PREWARP/AQMH debayern und RGB direkt rekonstruieren
+    pre_debayer_method: edge_aware           # konservativ bei sehr niedrigem SNR: bilinear testen
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
     clip_sigma: 2.0
     clip_sigma_low: 2.0
     clip_sigma_high: 2.0

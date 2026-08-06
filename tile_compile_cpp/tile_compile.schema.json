@@ -83,20 +83,20 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "When true, checks input frames for non-linearity (e.g. clipped highlights from over-exposure). Non-linear frames are flagged and may be excluded.",
+          "description": "When true, runs input-frame linearity diagnostics for evidence of non-linear preprocessing. Flagged frames are logged and kept by the current runner in warn-only mode.",
           "default": true
         },
         "max_frames": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of frames to sample for linearity checking. Linearity test runs on a random subset to save time. Default: 50.",
+          "description": "Maximum number of frames to sample for linearity diagnostics. Frames are sampled evenly across the run. Default: 8.",
           "default": 8
         },
         "min_overall_linearity": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum overall linearity score required for the frame set. Below this threshold, a warning is issued. Range 0\u20131. Default: 0.95.",
+          "description": "Minimum overall linearity diagnostic score for the sampled frame set. Below this threshold, a warning is issued. Range 0\u20131. Default: 0.9.",
           "default": 0.9
         },
         "strictness": {
@@ -106,7 +106,7 @@
             "moderate",
             "permissive"
           ],
-          "description": "Linearity check strictness. strict = reject frames with any non-linear pixels. moderate = warn only. permissive = log only, no action. Default: moderate.",
+          "description": "Linearity diagnostic strictness. Selects threshold presets for robust distribution and hard clipping/compression checks; spectral, gradient and variance metrics are diagnostic-only for object-dependent RAW/OSC frame structure. Default: strict.",
           "default": "strict"
         }
       }
@@ -994,7 +994,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": false,
+              "default": true,
               "description": "Enables per-pixel AQMH frame selection during reconstruction."
             },
             "mode": {
@@ -1156,6 +1156,38 @@
               ],
               "default": "linear",
               "description": "Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. linear is the conservative default; cubic and lanczos4 are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing."
+            },
+            "debayer_first": {
+              "type": "boolean",
+              "default": true,
+              "description": "OSC-only AQMH mode. When true and a Bayer pattern is known, each calibrated frame is demosaiced before prewarp; AQMH quality maps are computed from luma and the final R/G/B planes are reconstructed directly from the prewarped RGB planes. This avoids reconstructing and later debayering a warped CFA mosaic."
+            },
+            "pre_debayer_method": {
+              "type": "string",
+              "enum": [
+                "bilinear",
+                "nearest",
+                "vng",
+                "edge_aware"
+              ],
+              "default": "edge_aware",
+              "description": "Demosaicing method used before prewarp when aqmh.reconstruction.debayer_first is true for OSC input. Ignored for mono/RGB input and for OSC input without a known Bayer pattern."
+            },
+            "rgb_q_map_mode": {
+              "type": "string",
+              "enum": [
+                "shared_luma"
+              ],
+              "default": "shared_luma",
+              "description": "Quality-map source for AQMH debayer-first RGB reconstruction. shared_luma reuses luma Q-maps and global weights for R, G, and B."
+            },
+            "rgb_memory_strategy": {
+              "type": "string",
+              "enum": [
+                "sequential"
+              ],
+              "default": "sequential",
+              "description": "Memory strategy for AQMH debayer-first RGB reconstruction. sequential reconstructs R, G, and B one channel at a time to bound memory and VRAM usage."
             },
             "registration_weight_guard": {
               "type": "boolean",

@@ -28,6 +28,13 @@ class RunnerFrameCache;
 struct PhaseRegistrationContext {
   /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
+  /// True when OSC input was demosaiced before prewarp/AQMH. In that mode
+  /// prewarped_frames contains luma and the RGB stores contain color planes.
+  bool debayer_first_rgb = false;
+  /// Optional disk-backed RGB prewarped planes for AQMH debayer-first OSC.
+  DiskCacheFrameStore prewarped_frames_r;
+  DiskCacheFrameStore prewarped_frames_g;
+  DiskCacheFrameStore prewarped_frames_b;
   /// Per-input-frame flag indicating whether the prewarp store contains data.
   std::vector<uint8_t> frame_has_data;
   /// Per-canvas-pixel count of usable prewarped frames contributing data.

@@ -747,6 +747,18 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(r["prewarp_interpolation"]))
         cfg.aqmh.reconstruction.prewarp_interpolation =
             r["prewarp_interpolation"].as<std::string>();
+      if (yaml_has_value(r["debayer_first"]))
+        cfg.aqmh.reconstruction.debayer_first =
+            r["debayer_first"].as<bool>();
+      if (yaml_has_value(r["pre_debayer_method"]))
+        cfg.aqmh.reconstruction.pre_debayer_method =
+            r["pre_debayer_method"].as<std::string>();
+      if (yaml_has_value(r["rgb_q_map_mode"]))
+        cfg.aqmh.reconstruction.rgb_q_map_mode =
+            r["rgb_q_map_mode"].as<std::string>();
+      if (yaml_has_value(r["rgb_memory_strategy"]))
+        cfg.aqmh.reconstruction.rgb_memory_strategy =
+            r["rgb_memory_strategy"].as<std::string>();
       if (yaml_has_value(r["registration_weight_guard"]))
         cfg.aqmh.reconstruction.registration_weight_guard =
             r["registration_weight_guard"].as<bool>();
@@ -1461,6 +1473,14 @@ YAML::Node Config::to_yaml() const {
       aqmh.reconstruction.delete_prewarped_cache_after_run;
   node["aqmh"]["reconstruction"]["prewarp_interpolation"] =
       aqmh.reconstruction.prewarp_interpolation;
+  node["aqmh"]["reconstruction"]["debayer_first"] =
+      aqmh.reconstruction.debayer_first;
+  node["aqmh"]["reconstruction"]["pre_debayer_method"] =
+      aqmh.reconstruction.pre_debayer_method;
+  node["aqmh"]["reconstruction"]["rgb_q_map_mode"] =
+      aqmh.reconstruction.rgb_q_map_mode;
+  node["aqmh"]["reconstruction"]["rgb_memory_strategy"] =
+      aqmh.reconstruction.rgb_memory_strategy;
   node["aqmh"]["reconstruction"]["registration_weight_guard"] =
       aqmh.reconstruction.registration_weight_guard;
   node["aqmh"]["reconstruction"]["registration_weight_floor"] =
@@ -2112,6 +2132,21 @@ void Config::validate() const {
       aqmh.reconstruction.prewarp_interpolation != "lanczos4") {
     throw ValidationError(
         "aqmh.reconstruction.prewarp_interpolation must be linear, cubic, or lanczos4");
+  }
+  if (aqmh.reconstruction.pre_debayer_method != "bilinear" &&
+      aqmh.reconstruction.pre_debayer_method != "nearest" &&
+      aqmh.reconstruction.pre_debayer_method != "vng" &&
+      aqmh.reconstruction.pre_debayer_method != "edge_aware") {
+    throw ValidationError(
+        "aqmh.reconstruction.pre_debayer_method must be bilinear, nearest, vng, or edge_aware");
+  }
+  if (aqmh.reconstruction.rgb_q_map_mode != "shared_luma") {
+    throw ValidationError(
+        "aqmh.reconstruction.rgb_q_map_mode must be shared_luma");
+  }
+  if (aqmh.reconstruction.rgb_memory_strategy != "sequential") {
+    throw ValidationError(
+        "aqmh.reconstruction.rgb_memory_strategy must be sequential");
   }
   if (!is_between_0_1(aqmh.reconstruction.registration_weight_floor) ||
       !is_between_0_1(aqmh.reconstruction.registration_cc_floor) ||

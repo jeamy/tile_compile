@@ -1825,6 +1825,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   prewarped_frames.set_preserve_files(
       !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  if (phase_registration_ctx.debayer_first_rgb) {
+    phase_registration_ctx.prewarped_frames_r.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+    phase_registration_ctx.prewarped_frames_g.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+    phase_registration_ctx.prewarped_frames_b.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  }
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
@@ -2178,6 +2186,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   double stacking_runtime_seconds = 0.0;
   std::optional<reconstruction::AqmhValidationComparison>
       aqmh_control_validation;
+  const bool aqmh_debayer_first_rgb =
+      cfg.aqmh.enabled && phase_registration_ctx.debayer_first_rgb;
+  const ColorMode aqmh_metrics_mode =
+      aqmh_debayer_first_rgb ? ColorMode::MONO : detected_mode;
+  const std::string aqmh_metrics_bayer =
+      aqmh_debayer_first_rgb ? std::string() : detected_bayer_str;
 
   // Prefetch coordinator for AQMH Q-map I/O overlap
   std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> aqmh_prefetch_coordinator;
@@ -2188,7 +2202,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
               common_valid_mask, canvas_width, canvas_height, prewarped_frames,
               norm_scales,
-              detected_mode, detected_bayer_str, false, acceleration, emitter,
+              aqmh_metrics_mode, aqmh_metrics_bayer, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
               aqmh_prefetch_coordinator,
               phase_metrics_ctx.frame_star_metrics)
@@ -2319,11 +2333,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
-              aqmh_recon_result, aqmh_prefetch_coordinator.get())) {
+              aqmh_recon_result, aqmh_prefetch_coordinator.get(),
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_r
+                                      : nullptr,
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_g
+                                      : nullptr,
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_b
+                                      : nullptr)) {
         return 1;
       }
       recon = aqmh_recon_result.output;
       weight_sum = aqmh_recon_result.weight_sum;
+      if (aqmh_recon_result.output_R.rows() == canvas_height &&
+          aqmh_recon_result.output_R.cols() == canvas_width &&
+          aqmh_recon_result.output_G.rows() == canvas_height &&
+          aqmh_recon_result.output_G.cols() == canvas_width &&
+          aqmh_recon_result.output_B.rows() == canvas_height &&
+          aqmh_recon_result.output_B.cols() == canvas_width) {
+        recon_R = std::move(aqmh_recon_result.output_R);
+        recon_G = std::move(aqmh_recon_result.output_G);
+        recon_B = std::move(aqmh_recon_result.output_B);
+      }
       aqmh_control_validation = aqmh_recon_result.control_validation;
       try {
         io::write_fits_float(
@@ -5527,12 +5557,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         G_out = std::move(recon_G);
         B_out = std::move(recon_B);
       } else {
-        // Fallback (should be rare): use the same edge-aware CFA output path
+        // Fallback (should be rare): use the same noise-stable CFA output path
         // as resume so normal and resumed AQMH outputs share debayer semantics.
-        auto debayer = image::debayer_opencv(
+        auto debayer = image::debayer_bilinear(
             recon, detected_bayer, -debayer_tile_offset_x,
-            -debayer_tile_offset_y, /*ahd=*/true);
-        debayer_method = "edge_aware";
+            -debayer_tile_offset_y);
+        debayer_method = "bilinear";
         R_out = std::move(debayer.R);
         G_out = std::move(debayer.G);
         B_out = std::move(debayer.B);

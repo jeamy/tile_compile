@@ -360,7 +360,10 @@ bool run_phase_aqmh_reconstruction(
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator) {
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator,
+    const DiskCacheFrameStore* prewarped_frames_r,
+    const DiskCacheFrameStore* prewarped_frames_g,
+    const DiskCacheFrameStore* prewarped_frames_b) {
 
   const Phase reconstruction_phase = Phase::AQMH_RECONSTRUCTION;
 
@@ -489,6 +492,64 @@ bool run_phase_aqmh_reconstruction(
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     reconstruction_core_started_at)
           .count();
+  double rgb_reconstruction_seconds = 0.0;
+  const bool debayer_first_rgb =
+      prewarped_frames_r != nullptr && prewarped_frames_g != nullptr &&
+      prewarped_frames_b != nullptr;
+  if (debayer_first_rgb) {
+    auto reconstruct_rgb_plane =
+        [&](const DiskCacheFrameStore &plane_store, Matrix2Df &plane_out,
+            const char *channel_name) -> bool {
+      auto frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
+        if (fi >= frames.size() || fi >= frame_has_data.size() ||
+            frame_has_data[fi] == 0u) {
+          return false;
+        }
+        output = plane_store.load(fi);
+        return output.rows() == canvas_height && output.cols() == canvas_width;
+      };
+      auto frame_region_loader =
+          [&](size_t fi, int y0, int rows, Matrix2Df &output) -> bool {
+        if (fi >= frames.size() || fi >= frame_has_data.size() ||
+            frame_has_data[fi] == 0u) {
+          return false;
+        }
+        return plane_store.extract_tile_into(
+            fi, Tile{0, y0, canvas_width, rows}, output);
+      };
+      reconstruction::AqmhReconstructionConfig plane_cfg = aqmh_recon_cfg;
+      plane_cfg.compute_uniform_control = false;
+      std::cout << "[AQMH] Reconstructing debayer-first RGB channel "
+                << channel_name << std::endl;
+      auto plane_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
+          frames.size(), frame_loader, aqmh_cache.get(),
+          effective_aqmh_global_weights, reconstruction_valid_mask,
+          canvas_width, canvas_height, plane_cfg, nullptr, aqmh_mask_loader,
+          frame_region_loader, aqmh_mask_region_loader, nullptr);
+      plane_out = std::move(plane_recon.output);
+      return plane_out.rows() == canvas_height &&
+             plane_out.cols() == canvas_width;
+    };
+    const auto rgb_started_at = std::chrono::steady_clock::now();
+    const bool rgb_ok =
+        reconstruct_rgb_plane(*prewarped_frames_r, out.output_R, "R") &&
+        reconstruct_rgb_plane(*prewarped_frames_g, out.output_G, "G") &&
+        reconstruct_rgb_plane(*prewarped_frames_b, out.output_B, "B");
+    rgb_reconstruction_seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                      rgb_started_at)
+            .count();
+    if (!rgb_ok) {
+      out.output_R.resize(0, 0);
+      out.output_G.resize(0, 0);
+      out.output_B.resize(0, 0);
+      emitter.warning(
+          run_id,
+          "AQMH debayer-first RGB reconstruction failed; falling back to "
+          "post-stack debayer",
+          log_file);
+    }
+  }
   const size_t expected_control_pixels =
       static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height);
   const bool backend_supplied_uniform_control =
@@ -634,6 +695,9 @@ bool run_phase_aqmh_reconstruction(
       const bool candidate_fwhm_ok = candidate_gates.fwhm_ok;
       const bool candidate_seam_ok = candidate_gates.seam_ok;
       const bool candidate_tail_ok = candidate_gates.tail_ok;
+      const auto raw_gates =
+          reconstruction::evaluate_aqmh_validation_gates(
+              raw_validation, cfg.aqmh.validation);
       const auto candidate_raw_guard =
           reconstruction::aqmh_raw_baseline_guard_decision(
           full_structure_masked_detail_vs_raw_validation,
@@ -651,9 +715,38 @@ bool run_phase_aqmh_reconstruction(
           structure_masked_detail_validation.seam_applicable &&
           structure_masked_detail_validation.aqmh.seam_score <
           raw_validation.control.seam_score;
+      const bool repairs_raw_background_failure =
+          !raw_gates.background_ok &&
+          raw_validation.background_rms_applicable &&
+          structure_masked_detail_validation.background_rms_applicable &&
+          structure_masked_detail_validation.background_rms_regression <
+              raw_validation.background_rms_regression;
+      const bool repairs_raw_fwhm_failure =
+          !raw_gates.fwhm_ok && raw_validation.fwhm_applicable &&
+          structure_masked_detail_validation.fwhm_applicable &&
+          structure_masked_detail_validation.fwhm_regression <
+              raw_validation.fwhm_regression;
+      const bool repairs_raw_seam_failure =
+          !raw_gates.seam_ok && raw_validation.seam_applicable &&
+          structure_masked_detail_validation.seam_applicable &&
+          structure_masked_detail_validation.seam_score_regression <
+              raw_validation.seam_score_regression;
+      const bool repairs_raw_tail_failure =
+          !raw_gates.tail_ok &&
+          ((raw_validation.tail_applicable &&
+            structure_masked_detail_validation.tail_applicable &&
+            structure_masked_detail_validation.tail11_abs_regression <
+                raw_validation.tail11_abs_regression) ||
+           (raw_validation.elongation_applicable &&
+            structure_masked_detail_validation.elongation_applicable &&
+            structure_masked_detail_validation.elongation_regression <
+                raw_validation.elongation_regression));
+      const bool repairs_any_raw_gate_failure =
+          repairs_raw_background_failure || repairs_raw_fwhm_failure ||
+          repairs_raw_seam_failure || repairs_raw_tail_failure;
       if (candidate_background_ok && candidate_fwhm_ok && candidate_seam_ok &&
           candidate_tail_ok && candidate_raw_guard.ok &&
-          (improves_fwhm || improves_seam)) {
+          (improves_fwhm || improves_seam || repairs_any_raw_gate_failure)) {
         aqmh_recon.output = std::move(structure_masked);
         structure_masked_detail_applied = true;
         structure_masked_detail_alpha = 1.0f;
@@ -673,8 +766,7 @@ bool run_phase_aqmh_reconstruction(
                 " control_seam_score=" +
                 std::to_string(structure_masked_detail_validation.control.seam_score),
             log_file);
-      } else if (candidate_fwhm_ok && candidate_seam_ok &&
-                 (improves_fwhm || improves_seam)) {
+      } else if (candidate_raw_guard.ok && repairs_any_raw_gate_failure) {
         // Passing both immutable references is not monotonic in alpha: the
         // uniform-control endpoint and the full-detail endpoint can fail
         // different gates while an interior candidate passes. Probe the
@@ -770,6 +862,37 @@ bool run_phase_aqmh_reconstruction(
               best_validation.seam_applicable &&
               best_validation.aqmh.seam_score <
               raw_validation.control.seam_score;
+          const bool attenuated_repairs_raw_background_failure =
+              !raw_gates.background_ok &&
+              raw_validation.background_rms_applicable &&
+              best_validation.background_rms_applicable &&
+              best_validation.background_rms_regression <
+                  raw_validation.background_rms_regression;
+          const bool attenuated_repairs_raw_fwhm_failure =
+              !raw_gates.fwhm_ok && raw_validation.fwhm_applicable &&
+              best_validation.fwhm_applicable &&
+              best_validation.fwhm_regression <
+                  raw_validation.fwhm_regression;
+          const bool attenuated_repairs_raw_seam_failure =
+              !raw_gates.seam_ok && raw_validation.seam_applicable &&
+              best_validation.seam_applicable &&
+              best_validation.seam_score_regression <
+                  raw_validation.seam_score_regression;
+          const bool attenuated_repairs_raw_tail_failure =
+              !raw_gates.tail_ok &&
+              ((raw_validation.tail_applicable &&
+                best_validation.tail_applicable &&
+                best_validation.tail11_abs_regression <
+                    raw_validation.tail11_abs_regression) ||
+               (raw_validation.elongation_applicable &&
+                best_validation.elongation_applicable &&
+                best_validation.elongation_regression <
+                    raw_validation.elongation_regression));
+          const bool attenuated_repairs_any_raw_gate_failure =
+              attenuated_repairs_raw_background_failure ||
+              attenuated_repairs_raw_fwhm_failure ||
+              attenuated_repairs_raw_seam_failure ||
+              attenuated_repairs_raw_tail_failure;
           const auto selected_baseline_guard =
               reconstruction::aqmh_raw_baseline_guard_decision(
                   best_vs_raw, raw_validation, best_validation,
@@ -777,7 +900,8 @@ bool run_phase_aqmh_reconstruction(
           if (reconstruction::evaluate_aqmh_validation_gates(
                   best_validation, cfg.aqmh.validation).all_ok &&
               selected_baseline_guard.ok &&
-              (attenuated_improves_fwhm || attenuated_improves_seam)) {
+              (attenuated_improves_fwhm || attenuated_improves_seam ||
+               attenuated_repairs_any_raw_gate_failure)) {
             aqmh_recon.output = std::move(attenuated);
             structure_masked_detail_validation = best_validation;
             structure_masked_detail_applied = true;
@@ -996,7 +1120,7 @@ bool run_phase_aqmh_reconstruction(
   out.raw_output = raw_aqmh_output;
   out.output = aqmh_recon.output;
   out.weight_sum = aqmh_recon.weight_sum;
-  out.osc_rgb_cleared = osc_mode;
+  out.osc_rgb_cleared = osc_mode && !debayer_first_rgb;
 
   cv::setNumThreads(prev_cv_threads);
 
@@ -1007,6 +1131,13 @@ bool run_phase_aqmh_reconstruction(
       aqmh_reconstruction_acceleration);
   artifact["execution_backend"] = execution_backend_str;
   artifact["region_streaming"] = true;
+  artifact["debayer_first_rgb"] = debayer_first_rgb;
+  artifact["rgb_q_map_mode"] =
+      debayer_first_rgb ? cfg.aqmh.reconstruction.rgb_q_map_mode
+                        : std::string("not_applicable");
+  artifact["rgb_memory_strategy"] =
+      debayer_first_rgb ? cfg.aqmh.reconstruction.rgb_memory_strategy
+                        : std::string("not_applicable");
   artifact["uniform_control_same_pass"] =
       acceleration_used && backend_supplied_uniform_control;
   artifact["uniform_control_mode"] =
@@ -1014,6 +1145,7 @@ bool run_phase_aqmh_reconstruction(
                                        : "cpu_unweighted_mean_fallback";
   artifact["timing_seconds"] = {
       {"reconstruction_core", reconstruction_core_seconds},
+      {"rgb_reconstruction", rgb_reconstruction_seconds},
       {"uniform_control_fallback", uniform_control_fallback_seconds},
       {"postprocessing_and_validation", validation_seconds}};
   artifact["cuda_pipeline_timing_seconds"] = {

@@ -60,6 +60,25 @@ int compute_required_common_overlap_frames(int usable_frames) {
   return std::max(required, 1);
 }
 
+/// @brief Demosaic an OSC frame for the debayer-first AQMH path.
+/// @details AQMH must not reconstruct a warped CFA mosaic when debayer_first is
+/// enabled. This helper keeps demosaicing before geometric resampling so later
+/// phases work on true image planes instead of Bayer phases.
+image::DebayerResult debayer_for_prewarp(const Matrix2Df &mosaic,
+                                         BayerPattern pattern,
+                                         const std::string &method) {
+  if (method == "nearest") {
+    return image::debayer_nearest_neighbor(mosaic, pattern, 0, 0);
+  }
+  if (method == "vng") {
+    return image::debayer_opencv(mosaic, pattern, 0, 0, false);
+  }
+  if (method == "edge_aware") {
+    return image::debayer_opencv(mosaic, pattern, 0, 0, true);
+  }
+  return image::debayer_bilinear(mosaic, pattern, 0, 0);
+}
+
 /// @brief Implements wrap angle near.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -3639,6 +3658,35 @@ bool run_phase_registration_prewarp(
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
       run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
+  const BayerPattern pre_debayer_pattern =
+      string_to_bayer_pattern(detected_bayer_str);
+  const bool debayer_first_rgb =
+      cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
+      cfg.aqmh.reconstruction.debayer_first &&
+      pre_debayer_pattern != BayerPattern::UNKNOWN;
+  if (cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
+      cfg.aqmh.reconstruction.debayer_first &&
+      pre_debayer_pattern == BayerPattern::UNKNOWN) {
+    emitter.warning(
+        run_id,
+        "AQMH debayer_first requested but Bayer pattern is unknown; "
+        "falling back to CFA prewarp and post-stack debayer",
+        log_file);
+  }
+  DiskCacheFrameStore prewarped_frames_r;
+  DiskCacheFrameStore prewarped_frames_g;
+  DiskCacheFrameStore prewarped_frames_b;
+  if (debayer_first_rgb) {
+    prewarped_frames_r = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "R", frames.size(),
+        canvas_height, canvas_width);
+    prewarped_frames_g = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "G", frames.size(),
+        canvas_height, canvas_width);
+    prewarped_frames_b = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "B", frames.size(),
+        canvas_height, canvas_width);
+  }
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -3655,6 +3703,10 @@ bool run_phase_registration_prewarp(
             << core::acceleration_backend_name(prewarp_acceleration.selected)
             << " interpolation="
             << cfg.aqmh.reconstruction.prewarp_interpolation
+            << " debayer_first="
+            << (debayer_first_rgb ? "yes" : "no")
+            << (debayer_first_rgb ? " pre_debayer_method=" : "")
+            << (debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method : "")
             << std::endl;
   std::mutex prewarp_log_mutex;
   std::mutex prewarp_progress_mutex;
@@ -3702,12 +3754,64 @@ bool run_phase_registration_prewarp(
         Matrix2Df warped;
         std::vector<uint8_t> warped_valid_mask;
         bool warped_has_data = false;
-        prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
-                                      canvas_height, canvas_width, offset_x,
-                                      offset_y, warped, &warped_valid_mask,
-                                      &warped_has_data,
-                                      prewarp_streams.get(
-                                          static_cast<size_t>(worker_index)));
+        if (debayer_first_rgb) {
+          auto debayer = debayer_for_prewarp(
+              img, pre_debayer_pattern,
+              cfg.aqmh.reconstruction.pre_debayer_method);
+          Matrix2Df warped_r;
+          Matrix2Df warped_g;
+          Matrix2Df warped_b;
+          std::vector<uint8_t> mask_r;
+          std::vector<uint8_t> mask_g;
+          std::vector<uint8_t> mask_b;
+          bool has_r = false;
+          bool has_g = false;
+          bool has_b = false;
+          auto *stream = prewarp_streams.get(static_cast<size_t>(worker_index));
+          prewarp_ops.warp_affine_frame(
+              std::move(debayer.R), w, ColorMode::MONO,
+              canvas_height, canvas_width, offset_x, offset_y, warped_r,
+              &mask_r, &has_r, stream);
+          prewarp_ops.warp_affine_frame(
+              std::move(debayer.G), w, ColorMode::MONO,
+              canvas_height, canvas_width, offset_x, offset_y, warped_g,
+              &mask_g, &has_g, stream);
+          prewarp_ops.warp_affine_frame(
+              std::move(debayer.B), w, ColorMode::MONO,
+              canvas_height, canvas_width, offset_x, offset_y, warped_b,
+              &mask_b, &has_b, stream);
+          if (warped_r.rows() == canvas_height &&
+              warped_r.cols() == canvas_width &&
+              warped_g.rows() == canvas_height &&
+              warped_g.cols() == canvas_width &&
+              warped_b.rows() == canvas_height &&
+              warped_b.cols() == canvas_width) {
+            warped = (warped_r * 0.25f) + (warped_g * 0.50f) +
+                     (warped_b * 0.25f);
+            warped_valid_mask = std::move(mask_r);
+            if (warped_valid_mask.size() == canvas_px &&
+                mask_g.size() == canvas_px && mask_b.size() == canvas_px) {
+              for (size_t pi = 0; pi < canvas_px; ++pi) {
+                warped_valid_mask[pi] = static_cast<uint8_t>(
+                    warped_valid_mask[pi] != 0 && mask_g[pi] != 0 &&
+                    mask_b[pi] != 0);
+              }
+            }
+            warped_has_data = has_r && has_g && has_b;
+            if (warped_has_data) {
+              prewarped_frames_r.store(fi, warped_r);
+              prewarped_frames_g.store(fi, warped_g);
+              prewarped_frames_b.store(fi, warped_b);
+            }
+          }
+        } else {
+          prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
+                                        canvas_height, canvas_width, offset_x,
+                                        offset_y, warped, &warped_valid_mask,
+                                        &warped_has_data,
+                                        prewarp_streams.get(
+                                            static_cast<size_t>(worker_index)));
+        }
         if (warped.size() > 0) {
           prewarped_frames.store(fi, warped);
           const bool stored = prewarped_frames.has_data(fi);
@@ -3839,6 +3943,10 @@ bool run_phase_registration_prewarp(
       {"tile_offset_x", offset_x},
       {"tile_offset_y", offset_y},
       {"workers", prewarp_workers},
+      {"debayer_first_rgb", debayer_first_rgb},
+      {"pre_debayer_method",
+       debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method
+                         : std::string("not_applicable")},
       {"common_overlap_mode", "inline_prewarp_coverage"},
       {"required_common_frames", required_common_frames},
       {"acceleration",
@@ -3852,6 +3960,10 @@ bool run_phase_registration_prewarp(
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);
+  out.debayer_first_rgb = debayer_first_rgb;
+  out.prewarped_frames_r = std::move(prewarped_frames_r);
+  out.prewarped_frames_g = std::move(prewarped_frames_g);
+  out.prewarped_frames_b = std::move(prewarped_frames_b);
   out.min_valid_frames = required_common_frames;
   return true;
 }

@@ -1943,39 +1943,59 @@ function injectCalibrationIntoYaml(yaml, cal) {
 
   const normPath = (p) => (p || "").replace(/\\/g, '/');
 
-  // Determine effective values: prefer master over dir when both set
-  const biasMaster = normPath(cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "");
-  const biasDir = biasMaster ? "" : normPath(cal.bias_dir || "");
-  const darkMaster = normPath(cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "");
-  const darkDir = darkMaster ? "" : normPath(cal.dark_dir || "");
-  const flatMaster = normPath(cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "");
-  const flatDir = flatMaster ? "" : normPath(cal.flat_dir || "");
+  const sourceFor = (type) => {
+    const explicitSource = cal[`${type}_source`];
+    if (explicitSource === "master" || explicitSource === "dir") return explicitSource;
+    const explicitUseMaster = cal[`${type}_use_master`];
+    if (typeof explicitUseMaster === "boolean") return explicitUseMaster ? "master" : "dir";
+    const hasMaster = Boolean((cal[`${type}_master`] || "").trim());
+    const hasDir = Boolean((cal[`${type}_dir`] || "").trim());
+    return hasMaster && !hasDir ? "master" : "dir";
+  };
+
+  const effective = (type) => {
+    const source = sourceFor(type);
+    const master = normPath((cal[`${type}_master`] || "").trim());
+    const dir = normPath(cal[`${type}_dir`] || "");
+    return {
+      useMaster: source === "master",
+      dir: source === "master" ? "" : dir,
+      master: source === "master" ? master : "",
+    };
+  };
+
+  const bias = effective("bias");
+  const dark = effective("dark");
+  const flat = effective("flat");
 
   const entries = [
     ["use_bias", cal.bias_enabled ? "true" : "false"],
     ...(cal.bias_enabled ? [
-      ["bias_use_master", biasMaster ? "true" : "false"],
-      ["bias_dir", biasDir],
-      ["bias_master", biasMaster],
+      ["bias_use_master", bias.useMaster ? "true" : "false"],
+      ["bias_dir", bias.dir],
+      ["bias_master", bias.master],
     ] : [
+      ["bias_use_master", "false"],
       ["bias_dir", ""],
       ["bias_master", ""],
     ]),
     ["use_dark", cal.dark_enabled ? "true" : "false"],
     ...(cal.dark_enabled ? [
-      ["dark_use_master", darkMaster ? "true" : "false"],
-      ["darks_dir", darkDir],
-      ["dark_master", darkMaster],
+      ["dark_use_master", dark.useMaster ? "true" : "false"],
+      ["darks_dir", dark.dir],
+      ["dark_master", dark.master],
     ] : [
+      ["dark_use_master", "false"],
       ["darks_dir", ""],
       ["dark_master", ""],
     ]),
     ["use_flat", cal.flat_enabled ? "true" : "false"],
     ...(cal.flat_enabled ? [
-      ["flat_use_master", flatMaster ? "true" : "false"],
-      ["flats_dir", flatDir],
-      ["flat_master", flatMaster],
+      ["flat_use_master", flat.useMaster ? "true" : "false"],
+      ["flats_dir", flat.dir],
+      ["flat_master", flat.master],
     ] : [
+      ["flat_use_master", "false"],
       ["flats_dir", ""],
       ["flat_master", ""],
     ]),

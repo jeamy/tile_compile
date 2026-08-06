@@ -82,11 +82,13 @@ validate_linearity_frame(const Matrix2Df &img,
 
   std::vector<float> sorted = values;
   std::sort(sorted.begin(), sorted.end());
+  float p0 = sorted.front();
   float p1 = core::percentile_from_sorted(sorted, 1.0f);
   float p5 = core::percentile_from_sorted(sorted, 5.0f);
   float p50 = core::percentile_from_sorted(sorted, 50.0f);
   float p95 = core::percentile_from_sorted(sorted, 95.0f);
   float p99 = core::percentile_from_sorted(sorted, 99.0f);
+  float p100 = sorted.back();
 
   // Use robust percentiles for skewness/kurtosis that exclude stars.
   // The previous formula (p99-p50)/(p50-p1) was dominated by bright stars
@@ -140,9 +142,38 @@ validate_linearity_frame(const Matrix2Df &img,
   }
 
   LinearityThresholds th = linearity_thresholds_for(strictness);
+  const float clip_eps =
+      std::max(1.0e-3f, (p99 - p1 + 1.0e-6f) * 1.0e-5f);
+  size_t low_clip_count = 0;
+  size_t high_clip_count = 0;
+  for (float v : values) {
+    if (v <= p0 + clip_eps) ++low_clip_count;
+    if (v >= p100 - clip_eps) ++high_clip_count;
+  }
+  const float low_clip_frac =
+      static_cast<float>(low_clip_count) / static_cast<float>(values.size());
+  const float high_clip_frac =
+      static_cast<float>(high_clip_count) / static_cast<float>(values.size());
+  float clip_fraction_max = 0.02f;
+  if (strictness == "moderate") {
+    clip_fraction_max = 0.05f;
+  } else if (strictness == "permissive") {
+    clip_fraction_max = 0.10f;
+  }
+  const bool low_hard_clip =
+      low_clip_frac > clip_fraction_max && p0 <= 1.0f + clip_eps;
+  const bool high_hard_clip =
+      high_clip_frac > clip_fraction_max && p100 >= 4095.0f - clip_eps;
+  const bool clipping_ok = !low_hard_clip && !high_hard_clip;
+
+  // A single light frame cannot prove camera-response linearity for every
+  // possible object. Keep the hard verdict deliberately conservative and
+  // object-agnostic: robust distribution shape and obvious clipping/compression
+  // are hard checks; variance, gradients and spectral layout remain diagnostics
+  // because they depend strongly on field content (empty sky, star clusters,
+  // nebulosity, galaxy cores, CFA texture).
   out.moment_ok = (std::fabs(out.skewness) < th.skewness_max) &&
-                  (std::fabs(out.kurtosis) < th.kurtosis_max) &&
-                  (out.variance_coeff < th.variance_max);
+                  (std::fabs(out.kurtosis) < th.kurtosis_max) && clipping_ok;
   out.spectral_ok = (out.energy_ratio >= th.energy_ratio_min);
   out.spatial_ok = (out.gradient_consistency < th.gradient_consistency_max);
 
@@ -150,7 +181,7 @@ validate_linearity_frame(const Matrix2Df &img,
       (static_cast<float>(out.moment_ok) + static_cast<float>(out.spectral_ok) +
        static_cast<float>(out.spatial_ok)) /
       3.0f;
-  out.is_linear = out.moment_ok && out.spectral_ok && out.spatial_ok;
+  out.is_linear = out.moment_ok;
   return out;
 }
 

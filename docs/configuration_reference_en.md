@@ -87,7 +87,7 @@ Output file and directory configuration.
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
 **Purpose:** Persist registered frames as FITS (`reg_XXXXX.fit`).
 
@@ -154,7 +154,7 @@ Input data configuration.
 
 ## 4. Linearity
 
-Linearity correction settings.
+Input-frame linearity diagnostics. The check looks for evidence of non-linear preprocessing (stretch, curves, hard compression), but it is not a direct camera-response linearity test.
 
 ### `linearity.enabled`
 
@@ -163,7 +163,9 @@ Linearity correction settings.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable linearity correction.
+**Purpose:** Enable/disable linearity diagnostics in phase 0 (SCAN_INPUT).
+
+**Behavior:** Flagged frames are logged and kept by the current runner in warn-only mode.
 
 ### `linearity.max_frames`
 
@@ -181,7 +183,7 @@ Linearity correction settings.
 | **Type** | number |
 | **Default** | `0.9` |
 
-**Purpose:** Minimum acceptable global linearity score.
+**Purpose:** Minimum acceptable diagnostic score. If the sampled frames fall below this value, a warning is emitted.
 
 ### `linearity.strictness`
 
@@ -191,11 +193,13 @@ Linearity correction settings.
 | **Values** | `strict`, `moderate`, `permissive` |
 | **Default** | `"strict"` |
 
-**Purpose:** Controls whether linearity violations fail, warn, or are ignored.
+**Purpose:** Selects the diagnostic thresholds.
 
-- **`strict`**: Linearity violations cause the run to abort.
-- **`moderate`**: A warning is issued; processing continues.
-- **`permissive`**: Violations are silently ignored (not recommended for scientific workflows).
+The hard decision is conservative and object-agnostic: robust distribution shape plus obvious hard clipping/compression. Spectral, gradient, and variance metrics remain diagnostic because linear frames can legitimately vary strongly across objects (empty fields, star clusters, nebulosity, galaxy cores, CFA texture).
+
+- **`strict`**: Tightest diagnostic thresholds, recommended for raw/calibrated linear data.
+- **`moderate`**: More tolerant diagnostics for lightly preprocessed data or difficult fields.
+- **`permissive`**: High tolerance for known problematic data.
 
 ---
 
@@ -1671,6 +1675,55 @@ Per-pixel weighted reconstruction parameters.
 
 ----
 
+#### `aqmh.reconstruction.debayer_first`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enables a real RGB path for OSC data before PREWARP/AQMH. When a Bayer pattern is known, each calibrated frame is demosaiced first, then R/G/B are geometrically prewarped. AQMH computes quality maps on a luma plane and reconstructs the final R/G/B channels directly from the prewarped RGB planes. This avoids reconstructing a geometrically warped CFA mosaic and debayering it only after stacking.
+
+**Fallback:** For mono/RGB input, unknown Bayer patterns, or `false`, the previous path remains active.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `bilinear`, `nearest`, `vng`, `edge_aware` |
+| **Default** | `edge_aware` |
+
+**Purpose:** Selects the demosaicing method for `debayer_first`. `bilinear` is robust and conservative; `vng` and `edge_aware` can preserve stronger edges but may amplify artificial chroma/pixel patterns on very low-SNR data. `nearest` is mainly diagnostic.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `shared_luma` |
+| **Default** | `shared_luma` |
+
+**Purpose:** Defines which quality maps are used for RGB reconstruction when `debayer_first` is active. `shared_luma` reuses the same luma Q-maps and global weights for R, G, and B so the color planes remain geometrically and weight-wise consistent.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `sequential` |
+| **Default** | `sequential` |
+
+**Purpose:** Controls the memory path for RGB reconstruction when `debayer_first` is active. `sequential` reconstructs R, G, and B one after another to bound RAM/VRAM peaks.
+
+----
+
 #### `aqmh.reconstruction.registration_weight_guard`
 
 | Property | Value |
@@ -3067,8 +3120,8 @@ This appendix provides a compact but explicit **runtime behavior** description f
 
 - `linearity.enabled`: enables linearity diagnostics in scan/early validation.
 - `linearity.max_frames`: sample size for linearity checks (tradeoff speed vs certainty).
-- `linearity.min_overall_linearity`: pass/fail threshold for linearity score.
-- `linearity.strictness`: policy mapping (fail/warn/ignore behavior).
+- `linearity.min_overall_linearity`: warning threshold for the linearity diagnostic score.
+- `linearity.strictness`: threshold preset for robust distribution and clipping diagnostics.
 - `calibration.use_bias`, `use_dark`, `use_flat`: activate master-frame correction stages.
 - `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: use explicit master files vs building from directories.
 - `calibration.dark_auto_select`: auto-match dark masters by exposure (and optional temperature).

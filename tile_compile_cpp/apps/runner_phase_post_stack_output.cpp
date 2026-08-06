@@ -146,16 +146,18 @@ bool write_post_stack_outputs(
                   recon_B.size() == recon.size();
   if (have_rgb) out.debayer_method = "precomputed_rgb";
   if (detected_mode == ColorMode::OSC && !have_rgb) {
-    // Same Bayer-parity rule as the primary DEBAYER phase: the mosaic lives on
-    // the registration canvas lattice, so the canvas tile offset defines the
-    // CFA origin. OpenCV edge-aware demosaicing preserves star-core detail.
-    auto debayer = image::debayer_opencv(
+    // The stacked CFA mosaic lives on the registration canvas lattice, so the
+    // canvas tile offset defines the CFA origin. Use the deterministic bilinear
+    // demosaic here: OpenCV's edge-aware demosaic can create maze/zipper chroma
+    // structure in low-SNR astronomical backgrounds, which is then amplified by
+    // BGE/PCC/stretch.
+    auto debayer = image::debayer_bilinear(
         recon, string_to_bayer_pattern(detected_bayer_str),
-        -debayer_tile_offset_x, -debayer_tile_offset_y, /*ahd=*/true);
+        -debayer_tile_offset_x, -debayer_tile_offset_y);
     recon_R = std::move(debayer.R);
     recon_G = std::move(debayer.G);
     recon_B = std::move(debayer.B);
-    out.debayer_method = "edge_aware";
+    out.debayer_method = "bilinear";
     have_rgb = recon.size() > 0 &&
                recon_R.size() == recon.size() &&
                recon_G.size() == recon.size() &&

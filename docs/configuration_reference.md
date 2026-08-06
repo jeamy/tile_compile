@@ -208,7 +208,7 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 
 ## 4. Linearity
 
-Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen Operationen (Stretch, Curves) angewendet wurden.
+Linearitätsdiagnostik der Input-Frames. Die Prüfung sucht Hinweise auf nichtlineare Vorverarbeitung (Stretch, Curves, harte Kompression), ist aber kein direkter Kamerasensor-Linearitätstest.
 
 ### `linearity.enabled`
 
@@ -217,7 +217,9 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Aktiviert die Linearitätsprüfung in Phase 0 (SCAN_INPUT).
+**Zweck:** Aktiviert die Linearitätsdiagnostik in Phase 0 (SCAN_INPUT).
+
+**Verhalten:** Auffällige Frames werden protokolliert und im aktuellen Runner im Warn-only-Modus behalten.
 
 ---
 
@@ -243,7 +245,7 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Bereich** | 0.0 – 1.0 |
 | **Default** | `0.9` |
 
-**Zweck:** Mindest-Linearitäts-Score (0 = komplett nichtlinear, 1 = perfekt linear). Frames unter diesem Schwellenwert gelten als nicht-linear.
+**Zweck:** Mindest-Linearitäts-Score (0 = auffällig, 1 = unauffällig). Liegt die Stichprobe darunter, wird eine Warnung ausgegeben.
 
 ---
 
@@ -255,12 +257,14 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Werte** | `strict`, `moderate`, `permissive` |
 | **Default** | `"strict"` |
 
-**Zweck:** Strictness-Level für die Linearitäts-Validierung.
+**Zweck:** Strictness-Level für die Diagnose-Schwellen.
+
+**Verhalten:** Die harte Entscheidung ist konservativ und objektunabhängig: robuste Verteilungsform plus offensichtliches hartes Clipping/Kompression. Spektral-, Gradienten- und Varianzkennzahlen bleiben Diagnosewerte, weil lineare Frames je nach Objekt (leeres Feld, Sternhaufen, Nebel, Galaxienkern, CFA-Struktur) dort legitimerweise stark variieren.
 
 | Level | Beschreibung |
 |-------|-------------|
-| **`strict`** | Strenge Prüfung — empfohlen für kalibrierte Daten |
-| **`moderate`** | Moderate Toleranz — für leicht vorverarbeitete Daten |
+| **`strict`** | Engste Diagnose-Schwellen — empfohlen für lineare Roh-/kalibrierte Daten |
+| **`moderate`** | Tolerantere Diagnose — für leicht vorverarbeitete oder schwierige Motive |
 | **`permissive`** | Hohe Toleranz — nur für bekannt problematische Daten |
 
 ---
@@ -745,7 +749,7 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
 **Zweck:** Aktiviert lokale Hintergrundsubtraktion vor der Sternerkennung.
 
@@ -1875,6 +1879,55 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Default** | `linear` |
 
 **Zweck:** Wählt den Interpolationskern, mit dem registrierte Frames vor AQMH-Rekonstruktion und Stacking auf die gemeinsame Arbeitsfläche vorverzerrt werden. `linear` ist der konservative Default. `cubic` und `lanczos4` sind explizite Tuning-Optionen, die mehr Hochfrequenzdetail erhalten können, aber Hintergrundrauschen oder Ringing verstärken können.
+
+----
+
+#### `aqmh.reconstruction.debayer_first`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert für OSC-Daten einen echten RGB-Pfad vor PREWARP/AQMH. Wenn ein Bayer-Pattern bekannt ist, wird jedes kalibrierte Frame zuerst debayert, danach werden R/G/B geometrisch vorverzerrt. AQMH berechnet die Qualitätskarten auf einer Luma-Ebene und rekonstruiert die finalen R/G/B-Kanäle direkt aus den vorverzerrten RGB-Ebenen. Dadurch wird vermieden, dass ein geometrisch gewarpter CFA-Mosaik-Stack erst nachträglich debayert wird.
+
+**Fallback:** Für Mono/RGB-Daten, unbekanntes Bayer-Pattern oder `false` bleibt der bisherige Pfad aktiv.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `bilinear`, `nearest`, `vng`, `edge_aware` |
+| **Default** | `edge_aware` |
+
+**Zweck:** Wählt das Debayer-Verfahren für `debayer_first`. `bilinear` ist robust und konservativ; `vng` und `edge_aware` können Kanten stärker erhalten, können bei sehr niedrigem SNR aber künstliche Chroma-/Pixelmuster verstärken. `nearest` ist primär diagnostisch.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `shared_luma` |
+| **Default** | `shared_luma` |
+
+**Zweck:** Legt fest, welche Qualitätskarten bei `debayer_first` für die RGB-Rekonstruktion verwendet werden. `shared_luma` nutzt dieselben Luma-Q-Maps und globalen Gewichte für R, G und B, damit die Farbebenen geometrisch und gewichtet konsistent bleiben.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `sequential` |
+| **Default** | `sequential` |
+
+**Zweck:** Steuert den Speicherpfad für die RGB-Rekonstruktion bei `debayer_first`. `sequential` rekonstruiert R, G und B nacheinander und begrenzt dadurch RAM-/VRAM-Spitzen.
 
 ----
 
@@ -3847,8 +3900,8 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 - `linearity.enabled`: aktiviert Linearitätsdiagnostik in Scan/Frühvalidierung.
 - `linearity.max_frames`: Stichprobengröße der Linearitätsprüfung (Speed vs. Sicherheit).
-- `linearity.min_overall_linearity`: Schwellwert für Linearity-Pass/Fail.
-- `linearity.strictness`: Policy-Mapping (Fail/Warn/Ignore-Verhalten).
+- `linearity.min_overall_linearity`: Schwellwert für die Linearity-Diagnosewarnung.
+- `linearity.strictness`: Schwellenpreset für robuste Verteilungs- und Clippingdiagnostik.
 - `calibration.use_bias`, `use_dark`, `use_flat`: schaltet jeweilige Master-Kalibrierstufe ein.
 - `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: nutzt explizite Masterdateien statt Directory-Stacking.
 - `calibration.dark_auto_select`: automatische Dark-Master-Auswahl nach Belichtungszeit (optional Temperatur).

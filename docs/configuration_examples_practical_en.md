@@ -69,6 +69,10 @@ aqmh:
   reconstruction:
     delete_prewarped_cache_after_run: true  # false to retain cache/prewarped_frames for resume
     prewarp_interpolation: linear            # conservative prewarp; test cubic/lanczos4 explicitly for sharpness
+    debayer_first: true                      # OSC: demosaic before PREWARP/AQMH and reconstruct RGB directly
+    pre_debayer_method: edge_aware           # try bilinear for very low-SNR data if chroma artifacts appear
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
     clip_sigma: 2.0
     clip_sigma_low: 2.0
     clip_sigma_high: 2.0

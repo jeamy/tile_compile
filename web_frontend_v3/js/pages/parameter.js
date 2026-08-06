@@ -372,13 +372,30 @@ function syncCalibrationToDraft() {
   const { draft } = getConfigState();
   if (!draft) return;
 
-  // Prefer master over dir when both set
-  const biasMaster = cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "";
-  const biasDir = biasMaster ? "" : (cal.bias_dir || "");
-  const darkMaster = cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "";
-  const darkDir = darkMaster ? "" : (cal.dark_dir || "");
-  const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
-  const flatDir = flatMaster ? "" : (cal.flat_dir || "");
+  const sourceFor = (type) => {
+    const explicitSource = cal[`${type}_source`];
+    if (explicitSource === "master" || explicitSource === "dir") return explicitSource;
+    const explicitUseMaster = cal[`${type}_use_master`];
+    if (typeof explicitUseMaster === "boolean") return explicitUseMaster ? "master" : "dir";
+    const hasMaster = Boolean((cal[`${type}_master`] || "").trim());
+    const hasDir = Boolean((cal[`${type}_dir`] || "").trim());
+    return hasMaster && !hasDir ? "master" : "dir";
+  };
+
+  const effective = (type) => {
+    const source = sourceFor(type);
+    const master = (cal[`${type}_master`] || "").trim();
+    const dir = cal[`${type}_dir`] || "";
+    return {
+      useMaster: source === "master",
+      dir: source === "master" ? "" : dir,
+      master: source === "master" ? master : "",
+    };
+  };
+
+  const bias = effective("bias");
+  const dark = effective("dark");
+  const flat = effective("flat");
 
   const useBias = cal.bias_enabled ?? false;
   const useDark = cal.dark_enabled ?? false;
@@ -386,17 +403,17 @@ function syncCalibrationToDraft() {
 
   const entries = [
     ["calibration.use_bias", useBias],
-    ["calibration.bias_use_master", useBias && !!biasMaster],
-    ["calibration.bias_dir", useBias ? biasDir : ""],
-    ["calibration.bias_master", useBias ? biasMaster : ""],
+    ["calibration.bias_use_master", useBias && bias.useMaster],
+    ["calibration.bias_dir", useBias ? bias.dir : ""],
+    ["calibration.bias_master", useBias ? bias.master : ""],
     ["calibration.use_dark", useDark],
-    ["calibration.dark_use_master", useDark && !!darkMaster],
-    ["calibration.darks_dir", useDark ? darkDir : ""],
-    ["calibration.dark_master", useDark ? darkMaster : ""],
+    ["calibration.dark_use_master", useDark && dark.useMaster],
+    ["calibration.darks_dir", useDark ? dark.dir : ""],
+    ["calibration.dark_master", useDark ? dark.master : ""],
     ["calibration.use_flat", useFlat],
-    ["calibration.flat_use_master", useFlat && !!flatMaster],
-    ["calibration.flats_dir", useFlat ? flatDir : ""],
-    ["calibration.flat_master", useFlat ? flatMaster : ""],
+    ["calibration.flat_use_master", useFlat && flat.useMaster],
+    ["calibration.flats_dir", useFlat ? flat.dir : ""],
+    ["calibration.flat_master", useFlat ? flat.master : ""],
   ];
 
   let changed = false;

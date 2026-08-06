@@ -361,6 +361,10 @@ aqmh:
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: true
     prewarp_interpolation: linear
+    debayer_first: true
+    pre_debayer_method: edge_aware
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
