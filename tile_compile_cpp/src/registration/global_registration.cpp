@@ -720,6 +720,11 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
     if (level == static_cast<int>(mov_pyr.size()) - 1) {
       // Coarsest level: estimate initial translation + rotation
       auto [dx, dy] = phasecorr_translation(m_ecc, r_ecc);
+      // phaseCorrelate reports the forward content displacement.  ECC and
+      // apply_warp() consume the inverse-map translation, so negate it for
+      // the initial warp seed.
+      dx = -dx;
+      dy = -dy;
       current_warp(0, 2) = dx;
       current_warp(1, 2) = dy;
 
@@ -1332,6 +1337,10 @@ RegistrationResult hybrid_phase_ecc(const Matrix2Df &mov, const Matrix2Df &ref,
   Matrix2Df ref_ecc = prepare_ecc_image(ref);
 
   auto [dx, dy] = phasecorr_translation(mov_ecc, ref_ecc);
+  // phaseCorrelate returns the forward content displacement; the warp used
+  // with WARP_INVERSE_MAP must carry the opposite translation.
+  dx = -dx;
+  dy = -dy;
 
   WarpMatrix init = identity_warp();
   init(0, 2) = dx;

@@ -114,6 +114,39 @@ TEST_CASE("register_single_frame accepts near-perfect identity directly") {
   REQUIRE(std::fabs(res.reg.warp(1, 2)) < 1.0e-6f);
 }
 
+TEST_CASE("phase correlation displacement is inverted for apply_warp") {
+  const int rows = 96;
+  const int cols = 128;
+  const Matrix2Df moving = make_star_field(
+      rows, cols, {{22.0f, 24.0f}, {51.0f, 68.0f}, {93.0f, 37.0f}});
+
+  // Build a reference whose content moved +7 px in x and -3 px in y.
+  const int content_dx = 7;
+  const int content_dy = -3;
+  Matrix2Df ref = Matrix2Df::Zero(rows, cols);
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      const int rx = x + content_dx;
+      const int ry = y + content_dy;
+      if (rx >= 0 && rx < cols && ry >= 0 && ry < rows) {
+        ref(ry, rx) = moving(y, x);
+      }
+    }
+  }
+
+  const auto [dx, dy] = phasecorr_translation(moving, ref);
+  REQUIRE(dx == Catch::Approx(static_cast<float>(content_dx)).margin(0.25f));
+  REQUIRE(dy == Catch::Approx(static_cast<float>(content_dy)).margin(0.25f));
+
+  // apply_warp uses WARP_INVERSE_MAP, therefore the phase-correlation
+  // displacement must be negated before it is placed in the warp matrix.
+  WarpMatrix inverse_shift = identity_warp();
+  inverse_shift(0, 2) = -dx;
+  inverse_shift(1, 2) = -dy;
+  const Matrix2Df aligned = apply_warp(moving, inverse_shift);
+  REQUIRE(compute_test_ncc(aligned, ref) > 0.95f);
+}
+
 TEST_CASE("register_frames_to_reference does not mark accepted identity as failure") {
   const Matrix2Df frame = make_registration_pattern(48, 64);
   const std::vector<Matrix2Df> frames{frame, frame};

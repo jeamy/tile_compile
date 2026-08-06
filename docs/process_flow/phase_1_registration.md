@@ -50,10 +50,24 @@ Das verhindert, dass fruehe Frames in langen Alt/Az-Sessions direkt gegen einen 
 
 Nach der Anchor-Auswahl laeuft die direkte Registrierung so:
 
+- Aufnahmezeit-Gaps aus Dateinamen im Format `YYYYMMDD-HHMMSS...` trennen
+  unabhaengige Serien. Fuer jedes erkannte Segment werden die Randframes und
+  zusaetzliche lokale Quality-Anker erzwungen. Dadurch bekommt ein kombinierter
+  Run wie `part1 + part2` pro Serie eine lokale Ankerkette statt nur einen
+  groben globalen Anker.
 - Angeforderte Anchor-Frames werden zuerst gegen bereits aktive Anchors verankert.
+  Sie werden nur dann als aktive Referenz-Anker genutzt, wenn ihre globale
+  Korrelation stark genug ist. Schwache angeforderte Anker bleiben normale
+  Registrierungen und duerfen die direkte Registrierung benachbarter Frames
+  nicht fuehren.
 - Jedes normale Frame wird direkt gegen den **zeitlich naechsten aktiven Anchor** registriert, nicht zwangslaeufig gegen den Master-Anchor.
 - Starke `direct_global`-Treffer koennen zu weiteren aktiven Anchors promoted werden.
-- Die Promotion skaliert ebenfalls mit `N`: Zielgroesse fuer aktive Anchors ist aktuell ungefaehr **1 aktiver Anchor pro 60 Frames**, begrenzt auf `21`.
+  Zusaetzlich koennen Rand-/Frontier-Treffer mit niedrigerer, aber noch
+  plausibler globaler Korrelation promoted werden, wenn sie an ungeloste Frames
+  angrenzen oder den aktiven Anchor-Bereich nach aussen erweitern. Das verhindert,
+  dass stark rotierende Sequenzenden trotz lokal brauchbarer Registrierung
+  komplett in `model_interpolated`/`unresolved` fallen.
+- Die Promotion skaliert ebenfalls mit `N`: Zielgroesse fuer aktive Anchors ist aktuell ungefaehr **1 aktiver Anchor pro 30 Frames**, begrenzt auf `32`.
 - Pro Promote-Runde duerfen aktuell ungefaehr **1 neue Anchors pro 160 Frames** dazukommen, begrenzt auf `2..8` pro Runde.
 - Die Anzahl zusaetzlicher Direktpaesse skaliert ebenfalls mit `N` und ist aktuell auf `ceil(N / 240)` begrenzt, mindestens `3`, maximal `8`.
 
@@ -66,6 +80,29 @@ Wenn die direkte Registrierung fuer ein Frame nicht ausreicht, folgen in dieser 
 3. `temporal_rescue`, `seeded_ecc_rescue`, `local_reference_rescue`: weitere Bruecken- und Unterstuetzungsstufen fuer verbleibende Ausfaelle.
 4. `astrometric_rescue`: ASTAP-basierte Plate-Solve-Rettung fuer unresolved oder sehr schwache/chained Ergebnisse.
 5. `model_predicted` / `model_blended`: Feldrotationsmodell als letzter geometrischer Rueckfall.
+
+Bei der Phase-Correlation liefert OpenCV den **Vorwaerts-Content-Shift**. Da die
+Pipeline-Warps mit `WARP_INVERSE_MAP` angewendet werden, werden `dx` und `dy`
+vor dem Einsetzen in den Warp negiert; bei aktivierter Rotation wird die
+gesamte affine Vorwaertstransformation (Rotation um das Bildzentrum plus
+Translation) invertiert, nicht nur die Translation. `sequential_refined`
+benoetigt zusaetzlich eine lokale NCC-Mindestuebereinstimmung, eine minimale
+globale Plausibilitaet und verwendet Phase-Correlation nur bis zu einer
+plausiblen Schrittweite. Aktive Direktanker werden nicht durch
+`sequential_refined` ueberschrieben. Eine zeitlich validierte Kette wird
+ausserdem nur dann gegen Low-CC-Rejection geschuetzt, wenn ihre globale
+Korrelation nicht auf Alias-Niveau liegt; reine lokale Ketten mit sehr niedriger
+globaler Korrelation werden verworfen. Der globale Rotationstrend wird
+haeufig nur aus dem hochkorrelierten Mittelteil einer langen Alt/Az-Sequenz
+bestimmt und waere an den zeitlichen Raendern eine unzulaessige Extrapolation.
+
+Vor der Modellvorhersage wird die zeitliche Transformations-Komponente auf
+Nachbar-Kontinuitaet geprueft. Ein einzelner grosser Sprung trennt die
+Aufnahmeserien. Jede abgetrennte Komponente mit eigenem starkem
+`direct_global`-/Astrometrie-Anker bleibt erhalten; nur unankerte Ketten werden
+modelliert. So werden unabhaengige Serien nicht als falsche Starfeld-Aeste
+verworfen. Modellierte Restframes bleiben im Datenfluss und erhalten
+`model_predicted`/`model_blended` Warp-Provenienz.
 
 ## 2. Downsample für Registrierung
 
