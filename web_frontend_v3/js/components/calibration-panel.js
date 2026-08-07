@@ -12,7 +12,7 @@ export function createCalibrationPanel({ values = {}, onChange } = {}) {
     if (typeof explicitUseMaster === "boolean") return explicitUseMaster ? "master" : "dir";
     const hasMaster = Boolean((values[`${type}_master`] || "").trim());
     const hasDir = Boolean((values[`${type}_dir`] || "").trim());
-    return hasMaster && !hasDir ? "master" : "dir";
+    return hasMaster ? "master" : "dir";
   };
 
   const biasSource = sourceFor("bias");

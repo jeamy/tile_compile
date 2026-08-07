@@ -766,7 +766,8 @@ bool run_phase_aqmh_reconstruction(
                 " control_seam_score=" +
                 std::to_string(structure_masked_detail_validation.control.seam_score),
             log_file);
-      } else if (candidate_raw_guard.ok && repairs_any_raw_gate_failure) {
+      } else if (repairs_any_raw_gate_failure || improves_fwhm ||
+                 improves_seam) {
         // Passing both immutable references is not monotonic in alpha: the
         // uniform-control endpoint and the full-detail endpoint can fail
         // different gates while an interior candidate passes. Probe the
