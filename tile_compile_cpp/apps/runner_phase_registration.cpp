@@ -19,6 +19,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cmath>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <iomanip>
@@ -3377,8 +3378,31 @@ bool run_phase_registration_prewarp(
         return best_slot;
       };
 
-      if (registration::is_astap_available(cfg.astrometry.astap_bin,
-                                            cfg.astrometry.astap_data_dir)) {
+      std::string astap_data = cfg.astrometry.astap_data_dir;
+      if (astap_data.empty()) {
+#ifdef _WIN32
+        if (const char *la = std::getenv("LOCALAPPDATA")) {
+          astap_data = std::string(la) + "\\tile_compile\\astap";
+        }
+#else
+        if (const char *home = std::getenv("HOME")) {
+          astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+        }
+#endif
+      }
+      fs::path astap_bin_path =
+          resolve_astap_binary_path(cfg.astrometry.astap_bin, astap_data);
+      if (!astap_bin_path.empty()) {
+        std::error_code ec;
+        fs::path data_dir_path(astap_data);
+        auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
+        if (ec || relative.empty() || relative.native().rfind("..", 0) == 0) {
+          astap_data = astap_bin_path.parent_path().string();
+        }
+      }
+      const std::string astap_bin = astap_bin_path.string();
+      if (!astap_bin.empty() &&
+          registration::is_astap_available(astap_bin, astap_data)) {
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!should_try_astrometry(fi)) {
             continue;
@@ -3399,8 +3423,8 @@ bool run_phase_registration_prewarp(
               registration::try_astrometric_rescue_from_paths(
                   mov_fits_path, ref_fits_path,
                   mov_proxy_astro, ref_proxy_astro,
-                  cfg.astrometry.astap_bin,
-                  cfg.astrometry.astap_data_dir,
+                  astap_bin,
+                  astap_data,
                   global_reg_scale,
                   static_cast<float>(cfg.astrometry.search_radius),
                   0.20f);
@@ -3441,7 +3465,12 @@ bool run_phase_registration_prewarp(
           std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
         }
       } else {
-        std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
+        std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue"
+                  << " astap_bin="
+                  << (cfg.astrometry.astap_bin.empty()
+                          ? (astap_data + "/astap_cli")
+                          : cfg.astrometry.astap_bin)
+                  << std::endl;
       }
     }
     global_reg_extra["diag"]["reg_astrometric_rescued"] = reg_astrometric_rescued;

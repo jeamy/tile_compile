@@ -725,7 +725,8 @@ bool run_phase_local_metrics(
       std::vector<uint8_t> global_input_invalid;
       if (!run_phase_aqmh_global_quality(
               run_id, cfg.aqmh.global_quality, sharp_summaries, snr_summaries,
-              background_penalty_summaries, out_aqmh_global_weights,
+              background_penalty_summaries, frame_has_data,
+              out_aqmh_global_weights,
               global_input_invalid, emitter,
               log_file)) {
         return false;

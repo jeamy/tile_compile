@@ -40,6 +40,7 @@ struct AqmhValidationGateDecision {
   bool fwhm_ok = true;
   bool seam_ok = true;
   bool tail_ok = true;
+  bool elongation_ok = true;
   bool all_ok = true;
 };
 

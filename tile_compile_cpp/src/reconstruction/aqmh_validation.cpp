@@ -271,7 +271,7 @@ void measure_star_tail_metrics_at_samples(
   out.star_count = static_cast<int>(tail_abs.size());
   if (!tail_abs.empty()) {
     out.tail11_abs_median = percentile(tail_abs, 0.5f);
-    out.tail11_p90 = percentile(tail_raw, 0.9f);
+    out.tail11_p90 = percentile(tail_abs, 0.9f);
   }
   if (!elongations.empty()) {
     out.elongation_median = percentile(elongations, 0.5f);
@@ -376,12 +376,14 @@ AqmhValidationGateDecision evaluate_aqmh_validation_gates(
                      comparison.seam_score_regression <=
                          cfg.max_seam_score_regression;
   decision.tail_ok = !comparison.tail_applicable ||
-                     (comparison.tail11_abs_regression <=
-                          cfg.max_tail11_abs_regression &&
-                      comparison.elongation_regression <=
-                          cfg.max_elongation_regression);
+                     comparison.tail11_abs_regression <=
+                         cfg.max_tail11_abs_regression;
+  decision.elongation_ok =
+      !comparison.elongation_applicable ||
+      comparison.elongation_regression <= cfg.max_elongation_regression;
   decision.all_ok = decision.background_ok && decision.fwhm_ok &&
-                    decision.seam_ok && decision.tail_ok;
+                    decision.seam_ok && decision.tail_ok &&
+                    decision.elongation_ok;
   return decision;
 }
 

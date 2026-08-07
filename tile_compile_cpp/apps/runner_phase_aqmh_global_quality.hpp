@@ -15,6 +15,7 @@ bool run_phase_aqmh_global_quality(
     const std::vector<float> &sharpness_summaries,
     const std::vector<float> &snr_summaries,
     const std::vector<float> &background_penalty_summaries,
+    const std::vector<uint8_t> &frame_has_data,
     VectorXf &out_weights,
     std::vector<uint8_t> &out_input_invalid, core::EventEmitter &emitter,
     std::ostream &log_file);

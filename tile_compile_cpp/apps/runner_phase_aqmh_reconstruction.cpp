@@ -221,7 +221,7 @@ nlohmann::json validation_comparison_json(
                           "insufficient_comparable_star_samples")},
         {"elongation",
          gate_metric_json(v.elongation_applicable,
-                          gates.tail_ok,
+                          gates.elongation_ok,
                           v.aqmh.elongation_median, v.control.elongation_median,
                           v.elongation_regression,
                           cfg->max_elongation_regression,
