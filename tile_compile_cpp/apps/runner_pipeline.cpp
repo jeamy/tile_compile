@@ -1821,6 +1821,36 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 << std::endl;
     }
   }
+  if (cfg.aqmh.reconstruction.registration_weight_guard) {
+    const auto &residual_factors =
+        phase_registration_ctx.registration_residual_weight_factors;
+    int n_penalized = 0;
+    double min_factor = 1.0;
+    double sum_factor = 0.0;
+    int n_factor = 0;
+    for (Eigen::Index fi = 0; fi < global_weights.size(); ++fi) {
+      if (static_cast<size_t>(fi) >= residual_factors.size()) {
+        continue;
+      }
+      const float factor = std::clamp(residual_factors[static_cast<size_t>(fi)],
+                                      0.0f, 1.0f);
+      global_weights[fi] *= factor;
+      min_factor = std::min(min_factor, static_cast<double>(factor));
+      sum_factor += static_cast<double>(factor);
+      ++n_factor;
+      if (factor < 0.999f) {
+        ++n_penalized;
+      }
+    }
+    if (n_penalized > 0) {
+      const double mean_factor =
+          n_factor > 0 ? sum_factor / static_cast<double>(n_factor) : 1.0;
+      std::cout << "[PIPELINE] Applied registration residual weight penalty "
+                << "to " << n_penalized << " frame(s)"
+                << " min_factor=" << min_factor
+                << " mean_factor=" << mean_factor << std::endl;
+    }
+  }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   prewarped_frames.set_preserve_files(

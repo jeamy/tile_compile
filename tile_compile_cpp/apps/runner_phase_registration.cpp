@@ -80,6 +80,110 @@ image::DebayerResult debayer_for_prewarp(const Matrix2Df &mosaic,
   return image::debayer_bilinear(mosaic, pattern, 0, 0);
 }
 
+struct RegistrationResidualStats {
+  int ref_stars = 0;
+  int frame_stars = 0;
+  int matched_stars = 0;
+  float median_px = 0.0f;
+  float p90_px = 0.0f;
+  float rms_px = 0.0f;
+  float max_px = 0.0f;
+  float weight_factor = 1.0f;
+  bool applicable = false;
+};
+
+float percentile_from_sorted(const std::vector<float> &sorted, float q) {
+  if (sorted.empty()) {
+    return 0.0f;
+  }
+  if (sorted.size() == 1) {
+    return sorted.front();
+  }
+  q = std::clamp(q, 0.0f, 1.0f);
+  const float pos = q * static_cast<float>(sorted.size() - 1);
+  const size_t lo = static_cast<size_t>(std::floor(pos));
+  const size_t hi = std::min(sorted.size() - 1, lo + 1);
+  const float t = pos - static_cast<float>(lo);
+  return sorted[lo] * (1.0f - t) + sorted[hi] * t;
+}
+
+float registration_residual_weight_factor(float median_px, float p90_px) {
+  // Registration proxies are usually 2x downsampled for OSC.  A median residual
+  // above ~0.35 proxy px is already large enough to broaden full-resolution
+  // stacked star cores; keep the transition smooth to avoid hard sample loss.
+  const float median_penalty =
+      std::clamp((median_px - 0.18f) / (0.70f - 0.18f), 0.0f, 1.0f);
+  const float p90_penalty =
+      std::clamp((p90_px - 0.45f) / (1.40f - 0.45f), 0.0f, 1.0f);
+  const float penalty = std::max(median_penalty, 0.75f * p90_penalty);
+  return std::clamp(1.0f - 0.45f * penalty, 0.55f, 1.0f);
+}
+
+RegistrationResidualStats measure_registration_residuals(
+    const Matrix2Df &ref_reg, const Matrix2Df &warped_reg,
+    const config::RegistrationConfig &registration_cfg) {
+  RegistrationResidualStats out;
+  if (ref_reg.size() <= 0 || warped_reg.size() <= 0 ||
+      ref_reg.rows() != warped_reg.rows() || ref_reg.cols() != warped_reg.cols()) {
+    return out;
+  }
+
+  const int topk = std::clamp(registration_cfg.star_topk, 40, 220);
+  const auto ref_stars = registration::detect_stars_simple(
+      ref_reg, topk, registration_cfg.enable_local_background_subtraction);
+  const auto frame_stars = registration::detect_stars_simple(
+      warped_reg, topk, registration_cfg.enable_local_background_subtraction);
+  out.ref_stars = static_cast<int>(ref_stars.size());
+  out.frame_stars = static_cast<int>(frame_stars.size());
+  if (ref_stars.size() < 8 || frame_stars.size() < 8) {
+    return out;
+  }
+
+  std::vector<uint8_t> ref_used(ref_stars.size(), 0);
+  std::vector<float> residuals;
+  residuals.reserve(std::min(ref_stars.size(), frame_stars.size()));
+  constexpr float kMatchRadiusPx = 3.0f;
+  constexpr float kMatchRadiusSq = kMatchRadiusPx * kMatchRadiusPx;
+  for (const auto &s : frame_stars) {
+    float best_d2 = kMatchRadiusSq;
+    int best_idx = -1;
+    for (size_t ri = 0; ri < ref_stars.size(); ++ri) {
+      if (ref_used[ri]) {
+        continue;
+      }
+      const float dx = s.x - ref_stars[ri].x;
+      const float dy = s.y - ref_stars[ri].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < best_d2) {
+        best_d2 = d2;
+        best_idx = static_cast<int>(ri);
+      }
+    }
+    if (best_idx >= 0) {
+      ref_used[static_cast<size_t>(best_idx)] = 1;
+      residuals.push_back(std::sqrt(best_d2));
+    }
+  }
+
+  out.matched_stars = static_cast<int>(residuals.size());
+  if (residuals.size() < 8) {
+    return out;
+  }
+
+  float sum_sq = 0.0f;
+  for (const float r : residuals) {
+    sum_sq += r * r;
+    out.max_px = std::max(out.max_px, r);
+  }
+  std::sort(residuals.begin(), residuals.end());
+  out.median_px = percentile_from_sorted(residuals, 0.5f);
+  out.p90_px = percentile_from_sorted(residuals, 0.9f);
+  out.rms_px = std::sqrt(sum_sq / static_cast<float>(residuals.size()));
+  out.weight_factor = registration_residual_weight_factor(out.median_px, out.p90_px);
+  out.applicable = true;
+  return out;
+}
+
 /// @brief Implements wrap angle near.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -549,6 +653,8 @@ bool run_phase_registration_prewarp(
   std::vector<int> reg_chain_depth(frames.size(), -1);
   std::vector<RegistrationProvenance> reg_provenance(
       frames.size(), RegistrationProvenance::unresolved);
+  std::vector<RegistrationResidualStats> reg_residual_stats(frames.size());
+  std::vector<float> registration_residual_weight_factors(frames.size(), 1.0f);
   std::string global_reg_status = "skipped";
   core::json global_reg_extra;
   const int temporal_center_idx =
@@ -623,6 +729,8 @@ bool run_phase_registration_prewarp(
     j["cc"] = core::json::array();
     j["source"] = core::json::array();
     j["chain_depth"] = core::json::array();
+    j["star_residuals"] = core::json::array();
+    j["registration_residual_weight_factor"] = core::json::array();
     j["warps"] = core::json::array();
     j["dithering"] = {
         {"enabled", cfg.dithering.enabled},
@@ -634,6 +742,20 @@ bool run_phase_registration_prewarp(
       const auto &w = global_frame_warps[fi];
       j["cc"].push_back(global_frame_cc[fi]);
       j["source"].push_back(registration_provenance_name(reg_provenance[fi]));
+      j["registration_residual_weight_factor"].push_back(
+          static_cast<double>(registration_residual_weight_factors[fi]));
+      const auto &rs = reg_residual_stats[fi];
+      j["star_residuals"].push_back(core::json{
+          {"applicable", rs.applicable},
+          {"ref_stars", rs.ref_stars},
+          {"frame_stars", rs.frame_stars},
+          {"matched_stars", rs.matched_stars},
+          {"median_px", rs.median_px},
+          {"p90_px", rs.p90_px},
+          {"rms_px", rs.rms_px},
+          {"max_px", rs.max_px},
+          {"weight_factor", rs.weight_factor},
+      });
       if (reg_chain_depth[fi] >= 0) {
         j["chain_depth"].push_back(reg_chain_depth[fi]);
       } else {
@@ -3526,6 +3648,98 @@ bool run_phase_registration_prewarp(
   global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
   global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
 
+  int reg_residual_applicable = 0;
+  int reg_residual_damped = 0;
+  std::vector<float> reg_residual_medians;
+  std::vector<float> reg_residual_p90s;
+  std::vector<float> reg_residual_factors;
+  if (global_reg_status == "ok" && !frames.empty() && global_ref_idx >= 0 &&
+      static_cast<size_t>(global_ref_idx) < frames.size()) {
+    try {
+      const Matrix2Df ref_proxy =
+          load_registration_proxy(static_cast<size_t>(global_ref_idx));
+      const float proxy_scale =
+          (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
+      if (ref_proxy.size() > 0) {
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          registration_residual_weight_factors[fi] = 1.0f;
+          if (global_frame_cc[fi] <= 0.0f ||
+              reg_provenance[fi] == RegistrationProvenance::unresolved) {
+            continue;
+          }
+          Matrix2Df warped_proxy;
+          if (static_cast<int>(fi) == global_ref_idx) {
+            warped_proxy = ref_proxy;
+          } else {
+            const Matrix2Df mov_proxy = load_registration_proxy(fi);
+            if (mov_proxy.size() <= 0 || mov_proxy.rows() != ref_proxy.rows() ||
+                mov_proxy.cols() != ref_proxy.cols()) {
+              continue;
+            }
+            const WarpMatrix w_proxy = registration::scale_translation_warp(
+                global_frame_warps[fi], proxy_scale);
+            warped_proxy = registration::apply_warp(mov_proxy, w_proxy);
+          }
+          reg_residual_stats[fi] =
+              measure_registration_residuals(ref_proxy, warped_proxy,
+                                             registration_cfg);
+          if (!reg_residual_stats[fi].applicable) {
+            continue;
+          }
+          registration_residual_weight_factors[fi] =
+              reg_residual_stats[fi].weight_factor;
+          ++reg_residual_applicable;
+          reg_residual_medians.push_back(reg_residual_stats[fi].median_px);
+          reg_residual_p90s.push_back(reg_residual_stats[fi].p90_px);
+          reg_residual_factors.push_back(reg_residual_stats[fi].weight_factor);
+          if (reg_residual_stats[fi].weight_factor < 0.999f) {
+            ++reg_residual_damped;
+          }
+        }
+      }
+    } catch (const std::exception &e) {
+      emitter.warning(
+          run_id,
+          std::string("REGISTRATION residual analysis failed: ") + e.what(),
+          log_file);
+    } catch (...) {
+      emitter.warning(run_id, "REGISTRATION residual analysis failed",
+                      log_file);
+    }
+  }
+  auto residual_percentile = [](std::vector<float> vals, float q) -> float {
+    if (vals.empty()) {
+      return 0.0f;
+    }
+    std::sort(vals.begin(), vals.end());
+    return percentile_from_sorted(vals, q);
+  };
+  global_reg_extra["diag"]["reg_residual_applicable"] =
+      reg_residual_applicable;
+  global_reg_extra["diag"]["reg_residual_damped"] = reg_residual_damped;
+  global_reg_extra["diag"]["reg_residual_median_px_median"] =
+      residual_percentile(reg_residual_medians, 0.5f);
+  global_reg_extra["diag"]["reg_residual_median_px_p90"] =
+      residual_percentile(reg_residual_medians, 0.9f);
+  global_reg_extra["diag"]["reg_residual_p90_px_median"] =
+      residual_percentile(reg_residual_p90s, 0.5f);
+  global_reg_extra["diag"]["reg_residual_weight_factor_median"] =
+      residual_percentile(reg_residual_factors, 0.5f);
+  global_reg_extra["diag"]["reg_residual_weight_factor_min"] =
+      residual_percentile(reg_residual_factors, 0.0f);
+  if (reg_residual_applicable > 0) {
+    std::cout << "[REG-RESIDUAL] matched-star residuals: applicable="
+              << reg_residual_applicable << "/" << frames.size()
+              << " damped=" << reg_residual_damped
+              << " median_px_med="
+              << global_reg_extra["diag"]["reg_residual_median_px_median"]
+              << " median_px_p90="
+              << global_reg_extra["diag"]["reg_residual_median_px_p90"]
+              << " factor_min="
+              << global_reg_extra["diag"]["reg_residual_weight_factor_min"]
+              << std::endl;
+  }
+
   // All frames now have warps (valid registration or polynomial prediction).
   // Tile-level quality metrics handle downstream weighting (v3.2.2 §1.2).
   int n_cc_positive = 0;
@@ -3573,6 +3787,8 @@ bool run_phase_registration_prewarp(
 
   // Export model-predicted mask so the pipeline can apply a weight penalty.
   out.model_predicted_mask.assign(frames.size(), 0);
+  out.registration_residual_weight_factors =
+      registration_residual_weight_factors;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
     const auto p = reg_provenance[fi];
     if (p == RegistrationProvenance::model_interpolated ||
