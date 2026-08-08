@@ -336,6 +336,10 @@ properties:
           Alt/Az (e.g. DWARF II, unguided): 200–400. WARNING: if set too small, frames with shifts exceeding this radius will silently fail registration (no error, just a bad warp with cc≈0). This causes
           chain_depth=0 for those frames. Never reduce below the measured maximum per-frame shift. If in doubt, leave at default 200.'
         default: 200.0
+      affine_refinement_enabled:
+        type: boolean
+        description: 'Enable conservative per-frame affine fine registration after global registration. Uses mutual star matches and RANSAC on proxy coordinates; applies a correction only when match coverage, transform size, matched-set median/p90/RMS, NCC, and overlap gates pass. Rejected candidates preserve the original warp. Default: false.'
+        default: false
   dithering:
     type: object
     properties:

@@ -760,6 +760,19 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 ---
 
+### `registration.affine_refinement_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Optional aktivierbare affine Feinkorrektur pro Frame nach der normalen globalen Registrierung. Sie erkennt Sterne im Referenz- und bereits gewarpten Proxy, bildet gegenseitige Nearest-Neighbor-Matches und schätzt mit RANSAC eine kleine affine Korrektur. Die Korrektur wird nur angewendet, wenn Inlierzahl und räumliche Abdeckung ausreichen, Skalierung/Shear/Rotation/Zentrumsverschiebung konservativ bleiben, Median und p90 der identischen Sternpaare ohne RMS-Regression sinken und NCC/Überlappung nicht schlechter werden. Andernfalls bleibt der ursprüngliche Warp unverändert.
+
+**Einheiten und Anwendbarkeit:** Alle Residual-, Matchradius- und Zentrumsverschiebungs-Gates verwenden Proxy-Pixel (bei OSC normalerweise halbe Auflösung). Frames unterhalb des internen p90-Triggers, der Referenzframe und Frames ohne ausreichend verteilte Sterne sind nicht anwendbar und bleiben unverändert. Nur bei nachgewiesenen lokalen Registrierungsresiduen aktivieren und gegen einen unveränderten Kontrolllauf vergleichen.
+
+---
+
 ### `registration.star_shift_radius_px`
 
 | Eigenschaft | Wert |

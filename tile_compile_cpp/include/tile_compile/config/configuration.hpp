@@ -105,6 +105,10 @@ struct RegistrationConfig {
   // Must cover the maximum expected inter-frame shift.  For equatorial mounts
   // 60 px is sufficient; for Alt/Az sessions (e.g. DWARF II) use 200-400 px.
   float star_shift_radius_px = 200.0f;
+  // Optional conservative affine fine registration on already aligned proxy
+  // stars. Disabled by default; rejected candidates leave the original warp
+  // unchanged and are reported in global_registration.json.
+  bool affine_refinement_enabled = false;
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe

@@ -12,6 +12,8 @@
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
 
+#include <Eigen/Dense>
+
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
@@ -90,6 +92,16 @@ struct RegistrationResidualStats {
   float max_px = 0.0f;
   float weight_factor = 1.0f;
   bool applicable = false;
+};
+
+struct AffineRefinementFrameStats {
+  bool attempted = false;
+  bool applied = false;
+  std::string reason = "disabled";
+  registration::AffineStarRefinementResult fit;
+  float ncc_before = 0.0f;
+  float ncc_after = 0.0f;
+  float overlap_ratio = 0.0f;
 };
 
 float percentile_from_sorted(const std::vector<float> &sorted, float q) {
@@ -654,6 +666,7 @@ bool run_phase_registration_prewarp(
   std::vector<RegistrationProvenance> reg_provenance(
       frames.size(), RegistrationProvenance::unresolved);
   std::vector<RegistrationResidualStats> reg_residual_stats(frames.size());
+  std::vector<AffineRefinementFrameStats> affine_refinement_stats(frames.size());
   std::vector<float> registration_residual_weight_factors(frames.size(), 1.0f);
   std::string global_reg_status = "skipped";
   core::json global_reg_extra;
@@ -730,6 +743,7 @@ bool run_phase_registration_prewarp(
     j["source"] = core::json::array();
     j["chain_depth"] = core::json::array();
     j["star_residuals"] = core::json::array();
+    j["affine_refinement"] = core::json::array();
     j["registration_residual_weight_factor"] = core::json::array();
     j["warps"] = core::json::array();
     j["dithering"] = {
@@ -755,6 +769,37 @@ bool run_phase_registration_prewarp(
           {"rms_px", rs.rms_px},
           {"max_px", rs.max_px},
           {"weight_factor", rs.weight_factor},
+      });
+      const auto &ars = affine_refinement_stats[fi];
+      const auto &fit = ars.fit;
+      j["affine_refinement"].push_back(core::json{
+          {"attempted", ars.attempted},
+          {"applied", ars.applied},
+          {"reason", ars.reason},
+          {"matched_stars", fit.matched_stars},
+          {"inlier_stars", fit.inlier_stars},
+          {"inlier_ratio", fit.inlier_ratio},
+          {"spatial_coverage", fit.spatial_coverage},
+          {"median_before_px", fit.median_before_px},
+          {"p90_before_px", fit.p90_before_px},
+          {"rms_before_px", fit.rms_before_px},
+          {"median_after_px", fit.median_after_px},
+          {"p90_after_px", fit.p90_after_px},
+          {"rms_after_px", fit.rms_after_px},
+          {"center_displacement_px", fit.center_displacement_px},
+          {"rotation_deg", fit.rotation_deg},
+          {"min_scale", fit.min_scale},
+          {"max_scale", fit.max_scale},
+          {"ncc_before", ars.ncc_before},
+          {"ncc_after", ars.ncc_after},
+          {"overlap_ratio", ars.overlap_ratio},
+          {"correction_warp",
+           {{"a00", fit.correction_warp(0, 0)},
+            {"a01", fit.correction_warp(0, 1)},
+            {"tx", fit.correction_warp(0, 2)},
+            {"a10", fit.correction_warp(1, 0)},
+            {"a11", fit.correction_warp(1, 1)},
+            {"ty", fit.correction_warp(1, 2)}}},
       });
       if (reg_chain_depth[fi] >= 0) {
         j["chain_depth"].push_back(reg_chain_depth[fi]);
@@ -3650,6 +3695,9 @@ bool run_phase_registration_prewarp(
 
   int reg_residual_applicable = 0;
   int reg_residual_damped = 0;
+  int reg_affine_correction_attempted = 0;
+  int reg_affine_correction_applied = 0;
+  int reg_affine_correction_rejected = 0;
   std::vector<float> reg_residual_medians;
   std::vector<float> reg_residual_p90s;
   std::vector<float> reg_residual_factors;
@@ -3680,9 +3728,93 @@ bool run_phase_registration_prewarp(
                 global_frame_warps[fi], proxy_scale);
             warped_proxy = registration::apply_warp(mov_proxy, w_proxy);
           }
-          reg_residual_stats[fi] =
+
+          const RegistrationResidualStats initial_residual =
               measure_registration_residuals(ref_proxy, warped_proxy,
                                              registration_cfg);
+          auto &refinement = affine_refinement_stats[fi];
+          if (!registration_cfg.affine_refinement_enabled) {
+            refinement.reason = "disabled";
+          } else if (static_cast<int>(fi) == global_ref_idx) {
+            refinement.reason = "reference_frame";
+          } else if (!initial_residual.applicable) {
+            refinement.reason = "residual_unavailable";
+          } else if (initial_residual.p90_px <= 0.8f) {
+            refinement.reason = "p90_below_trigger";
+          } else {
+            refinement.attempted = true;
+            ++reg_affine_correction_attempted;
+            const int topk = std::clamp(registration_cfg.star_topk, 40, 220);
+            const auto ref_stars = registration::detect_stars_simple(
+                ref_proxy, topk,
+                registration_cfg.enable_local_background_subtraction);
+            const auto warped_stars = registration::detect_stars_simple(
+                warped_proxy, topk,
+                registration_cfg.enable_local_background_subtraction);
+            refinement.fit = registration::estimate_affine_star_refinement(
+                ref_stars, warped_stars, ref_proxy.rows(), ref_proxy.cols(),
+                3.0f);
+            refinement.reason = refinement.fit.rejection_reason;
+
+            if (refinement.fit.valid) {
+              const Matrix2Df mov_proxy = load_registration_proxy(fi);
+              const WarpMatrix old_warp_proxy =
+                  registration::scale_translation_warp(global_frame_warps[fi],
+                                                       proxy_scale);
+              // correction_warp maps reference coordinates into the already
+              // warped proxy. WARP_INVERSE_MAP therefore requires
+              // W_new = W_old o correction_warp.
+              const WarpMatrix corrected_warp_proxy = concatenate_affine_warps(
+                  refinement.fit.correction_warp, old_warp_proxy);
+              const Matrix2Df candidate_proxy =
+                  registration::apply_warp(mov_proxy, corrected_warp_proxy);
+              const cv::Mat old_mask =
+                  registration::warp_valid_mask(mov_proxy, old_warp_proxy);
+              const cv::Mat candidate_mask = registration::warp_valid_mask(
+                  mov_proxy, corrected_warp_proxy);
+              cv::Mat common_mask;
+              cv::bitwise_and(old_mask, candidate_mask, common_mask);
+              const int old_overlap = cv::countNonZero(old_mask);
+              const int candidate_overlap = cv::countNonZero(candidate_mask);
+              const int common_overlap = cv::countNonZero(common_mask);
+              refinement.overlap_ratio =
+                  old_overlap > 0
+                      ? static_cast<float>(candidate_overlap) /
+                            static_cast<float>(old_overlap)
+                      : 0.0f;
+              if (common_overlap > 16) {
+                refinement.ncc_before = registration::compute_ncc_masked(
+                    warped_proxy, ref_proxy, common_mask);
+                refinement.ncc_after = registration::compute_ncc_masked(
+                    candidate_proxy, ref_proxy, common_mask);
+              }
+
+              if (common_overlap <= 16) {
+                refinement.reason = "insufficient_common_overlap";
+              } else if (refinement.overlap_ratio < 0.995f) {
+                refinement.reason = "overlap_regressed";
+              } else if (refinement.ncc_after < refinement.ncc_before - 0.002f) {
+                refinement.reason = "ncc_regressed";
+              } else {
+                const WarpMatrix correction_full =
+                    registration::scale_translation_warp(
+                        refinement.fit.correction_warp, 1.0f / proxy_scale);
+                global_frame_warps[fi] = concatenate_affine_warps(
+                    correction_full, global_frame_warps[fi]);
+                warped_proxy = candidate_proxy;
+                refinement.applied = true;
+                refinement.reason = "applied";
+                ++reg_affine_correction_applied;
+              }
+            }
+            if (!refinement.applied) {
+              ++reg_affine_correction_rejected;
+            }
+          }
+
+          reg_residual_stats[fi] = measure_registration_residuals(
+              ref_proxy, warped_proxy, registration_cfg);
+
           if (!reg_residual_stats[fi].applicable) {
             continue;
           }
@@ -3717,6 +3849,14 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["reg_residual_applicable"] =
       reg_residual_applicable;
   global_reg_extra["diag"]["reg_residual_damped"] = reg_residual_damped;
+  global_reg_extra["diag"]["reg_affine_refinement_enabled"] =
+      registration_cfg.affine_refinement_enabled;
+  global_reg_extra["diag"]["reg_affine_correction_attempted"] =
+      reg_affine_correction_attempted;
+  global_reg_extra["diag"]["reg_affine_correction_applied"] =
+      reg_affine_correction_applied;
+  global_reg_extra["diag"]["reg_affine_correction_rejected"] =
+      reg_affine_correction_rejected;
   global_reg_extra["diag"]["reg_residual_median_px_median"] =
       residual_percentile(reg_residual_medians, 0.5f);
   global_reg_extra["diag"]["reg_residual_median_px_p90"] =
@@ -3731,6 +3871,9 @@ bool run_phase_registration_prewarp(
     std::cout << "[REG-RESIDUAL] matched-star residuals: applicable="
               << reg_residual_applicable << "/" << frames.size()
               << " damped=" << reg_residual_damped
+              << " affine_attempted=" << reg_affine_correction_attempted
+              << " affine_corr=" << reg_affine_correction_applied
+              << " rejected=" << reg_affine_correction_rejected
               << " median_px_med="
               << global_reg_extra["diag"]["reg_residual_median_px_median"]
               << " median_px_p90="

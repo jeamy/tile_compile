@@ -453,6 +453,233 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk,
   return stars;
 }
 
+AffineStarRefinementResult estimate_affine_star_refinement(
+    const std::vector<StarPoint> &ref_stars,
+    const std::vector<StarPoint> &warped_stars, int image_rows, int image_cols,
+    float match_radius_px) {
+  AffineStarRefinementResult out;
+  out.correction_warp = identity_warp();
+  out.rejection_reason = "too_few_stars";
+  if (ref_stars.size() < 24 || warped_stars.size() < 24 || image_rows <= 0 ||
+      image_cols <= 0 || match_radius_px <= 0.0f) {
+    return out;
+  }
+
+  struct Match {
+    size_t warped_idx = 0;
+    size_t ref_idx = 0;
+  };
+  std::vector<Match> matches;
+  matches.reserve(std::min(ref_stars.size(), warped_stars.size()));
+  const float radius_sq = match_radius_px * match_radius_px;
+  constexpr float kAmbiguityRatioSq = 0.8f * 0.8f;
+
+  for (size_t wi = 0; wi < warped_stars.size(); ++wi) {
+    float best_d2 = radius_sq;
+    float second_d2 = std::numeric_limits<float>::max();
+    int best_ref = -1;
+    for (size_t ri = 0; ri < ref_stars.size(); ++ri) {
+      const float dx = warped_stars[wi].x - ref_stars[ri].x;
+      const float dy = warped_stars[wi].y - ref_stars[ri].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < best_d2) {
+        second_d2 = best_d2;
+        best_d2 = d2;
+        best_ref = static_cast<int>(ri);
+      } else if (d2 < second_d2) {
+        second_d2 = d2;
+      }
+    }
+    if (best_ref < 0 ||
+        (std::isfinite(second_d2) &&
+         best_d2 > kAmbiguityRatioSq * second_d2)) {
+      continue;
+    }
+
+    int nearest_warped = -1;
+    float reverse_best_d2 = radius_sq;
+    for (size_t other_wi = 0; other_wi < warped_stars.size(); ++other_wi) {
+      const float dx = warped_stars[other_wi].x -
+                       ref_stars[static_cast<size_t>(best_ref)].x;
+      const float dy = warped_stars[other_wi].y -
+                       ref_stars[static_cast<size_t>(best_ref)].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < reverse_best_d2) {
+        reverse_best_d2 = d2;
+        nearest_warped = static_cast<int>(other_wi);
+      }
+    }
+    if (nearest_warped == static_cast<int>(wi)) {
+      matches.push_back({wi, static_cast<size_t>(best_ref)});
+    }
+  }
+
+  out.matched_stars = static_cast<int>(matches.size());
+  if (matches.size() < 24) {
+    out.rejection_reason = "too_few_mutual_matches";
+    return out;
+  }
+
+  std::vector<cv::Point2f> points_warped;
+  std::vector<cv::Point2f> points_ref;
+  points_warped.reserve(matches.size());
+  points_ref.reserve(matches.size());
+  for (const Match &match : matches) {
+    const auto &warped = warped_stars[match.warped_idx];
+    const auto &ref = ref_stars[match.ref_idx];
+    points_warped.emplace_back(warped.x, warped.y);
+    points_ref.emplace_back(ref.x, ref.y);
+  }
+
+  cv::Mat inlier_mask;
+  cv::Mat forward = estimate_affine_family_transform(
+      points_warped, points_ref, "affine", inlier_mask, 0.75, 3000, 0.995);
+  if (forward.empty()) {
+    out.rejection_reason = "ransac_failed";
+    return out;
+  }
+  out.inlier_stars = inlier_mask.empty() ? 0 : cv::countNonZero(inlier_mask);
+  out.inlier_ratio = static_cast<float>(out.inlier_stars) /
+                     static_cast<float>(matches.size());
+  if (out.inlier_stars < 18 || out.inlier_ratio < 0.60f) {
+    out.rejection_reason = "insufficient_ransac_consensus";
+    return out;
+  }
+
+  std::vector<cv::Point2f> inlier_ref_points;
+  inlier_ref_points.reserve(static_cast<size_t>(out.inlier_stars));
+  for (size_t i = 0; i < points_ref.size(); ++i) {
+    if (inlier_mask.at<uint8_t>(static_cast<int>(i)) != 0) {
+      inlier_ref_points.push_back(points_ref[i]);
+    }
+  }
+  std::vector<cv::Point2f> hull;
+  cv::convexHull(inlier_ref_points, hull);
+  const double image_area = static_cast<double>(image_rows) * image_cols;
+  out.spatial_coverage = image_area > 0.0
+                             ? static_cast<float>(cv::contourArea(hull) /
+                                                  image_area)
+                             : 0.0f;
+  const cv::Rect2f bounds = cv::boundingRect(inlier_ref_points);
+  const float x_span = bounds.width / static_cast<float>(image_cols);
+  const float y_span = bounds.height / static_cast<float>(image_rows);
+  if (out.spatial_coverage < 0.12f || x_span < 0.35f || y_span < 0.35f) {
+    out.rejection_reason = "insufficient_spatial_coverage";
+    return out;
+  }
+
+  const double a00 = forward.at<double>(0, 0);
+  const double a01 = forward.at<double>(0, 1);
+  const double tx = forward.at<double>(0, 2);
+  const double a10 = forward.at<double>(1, 0);
+  const double a11 = forward.at<double>(1, 1);
+  const double ty = forward.at<double>(1, 2);
+  if (!std::isfinite(a00) || !std::isfinite(a01) || !std::isfinite(tx) ||
+      !std::isfinite(a10) || !std::isfinite(a11) || !std::isfinite(ty)) {
+    out.rejection_reason = "non_finite_transform";
+    return out;
+  }
+  const double determinant = a00 * a11 - a01 * a10;
+  if (determinant <= 0.0) {
+    out.rejection_reason = "invalid_determinant";
+    return out;
+  }
+
+  cv::Mat linear = (cv::Mat_<double>(2, 2) << a00, a01, a10, a11);
+  cv::SVD svd(linear, cv::SVD::NO_UV);
+  out.max_scale = static_cast<float>(svd.w.at<double>(0));
+  out.min_scale = static_cast<float>(svd.w.at<double>(1));
+  if (out.min_scale < 0.99f || out.max_scale > 1.01f ||
+      out.max_scale / out.min_scale > 1.01f) {
+    out.rejection_reason = "scale_or_shear_out_of_bounds";
+    return out;
+  }
+
+  out.rotation_deg = static_cast<float>(
+      std::atan2(a10 - a01, a00 + a11) * 180.0 / CV_PI);
+  if (std::fabs(out.rotation_deg) > 0.5f) {
+    out.rejection_reason = "rotation_out_of_bounds";
+    return out;
+  }
+  const double center_x = 0.5 * static_cast<double>(image_cols - 1);
+  const double center_y = 0.5 * static_cast<double>(image_rows - 1);
+  const double center_dx = a00 * center_x + a01 * center_y + tx - center_x;
+  const double center_dy = a10 * center_x + a11 * center_y + ty - center_y;
+  out.center_displacement_px =
+      static_cast<float>(std::hypot(center_dx, center_dy));
+  if (out.center_displacement_px > 2.0f) {
+    out.rejection_reason = "center_displacement_out_of_bounds";
+    return out;
+  }
+
+  auto percentile = [](std::vector<float> values, float q) {
+    std::sort(values.begin(), values.end());
+    if (values.empty()) {
+      return 0.0f;
+    }
+    const float pos = std::clamp(q, 0.0f, 1.0f) *
+                      static_cast<float>(values.size() - 1);
+    const size_t lo = static_cast<size_t>(std::floor(pos));
+    const size_t hi = std::min(values.size() - 1, lo + 1);
+    const float t = pos - static_cast<float>(lo);
+    return values[lo] * (1.0f - t) + values[hi] * t;
+  };
+  std::vector<float> residuals_before;
+  std::vector<float> residuals_after;
+  residuals_before.reserve(matches.size());
+  residuals_after.reserve(matches.size());
+  double before_sq_sum = 0.0;
+  double after_sq_sum = 0.0;
+  for (size_t i = 0; i < points_ref.size(); ++i) {
+    const double before_dx = points_warped[i].x - points_ref[i].x;
+    const double before_dy = points_warped[i].y - points_ref[i].y;
+    const float before = static_cast<float>(std::hypot(before_dx, before_dy));
+    const double predicted_x =
+        a00 * points_warped[i].x + a01 * points_warped[i].y + tx;
+    const double predicted_y =
+        a10 * points_warped[i].x + a11 * points_warped[i].y + ty;
+    const float after = static_cast<float>(
+        std::hypot(predicted_x - points_ref[i].x,
+                   predicted_y - points_ref[i].y));
+    residuals_before.push_back(before);
+    residuals_after.push_back(after);
+    before_sq_sum += static_cast<double>(before) * before;
+    after_sq_sum += static_cast<double>(after) * after;
+  }
+  out.median_before_px = percentile(residuals_before, 0.5f);
+  out.p90_before_px = percentile(residuals_before, 0.9f);
+  out.rms_before_px = static_cast<float>(
+      std::sqrt(before_sq_sum / static_cast<double>(matches.size())));
+  out.median_after_px = percentile(residuals_after, 0.5f);
+  out.p90_after_px = percentile(residuals_after, 0.9f);
+  out.rms_after_px = static_cast<float>(
+      std::sqrt(after_sq_sum / static_cast<double>(matches.size())));
+
+  const float required_median_gain =
+      std::max(0.01f, 0.05f * out.median_before_px);
+  const float required_p90_gain = std::max(0.03f, 0.05f * out.p90_before_px);
+  if (out.median_after_px > out.median_before_px - required_median_gain) {
+    out.rejection_reason = "median_not_improved";
+    return out;
+  }
+  if (out.p90_after_px > out.p90_before_px - required_p90_gain) {
+    out.rejection_reason = "p90_not_improved";
+    return out;
+  }
+  if (out.rms_after_px > out.rms_before_px + 1.0e-4f) {
+    out.rejection_reason = "rms_regressed";
+    return out;
+  }
+
+  if (!invert_forward_affine_to_warp(forward, true, out.correction_warp,
+                                     &out.rejection_reason)) {
+    return out;
+  }
+  out.valid = true;
+  out.rejection_reason = "accepted";
+  return out;
+}
+
 // =====================================================================
 // Similarity helpers (used by trail, star pair, and triangle matching)
 // =====================================================================

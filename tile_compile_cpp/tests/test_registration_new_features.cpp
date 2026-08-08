@@ -59,6 +59,19 @@ TEST_CASE("RegistrationConfig new parameter defaults") {
     
     // §4.4, §8.D — Lokale Hintergrundsubtraktion
     REQUIRE(cfg.enable_local_background_subtraction == false);
+
+    // Conservative post-registration affine refinement is opt-in.
+    REQUIRE(cfg.affine_refinement_enabled == false);
+}
+
+TEST_CASE("RegistrationConfig parses affine refinement opt-in") {
+    const YAML::Node node = YAML::Load(R"(
+registration:
+  affine_refinement_enabled: true
+)");
+    const Config cfg = Config::from_yaml(node);
+    REQUIRE(cfg.registration.affine_refinement_enabled);
+    REQUIRE_NOTHROW(cfg.validate());
 }
 
 TEST_CASE("RegistrationConfig parameter validation ranges") {

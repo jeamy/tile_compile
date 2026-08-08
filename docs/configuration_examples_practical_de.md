@@ -483,6 +483,7 @@ registration:
   use_astrometry: true            # Astrometrische Rescue bei Bedarf
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, Äquatorial: 60
+  affine_refinement_enabled: false # Opt-in; nur nach Residualmessung kontrolliert testen
 ```
 
 **Sternenarm / Nebel / wolkige Daten:**

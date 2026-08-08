@@ -191,5 +191,82 @@ TEST_CASE("triangle star matching remains stable on dense near-symmetric fields"
   REQUIRE(compute_test_ncc(warped, ref) > 0.85f);
 }
 
+TEST_CASE("affine star refinement robustly recovers a small residual warp") {
+  constexpr int rows = 300;
+  constexpr int cols = 400;
+  constexpr double theta = 0.0025;
+  const double a00 = 1.003 * std::cos(theta);
+  const double a01 = -std::sin(theta) + 0.0008;
+  const double a10 = std::sin(theta);
+  const double a11 = 0.998 * std::cos(theta);
+  const double cx = 0.5 * (cols - 1);
+  const double cy = 0.5 * (rows - 1);
+  const double tx = cx + 0.45 - a00 * cx - a01 * cy;
+  const double ty = cy - 0.35 - a10 * cx - a11 * cy;
+  const double det = a00 * a11 - a01 * a10;
+
+  std::vector<StarPoint> ref_stars;
+  std::vector<StarPoint> warped_stars;
+  for (int gy = 0; gy < 6; ++gy) {
+    for (int gx = 0; gx < 6; ++gx) {
+      const double rx = 40.0 + gx * 64.0;
+      const double ry = 35.0 + gy * 46.0;
+      const double ux = rx - tx;
+      const double uy = ry - ty;
+      double wx = (a11 * ux - a01 * uy) / det;
+      double wy = (-a10 * ux + a00 * uy) / det;
+      if (ref_stars.size() < 3) {
+        wx += 2.0;
+        wy -= 1.4;
+      }
+      ref_stars.push_back(
+          {static_cast<float>(rx), static_cast<float>(ry), 100.0f});
+      warped_stars.push_back(
+          {static_cast<float>(wx), static_cast<float>(wy), 100.0f});
+    }
+  }
+
+  const auto fit = estimate_affine_star_refinement(
+      ref_stars, warped_stars, rows, cols, 3.0f);
+
+  REQUIRE(fit.valid);
+  REQUIRE(fit.rejection_reason == "accepted");
+  REQUIRE(fit.matched_stars == 36);
+  REQUIRE(fit.inlier_stars >= 30);
+  REQUIRE(fit.spatial_coverage > 0.5f);
+  REQUIRE(fit.median_after_px < fit.median_before_px);
+  REQUIRE(fit.p90_after_px < fit.p90_before_px);
+
+  const auto &ref = ref_stars.back();
+  const auto &warped = warped_stars.back();
+  const float predicted_x = fit.correction_warp(0, 0) * ref.x +
+                            fit.correction_warp(0, 1) * ref.y +
+                            fit.correction_warp(0, 2);
+  const float predicted_y = fit.correction_warp(1, 0) * ref.x +
+                            fit.correction_warp(1, 1) * ref.y +
+                            fit.correction_warp(1, 2);
+  REQUIRE(predicted_x == Catch::Approx(warped.x).margin(0.05f));
+  REQUIRE(predicted_y == Catch::Approx(warped.y).margin(0.05f));
+}
+
+TEST_CASE("affine star refinement rejects spatially concentrated matches") {
+  std::vector<StarPoint> ref_stars;
+  std::vector<StarPoint> warped_stars;
+  for (int gy = 0; gy < 5; ++gy) {
+    for (int gx = 0; gx < 6; ++gx) {
+      const float x = 100.0f + gx * 8.0f;
+      const float y = 100.0f + gy * 8.0f;
+      ref_stars.push_back({x, y, 100.0f});
+      warped_stars.push_back({x - 0.4f, y + 0.2f, 100.0f});
+    }
+  }
+
+  const auto fit =
+      estimate_affine_star_refinement(ref_stars, warped_stars, 300, 400);
+
+  REQUIRE_FALSE(fit.valid);
+  REQUIRE(fit.rejection_reason == "insufficient_spatial_coverage");
+}
+
 } // namespace tile_compile::registration
 #endif

@@ -611,6 +611,19 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ---
 
+### `registration.affine_refinement_enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Opt-in per-frame affine fine registration after the normal global registration. It detects stars on the reference and already warped proxy, builds mutual nearest-neighbor matches, and fits a small affine correction with RANSAC. The correction is applied only when the inlier count and spatial coverage are sufficient, scale/shear/rotation/center displacement remain conservative, matched-star median and p90 residuals both improve without RMS regression, and NCC/overlap do not regress. Otherwise the original warp is preserved.
+
+**Units and applicability:** All residual, match-radius, and center-displacement gates use proxy pixels (normally half-resolution for OSC). Frames below the internal p90 trigger, the reference frame, and frames without enough distributed stars are non-applicable and remain unchanged. Keep disabled unless the dataset has measured local registration residuals and compare against an unchanged control run.
+
+---
+
 ### `registration.star_shift_radius_px`
 
 | Property | Value |

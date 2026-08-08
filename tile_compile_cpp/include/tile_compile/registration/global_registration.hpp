@@ -15,6 +15,29 @@ struct StarPoint {
     float flux = 0.0f;
 };
 
+// Result of a conservative affine fine-registration fit on an already warped
+// proxy frame. correction_warp uses the same R->M/WARP_INVERSE_MAP convention
+// as the global registration warps.
+struct AffineStarRefinementResult {
+    WarpMatrix correction_warp = WarpMatrix::Zero();
+    bool valid = false;
+    std::string rejection_reason = "not_attempted";
+    int matched_stars = 0;
+    int inlier_stars = 0;
+    float inlier_ratio = 0.0f;
+    float spatial_coverage = 0.0f;
+    float median_before_px = 0.0f;
+    float p90_before_px = 0.0f;
+    float rms_before_px = 0.0f;
+    float median_after_px = 0.0f;
+    float p90_after_px = 0.0f;
+    float rms_after_px = 0.0f;
+    float center_displacement_px = 0.0f;
+    float rotation_deg = 0.0f;
+    float min_scale = 1.0f;
+    float max_scale = 1.0f;
+};
+
 struct GlobalRegistrationOutput {
     int ref_idx = 0;
     std::string ref_selection_method; // "global_weight" | "quality_score" | "middle"
@@ -60,6 +83,12 @@ WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
 std::vector<StarPoint> detect_stars_simple(
     const Matrix2Df& img, int topk,
     bool enable_local_background_subtraction = false);
+
+AffineStarRefinementResult estimate_affine_star_refinement(
+    const std::vector<StarPoint>& ref_stars,
+    const std::vector<StarPoint>& warped_stars,
+    int image_rows, int image_cols,
+    float match_radius_px = 3.0f);
 
 RegistrationResult star_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,

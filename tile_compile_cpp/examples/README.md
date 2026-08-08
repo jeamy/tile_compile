@@ -11,6 +11,8 @@ They are kept in sync with the active runner/config parser defaults, including:
   - control how reduced-mode clustering behaves when the run does not have enough frames for full mode.
 - `registration.enable_star_pair_fallback`
   - controls whether the optional Star-Pairs stage is used in the global registration cascade.
+- `registration.affine_refinement_enabled`
+  - opt-in conservative per-frame affine fine registration; rejected candidates preserve the original warp and are reported in `global_registration.json`.
 
 - `dithering.*`
   - documents acquisition dithering expectation and shift threshold used for diagnostics.
@@ -117,6 +119,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 
 ## Profiles
 
+- `sharpness_100_cubic_affine.yaml`
+  - Controlled 100-frame M31 experiment profile derived from `sharpness_100_cubic.yaml`.
+  - Differs from the cubic control only by `registration.affine_refinement_enabled: true`; use with `--max-frames 100` and a distinct run ID.
 - `full_mode.example.yaml`
   - For datasets with enough usable frames for full mode.
   - Chroma denoise profile: balanced (reference values).

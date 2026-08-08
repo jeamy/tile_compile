@@ -409,6 +409,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.enable_local_background_subtraction = r["enable_local_background_subtraction"].as<bool>();
     if (yaml_has_value(r["star_shift_radius_px"]))
       cfg.registration.star_shift_radius_px = r["star_shift_radius_px"].as<float>();
+    if (yaml_has_value(r["affine_refinement_enabled"]))
+      cfg.registration.affine_refinement_enabled =
+          r["affine_refinement_enabled"].as<bool>();
   }
 
   if (node["dithering"]) {
@@ -1308,6 +1311,8 @@ YAML::Node Config::to_yaml() const {
   // Local background subtraction (§4.4, §8.D)
   node["registration"]["enable_local_background_subtraction"] = registration.enable_local_background_subtraction;
   node["registration"]["star_shift_radius_px"] = registration.star_shift_radius_px;
+  node["registration"]["affine_refinement_enabled"] =
+      registration.affine_refinement_enabled;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;

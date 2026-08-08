@@ -60,6 +60,7 @@ registration:
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
+  affine_refinement_enabled: false
 aqmh:
   enabled: true
   storage:

@@ -483,6 +483,7 @@ registration:
   use_astrometry: true            # Astrometric rescue when needed
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, equatorial: 60
+  affine_refinement_enabled: false # Opt-in; test against an unchanged control
 ```
 
 **Star-poor / nebula-heavy / cloudy data:**
