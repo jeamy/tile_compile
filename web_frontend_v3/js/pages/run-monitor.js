@@ -147,6 +147,7 @@ export function createRunMonitorPage() {
 
 let pollTimer = null;
 let logTailTimer = null;
+let logTailSnapshot = null;
 let resumePendingTimer = null;
 let lastImagePreviewKey = "";
 let monitorRunChatMessages = [];
@@ -1107,6 +1108,7 @@ function savePhaseToStore(phaseName, status, pct) {
 function resetRunMonitorNoRun() {
   stopPolling();
   disconnectWebSocket();
+  logTailSnapshot = null;
   clearSelectedPhase();
   const neutralPhases = getPhasesForConfig(getConfigState().draft)
     .map(p => ({ ...p, status: "pending", pct: 0 }));
@@ -1218,11 +1220,44 @@ async function restoreCurrentRun() {
   }
 }
 
+function normalizeLogLine(line) {
+  return typeof line === "string" ? line : JSON.stringify(line);
+}
+
+function findLogTailStart(previousLines, currentLines) {
+  if (!previousLines || previousLines.length === 0) return 0;
+  const samePrefix = previousLines.length <= currentLines.length &&
+    previousLines.every((line, index) => line === currentLines[index]);
+  if (samePrefix) return previousLines.length;
+
+  const maxOverlap = Math.min(previousLines.length, currentLines.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    let matches = true;
+    for (let index = 0; index < overlap; index++) {
+      if (previousLines[previousLines.length - overlap + index] !== currentLines[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return overlap;
+  }
+  return 0;
+}
+
 async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250, runDir));
     if (!logs || !Array.isArray(logs.lines)) return;
-    for (const line of logs.lines) {
+    const currentLines = logs.lines.map(normalizeLogLine);
+    const sameRun = logTailSnapshot &&
+      logTailSnapshot.runId === runId &&
+      logTailSnapshot.runDir === runDir;
+    const firstNewLine = sameRun
+      ? findLogTailStart(logTailSnapshot.lines, currentLines)
+      : 0;
+    logTailSnapshot = { runId, runDir, lines: currentLines };
+
+    for (const line of logs.lines.slice(firstNewLine)) {
       let ts = formatTime();
       let level = "INFO";
       let text = "";

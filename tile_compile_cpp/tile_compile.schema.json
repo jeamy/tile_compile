@@ -415,6 +415,11 @@
           "type": "boolean",
           "description": "Enable conservative per-frame affine fine registration after global registration. Uses mutual star matches and RANSAC on proxy coordinates; applies a correction only when match coverage, transform size, matched-set median/p90/RMS, NCC, and overlap gates pass. Rejected candidates preserve the original warp. Default: false.",
           "default": false
+        },
+        "smooth_local_refinement_enabled": {
+          "type": "boolean",
+          "description": "Experimental smooth local per-frame refinement after the global/optional affine warp. Fits a regularized 4x4 Gaussian inverse displacement field from mutual star matches and applies it only when spatial coverage, held-out median/p90/RMS, maximum displacement, Jacobian/local-scale, NCC, and overlap gates pass. Supported for MONO and OSC debayer-first RGB prewarp; otherwise the global/affine warp is preserved. Default: false.",
+          "default": false
         }
       }
     },

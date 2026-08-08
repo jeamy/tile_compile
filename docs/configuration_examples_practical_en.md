@@ -484,6 +484,7 @@ registration:
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, equatorial: 60
   affine_refinement_enabled: false # Opt-in; test against an unchanged control
+  smooth_local_refinement_enabled: false # Experimental; MONO/debayer-first only, always use a control
 ```
 
 **Star-poor / nebula-heavy / cloudy data:**

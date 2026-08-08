@@ -113,6 +113,16 @@ export class RunChatService {
         assistantError = String(event.message?.errorMessage || "");
         appendTrafficLog(`run_chat assistant_error ${assistantError}`);
       }
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        const delta = extractAssistantTextFromEvent(event);
+        if (delta) responseText += delta;
+        return;
+      }
+      if (event.type === "message_end" && event.message?.role === "assistant") {
+        const fullText = extractAssistantTextFromEvent(event);
+        if (fullText) responseText = fullText;
+        return;
+      }
       const text = extractAssistantTextFromEvent(event);
       if (text && text.length >= responseText.length) responseText = text;
     });

@@ -412,6 +412,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(r["affine_refinement_enabled"]))
       cfg.registration.affine_refinement_enabled =
           r["affine_refinement_enabled"].as<bool>();
+    if (yaml_has_value(r["smooth_local_refinement_enabled"]))
+      cfg.registration.smooth_local_refinement_enabled =
+          r["smooth_local_refinement_enabled"].as<bool>();
   }
 
   if (node["dithering"]) {
@@ -1313,6 +1316,8 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["star_shift_radius_px"] = registration.star_shift_radius_px;
   node["registration"]["affine_refinement_enabled"] =
       registration.affine_refinement_enabled;
+  node["registration"]["smooth_local_refinement_enabled"] =
+      registration.smooth_local_refinement_enabled;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;

@@ -680,6 +680,541 @@ AffineStarRefinementResult estimate_affine_star_refinement(
   return out;
 }
 
+namespace {
+
+constexpr int kSmoothLocalGridSize = 4;
+constexpr int kSmoothLocalBasisCount =
+    kSmoothLocalGridSize * kSmoothLocalGridSize;
+
+float smoothstep01(float value) {
+  const float t = std::clamp(value, 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+VectorXf smooth_local_basis(float x, float y, int image_rows,
+                            int image_cols) {
+  VectorXf basis = VectorXf::Zero(kSmoothLocalBasisCount);
+  if (image_rows <= 1 || image_cols <= 1 || x < 0.0f || y < 0.0f ||
+      x > static_cast<float>(image_cols - 1) ||
+      y > static_cast<float>(image_rows - 1)) {
+    return basis;
+  }
+
+  const float nx = x / static_cast<float>(image_cols - 1);
+  const float ny = y / static_cast<float>(image_rows - 1);
+  constexpr float kBoundaryTaperFraction = 0.08f;
+  const float edge_distance =
+      std::min({nx, 1.0f - nx, ny, 1.0f - ny});
+  const float taper = smoothstep01(edge_distance / kBoundaryTaperFraction);
+  if (taper <= 0.0f) {
+    return basis;
+  }
+
+  constexpr float kSigma = 0.28f;
+  constexpr float kInvTwoSigmaSq = 1.0f / (2.0f * kSigma * kSigma);
+  float sum = 0.0f;
+  int index = 0;
+  for (int gy = 0; gy < kSmoothLocalGridSize; ++gy) {
+    const float cy = static_cast<float>(gy) /
+                     static_cast<float>(kSmoothLocalGridSize - 1);
+    for (int gx = 0; gx < kSmoothLocalGridSize; ++gx, ++index) {
+      const float cx = static_cast<float>(gx) /
+                       static_cast<float>(kSmoothLocalGridSize - 1);
+      const float dx = nx - cx;
+      const float dy = ny - cy;
+      const float value = std::exp(-(dx * dx + dy * dy) * kInvTwoSigmaSq);
+      basis[index] = value;
+      sum += value;
+    }
+  }
+  if (sum > 1.0e-8f) {
+    basis *= taper / sum;
+  }
+  return basis;
+}
+
+int interpolation_flag_from_local_name(const std::string &name) {
+  if (name == "nearest") {
+    return cv::INTER_NEAREST;
+  }
+  if (name == "linear") {
+    return cv::INTER_LINEAR;
+  }
+  if (name == "lanczos4") {
+    return cv::INTER_LANCZOS4;
+  }
+  return cv::INTER_CUBIC;
+}
+
+struct SmoothResidualMetrics {
+  float median = 0.0f;
+  float p90 = 0.0f;
+  float rms = 0.0f;
+};
+
+SmoothResidualMetrics summarize_smooth_residuals(std::vector<float> values) {
+  SmoothResidualMetrics out;
+  if (values.empty()) {
+    return out;
+  }
+  double sum_sq = 0.0;
+  for (const float value : values) {
+    sum_sq += static_cast<double>(value) * value;
+  }
+  std::sort(values.begin(), values.end());
+  auto percentile = [&](float q) {
+    const float position = std::clamp(q, 0.0f, 1.0f) *
+                           static_cast<float>(values.size() - 1);
+    const size_t lo = static_cast<size_t>(std::floor(position));
+    const size_t hi = std::min(values.size() - 1, lo + 1);
+    const float fraction = position - static_cast<float>(lo);
+    return values[lo] * (1.0f - fraction) + values[hi] * fraction;
+  };
+  out.median = percentile(0.5f);
+  out.p90 = percentile(0.9f);
+  out.rms = static_cast<float>(
+      std::sqrt(sum_sq / static_cast<double>(values.size())));
+  return out;
+}
+
+} // namespace
+
+cv::Point2f evaluate_smooth_local_displacement(
+    const SmoothLocalWarpModel &model, float x, float y) {
+  if (!model.valid || model.coeff_x.size() != kSmoothLocalBasisCount ||
+      model.coeff_y.size() != kSmoothLocalBasisCount) {
+    return {};
+  }
+  const VectorXf basis =
+      smooth_local_basis(x, y, model.image_rows, model.image_cols);
+  return {basis.dot(model.coeff_x), basis.dot(model.coeff_y)};
+}
+
+SmoothLocalRefinementResult estimate_smooth_local_star_refinement(
+    const std::vector<StarPoint> &ref_stars,
+    const std::vector<StarPoint> &warped_stars, int image_rows, int image_cols,
+    float match_radius_px) {
+  SmoothLocalRefinementResult out;
+  out.rejection_reason = "too_few_stars";
+  if (ref_stars.size() < 32 || warped_stars.size() < 32 || image_rows <= 1 ||
+      image_cols <= 1 || match_radius_px <= 0.0f) {
+    return out;
+  }
+
+  struct Match {
+    cv::Point2f ref;
+    cv::Point2f warped;
+    bool validation = false;
+  };
+  std::vector<Match> matches;
+  matches.reserve(std::min(ref_stars.size(), warped_stars.size()));
+  const float radius_sq = match_radius_px * match_radius_px;
+  constexpr float kAmbiguityRatioSq = 0.8f * 0.8f;
+  for (size_t wi = 0; wi < warped_stars.size(); ++wi) {
+    float best_d2 = radius_sq;
+    float second_d2 = std::numeric_limits<float>::max();
+    int best_ref = -1;
+    for (size_t ri = 0; ri < ref_stars.size(); ++ri) {
+      const float dx = warped_stars[wi].x - ref_stars[ri].x;
+      const float dy = warped_stars[wi].y - ref_stars[ri].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < best_d2) {
+        second_d2 = best_d2;
+        best_d2 = d2;
+        best_ref = static_cast<int>(ri);
+      } else if (d2 < second_d2) {
+        second_d2 = d2;
+      }
+    }
+    if (best_ref < 0 ||
+        (std::isfinite(second_d2) &&
+         best_d2 > kAmbiguityRatioSq * second_d2)) {
+      continue;
+    }
+    int reverse_best = -1;
+    float reverse_best_d2 = radius_sq;
+    for (size_t other = 0; other < warped_stars.size(); ++other) {
+      const float dx = warped_stars[other].x -
+                       ref_stars[static_cast<size_t>(best_ref)].x;
+      const float dy = warped_stars[other].y -
+                       ref_stars[static_cast<size_t>(best_ref)].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < reverse_best_d2) {
+        reverse_best_d2 = d2;
+        reverse_best = static_cast<int>(other);
+      }
+    }
+    if (reverse_best == static_cast<int>(wi)) {
+      matches.push_back({
+          {ref_stars[static_cast<size_t>(best_ref)].x,
+           ref_stars[static_cast<size_t>(best_ref)].y},
+          {warped_stars[wi].x, warped_stars[wi].y}, false});
+    }
+  }
+
+  out.matched_stars = static_cast<int>(matches.size());
+  if (matches.size() < 32) {
+    out.rejection_reason = "too_few_mutual_matches";
+    return out;
+  }
+
+  std::sort(matches.begin(), matches.end(), [](const Match &a, const Match &b) {
+    if (a.ref.y != b.ref.y) {
+      return a.ref.y < b.ref.y;
+    }
+    return a.ref.x < b.ref.x;
+  });
+  std::vector<cv::Point2f> ref_points;
+  ref_points.reserve(matches.size());
+  for (size_t i = 0; i < matches.size(); ++i) {
+    matches[i].validation = (i % 4 == 1);
+    ref_points.push_back(matches[i].ref);
+    if (matches[i].validation) {
+      ++out.validation_stars;
+    } else {
+      ++out.training_stars;
+    }
+  }
+  if (out.training_stars < 24 || out.validation_stars < 8) {
+    out.rejection_reason = "insufficient_holdout_split";
+    return out;
+  }
+
+  std::vector<cv::Point2f> hull;
+  cv::convexHull(ref_points, hull);
+  const double image_area = static_cast<double>(image_rows) * image_cols;
+  out.spatial_coverage = image_area > 0.0
+                             ? static_cast<float>(cv::contourArea(hull) /
+                                                  image_area)
+                             : 0.0f;
+  const cv::Rect2f bounds = cv::boundingRect(ref_points);
+  const float x_span = bounds.width / static_cast<float>(image_cols);
+  const float y_span = bounds.height / static_cast<float>(image_rows);
+  if (out.spatial_coverage < 0.15f || x_span < 0.40f || y_span < 0.40f) {
+    out.rejection_reason = "insufficient_spatial_coverage";
+    return out;
+  }
+
+  Eigen::MatrixXf design(out.training_stars, kSmoothLocalBasisCount);
+  VectorXf target_x(out.training_stars);
+  VectorXf target_y(out.training_stars);
+  int row = 0;
+  for (const Match &match : matches) {
+    if (match.validation) {
+      continue;
+    }
+    design.row(row) =
+        smooth_local_basis(match.ref.x, match.ref.y, image_rows, image_cols)
+            .transpose();
+    target_x[row] = match.warped.x - match.ref.x;
+    target_y[row] = match.warped.y - match.ref.y;
+    ++row;
+  }
+
+  VectorXf weights = VectorXf::Ones(out.training_stars);
+  VectorXf coeff_x = VectorXf::Zero(kSmoothLocalBasisCount);
+  VectorXf coeff_y = VectorXf::Zero(kSmoothLocalBasisCount);
+  constexpr float kRidgeLambda = 0.08f;
+  constexpr float kHuberDeltaPx = 0.35f;
+  for (int iteration = 0; iteration < 4; ++iteration) {
+    Eigen::MatrixXf weighted_design = design;
+    VectorXf weighted_x = target_x;
+    VectorXf weighted_y = target_y;
+    for (int i = 0; i < out.training_stars; ++i) {
+      const float sqrt_weight = std::sqrt(std::max(0.0f, weights[i]));
+      weighted_design.row(i) *= sqrt_weight;
+      weighted_x[i] *= sqrt_weight;
+      weighted_y[i] *= sqrt_weight;
+    }
+    Eigen::MatrixXf normal = weighted_design.transpose() * weighted_design;
+    normal.diagonal().array() += kRidgeLambda;
+    const Eigen::LDLT<Eigen::MatrixXf> solver(normal);
+    if (solver.info() != Eigen::Success) {
+      out.rejection_reason = "fit_failed";
+      return out;
+    }
+    coeff_x = solver.solve(weighted_design.transpose() * weighted_x);
+    coeff_y = solver.solve(weighted_design.transpose() * weighted_y);
+    if (!coeff_x.allFinite() || !coeff_y.allFinite()) {
+      out.rejection_reason = "non_finite_fit";
+      return out;
+    }
+    const VectorXf residual_x = design * coeff_x - target_x;
+    const VectorXf residual_y = design * coeff_y - target_y;
+    for (int i = 0; i < out.training_stars; ++i) {
+      const float magnitude =
+          std::hypot(residual_x[i], residual_y[i]);
+      weights[i] = magnitude <= kHuberDeltaPx
+                       ? 1.0f
+                       : kHuberDeltaPx / std::max(magnitude, 1.0e-6f);
+    }
+  }
+
+  out.model.valid = true;
+  out.model.image_rows = image_rows;
+  out.model.image_cols = image_cols;
+  out.model.coeff_x = coeff_x;
+  out.model.coeff_y = coeff_y;
+
+  std::vector<float> before_all;
+  std::vector<float> after_all;
+  std::vector<float> before_validation;
+  std::vector<float> after_validation;
+  before_all.reserve(matches.size());
+  after_all.reserve(matches.size());
+  before_validation.reserve(static_cast<size_t>(out.validation_stars));
+  after_validation.reserve(static_cast<size_t>(out.validation_stars));
+  for (const Match &match : matches) {
+    const cv::Point2f displacement = evaluate_smooth_local_displacement(
+        out.model, match.ref.x, match.ref.y);
+    const float before =
+        std::hypot(match.warped.x - match.ref.x,
+                   match.warped.y - match.ref.y);
+    const float after =
+        std::hypot(match.warped.x - (match.ref.x + displacement.x),
+                   match.warped.y - (match.ref.y + displacement.y));
+    before_all.push_back(before);
+    after_all.push_back(after);
+    if (match.validation) {
+      before_validation.push_back(before);
+      after_validation.push_back(after);
+    }
+  }
+  const SmoothResidualMetrics all_before =
+      summarize_smooth_residuals(std::move(before_all));
+  const SmoothResidualMetrics all_after =
+      summarize_smooth_residuals(std::move(after_all));
+  const SmoothResidualMetrics validation_before =
+      summarize_smooth_residuals(std::move(before_validation));
+  const SmoothResidualMetrics validation_after =
+      summarize_smooth_residuals(std::move(after_validation));
+  out.median_before_px = all_before.median;
+  out.p90_before_px = all_before.p90;
+  out.rms_before_px = all_before.rms;
+  out.median_after_px = all_after.median;
+  out.p90_after_px = all_after.p90;
+  out.rms_after_px = all_after.rms;
+  out.validation_median_before_px = validation_before.median;
+  out.validation_p90_before_px = validation_before.p90;
+  out.validation_rms_before_px = validation_before.rms;
+  out.validation_median_after_px = validation_after.median;
+  out.validation_p90_after_px = validation_after.p90;
+  out.validation_rms_after_px = validation_after.rms;
+
+  for (int gy = 0; gy <= 24; ++gy) {
+    const float y = static_cast<float>(gy) *
+                    static_cast<float>(image_rows - 1) / 24.0f;
+    for (int gx = 0; gx <= 24; ++gx) {
+      const float x = static_cast<float>(gx) *
+                      static_cast<float>(image_cols - 1) / 24.0f;
+      const cv::Point2f displacement =
+          evaluate_smooth_local_displacement(out.model, x, y);
+      out.max_displacement_px = std::max(
+          out.max_displacement_px,
+          std::hypot(displacement.x, displacement.y));
+
+      const cv::Point2f dx_lo = evaluate_smooth_local_displacement(
+          out.model, std::max(0.0f, x - 1.0f), y);
+      const cv::Point2f dx_hi = evaluate_smooth_local_displacement(
+          out.model, std::min(static_cast<float>(image_cols - 1), x + 1.0f), y);
+      const cv::Point2f dy_lo = evaluate_smooth_local_displacement(
+          out.model, x, std::max(0.0f, y - 1.0f));
+      const cv::Point2f dy_hi = evaluate_smooth_local_displacement(
+          out.model, x, std::min(static_cast<float>(image_rows - 1), y + 1.0f));
+      const float x_denominator =
+          std::max(1.0f, std::min(static_cast<float>(image_cols - 1), x + 1.0f) -
+                             std::max(0.0f, x - 1.0f));
+      const float y_denominator =
+          std::max(1.0f, std::min(static_cast<float>(image_rows - 1), y + 1.0f) -
+                             std::max(0.0f, y - 1.0f));
+      Eigen::Matrix2f jacobian;
+      jacobian << 1.0f + (dx_hi.x - dx_lo.x) / x_denominator,
+          (dy_hi.x - dy_lo.x) / y_denominator,
+          (dx_hi.y - dx_lo.y) / x_denominator,
+          1.0f + (dy_hi.y - dy_lo.y) / y_denominator;
+      const float determinant = jacobian.determinant();
+      Eigen::JacobiSVD<Eigen::Matrix2f> svd(jacobian,
+                                            Eigen::ComputeFullU |
+                                                Eigen::ComputeFullV);
+      const auto singular_values = svd.singularValues();
+      out.min_jacobian_determinant =
+          std::min(out.min_jacobian_determinant, determinant);
+      out.max_jacobian_determinant =
+          std::max(out.max_jacobian_determinant, determinant);
+      out.min_local_scale =
+          std::min(out.min_local_scale, singular_values.minCoeff());
+      out.max_local_scale =
+          std::max(out.max_local_scale, singular_values.maxCoeff());
+    }
+  }
+
+  if (out.max_displacement_px > 1.5f) {
+    out.rejection_reason = "displacement_out_of_bounds";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.min_jacobian_determinant < 0.94f ||
+      out.max_jacobian_determinant > 1.06f || out.min_local_scale < 0.96f ||
+      out.max_local_scale > 1.04f) {
+    out.rejection_reason = "jacobian_out_of_bounds";
+    out.model.valid = false;
+    return out;
+  }
+
+  const float all_median_gain =
+      std::max(0.015f, 0.04f * out.median_before_px);
+  const float all_p90_gain = std::max(0.04f, 0.05f * out.p90_before_px);
+  const float validation_median_gain =
+      std::max(0.015f, 0.04f * out.validation_median_before_px);
+  const float validation_p90_gain =
+      std::max(0.04f, 0.05f * out.validation_p90_before_px);
+  if (out.median_after_px > out.median_before_px - all_median_gain) {
+    out.rejection_reason = "median_not_improved";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.p90_after_px > out.p90_before_px - all_p90_gain) {
+    out.rejection_reason = "p90_not_improved";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.rms_after_px > out.rms_before_px + 1.0e-4f) {
+    out.rejection_reason = "rms_regressed";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.validation_median_after_px >
+      out.validation_median_before_px - validation_median_gain) {
+    out.rejection_reason = "validation_median_not_improved";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.validation_p90_after_px >
+      out.validation_p90_before_px - validation_p90_gain) {
+    out.rejection_reason = "validation_p90_not_improved";
+    out.model.valid = false;
+    return out;
+  }
+  if (out.validation_rms_after_px >
+      out.validation_rms_before_px + 1.0e-4f) {
+    out.rejection_reason = "validation_rms_regressed";
+    out.model.valid = false;
+    return out;
+  }
+
+  out.valid = true;
+  out.rejection_reason = "accepted";
+  return out;
+}
+
+void render_smooth_local_displacement(
+    const SmoothLocalWarpModel &model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    cv::Mat &displacement_x, cv::Mat &displacement_y) {
+  displacement_x = cv::Mat(output_rows, output_cols, CV_32F, cv::Scalar(0.0f));
+  displacement_y = cv::Mat(output_rows, output_cols, CV_32F, cv::Scalar(0.0f));
+  if (!model.valid || output_rows <= 0 || output_cols <= 0 ||
+      model_coordinate_scale <= 0.0f) {
+    return;
+  }
+
+  const int coarse_rows = std::min(65, output_rows);
+  const int coarse_cols = std::min(65, output_cols);
+  cv::Mat coarse_x(coarse_rows, coarse_cols, CV_32F);
+  cv::Mat coarse_y(coarse_rows, coarse_cols, CV_32F);
+  for (int gy = 0; gy < coarse_rows; ++gy) {
+    const float output_y = coarse_rows > 1
+                               ? static_cast<float>(gy) *
+                                     static_cast<float>(output_rows - 1) /
+                                     static_cast<float>(coarse_rows - 1)
+                               : 0.0f;
+    for (int gx = 0; gx < coarse_cols; ++gx) {
+      const float output_x = coarse_cols > 1
+                                 ? static_cast<float>(gx) *
+                                       static_cast<float>(output_cols - 1) /
+                                       static_cast<float>(coarse_cols - 1)
+                                 : 0.0f;
+      const float model_x =
+          (output_x - model_offset_x) * model_coordinate_scale;
+      const float model_y =
+          (output_y - model_offset_y) * model_coordinate_scale;
+      const cv::Point2f displacement =
+          evaluate_smooth_local_displacement(model, model_x, model_y);
+      coarse_x.at<float>(gy, gx) = displacement.x / model_coordinate_scale;
+      coarse_y.at<float>(gy, gx) = displacement.y / model_coordinate_scale;
+    }
+  }
+  cv::resize(coarse_x, displacement_x, cv::Size(output_cols, output_rows),
+             0.0, 0.0, cv::INTER_CUBIC);
+  cv::resize(coarse_y, displacement_y, cv::Size(output_cols, output_rows),
+             0.0, 0.0, cv::INTER_CUBIC);
+}
+
+Matrix2Df apply_smooth_local_correction(
+    const Matrix2Df &already_warped, const SmoothLocalWarpModel &model,
+    const std::string &interpolation) {
+  if (already_warped.size() <= 0 || !model.valid ||
+      already_warped.rows() != model.image_rows ||
+      already_warped.cols() != model.image_cols) {
+    return {};
+  }
+  cv::Mat displacement_x;
+  cv::Mat displacement_y;
+  render_smooth_local_displacement(model, model.image_rows, model.image_cols,
+                                   1.0f, 0.0f, 0.0f, displacement_x,
+                                   displacement_y);
+  cv::Mat map_x(model.image_rows, model.image_cols, CV_32F);
+  cv::Mat map_y(model.image_rows, model.image_cols, CV_32F);
+  for (int y = 0; y < model.image_rows; ++y) {
+    for (int x = 0; x < model.image_cols; ++x) {
+      map_x.at<float>(y, x) =
+          static_cast<float>(x) + displacement_x.at<float>(y, x);
+      map_y.at<float>(y, x) =
+          static_cast<float>(y) + displacement_y.at<float>(y, x);
+    }
+  }
+  const cv::Mat source(model.image_rows, model.image_cols, CV_32F,
+                       const_cast<float *>(already_warped.data()));
+  cv::Mat destination;
+  cv::remap(source, destination, map_x, map_y,
+            interpolation_flag_from_local_name(interpolation),
+            cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  Matrix2Df out(model.image_rows, model.image_cols);
+  for (int y = 0; y < model.image_rows; ++y) {
+    for (int x = 0; x < model.image_cols; ++x) {
+      out(y, x) = destination.at<float>(y, x);
+    }
+  }
+  return out;
+}
+
+cv::Mat smooth_local_valid_mask(int image_rows, int image_cols,
+                                const SmoothLocalWarpModel &model) {
+  if (!model.valid || image_rows != model.image_rows ||
+      image_cols != model.image_cols) {
+    return {};
+  }
+  cv::Mat displacement_x;
+  cv::Mat displacement_y;
+  render_smooth_local_displacement(model, image_rows, image_cols, 1.0f, 0.0f,
+                                   0.0f, displacement_x, displacement_y);
+  cv::Mat map_x(image_rows, image_cols, CV_32F);
+  cv::Mat map_y(image_rows, image_cols, CV_32F);
+  for (int y = 0; y < image_rows; ++y) {
+    for (int x = 0; x < image_cols; ++x) {
+      map_x.at<float>(y, x) =
+          static_cast<float>(x) + displacement_x.at<float>(y, x);
+      map_y.at<float>(y, x) =
+          static_cast<float>(y) + displacement_y.at<float>(y, x);
+    }
+  }
+  cv::Mat ones(image_rows, image_cols, CV_32F, cv::Scalar(1.0f));
+  cv::Mat warped;
+  cv::remap(ones, warped, map_x, map_y, cv::INTER_NEAREST,
+            cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  return warped;
+}
+
 // =====================================================================
 // Similarity helpers (used by trail, star pair, and triangle matching)
 // =====================================================================

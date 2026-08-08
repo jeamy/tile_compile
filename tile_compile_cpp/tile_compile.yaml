@@ -11,20 +11,20 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  flat_master: ""
-  dark_master: ""
-  bias_master: ""
-  use_flat: false
-  darks_dir: ""
   flats_dir: ""
+  use_flat: false
+  use_dark: false
+  flat_master: ""
+  darks_dir: ""
   dark_auto_select: false
   dark_match_exposure_tolerance_percent: 10
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   bias_dir: ""
-  use_dark: false
   bias_use_master: false
   dark_use_master: false
+  use_bias: false
+  flat_use_master: false
 normalization:
   enabled: true
   mode: background
@@ -61,6 +61,7 @@ registration:
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
   affine_refinement_enabled: false
+  smooth_local_refinement_enabled: false
 aqmh:
   enabled: true
   storage:
@@ -119,9 +120,9 @@ aqmh:
     rgb_q_map_mode: shared_luma
     rgb_memory_strategy: sequential
   cherry_pick:
-    enabled: false
+    enabled: true
     mode: auto_reject
-    k_frac: 0.5
+    k_frac: 0.9
     k_min_required: 30
     margin_min: 0.02
     tiered_k_frac: []

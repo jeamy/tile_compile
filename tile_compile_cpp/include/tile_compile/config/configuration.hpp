@@ -109,6 +109,10 @@ struct RegistrationConfig {
   // stars. Disabled by default; rejected candidates leave the original warp
   // unchanged and are reported in global_registration.json.
   bool affine_refinement_enabled = false;
+  // Experimental smooth local inverse displacement field fitted after the
+  // affine/global warp. Held-out, coverage, Jacobian, NCC, and overlap gates
+  // must all pass; otherwise prewarp uses the unchanged affine/global warp.
+  bool smooth_local_refinement_enabled = false;
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe

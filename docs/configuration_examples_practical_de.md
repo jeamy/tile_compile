@@ -484,6 +484,7 @@ registration:
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, Äquatorial: 60
   affine_refinement_enabled: false # Opt-in; nur nach Residualmessung kontrolliert testen
+  smooth_local_refinement_enabled: false # Experimentell; nur MONO/debayer-first, immer gegen Kontrolle
 ```
 
 **Sternenarm / Nebel / wolkige Daten:**

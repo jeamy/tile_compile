@@ -624,6 +624,19 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ---
 
+### `registration.smooth_local_refinement_enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enable an experimental smooth local per-frame correction after global registration and, when enabled and accepted, after affine refinement. Mutual nearest-neighbor star residuals fit a regularized 4x4 Gaussian inverse displacement field. A deterministic 25% held-out star set must improve in median, p90, and RMS; the full matched set, spatial coverage, maximum displacement, dense Jacobian/local-scale sampling, common-support NCC, and overlap must also pass.
+
+**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with AQMH `debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception uses the same fallback. Per-frame evidence is written to `global_registration.json`. Keep disabled outside controlled comparisons.
+
+---
+
 ### `registration.star_shift_radius_px`
 
 | Property | Value |

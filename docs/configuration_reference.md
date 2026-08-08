@@ -773,6 +773,19 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 ---
 
+### `registration.smooth_local_refinement_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert eine experimentelle geglättete lokale Feinkorrektur pro Frame nach der globalen und, falls aktiviert und akzeptiert, nach der affinen Registrierung. Gegenseitige Nearest-Neighbor-Sternresiduen fitten ein regularisiertes inverses 4x4-Gaussian-Displacement-Feld. Ein deterministischer 25-%-Held-out-Sternsatz muss sich in Median, p90 und RMS verbessern; zusätzlich müssen der gesamte Matchsatz, räumliche Abdeckung, Maximalverschiebung, dicht geprüfte Jacobian-/Lokalskalengrenzen, NCC auf gemeinsamem Support und Überlappung bestehen.
+
+**Einheiten, Grenzen und Wechselwirkungen:** Residuen und die interne Maximalverschiebung verwenden Proxy-Pixel; beim Prewarp wird das Feld auf volle Auflösung skaliert. Interne konservative Grenzen umfassen mindestens 32 Matches, mindestens 24 Trainings- und 8 Held-out-Sterne, 15 % Convex-Hull-Abdeckung, maximal 1,5 Proxy-Pixel Verschiebung, Jacobian-Determinante 0,94–1,06 und lokale Singulärwerte 0,96–1,04. Das Modell läuft am Bildrand auf null aus und wird direkt mit der inversen globalen/affinen Map komponiert, sodass keine zweite Full-Resolution-Resampling-Stufe entsteht. Anwendbar ist es derzeit nur für MONO und OSC mit AQMH-`debayer_first` und bekanntem Bayer-Muster; CFA-Mosaik- und nicht unterstützte Farbpfade behalten den unveränderten globalen/affinen Warp. Jedes gescheiterte Gate, jeder nicht anwendbare Frame und jede Ausnahme verwenden denselben Fallback. Per-Frame-Nachweise stehen in `global_registration.json`. Außerhalb kontrollierter Vergleiche deaktiviert lassen.
+
+---
+
 ### `registration.star_shift_radius_px`
 
 | Eigenschaft | Wert |

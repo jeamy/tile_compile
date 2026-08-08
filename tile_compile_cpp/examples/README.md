@@ -13,6 +13,8 @@ They are kept in sync with the active runner/config parser defaults, including:
   - controls whether the optional Star-Pairs stage is used in the global registration cascade.
 - `registration.affine_refinement_enabled`
   - opt-in conservative per-frame affine fine registration; rejected candidates preserve the original warp and are reported in `global_registration.json`.
+- `registration.smooth_local_refinement_enabled`
+  - experimental smooth local inverse displacement field after global/affine registration; held-out residual, coverage, displacement, Jacobian, NCC, and overlap gates preserve the prior warp on every rejection.
 
 - `dithering.*`
   - documents acquisition dithering expectation and shift threshold used for diagnostics.
@@ -122,6 +124,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 - `sharpness_100_cubic_affine.yaml`
   - Controlled 100-frame M31 experiment profile derived from `sharpness_100_cubic.yaml`.
   - Differs from the cubic control only by `registration.affine_refinement_enabled: true`; use with `--max-frames 100` and a distinct run ID.
+- `sharpness_100_cubic_affine_local.yaml`
+  - Controlled smooth-local experiment derived from `sharpness_100_cubic_affine.yaml`.
+  - Differs from the affine control only by `registration.smooth_local_refinement_enabled: true`; use with `--max-frames 100` and a distinct run ID.
 - `full_mode.example.yaml`
   - For datasets with enough usable frames for full mode.
   - Chroma denoise profile: balanced (reference values).
