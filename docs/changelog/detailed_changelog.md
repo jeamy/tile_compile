@@ -1,5 +1,39 @@
 ## Changelog
 
+### (2026-08-08)
+
+**v0.4.6 — AQMH reconstruction quality, registration robustness, PI/AI integration, and run-monitor improvements:**
+
+**AQMH reconstruction and registration:**
+
+- Improved global registration for long or difficult sessions with stronger anchor handling, cascade refinement, affine refinement, smooth local refinement, confidence checks, and safer fallback behavior.
+- Added registration-confidence weighting and chain-depth penalties so uncertain or indirectly registered frames contribute less aggressively to AQMH reconstruction.
+- Extended AQMH reconstruction candidate handling with immutable raw-AQMH output, uniform-control comparison, adaptive low-frequency neutralisation, structure-masked detail candidates, and validation against both the uniform control and raw baseline.
+- Added and aligned AQMH reconstruction controls for asymmetric sigma clipping, structure masks, registration-weight guards, RGB/debayer-first processing, and sequential RGB memory handling.
+- Improved AQMH diagnostics and reconstruction artifacts, including raw/selected output separation, validation metadata, cache/backend information, and safer resume dependencies.
+- Added regression coverage for AQMH quality maps, reconstruction, validation, debayering, registration cascades, linearity, and GPU/CPU-related behavior.
+
+**Progress, logging, and Run Monitor:**
+
+- AQMH diagnostics now reports visible progress while processing frame/block diagnostics and while writing diagnostic artifacts; the existing `AQMH_DIAGNOSTICS` phase remains resumable and is shown correctly in the v3 Run Monitor.
+- Fixed repeated live-log entries caused by periodically reloading the same run-log tail. The frontend now appends only new or non-overlapping log lines.
+- Improved phase, progress, warning, and run-status handling during normal runs and resume operations, including restored phase state after reload.
+- Added clearer runtime/build and acceleration information for reconstruction and registration phases.
+
+**PI and AI services:**
+
+- Updated `@earendil-works/pi-coding-agent` to `^0.84.1` and raised the agent-service Node.js requirement to `>=22.19.0`.
+- Updated the agent-service lockfile with Node 22 and adapted streaming handling to the `0.84.x` delta-only `message_update` event format.
+- Expanded AI prompt and provider handling, frame analysis, run chat, model/auth status, and provider payload support.
+- Added backend AI/PI routes and run-analysis context handling for configuration, diagnostics, validation artifacts, logs, and resumable phase recommendations.
+
+**Frontend and configuration:**
+
+- Expanded the v3 Parameter Studio with AQMH explanations, parameter guidance, validation-aware controls, calibration controls, and aligned English/German translations.
+- Synchronized AQMH configuration defaults, schemas, examples, practical configuration documentation, and methodology references.
+- Added build-information generation and runtime version/build metadata to the CMake and runner setup.
+- Added sharpness and registration comparison profiles and documented the related M31/AQMH evaluation results.
+
 ### (2026-07-25)
 
 **v0.4.5 — PI API key configuration bug fix:**

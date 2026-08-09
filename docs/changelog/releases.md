@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.6 (2026-08-08)
+
+**AQMH quality, registration robustness, PI/AI integration, and Run Monitor improvements:**
+
+- Improved AQMH reconstruction and registration with stronger confidence handling, safer candidate validation, raw-output preservation, structure-aware detail control, and better resume support.
+- Updated the PI agent service to `@earendil-works/pi-coding-agent ^0.84.1` with Node.js `>=22.19.0`; improved streaming compatibility, AI analysis, run chat, and provider/auth handling.
+- Added visible progress for AQMH diagnostics and fixed duplicated live-log entries in the v3 Run Monitor.
+- Expanded Parameter Studio explanations, AQMH configuration/schema synchronization, build metadata, documentation, and regression coverage.
+
 ## v0.4.5 (2026-07-25)
 
 **PI API key configuration bug fix:**
