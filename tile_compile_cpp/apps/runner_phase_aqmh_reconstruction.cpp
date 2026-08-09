@@ -540,11 +540,15 @@ bool run_phase_aqmh_reconstruction(
     return output.size() == static_cast<size_t>(canvas_width * rows);
   };
 
+  int last_reconstruction_progress = 0;
   auto emit_reconstruction_progress =
       [&](int current, const std::string &substep, const std::string &pass) {
+        const int monotonic_current = std::max(
+            last_reconstruction_progress, std::clamp(current, 0, 99));
+        last_reconstruction_progress = monotonic_current;
         emitter.phase_progress_counts(
             run_id, Phase::AQMH_RECONSTRUCTION,
-            std::clamp(current, 0, 99), 100, substep, pass, log_file);
+            monotonic_current, 100, substep, pass, log_file);
       };
 
   // The pixel-wise reconstruction is only the first part of this phase.
