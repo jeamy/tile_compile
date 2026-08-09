@@ -47,7 +47,16 @@ export function createParameterPage() {
   // Category sidebar with search
   const sidebar = el("div", { class: "tc-card tc-scroll", style: { maxHeight: "70vh", overflowY: "auto" } },
     el("div", { class: "tc-card-title" }, t("ui.title.categories", "Kategorien")),
-    el("input", { type: "text", class: "tc-input tc-mb-2", placeholder: t("ui.placeholder.search", "Suche..."), id: "param-search" }),
+    el("input", {
+      type: "text",
+      class: "tc-input tc-mb-2",
+      placeholder: t("ui.placeholder.search", "Parameter suchen..."),
+      id: "param-search",
+      oninput: () => {
+        renderCategories();
+        renderEditorForCategory(getUiState().selectedCategory || "all");
+      },
+    }),
     el("div", { class: "tc-flex-col", id: "param-categories" },
       el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "L\u00e4dt...")),
     ),
@@ -163,34 +172,95 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   }
 }
 
+function normalizeParameterSearchText(value) {
+  return String(value || "")
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function parameterSearchTerm() {
+  return normalizeParameterSearchText(
+    document.getElementById("param-search")?.value || "",
+  ).trim();
+}
+
+function parameterSearchEntries(schemaPaths, schema) {
+  return (schemaPaths || []).map((path) => {
+    const fieldSchema = getSchemaForPath(schema, path);
+    const category = path.split(".")[0] || "";
+    const label = t(`param.${path}.label`, path);
+    const shortHelp = shortHelpForPath(path, fieldSchema);
+    const explanation = explainHelpForPath(path, fieldSchema);
+    const searchable = normalizeParameterSearchText([
+      path,
+      label,
+      category,
+      humanizeCategory(category),
+      shortHelp,
+      explanation,
+      ...(fieldSchema?.enum || []),
+    ].join(" "));
+    return { path, category, searchable };
+  });
+}
+
+function parameterMatchesSearch(entry, filter) {
+  return !filter || entry.searchable.includes(filter);
+}
+
+function matchingParameterPaths(schemaPaths, schema, filter) {
+  return parameterSearchEntries(schemaPaths, schema)
+    .filter((entry) => parameterMatchesSearch(entry, filter))
+    .map((entry) => entry.path);
+}
+
 function renderCategories() {
   const container = document.getElementById("param-categories");
   if (!container) return;
   clear(container);
 
-  const { categories, schemaPaths, config } = getConfigState();
-  if (!categories) {
+  const { categories, schema, schemaPaths } = getConfigState();
+  if (!categories || !schemaPaths) {
     container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_data", "Keine Daten")));
     return;
   }
 
-  const searchInput = document.getElementById("param-search");
-  const filter = (searchInput?.value || "").toLowerCase().trim();
+  const filter = parameterSearchTerm();
+  const entries = parameterSearchEntries(schemaPaths, schema);
+  const matchingEntries = entries.filter((entry) => parameterMatchesSearch(entry, filter));
+  const matchingCategories = new Set(matchingEntries.map((entry) => entry.category));
+  const visibleCategories = filter
+    ? categories.filter((cat) => cat === "all" || matchingCategories.has(cat))
+    : categories;
+  const savedCat = getUiState().selectedCategory || "all";
 
-  for (const cat of categories) {
+  if (filter && matchingEntries.length === 0) {
+    container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" },
+      t("ui.state.no_parameter_results", "Keine passenden Parameter gefunden")));
+    return;
+  }
+
+  for (const cat of visibleCategories) {
     const label = humanizeCategory(cat);
-    if (filter && !label.toLowerCase().includes(filter) && !cat.includes(filter)) continue;
-    const savedCat = getUiState().selectedCategory || "all";
-    const item = categoryItem(label, cat === savedCat);
+    const count = filter && cat !== "all"
+      ? matchingEntries.filter((entry) => entry.category === cat).length
+      : null;
+    const item = categoryItem(count === null ? label : `${label} (${count})`, cat === savedCat);
     item.dataset.category = cat;
     item.onclick = (e) => {
       e.target.parentElement.querySelectorAll(".tc-param-category")
-        .forEach(c => c.classList.remove("active"));
+        .forEach((c) => c.classList.remove("active"));
       e.target.classList.add("active");
       setUiState({ selectedCategory: cat });
       renderEditorForCategory(cat);
     };
     container.appendChild(item);
+  }
+
+  if (filter) {
+    container.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mt-2" },
+      t("ui.state.parameter_results", "{count} Parameter gefunden").replace("{count}", String(matchingEntries.length))));
   }
 }
 
@@ -219,15 +289,26 @@ function renderEditorForCategory(category) {
 
   const bgeMethod = draft?.bge?.method ?? "none";
 
-  const paths = category === "all"
+  const filter = parameterSearchTerm();
+  const categoryPaths = category === "all"
     ? [...schemaPaths]
     : [...schemaPaths].filter(p => p.startsWith(category + ".") || p === category);
+  const paths = filter
+    ? matchingParameterPaths(schemaPaths, schema, filter)
+    : categoryPaths;
 
+  let renderedCount = 0;
   for (const path of paths) {
     if (!isBgeParamVisible(path, bgeMethod)) continue;
     const fieldSchema = getSchemaForPath(schema, path);
     const value = draft ? (getConfigValue(draft, path) ?? fieldSchema?.default) : "";
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));
+    renderedCount += 1;
+  }
+
+  if (filter && renderedCount === 0) {
+    editorBody.appendChild(el("div", { class: "tc-text-muted tc-text-sm" },
+      t("ui.state.no_parameter_results", "Keine passenden Parameter gefunden")));
   }
 
   updateDiff();

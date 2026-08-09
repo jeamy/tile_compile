@@ -37,6 +37,8 @@ export function runtimeConfig(): RuntimeConfig {
   const projectRoot = process.env.TILE_COMPILE_PROJECT_ROOT
     ? path.resolve(process.env.TILE_COMPILE_PROJECT_ROOT)
     : path.resolve(process.cwd(), "..");
+  const inactivityTimeoutMs = envNumber("AI_SCAN_TIMEOUT_MS", 600000);
+  const maxDurationMs = envNumber("AI_SCAN_MAX_DURATION_MS", 900000);
   return {
     host: process.env.AI_AGENT_HOST || "127.0.0.1",
     port: envNumber("AI_AGENT_PORT", 3001),
@@ -46,7 +48,8 @@ export function runtimeConfig(): RuntimeConfig {
       model: process.env.AI_SCAN_MODEL || process.env.AI_RESEARCH_MODEL || "",
       maxTokens: envNumber("AI_SCAN_MAX_TOKENS", 8000),
       temperature: envNumber("AI_SCAN_TEMPERATURE", 0),
-      timeoutMs: envNumber("AI_SCAN_TIMEOUT_MS", 600000),
+      timeoutMs: inactivityTimeoutMs,
+      maxDurationMs,
     },
   };
 }

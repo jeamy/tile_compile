@@ -211,6 +211,10 @@ export class LiveImageChatService {
         this.config.timeoutMs,
         `PI live-image-chat request (model=${model.id}, provider=${model.provider || "unknown"})`,
         images ? { images } : undefined,
+        {
+          maxDurationMs: this.config.maxDurationMs,
+          onDiagnostic: (message) => appendTrafficLog(`live_image_chat ${message}`),
+        },
       );
     } finally {
       unsubscribe();

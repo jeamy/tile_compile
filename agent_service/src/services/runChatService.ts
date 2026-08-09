@@ -149,6 +149,10 @@ export class RunChatService {
         this.config.timeoutMs,
         `PI run-chat request (model=${model.id}, provider=${model.provider || "unknown"})`,
         images ? { images } : undefined,
+        {
+          maxDurationMs: this.config.maxDurationMs,
+          onDiagnostic: (message) => appendTrafficLog(`run_chat ${message}`),
+        },
       );
     } finally {
       unsubscribe();

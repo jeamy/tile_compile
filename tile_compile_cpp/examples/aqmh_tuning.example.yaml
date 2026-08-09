@@ -147,7 +147,7 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: false  # fuer Resume ab AQMH_RECONSTRUCTION/STACKING erhalten
-    prewarp_interpolation: cubic
+    prewarp_interpolation: linear
     debayer_first: true
     pre_debayer_method: edge_aware
     rgb_q_map_mode: shared_luma

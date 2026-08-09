@@ -540,17 +540,35 @@ bool run_phase_aqmh_reconstruction(
     return output.size() == static_cast<size_t>(canvas_width * rows);
   };
 
-  // Progress callback - defined once for all backends
+  auto emit_reconstruction_progress =
+      [&](int current, const std::string &substep, const std::string &pass) {
+        emitter.phase_progress_counts(
+            run_id, Phase::AQMH_RECONSTRUCTION,
+            std::clamp(current, 0, 99), 100, substep, pass, log_file);
+      };
+
+  // The pixel-wise reconstruction is only the first part of this phase.
+  // Reserve the remaining range for RGB reconstruction, candidate validation,
+  // quality gates, and artifact generation so the UI never shows 100% while
+  // substantial AQMH work is still running.
   auto progress_callback = [&](int rows_done, int rows_total) {
-    emitter.phase_progress_counts(
-        run_id, Phase::AQMH_RECONSTRUCTION, rows_done, rows_total,
-        "AQMH reconstruction rows " + std::to_string(rows_done) + "/" +
-            std::to_string(rows_total),
-        "rows", log_file);
+    const int bounded_total = std::max(0, rows_total);
+    const int bounded_done = std::clamp(rows_done, 0, bounded_total);
+    const int current = bounded_total > 0
+        ? 5 + static_cast<int>(50LL * bounded_done / bounded_total)
+        : 5;
+    emit_reconstruction_progress(
+        current,
+        "AQMH Kernrekonstruktion: Zeilen " + std::to_string(rows_done) +
+            "/" + std::to_string(rows_total),
+        "core_rows");
   };
 
+  emit_reconstruction_progress(1, "AQMH Rekonstruktion vorbereiten", "setup");
   bool prefetch_fallback = false;
   if (prefetch_coordinator) {
+    emit_reconstruction_progress(
+        2, "AQMH Quality-Map-Prefetch abschließen", "qmap_prefetch");
     prefetch_coordinator->wait_all_prefetched();
     prefetch_fallback = !prefetch_coordinator->prefetch_active();
     if (prefetch_fallback) {
@@ -573,6 +591,8 @@ bool run_phase_aqmh_reconstruction(
   }
   core::AccelerationOps aqmh_reconstruction_ops(
       acceleration, core::AccelerationPhase::aqmh_reconstruction);
+  emit_reconstruction_progress(
+      5, "AQMH pixelweise Kernrekonstruktion starten", "core_rows");
   std::cout << "[AQMH] Running independent pixel-wise reconstruction for "
             << frames.size() << " frame slots cpu_workers="
             << aqmh_recon_cfg.parallel_workers
@@ -593,6 +613,8 @@ bool run_phase_aqmh_reconstruction(
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     reconstruction_core_started_at)
           .count();
+  emit_reconstruction_progress(
+      55, "AQMH Kernrekonstruktion abgeschlossen", "core_complete");
   double rgb_reconstruction_seconds = 0.0;
   const bool debayer_first_rgb =
       prewarped_frames_r != nullptr && prewarped_frames_g != nullptr &&
@@ -600,7 +622,7 @@ bool run_phase_aqmh_reconstruction(
   if (debayer_first_rgb) {
     auto reconstruct_rgb_plane =
         [&](const DiskCacheFrameStore &plane_store, Matrix2Df &plane_out,
-            const char *channel_name) -> bool {
+            const char *channel_name, int channel_index) -> bool {
       auto frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
         if (fi >= frames.size() || fi >= frame_has_data.size() ||
             frame_has_data[fi] == 0u) {
@@ -620,22 +642,42 @@ bool run_phase_aqmh_reconstruction(
       };
       reconstruction::AqmhReconstructionConfig plane_cfg = aqmh_recon_cfg;
       plane_cfg.compute_uniform_control = false;
+      const int channel_base = 55 + 5 * channel_index;
+      auto plane_progress = [&](int rows_done, int rows_total) {
+        const int bounded_total = std::max(0, rows_total);
+        const int bounded_done = std::clamp(rows_done, 0, bounded_total);
+        const int current = bounded_total > 0
+            ? channel_base +
+                  static_cast<int>(5LL * bounded_done / bounded_total)
+            : channel_base;
+        emit_reconstruction_progress(
+            current,
+            "AQMH RGB-Kanal " + std::string(channel_name) +
+                " rekonstruieren: Zeilen " + std::to_string(rows_done) +
+                "/" + std::to_string(rows_total),
+            "rgb_" + std::string(channel_name));
+      };
+      emit_reconstruction_progress(
+          channel_base,
+          "AQMH RGB-Kanal " + std::string(channel_name) +
+              " rekonstruieren",
+          "rgb_" + std::string(channel_name));
       std::cout << "[AQMH] Reconstructing debayer-first RGB channel "
                 << channel_name << std::endl;
       auto plane_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
           frames.size(), frame_loader, aqmh_cache.get(),
           effective_aqmh_global_weights, reconstruction_valid_mask,
           canvas_width, canvas_height, plane_cfg, nullptr, aqmh_mask_loader,
-          frame_region_loader, aqmh_mask_region_loader, nullptr);
+          frame_region_loader, aqmh_mask_region_loader, plane_progress);
       plane_out = std::move(plane_recon.output);
       return plane_out.rows() == canvas_height &&
              plane_out.cols() == canvas_width;
     };
     const auto rgb_started_at = std::chrono::steady_clock::now();
     const bool rgb_ok =
-        reconstruct_rgb_plane(*prewarped_frames_r, out.output_R, "R") &&
-        reconstruct_rgb_plane(*prewarped_frames_g, out.output_G, "G") &&
-        reconstruct_rgb_plane(*prewarped_frames_b, out.output_B, "B");
+        reconstruct_rgb_plane(*prewarped_frames_r, out.output_R, "R", 0) &&
+        reconstruct_rgb_plane(*prewarped_frames_g, out.output_G, "G", 1) &&
+        reconstruct_rgb_plane(*prewarped_frames_b, out.output_B, "B", 2);
     rgb_reconstruction_seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                       rgb_started_at)
@@ -651,6 +693,11 @@ bool run_phase_aqmh_reconstruction(
           log_file);
     }
   }
+  emit_reconstruction_progress(
+      70,
+      debayer_first_rgb ? "AQMH RGB-Rekonstruktion abgeschlossen"
+                        : "AQMH RGB-Rekonstruktion nicht erforderlich",
+      "rgb_complete");
   const size_t expected_control_pixels =
       static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height);
   const bool backend_supplied_uniform_control =
@@ -659,6 +706,8 @@ bool run_phase_aqmh_reconstruction(
       aqmh_recon.uniform_control_valid_mask.size() == expected_control_pixels;
   double uniform_control_fallback_seconds = 0.0;
   if (!backend_supplied_uniform_control) {
+    emit_reconstruction_progress(
+        71, "AQMH Uniform-Control-Referenz berechnen", "uniform_control");
     const auto uniform_control_started_at = std::chrono::steady_clock::now();
     auto uniform_control = reconstruction::compute_aqmh_uniform_control(
         frames.size(), aqmh_frame_loader, reconstruction_valid_mask,
@@ -671,6 +720,12 @@ bool run_phase_aqmh_reconstruction(
                                       uniform_control_started_at)
             .count();
   }
+  emit_reconstruction_progress(
+      74,
+      backend_supplied_uniform_control
+          ? "AQMH Uniform-Control aus Kernrekonstruktion übernehmen"
+          : "AQMH Uniform-Control-Referenz abgeschlossen",
+      "uniform_control_complete");
   const bool acceleration_used = aqmh_recon.acceleration_used;
   const bool acceleration_fallback = aqmh_recon.acceleration_fallback;
   const std::string execution_backend_str =
@@ -710,6 +765,9 @@ bool run_phase_aqmh_reconstruction(
   int structure_attenuation_feasible_candidates = 0;
   float structure_attenuation_best_alpha = 0.0f;
   std::string structure_attenuation_strategy = "not_needed";
+  emit_reconstruction_progress(
+      76, "AQMH Validierungsreferenzen und Rohbaseline berechnen",
+      "validation_references");
   const auto validation_started_at = std::chrono::steady_clock::now();
   const Matrix2Df raw_aqmh_output = aqmh_recon.output;
   const Matrix2Df raw_aqmh_weight_sum = aqmh_recon.weight_sum;
@@ -726,6 +784,9 @@ bool run_phase_aqmh_reconstruction(
           uniform_control_validation_mask);
   if (aqmh_recon.uniform_control_output.rows() == aqmh_recon.output.rows() &&
       aqmh_recon.uniform_control_output.cols() == aqmh_recon.output.cols()) {
+    emit_reconstruction_progress(
+        79, "AQMH Niederfrequenz-Neutralisierung berechnen und bewerten",
+        "low_frequency_validation");
     constexpr float neutralization_sigma_px = 96.0f;
     Matrix2Df neutralized = low_frequency_neutralized_aqmh(
         aqmh_recon.output, aqmh_recon.uniform_control_output,
@@ -778,6 +839,9 @@ bool run_phase_aqmh_reconstruction(
       const float structure_low_q = cfg.aqmh.reconstruction.structure_mask_low_q;
       const float structure_high_q = cfg.aqmh.reconstruction.structure_mask_high_q;
       const float structure_mask_blur_sigma_px = cfg.aqmh.reconstruction.structure_mask_blur_sigma_px;
+      emit_reconstruction_progress(
+          82, "AQMH Strukturmaske und Detailkandidat berechnen",
+          "structure_mask_validation");
       Matrix2Df structure_masked = structure_masked_aqmh_detail(
           neutralization_base, aqmh_recon.uniform_control_output,
           structure_low_q, structure_high_q, structure_mask_blur_sigma_px);
@@ -884,6 +948,11 @@ bool run_phase_aqmh_reconstruction(
           const float alpha =
               static_cast<float>(numerator) /
               static_cast<float>(coarse_denominator);
+          emit_reconstruction_progress(
+              84,
+              "AQMH gedämpften Strukturkandidaten prüfen: alpha=" +
+                  std::to_string(alpha),
+              "structure_attenuation");
           Matrix2Df attenuated =
               aqmh_recon.uniform_control_output +
               alpha * (structure_masked - aqmh_recon.uniform_control_output);
@@ -918,6 +987,12 @@ bool run_phase_aqmh_reconstruction(
               1.0f, best_alpha + 1.0f / coarse_denominator);
           for (int iter = 0; iter < 4; ++iter) {
             const float alpha = 0.5f * (lo + hi);
+            emit_reconstruction_progress(
+                85,
+                "AQMH Strukturdämpfung verfeinern: Schritt " +
+                    std::to_string(iter + 1) + "/4, alpha=" +
+                    std::to_string(alpha),
+                "structure_attenuation_refinement");
             Matrix2Df attenuated =
                 aqmh_recon.uniform_control_output +
                 alpha * (structure_masked -
@@ -1039,6 +1114,9 @@ bool run_phase_aqmh_reconstruction(
     // preserve the immutable raw AQMH baseline, and must measurably improve
     // FWHM against the control. Otherwise raw AQMH is preserved.
     {
+      emit_reconstruction_progress(
+          87, "AQMH Sternkern-Schärfung berechnen und bewerten",
+          "star_core_validation");
       constexpr float sharpen_sigma_px = 2.0f;
       constexpr float sharpen_amount = 0.6f;
       Matrix2Df sharpened =
@@ -1103,6 +1181,9 @@ bool run_phase_aqmh_reconstruction(
     }
   }
 
+  emit_reconstruction_progress(
+      90, "AQMH Qualitäts-Gates gegen Uniform-Control prüfen",
+      "control_quality_gates");
   out.control_validation =
       reconstruction::compare_aqmh_to_reference(
           aqmh_recon.output, uniform_control_reference,
@@ -1160,6 +1241,9 @@ bool run_phase_aqmh_reconstruction(
     out.control_validation = raw_control_validation;
   }
 
+  emit_reconstruction_progress(
+      91, "AQMH finalen Kandidaten gegen Rohbaseline prüfen",
+      "raw_baseline_guard");
   auto final_vs_raw_validation =
       reconstruction::compare_aqmh_to_reference(
           aqmh_recon.output, raw_aqmh_reference, validation_common_mask);
@@ -1184,6 +1268,9 @@ bool run_phase_aqmh_reconstruction(
     raw_baseline_guard_reason = final_raw_guard.reason;
   }
 
+  emit_reconstruction_progress(
+      93, "AQMH RGB-Luminanzdetail übertragen und validieren",
+      "rgb_luma_validation");
   bool rgb_detail_transfer_applicable = false;
   bool rgb_detail_transfer_numerical_ok = false;
   bool rgb_detail_transfer_applied = false;
@@ -1288,6 +1375,9 @@ bool run_phase_aqmh_reconstruction(
                                     validation_started_at)
           .count();
 
+  emit_reconstruction_progress(
+      95, "AQMH Postprocessing und Validierung abgeschlossen",
+      "validation_complete");
   if (aqmh_recon.cherry_pick_forced_disabled) {
     emitter.warning(
         run_id,
@@ -1327,6 +1417,9 @@ bool run_phase_aqmh_reconstruction(
   cv::setNumThreads(prev_cv_threads);
 
   const auto aqmh_cache_stats = aqmh_cache->stats();
+  emit_reconstruction_progress(
+      96, "AQMH Rekonstruktionsartefakt zusammenstellen",
+      "artifact_assembly");
   core::json artifact;
   artifact["method"] = "aqmh";
   artifact["acceleration"] = core::acceleration_selection_to_json(
@@ -1641,6 +1734,9 @@ bool run_phase_aqmh_reconstruction(
     artifact["k_effective_p50"] = aqmh_recon.k_effective_p50;
     artifact["k_effective_p90"] = aqmh_recon.k_effective_p90;
     artifact["low_rank_separation"] = aqmh_recon.low_rank_separation;
+    emit_reconstruction_progress(
+        97, "AQMH Cherry-Pick-K-Heatmap berechnen",
+        "cherry_pick_heatmap");
     // Downsampled K-map for visualization: emit a compact flat array at
     // 1/8 linear resolution (max 200x200 grid) so the JSON stays small.
     const int kmap_divisor = std::max(1, std::max(canvas_width, canvas_height) / 200);
@@ -1680,6 +1776,8 @@ bool run_phase_aqmh_reconstruction(
       {"cache_misses", aqmh_cache_stats.cache_misses},
       {"max_resident_maps_observed",
        static_cast<uint64_t>(aqmh_cache_stats.max_resident_maps_observed)}};
+  emit_reconstruction_progress(
+      99, "AQMH Rekonstruktionsartefakt schreiben", "artifact_write");
   core::write_text(run_dir / "artifacts" / "aqmh_reconstruction.json",
                    artifact.dump(2));
 
