@@ -275,6 +275,21 @@ export class FrameAnalysisService {
       if (["agent_start", "message_start", "message_update", "message_end", "agent_end"].includes(String(event.type))) {
         appendTrafficLog(`agent_event ${String(event.type)} role=${String(event.message?.role || "")} stop=${String(event.message?.stopReason || "")}`);
       }
+      if (
+        event.type === "message_update" &&
+        event.message?.role === "assistant" &&
+        event.assistantMessageEvent?.type !== "text_delta"
+      ) {
+        const now = Date.now();
+        if (now - lastProgressEmit > 1000) {
+          this.emitProgress(onProgress, {
+            phase: "ai_thinking",
+            message: `AI is still thinking... (${Math.max(1, Math.round((now - startTime) / 1000))}s)`,
+            progress: 15,
+          });
+          lastProgressEmit = now;
+        }
+      }
       if (event.type === "message_end" && event.message?.role === "assistant" && event.message?.stopReason === "error") {
         assistantError = String(event.message?.errorMessage || "");
         appendTrafficLog(`assistant_error ${assistantError}`);
@@ -338,6 +353,11 @@ export class FrameAnalysisService {
         prompt,
         this.config.timeoutMs,
         `PI scan-analysis request (model=${model.id}, provider=${model.provider || "unknown"})`,
+        undefined,
+        {
+          maxDurationMs: this.config.maxDurationMs,
+          onDiagnostic: (message) => appendTrafficLog(`scan_analysis ${message}`),
+        },
       );
     } finally {
       unsubscribe();

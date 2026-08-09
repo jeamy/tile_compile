@@ -84,11 +84,15 @@ registration:
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
+  affine_refinement_enabled: true       # gegatet; bei Ablehnung bleibt der globale Warp unveraendert
+  smooth_local_refinement_enabled: true # Held-out/Jacobian/NCC-gegatet; sonst atomarer Warp-Fallback
 
 # AQMH Configuration with tuning parameters.
-# Future baseline target:
+# Current baseline intent:
 # - conservative, object-agnostic AQMH defaults for nebulae, galaxies,
 #   clusters, IFN, and sparse star fields
+# - affine and smooth-local registration refinements are enabled but remain
+#   strictly gated; rejected candidates preserve the previous warp
 # - cherry-pick stays opt-in; enable it only for high-frame-count datasets
 # - the validation gate must treat degenerate or unavailable metrics as
 #   not_applicable in code, not as hard failures
@@ -107,6 +111,7 @@ aqmh:
     scales: 4                # Number of pyramid scales
     w_sharp: 0.6             # Sharpness weight in quality metric
     w_snr: 0.4               # SNR weight in quality metric
+    score_scale: 1.8        # lokale AQMH-Selektivitaet
     k_artifact: 3.0           # Artifact detection sensitivity (MAD multiplier)
     frac_artifact_max: 0.25  # Maximum tolerated outlier fraction per window
 
@@ -142,6 +147,11 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: false  # fuer Resume ab AQMH_RECONSTRUCTION/STACKING erhalten
+    prewarp_interpolation: linear
+    debayer_first: true
+    pre_debayer_method: edge_aware
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
     registration_weight_guard: true
     registration_weight_floor: 0.30
     registration_cc_floor: 0.35
@@ -159,10 +169,13 @@ aqmh:
   # set storage.resolution_divisor to 1 so the selection map has full detail.
   cherry_pick:
     enabled: false
+    mode: auto_reject
     k_frac: 0.50             # Fraction of best frames to use
     k_min_required: 30       # Run-level gate and per-pixel retained-sample floor
     margin_min: 0.02      # Mindest-Rangabstand fuer Cherry-Pick-Auswahl
     tiered_k_frac: []      # Gestaffelte k_frac-Regeln (leer = k_frac fuer alle Pixel)
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.9
 
   # Validierungsgrenzen fuer rekonstruierte Tiles.
   # Gate thresholds apply only to applicable metrics and must pass against

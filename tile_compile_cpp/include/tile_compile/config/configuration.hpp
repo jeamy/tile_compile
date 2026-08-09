@@ -105,6 +105,14 @@ struct RegistrationConfig {
   // Must cover the maximum expected inter-frame shift.  For equatorial mounts
   // 60 px is sufficient; for Alt/Az sessions (e.g. DWARF II) use 200-400 px.
   float star_shift_radius_px = 200.0f;
+  // Conservative affine fine registration on already aligned proxy stars.
+  // Enabled by default; rejected candidates leave the original warp unchanged
+  // and are reported in global_registration.json.
+  bool affine_refinement_enabled = true;
+  // Smooth local inverse displacement field fitted after the affine/global
+  // warp. Held-out, coverage, Jacobian, NCC, and overlap gates must all pass;
+  // otherwise prewarp uses the unchanged affine/global warp.
+  bool smooth_local_refinement_enabled = true;
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe
@@ -240,6 +248,7 @@ struct AqmhPyramidConfig {
   int base_window_px = 4;
   float w_sharp = 0.6f;
   float w_snr = 0.4f;
+  float score_scale = 1.8f;
   float k_artifact = 3.0f;
   float frac_artifact_max = 0.25f;
 };
@@ -268,6 +277,11 @@ struct AqmhReconstructionConfig {
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
   bool delete_prewarped_cache_after_run = true;
+  std::string prewarp_interpolation = "cubic";
+  bool debayer_first = true;          // OSC: demosaic before prewarp/AQMH, then reconstruct RGB channels directly
+  std::string pre_debayer_method = "edge_aware"; // "bilinear" | "nearest" | "vng" | "edge_aware"
+  std::string rgb_q_map_mode = "shared_luma";  // RGB channel reconstruction reuses luma Q-maps
+  std::string rgb_memory_strategy = "sequential"; // reconstruct RGB channels one after another
   bool registration_weight_guard = true;
   float registration_weight_floor = 0.30f;
   float registration_cc_floor = 0.35f;
@@ -309,9 +323,12 @@ struct AqmhCherryPickConfig {
     float k_frac = 0.30f;
   };
   bool enabled = false;
+  std::string mode = "auto_reject"; // "auto_reject" | "top_k"
   float k_frac = 0.30f;
   int k_min_required = 20;
   float margin_min = 0.02f;
+  float reject_below_best_fraction = 0.25f;
+  float min_keep_fraction = 0.90f;
   std::vector<Tier> tiered_k_frac;
 };
 

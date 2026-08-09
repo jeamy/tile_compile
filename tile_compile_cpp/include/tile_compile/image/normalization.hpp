@@ -38,6 +38,7 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
                             ColorMode mode);
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
-                            ColorMode mode, int out_rows, int out_cols);
+                            ColorMode mode, int out_rows, int out_cols,
+                            const std::string &interpolation = "linear");
 
 } // namespace tile_compile::image

@@ -28,6 +28,13 @@ class RunnerFrameCache;
 struct PhaseRegistrationContext {
   /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
+  /// True when OSC input was demosaiced before prewarp/AQMH. In that mode
+  /// prewarped_frames contains luma and the RGB stores contain color planes.
+  bool debayer_first_rgb = false;
+  /// Optional disk-backed RGB prewarped planes for AQMH debayer-first OSC.
+  DiskCacheFrameStore prewarped_frames_r;
+  DiskCacheFrameStore prewarped_frames_g;
+  DiskCacheFrameStore prewarped_frames_b;
   /// Per-input-frame flag indicating whether the prewarp store contains data.
   std::vector<uint8_t> frame_has_data;
   /// Per-canvas-pixel count of usable prewarped frames contributing data.
@@ -41,6 +48,11 @@ struct PhaseRegistrationContext {
   /// model-predicted frames contribute less to the stack than directly
   /// registered frames even when their image quality metrics are good.
   std::vector<uint8_t> model_predicted_mask;
+  /// Per-input-frame multiplicative weight factor derived from post-warp
+  /// matched-star residuals on the registration proxy. Values are in [0, 1].
+  /// Later phases multiply global frame weights by this factor when the
+  /// registration weight guard is enabled.
+  std::vector<float> registration_residual_weight_factors;
   /// Number of frames retained after registration, modeling, and prewarp.
   int n_usable_frames = 0;
   /// Minimum frame support required by downstream common-overlap decisions.

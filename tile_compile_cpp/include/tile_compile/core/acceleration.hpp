@@ -142,8 +142,10 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch);
 
 class AccelerationOps {
 public:
-  explicit AccelerationOps(AccelerationSelection selection);
-  AccelerationOps(const AccelerationContext &context, AccelerationPhase phase);
+  explicit AccelerationOps(AccelerationSelection selection,
+                           std::string prewarp_interpolation = "cubic");
+  AccelerationOps(const AccelerationContext &context, AccelerationPhase phase,
+                  std::string prewarp_interpolation = "cubic");
 
   const AccelerationSelection &selection() const { return selection_; }
 
@@ -230,6 +232,7 @@ public:
 private:
   struct OverlapAddState;
   AccelerationSelection selection_;
+  std::string prewarp_interpolation_;
   mutable std::unordered_map<const Matrix2Df *,
                              std::shared_ptr<OverlapAddState>>
       overlap_add_states_;

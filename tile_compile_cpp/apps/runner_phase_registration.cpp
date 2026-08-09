@@ -1,4 +1,5 @@
 #include "runner_phase_registration.hpp"
+#include "runner_registration_refinement_state.hpp"
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/acceleration.hpp"
@@ -12,11 +13,17 @@
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
 
+#include <Eigen/Dense>
+
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
+#include <cstdint>
 #include <cmath>
+#include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -57,6 +64,96 @@ int compute_required_common_overlap_frames(int usable_frames) {
   return std::max(required, 1);
 }
 
+/// @brief Demosaic an OSC frame for the debayer-first AQMH path.
+/// @details AQMH must not reconstruct a warped CFA mosaic when debayer_first is
+/// enabled. This helper keeps demosaicing before geometric resampling so later
+/// phases work on true image planes instead of Bayer phases.
+image::DebayerResult debayer_for_prewarp(const Matrix2Df &mosaic,
+                                         BayerPattern pattern,
+                                         const std::string &method) {
+  if (method == "nearest") {
+    return image::debayer_nearest_neighbor(mosaic, pattern, 0, 0);
+  }
+  if (method == "vng") {
+    return image::debayer_opencv(mosaic, pattern, 0, 0, false);
+  }
+  if (method == "edge_aware") {
+    return image::debayer_opencv(mosaic, pattern, 0, 0, true);
+  }
+  return image::debayer_bilinear(mosaic, pattern, 0, 0);
+}
+
+using detail::AffineRefinementFrameStats;
+using detail::RegistrationResidualStats;
+using detail::SmoothLocalRefinementFrameStats;
+
+float registration_residual_weight_factor(float median_px, float p90_px) {
+  // Registration proxies are usually 2x downsampled for OSC.  A median residual
+  // above ~0.35 proxy px is already large enough to broaden full-resolution
+  // stacked star cores; keep the transition smooth to avoid hard sample loss.
+  const float median_penalty =
+      std::clamp((median_px - 0.18f) / (0.70f - 0.18f), 0.0f, 1.0f);
+  const float p90_penalty =
+      std::clamp((p90_px - 0.45f) / (1.40f - 0.45f), 0.0f, 1.0f);
+  const float penalty = std::max(median_penalty, 0.75f * p90_penalty);
+  return std::clamp(1.0f - 0.45f * penalty, 0.55f, 1.0f);
+}
+
+RegistrationResidualStats measure_registration_residuals(
+    const std::vector<registration::StarPoint> &ref_stars,
+    const std::vector<registration::StarPoint> &frame_stars) {
+  RegistrationResidualStats out;
+  out.ref_stars = static_cast<int>(ref_stars.size());
+  out.frame_stars = static_cast<int>(frame_stars.size());
+  if (ref_stars.size() < 8 || frame_stars.size() < 8) {
+    return out;
+  }
+
+  std::vector<uint8_t> ref_used(ref_stars.size(), 0);
+  std::vector<float> residuals;
+  residuals.reserve(std::min(ref_stars.size(), frame_stars.size()));
+  constexpr float kMatchRadiusPx = 3.0f;
+  constexpr float kMatchRadiusSq = kMatchRadiusPx * kMatchRadiusPx;
+  for (const auto &s : frame_stars) {
+    float best_d2 = kMatchRadiusSq;
+    int best_idx = -1;
+    for (size_t ri = 0; ri < ref_stars.size(); ++ri) {
+      if (ref_used[ri]) {
+        continue;
+      }
+      const float dx = s.x - ref_stars[ri].x;
+      const float dy = s.y - ref_stars[ri].y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < best_d2) {
+        best_d2 = d2;
+        best_idx = static_cast<int>(ri);
+      }
+    }
+    if (best_idx >= 0) {
+      ref_used[static_cast<size_t>(best_idx)] = 1;
+      residuals.push_back(std::sqrt(best_d2));
+    }
+  }
+
+  out.matched_stars = static_cast<int>(residuals.size());
+  if (residuals.size() < 8) {
+    return out;
+  }
+
+  float sum_sq = 0.0f;
+  for (const float r : residuals) {
+    sum_sq += r * r;
+    out.max_px = std::max(out.max_px, r);
+  }
+  std::sort(residuals.begin(), residuals.end());
+  out.median_px = core::percentile_from_sorted(residuals, 50.0f);
+  out.p90_px = core::percentile_from_sorted(residuals, 90.0f);
+  out.rms_px = std::sqrt(sum_sq / static_cast<float>(residuals.size()));
+  out.weight_factor = registration_residual_weight_factor(out.median_px, out.p90_px);
+  out.applicable = true;
+  return out;
+}
+
 /// @brief Implements wrap angle near.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -84,6 +181,66 @@ std::vector<float> unwrap_angle_sequence(const std::vector<float> &angles) {
     out[i] = wrap_angle_near(out[i], out[i - 1]);
   }
   return out;
+}
+
+bool parse_frame_timestamp_seconds(const fs::path &path, std::int64_t &seconds) {
+  const std::string name = path.filename().string();
+  for (size_t pos = 0; pos + 16 <= name.size(); ++pos) {
+    bool match = true;
+    for (size_t k = 0; k < 8; ++k) {
+      match = match && std::isdigit(static_cast<unsigned char>(name[pos + k]));
+    }
+    match = match && name[pos + 8] == '-';
+    for (size_t k = 9; k < 15; ++k) {
+      match = match && std::isdigit(static_cast<unsigned char>(name[pos + k]));
+    }
+    if (!match) {
+      continue;
+    }
+
+    const int year = std::stoi(name.substr(pos, 4));
+    const int month = std::stoi(name.substr(pos + 4, 2));
+    const int day = std::stoi(name.substr(pos + 6, 2));
+    const int hour = std::stoi(name.substr(pos + 9, 2));
+    const int minute = std::stoi(name.substr(pos + 11, 2));
+    const int second = std::stoi(name.substr(pos + 13, 2));
+    if (month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
+        second < 0 || second > 60) {
+      return false;
+    }
+
+    const int y = year - (month <= 2 ? 1 : 0);
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(y - era * 400);
+    const unsigned mp = static_cast<unsigned>(month + (month > 2 ? -3 : 9));
+    const unsigned doy =
+        (153 * mp + 2) / 5 + static_cast<unsigned>(day) - 1;
+    const unsigned doe =
+        yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const std::int64_t days =
+        static_cast<std::int64_t>(era) * 146097 +
+        static_cast<std::int64_t>(doe) - 719468;
+    seconds = days * 86400 + hour * 3600 + minute * 60 + second;
+    return true;
+  }
+  return false;
+}
+
+float median_copy(std::vector<float> values) {
+  if (values.empty()) {
+    return 0.0f;
+  }
+  const size_t mid = values.size() / 2;
+  std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
+                   values.end());
+  float med = values[mid];
+  if (values.size() % 2 == 0 && mid > 0) {
+    std::nth_element(values.begin(), values.begin() + static_cast<long>(mid - 1),
+                     values.end());
+    med = 0.5f * (med + values[mid - 1]);
+  }
+  return med;
 }
 
 struct TemporalWarpSample {
@@ -466,6 +623,11 @@ bool run_phase_registration_prewarp(
   std::vector<int> reg_chain_depth(frames.size(), -1);
   std::vector<RegistrationProvenance> reg_provenance(
       frames.size(), RegistrationProvenance::unresolved);
+  std::vector<RegistrationResidualStats> reg_residual_stats(frames.size());
+  std::vector<AffineRefinementFrameStats> affine_refinement_stats(frames.size());
+  std::vector<SmoothLocalRefinementFrameStats> local_refinement_stats(
+      frames.size());
+  std::vector<float> registration_residual_weight_factors(frames.size(), 1.0f);
   std::string global_reg_status = "skipped";
   core::json global_reg_extra;
   const int temporal_center_idx =
@@ -480,6 +642,10 @@ bool run_phase_registration_prewarp(
       static_cast<int>(frames.size()), cfg.registration);
   const float kBlindChainStrongAnchorCc = cfg.registration.blind_chain_strong_anchor_cc;
   const float kBlindChainDriftThresholdPx = cfg.registration.blind_chain_drift_threshold_px;
+  const float kWeakGlobalRegistrationCc =
+      std::max(0.05f, cfg.registration.reject_cc_min_abs * 0.25f);
+  const float kStrongActiveAnchorCc =
+      std::max(0.25f, cfg.registration.reject_cc_min_abs);
   // §4.13 — Astrometrische Rescue
   const bool kUseAstrometry = cfg.registration.use_astrometry;
 
@@ -534,8 +700,14 @@ bool run_phase_registration_prewarp(
     j["ref_frame"] = global_ref_idx;
     j["extra"] = global_reg_extra;
     j["cc"] = core::json::array();
+    j["cc_semantics"] =
+        "pre_affine_or_local_refinement_global_registration_score";
     j["source"] = core::json::array();
     j["chain_depth"] = core::json::array();
+    j["star_residuals"] = core::json::array();
+    j["affine_refinement"] = core::json::array();
+    j["smooth_local_refinement"] = core::json::array();
+    j["registration_residual_weight_factor"] = core::json::array();
     j["warps"] = core::json::array();
     j["dithering"] = {
         {"enabled", cfg.dithering.enabled},
@@ -547,6 +719,87 @@ bool run_phase_registration_prewarp(
       const auto &w = global_frame_warps[fi];
       j["cc"].push_back(global_frame_cc[fi]);
       j["source"].push_back(registration_provenance_name(reg_provenance[fi]));
+      j["registration_residual_weight_factor"].push_back(
+          static_cast<double>(registration_residual_weight_factors[fi]));
+      const auto &rs = reg_residual_stats[fi];
+      j["star_residuals"].push_back(core::json{
+          {"applicable", rs.applicable},
+          {"ref_stars", rs.ref_stars},
+          {"frame_stars", rs.frame_stars},
+          {"matched_stars", rs.matched_stars},
+          {"median_px", rs.median_px},
+          {"p90_px", rs.p90_px},
+          {"rms_px", rs.rms_px},
+          {"max_px", rs.max_px},
+          {"weight_factor", rs.weight_factor},
+      });
+      const auto &ars = affine_refinement_stats[fi];
+      const auto &fit = ars.fit;
+      j["affine_refinement"].push_back(core::json{
+          {"attempted", ars.attempted},
+          {"applied", ars.applied},
+          {"reason", ars.reason},
+          {"matched_stars", fit.matched_stars},
+          {"inlier_stars", fit.inlier_stars},
+          {"inlier_ratio", fit.inlier_ratio},
+          {"spatial_coverage", fit.spatial_coverage},
+          {"median_before_px", fit.median_before_px},
+          {"p90_before_px", fit.p90_before_px},
+          {"rms_before_px", fit.rms_before_px},
+          {"median_after_px", fit.median_after_px},
+          {"p90_after_px", fit.p90_after_px},
+          {"rms_after_px", fit.rms_after_px},
+          {"center_displacement_px", fit.center_displacement_px},
+          {"rotation_deg", fit.rotation_deg},
+          {"min_scale", fit.min_scale},
+          {"max_scale", fit.max_scale},
+          {"ncc_before", ars.ncc_before},
+          {"ncc_after", ars.ncc_after},
+          {"overlap_ratio", ars.overlap_ratio},
+          {"correction_warp",
+           {{"a00", fit.correction_warp(0, 0)},
+            {"a01", fit.correction_warp(0, 1)},
+            {"tx", fit.correction_warp(0, 2)},
+            {"a10", fit.correction_warp(1, 0)},
+            {"a11", fit.correction_warp(1, 1)},
+            {"ty", fit.correction_warp(1, 2)}}},
+      });
+      const auto &lrs = local_refinement_stats[fi];
+      const auto &local_fit = lrs.fit;
+      j["smooth_local_refinement"].push_back(core::json{
+          {"method", "gaussian_grid_4x4_v1"},
+          {"attempted", lrs.attempted},
+          {"applied", lrs.applied},
+          {"reason", lrs.reason},
+          {"matched_stars", local_fit.matched_stars},
+          {"training_stars", local_fit.training_stars},
+          {"validation_stars", local_fit.validation_stars},
+          {"spatial_coverage", local_fit.spatial_coverage},
+          {"median_before_px", local_fit.median_before_px},
+          {"p90_before_px", local_fit.p90_before_px},
+          {"rms_before_px", local_fit.rms_before_px},
+          {"median_after_px", local_fit.median_after_px},
+          {"p90_after_px", local_fit.p90_after_px},
+          {"rms_after_px", local_fit.rms_after_px},
+          {"validation_median_before_px",
+           local_fit.validation_median_before_px},
+          {"validation_p90_before_px", local_fit.validation_p90_before_px},
+          {"validation_rms_before_px", local_fit.validation_rms_before_px},
+          {"validation_median_after_px",
+           local_fit.validation_median_after_px},
+          {"validation_p90_after_px", local_fit.validation_p90_after_px},
+          {"validation_rms_after_px", local_fit.validation_rms_after_px},
+          {"max_displacement_px", local_fit.max_displacement_px},
+          {"min_jacobian_determinant",
+           local_fit.min_jacobian_determinant},
+          {"max_jacobian_determinant",
+           local_fit.max_jacobian_determinant},
+          {"min_local_scale", local_fit.min_local_scale},
+          {"max_local_scale", local_fit.max_local_scale},
+          {"ncc_before", lrs.ncc_before},
+          {"ncc_after", lrs.ncc_after},
+          {"overlap_ratio", lrs.overlap_ratio},
+      });
       if (reg_chain_depth[fi] >= 0) {
         j["chain_depth"].push_back(reg_chain_depth[fi]);
       } else {
@@ -583,6 +836,61 @@ bool run_phase_registration_prewarp(
     core::write_text(run_dir / "artifacts" / "global_registration.json",
                      j.dump(2));
   };
+
+  std::vector<std::pair<int, int>> acquisition_segments;
+  int detected_series_gap_count = 0;
+  float detected_series_gap_threshold_s = 0.0f;
+  {
+    std::vector<std::int64_t> frame_seconds(frames.size(), 0);
+    std::vector<uint8_t> have_frame_seconds(frames.size(), 0);
+    int parsed_timestamps = 0;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      std::int64_t ts = 0;
+      if (parse_frame_timestamp_seconds(frames[fi], ts)) {
+        frame_seconds[fi] = ts;
+        have_frame_seconds[fi] = 1;
+        ++parsed_timestamps;
+      }
+    }
+
+    std::vector<float> adjacent_time_steps_s;
+    adjacent_time_steps_s.reserve(frames.size());
+    for (size_t fi = 1; fi < frames.size(); ++fi) {
+      if (have_frame_seconds[fi] == 0 || have_frame_seconds[fi - 1] == 0) {
+        continue;
+      }
+      const std::int64_t dt = frame_seconds[fi] - frame_seconds[fi - 1];
+      if (dt > 0 && dt < 3600) {
+        adjacent_time_steps_s.push_back(static_cast<float>(dt));
+      }
+    }
+    const float median_dt_s = median_copy(adjacent_time_steps_s);
+    detected_series_gap_threshold_s =
+        median_dt_s > 0.0f ? std::max(180.0f, 8.0f * median_dt_s) : 0.0f;
+
+    int segment_start = 0;
+    if (parsed_timestamps >= static_cast<int>(frames.size() * 8 / 10) &&
+        detected_series_gap_threshold_s > 0.0f) {
+      for (size_t fi = 1; fi < frames.size(); ++fi) {
+        bool split_here = false;
+        if (have_frame_seconds[fi] != 0 && have_frame_seconds[fi - 1] != 0) {
+          const std::int64_t dt = frame_seconds[fi] - frame_seconds[fi - 1];
+          split_here = dt > static_cast<std::int64_t>(
+                                std::ceil(detected_series_gap_threshold_s));
+        }
+        if (split_here) {
+          acquisition_segments.emplace_back(segment_start,
+                                            static_cast<int>(fi) - 1);
+          segment_start = static_cast<int>(fi);
+          ++detected_series_gap_count;
+        }
+      }
+    }
+    if (!frames.empty()) {
+      acquisition_segments.emplace_back(segment_start,
+                                        static_cast<int>(frames.size()) - 1);
+    }
+  }
 
   // Pick one or more anchor reference frames that are both high quality and
   // temporally distributed. Long Alt/Az sessions often cannot be matched
@@ -670,11 +978,89 @@ bool run_phase_registration_prewarp(
       requested_anchor_indices.push_back(found ? best.idx : target);
     }
 
+    auto best_anchor_in_range = [&](int lo, int hi, int target) -> int {
+      lo = std::max(0, lo);
+      hi = std::min(n - 1, hi);
+      target = std::clamp(target, lo, hi);
+      bool found = false;
+      RefCandidate best;
+      int best_dist = std::numeric_limits<int>::max();
+      for (const auto &c : candidates) {
+        if (c.idx < lo || c.idx > hi) {
+          continue;
+        }
+        const int d = std::abs(c.idx - target);
+        if (!found || c.score > best.score ||
+            (c.score == best.score && d < best_dist) ||
+            (c.score == best.score && d == best_dist &&
+             c.quality > best.quality)) {
+          found = true;
+          best = c;
+          best_dist = d;
+        }
+      }
+      return found ? best.idx : target;
+    };
+
+    int forced_series_anchor_count = 0;
+    for (const auto &[seg_lo, seg_hi] : acquisition_segments) {
+      if (seg_lo < 0 || seg_hi < seg_lo || seg_lo >= n) {
+        continue;
+      }
+      const int lo = std::max(0, seg_lo);
+      const int hi = std::min(n - 1, seg_hi);
+      const int len = hi - lo + 1;
+      if (len <= 0) {
+        continue;
+      }
+
+      requested_anchor_indices.push_back(lo);
+      requested_anchor_indices.push_back(hi);
+      forced_series_anchor_count += 2;
+
+      if (len < 90) {
+        requested_anchor_indices.push_back((lo + hi) / 2);
+        ++forced_series_anchor_count;
+        continue;
+      }
+
+      int local_anchor_count = std::max(3, (len + 39) / 40);
+      if ((local_anchor_count % 2) == 0) {
+        ++local_anchor_count;
+      }
+      local_anchor_count = std::min(local_anchor_count, 13);
+      for (int ai = 0; ai < local_anchor_count; ++ai) {
+        const float alpha =
+            static_cast<float>(ai) / static_cast<float>(local_anchor_count - 1);
+        const int target = lo + static_cast<int>(
+                                    std::round(alpha * static_cast<float>(len - 1)));
+        const int bucket_lo =
+            (ai == 0) ? lo
+                      : (lo + static_cast<int>(std::round(
+                                  (static_cast<float>(ai) - 0.5f) *
+                                  static_cast<float>(len - 1) /
+                                  static_cast<float>(local_anchor_count - 1))));
+        const int bucket_hi =
+            (ai + 1 >= local_anchor_count)
+                ? hi
+                : (lo + static_cast<int>(std::round(
+                            (static_cast<float>(ai) + 0.5f) *
+                            static_cast<float>(len - 1) /
+                            static_cast<float>(local_anchor_count - 1))));
+        requested_anchor_indices.push_back(
+            best_anchor_in_range(bucket_lo, bucket_hi, target));
+        ++forced_series_anchor_count;
+      }
+    }
+
     std::sort(requested_anchor_indices.begin(), requested_anchor_indices.end());
     requested_anchor_indices.erase(
         std::unique(requested_anchor_indices.begin(),
                     requested_anchor_indices.end()),
         requested_anchor_indices.end());
+    requested_anchor_count = static_cast<int>(requested_anchor_indices.size());
+    global_reg_extra["diag"]["forced_series_anchor_count"] =
+        forced_series_anchor_count;
 
     if (requested_anchor_indices.empty()) {
       requested_anchor_indices.push_back(temporal_center_idx);
@@ -734,6 +1120,16 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["auto_engine_overridden"] =
       (registration_cfg.engine != cfg.registration.engine ||
        registration_cfg.transform_model != cfg.registration.transform_model);
+  core::json acquisition_segments_json = core::json::array();
+  for (const auto &[lo, hi] : acquisition_segments) {
+    acquisition_segments_json.push_back({{"start", lo}, {"end", hi}});
+  }
+  global_reg_extra["diag"]["acquisition_series_segments"] =
+      acquisition_segments_json;
+  global_reg_extra["diag"]["acquisition_series_gap_count"] =
+      detected_series_gap_count;
+  global_reg_extra["diag"]["acquisition_series_gap_threshold_s"] =
+      detected_series_gap_threshold_s;
 
   // Anchor indices/proxies im äußeren Scope für ASTAP am Ende verfügbar
   std::vector<int> active_anchor_indices;
@@ -919,6 +1315,11 @@ bool run_phase_registration_prewarp(
             return false;
           }
 
+          const bool globally_plausible =
+              ncc_global >= kWeakGlobalRegistrationCc;
+          if (!globally_plausible) {
+            return false;
+          }
           set_registration_state(
               static_cast<size_t>(anchor_idx),
               registration::scale_translation_warp(w_chained, global_reg_scale),
@@ -927,7 +1328,9 @@ bool run_phase_registration_prewarp(
               std::max(0, reg_chain_depth[static_cast<size_t>(parent_idx)]) + 1,
               RegistrationProvenance::direct_global);
           requested_anchor_resolved[static_cast<size_t>(anchor_pos)] = 1;
-          maybe_add_active_anchor(anchor_idx, &anchor_proxy);
+          if (ncc_global >= kStrongActiveAnchorCc) {
+            maybe_add_active_anchor(anchor_idx, &anchor_proxy);
+          }
           return true;
         };
 
@@ -1016,7 +1419,8 @@ bool run_phase_registration_prewarp(
                           warped_global, ref_reg, valid_mask_global,
                           &overlap_px);
 
-                      if (overlap_px <= 16) {
+                      if (overlap_px <= 16 ||
+                          ncc_global < kWeakGlobalRegistrationCc) {
                         set_registration_state(
                             fi, registration::identity_warp(), 0.0f, false, -1,
                             RegistrationProvenance::unresolved);
@@ -1035,7 +1439,9 @@ bool run_phase_registration_prewarp(
                                 w_chained, global_reg_scale);
                         set_registration_state(
                             fi, w_full, std::max(ncc_global, 0.01f),
-                            chained_anchor, chained_depth,
+                            chained_anchor &&
+                                ncc_global >= kWeakGlobalRegistrationCc,
+                            chained_depth,
                             RegistrationProvenance::direct_global);
                       }
                     } else {
@@ -1148,15 +1554,26 @@ bool run_phase_registration_prewarp(
               target_active_anchor_count) {
             return promoted_indices;
           }
-          const float min_cc =
+          const float strong_min_cc =
               std::max(0.35f, cfg.registration.reject_cc_min_abs + 0.10f);
+          const float frontier_min_cc =
+              std::max(kWeakGlobalRegistrationCc, kBlindChainStrongAnchorCc);
+          const auto active_minmax = std::minmax_element(
+              active_anchor_indices.begin(), active_anchor_indices.end());
+          const int active_lo =
+              active_minmax.first == active_anchor_indices.end()
+                  ? 0
+                  : *active_minmax.first;
+          const int active_hi =
+              active_minmax.second == active_anchor_indices.end()
+                  ? 0
+                  : *active_minmax.second;
           const int min_spacing = std::max(24, static_cast<int>(frames.size()) / 20);
           std::vector<std::pair<float, int>> candidates;
           candidates.reserve(frames.size());
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             if (is_active_anchor_frame[fi] != 0 ||
-                reg_provenance[fi] != RegistrationProvenance::direct_global ||
-                global_frame_cc[fi] < min_cc) {
+                reg_provenance[fi] != RegistrationProvenance::direct_global) {
               continue;
             }
             const size_t nearest_slot =
@@ -1167,8 +1584,22 @@ bool run_phase_registration_prewarp(
             if (nearest_dist < min_spacing) {
               continue;
             }
+            const bool touches_unresolved =
+                (fi > 0 && global_frame_cc[fi - 1] <= 0.0f) ||
+                (fi + 1 < frames.size() && global_frame_cc[fi + 1] <= 0.0f);
+            const bool extends_active_hull =
+                static_cast<int>(fi) < active_lo ||
+                static_cast<int>(fi) > active_hi;
+            const bool strong_anchor = global_frame_cc[fi] >= strong_min_cc;
+            const bool frontier_anchor =
+                global_frame_cc[fi] >= frontier_min_cc &&
+                (touches_unresolved || extends_active_hull);
+            if (!strong_anchor && !frontier_anchor) {
+              continue;
+            }
             const float score =
                 global_frame_cc[fi] +
+                (frontier_anchor ? 0.20f : 0.0f) +
                 0.002f * static_cast<float>(std::min(nearest_dist, 100));
             candidates.emplace_back(score, static_cast<int>(fi));
           }
@@ -1261,6 +1692,10 @@ bool run_phase_registration_prewarp(
             if (fi >= frames.size() || neighbor_fi >= frames.size()) {
               return false;
             }
+            if (fi < is_active_anchor_frame.size() &&
+                is_active_anchor_frame[fi] != 0) {
+              return false;
+            }
             if (global_frame_cc[neighbor_fi] <= 0.0f) {
               return false;
             }
@@ -1277,11 +1712,16 @@ bool run_phase_registration_prewarp(
 
             // Fast path: phase-corr + optional log-polar rotation for delta warp.
             // Sufficient for consecutive frames where drift is typically < 30px.
-            // Fallback to full register_single_frame only when phase-corr indicates
-            // a large shift (> 100px), which likely means a phase-corr alias.
+            // Fallback to full register_single_frame above that limit; larger
+            // phase-correlation shifts are commonly star-field aliases.
             const Matrix2Df mov_ecc_img = registration::prepare_ecc_image(mov_p);
             const Matrix2Df nbr_ecc_img = registration::prepare_ecc_image(nbr_p);
             auto [dx, dy] = registration::phasecorr_translation(mov_ecc_img, nbr_ecc_img);
+            // phaseCorrelate returns the forward content displacement. Build
+            // the forward frame-to-neighbour transform first, then invert the
+            // complete affine transform because apply_warp() uses
+            // WARP_INVERSE_MAP. Inverting only dx/dy leaves the rotation in
+            // the wrong direction and accumulates concentric trails.
 
             WarpMatrix w_local = registration::identity_warp();
             if (registration_cfg.allow_rotation) {
@@ -1296,19 +1736,21 @@ bool run_phase_registration_prewarp(
               const float st = std::sin(th);
               const float cx = static_cast<float>(mov_p.cols()) * 0.5f;
               const float cy = static_cast<float>(mov_p.rows()) * 0.5f;
-              w_local(0, 0) = ct; w_local(0, 1) = -st;
-              w_local(1, 0) = st; w_local(1, 1) =  ct;
-              w_local(0, 2) = dx + cx * (1.0f - ct) + cy * st;
-              w_local(1, 2) = dy + cy * (1.0f - ct) - cx * st;
+              const float tx_forward = dx + cx * (1.0f - ct) + cy * st;
+              const float ty_forward = dy + cy * (1.0f - ct) - cx * st;
+              w_local(0, 0) = ct; w_local(0, 1) = st;
+              w_local(1, 0) = -st; w_local(1, 1) = ct;
+              w_local(0, 2) = -(ct * tx_forward + st * ty_forward);
+              w_local(1, 2) = -(-st * tx_forward + ct * ty_forward);
             } else {
-              w_local(0, 2) = dx;
-              w_local(1, 2) = dy;
+              w_local(0, 2) = -dx;
+              w_local(1, 2) = -dy;
             }
 
             // If phase-corr gives a suspiciously large shift, fall back to full
             // star-matching which is more robust against aliasing.
             const float shift_sq = dx * dx + dy * dy;
-            if (shift_sq > 10000.0f) { // > 100px: phase-corr likely aliased
+            if (shift_sq > 900.0f) { // > 30px: phase-corr likely aliased
               const auto sfr_local =
                   registration::register_single_frame(mov_p, nbr_p,
                                                       registration_cfg, -0.002f);
@@ -1342,9 +1784,20 @@ bool run_phase_registration_prewarp(
 
             const float current_cc = global_frame_cc[fi];
             const bool missing_direct = current_cc <= 0.0f;
+            // A temporal replacement must be supported by the local frame
+            // pair itself.  Without this gate, a low/zero global NCC frame can
+            // accept an arbitrary phase-correlation alias and poison the
+            // entire chained warp even when the global comparison is weak.
+            if (ncc_local < 0.12f) {
+              return false;
+            }
+            if (ncc_global < kWeakGlobalRegistrationCc) {
+              return false;
+            }
             const bool clearly_better = ncc_global > current_cc + 0.005f;
             const bool comparable_but_prefer_sequential =
-                !missing_direct && ncc_global >= current_cc - 0.01f &&
+                !missing_direct && current_cc >= kWeakGlobalRegistrationCc &&
+                ncc_global >= current_cc - 0.01f &&
                 ncc_local >= std::max(0.12f, current_cc * 0.25f);
 
             if (!missing_direct && !clearly_better &&
@@ -1437,6 +1890,8 @@ bool run_phase_registration_prewarp(
             const Matrix2Df mov_ecc_img = registration::prepare_ecc_image(mov_p);
             const Matrix2Df nbr_ecc_img = registration::prepare_ecc_image(nbr_p);
             auto [dx, dy] = registration::phasecorr_translation(mov_ecc_img, nbr_ecc_img);
+            // See the sequential-refinement path above: invert the complete
+            // forward affine transform, not just its translation component.
 
             WarpMatrix w_delta = registration::identity_warp();
             if (registration_cfg.allow_rotation) {
@@ -1451,13 +1906,15 @@ bool run_phase_registration_prewarp(
               const float st = std::sin(th);
               const float cx = static_cast<float>(mov_p.cols()) * 0.5f;
               const float cy = static_cast<float>(mov_p.rows()) * 0.5f;
-              w_delta(0, 0) = ct; w_delta(0, 1) = -st;
-              w_delta(1, 0) = st; w_delta(1, 1) =  ct;
-              w_delta(0, 2) = dx + cx * (1.0f - ct) + cy * st;
-              w_delta(1, 2) = dy + cy * (1.0f - ct) - cx * st;
+              const float tx_forward = dx + cx * (1.0f - ct) + cy * st;
+              const float ty_forward = dy + cy * (1.0f - ct) - cx * st;
+              w_delta(0, 0) = ct; w_delta(0, 1) = st;
+              w_delta(1, 0) = -st; w_delta(1, 1) = ct;
+              w_delta(0, 2) = -(ct * tx_forward + st * ty_forward);
+              w_delta(1, 2) = -(-st * tx_forward + ct * ty_forward);
             } else {
-              w_delta(0, 2) = dx;
-              w_delta(1, 2) = dy;
+              w_delta(0, 2) = -dx;
+              w_delta(1, 2) = -dy;
             }
 
             // 2. Validate Delta against NEIGHBOR (not global ref)
@@ -2085,6 +2542,10 @@ bool run_phase_registration_prewarp(
   int reg_reject_deep_chain_outliers = 0;
   int reg_meridian_flip_detected = 0;
   int reg_reject_isolated_half_turn = 0;
+  int reg_orientation_chain_protected = 0;
+  int reg_reject_disconnected_component = 0;
+  int reg_reject_disconnected_edges = 0;
+  int reg_preserved_independent_components = 0;
   core::json reg_rejected_frames = core::json::array();
   std::vector<uint8_t> reg_rejected_mask(frames.size(), 0);
   if (cfg.registration.reject_outliers) {
@@ -2220,6 +2681,170 @@ bool run_phase_registration_prewarp(
       return trend_coeffs(0) + trend_coeffs(1) * t + trend_coeffs(2) * t * t;
     };
 
+    // Segment the registration graph at physically impossible frame-to-frame
+    // jumps.  A gap can be a real boundary between independent acquisition
+    // series, so a component is retained when it contains its own strong
+    // direct/astrometric anchor.  Only an unanchored detached chain is sent
+    // to model prediction; otherwise one series would be incorrectly treated
+    // as a false star-field alias.
+    std::vector<float> adjacent_translation_steps;
+    std::vector<float> adjacent_angle_steps;
+    adjacent_translation_steps.reserve(frames.size());
+    adjacent_angle_steps.reserve(frames.size());
+    auto warp_angle = [](const WarpMatrix &w) {
+      return std::atan2(w(0, 1), w(0, 0));
+    };
+    auto wrapped_angle_delta = [](float a, float b) {
+      return std::fabs(std::remainder(a - b, 6.2831853071795864f));
+    };
+    for (size_t fi = 1; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f || global_frame_cc[fi - 1] <= 0.0f) {
+        continue;
+      }
+      const auto &prev = global_frame_warps[fi - 1];
+      const auto &cur = global_frame_warps[fi];
+      adjacent_translation_steps.push_back(std::hypot(
+          cur(0, 2) - prev(0, 2), cur(1, 2) - prev(1, 2)));
+      adjacent_angle_steps.push_back(wrapped_angle_delta(
+          warp_angle(cur), warp_angle(prev)));
+    }
+    auto robust_median_local = [](std::vector<float> values) -> float {
+      if (values.empty()) {
+        return 0.0f;
+      }
+      const size_t mid = values.size() / 2;
+      std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
+                       values.end());
+      float med = values[mid];
+      if (values.size() % 2 == 0 && mid > 0) {
+        std::nth_element(values.begin(), values.begin() + static_cast<long>(mid - 1),
+                         values.end());
+        med = 0.5f * (med + values[mid - 1]);
+      }
+      return med;
+    };
+    const float adjacent_translation_median =
+        robust_median_local(adjacent_translation_steps);
+    const float adjacent_angle_median =
+        robust_median_local(adjacent_angle_steps);
+    const float adjacent_translation_limit =
+        std::max(96.0f, 8.0f * adjacent_translation_median);
+    const float adjacent_angle_limit =
+        std::max(4.0f * 3.14159265f / 180.0f,
+                 8.0f * adjacent_angle_median);
+
+    std::vector<uint8_t> connected_to_reference(frames.size(), 0);
+    if (global_ref_idx >= 0 &&
+        static_cast<size_t>(global_ref_idx) < frames.size() &&
+        global_frame_cc[static_cast<size_t>(global_ref_idx)] > 0.0f) {
+      std::deque<size_t> pending;
+      pending.push_back(static_cast<size_t>(global_ref_idx));
+      connected_to_reference[static_cast<size_t>(global_ref_idx)] = 1;
+      while (!pending.empty()) {
+        const size_t fi = pending.front();
+        pending.pop_front();
+        for (const int direction : {-1, 1}) {
+          const int neighbor_i = static_cast<int>(fi) + direction;
+          if (neighbor_i < 0 ||
+              neighbor_i >= static_cast<int>(frames.size())) {
+            continue;
+          }
+          const size_t neighbor = static_cast<size_t>(neighbor_i);
+          if (connected_to_reference[neighbor] ||
+              global_frame_cc[neighbor] <= 0.0f) {
+            continue;
+          }
+          const auto &from = global_frame_warps[fi];
+          const auto &to = global_frame_warps[neighbor];
+          const float translation_step = std::hypot(
+              to(0, 2) - from(0, 2), to(1, 2) - from(1, 2));
+          const float angle_step =
+              wrapped_angle_delta(warp_angle(to), warp_angle(from));
+          if (translation_step > adjacent_translation_limit ||
+              angle_step > adjacent_angle_limit) {
+            ++reg_reject_disconnected_edges;
+            continue;
+          }
+          connected_to_reference[neighbor] = 1;
+          pending.push_back(neighbor);
+        }
+      }
+    }
+
+    auto is_strong_component_anchor = [&](size_t fi) {
+      if (global_frame_cc[fi] < 0.25f) {
+        return false;
+      }
+      return reg_provenance[fi] == RegistrationProvenance::direct_global ||
+             reg_provenance[fi] == RegistrationProvenance::astrometric_rescue ||
+             reg_provenance[fi] == RegistrationProvenance::reference;
+    };
+    std::vector<uint8_t> visited_component(frames.size(), 0);
+    std::vector<uint8_t> anchored_component(frames.size(), 0);
+    for (size_t seed = 0; seed < frames.size(); ++seed) {
+      if (global_frame_cc[seed] <= 0.0f || visited_component[seed]) {
+        continue;
+      }
+      std::deque<size_t> component_pending;
+      std::vector<size_t> component_members;
+      component_pending.push_back(seed);
+      visited_component[seed] = 1;
+      bool anchored = false;
+      while (!component_pending.empty()) {
+        const size_t fi = component_pending.front();
+        component_pending.pop_front();
+        component_members.push_back(fi);
+        anchored = anchored || is_strong_component_anchor(fi);
+        for (const int direction : {-1, 1}) {
+          const int neighbor_i = static_cast<int>(fi) + direction;
+          if (neighbor_i < 0 ||
+              neighbor_i >= static_cast<int>(frames.size())) {
+            continue;
+          }
+          const size_t neighbor = static_cast<size_t>(neighbor_i);
+          if (visited_component[neighbor] ||
+              global_frame_cc[neighbor] <= 0.0f) {
+            continue;
+          }
+          const auto &from = global_frame_warps[fi];
+          const auto &to = global_frame_warps[neighbor];
+          const float translation_step = std::hypot(
+              to(0, 2) - from(0, 2), to(1, 2) - from(1, 2));
+          const float angle_step =
+              wrapped_angle_delta(warp_angle(to), warp_angle(from));
+          if (translation_step > adjacent_translation_limit ||
+              angle_step > adjacent_angle_limit) {
+            continue;
+          }
+          visited_component[neighbor] = 1;
+          component_pending.push_back(neighbor);
+        }
+      }
+      if (anchored) {
+        for (const size_t fi : component_members) {
+          anchored_component[fi] = 1;
+        }
+        if (global_ref_idx < 0 ||
+            !connected_to_reference[seed]) {
+          ++reg_preserved_independent_components;
+        }
+      }
+    }
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] > 0.0f && !connected_to_reference[fi] &&
+          !anchored_component[fi]) {
+        reg_rejected_mask[fi] = 1;
+        ++reg_reject_disconnected_component;
+      }
+    }
+    std::cout << "[REG-FILTER] temporal component: step_limit="
+              << adjacent_translation_limit << " px, angle_limit="
+              << adjacent_angle_limit * 57.29577951f
+              << " deg, disconnected_frames="
+              << reg_reject_disconnected_component
+              << ", preserved_independent_components="
+              << reg_preserved_independent_components << std::endl;
+
     // A near-180-degree residual is only a plausible meridian flip when it
     // persists over time.  Treat isolated half-turn solutions as star-match
     // ambiguities; otherwise they contaminate the temporal model and can
@@ -2249,8 +2874,11 @@ bool run_phase_registration_prewarp(
       const auto &w = global_frame_warps[fi];
       const auto shift_diag = registration_shift_diagnostics(w, width, height);
 
-      bool reject = false;
+      bool reject = reg_rejected_mask[fi] != 0;
       std::vector<std::string> reject_reasons;
+      if (reject) {
+        reject_reasons.push_back("disconnected_temporal_component");
+      }
       // Accept both 0° and ~180° rotations (trace can be positive or negative).
       // But reject mirror/reflection solutions (det < 0), which cause
       // characteristic mirrored ghost artifacts in the final stack.
@@ -2279,7 +2907,11 @@ bool run_phase_registration_prewarp(
           reject_reasons.push_back("low_cc");
         } else if (cc < cc_min_keep) {
           const int depth = reg_chain_depth[fi];
-          if (depth > kMaxBlindChainAnchorDepth) {
+          if (cc < kWeakGlobalRegistrationCc) {
+            reject = true;
+            ++reg_reject_cc_outliers;
+            reject_reasons.push_back("weak_global_chain_cc");
+          } else if (depth > kMaxBlindChainAnchorDepth) {
             reject = true;
             ++reg_reject_deep_chain_outliers;
             reject_reasons.push_back("deep_chain_low_cc");
@@ -2304,36 +2936,54 @@ bool run_phase_registration_prewarp(
       // check (which uses half_turn_shift_limit for half-turn-family warps)
       // catch genuinely false matches.
       if (!reject && have_orientation_trend) {
-        const float ang_rad = std::atan2(w(0, 1), w(0, 0));
-        const float predicted_rad = predicted_trend_angle_rad(fi);
-        // Wrap residual into [-pi, pi] so that a false 180° match counts as
-        // ~180° deviation, not ~0°.
-        float diff = ang_rad - predicted_rad;
-        constexpr float kTwoPi = 6.2831853071795864f;
-        while (diff > 3.14159265f) {
-          diff -= kTwoPi;
-        }
-        while (diff < -3.14159265f) {
-          diff += kTwoPi;
-        }
-        const float diff_deg = std::fabs(diff) * 57.29577951f;
-        if (diff_deg > kOrientationTrendDeviationDeg) {
-          // Accept only a temporally coherent ~180° family.  An isolated
-          // solution is the star-pattern half-turn ambiguity, not a physical
-          // flip.
-          constexpr float kMeridianFlipToleranceDeg = 15.0f;
-          const float flip_residual = std::fabs(diff_deg - 180.0f);
-          if (flip_residual < kMeridianFlipToleranceDeg &&
-              supported_half_turns[fi] != 0) {
-            ++reg_meridian_flip_detected;
-          } else if (flip_residual < kMeridianFlipToleranceDeg) {
-            reject = true;
-            ++reg_reject_isolated_half_turn;
-            reject_reasons.push_back("isolated_half_turn");
-          } else {
-            reject = true;
-            ++reg_reject_orientation_outliers;
-            reject_reasons.push_back("orientation_trend");
+        // A temporally validated frame-to-frame chain is already constrained
+        // by a local NCC check against its neighbour.  Do not compare its
+        // absolute angle to a run-global polynomial fitted only from the
+        // high-CC middle of a long Alt/Az sequence: extrapolation at either
+        // end can be physically correct but differ by >15 degrees from that
+        // local fit.  Applying the trend gate here discards good edge frames
+        // and replaces them with less accurate model extrapolations.
+        const bool trusted_temporal_chain =
+            reg_chain_validated[fi] != 0 &&
+            (reg_provenance[fi] == RegistrationProvenance::sequential_refined ||
+             reg_provenance[fi] == RegistrationProvenance::sequential_rescue ||
+             reg_provenance[fi] == RegistrationProvenance::temporal_rescue ||
+             reg_provenance[fi] == RegistrationProvenance::seeded_ecc_rescue ||
+             reg_provenance[fi] == RegistrationProvenance::local_reference_rescue);
+        if (trusted_temporal_chain) {
+          ++reg_orientation_chain_protected;
+        } else {
+          const float ang_rad = std::atan2(w(0, 1), w(0, 0));
+          const float predicted_rad = predicted_trend_angle_rad(fi);
+          // Wrap residual into [-pi, pi] so that a false 180° match counts as
+          // ~180° deviation, not ~0°.
+          float diff = ang_rad - predicted_rad;
+          constexpr float kTwoPi = 6.2831853071795864f;
+          while (diff > 3.14159265f) {
+            diff -= kTwoPi;
+          }
+          while (diff < -3.14159265f) {
+            diff += kTwoPi;
+          }
+          const float diff_deg = std::fabs(diff) * 57.29577951f;
+          if (diff_deg > kOrientationTrendDeviationDeg) {
+            // Accept only a temporally coherent ~180° family.  An isolated
+            // solution is the star-pattern half-turn ambiguity, not a physical
+            // flip.
+            constexpr float kMeridianFlipToleranceDeg = 15.0f;
+            const float flip_residual = std::fabs(diff_deg - 180.0f);
+            if (flip_residual < kMeridianFlipToleranceDeg &&
+                supported_half_turns[fi] != 0) {
+              ++reg_meridian_flip_detected;
+            } else if (flip_residual < kMeridianFlipToleranceDeg) {
+              reject = true;
+              ++reg_reject_isolated_half_turn;
+              reject_reasons.push_back("isolated_half_turn");
+            } else {
+              reject = true;
+              ++reg_reject_orientation_outliers;
+              reject_reasons.push_back("orientation_trend");
+            }
           }
         }
       }
@@ -2894,8 +3544,31 @@ bool run_phase_registration_prewarp(
         return best_slot;
       };
 
-      if (registration::is_astap_available(cfg.astrometry.astap_bin,
-                                            cfg.astrometry.astap_data_dir)) {
+      std::string astap_data = cfg.astrometry.astap_data_dir;
+      if (astap_data.empty()) {
+#ifdef _WIN32
+        if (const char *la = std::getenv("LOCALAPPDATA")) {
+          astap_data = std::string(la) + "\\tile_compile\\astap";
+        }
+#else
+        if (const char *home = std::getenv("HOME")) {
+          astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+        }
+#endif
+      }
+      fs::path astap_bin_path =
+          resolve_astap_binary_path(cfg.astrometry.astap_bin, astap_data);
+      if (!astap_bin_path.empty()) {
+        std::error_code ec;
+        fs::path data_dir_path(astap_data);
+        auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
+        if (ec || relative.empty() || relative.native().rfind("..", 0) == 0) {
+          astap_data = astap_bin_path.parent_path().string();
+        }
+      }
+      const std::string astap_bin = astap_bin_path.string();
+      if (!astap_bin.empty() &&
+          registration::is_astap_available(astap_bin, astap_data)) {
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!should_try_astrometry(fi)) {
             continue;
@@ -2916,8 +3589,8 @@ bool run_phase_registration_prewarp(
               registration::try_astrometric_rescue_from_paths(
                   mov_fits_path, ref_fits_path,
                   mov_proxy_astro, ref_proxy_astro,
-                  cfg.astrometry.astap_bin,
-                  cfg.astrometry.astap_data_dir,
+                  astap_bin,
+                  astap_data,
                   global_reg_scale,
                   static_cast<float>(cfg.astrometry.search_radius),
                   0.20f);
@@ -2958,7 +3631,12 @@ bool run_phase_registration_prewarp(
           std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
         }
       } else {
-        std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
+        std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue"
+                  << " astap_bin="
+                  << (cfg.astrometry.astap_bin.empty()
+                          ? (astap_data + "/astap_cli")
+                          : cfg.astrometry.astap_bin)
+                  << std::endl;
       }
     }
     global_reg_extra["diag"]["reg_astrometric_rescued"] = reg_astrometric_rescued;
@@ -2973,7 +3651,9 @@ bool run_phase_registration_prewarp(
       reg_reject_shift_outliers > 0 ||
       reg_reject_low_cc_protected > 0 ||
       reg_reject_deep_chain_outliers > 0 ||
-      reg_meridian_flip_detected > 0) {
+      reg_meridian_flip_detected > 0 ||
+      reg_orientation_chain_protected > 0 ||
+      reg_reject_disconnected_component > 0) {
     std::cout << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
               << " reflection=" << reg_reject_reflection_outliers
@@ -2983,6 +3663,10 @@ bool run_phase_registration_prewarp(
               << " deep_chain=" << reg_reject_deep_chain_outliers
               << " low_cc_protected=" << reg_reject_low_cc_protected
               << " meridian_flip_detected=" << reg_meridian_flip_detected
+              << " orientation_chain_protected="
+              << reg_orientation_chain_protected
+              << " disconnected_component="
+              << reg_reject_disconnected_component
               << std::endl;
   }
   global_reg_extra["diag"]["reg_reject_orientation_outliers"] =
@@ -2997,8 +3681,388 @@ bool run_phase_registration_prewarp(
   global_reg_extra["diag"]["reg_meridian_flip_detected"] = reg_meridian_flip_detected;
   global_reg_extra["diag"]["reg_reject_isolated_half_turn"] =
       reg_reject_isolated_half_turn;
+  global_reg_extra["diag"]["reg_orientation_chain_protected"] =
+      reg_orientation_chain_protected;
+  global_reg_extra["diag"]["reg_reject_disconnected_component"] =
+      reg_reject_disconnected_component;
+  global_reg_extra["diag"]["reg_reject_disconnected_edges"] =
+      reg_reject_disconnected_edges;
+  global_reg_extra["diag"]["reg_preserved_independent_components"] =
+      reg_preserved_independent_components;
   global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
   global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
+
+  detail::RefinementAggregateState refinement_aggregate;
+  int &reg_residual_applicable = refinement_aggregate.residual_applicable;
+  int &reg_residual_damped = refinement_aggregate.residual_damped;
+  int &reg_affine_correction_attempted = refinement_aggregate.affine_attempted;
+  int &reg_affine_correction_applied = refinement_aggregate.affine_applied;
+  int &reg_affine_correction_rejected = refinement_aggregate.affine_rejected;
+  int &reg_local_correction_attempted = refinement_aggregate.local_attempted;
+  int &reg_local_correction_applied = refinement_aggregate.local_applied;
+  int &reg_local_correction_rejected = refinement_aggregate.local_rejected;
+  auto &reg_residual_medians = refinement_aggregate.residual_medians;
+  auto &reg_residual_p90s = refinement_aggregate.residual_p90s;
+  auto &reg_residual_factors = refinement_aggregate.residual_factors;
+  const BayerPattern local_refinement_bayer =
+      string_to_bayer_pattern(detected_bayer_str);
+  const bool local_refinement_prewarp_supported =
+      detected_mode == ColorMode::MONO ||
+      (detected_mode == ColorMode::OSC && cfg.aqmh.enabled &&
+       cfg.aqmh.reconstruction.debayer_first &&
+       local_refinement_bayer != BayerPattern::UNKNOWN);
+  if (global_reg_status == "ok" && !frames.empty() && global_ref_idx >= 0 &&
+      static_cast<size_t>(global_ref_idx) < frames.size()) {
+    try {
+      const Matrix2Df ref_proxy =
+          load_registration_proxy(static_cast<size_t>(global_ref_idx));
+      const float proxy_scale =
+          (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
+      if (ref_proxy.size() > 0) {
+        const int refinement_topk =
+            std::clamp(registration_cfg.star_topk, 40, 220);
+        const auto ref_stars = registration::detect_stars_simple(
+            ref_proxy, refinement_topk,
+            registration_cfg.enable_local_background_subtraction);
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          const detail::RefinementRollbackSnapshot rollback_snapshot =
+              detail::make_refinement_rollback_snapshot(
+                  global_frame_warps[fi], refinement_aggregate);
+          auto &refinement = affine_refinement_stats[fi];
+          auto &local_refinement = local_refinement_stats[fi];
+          const auto rollback_refinement_frame = [&]() {
+            detail::rollback_refinement_frame(
+                rollback_snapshot, global_frame_warps[fi],
+                registration_residual_weight_factors[fi],
+                reg_residual_stats[fi], refinement, local_refinement,
+                refinement_aggregate);
+          };
+          try {
+            registration_residual_weight_factors[fi] = 1.0f;
+            if (global_frame_cc[fi] <= 0.0f ||
+                reg_provenance[fi] == RegistrationProvenance::unresolved) {
+              continue;
+            }
+            Matrix2Df mov_proxy;
+            detail::RefinementProxyCache proxy_cache;
+            Matrix2Df &warped_proxy = proxy_cache.proxy;
+            auto &warped_stars = proxy_cache.stars;
+            if (static_cast<int>(fi) == global_ref_idx) {
+              warped_proxy = ref_proxy;
+              warped_stars = ref_stars;
+            } else {
+              mov_proxy = load_registration_proxy(fi);
+              if (mov_proxy.size() <= 0 || mov_proxy.rows() != ref_proxy.rows() ||
+                  mov_proxy.cols() != ref_proxy.cols()) {
+                continue;
+              }
+              const WarpMatrix w_proxy = registration::scale_translation_warp(
+                  global_frame_warps[fi], proxy_scale);
+              warped_proxy = registration::apply_warp(mov_proxy, w_proxy);
+              warped_stars = registration::detect_stars_simple(
+                  warped_proxy, refinement_topk,
+                  registration_cfg.enable_local_background_subtraction);
+            }
+
+            const RegistrationResidualStats initial_residual =
+                measure_registration_residuals(ref_stars, warped_stars);
+            if (!registration_cfg.affine_refinement_enabled) {
+              refinement.reason = "disabled";
+            } else if (static_cast<int>(fi) == global_ref_idx) {
+              refinement.reason = "reference_frame";
+            } else if (!initial_residual.applicable) {
+              refinement.reason = "residual_unavailable";
+            } else if (initial_residual.p90_px <= 0.8f) {
+              refinement.reason = "p90_below_trigger";
+            } else {
+              refinement.attempted = true;
+              ++reg_affine_correction_attempted;
+              refinement.fit = registration::estimate_affine_star_refinement(
+                  ref_stars, warped_stars, ref_proxy.rows(), ref_proxy.cols(),
+                  3.0f);
+              refinement.reason = refinement.fit.rejection_reason;
+
+              if (refinement.fit.valid) {
+                const WarpMatrix old_warp_proxy =
+                    registration::scale_translation_warp(global_frame_warps[fi],
+                                                         proxy_scale);
+                // correction_warp maps reference coordinates into the already
+                // warped proxy. WARP_INVERSE_MAP therefore requires
+                // W_new = W_old o correction_warp.
+                const WarpMatrix corrected_warp_proxy =
+                    concatenate_affine_warps(refinement.fit.correction_warp,
+                                             old_warp_proxy);
+                Matrix2Df candidate_proxy =
+                    registration::apply_warp(mov_proxy, corrected_warp_proxy);
+                const cv::Mat old_mask =
+                    registration::warp_valid_mask(mov_proxy, old_warp_proxy);
+                const cv::Mat candidate_mask = registration::warp_valid_mask(
+                    mov_proxy, corrected_warp_proxy);
+                cv::Mat common_mask;
+                cv::bitwise_and(old_mask, candidate_mask, common_mask);
+                const int old_overlap = cv::countNonZero(old_mask);
+                const int candidate_overlap = cv::countNonZero(candidate_mask);
+                const int common_overlap = cv::countNonZero(common_mask);
+                refinement.overlap_ratio =
+                    old_overlap > 0
+                        ? static_cast<float>(candidate_overlap) /
+                              static_cast<float>(old_overlap)
+                        : 0.0f;
+                if (common_overlap > 16) {
+                  refinement.ncc_before = registration::compute_ncc_masked(
+                      warped_proxy, ref_proxy, common_mask);
+                  refinement.ncc_after = registration::compute_ncc_masked(
+                      candidate_proxy, ref_proxy, common_mask);
+                }
+
+                const bool candidate_accepted =
+                    common_overlap > 16 &&
+                    !(refinement.overlap_ratio < 0.995f) &&
+                    !(refinement.ncc_after < refinement.ncc_before - 0.002f);
+                if (common_overlap <= 16) {
+                  refinement.reason = "insufficient_common_overlap";
+                } else if (refinement.overlap_ratio < 0.995f) {
+                  refinement.reason = "overlap_regressed";
+                } else if (refinement.ncc_after <
+                           refinement.ncc_before - 0.002f) {
+                  refinement.reason = "ncc_regressed";
+                }
+                if (proxy_cache.commit_candidate(
+                        candidate_accepted, std::move(candidate_proxy),
+                        [&](const Matrix2Df &candidate) {
+                          return registration::detect_stars_simple(
+                              candidate, refinement_topk,
+                              registration_cfg
+                                  .enable_local_background_subtraction);
+                        })) {
+                  const WarpMatrix correction_full =
+                      registration::scale_translation_warp(
+                          refinement.fit.correction_warp,
+                          1.0f / proxy_scale);
+                  global_frame_warps[fi] = concatenate_affine_warps(
+                      correction_full, global_frame_warps[fi]);
+                  // global_frame_cc deliberately remains the original global
+                  // score; common-mask post-refinement NCC is diagnostic.
+                  refinement.applied = true;
+                  refinement.reason = "applied";
+                  ++reg_affine_correction_applied;
+                }
+              }
+              if (!refinement.applied) {
+                ++reg_affine_correction_rejected;
+              }
+            }
+
+            const RegistrationResidualStats post_affine_residual =
+                measure_registration_residuals(ref_stars, warped_stars);
+            if (!registration_cfg.smooth_local_refinement_enabled) {
+              local_refinement.reason = "disabled";
+            } else if (!local_refinement_prewarp_supported) {
+              local_refinement.reason = "unsupported_color_path";
+            } else if (static_cast<int>(fi) == global_ref_idx) {
+              local_refinement.reason = "reference_frame";
+            } else if (!post_affine_residual.applicable) {
+              local_refinement.reason = "residual_unavailable";
+            } else if (post_affine_residual.p90_px <= 0.55f) {
+              local_refinement.reason = "p90_below_trigger";
+            } else {
+              local_refinement.attempted = true;
+              ++reg_local_correction_attempted;
+              local_refinement.fit =
+                  registration::estimate_smooth_local_star_refinement(
+                      ref_stars, warped_stars, ref_proxy.rows(),
+                      ref_proxy.cols(), 3.0f);
+              local_refinement.reason =
+                  local_refinement.fit.rejection_reason;
+
+              if (local_refinement.fit.valid) {
+                const WarpMatrix current_warp_proxy =
+                    registration::scale_translation_warp(global_frame_warps[fi],
+                                                         proxy_scale);
+                Matrix2Df candidate_proxy;
+                std::vector<uint8_t> candidate_valid;
+                bool candidate_has_data = false;
+                registration::warp_frame_with_smooth_local_model(
+                    mov_proxy, current_warp_proxy,
+                    local_refinement.fit.model, ref_proxy.rows(),
+                    ref_proxy.cols(), 1.0f, 0.0f, 0.0f, "linear",
+                    candidate_proxy, &candidate_valid, &candidate_has_data);
+                // Registration proxy analysis historically uses a zero border
+                // (apply_warp), while full-resolution prewarp uses NaN plus an
+                // explicit support mask. Preserve that analysis contract so
+                // star detection and residual weighting remain applicable.
+                for (int y = 0; y < candidate_proxy.rows(); ++y) {
+                  for (int x = 0; x < candidate_proxy.cols(); ++x) {
+                    if (!std::isfinite(candidate_proxy(y, x))) {
+                      candidate_proxy(y, x) = 0.0f;
+                    }
+                  }
+                }
+                const cv::Mat old_mask = registration::warp_valid_mask(
+                    mov_proxy, current_warp_proxy);
+                cv::Mat candidate_mask_u8(
+                    ref_proxy.rows(), ref_proxy.cols(), CV_8U,
+                    candidate_valid.empty() ? nullptr : candidate_valid.data());
+                cv::Mat candidate_mask;
+                if (!candidate_valid.empty()) {
+                  candidate_mask_u8.convertTo(candidate_mask, CV_32F);
+                }
+                cv::Mat common_mask;
+                if (!candidate_mask.empty()) {
+                  cv::bitwise_and(old_mask, candidate_mask, common_mask);
+                }
+                const int old_overlap = cv::countNonZero(old_mask);
+                const int candidate_overlap = candidate_mask.empty()
+                                                  ? 0
+                                                  : cv::countNonZero(
+                                                        candidate_mask);
+                const int common_overlap = common_mask.empty()
+                                               ? 0
+                                               : cv::countNonZero(common_mask);
+                local_refinement.overlap_ratio =
+                    old_overlap > 0
+                        ? static_cast<float>(candidate_overlap) /
+                              static_cast<float>(old_overlap)
+                        : 0.0f;
+                if (candidate_has_data && common_overlap > 16) {
+                  local_refinement.ncc_before =
+                      registration::compute_ncc_masked(
+                          warped_proxy, ref_proxy, common_mask);
+                  local_refinement.ncc_after =
+                      registration::compute_ncc_masked(
+                          candidate_proxy, ref_proxy, common_mask);
+                }
+
+                const bool candidate_accepted =
+                    candidate_has_data && common_overlap > 16 &&
+                    !(local_refinement.overlap_ratio < 0.995f) &&
+                    !(local_refinement.ncc_after <
+                      local_refinement.ncc_before - 0.001f);
+                if (!candidate_has_data || common_overlap <= 16) {
+                  local_refinement.reason = "insufficient_common_overlap";
+                } else if (local_refinement.overlap_ratio < 0.995f) {
+                  local_refinement.reason = "overlap_regressed";
+                } else if (local_refinement.ncc_after <
+                           local_refinement.ncc_before - 0.001f) {
+                  local_refinement.reason = "ncc_regressed";
+                }
+                if (proxy_cache.commit_candidate(
+                        candidate_accepted, std::move(candidate_proxy),
+                        [&](const Matrix2Df &candidate) {
+                          return registration::detect_stars_simple(
+                              candidate, refinement_topk,
+                              registration_cfg
+                                  .enable_local_background_subtraction);
+                        })) {
+                  local_refinement.applied = true;
+                  local_refinement.reason = "applied";
+                  ++reg_local_correction_applied;
+                }
+              }
+              if (!local_refinement.applied) {
+                local_refinement.fit.model.valid = false;
+                ++reg_local_correction_rejected;
+              }
+            }
+
+            reg_residual_stats[fi] =
+                measure_registration_residuals(ref_stars, warped_stars);
+            if (!reg_residual_stats[fi].applicable) {
+              continue;
+            }
+            registration_residual_weight_factors[fi] =
+                reg_residual_stats[fi].weight_factor;
+            ++reg_residual_applicable;
+            reg_residual_medians.push_back(reg_residual_stats[fi].median_px);
+            reg_residual_p90s.push_back(reg_residual_stats[fi].p90_px);
+            reg_residual_factors.push_back(reg_residual_stats[fi].weight_factor);
+            if (reg_residual_stats[fi].weight_factor < 0.999f) {
+              ++reg_residual_damped;
+            }
+          } catch (const std::exception &e) {
+            rollback_refinement_frame();
+            emitter.warning(
+                run_id,
+                "REGISTRATION residual analysis frame " +
+                    std::to_string(fi) + " failed; original warp preserved: " +
+                    e.what(),
+                log_file);
+          } catch (...) {
+            rollback_refinement_frame();
+            emitter.warning(run_id,
+                            "REGISTRATION residual analysis frame " +
+                                std::to_string(fi) +
+                                " failed; original warp preserved",
+                            log_file);
+          }
+        }
+      }
+    } catch (const std::exception &e) {
+      emitter.warning(
+          run_id,
+          std::string("REGISTRATION residual analysis failed: ") + e.what(),
+          log_file);
+    } catch (...) {
+      emitter.warning(run_id, "REGISTRATION residual analysis failed",
+                      log_file);
+    }
+  }
+  auto residual_percentile = [](std::vector<float> vals, float q) -> float {
+    if (vals.empty()) {
+      return 0.0f;
+    }
+    std::sort(vals.begin(), vals.end());
+    return core::percentile_from_sorted(vals, q * 100.0f);
+  };
+  global_reg_extra["diag"]["reg_residual_applicable"] =
+      reg_residual_applicable;
+  global_reg_extra["diag"]["reg_residual_damped"] = reg_residual_damped;
+  global_reg_extra["diag"]["reg_affine_refinement_enabled"] =
+      registration_cfg.affine_refinement_enabled;
+  global_reg_extra["diag"]["reg_affine_correction_attempted"] =
+      reg_affine_correction_attempted;
+  global_reg_extra["diag"]["reg_affine_correction_applied"] =
+      reg_affine_correction_applied;
+  global_reg_extra["diag"]["reg_affine_correction_rejected"] =
+      reg_affine_correction_rejected;
+  global_reg_extra["diag"]["reg_smooth_local_refinement_enabled"] =
+      registration_cfg.smooth_local_refinement_enabled;
+  global_reg_extra["diag"]["reg_smooth_local_prewarp_supported"] =
+      local_refinement_prewarp_supported;
+  global_reg_extra["diag"]["reg_smooth_local_correction_attempted"] =
+      reg_local_correction_attempted;
+  global_reg_extra["diag"]["reg_smooth_local_correction_applied"] =
+      reg_local_correction_applied;
+  global_reg_extra["diag"]["reg_smooth_local_correction_rejected"] =
+      reg_local_correction_rejected;
+  global_reg_extra["diag"]["reg_residual_median_px_median"] =
+      residual_percentile(reg_residual_medians, 0.5f);
+  global_reg_extra["diag"]["reg_residual_median_px_p90"] =
+      residual_percentile(reg_residual_medians, 0.9f);
+  global_reg_extra["diag"]["reg_residual_p90_px_median"] =
+      residual_percentile(reg_residual_p90s, 0.5f);
+  global_reg_extra["diag"]["reg_residual_weight_factor_median"] =
+      residual_percentile(reg_residual_factors, 0.5f);
+  global_reg_extra["diag"]["reg_residual_weight_factor_min"] =
+      residual_percentile(reg_residual_factors, 0.0f);
+  if (reg_residual_applicable > 0) {
+    std::cout << "[REG-RESIDUAL] matched-star residuals: applicable="
+              << reg_residual_applicable << "/" << frames.size()
+              << " damped=" << reg_residual_damped
+              << " affine_attempted=" << reg_affine_correction_attempted
+              << " affine_corr=" << reg_affine_correction_applied
+              << " affine_rejected=" << reg_affine_correction_rejected
+              << " local_attempted=" << reg_local_correction_attempted
+              << " local_corr=" << reg_local_correction_applied
+              << " local_rejected=" << reg_local_correction_rejected
+              << " median_px_med="
+              << global_reg_extra["diag"]["reg_residual_median_px_median"]
+              << " median_px_p90="
+              << global_reg_extra["diag"]["reg_residual_median_px_p90"]
+              << " factor_min="
+              << global_reg_extra["diag"]["reg_residual_weight_factor_min"]
+              << std::endl;
+  }
 
   // All frames now have warps (valid registration or polynomial prediction).
   // Tile-level quality metrics handle downstream weighting (v3.2.2 §1.2).
@@ -3047,6 +4111,8 @@ bool run_phase_registration_prewarp(
 
   // Export model-predicted mask so the pipeline can apply a weight penalty.
   out.model_predicted_mask.assign(frames.size(), 0);
+  out.registration_residual_weight_factors =
+      registration_residual_weight_factors;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
     const auto p = reg_provenance[fi];
     if (p == RegistrationProvenance::model_interpolated ||
@@ -3108,7 +4174,8 @@ bool run_phase_registration_prewarp(
   const auto prewarp_acceleration =
       acceleration.selection_for(core::AccelerationPhase::prewarp);
   const core::AccelerationOps prewarp_ops(
-      acceleration, core::AccelerationPhase::prewarp);
+      acceleration, core::AccelerationPhase::prewarp,
+      cfg.aqmh.reconstruction.prewarp_interpolation);
   const auto prewarp_input_batch =
       core::make_device_frame_batch(frames.size(), height, width, 1);
   const auto prewarp_output_batch =
@@ -3117,7 +4184,9 @@ bool run_phase_registration_prewarp(
   {
     std::ostringstream msg;
     msg << "PREWARP acceleration "
-        << core::acceleration_selection_summary(prewarp_acceleration);
+        << core::acceleration_selection_summary(prewarp_acceleration)
+        << " interpolation="
+        << cfg.aqmh.reconstruction.prewarp_interpolation;
     if (!prewarp_acceleration.request_honored &&
         !prewarp_acceleration.fallback_reason.empty()) {
       emitter.warning(run_id, msg.str(), log_file);
@@ -3158,6 +4227,35 @@ bool run_phase_registration_prewarp(
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
       run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
+  const BayerPattern pre_debayer_pattern =
+      string_to_bayer_pattern(detected_bayer_str);
+  const bool debayer_first_rgb =
+      cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
+      cfg.aqmh.reconstruction.debayer_first &&
+      pre_debayer_pattern != BayerPattern::UNKNOWN;
+  if (cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
+      cfg.aqmh.reconstruction.debayer_first &&
+      pre_debayer_pattern == BayerPattern::UNKNOWN) {
+    emitter.warning(
+        run_id,
+        "AQMH debayer_first requested but Bayer pattern is unknown; "
+        "falling back to CFA prewarp and post-stack debayer",
+        log_file);
+  }
+  DiskCacheFrameStore prewarped_frames_r;
+  DiskCacheFrameStore prewarped_frames_g;
+  DiskCacheFrameStore prewarped_frames_b;
+  if (debayer_first_rgb) {
+    prewarped_frames_r = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "R", frames.size(),
+        canvas_height, canvas_width);
+    prewarped_frames_g = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "G", frames.size(),
+        canvas_height, canvas_width);
+    prewarped_frames_b = DiskCacheFrameStore(
+        run_dir / "cache" / "prewarped_rgb" / "B", frames.size(),
+        canvas_height, canvas_width);
+  }
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -3172,7 +4270,25 @@ bool run_phase_registration_prewarp(
             << " gpu=" << (prewarp_acceleration.using_gpu ? "yes" : "no")
             << " backend="
             << core::acceleration_backend_name(prewarp_acceleration.selected)
+            << " interpolation="
+            << cfg.aqmh.reconstruction.prewarp_interpolation
+            << " debayer_first="
+            << (debayer_first_rgb ? "yes" : "no")
+            << (debayer_first_rgb ? " pre_debayer_method=" : "")
+            << (debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method : "")
             << std::endl;
+  const float local_model_coordinate_scale =
+      (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
+  if (reg_local_correction_applied > 0 && prewarp_acceleration.using_gpu) {
+    std::ostringstream msg;
+    msg << "PREWARP smooth-local refinement uses the guarded CPU remap for "
+        << reg_local_correction_applied
+        << " accepted frames; remaining frames keep the selected "
+        << core::acceleration_backend_name(prewarp_acceleration.selected)
+        << " affine path";
+    emitter.warning(run_id, msg.str(), log_file);
+    std::cout << "[PREWARP] " << msg.str() << std::endl;
+  }
   std::mutex prewarp_log_mutex;
   std::mutex prewarp_progress_mutex;
   std::atomic<size_t> prewarp_next{0};
@@ -3219,12 +4335,115 @@ bool run_phase_registration_prewarp(
         Matrix2Df warped;
         std::vector<uint8_t> warped_valid_mask;
         bool warped_has_data = false;
-        prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
-                                      canvas_height, canvas_width, offset_x,
-                                      offset_y, warped, &warped_valid_mask,
-                                      &warped_has_data,
-                                      prewarp_streams.get(
-                                          static_cast<size_t>(worker_index)));
+        if (debayer_first_rgb) {
+          auto debayer = debayer_for_prewarp(
+              img, pre_debayer_pattern,
+              cfg.aqmh.reconstruction.pre_debayer_method);
+          Matrix2Df warped_r;
+          Matrix2Df warped_g;
+          Matrix2Df warped_b;
+          std::vector<uint8_t> mask_r;
+          std::vector<uint8_t> mask_g;
+          std::vector<uint8_t> mask_b;
+          bool has_r = false;
+          bool has_g = false;
+          bool has_b = false;
+          const bool use_local_refinement =
+              local_refinement_stats[fi].applied &&
+              local_refinement_stats[fi].fit.model.valid;
+          auto *stream = prewarp_streams.get(static_cast<size_t>(worker_index));
+          bool local_remap_applied = false;
+          if (use_local_refinement) {
+            const auto &model = local_refinement_stats[fi].fit.model;
+            registration::SmoothLocalRemapPlan local_plan;
+            if (registration::prepare_smooth_local_remap(
+                    debayer.R.rows(), debayer.R.cols(), w, model,
+                    canvas_height, canvas_width, local_model_coordinate_scale,
+                    static_cast<float>(offset_x), static_cast<float>(offset_y),
+                    local_plan)) {
+              const bool remapped_r =
+                  registration::remap_frame_with_smooth_local_plan(
+                      debayer.R, local_plan,
+                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_r,
+                      &has_r);
+              const bool remapped_g =
+                  registration::remap_frame_with_smooth_local_plan(
+                      debayer.G, local_plan,
+                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_g,
+                      &has_g);
+              const bool remapped_b =
+                  registration::remap_frame_with_smooth_local_plan(
+                      debayer.B, local_plan,
+                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_b,
+                      &has_b);
+              local_remap_applied = remapped_r && remapped_g && remapped_b;
+              if (local_remap_applied) {
+                mask_r = std::move(local_plan.valid_mask);
+              }
+            }
+          }
+          if (!local_remap_applied) {
+            prewarp_ops.warp_affine_frame(
+                std::move(debayer.R), w, ColorMode::MONO, canvas_height,
+                canvas_width, offset_x, offset_y, warped_r, &mask_r, &has_r,
+                stream);
+            prewarp_ops.warp_affine_frame(
+                std::move(debayer.G), w, ColorMode::MONO, canvas_height,
+                canvas_width, offset_x, offset_y, warped_g, &mask_g, &has_g,
+                stream);
+            prewarp_ops.warp_affine_frame(
+                std::move(debayer.B), w, ColorMode::MONO, canvas_height,
+                canvas_width, offset_x, offset_y, warped_b, &mask_b, &has_b,
+                stream);
+          }
+          if (warped_r.rows() == canvas_height &&
+              warped_r.cols() == canvas_width &&
+              warped_g.rows() == canvas_height &&
+              warped_g.cols() == canvas_width &&
+              warped_b.rows() == canvas_height &&
+              warped_b.cols() == canvas_width) {
+            warped = (warped_r * 0.25f) + (warped_g * 0.50f) +
+                     (warped_b * 0.25f);
+            warped_valid_mask = std::move(mask_r);
+            if (!local_remap_applied &&
+                warped_valid_mask.size() == canvas_px &&
+                mask_g.size() == canvas_px && mask_b.size() == canvas_px) {
+              for (size_t pi = 0; pi < canvas_px; ++pi) {
+                warped_valid_mask[pi] = static_cast<uint8_t>(
+                    warped_valid_mask[pi] != 0 && mask_g[pi] != 0 &&
+                    mask_b[pi] != 0);
+              }
+            }
+            warped_has_data = has_r && has_g && has_b;
+            if (warped_has_data) {
+              prewarped_frames_r.store(fi, warped_r);
+              prewarped_frames_g.store(fi, warped_g);
+              prewarped_frames_b.store(fi, warped_b);
+            }
+          }
+        } else {
+          const bool use_local_refinement =
+              detected_mode == ColorMode::MONO &&
+              local_refinement_stats[fi].applied &&
+              local_refinement_stats[fi].fit.model.valid;
+          bool local_remap_applied = false;
+          if (use_local_refinement) {
+            local_remap_applied =
+                registration::warp_frame_with_smooth_local_model(
+                    img, w, local_refinement_stats[fi].fit.model,
+                    canvas_height, canvas_width, local_model_coordinate_scale,
+                    static_cast<float>(offset_x), static_cast<float>(offset_y),
+                    cfg.aqmh.reconstruction.prewarp_interpolation, warped,
+                    &warped_valid_mask, &warped_has_data);
+          }
+          if (!local_remap_applied) {
+            prewarp_ops.warp_affine_frame(
+                std::move(img), w, detected_mode, canvas_height, canvas_width,
+                offset_x, offset_y, warped, &warped_valid_mask,
+                &warped_has_data,
+                prewarp_streams.get(static_cast<size_t>(worker_index)));
+          }
+        }
         if (warped.size() > 0) {
           prewarped_frames.store(fi, warped);
           const bool stored = prewarped_frames.has_data(fi);
@@ -3356,6 +4575,10 @@ bool run_phase_registration_prewarp(
       {"tile_offset_x", offset_x},
       {"tile_offset_y", offset_y},
       {"workers", prewarp_workers},
+      {"debayer_first_rgb", debayer_first_rgb},
+      {"pre_debayer_method",
+       debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method
+                         : std::string("not_applicable")},
       {"common_overlap_mode", "inline_prewarp_coverage"},
       {"required_common_frames", required_common_frames},
       {"acceleration",
@@ -3369,6 +4592,10 @@ bool run_phase_registration_prewarp(
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);
+  out.debayer_first_rgb = debayer_first_rgb;
+  out.prewarped_frames_r = std::move(prewarped_frames_r);
+  out.prewarped_frames_g = std::move(prewarped_frames_g);
+  out.prewarped_frames_b = std::move(prewarped_frames_b);
   out.min_valid_frames = required_common_frames;
   return true;
 }

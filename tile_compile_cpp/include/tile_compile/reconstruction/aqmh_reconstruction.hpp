@@ -21,9 +21,12 @@ struct AqmhReconstructionConfig {
   bool cherry_pick = false;
   bool uniform_weights = false;
   bool compute_uniform_control = false;
+  std::string cherry_pick_mode = "auto_reject";
   float cherry_pick_k_frac = 0.30f;
   int cherry_pick_k_min_required = 20;
   float cherry_pick_margin_min = 0.02f;
+  float cherry_pick_reject_below_best_fraction = 0.25f;
+  float cherry_pick_min_keep_fraction = 0.90f;
   std::vector<config::AqmhCherryPickConfig::Tier> tiered_k_frac;
   int parallel_workers = 1;
   size_t memory_budget_mb = 2048;

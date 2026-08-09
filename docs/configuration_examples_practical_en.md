@@ -46,6 +46,9 @@ stacking:
 **Standard configuration (recommended):**
 
 ```yaml
+registration:
+  affine_refinement_enabled: true       # apply only after all residual/NCC/overlap gates pass
+  smooth_local_refinement_enabled: true # adds held-out/Jacobian guards; otherwise preserves the prior warp
 aqmh:
   enabled: true
   pyramid:
@@ -53,6 +56,7 @@ aqmh:
     base_window_px: 4
     w_sharp: 0.6        # sharpness weight in quality index
     w_snr: 0.4          # SNR weight in quality index
+    score_scale: 1.8    # local AQMH quality-map selectivity
     k_artifact: 3.0     # MAD multiplier for artifact detection
     frac_artifact_max: 0.25  # max artifact fraction per window
   storage:
@@ -67,6 +71,11 @@ aqmh:
     g_k_scale: 1.5         # bounded sigmoid temperature
   reconstruction:
     delete_prewarped_cache_after_run: true  # false to retain cache/prewarped_frames for resume
+    prewarp_interpolation: cubic             # evidence-based sharpness default; linear is the low-noise fallback
+    debayer_first: true                      # OSC: demosaic before PREWARP/AQMH and reconstruct RGB directly
+    pre_debayer_method: edge_aware           # try bilinear for very low-SNR data if chroma artifacts appear
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
     clip_sigma: 2.0
     clip_sigma_low: 2.0
     clip_sigma_high: 2.0
@@ -106,7 +115,7 @@ aqmh:
     frac_artifact_max: 0.35
 ```
 
-**Cherry-pick mode (stack only best 30% of frames):**
+**Cherry-pick auto-reject (keep most frames, reject only extreme cases):**
 
 ```yaml
 aqmh:
@@ -116,8 +125,10 @@ aqmh:
     dtype: float32
   cherry_pick:
     enabled: true
+    mode: auto_reject
     k_min_required: 20  # run-level gate and per-pixel sample floor
-    k_frac: 0.30  # best 30%
+    reject_below_best_fraction: 0.25
+    min_keep_fraction: 0.90
 ```
 
 **Memory-efficient (large sessions, limited RAM):**
@@ -475,6 +486,8 @@ registration:
   use_astrometry: true            # Astrometric rescue when needed
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, equatorial: 60
+  affine_refinement_enabled: true  # gated; rejection preserves the global warp
+  smooth_local_refinement_enabled: true # held-out/Jacobian/NCC-gated; MONO or debayer-first
 ```
 
 **Star-poor / nebula-heavy / cloudy data:**

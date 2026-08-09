@@ -190,15 +190,58 @@ __device__ int cherry_pick_top_k(
 
   adaptive_sort<MaxFrames>(sort_buf, n, ScoreDesc{scores});
 
-  for (int i = 0; i < k; ++i) {
-    const int src = sort_buf[i];
-    if (src != i) {
-      values[i] = values[src];
-      weights[i] = weights[src];
-      scores[i] = scores[src];
+  const float cutoff = scores[sort_buf[k - 1]];
+  int m = 0;
+  for (int i = 0; i < n; ++i) {
+    if (scores[i] >= cutoff) {
+      values[m] = values[i];
+      weights[m] = weights[i];
+      scores[m] = scores[i];
+      ++m;
     }
   }
-  return k;
+  return m;
+}
+
+// Conservative cherry-pick mode: keep all locally usable samples except clear
+// low-score outliers, while enforcing a minimum retained fraction.
+template <int MaxFrames>
+__device__ int cherry_pick_auto_reject(
+    float* values, float* weights, float* scores, int n,
+    int k_min_required, float reject_below_best_fraction,
+    float min_keep_fraction, float margin_min, int* sort_buf) {
+  if (n < k_min_required) return n;
+
+  adaptive_sort<MaxFrames>(sort_buf, n, ScoreDesc{scores});
+  const float best = scores[sort_buf[0]];
+  if (!(best > 0.0f) || !isfinite_f(best)) return n;
+
+  const float threshold = best * fminf(1.0f, fmaxf(0.0f, reject_below_best_fraction));
+  int keep = 0;
+  while (keep < n && scores[sort_buf[keep]] >= threshold) {
+    ++keep;
+  }
+
+  const int min_keep = min(n, max(k_min_required,
+      static_cast<int>(ceilf(fminf(1.0f, fmaxf(0.0f, min_keep_fraction)) *
+                             static_cast<float>(n)))));
+  keep = max(keep, min_keep);
+  if (keep >= n) return n;
+
+  const float margin = (scores[sort_buf[keep - 1]] - scores[sort_buf[keep]]) / best;
+  if (margin < margin_min) return n;
+
+  const float cutoff = scores[sort_buf[keep - 1]];
+  int m = 0;
+  for (int i = 0; i < n; ++i) {
+    if (scores[i] >= cutoff) {
+      values[m] = values[i];
+      weights[m] = weights[i];
+      scores[m] = scores[i];
+      ++m;
+    }
+  }
+  return m;
 }
 
 // Device sigma-clip matching the CPU aqmh_sigma_clip logic.
@@ -401,7 +444,11 @@ __global__ void aqmh_reconstruction_kernel(
     float clip_sigma_low, float clip_sigma_high, int clip_iterations,
     float min_fraction, float min_n_eff,
     float cherry_pick_k_frac,
-    int cherry_pick_k_min_required) {
+    int cherry_pick_k_min_required,
+    int cherry_pick_mode,
+    float cherry_pick_reject_below_best_fraction,
+    float cherry_pick_min_keep_fraction,
+    float cherry_pick_margin_min) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int yy = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || yy >= chunk_rows) return;
@@ -489,9 +536,18 @@ __global__ void aqmh_reconstruction_kernel(
 
   int k_effective = n_samples;
   if constexpr (CherryPickEnabled) {
-    k_effective = cherry_pick_top_k<MaxFrames>(
-        values, weights, scores, n_samples,
-        cherry_pick_k_min_required, cherry_pick_k_frac, scratch_buf);
+    if (cherry_pick_mode == 1) {
+      k_effective = cherry_pick_auto_reject<MaxFrames>(
+          values, weights, scores, n_samples,
+          cherry_pick_k_min_required,
+          cherry_pick_reject_below_best_fraction,
+          cherry_pick_min_keep_fraction,
+          cherry_pick_margin_min, scratch_buf);
+    } else {
+      k_effective = cherry_pick_top_k<MaxFrames>(
+          values, weights, scores, n_samples,
+          cherry_pick_k_min_required, cherry_pick_k_frac, scratch_buf);
+    }
     d_cherry_k_map[canvas_idx] = static_cast<float>(k_effective);
   }
 
@@ -587,6 +643,7 @@ void launch_reconstruction_kernel(
     unsigned long long* d_numerical_guard_pixels,
     int width, int chunk_rows, int y0, int height, int frame_count,
     const AqmhReconstructionConfig& cfg) {
+  const int cherry_pick_mode = cfg.cherry_pick_mode == "auto_reject" ? 1 : 0;
   if (cherry_enabled) {
     aqmh_reconstruction_kernel<true, MaxFrames><<<grid, block, 0, stream>>>(
         bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
@@ -598,7 +655,11 @@ void launch_reconstruction_kernel(
         cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
         cfg.min_fraction, cfg.min_n_eff,
         cfg.cherry_pick_k_frac,
-        cfg.cherry_pick_k_min_required);
+        cfg.cherry_pick_k_min_required,
+        cherry_pick_mode,
+        cfg.cherry_pick_reject_below_best_fraction,
+        cfg.cherry_pick_min_keep_fraction,
+        cfg.cherry_pick_margin_min);
   } else {
     aqmh_reconstruction_kernel<false, MaxFrames><<<grid, block, 0, stream>>>(
         bufs.frames, bufs.q_maps, bufs.canvas_mask, bufs.frame_masks,
@@ -610,7 +671,11 @@ void launch_reconstruction_kernel(
         cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
         cfg.min_fraction, cfg.min_n_eff,
         cfg.cherry_pick_k_frac,
-        cfg.cherry_pick_k_min_required);
+        cfg.cherry_pick_k_min_required,
+        cherry_pick_mode,
+        cfg.cherry_pick_reject_below_best_fraction,
+        cfg.cherry_pick_min_keep_fraction,
+        cfg.cherry_pick_margin_min);
   }
 }
 
@@ -699,7 +764,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     result.cherry_pick_per_pixel_mode = true;
   }
   result.k_nominal_median = static_cast<float>(
-      cherry_enabled ? cfg.cherry_pick_k_min_required : 0);
+      cherry_enabled
+          ? (cfg.cherry_pick_mode == "auto_reject"
+                 ? static_cast<int>(frame_count)
+                 : cfg.cherry_pick_k_min_required)
+          : 0);
 
   // Determine GPU chunk size from available memory.
   size_t free_bytes = 0, total_bytes = 0;

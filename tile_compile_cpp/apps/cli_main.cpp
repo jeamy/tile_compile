@@ -1,5 +1,6 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/build_info.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -1758,6 +1759,7 @@ void print_usage() {
               << "  list-artifacts <run_dir>        List artifacts in run directory\n"
               << "  fits-stats <path>               Print basic statistics for a FITS image\n"
               << "  pcc-run <in> <out> --wcs <wcs> [--source S]  Run full PCC and write corrected RGB FITS\n"
+              << "  --version [--json]               Print build/version information\n"
               << "  pcc-apply <in> <out> [--r X] [--g Y] [--b Z]  Apply diagonal PCC matrix to RGB FITS cube\n";
 }
 
@@ -1766,6 +1768,21 @@ void print_usage() {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 int main(int argc, char* argv[]) {
+    bool version_requested = false;
+    bool version_json = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        version_requested = version_requested || arg == "--version";
+        version_json = version_json || arg == "--json";
+    }
+    if (version_requested) {
+        if (version_json) {
+            std::cout << tile_compile::core::build_info_json(true).dump(2) << '\n';
+        } else {
+            std::cout << tile_compile::core::build_info_text() << '\n';
+        }
+        return 0;
+    }
     if (argc < 2) {
         print_usage();
         return 1;

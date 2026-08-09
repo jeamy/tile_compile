@@ -47,8 +47,9 @@ The method models two orthogonal quality axes:
 1. **Photometric signal mapping** remains linear (no global nonlinear tone curves such as stretch, asinh, log).
 | `aqmh.storage.dtype` | `float32` | Cache-Datentyp (`float32`, `uint16` oder `uint8`) |
 | `aqmh.storage.max_resident_maps` | `2` | Max. gleichzeitig im RAM gehaltene Qualitätskarten |
-| `aqmh.cherry_pick.enabled` | `false` | Nur beste Frames stacken |
-| `aqmh.cherry_pick.k_frac` | `0.30` | Anteil bester Frames (0.30 = beste 30%) |
+| `aqmh.cherry_pick.enabled` | `false` | Konservative AQMH-Frame-Selektion aktivieren |
+| `aqmh.cherry_pick.mode` | `auto_reject` | Meiste Frames behalten; nur klare Low-Score-Ausreißer verwerfen |
+| `aqmh.cherry_pick.k_frac` | `0.30` | Nur Legacy-Anteil fuer `top_k` |
 | `aqmh.cherry_pick.k_min_required` | `20` | Lauf-Gate und Untergrenze Samples pro Pixel |
 | `aqmh.diagnostics.enabled` | `true` | AQMH-Diagnosephase aktivieren |
 | `aqmh.diagnostics.level` | `full` | Detaillierungsgrad: `none`, `summary` oder `full` |

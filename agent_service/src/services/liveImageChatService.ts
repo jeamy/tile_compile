@@ -175,6 +175,16 @@ export class LiveImageChatService {
         assistantError = String(event.message?.errorMessage || "");
         appendTrafficLog(`live_image_chat assistant_error ${assistantError}`);
       }
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        const delta = extractAssistantTextFromEvent(event);
+        if (delta) responseText += delta;
+        return;
+      }
+      if (event.type === "message_end" && event.message?.role === "assistant") {
+        const fullText = extractAssistantTextFromEvent(event);
+        if (fullText) responseText = fullText;
+        return;
+      }
       const text = extractAssistantTextFromEvent(event);
       if (text && text.length >= responseText.length) responseText = text;
     });
@@ -201,6 +211,10 @@ export class LiveImageChatService {
         this.config.timeoutMs,
         `PI live-image-chat request (model=${model.id}, provider=${model.provider || "unknown"})`,
         images ? { images } : undefined,
+        {
+          maxDurationMs: this.config.maxDurationMs,
+          onDiagnostic: (message) => appendTrafficLog(`live_image_chat ${message}`),
+        },
       );
     } finally {
       unsubscribe();

@@ -1,6 +1,7 @@
 #include "runner_pipeline.hpp"
 
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/build_info.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/mode_gating.hpp"
@@ -56,6 +57,7 @@
 
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -85,6 +87,86 @@ using tile_compile::runner::shell_quote;
 using tile_compile::runner::system_cmd;
 
 using NormalizationScales = image::NormalizationScales;
+
+core::json provenance_file_json(const fs::path &path,
+                                const fs::path &source_path = {}) {
+  std::error_code ec;
+  fs::path normalized = fs::absolute(path, ec);
+  if (ec) normalized = path.lexically_normal();
+  if (!fs::is_regular_file(normalized, ec) || ec) {
+    throw std::runtime_error("Provenance input is not a readable file: " +
+                             normalized.string());
+  }
+  const auto size_bytes = fs::file_size(normalized, ec);
+  if (ec) {
+    throw std::runtime_error("Cannot determine provenance file size: " +
+                             normalized.string() + ": " + ec.message());
+  }
+  fs::path recorded_path = source_path;
+  if (recorded_path.empty()) {
+    recorded_path = fs::weakly_canonical(normalized, ec);
+    if (ec) recorded_path = normalized;
+  }
+  core::json result = {{"path", recorded_path.string()},
+                       {"size_bytes", size_bytes},
+                       {"sha256", core::sha256_file(normalized)}};
+  if (recorded_path != normalized) result["materialized_input"] = true;
+  return result;
+}
+
+core::json make_run_provenance(
+    const fs::path &config_snapshot,
+    const std::vector<fs::path> &ordered_frames) {
+  core::json entries = core::json::array();
+  std::unordered_map<std::string, core::json> origin_manifests;
+  for (size_t index = 0; index < ordered_frames.size(); ++index) {
+    const fs::path &frame = ordered_frames[index];
+    const fs::path origin_manifest_path =
+        frame.parent_path() / ".tile_compile_input_origins.json";
+    const std::string manifest_key = origin_manifest_path.string();
+    auto manifest_it = origin_manifests.find(manifest_key);
+    if (manifest_it == origin_manifests.end()) {
+      core::json origin_manifest = core::json::object();
+      if (fs::is_regular_file(origin_manifest_path)) {
+        try {
+          origin_manifest = core::json::parse(
+              core::read_text(origin_manifest_path));
+          if (!origin_manifest.is_object()) {
+            origin_manifest = core::json::object();
+          }
+        } catch (...) {
+          origin_manifest = core::json::object();
+        }
+      }
+      manifest_it = origin_manifests.emplace(
+          manifest_key, std::move(origin_manifest)).first;
+    }
+
+    fs::path source_path;
+    const std::string filename = frame.filename().string();
+    if (manifest_it->second.contains(filename) &&
+        manifest_it->second[filename].is_string()) {
+      source_path = manifest_it->second[filename].get<std::string>();
+    }
+    core::json entry = provenance_file_json(frame, source_path);
+    entry["index"] = index;
+    entries.push_back(std::move(entry));
+  }
+  const std::string canonical_manifest = entries.dump();
+  const std::vector<uint8_t> manifest_bytes(canonical_manifest.begin(),
+                                             canonical_manifest.end());
+  const core::json config_file = provenance_file_json(config_snapshot);
+  return {
+      {"schema_version", 1},
+      {"created_at", core::get_iso_timestamp()},
+      {"build", core::build_info_json(true)},
+      {"config", config_file},
+      {"input_manifest",
+       {{"ordering", "lexicographic_path_after_max_frames"},
+        {"entry_count", entries.size()},
+        {"entries", std::move(entries)},
+        {"sha256", core::sha256_bytes(manifest_bytes)}}}};
+}
 
 image::HyperMetricStretchConfig to_image_hms_config(
     const tile_compile::config::HyperMetricStretchConfig &src) {
@@ -1128,11 +1210,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
+  const fs::path config_snapshot_path = run_dir / "config.yaml";
   if (use_stdin_config) {
-    std::ofstream out(run_dir / "config.yaml", std::ios::out);
+    std::ofstream out(config_snapshot_path, std::ios::out);
+    if (!out) {
+      std::cerr << "Error: cannot write run config snapshot: "
+                << config_snapshot_path << std::endl;
+      return 1;
+    }
     out << cfg_text;
   } else {
-    core::copy_config(cfg_path, run_dir / "config.yaml");
+    core::copy_config(cfg_path, config_snapshot_path);
+  }
+
+  core::json run_provenance;
+  const fs::path run_provenance_path =
+      run_dir / "artifacts" / "run_provenance.json";
+  try {
+    run_provenance = make_run_provenance(config_snapshot_path, frames);
+    core::write_text(run_provenance_path, run_provenance.dump(2));
+  } catch (const std::exception &e) {
+    std::cerr << "Error: cannot establish immutable run provenance: "
+              << e.what() << std::endl;
+    return 1;
   }
 
   std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
@@ -1148,8 +1248,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   core::EventEmitter emitter;
   emitter.run_start(run_id,
                     {{"config_path", config_path},
+                     {"config_snapshot", config_snapshot_path.string()},
+                     {"config_sha256", run_provenance["config"]["sha256"]},
                      {"input_dir", input_dir},
+                     {"input_manifest_sha256",
+                      run_provenance["input_manifest"]["sha256"]},
                      {"run_dir", run_dir.string()},
+                     {"provenance_path", run_provenance_path.string()},
+                     {"build_id", run_provenance["build"]["build_id"]},
+                     {"git_sha", run_provenance["build"]["source"]["git_sha"]},
+                     {"git_dirty",
+                      run_provenance["build"]["source"]["git_dirty"]},
+                     {"binary_sha256",
+                      run_provenance["build"]["binary"]["sha256"]},
                      {"frames_discovered", frames.size()},
                      {"dry_run", dry_run}},
                     log_file);
@@ -1821,10 +1932,48 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 << std::endl;
     }
   }
+  if (cfg.aqmh.reconstruction.registration_weight_guard) {
+    const auto &residual_factors =
+        phase_registration_ctx.registration_residual_weight_factors;
+    int n_penalized = 0;
+    double min_factor = 1.0;
+    double sum_factor = 0.0;
+    int n_factor = 0;
+    for (Eigen::Index fi = 0; fi < global_weights.size(); ++fi) {
+      if (static_cast<size_t>(fi) >= residual_factors.size()) {
+        continue;
+      }
+      const float factor = std::clamp(residual_factors[static_cast<size_t>(fi)],
+                                      0.0f, 1.0f);
+      global_weights[fi] *= factor;
+      min_factor = std::min(min_factor, static_cast<double>(factor));
+      sum_factor += static_cast<double>(factor);
+      ++n_factor;
+      if (factor < 0.999f) {
+        ++n_penalized;
+      }
+    }
+    if (n_penalized > 0) {
+      const double mean_factor =
+          n_factor > 0 ? sum_factor / static_cast<double>(n_factor) : 1.0;
+      std::cout << "[PIPELINE] Applied registration residual weight penalty "
+                << "to " << n_penalized << " frame(s)"
+                << " min_factor=" << min_factor
+                << " mean_factor=" << mean_factor << std::endl;
+    }
+  }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
   prewarped_frames.set_preserve_files(
       !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  if (phase_registration_ctx.debayer_first_rgb) {
+    phase_registration_ctx.prewarped_frames_r.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+    phase_registration_ctx.prewarped_frames_g.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+    phase_registration_ctx.prewarped_frames_b.set_preserve_files(
+        !cfg.aqmh.reconstruction.delete_prewarped_cache_after_run);
+  }
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
@@ -2178,6 +2327,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   double stacking_runtime_seconds = 0.0;
   std::optional<reconstruction::AqmhValidationComparison>
       aqmh_control_validation;
+  const bool aqmh_debayer_first_rgb =
+      cfg.aqmh.enabled && phase_registration_ctx.debayer_first_rgb;
+  const ColorMode aqmh_metrics_mode =
+      aqmh_debayer_first_rgb ? ColorMode::MONO : detected_mode;
+  const std::string aqmh_metrics_bayer =
+      aqmh_debayer_first_rgb ? std::string() : detected_bayer_str;
 
   // Prefetch coordinator for AQMH Q-map I/O overlap
   std::unique_ptr<reconstruction::AqmhPrefetchCoordinator> aqmh_prefetch_coordinator;
@@ -2188,7 +2343,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               run_id, cfg, frames, run_dir, frame_has_data, aqmh_canvas_valid_mask,
               common_valid_mask, canvas_width, canvas_height, prewarped_frames,
               norm_scales,
-              detected_mode, detected_bayer_str, false, acceleration, emitter,
+              aqmh_metrics_mode, aqmh_metrics_bayer, false, acceleration, emitter,
               log_file, aqmh_cache, aqmh_global_weights,
               aqmh_prefetch_coordinator,
               phase_metrics_ctx.frame_star_metrics)
@@ -2319,11 +2474,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               prewarped_frames, aqmh_cache, aqmh_global_weights,
               acceleration, emitter, log_file,
               tile_reconstruction_started_at, prev_cv_threads_recon,
-              aqmh_recon_result, aqmh_prefetch_coordinator.get())) {
+              aqmh_recon_result, aqmh_prefetch_coordinator.get(),
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_r
+                                      : nullptr,
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_g
+                                      : nullptr,
+              aqmh_debayer_first_rgb ? &phase_registration_ctx.prewarped_frames_b
+                                      : nullptr)) {
         return 1;
       }
       recon = aqmh_recon_result.output;
       weight_sum = aqmh_recon_result.weight_sum;
+      if (aqmh_recon_result.output_R.rows() == canvas_height &&
+          aqmh_recon_result.output_R.cols() == canvas_width &&
+          aqmh_recon_result.output_G.rows() == canvas_height &&
+          aqmh_recon_result.output_G.cols() == canvas_width &&
+          aqmh_recon_result.output_B.rows() == canvas_height &&
+          aqmh_recon_result.output_B.cols() == canvas_width) {
+        recon_R = std::move(aqmh_recon_result.output_R);
+        recon_G = std::move(aqmh_recon_result.output_G);
+        recon_B = std::move(aqmh_recon_result.output_B);
+      }
       aqmh_control_validation = aqmh_recon_result.control_validation;
       try {
         io::write_fits_float(
@@ -5520,15 +5691,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         run_dir / "outputs" / "stacked_rgb_bge_linear.fits";
 
     if (detected_mode == ColorMode::OSC) {
+      std::string debayer_method = "precomputed_rgb";
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
           recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
         R_out = std::move(recon_R);
         G_out = std::move(recon_G);
         B_out = std::move(recon_B);
       } else {
-        // Fallback (should be rare): debayer luminance proxy.
-        auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
+        // Fallback (should be rare): use the same noise-stable CFA output path
+        // as resume so normal and resumed AQMH outputs share debayer semantics.
+        auto debayer = image::debayer_bilinear(
+            recon, detected_bayer, -debayer_tile_offset_x,
+            -debayer_tile_offset_y);
+        debayer_method = "bilinear";
         R_out = std::move(debayer.R);
         G_out = std::move(debayer.G);
         B_out = std::move(debayer.B);
@@ -5559,6 +5734,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           run_id, Phase::DEBAYER, "ok",
           {{"mode", "OSC"},
            {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
+           {"debayer_method", debayer_method},
            {"output_rgb", stacked_rgb_path.string()},
            {"output_rgb_solve", stacked_rgb_solve_path.string()}},
           log_file);

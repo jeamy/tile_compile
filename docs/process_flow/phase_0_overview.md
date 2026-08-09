@@ -64,6 +64,7 @@ Wenn `aqmh.enabled = true`:
 - Classic Tile-Metriken werden **nicht berechnet** (`compute_classic_local_metrics = false`)
 - Stattdessen werden **pyramid-basierte Qualitätskarten** pro Frame berechnet:
   - Multi-Scale-Sharpness und SNR über Pyramid-Level
+  - lokale Score-Skalierung (`score_scale`) vor dem AQMH-Sigmoid
   - Artefakt-Detektion (`k_artifact`, `frac_artifact_max`)
   - Qualitätskarte `Q_map` pro Frame wird in `QualityMapCache` gespeichert (`runs/<id>/cache/aqmh/`)
 - Phase-Anzeige: `AQMH_MAPS` (Enum 19)
@@ -87,6 +88,7 @@ const std::string phase_display_name =
 | `aqmh.pyramid.base_window_px` | Basis-Fenstergröße | 4 |
 | `aqmh.pyramid.w_sharp` | Gewicht Sharpness | 0.6 |
 | `aqmh.pyramid.w_snr` | Gewicht SNR | 0.4 |
+| `aqmh.pyramid.score_scale` | Lokale Quality-Map-Selektivität | 1.8 |
 | `aqmh.pyramid.k_artifact` | Artefakt-Schwellwert | 3.0 |
 | `aqmh.pyramid.frac_artifact_max` | Max. Artefakt-Anteil | 0.25 |
 | `aqmh.storage.resolution_divisor` | Speicher-Auflösungsteiler (1/2/4) | 2 |
@@ -94,7 +96,8 @@ const std::string phase_display_name =
 | `aqmh.storage.max_resident_maps` | Max. im RAM gehaltene Karten (0–16) | 2 |
 | `aqmh.cherry_pick.enabled` | Cherry-Pick-Frame-Selektion | false |
 | `aqmh.cherry_pick.k_min_required` | Run-Gate und Min. Samples pro Pixel | 20 |
-| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames | 0.30 |
+| `aqmh.cherry_pick.mode` | Frame-Selektionsmodus (`auto_reject` oder `top_k`) | auto_reject |
+| `aqmh.cherry_pick.k_frac` | Fraktion der besten Frames nur im Legacy-Modus `top_k` | 0.30 |
 
 ### Phase 21: AQMH-Rekonstruktion (AQMH-Erweiterungsphase)
 

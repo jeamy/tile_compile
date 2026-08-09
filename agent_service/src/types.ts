@@ -3,7 +3,10 @@ export interface AgentConfig {
   model: string;
   maxTokens: number;
   temperature: number;
+  /** Maximum time without a provider progress event. */
   timeoutMs: number;
+  /** Hard upper bound for the complete provider request. */
+  maxDurationMs: number;
 }
 
 export interface RuntimeConfig {

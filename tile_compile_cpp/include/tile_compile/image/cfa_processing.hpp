@@ -154,4 +154,22 @@ DebayerResult debayer_bilinear_region(const float* mosaic,
                                        int region_height,
                                        BayerPattern pattern);
 
+// Edge-directed demosaicing via OpenCV (VNG; ahd=true selects AHD/EA).
+// origin_x/origin_y define the Bayer parity of the mosaic's top-left pixel,
+// same convention as the other debayer functions.
+void debayer_opencv_into(const Matrix2Df& mosaic,
+                         BayerPattern pattern,
+                         int origin_x,
+                         int origin_y,
+                         bool ahd,
+                         Matrix2Df& R_out,
+                         Matrix2Df& G_out,
+                         Matrix2Df& B_out);
+
+DebayerResult debayer_opencv(const Matrix2Df& mosaic,
+                             BayerPattern pattern,
+                             int origin_x,
+                             int origin_y,
+                             bool ahd = false);
+
 } // namespace tile_compile::image

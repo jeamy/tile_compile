@@ -246,6 +246,10 @@ bool run_phase_aqmh_diagnostics(
 
   emitter.phase_start(run_id, Phase::AQMH_DIAGNOSTICS,
                       "AQMH_DIAGNOSTICS", log_file);
+  emitter.phase_progress(run_id, Phase::AQMH_DIAGNOSTICS, 0.0f,
+                         "AQMH diagnostics vorbereiten", log_file);
+  log_file << "[AQMH_DIAGNOSTICS] preparing diagnostics and output artifacts"
+           << std::endl;
   const auto path = run_dir / "artifacts" / "aqmh_metrics.json";
   core::json artifact = core::json::object();
   try {
@@ -304,18 +308,25 @@ bool run_phase_aqmh_diagnostics(
 
     int block_grid_width = 0;
     int block_grid_height = 0;
+    const size_t progress_total = frame_has_data.size();
+    const size_t progress_stride = std::max<size_t>(
+        1, progress_total / 100);
+    emitter.phase_progress_counts(
+        run_id, Phase::AQMH_DIAGNOSTICS, 10, 100,
+        "AQMH diagnostics frames 0/" + std::to_string(progress_total),
+        "frames", log_file);
     std::vector<std::pair<uint32_t, std::pair<std::vector<float>, std::vector<float>>>> heatmap_frames;
 
     for (size_t fi = 0; fi < frame_has_data.size(); ++fi) {
-      if (!frame_has_data[fi] || !q_map_cache->has(fi)) continue;
+      if (frame_has_data[fi] && q_map_cache->has(fi)) {
       try {
         const Matrix2Df q_map = q_map_cache->read(fi);
-        if (q_map.rows() != canvas_height || q_map.cols() != canvas_width)
-          continue;
-
-        const core::json blk = compute_block_diagnostics(
-            q_map, analysis_common_mask, canvas_width, canvas_height,
-            tau_artifact, block_size_px);
+        if (q_map.rows() != canvas_height || q_map.cols() != canvas_width) {
+          // Ignore invalid maps; the progress event below still advances.
+        } else {
+          const core::json blk = compute_block_diagnostics(
+              q_map, analysis_common_mask, canvas_width, canvas_height,
+              tau_artifact, block_size_px);
         block_grid_width = blk.value("block_grid_width", 0);
         block_grid_height = blk.value("block_grid_height", 0);
 
@@ -334,8 +345,22 @@ bool run_phase_aqmh_diagnostics(
         jf["has_heatmaps"] = emit_heatmaps;
         frames_jsonl << jf.dump() << '\n';
         has_streamed_frames = true;
+        }
       } catch (const std::exception &) {
         // Skip frames with unreadable or missing maps silently.
+      }
+      }
+      if (progress_total == 0 || (fi + 1) % progress_stride == 0 ||
+          fi + 1 == progress_total) {
+        const int progress_current = progress_total == 0
+            ? 80
+            : 10 + static_cast<int>(80.0 * static_cast<double>(fi + 1) /
+                                     static_cast<double>(progress_total));
+        emitter.phase_progress_counts(
+            run_id, Phase::AQMH_DIAGNOSTICS, progress_current, 100,
+            "AQMH diagnostics frames " + std::to_string(fi + 1) + "/" +
+                std::to_string(progress_total),
+            "frames", log_file);
       }
     }
     frames_jsonl.close();
@@ -350,7 +375,17 @@ bool run_phase_aqmh_diagnostics(
         return false;
       }
     }
+  } else {
+    emitter.phase_progress(run_id, Phase::AQMH_DIAGNOSTICS, 0.5f,
+                           "AQMH diagnostics summary berechnen", log_file);
+    log_file << "[AQMH_DIAGNOSTICS] summary diagnostics ready"
+             << std::endl;
   }
+
+  emitter.phase_progress(run_id, Phase::AQMH_DIAGNOSTICS, 0.9f,
+                         "AQMH diagnostics artefacts schreiben", log_file);
+  log_file << "[AQMH_DIAGNOSTICS] writing diagnostic artifacts"
+           << std::endl;
 
   // Write output based on format setting (Item 4.4.2)
   if (cfg.aqmh.diagnostics.format == "binary") {

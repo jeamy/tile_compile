@@ -6,6 +6,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <random>
 #include <regex>
 #include <sstream>
@@ -19,6 +20,7 @@
 #include <time.h>
 #endif
 
+#include <openssl/evp.h>
 #include <openssl/sha.h>
 
 namespace tile_compile::core {
@@ -235,8 +237,42 @@ std::string sha256_bytes(const std::vector<uint8_t>& data) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 std::string sha256_file(const fs::path& path) {
-    auto data = read_bytes(path);
-    return sha256_bytes(data);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw IOError("Cannot open file for SHA256: " + path.string());
+    }
+
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(
+        EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    if (!context || EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
+        throw IOError("Cannot initialize SHA256 for: " + path.string());
+    }
+
+    std::vector<char> buffer(1024u * 1024u);
+    while (file) {
+        file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize count = file.gcount();
+        if (count > 0 &&
+            EVP_DigestUpdate(context.get(), buffer.data(),
+                             static_cast<size_t>(count)) != 1) {
+            throw IOError("Cannot update SHA256 for: " + path.string());
+        }
+    }
+    if (!file.eof()) {
+        throw IOError("Cannot read file for SHA256: " + path.string());
+    }
+
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_size = 0;
+    if (EVP_DigestFinal_ex(context.get(), hash, &hash_size) != 1) {
+        throw IOError("Cannot finalize SHA256 for: " + path.string());
+    }
+    std::ostringstream oss;
+    for (unsigned int i = 0; i < hash_size; ++i) {
+        oss << std::hex << std::setfill('0') << std::setw(2)
+            << static_cast<int>(hash[i]);
+    }
+    return oss.str();
 }
 
 /// @brief Copies config.
@@ -244,6 +280,11 @@ std::string sha256_file(const fs::path& path) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 void copy_config(const fs::path& src, const fs::path& dst) {
+    std::error_code ec;
+    if (fs::exists(src, ec) && fs::exists(dst, ec) && fs::equivalent(src, dst, ec) &&
+        !ec) {
+        return;
+    }
     fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
 }
 

@@ -1,6 +1,7 @@
 #include "runner_pipeline.hpp"
 #include "runner_preprocess.hpp"
 #include "runner_resume.hpp"
+#include "tile_compile/core/build_info.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -31,6 +32,8 @@ void print_usage() {
             << "  --max-tiles <n>       Limit number of tiles in Phase 5/6 (0 "
                "= no limit)\n"
             << "  --dry-run             Dry run (no actual processing)\n"
+            << "  --version            Print build/version information\n"
+            << "  --json               Use JSON with --version\n"
             << "  --force-classic       Run new executions as classic_tile_compile\n"
             << std::endl;
 }
@@ -63,6 +66,22 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 int main(int argc, char *argv[]) {
+  bool version_requested = false;
+  bool json_requested = false;
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i];
+    version_requested = version_requested || arg == "--version";
+    json_requested = json_requested || arg == "--json";
+  }
+  if (version_requested) {
+    if (json_requested) {
+      std::cout << tile_compile::core::build_info_json(true).dump(2)
+                << std::endl;
+    } else {
+      std::cout << tile_compile::core::build_info_text() << std::endl;
+    }
+    return 0;
+  }
 #ifdef HAVE_CLI11
   CLI::App app{"Tile-Compile Runner (C++)"};
 

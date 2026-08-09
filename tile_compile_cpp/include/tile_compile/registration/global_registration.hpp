@@ -15,6 +15,80 @@ struct StarPoint {
     float flux = 0.0f;
 };
 
+// Result of a conservative affine fine-registration fit on an already warped
+// proxy frame. correction_warp uses the same R->M/WARP_INVERSE_MAP convention
+// as the global registration warps.
+struct AffineStarRefinementResult {
+    WarpMatrix correction_warp = WarpMatrix::Zero();
+    bool valid = false;
+    std::string rejection_reason = "not_attempted";
+    int matched_stars = 0;
+    int inlier_stars = 0;
+    float inlier_ratio = 0.0f;
+    float spatial_coverage = 0.0f;
+    float median_before_px = 0.0f;
+    float p90_before_px = 0.0f;
+    float rms_before_px = 0.0f;
+    float median_after_px = 0.0f;
+    float p90_after_px = 0.0f;
+    float rms_after_px = 0.0f;
+    float center_displacement_px = 0.0f;
+    float rotation_deg = 0.0f;
+    float min_scale = 1.0f;
+    float max_scale = 1.0f;
+};
+
+// Smooth inverse displacement model C(q)=q+d(q) on proxy reference
+// coordinates. The fixed 4x4 Gaussian basis keeps the experiment bounded
+// without adding a TPS/OpenCV-shape dependency.
+struct SmoothLocalWarpModel {
+    using Coefficients = Eigen::Matrix<float, 16, 1>;
+
+    bool valid = false;
+    int image_rows = 0;
+    int image_cols = 0;
+    Coefficients coeff_x = Coefficients::Zero();
+    Coefficients coeff_y = Coefficients::Zero();
+};
+
+struct SmoothLocalRemapPlan {
+    cv::Mat map_x;
+    cv::Mat map_y;
+    std::vector<uint8_t> valid_mask;
+    int source_rows = 0;
+    int source_cols = 0;
+    int output_rows = 0;
+    int output_cols = 0;
+    bool has_data = false;
+};
+
+struct SmoothLocalRefinementResult {
+    SmoothLocalWarpModel model;
+    bool valid = false;
+    std::string rejection_reason = "not_attempted";
+    int matched_stars = 0;
+    int training_stars = 0;
+    int validation_stars = 0;
+    float spatial_coverage = 0.0f;
+    float median_before_px = 0.0f;
+    float p90_before_px = 0.0f;
+    float rms_before_px = 0.0f;
+    float median_after_px = 0.0f;
+    float p90_after_px = 0.0f;
+    float rms_after_px = 0.0f;
+    float validation_median_before_px = 0.0f;
+    float validation_p90_before_px = 0.0f;
+    float validation_rms_before_px = 0.0f;
+    float validation_median_after_px = 0.0f;
+    float validation_p90_after_px = 0.0f;
+    float validation_rms_after_px = 0.0f;
+    float max_displacement_px = 0.0f;
+    float min_jacobian_determinant = 1.0f;
+    float max_jacobian_determinant = 1.0f;
+    float min_local_scale = 1.0f;
+    float max_local_scale = 1.0f;
+};
+
 struct GlobalRegistrationOutput {
     int ref_idx = 0;
     std::string ref_selection_method; // "global_weight" | "quality_score" | "middle"
@@ -60,6 +134,42 @@ WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
 std::vector<StarPoint> detect_stars_simple(
     const Matrix2Df& img, int topk,
     bool enable_local_background_subtraction = false);
+
+AffineStarRefinementResult estimate_affine_star_refinement(
+    const std::vector<StarPoint>& ref_stars,
+    const std::vector<StarPoint>& warped_stars,
+    int image_rows, int image_cols,
+    float match_radius_px = 3.0f);
+
+SmoothLocalRefinementResult estimate_smooth_local_star_refinement(
+    const std::vector<StarPoint>& ref_stars,
+    const std::vector<StarPoint>& warped_stars,
+    int image_rows, int image_cols,
+    float match_radius_px = 3.0f);
+
+void render_smooth_local_displacement(
+    const SmoothLocalWarpModel& model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    cv::Mat& displacement_x, cv::Mat& displacement_y);
+
+bool prepare_smooth_local_remap(
+    int source_rows, int source_cols, const WarpMatrix& global_inverse_warp,
+    const SmoothLocalWarpModel& model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    SmoothLocalRemapPlan& plan);
+
+bool remap_frame_with_smooth_local_plan(
+    const Matrix2Df& source, const SmoothLocalRemapPlan& plan,
+    const std::string& interpolation, Matrix2Df& warped_out,
+    bool* has_data_out = nullptr);
+
+bool warp_frame_with_smooth_local_model(
+    const Matrix2Df& source, const WarpMatrix& global_inverse_warp,
+    const SmoothLocalWarpModel& model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    const std::string& interpolation, Matrix2Df& warped_out,
+    std::vector<uint8_t>* valid_mask_out = nullptr,
+    bool* has_data_out = nullptr);
 
 RegistrationResult star_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,

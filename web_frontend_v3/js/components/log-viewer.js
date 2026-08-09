@@ -100,14 +100,14 @@ export function createLogViewer() {
     if (!paused) body.scrollTop = body.scrollHeight;
   }
 
-  function addLine(time, level, text) {
-    const key = `${time}|${level}|${text}`;
+  function addLine(time, level, text, dedupeKey = "") {
+    const key = dedupeKey || `${time}|${level}|${text}`;
     if (lineKeys.has(key)) return;
     lineKeys.add(key);
-    lines.push({ time, level, text });
+    lines.push({ time, level, text, key });
     if (lines.length > MAX_LINES * 2) {
       lines = lines.slice(-MAX_LINES);
-      lineKeys = new Set(lines.map(l => `${l.time}|${l.level}|${l.text}`));
+      lineKeys = new Set(lines.map(l => l.key || `${l.time}|${l.level}|${l.text}`));
     }
     if (!paused) render();
   }
@@ -117,11 +117,11 @@ export function createLogViewer() {
       const key = `${l.time}|${l.level}|${l.text}`;
       if (lineKeys.has(key)) continue;
       lineKeys.add(key);
-      lines.push(l);
+      lines.push({ ...l, key });
     }
     if (lines.length > MAX_LINES * 2) {
       lines = lines.slice(-MAX_LINES);
-      lineKeys = new Set(lines.map(l => `${l.time}|${l.level}|${l.text}`));
+      lineKeys = new Set(lines.map(l => l.key || `${l.time}|${l.level}|${l.text}`));
     }
     if (!paused) render();
   }

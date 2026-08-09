@@ -1,6 +1,7 @@
 #include "runner_phase_post_stack_output.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/image/normalization.hpp"
 
@@ -139,7 +140,29 @@ bool write_post_stack_outputs(
   // back would waste >50% of the range on a constant offset that the stretch
   // then compresses out anyway. Without stretch, we restore the original ADU
   // context for downstream tools that expect absolute values.
-  const bool have_rgb = (recon_R.size() == recon.size() && recon_R.size() > 0);
+  bool have_rgb = recon.size() > 0 &&
+                  recon_R.size() == recon.size() &&
+                  recon_G.size() == recon.size() &&
+                  recon_B.size() == recon.size();
+  if (have_rgb) out.debayer_method = "precomputed_rgb";
+  if (detected_mode == ColorMode::OSC && !have_rgb) {
+    // The stacked CFA mosaic lives on the registration canvas lattice, so the
+    // canvas tile offset defines the CFA origin. Use the deterministic bilinear
+    // demosaic here: OpenCV's edge-aware demosaic can create maze/zipper chroma
+    // structure in low-SNR astronomical backgrounds, which is then amplified by
+    // BGE/PCC/stretch.
+    auto debayer = image::debayer_bilinear(
+        recon, string_to_bayer_pattern(detected_bayer_str),
+        -debayer_tile_offset_x, -debayer_tile_offset_y);
+    recon_R = std::move(debayer.R);
+    recon_G = std::move(debayer.G);
+    recon_B = std::move(debayer.B);
+    out.debayer_method = "bilinear";
+    have_rgb = recon.size() > 0 &&
+               recon_R.size() == recon.size() &&
+               recon_G.size() == recon.size() &&
+               recon_B.size() == recon.size();
+  }
   if (detected_mode == ColorMode::OSC && have_rgb) {
     if (!cfg.output_stretch) {
       // Restore photometric scale and background for absolute-ADU output

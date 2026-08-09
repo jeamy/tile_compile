@@ -11,7 +11,8 @@ import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
-import { getConfigState, validateConfig } from "../state/config-state.js";
+import { getConfigState, setConfigState, validateConfig } from "../state/config-state.js";
+import { parseYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { promptGrantRoot } from "../components/path-picker-modal.js";
@@ -20,7 +21,53 @@ import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
+function createCompletionAnalysisPanel() {
+  const trafficId = "completion-analysis-traffic";
+  const traffic = el("div", { class: "tc-accordion open", id: "completion-analysis-traffic-panel" },
+    el("div", {
+      class: "tc-accordion-header",
+      onclick: () => document.getElementById("completion-analysis-traffic-panel")?.classList.toggle("open"),
+    }, "\u25b8 " + t("ui.title.ai_traffic", "KI-Datenverkehr")),
+    el("div", { class: "tc-accordion-body" },
+      el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
+        el("button", {
+          class: "tc-btn tc-btn-sm",
+          title: t("ui.tooltip.ai.refresh_traffic", "Lädt den persistenten PI/KI-Traffic-Log aus dem Sidecar."),
+          onclick: () => loadCompletionAnalysisTrafficLog(),
+        }, t("ui.button.refresh", "Aktualisieren")),
+        el("span", { class: "tc-text-muted tc-text-sm", id: `${trafficId}-status` },
+          t("ui.state.not_loaded", "nicht geladen")),
+      ),
+      el("div", { class: "tc-log-viewer", id: trafficId, style: { maxHeight: "260px" } },
+        el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")),
+      ),
+    ),
+  );
+
+  return el("div", { class: "tc-card", id: "run-completion-analysis", style: "display:none" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between tc-gap-2" },
+      el("span", {}, t("ui.title.completion_analysis", "KI-Ergebnisanalyse")),
+      el("button", {
+        class: "tc-btn tc-btn-sm tc-btn-primary",
+        id: "completion-analysis-refresh",
+        onclick: () => requestCompletionAnalysis(),
+      }, t("ui.button.create_analysis", "KI-Analyse erstellen")),
+    ),
+    el("div", { class: "tc-text-sm tc-text-muted", id: "completion-analysis-status" },
+      t("ui.state.completion_analysis_waiting", "Wartet auf einen abgeschlossenen Run.")),
+    el("div", { class: "tc-flex-col tc-gap-3 tc-mt-3", id: "completion-analysis-content" }),
+    el("div", { class: "tc-mt-3" }, traffic),
+  );
+}
+
 export function createRunMonitorPage() {
+  // A page rebuild (including browser navigation back to this tab) only resets
+  // UI polling. The server-side completion job continues independently.
+  stopCompletionAnalysisPolling();
+  stopCompletionAnalysisTrafficPolling();
+  completionAnalysisCacheLoads.clear();
+  completionAnalysisLoading = false;
+
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
 
   // Run control
@@ -104,6 +151,7 @@ export function createRunMonitorPage() {
   );
 
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
+  const completionAnalysis = createCompletionAnalysisPanel();
   const runChat = createRunChatPanel();
 
   // Log viewer (component-based)
@@ -121,7 +169,7 @@ export function createRunMonitorPage() {
   );
   activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, stats, runPreview, runMonitorTabs);
+  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, runPreview, runMonitorTabs);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -147,14 +195,23 @@ export function createRunMonitorPage() {
 
 let pollTimer = null;
 let logTailTimer = null;
+let logTailSnapshot = null;
 let resumePendingTimer = null;
 let lastImagePreviewKey = "";
 let monitorRunChatMessages = [];
 let activeLogViewer = null;
 let activeWarningBanner = null;
 let runChatTrafficTimer = null;
+let completionAnalysisPollTimer = null;
+let completionAnalysisTrafficTimer = null;
+let completionAnalysisPollInFlight = false;
+let completionAnalysisPollGeneration = 0;
+let completionAnalysisNotifiedId = "";
 let replayedRunLogEvents = new Set();
 let resumeFeasibilitySeq = 0;
+let currentCompletionAnalysis = null;
+let completionAnalysisLoading = false;
+const completionAnalysisCacheLoads = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
 const RESUME_CONFIG_SECTIONS = [
@@ -188,6 +245,319 @@ function sameRunIdentity(a, b, aDir = "", bDir = "") {
   if (!a || !b || a !== b) return false;
   if (!aDir || !bDir) return true;
   return aDir === bDir;
+}
+
+function completionAnalysisText(value, fallback = "") {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return fallback;
+  return String(value.title || value.message || value.text || value.reason || fallback);
+}
+
+function renderCompletionAnalysis(analysis) {
+  const panel = document.getElementById("run-completion-analysis");
+  const status = document.getElementById("completion-analysis-status");
+  const content = document.getElementById("completion-analysis-content");
+  const actionButton = document.getElementById("completion-analysis-refresh");
+  if (!panel || !status || !content) return;
+  panel.style.display = "";
+  const analysisStatus = String(analysis?.status || "").toLowerCase();
+  const isRunning = analysisStatus === "running" || analysisStatus === "pending";
+  clear(content);
+  currentCompletionAnalysis = analysis?.has_analysis ? analysis : null;
+  if (actionButton) actionButton.disabled = completionAnalysisLoading || isRunning;
+
+  if (isRunning) {
+    if (actionButton) actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+    status.textContent = `${t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...")} ${t("ui.state.background_running", "(läuft im Hintergrund)")}`;
+    return;
+  }
+
+  if (!analysis?.has_analysis) {
+    if (actionButton) {
+      actionButton.textContent = t("ui.button.create_analysis", "KI-Analyse erstellen");
+      actionButton.disabled = completionAnalysisLoading;
+    }
+    if (analysisStatus === "error") {
+      const message = analysis?.error?.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen.");
+      status.textContent = message;
+      content.appendChild(el("div", { class: "tc-text-sm tc-text-error" }, message));
+    } else {
+      status.textContent = analysis?.status === "AI_DISABLED"
+        ? t("ui.state.completion_analysis_disabled", "KI-Analyse ist deaktiviert.")
+        : t("ui.state.completion_analysis_unavailable", "Noch keine Ergebnisanalyse verfügbar.");
+    }
+    return;
+  }
+
+  if (actionButton) {
+    actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+    actionButton.disabled = false;
+  }
+  status.textContent = t("ui.state.completion_analysis_ready", "Analyse von {artifact} abgeschlossen.", {
+    artifact: analysis?.source_artifact?.path || "outputs/stacked_rgb.fits",
+  });
+  if (analysis.summary) content.appendChild(el("div", { class: "tc-text-sm" }, analysis.summary));
+
+  const findings = Array.isArray(analysis.findings) ? analysis.findings : [];
+  if (findings.length) {
+    const list = el("div", { class: "tc-flex-col tc-gap-2" });
+    for (const finding of findings) {
+      const title = completionAnalysisText(finding, t("ui.label.finding", "Befund"));
+      const evidence = finding && typeof finding === "object" ? completionAnalysisText(finding.evidence) : "";
+      const recommendation = finding && typeof finding === "object" ? completionAnalysisText(finding.recommendation) : "";
+      list.appendChild(el("div", { class: "tc-run-chat-list-item" },
+        el("div", { class: "tc-text-sm" }, title),
+        evidence ? el("div", { class: "tc-text-sm tc-text-muted" }, evidence) : null,
+        recommendation ? el("div", { class: "tc-text-sm" }, recommendation) : null,
+      ));
+    }
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.findings", "Befunde")),
+      list,
+    ));
+  }
+
+  const updates = Array.isArray(analysis.validated_updates) ? analysis.validated_updates : [];
+  if (updates.length) {
+    const list = el("div", { class: "tc-flex-col tc-gap-1" });
+    for (const update of updates) {
+      list.appendChild(el("div", { class: "tc-run-chat-list-item" },
+        el("div", { class: "tc-text-sm tc-mono" }, `${update.path}: ${JSON.stringify(update.value)}`),
+        update.reason ? el("div", { class: "tc-text-sm tc-text-muted" }, update.reason) : null,
+      ));
+    }
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.validated_parameter_updates", "Validierte Parameterverbesserungen")),
+      list,
+    ));
+  }
+
+  const resume = analysis.resume_recommendation || {};
+  if (resume.from_phase) {
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
+      el("div", { class: "tc-text-sm tc-mono" }, resume.from_phase),
+      resume.reason ? el("div", { class: "tc-text-sm tc-text-muted" }, resume.reason) : null,
+      el("div", { class: "tc-text-sm tc-text-warning" },
+        t("ui.message.resume_requires_dry_run", "Die Machbarkeit wird vor dem Resume per Dry-Run geprüft.")),
+    ));
+  }
+
+  content.appendChild(el("div", { class: "tc-flex tc-gap-2 tc-flex-wrap" },
+    el("button", {
+      class: "tc-btn tc-btn-primary",
+      disabled: !analysis.config_yaml || updates.length === 0,
+      onclick: () => applyCompletionConfigToNewRun(),
+    }, t("ui.button.apply_for_new_run", "Für neuen Run übernehmen")),
+    el("button", {
+      class: "tc-btn",
+      disabled: !analysis.config_yaml || !resume.from_phase,
+      onclick: () => prepareCompletionResume(false),
+    }, t("ui.button.prepare_resume", "Parameter übernehmen & Resume vorbereiten")),
+    el("button", {
+      class: "tc-btn",
+      disabled: !analysis.config_yaml || !resume.from_phase,
+      onclick: () => prepareCompletionResume(true),
+    }, t("ui.button.apply_and_resume", "Übernehmen & Resume")),
+  ));
+}
+
+function completionAnalysisIsRunning(analysis) {
+  const status = String(analysis?.status || "").toLowerCase();
+  return status === "running" || status === "pending";
+}
+
+function renderCompletionAnalysisTrafficLog(items) {
+  const container = document.getElementById("completion-analysis-traffic");
+  if (!container) return;
+  clear(container);
+  if (!Array.isArray(items) || items.length === 0) {
+    container.appendChild(el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")));
+    return;
+  }
+  for (const line of items.slice(-100)) {
+    container.appendChild(el("div", { class: "tc-text-sm tc-mono" }, String(line)));
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+async function loadCompletionAnalysisTrafficLog() {
+  const status = document.getElementById("completion-analysis-traffic-status");
+  if (status) status.textContent = t("ui.state.loading", "Lädt...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.ai.traffic(500));
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    renderCompletionAnalysisTrafficLog(items);
+    if (status) {
+      const enabled = payload?.enabled === false
+        ? t("ui.state.disabled", "deaktiviert")
+        : t("ui.state.enabled", "aktiv");
+      status.textContent = `${enabled} · ${t("ui.pi.traffic_count", "{count} Zeilen", { count: payload?.count || items.length })}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+}
+
+function startCompletionAnalysisTrafficPolling() {
+  stopCompletionAnalysisTrafficPolling();
+  loadCompletionAnalysisTrafficLog();
+  completionAnalysisTrafficTimer = setInterval(() => loadCompletionAnalysisTrafficLog(), 1500);
+}
+
+function stopCompletionAnalysisTrafficPolling() {
+  if (!completionAnalysisTrafficTimer) return;
+  clearInterval(completionAnalysisTrafficTimer);
+  completionAnalysisTrafficTimer = null;
+}
+
+async function pollCompletionAnalysisState(generation = completionAnalysisPollGeneration) {
+  if (generation !== completionAnalysisPollGeneration || completionAnalysisPollInFlight) return;
+  const { currentRunId, status: runStatus } = getRunState();
+  if (!currentRunId || runStatus !== "completed") {
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
+    return;
+  }
+  completionAnalysisPollInFlight = true;
+  try {
+    const result = await api.get(API_ENDPOINTS.runs.completionAnalysis(currentRunId));
+    if (generation !== completionAnalysisPollGeneration ||
+        getRunState().currentRunId !== currentRunId) return;
+    renderCompletionAnalysis(result);
+    if (completionAnalysisIsRunning(result)) {
+      if (!completionAnalysisTrafficTimer) startCompletionAnalysisTrafficPolling();
+      return;
+    }
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
+    loadCompletionAnalysisTrafficLog();
+    const notificationId = String(result?.analysis_id || "");
+    if (result?.has_analysis && notificationId && notificationId !== completionAnalysisNotifiedId) {
+      completionAnalysisNotifiedId = notificationId;
+      toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+    } else if (String(result?.status || "").toLowerCase() === "error" &&
+               notificationId !== completionAnalysisNotifiedId) {
+      completionAnalysisNotifiedId = notificationId;
+      toastError(
+        t("ui.toast.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen"),
+        result?.error?.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen."),
+      );
+    }
+  } catch {
+    // A transient GET failure must not stop the backend job or status polling.
+  } finally {
+    completionAnalysisPollInFlight = false;
+  }
+}
+
+function startCompletionAnalysisPolling() {
+  stopCompletionAnalysisPolling();
+  const generation = ++completionAnalysisPollGeneration;
+  pollCompletionAnalysisState(generation);
+  completionAnalysisPollTimer = setInterval(() => pollCompletionAnalysisState(generation), 1500);
+}
+
+function stopCompletionAnalysisPolling() {
+  completionAnalysisPollGeneration += 1;
+  if (!completionAnalysisPollTimer) return;
+  clearInterval(completionAnalysisPollTimer);
+  completionAnalysisPollTimer = null;
+}
+
+async function requestCompletionAnalysis() {
+  const { currentRunId, currentRunDir, status: runStatus } = getRunState();
+  if (!currentRunId || runStatus !== "completed" || completionAnalysisLoading) return;
+  const panel = document.getElementById("run-completion-analysis");
+  const status = document.getElementById("completion-analysis-status");
+  const actionButton = document.getElementById("completion-analysis-refresh");
+  if (panel) panel.style.display = "";
+  if (status) status.textContent = `${t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...")} ${t("ui.state.background_running", "(läuft im Hintergrund)")}`;
+  if (actionButton) actionButton.disabled = true;
+  completionAnalysisLoading = true;
+  let continuesInBackground = false;
+  startCompletionAnalysisTrafficPolling();
+  try {
+    const payload = { force: true };
+    if (currentRunDir) payload.run_dir = currentRunDir;
+    const result = await api.post(API_ENDPOINTS.runs.completionAnalysis(currentRunId), payload);
+    continuesInBackground = completionAnalysisIsRunning(result);
+    renderCompletionAnalysis(result);
+    if (continuesInBackground) {
+      startCompletionAnalysisPolling();
+    } else if (result?.has_analysis) {
+      completionAnalysisNotifiedId = String(result?.analysis_id || "");
+      toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+    }
+  } catch (error) {
+    currentCompletionAnalysis = null;
+    if (status) status.textContent = error.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen.");
+    toastError(t("ui.toast.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen"), error.message);
+  } finally {
+    completionAnalysisLoading = false;
+    if (!continuesInBackground) {
+      stopCompletionAnalysisTrafficPolling();
+      loadCompletionAnalysisTrafficLog();
+      if (actionButton) actionButton.disabled = false;
+    }
+  }
+}
+
+async function maybeLoadCompletionAnalysis(status) {
+  const { currentRunId, currentRunDir } = getRunState();
+  const panel = document.getElementById("run-completion-analysis");
+  if (status !== "completed" || !currentRunId) {
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
+    if (panel) panel.style.display = "none";
+    return;
+  }
+  if (panel) panel.style.display = "";
+  const key = `${currentRunId}|${currentRunDir || ""}`;
+  if (completionAnalysisCacheLoads.has(key)) return;
+  completionAnalysisCacheLoads.add(key);
+  try {
+    const cached = await api.get(API_ENDPOINTS.runs.completionAnalysis(currentRunId));
+    if (getRunState().currentRunId !== currentRunId) return;
+    renderCompletionAnalysis(cached);
+    loadCompletionAnalysisTrafficLog();
+    if (completionAnalysisIsRunning(cached)) {
+      startCompletionAnalysisTrafficPolling();
+      startCompletionAnalysisPolling();
+    }
+  } catch {
+    renderCompletionAnalysis({ has_analysis: false });
+  }
+}
+
+async function applyCompletionConfigToNewRun() {
+  const yaml = currentCompletionAnalysis?.config_yaml || "";
+  if (!yaml) return false;
+  const parsed = parseYaml(yaml);
+  setConfigState({ draft: parsed, draftYaml: yaml, dirty: true, validation: currentCompletionAnalysis.validation || null });
+  const validation = await validateConfig();
+  if (validation?.valid === false || validation?.errors?.length) {
+    toastError(t("ui.toast.config_invalid", "Config ungültig"), t("ui.error.completion_config_revalidation_failed", "Die übernommene Config konnte nicht erneut validiert werden."));
+    return false;
+  }
+  toastSuccess(t("ui.toast.parameters_applied_for_new_run", "Parameter für neuen Run übernommen"));
+  return true;
+}
+
+async function prepareCompletionResume(startImmediately) {
+  const analysis = currentCompletionAnalysis;
+  const phase = analysis?.resume_recommendation?.from_phase || "";
+  if (!analysis?.config_yaml || !phase) return false;
+  await applyResumeRecommendation(phase);
+  const editor = document.getElementById("resume-config-yaml");
+  if (editor) {
+    editor.value = analysis.config_yaml;
+    updateResumeConfigSectionHighlights(editor.value);
+  }
+  const feasible = await checkResumeFeasibility(phase);
+  if (!feasible || !startImmediately) return feasible;
+  const confirmed = window.confirm(t("ui.confirm.apply_and_resume", "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?", { phase }));
+  return confirmed ? resumeRun() : false;
 }
 
 function resumeErrorPayload(error) {
@@ -1106,7 +1476,13 @@ function savePhaseToStore(phaseName, status, pct) {
 
 function resetRunMonitorNoRun() {
   stopPolling();
+  stopCompletionAnalysisPolling();
+  stopCompletionAnalysisTrafficPolling();
+  completionAnalysisCacheLoads.clear();
+  completionAnalysisLoading = false;
+  completionAnalysisPollInFlight = false;
   disconnectWebSocket();
+  logTailSnapshot = null;
   clearSelectedPhase();
   const neutralPhases = getPhasesForConfig(getConfigState().draft)
     .map(p => ({ ...p, status: "pending", pct: 0 }));
@@ -1135,6 +1511,9 @@ function resetRunMonitorNoRun() {
     updateStat(id, value);
   }
   restoreMonitorRunChat();
+  currentCompletionAnalysis = null;
+  const completionPanel = document.getElementById("run-completion-analysis");
+  if (completionPanel) completionPanel.style.display = "none";
   if (activeLogViewer) activeLogViewer.clearLines();
   const preview = document.getElementById("run-monitor-image-preview");
   if (preview) {
@@ -1218,11 +1597,81 @@ async function restoreCurrentRun() {
   }
 }
 
+function normalizeLogLine(line) {
+  return typeof line === "string" ? line : JSON.stringify(line);
+}
+
+function formatEventTimestamp(value) {
+  const raw = String(value || "");
+  const isoMatch = raw.match(/T(\d{2}:\d{2}:\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const timeMatch = raw.match(/^(\d{2}:\d{2}:\d{2})/);
+  return timeMatch ? timeMatch[1] : (raw || formatTime());
+}
+
+function normalizedEventPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric;
+}
+
+function eventDedupeKey(event) {
+  const payload = event?.payload || event || {};
+  const values = [
+    event?.run_id || payload.run_id || "",
+    event?.ts || payload.ts || "",
+    event?.type || payload.type || "",
+    event?.phase_name || event?.phase || payload.phase_name || payload.phase || "",
+    event?.current ?? payload.current ?? "",
+    event?.total ?? payload.total ?? "",
+    event?.pass || payload.pass || "",
+    event?.substep || payload.substep || "",
+    event?.status || payload.status || "",
+  ];
+  return `event:${values.map(value => String(value)).join("|")}`;
+}
+
+function addStructuredLogLine(logViewer, event, level, text) {
+  if (!logViewer) return;
+  const payload = event?.payload || event || {};
+  const timestamp = formatEventTimestamp(event?.ts || payload.ts);
+  logViewer.addLine(timestamp, level, text, eventDedupeKey(event));
+}
+
+function findLogTailStart(previousLines, currentLines) {
+  if (!previousLines || previousLines.length === 0) return 0;
+  const samePrefix = previousLines.length <= currentLines.length &&
+    previousLines.every((line, index) => line === currentLines[index]);
+  if (samePrefix) return previousLines.length;
+
+  const maxOverlap = Math.min(previousLines.length, currentLines.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    let matches = true;
+    for (let index = 0; index < overlap; index++) {
+      if (previousLines[previousLines.length - overlap + index] !== currentLines[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return overlap;
+  }
+  return 0;
+}
+
 async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250, runDir));
     if (!logs || !Array.isArray(logs.lines)) return;
-    for (const line of logs.lines) {
+    const currentLines = logs.lines.map(normalizeLogLine);
+    const sameRun = logTailSnapshot &&
+      logTailSnapshot.runId === runId &&
+      logTailSnapshot.runDir === runDir;
+    const firstNewLine = sameRun
+      ? findLogTailStart(logTailSnapshot.lines, currentLines)
+      : 0;
+    logTailSnapshot = { runId, runDir, lines: currentLines };
+
+    for (const line of logs.lines.slice(firstNewLine)) {
       let ts = formatTime();
       let level = "INFO";
       let text = "";
@@ -1232,7 +1681,7 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
         try {
           const ev = JSON.parse(line);
           parsedEvent = ev;
-          ts = ev.ts ? ev.ts.split("T")[1]?.replace("Z", "") || ev.ts : formatTime();
+          ts = formatEventTimestamp(ev.ts);
           level = (ev.type === "error" || ev.type === "warning") ? ev.type.toUpperCase() : "INFO";
           evType = ev.type || "";
           text = formatEventMessage(ev);
@@ -1246,7 +1695,8 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
         text = line.message || line.text || "";
       }
       if (logViewer) {
-        logViewer.addLine(ts, level, text);
+        if (parsedEvent) addStructuredLogLine(logViewer, parsedEvent, level, text);
+        else logViewer.addLine(formatEventTimestamp(ts), level, text);
       } else {
         const body = document.getElementById("log-viewer-body");
         if (!body) continue;
@@ -1296,32 +1746,68 @@ function stopLogTailPolling() {
   logTailTimer = null;
 }
 
+const PHASE_I18N_KEYS = {
+  AQMH_MAPS: "phase.aqmh_maps",
+  AQMH_GLOBAL_QUALITY: "phase.aqmh_global_quality",
+  AQMH_RECONSTRUCTION: "phase.aqmh_reconstruction",
+  AQMH_DIAGNOSTICS: "phase.aqmh_diagnostics",
+};
+
+function localizedPhaseName(value) {
+  const raw = String(value || "");
+  const key = PHASE_I18N_KEYS[raw];
+  return key ? t(key, raw) : raw;
+}
+
+function localizedAqmhSubstep(pass, rawSubstep) {
+  const substep = String(rawSubstep || "");
+  const key = `monitor.log.aqmh.${pass || ""}`;
+  const params = {};
+  const rowMatch = substep.match(/(\d+)\/(\d+)$/);
+  if (rowMatch) {
+    params.current = rowMatch[1];
+    params.total = rowMatch[2];
+  }
+  const alphaMatch = substep.match(/alpha=([0-9.eE+-]+)/);
+  if (alphaMatch) params.alpha = alphaMatch[1];
+  const iterationMatch = substep.match(/(?:Schritt|step)\s+(\d+)\/4/i);
+  if (iterationMatch) params.iteration = iterationMatch[1];
+  const translated = t(key, "", params);
+  return translated || substep;
+}
+
 function formatEventMessage(ev) {
   const type = ev.type || "";
-  const phase = ev.phase_name || ev.phase || "";
-  if (type === "phase_start") return `${phase} | start`;
+  const payload = ev.payload || ev;
+  const phase = localizedPhaseName(ev.phase_name || ev.phase || payload.phase_name || payload.phase);
+  if (type === "phase_start") return `${phase} | ${t("monitor.log.start", "start")}`;
   if (type === "phase_progress") {
-    const pct = ev.pct != null ? ` (${Math.round(ev.pct)}%)` : "";
-    const substep = ev.substep || ev.payload?.substep || "";
-    return `${phase} | progress${pct}${substep ? ` | ${substep}` : ""}`;
+    const pctValue = normalizedEventPercent(ev.pct ?? payload.pct ?? ev.progress ?? payload.progress);
+    const pct = pctValue != null ? ` (${Math.round(pctValue)}%)` : "";
+    const substep = payload.substep || ev.substep || "";
+    const pass = payload.pass || ev.pass || "";
+    const detail = pass.startsWith("core_") || pass.startsWith("rgb_") || pass
+      ? localizedAqmhSubstep(pass, substep)
+      : substep;
+    return `${phase} | ${t("monitor.log.progress", "progress")}${pct}${detail ? ` | ${detail}` : ""}`;
   }
   if (type === "phase_end") {
-    const status = ev.status || "ok";
-    const reason = ev.reason ? ` (${ev.reason})` : "";
-    return `${phase} | ${status}${reason}`;
+    const status = payload.status || ev.status || "ok";
+    const reason = payload.reason || ev.reason ? ` (${payload.reason || ev.reason})` : "";
+    return `${phase} | ${t(`monitor.log.status.${status}`, status)}${reason}`;
   }
-  if (type === "run_start") return "Run gestartet";
-  if (type === "run_end") return `Run beendet | ${ev.status || "ok"}`;
+  if (type === "run_start") return t("monitor.log.run_started", "Run started");
+  if (type === "run_end") return `${t("monitor.log.run_finished", "Run finished")} | ${t(`monitor.log.status.${payload.status || ev.status || "ok"}`, payload.status || ev.status || "ok")}`;
   if (type === "resume_start") {
-    const fromPhase = ev.from_phase || "";
-    return `Resume | start | ${fromPhase}`;
+    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    return `${t("monitor.log.resume", "Resume")} | ${t("monitor.log.start", "start")} | ${fromPhase}`;
   }
   if (type === "resume_end") {
-    const ok = ev.success ?? false;
-    const fromPhase = ev.from_phase || "";
-    return `Resume | ${ok ? "OK" : "ERROR"} | ${fromPhase}`;
+    const ok = payload.success ?? ev.success ?? false;
+    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    return `${t("monitor.log.resume", "Resume")} | ${ok ? t("monitor.log.ok", "OK") : t("monitor.log.error", "ERROR")} | ${fromPhase}`;
   }
-  if (type === "queue_progress") return ev.message || "Queue progress";
+  if (type === "queue_progress") return payload.message || ev.message || t("monitor.log.queue_progress", "Queue progress");
   if (ev.message) return ev.message;
   return type || JSON.stringify(ev).slice(0, 200);
 }
@@ -1351,7 +1837,12 @@ async function refreshRunStatus(runId) {
       return;
     }
 
-    if (status.phases && Array.isArray(status.phases)) {
+    // Resume events and the log-tail replay are the authoritative live source
+    // for the phase list. The in-place runner has historically emitted a
+    // normal `run_start`; do not let a stale reconstructed snapshot replace
+    // newer local phase progress while a resume is active.
+    const keepLiveResumePhases = getResumePending() || getResumeActive();
+    if (status.phases && Array.isArray(status.phases) && !keepLiveResumePhases) {
       // Merge backend statuses into the correct phase order for the run method.
       // This prevents backend-specific or out-of-order phases (e.g. GLOBAL_METRICS
       // for AQMH) from appearing at the bottom of the list.
@@ -1378,11 +1869,15 @@ async function refreshRunStatus(runId) {
     updateStat("info-run-id", status.run_id || runId);
     updateStat("info-run-dir", status.run_dir || "\u2014");
     updateStat("info-status", status.status || "\u2014");
+    setRunState({
+      status: status.status || getRunState().status || null,
+      currentRunDir: status.run_dir || getRunState().currentRunDir || null,
+    });
+    maybeLoadCompletionAnalysis(status.status);
     updateStat("info-color-mode", status.color_mode || "\u2014");
     updateStat("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
 
     if (status.run_dir) {
-      setRunState({ currentRunDir: status.run_dir });
       updateStat("info-output-dir", status.run_dir + "/outputs");
       refreshCurrentImagePreview();
     }
@@ -1564,7 +2059,14 @@ async function resumeRun() {
     updateStat("stat-status", "running");
     updateStat("info-status", `running — ${phase}`);
     const newPhases = resetPhasesForResume(phase);
-    if (newPhases.length > 0) setRunState({ phases: newPhases });
+    if (newPhases.length > 0) {
+      // resetPhasesForResume updates the visible list optimistically. Render the
+      // same state explicitly as well, so the DOM and persisted monitor state
+      // cannot diverge when a resume is initiated after navigation/restoration.
+      setPhaseList(newPhases);
+      setRunState({ phases: newPhases });
+    }
+    refreshRunStatus(currentRunId);
     connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
     activateRunMonitorTab("log");
@@ -1736,15 +2238,14 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   // Log lines — backend sends type "log_line" with message in payload.message
   if (type === "log_line" || type === "log") {
     const msg = payload.message || payload.text || data.message || data.text || "";
-    const ts = data.ts || payload.ts || formatTime();
     const level = payload.level || data.level || (type === "error" || type === "warning" ? type.toUpperCase() : "INFO");
-    logViewer.addLine(ts, level, msg);
+    addStructuredLogLine(logViewer, data, level, msg);
   }
 
   // Warning / error events also go to log and warning banner
   if (type === "warning" || type === "error") {
     const msg = payload.message || payload.text || data.message || data.text || JSON.stringify(payload);
-    logViewer.addLine(data.ts || formatTime(), type.toUpperCase(), msg);
+    addStructuredLogLine(logViewer, data, type.toUpperCase(), msg);
     if (warningBanner) addRunWarning(warningBanner, msg, type);
   }
 
@@ -1754,18 +2255,14 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   if (type === "phase_start" || type === "phase_progress" || type === "phase_end") {
     const phaseName = getEventPhaseName(data, payload);
     if (!phaseName || phaseName === "null") return;
-    if (getResumePending() && !getResumeActive()) return;
-    const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;
+    // The resume WebSocket cursor starts at the resume boundary, so these
+    // events belong to the resumed execution even before `resume_start` is
+    // observed. Do not discard an early phase event while the runner is
+    // starting; it is the only live progress signal in that interval.
+    const pct = normalizedEventPercent(data.pct ?? payload.pct ?? payload.progress ?? data.progress) ?? 0;
     const label = payload.label || null;
-    const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
-    const logLabel = label || phaseName;
-    const substep = payload.substep || data.substep || "";
     if (getResumeActive() && isBeforeResumePhase(phaseName)) {
-      logViewer.addLine(
-        data.ts || formatTime(),
-        "INFO",
-        `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
-      );
+      addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
       return;
     }
     if ((getResumePending() || getResumeActive()) && type === "phase_start") {
@@ -1778,34 +2275,36 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     updatePhaseState(phaseName, status, pct, label);
     savePhaseToStore(phaseName, status, pct);
     if (payload.elapsed || data.elapsed) updateStat("stat-elapsed", payload.elapsed || data.elapsed);
-    // Also log phase events
-    logViewer.addLine(
-      data.ts || formatTime(),
-      "INFO",
-      `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
-    );
+    // Also log phase events through the shared localized formatter.
+    addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
   }
 
-  // Run status with full phase array
-  // Skip stale run_status during resumePending or resumeActive —
-  // backend sends old completed/failed phase list until resume events arrive,
-  // and even after resume_start the run_status may contain stale phase data.
-  // Individual phase_start/phase_progress/phase_end events drive the UI instead.
-  if (type === "run_status" && !getResumePending() && !getResumeActive()) {
-    if (payload.phases && Array.isArray(payload.phases)) {
-      setPhaseList(payload.phases);
-      setRunState({ phases: payload.phases });
-    }
+  // Run status with full phase array. During resume, accept only an active
+  // `running` snapshot: this is the backend's authoritative overlay and also
+  // restores progress when `resume_start` was delayed or missed. Older
+  // terminal snapshots remain ignored until the resume state has cleared.
+  if (type === "run_status") {
     const runStatus = data.state || payload.status || data.status || "";
-    if (runStatus) {
-      updateStat("stat-status", runStatus);
-      updateStat("info-status", runStatus);
-      setRunState({ status: runStatus });
-      setRunButtonsActive(runStatus === "running");
-    }
-    const currentPhase = payload.current_phase || data.phase || "";
-    if (currentPhase && currentPhase !== "null" && runStatus === "running") {
-      updateStat("info-status", `${runStatus} — ${currentPhase}`);
+    const acceptSnapshot = (!getResumePending() && !getResumeActive()) || runStatus === "running";
+    if (acceptSnapshot) {
+      // Live phase events (or the REST log-tail fallback) advance the visible
+      // resume state. Do not overwrite them with a snapshot while the resume
+      // marker is active; this also protects old runs that lack that marker.
+      if (payload.phases && Array.isArray(payload.phases) &&
+          !getResumePending() && !getResumeActive()) {
+        setPhaseList(payload.phases);
+        setRunState({ phases: payload.phases });
+      }
+      if (runStatus) {
+        updateStat("stat-status", runStatus);
+        updateStat("info-status", runStatus);
+        setRunState({ status: runStatus });
+        setRunButtonsActive(runStatus === "running");
+      }
+      const currentPhase = payload.current_phase || data.phase || "";
+      if (currentPhase && currentPhase !== "null" && runStatus === "running") {
+        updateStat("info-status", `${runStatus} — ${currentPhase}`);
+      }
     }
   }
 
@@ -1816,7 +2315,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const fromPhase = payload.from_phase || data.from_phase || "";
     setResumeFromPhase(fromPhase);
-    logViewer.addLine(data.ts || formatTime(), "INFO", `Resume | start | ${fromPhase}`);
+    addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
     if (fromPhase) {
       updatePhaseState(fromPhase, "running", 0);
       savePhaseToStore(fromPhase, "running", 0);
@@ -1832,7 +2331,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const success = payload.success ?? data.success ?? false;
     const fromPhase = payload.from_phase || data.from_phase || "";
-    logViewer.addLine(data.ts || formatTime(), success ? "INFO" : "ERROR", `Resume | ${success ? "OK" : "ERROR"} | ${fromPhase}`);
+    addStructuredLogLine(logViewer, data, success ? "INFO" : "ERROR", formatEventMessage(data));
     if (success) {
       if (fromPhase) {
         updatePhaseState(fromPhase, "ok", 100);
@@ -1943,39 +2442,59 @@ function injectCalibrationIntoYaml(yaml, cal) {
 
   const normPath = (p) => (p || "").replace(/\\/g, '/');
 
-  // Determine effective values: prefer master over dir when both set
-  const biasMaster = normPath(cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "");
-  const biasDir = biasMaster ? "" : normPath(cal.bias_dir || "");
-  const darkMaster = normPath(cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "");
-  const darkDir = darkMaster ? "" : normPath(cal.dark_dir || "");
-  const flatMaster = normPath(cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "");
-  const flatDir = flatMaster ? "" : normPath(cal.flat_dir || "");
+  const sourceFor = (type) => {
+    const explicitSource = cal[`${type}_source`];
+    if (explicitSource === "master" || explicitSource === "dir") return explicitSource;
+    const explicitUseMaster = cal[`${type}_use_master`];
+    if (typeof explicitUseMaster === "boolean") return explicitUseMaster ? "master" : "dir";
+    const hasMaster = Boolean((cal[`${type}_master`] || "").trim());
+    const hasDir = Boolean((cal[`${type}_dir`] || "").trim());
+    return hasMaster && !hasDir ? "master" : "dir";
+  };
+
+  const effective = (type) => {
+    const source = sourceFor(type);
+    const master = normPath((cal[`${type}_master`] || "").trim());
+    const dir = normPath(cal[`${type}_dir`] || "");
+    return {
+      useMaster: source === "master",
+      dir: source === "master" ? "" : dir,
+      master: source === "master" ? master : "",
+    };
+  };
+
+  const bias = effective("bias");
+  const dark = effective("dark");
+  const flat = effective("flat");
 
   const entries = [
     ["use_bias", cal.bias_enabled ? "true" : "false"],
     ...(cal.bias_enabled ? [
-      ["bias_use_master", biasMaster ? "true" : "false"],
-      ["bias_dir", biasDir],
-      ["bias_master", biasMaster],
+      ["bias_use_master", bias.useMaster ? "true" : "false"],
+      ["bias_dir", bias.dir],
+      ["bias_master", bias.master],
     ] : [
+      ["bias_use_master", "false"],
       ["bias_dir", ""],
       ["bias_master", ""],
     ]),
     ["use_dark", cal.dark_enabled ? "true" : "false"],
     ...(cal.dark_enabled ? [
-      ["dark_use_master", darkMaster ? "true" : "false"],
-      ["darks_dir", darkDir],
-      ["dark_master", darkMaster],
+      ["dark_use_master", dark.useMaster ? "true" : "false"],
+      ["darks_dir", dark.dir],
+      ["dark_master", dark.master],
     ] : [
+      ["dark_use_master", "false"],
       ["darks_dir", ""],
       ["dark_master", ""],
     ]),
     ["use_flat", cal.flat_enabled ? "true" : "false"],
     ...(cal.flat_enabled ? [
-      ["flat_use_master", flatMaster ? "true" : "false"],
-      ["flats_dir", flatDir],
-      ["flat_master", flatMaster],
+      ["flat_use_master", flat.useMaster ? "true" : "false"],
+      ["flats_dir", flat.dir],
+      ["flat_master", flat.master],
     ] : [
+      ["flat_use_master", "false"],
       ["flats_dir", ""],
       ["flat_master", ""],
     ]),

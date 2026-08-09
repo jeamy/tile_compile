@@ -83,20 +83,20 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "When true, checks input frames for non-linearity (e.g. clipped highlights from over-exposure). Non-linear frames are flagged and may be excluded.",
+          "description": "When true, runs input-frame linearity diagnostics for evidence of non-linear preprocessing. Flagged frames are logged and kept by the current runner in warn-only mode.",
           "default": true
         },
         "max_frames": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of frames to sample for linearity checking. Linearity test runs on a random subset to save time. Default: 50.",
+          "description": "Maximum number of frames to sample for linearity diagnostics. Frames are sampled evenly across the run. Default: 8.",
           "default": 8
         },
         "min_overall_linearity": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum overall linearity score required for the frame set. Below this threshold, a warning is issued. Range 0\u20131. Default: 0.95.",
+          "description": "Minimum overall linearity diagnostic score for the sampled frame set. Below this threshold, a warning is issued. Range 0\u20131. Default: 0.9.",
           "default": 0.9
         },
         "strictness": {
@@ -106,7 +106,7 @@
             "moderate",
             "permissive"
           ],
-          "description": "Linearity check strictness. strict = reject frames with any non-linear pixels. moderate = warn only. permissive = log only, no action. Default: moderate.",
+          "description": "Linearity diagnostic strictness. Selects threshold presets for robust distribution and hard clipping/compression checks; spectral, gradient and variance metrics are diagnostic-only for object-dependent RAW/OSC frame structure. Default: strict.",
           "default": "strict"
         }
       }
@@ -410,6 +410,16 @@
           "maximum": 2000,
           "description": "Search radius for the shift-consistency filter in triangle_star_matching (px in proxy image). Must cover the maximum expected inter-frame shift. Equatorial mount (EQ tracker): 60. Alt/Az (e.g. DWARF II, unguided): 200\u2013400. WARNING: if set too small, frames with shifts exceeding this radius will silently fail registration (no error, just a bad warp with cc\u22480). This causes chain_depth=0 for those frames. Never reduce below the measured maximum per-frame shift. If in doubt, leave at default 200.",
           "default": 200.0
+        },
+        "affine_refinement_enabled": {
+          "type": "boolean",
+          "description": "Enable conservative per-frame affine fine registration after global registration. Uses mutual star matches and RANSAC on proxy coordinates; applies a correction only when match coverage, transform size, matched-set median/p90/RMS, NCC, and overlap gates pass. Rejected candidates preserve the original warp. Default: true.",
+          "default": true
+        },
+        "smooth_local_refinement_enabled": {
+          "type": "boolean",
+          "description": "Enable gated smooth local per-frame refinement after the global/optional affine warp. Fits a regularized 4x4 Gaussian inverse displacement field from mutual star matches and applies it only when spatial coverage, held-out median/p90/RMS, maximum displacement, Jacobian/local-scale, NCC, and overlap gates pass. Supported for MONO and OSC debayer-first RGB prewarp; otherwise the global/affine warp is preserved. Default: true.",
+          "default": true
         }
       }
     },
@@ -936,6 +946,12 @@
               "default": 0.4,
               "description": "Weight for signal-to-noise ratio in the AQMH quality metric. Higher values prioritize low-noise tiles. Range 0\u20132. Recommended: 1.0."
             },
+            "score_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.8,
+              "description": "Sigmoid score scale for local AQMH quality maps. Higher values increase per-pixel frame selectivity while preserving the [0,1] map range. Range 0.1\u20135.0. Recommended: 1.8."
+            },
             "k_artifact": {
               "type": "number",
               "exclusiveMinimum": 0,
@@ -988,15 +1004,24 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": false,
-              "description": "Enables per-pixel best-k frame selection during reconstruction. The pipeline also enforces an internal quality gate: if cherry_pick increases background_rms by more than max_background_rms_increase_percent, it is automatically disabled regardless of this flag. Only recommend enabling when the frame set has a significant quality spread (FWHM p90/p10 ratio > 1.3 or >20% spread) AND k_frac is set conservatively (<=0.6). Do NOT recommend enabling for large homogeneous frame sets where quality spread is low \u2014 it increases per-pixel tile inconsistency and raises background_rms."
+              "default": true,
+              "description": "Enables per-pixel AQMH frame selection during reconstruction."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "auto_reject",
+                "top_k"
+              ],
+              "default": "auto_reject",
+              "description": "auto_reject keeps most locally usable frames and rejects only clear low-score outliers; top_k is the legacy fixed best-k selection."
             },
             "k_frac": {
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 1,
               "default": 0.3,
-              "description": "Fraction of total frames retained per pixel tile. E.g. 0.85 retains 85% of frames, discarding only the worst 15%. COMMON MISTAKE TO AVOID: The intuitive reasoning 'if ~10% of frames are bad, set k_frac=0.90 to discard 10%' is WRONG for large frame counts. This reasoning ignores the tile-inconsistency effect: with 610 frames and k_frac=0.88, each pixel tile independently selects its best 537 frames from a spatially varying quality map. Different tiles select different frame subsets, creating per-tile flux baseline shifts that raise background_rms and create a tile-pattern artifact in the final stack. The pipeline's internal quality gate (max_background_rms_increase_percent) will auto-disable cherry_pick entirely when this happens, making the setting counterproductive. HARD RULES: (1) frame_count > 300: maximum k_frac = 0.5. This is a hard ceiling. The argument that 'k_frac=0.3 discards too many good frames' does not override this rule \u2014 k_frac=0.3\u20130.5 with 610 frames still retains 183\u2013305 frames per tile, far more than the stacking minimum. (2) frame_count 100\u2013300: maximum k_frac = 0.7. (3) frame_count < 100: k_frac up to 0.9 acceptable. Correct example: 610 frames, 10% bad \u2192 k_frac=0.45 (retains 274 frames per tile, discards worst 55%). Do NOT use k_frac=0.88 or 0.85 for any dataset with >300 frames."
+              "description": "Fraction retained in legacy mode=top_k."
             },
             "k_min_required": {
               "type": "integer",
@@ -1008,6 +1033,20 @@
               "minimum": 0,
               "maximum": 1,
               "default": 0.02
+            },
+            "reject_below_best_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.25,
+              "description": "In mode=auto_reject, reject samples only when their local score is below this fraction of the local best score."
+            },
+            "min_keep_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "default": 0.9,
+              "description": "In mode=auto_reject, retain at least this fraction of locally rankable samples."
             },
             "tiered_k_frac": {
               "type": "array",
@@ -1118,6 +1157,48 @@
               "default": true,
               "description": "Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."
             },
+            "prewarp_interpolation": {
+              "type": "string",
+              "enum": [
+                "linear",
+                "cubic",
+                "lanczos4"
+              ],
+              "default": "cubic",
+              "description": "Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. cubic is the default because controlled sharpness comparisons preserved more high-frequency detail than linear with a smaller background-noise increase than lanczos4. linear remains the conservative low-noise fallback; lanczos4 is an explicit tuning option that may increase background noise or ringing."
+            },
+            "debayer_first": {
+              "type": "boolean",
+              "default": true,
+              "description": "OSC-only AQMH mode. When true and a Bayer pattern is known, each calibrated frame is demosaiced before prewarp; AQMH quality maps are computed from luma and the final R/G/B planes are reconstructed directly from the prewarped RGB planes. This avoids reconstructing and later debayering a warped CFA mosaic."
+            },
+            "pre_debayer_method": {
+              "type": "string",
+              "enum": [
+                "bilinear",
+                "nearest",
+                "vng",
+                "edge_aware"
+              ],
+              "default": "edge_aware",
+              "description": "Demosaicing method used before prewarp when aqmh.reconstruction.debayer_first is true for OSC input. Ignored for mono/RGB input and for OSC input without a known Bayer pattern."
+            },
+            "rgb_q_map_mode": {
+              "type": "string",
+              "enum": [
+                "shared_luma"
+              ],
+              "default": "shared_luma",
+              "description": "Quality-map source for AQMH debayer-first RGB reconstruction. shared_luma reuses luma Q-maps and global weights for R, G, and B."
+            },
+            "rgb_memory_strategy": {
+              "type": "string",
+              "enum": [
+                "sequential"
+              ],
+              "default": "sequential",
+              "description": "Memory strategy for AQMH debayer-first RGB reconstruction. sequential reconstructs R, G, and B one channel at a time to bound memory and VRAM usage."
+            },
             "registration_weight_guard": {
               "type": "boolean",
               "default": true,
@@ -1127,7 +1208,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.30
+              "default": 0.3
             },
             "registration_cc_floor": {
               "type": "number",
@@ -1151,7 +1232,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.50
+              "default": 0.5
             },
             "registration_chain_depth_penalty": {
               "type": "number",
@@ -1169,14 +1250,14 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.40,
+              "default": 0.4,
               "description": "Gradient quantile mapped to structure mask = 0 (background). Lower values include more nebula structure in AQMH weighting."
             },
             "structure_mask_high_q": {
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "default": 0.90,
+              "default": 0.9,
               "description": "Gradient quantile mapped to structure mask = 1 (full AQMH detail). Lower values give more pixels full AQMH benefit."
             },
             "structure_mask_blur_sigma_px": {
@@ -1209,7 +1290,7 @@
             "max_tail11_abs_regression": {
               "type": "number",
               "minimum": 0,
-              "default": 0.10
+              "default": 0.1
             },
             "max_elongation_regression": {
               "type": "number",

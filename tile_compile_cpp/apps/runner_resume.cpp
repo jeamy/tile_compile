@@ -457,6 +457,22 @@ int rerun_existing_run_in_place(const fs::path &run_dir,
       << " --project-root " << shell_quote(fs::current_path().string())
       << " --run-id " << shell_quote(run_id);
 
+  {
+    std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
+                                 std::ios::out | std::ios::app);
+    if (event_log_file) {
+      tile_compile::runner::TeeBuf tee_buf(std::cout.rdbuf(),
+                                           event_log_file.rdbuf());
+      std::ostream log_file(&tee_buf);
+      core::emit_event(
+          "resume_start", run_id,
+          {{"run_dir", run_dir.string()},
+           {"from_phase", from_phase},
+           {"mode", "inplace_full_rerun"}},
+          log_file);
+    }
+  }
+
   std::cout << "[RESUME][rerun] Replaying full pipeline in place for requested "
             << "phase " << from_phase << ": " << cmd.str() << std::endl;
 
@@ -1805,7 +1821,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
-    if (restore_aqmh_output_scaling) {
+    const bool have_resume_rgb_recon =
+        detected_mode == ColorMode::OSC && recon_R.size() == recon.size() &&
+        recon_G.size() == recon.size() && recon_B.size() == recon.size() &&
+        recon_R.size() > 0;
+    const bool defer_aqmh_osc_scaling_to_rgb_writer =
+        restore_aqmh_output_scaling && cfg.aqmh.enabled &&
+        detected_mode == ColorMode::OSC && !have_resume_rgb_recon;
+    if (restore_aqmh_output_scaling && !defer_aqmh_osc_scaling_to_rgb_writer) {
       image::apply_output_scaling_inplace(
           recon, -debayer_tile_offset_x, -debayer_tile_offset_y,
           detected_mode, detected_bayer_str, aqmh_output_scaling.scale_mono,
@@ -1879,7 +1902,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
          {"crop_y", stacking_crop_box.y},
          {"crop_width", stacking_crop_box.width},
          {"crop_height", stacking_crop_box.height},
-         {"output_luma", (run_dir / "outputs" / "stacked.fits").string()}},
+         {"output_luma", (run_dir / "outputs" / "stacked.fits").string()},
+         {"debayer_method", post_result.debayer_method}},
         log_file);
     if (abort_if_runtime_limit_exceeded("STACKING")) {
       return 1;

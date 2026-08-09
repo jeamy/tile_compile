@@ -75,6 +75,16 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   return false;
 }
 
+int interpolation_flag_from_name(const std::string &name) {
+  if (name == "nearest")
+    return cv::INTER_NEAREST;
+  if (name == "cubic")
+    return cv::INTER_CUBIC;
+  if (name == "lanczos4")
+    return cv::INTER_LANCZOS4;
+  return cv::INTER_LINEAR;
+}
+
 /// @brief Implements phase supports backend.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -322,7 +332,7 @@ bool build_warped_support_mask(const cv::Mat &warp_matrix, int src_rows,
 /// artifact, and error-handling semantics expected by callers.
 bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
                            cv::Size output_size, cv::Mat &dst,
-                           cv::cuda::Stream *stream) {
+                           int interpolation_flag, cv::cuda::Stream *stream) {
   try {
     cv::cuda::GpuMat d_src;
     cv::cuda::GpuMat d_dst;
@@ -330,7 +340,7 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
         stream ? *stream : cv::cuda::Stream::Null();
     d_src.upload(src, cuda_stream);
     cv::cuda::warpAffine(d_src, d_dst, warp_matrix, output_size,
-                         cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                         interpolation_flag | cv::WARP_INVERSE_MAP,
                          cv::BORDER_CONSTANT, cv::Scalar(0), cuda_stream);
     d_dst.download(dst, cuda_stream);
     cuda_stream.waitForCompletion();
@@ -346,7 +356,7 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
 /// artifact, and error-handling semantics expected by callers.
 bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
                           int out_height, int out_width, Matrix2Df &out,
-                          cv::cuda::Stream *stream) {
+                          int interpolation_flag, cv::cuda::Stream *stream) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
   const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
@@ -371,7 +381,7 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
       for (size_t i = 0; i < src.size(); ++i) {
         d_src[i].upload(src[i], *stream);
         cv::cuda::warpAffine(d_src[i], d_dst[i], warp_arr[i], out_size,
-                             cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                             interpolation_flag | cv::WARP_INVERSE_MAP,
                              cv::BORDER_CONSTANT, cv::Scalar(0), *stream);
         d_dst[i].download(*dst[i], *stream);
       }
@@ -379,10 +389,14 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
     } catch (...) {
       return false;
     }
-  } else if (!cuda_warp_affine_impl(a_cv, warps.a, out_size, a_w, nullptr) ||
-             !cuda_warp_affine_impl(b_cv, warps.b, out_size, b_w, nullptr) ||
-             !cuda_warp_affine_impl(c_cv, warps.c, out_size, c_w, nullptr) ||
-             !cuda_warp_affine_impl(d_cv, warps.d, out_size, d_w, nullptr)) {
+  } else if (!cuda_warp_affine_impl(a_cv, warps.a, out_size, a_w,
+                                    interpolation_flag, nullptr) ||
+             !cuda_warp_affine_impl(b_cv, warps.b, out_size, b_w,
+                                    interpolation_flag, nullptr) ||
+             !cuda_warp_affine_impl(c_cv, warps.c, out_size, c_w,
+                                    interpolation_flag, nullptr) ||
+             !cuda_warp_affine_impl(d_cv, warps.d, out_size, d_w,
+                                    interpolation_flag, nullptr)) {
     return false;
   }
 
@@ -398,12 +412,13 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
 /// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_affine_impl_locked(const cv::Mat &src,
                                     const cv::Mat &warp_matrix,
-                                    cv::Size output_size, cv::Mat &dst) {
+                                    cv::Size output_size, cv::Mat &dst,
+                                    int interpolation_flag) {
   cv::UMat u_src;
   src.copyTo(u_src);
   cv::UMat u_dst;
   cv::warpAffine(u_src, u_dst, warp_matrix, output_size,
-                 cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                 interpolation_flag | cv::WARP_INVERSE_MAP,
                  cv::BORDER_CONSTANT, cv::Scalar(0));
 
   cv::Mat host_dst;
@@ -417,9 +432,11 @@ bool opencl_warp_affine_impl_locked(const cv::Mat &src,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
-                             cv::Size output_size, cv::Mat &dst) {
+                             cv::Size output_size, cv::Mat &dst,
+                             int interpolation_flag) {
   try {
-    return opencl_warp_affine_impl_locked(src, warp_matrix, output_size, dst);
+    return opencl_warp_affine_impl_locked(src, warp_matrix, output_size, dst,
+                                          interpolation_flag);
   } catch (...) {
     return false;
   }
@@ -430,7 +447,8 @@ bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
-                             int out_height, int out_width, Matrix2Df &out) {
+                             int out_height, int out_width, Matrix2Df &out,
+                             int interpolation_flag) {
   const int h = static_cast<int>(mosaic.rows());
   const int w = static_cast<int>(mosaic.cols());
   const auto dims = compute_cfa_warp_dims(h, w, out_height, out_width);
@@ -444,10 +462,14 @@ bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
   cv::Mat a_w, b_w, c_w, d_w;
   const cv::Size out_size(dims.out_w_sub, dims.out_h_sub);
   try {
-    if (!opencl_warp_affine_impl_locked(a_cv, warps.a, out_size, a_w) ||
-        !opencl_warp_affine_impl_locked(b_cv, warps.b, out_size, b_w) ||
-        !opencl_warp_affine_impl_locked(c_cv, warps.c, out_size, c_w) ||
-        !opencl_warp_affine_impl_locked(d_cv, warps.d, out_size, d_w)) {
+    if (!opencl_warp_affine_impl_locked(a_cv, warps.a, out_size, a_w,
+                                        interpolation_flag) ||
+        !opencl_warp_affine_impl_locked(b_cv, warps.b, out_size, b_w,
+                                        interpolation_flag) ||
+        !opencl_warp_affine_impl_locked(c_cv, warps.c, out_size, c_w,
+                                        interpolation_flag) ||
+        !opencl_warp_affine_impl_locked(d_cv, warps.d, out_size, d_w,
+                                        interpolation_flag)) {
       return false;
     }
   } catch (...) {
@@ -2229,12 +2251,16 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch) {
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-AccelerationOps::AccelerationOps(AccelerationSelection selection)
-    : selection_(std::move(selection)) {}
+AccelerationOps::AccelerationOps(AccelerationSelection selection,
+                                 std::string prewarp_interpolation)
+    : selection_(std::move(selection)),
+      prewarp_interpolation_(std::move(prewarp_interpolation)) {}
 
 AccelerationOps::AccelerationOps(const AccelerationContext &context,
-                                 AccelerationPhase phase)
-    : selection_(context.selection_for(phase)) {}
+                                 AccelerationPhase phase,
+                                 std::string prewarp_interpolation)
+    : selection_(context.selection_for(phase)),
+      prewarp_interpolation_(std::move(prewarp_interpolation)) {}
 
 struct AccelerationOps::OverlapAddState {
   int rows = 0;
@@ -2297,6 +2323,8 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
 
   const int src_height = static_cast<int>(img.rows());
   const int src_width = static_cast<int>(img.cols());
+  const int interpolation_flag =
+      interpolation_flag_from_name(prewarp_interpolation_);
   if (warp_is_identity(warp)) {
     int dst_y = 0;
     int dst_x = 0;
@@ -2326,7 +2354,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       selection_.phase == AccelerationPhase::prewarp) {
     if (mode == ColorMode::OSC) {
       if (cuda_warp_cfa_mosaic(img, warp, canvas_height, canvas_width,
-                               warped_out, stream)) {
+                               warped_out, interpolation_flag, stream)) {
         update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
@@ -2336,7 +2364,8 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
       cv::Mat dst;
       if (cuda_warp_affine_impl(src, warp_matrix,
-                                cv::Size(canvas_width, canvas_height), dst, stream)) {
+                                cv::Size(canvas_width, canvas_height), dst,
+                                interpolation_flag, stream)) {
         warped_out.resize(canvas_height, canvas_width);
         std::memcpy(warped_out.data(), dst.data,
                     static_cast<size_t>(warped_out.size()) * sizeof(float));
@@ -2352,7 +2381,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       selection_.phase == AccelerationPhase::prewarp) {
     if (mode == ColorMode::OSC) {
       if (opencl_warp_cfa_mosaic(img, warp, canvas_height, canvas_width,
-                                 warped_out)) {
+                                 warped_out, interpolation_flag)) {
         update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
@@ -2362,7 +2391,8 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
       const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
       cv::Mat dst;
       if (opencl_warp_affine_impl(src, warp_matrix,
-                                  cv::Size(canvas_width, canvas_height), dst)) {
+                                  cv::Size(canvas_width, canvas_height), dst,
+                                  interpolation_flag)) {
         warped_out.resize(canvas_height, canvas_width);
         std::memcpy(warped_out.data(), dst.data,
                     static_cast<size_t>(warped_out.size()) * sizeof(float));
@@ -2374,7 +2404,8 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
 #endif
 
   warped_out =
-      image::apply_global_warp(img, warp, mode, canvas_height, canvas_width);
+      image::apply_global_warp(img, warp, mode, canvas_height, canvas_width,
+                               prewarp_interpolation_);
   update_valid_outputs_from_warp(src_height, src_width);
   return warped_out.size() > 0;
 }

@@ -55,10 +55,11 @@ and ECC); GPU processing starts with the subsequent `PREWARP` phase.
 
 CUDA uses one non-default stream per parallel worker. `AQMH_RECONSTRUCTION`
 keeps only its accumulators plus one frame/quality map resident, so VRAM usage
-does not grow with frame count. AQMH Cherry-Pick currently uses the CPU because
-its per-pixel top-K selection has no CUDA/OpenCL sorting kernel. CUDA errors,
-unsupported operations, or unavailable runtimes fall back to CPU. Live progress
-logs report `cpu_workers`, `gpu`, and the selected `backend`.
+does not grow with frame count. AQMH Cherry-Pick `mode: auto_reject` is
+implemented for CPU and CUDA; OpenCL currently falls back to CPU for that mode
+to preserve semantics. CUDA errors, unsupported operations, or unavailable
+runtimes fall back to CPU. Live progress logs report `cpu_workers`, `gpu`, and
+the selected `backend`.
 
 ### Notes
 

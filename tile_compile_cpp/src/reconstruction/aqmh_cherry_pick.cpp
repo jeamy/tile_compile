@@ -54,4 +54,47 @@ std::vector<AqmhWeightedSample> aqmh_select_top_k(
   return samples;
 }
 
+std::vector<AqmhWeightedSample> aqmh_select_auto_reject(
+    std::vector<AqmhWeightedSample> samples, int k_min_required,
+    float reject_below_best_fraction, float min_keep_fraction,
+    float margin_min, int *nominal_k, float *rank_margin) {
+  samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
+                  return !(s.score > 0.0f) || !std::isfinite(s.score);
+                }), samples.end());
+  const int n = static_cast<int>(samples.size());
+  if (nominal_k) *nominal_k = n;
+  if (rank_margin) *rank_margin = -1.0f;
+  if (n <= 0) return {};
+  if (n < k_min_required) return samples;
+
+  auto score_cmp = [](const auto &a, const auto &b) {
+    return a.score != b.score ? a.score > b.score : a.frame_index < b.frame_index;
+  };
+  std::sort(samples.begin(), samples.end(), score_cmp);
+
+  const float best = samples.front().score;
+  if (!(best > 0.0f) || !std::isfinite(best)) return samples;
+
+  const float threshold = best * std::clamp(reject_below_best_fraction, 0.0f, 1.0f);
+  int keep = 0;
+  while (keep < n && samples[static_cast<size_t>(keep)].score >= threshold) {
+    ++keep;
+  }
+
+  const int min_keep = std::min(n, std::max(k_min_required,
+      static_cast<int>(std::ceil(std::clamp(min_keep_fraction, 0.0f, 1.0f) *
+                                 static_cast<float>(n)))));
+  keep = std::max(keep, min_keep);
+  if (keep >= n) return samples;
+
+  const float margin =
+      (samples[static_cast<size_t>(keep - 1)].score -
+       samples[static_cast<size_t>(keep)].score) / best;
+  if (rank_margin) *rank_margin = margin;
+  if (margin < margin_min) return samples;
+
+  samples.resize(static_cast<size_t>(keep));
+  return samples;
+}
+
 } // namespace tile_compile::reconstruction

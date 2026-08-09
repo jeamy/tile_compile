@@ -550,6 +550,10 @@
   pointer-events: none;
 }
 
+.tc-cal-source-inactive {
+  opacity: 0.55;
+}
+
 /* ── Scan Result Card ───────────────────────────── */
 .tc-scan-result .tc-grid-2 {
   gap: var(--space-3);

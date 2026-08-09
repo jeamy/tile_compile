@@ -14,6 +14,7 @@
 #include <opencv2/imgproc.hpp>
 #include <fstream>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <filesystem>
 #include <algorithm>
@@ -337,17 +338,187 @@ static std::optional<crow::response> resolve_request_run_dir(const std::shared_p
     return std::nullopt;
 }
 
-static void persist_run_config_snapshot(const fs::path& run_dir,
-                                        const std::string& yaml_text,
-                                        const std::string& source,
-                                        const std::optional<std::string>& run_id = std::nullopt) {
-    if (yaml_text.empty()) return;
-    auto revisions = list_run_config_revisions(run_dir);
-    if (!revisions.empty()) {
-        auto latest = get_run_config_revision(run_dir, revisions.front().revision_id);
-        if (latest && latest->yaml_text == yaml_text) return;
+static std::string persist_required_run_config_revision(
+    const fs::path& run_dir, const std::string& yaml_text,
+    const std::string& source,
+    const std::optional<std::string>& run_id = std::nullopt) {
+    const std::string revision_id =
+        add_run_config_revision(run_dir, yaml_text, source, run_id);
+    if (revision_id.empty()) {
+        throw std::runtime_error("Cannot persist per-run config revision for: " +
+                                 (run_dir / "config.yaml").string());
     }
-    add_run_config_revision(run_dir, yaml_text, source, run_id);
+    return revision_id;
+}
+
+static std::string replace_run_config_with_revisions(
+    const fs::path& run_dir, const std::string& yaml_text,
+    const std::string& previous_source, const std::string& selected_source,
+    const std::optional<std::string>& run_id = std::nullopt) {
+    if (yaml_text.empty()) {
+        throw std::runtime_error("Cannot select an empty per-run config");
+    }
+
+    const fs::path config_path = run_dir / "config.yaml";
+    std::error_code ec;
+    const bool previous_existed = fs::is_regular_file(config_path, ec);
+    const std::string previous_yaml =
+        tile_compile::routes::read_file_str(config_path);
+    if (!previous_yaml.empty() && previous_yaml != yaml_text) {
+        persist_required_run_config_revision(
+            run_dir, previous_yaml, previous_source, run_id);
+    }
+    if (!tile_compile::routes::write_file_str(config_path, yaml_text)) {
+        throw std::runtime_error("Cannot write: " + config_path.string());
+    }
+
+    try {
+        return persist_required_run_config_revision(
+            run_dir, yaml_text, selected_source, run_id);
+    } catch (...) {
+        bool rollback_ok = false;
+        if (previous_existed) {
+            rollback_ok = tile_compile::routes::write_file_str(
+                config_path, previous_yaml);
+        } else {
+            rollback_ok = fs::remove(config_path, ec) || !fs::exists(config_path);
+        }
+        if (!rollback_ok) {
+            throw std::runtime_error(
+                "Cannot persist selected config revision or roll back: " +
+                config_path.string());
+        }
+        throw;
+    }
+}
+
+static void release_run_start_config_claim(const fs::path& run_dir) {
+    std::error_code ec;
+    fs::remove(run_dir / "artifacts" / "run_start_config_claim.json", ec);
+}
+
+static fs::path claim_run_start_config_snapshot(
+    const fs::path& run_dir, const std::string& yaml_text,
+    const std::string& source,
+    const std::optional<std::string>& run_id = std::nullopt) {
+    if (yaml_text.empty()) {
+        throw std::runtime_error("Cannot create an empty per-run config snapshot");
+    }
+    static std::mutex snapshot_mutex;
+    std::lock_guard<std::mutex> process_lock(snapshot_mutex);
+
+    std::error_code ec;
+    fs::create_directories(run_dir / "artifacts", ec);
+    if (ec) {
+        throw std::runtime_error("Cannot create run directory for config snapshot: " +
+                                 run_dir.string() + ": " + ec.message());
+    }
+
+    const fs::path snapshot_path = run_dir / "config.yaml";
+    const fs::path pending_snapshot_path = run_dir / ".config.yaml.pending";
+    const fs::path claim_path = run_dir / "artifacts" / "run_start_config_claim.json";
+    const fs::path pending_claim_path = run_dir / "artifacts" / ".run_start_config_claim.json.pending";
+    const fs::path lock_path = run_dir / ".run_start_config_claim.lock";
+    if (fs::exists(claim_path)) {
+        throw std::runtime_error(
+            "Run ID collision: run start config is already claimed: " +
+            claim_path.string());
+    }
+
+    bool lock_acquired = fs::create_directory(lock_path, ec);
+    if (!lock_acquired) {
+        std::error_code time_ec;
+        const auto modified = fs::last_write_time(lock_path, time_ec);
+        const bool stale = !time_ec &&
+            fs::file_time_type::clock::now() - modified > std::chrono::minutes(5);
+        if (stale) {
+            std::error_code cleanup_ec;
+            fs::remove_all(lock_path, cleanup_ec);
+            ec.clear();
+            lock_acquired = fs::create_directory(lock_path, ec);
+        }
+    }
+    if (!lock_acquired) {
+        const std::string reason = ec ? ec.message() : "run start claim already in progress";
+        throw std::runtime_error("Cannot lock per-run start config claim: " +
+                                 lock_path.string() + ": " + reason);
+    }
+    auto release_lock = [&]() {
+        std::error_code cleanup_ec;
+        fs::remove_all(lock_path, cleanup_ec);
+    };
+
+    bool claim_published = false;
+    try {
+        if (fs::exists(claim_path)) {
+            throw std::runtime_error(
+                "Run ID collision: run start config is already claimed: " +
+                claim_path.string());
+        }
+
+        const std::string previous_yaml =
+            tile_compile::routes::read_file_str(snapshot_path);
+        if (!previous_yaml.empty()) {
+            persist_required_run_config_revision(
+                run_dir, previous_yaml, "run_start_previous_config", run_id);
+        }
+        const std::string selected_revision_id =
+            persist_required_run_config_revision(run_dir, yaml_text, source, run_id);
+
+        fs::remove(pending_snapshot_path, ec);
+        ec.clear();
+        std::ofstream snapshot(pending_snapshot_path, std::ios::out | std::ios::trunc);
+        if (!snapshot) {
+            throw std::runtime_error("Cannot write per-run config snapshot: " +
+                                     pending_snapshot_path.string());
+        }
+        snapshot << yaml_text;
+        snapshot.close();
+        if (!snapshot) {
+            throw std::runtime_error("Cannot finalize per-run config snapshot: " +
+                                     pending_snapshot_path.string());
+        }
+
+        fs::remove(pending_claim_path, ec);
+        ec.clear();
+        std::ofstream claim(pending_claim_path, std::ios::out | std::ios::trunc);
+        if (!claim) {
+            throw std::runtime_error("Cannot write per-run start config claim: " +
+                                     pending_claim_path.string());
+        }
+        claim << nlohmann::json({
+            {"run_id", run_id.has_value() ? nlohmann::json(*run_id) : nlohmann::json(nullptr)},
+            {"config_revision_id", selected_revision_id},
+            {"source", source},
+        }).dump(2);
+        claim.close();
+        if (!claim) {
+            throw std::runtime_error("Cannot finalize per-run start config claim: " +
+                                     pending_claim_path.string());
+        }
+
+        fs::rename(pending_snapshot_path, snapshot_path, ec);
+        if (ec) {
+            throw std::runtime_error("Cannot publish immutable per-run config snapshot: " +
+                                     snapshot_path.string() + ": " + ec.message());
+        }
+
+        fs::rename(pending_claim_path, claim_path, ec);
+        if (ec) {
+            throw std::runtime_error("Cannot publish per-run start config claim: " +
+                                     claim_path.string() + ": " + ec.message());
+        }
+        claim_published = true;
+    } catch (...) {
+        std::error_code cleanup_ec;
+        fs::remove(pending_snapshot_path, cleanup_ec);
+        fs::remove(pending_claim_path, cleanup_ec);
+        if (claim_published) fs::remove(claim_path, cleanup_ec);
+        release_lock();
+        throw;
+    }
+    release_lock();
+    return snapshot_path;
 }
 
 /// @brief Resolves artifact path.
@@ -599,18 +770,36 @@ static fs::path materialize_queue_input(const fs::path& input_dir,
     std::error_code ec;
     fs::remove_all(staging_dir, ec);
     fs::create_directories(staging_dir, ec);
+    nlohmann::json input_origins = nlohmann::json::object();
     for (const auto& entry : fs::directory_iterator(input_dir)) {
         if (!entry.is_regular_file()) continue;
         const std::string name = entry.path().filename().string();
         if (!wildcard_match(pattern, name)) continue;
         fs::path target = staging_dir / entry.path().filename();
+        std::error_code source_ec;
+        fs::path source_path = fs::weakly_canonical(entry.path(), source_ec);
+        if (source_ec) source_path = fs::absolute(entry.path());
+        input_origins[name] = source_path.string();
         std::error_code link_ec;
-        fs::create_symlink(entry.path(), target, link_ec);
+        fs::create_symlink(source_path, target, link_ec);
         if (link_ec) {
             std::error_code copy_ec;
-            fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing, copy_ec);
+            fs::copy_file(source_path, target,
+                          fs::copy_options::overwrite_existing, copy_ec);
+            if (copy_ec) {
+                throw std::runtime_error("Cannot materialize queue input " +
+                                         source_path.string() + ": " +
+                                         copy_ec.message());
+            }
         }
     }
+    std::ofstream origins_out(staging_dir / ".tile_compile_input_origins.json",
+                              std::ios::out | std::ios::trunc);
+    if (!origins_out) {
+        throw std::runtime_error("Cannot write queue input origin manifest: " +
+                                 staging_dir.string());
+    }
+    origins_out << input_origins.dump(2);
     return staging_dir;
 }
 
@@ -1015,24 +1204,21 @@ void register_runs_routes(CrowApp& app,
         }
 
         std::string prepared_config_yaml = effective_config_yaml(state, config_yaml, color_mode, astap_bin, astap_data_dir);
-        std::string effective_config_path = state->runtime.default_config_path.string();
-        if (!prepared_config_yaml.empty()) {
-            std::ofstream out(state->runtime.default_config_path);
-            if (!out) return err_resp("Cannot write config: " + state->runtime.default_config_path.string(), 500);
-            out << prepared_config_yaml;
+        if (prepared_config_yaml.empty()) {
+            return err_resp("CONFIG_EMPTY", "effective run config is empty", 422,
+                            nlohmann::json::object());
         }
-        std::string revision_id = state->revision_store.add(state->runtime.default_config_path, prepared_config_yaml, "run_start", base_run_id);
-        {
-            std::lock_guard<std::mutex> lk(state->state_mutex);
-            state->active_config_revision_id = revision_id;
-        }
+        const fs::path revision_path =
+            fs::path(runs_dir) / base_run_id / "config.yaml";
+        std::string revision_id = state->revision_store.add(
+            revision_path, prepared_config_yaml, "run_start", base_run_id);
 
         if (!queue_items.empty()) {
             std::string effective_run_id = queue_items.front().value("run_id", base_run_id);
             auto queue_payload = queue_job_payload(queue_items, 0, effective_run_id, runs_dir);
             queue_payload["config_revision_id"] = revision_id;
             std::string job_id = tile_compile::routes::spawn_job_thread(state, "run_queue", effective_run_id, queue_payload,
-                [queue_items, runs_dir, effective_config_path, prepared_config_yaml](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
+                [queue_items, runs_dir, prepared_config_yaml, revision_id](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
                 fs::create_directories(staging_root, ec);
@@ -1059,23 +1245,84 @@ void register_runs_routes(CrowApp& app,
                         state->current_run_id = current_run_id;
                     }
 
-                    persist_run_config_snapshot(fs::path(runs_dir) / current_run_id,
-                                                prepared_config_yaml,
-                                                "run_start",
-                                                current_run_id);
+                    fs::path input_dir = fs::path(queue[i].value("input_dir", ""));
+                    std::string pattern = queue[i].value("pattern", "");
+                    fs::path effective_input_dir;
+                    try {
+                        effective_input_dir = materialize_queue_input(
+                            input_dir, pattern, staging_root,
+                            static_cast<int>(i));
+                    } catch (const std::exception& e) {
+                        queue[i]["state"] = "error";
+                        queue[i]["error"] = e.what();
+                        state->job_store.update_state(
+                            job_id, JobState::error,
+                            queue_job_payload(queue, static_cast<int>(i),
+                                              current_run_id, runs_dir),
+                            e.what());
+                        fs::remove_all(staging_root, ec);
+                        return;
+                    }
+
+                    fs::path config_snapshot_path;
+                    try {
+                        config_snapshot_path = claim_run_start_config_snapshot(
+                            fs::path(runs_dir) / current_run_id,
+                            prepared_config_yaml,
+                            "run_start",
+                            current_run_id);
+                    } catch (const std::exception& e) {
+                        queue[i]["state"] = "error";
+                        queue[i]["error"] = e.what();
+                        state->job_store.update_state(
+                            job_id, JobState::error,
+                            queue_job_payload(queue, static_cast<int>(i),
+                                              current_run_id, runs_dir),
+                            e.what());
+                        fs::remove_all(staging_root, ec);
+                        return;
+                    }
 
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
                     state->job_store.update_progress(job_id, queue.empty() ? 100.0 : (100.0 * i / queue.size()));
 
-                    fs::path input_dir = fs::path(queue[i].value("input_dir", ""));
-                    std::string pattern = queue[i].value("pattern", "");
-                    fs::path effective_input_dir = materialize_queue_input(input_dir, pattern, staging_root, static_cast<int>(i));
-
-                    auto args = runner_run_args(state, effective_config_path, effective_input_dir.string(), runs_dir, current_run_id);
-                    std::string child_job_id = state->subprocess_manager.launch("run", args,
-                                                                                  state->runtime.project_root.string(),
-                                                                                  current_run_id);
+                    auto args = runner_run_args(state, config_snapshot_path.string(), effective_input_dir.string(), runs_dir, current_run_id);
+                    std::string child_job_id;
+                    try {
+                        child_job_id = state->subprocess_manager.launch(
+                            "run", args, state->runtime.project_root.string(),
+                            current_run_id);
+                    } catch (const std::exception& e) {
+                        release_run_start_config_claim(
+                            fs::path(runs_dir) / current_run_id);
+                        queue[i]["state"] = "error";
+                        queue[i]["error"] = e.what();
+                        state->job_store.update_state(
+                            job_id, JobState::error,
+                            queue_job_payload(queue, static_cast<int>(i),
+                                              current_run_id, runs_dir),
+                            e.what());
+                        fs::remove_all(staging_root, ec);
+                        return;
+                    } catch (...) {
+                        release_run_start_config_claim(
+                            fs::path(runs_dir) / current_run_id);
+                        const std::string error = "unknown subprocess launch error";
+                        queue[i]["state"] = "error";
+                        queue[i]["error"] = error;
+                        state->job_store.update_state(
+                            job_id, JobState::error,
+                            queue_job_payload(queue, static_cast<int>(i),
+                                              current_run_id, runs_dir),
+                            error);
+                        fs::remove_all(staging_root, ec);
+                        return;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(state->state_mutex);
+                        state->active_config_revision_id = revision_id;
+                    }
                     while (true) {
                         auto child_job = state->job_store.get(child_job_id);
                         if (!child_job) break;
@@ -1121,14 +1368,33 @@ void register_runs_routes(CrowApp& app,
         }
 
         std::string effective_run_id = sanitize_run_id(run_id.empty() ? "run" : run_id);
-        persist_run_config_snapshot(fs::path(runs_dir) / effective_run_id,
-                                    prepared_config_yaml,
-                                    "run_start",
-                                    effective_run_id);
-        auto args = runner_run_args(state, effective_config_path, input_dirs.front(), runs_dir, effective_run_id);
-        std::string job_id = state->subprocess_manager.launch("run", args,
-                                                               state->runtime.project_root.string(),
-                                                               effective_run_id);
+        fs::path config_snapshot_path;
+        try {
+            config_snapshot_path = claim_run_start_config_snapshot(
+                fs::path(runs_dir) / effective_run_id,
+                prepared_config_yaml,
+                "run_start",
+                effective_run_id);
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CONFIG_SNAPSHOT_CONFLICT", e.what(), 409,
+                            {{"run_id", effective_run_id},
+                             {"runs_dir", runs_dir}});
+        }
+        auto args = runner_run_args(state, config_snapshot_path.string(), input_dirs.front(), runs_dir, effective_run_id);
+        std::string job_id;
+        try {
+            job_id = state->subprocess_manager.launch(
+                "run", args, state->runtime.project_root.string(),
+                effective_run_id);
+        } catch (const std::exception& e) {
+            release_run_start_config_claim(fs::path(runs_dir) / effective_run_id);
+            return err_resp("RUN_LAUNCH_FAILED", e.what(), 500,
+                            {{"run_id", effective_run_id}, {"runs_dir", runs_dir}});
+        } catch (...) {
+            release_run_start_config_claim(fs::path(runs_dir) / effective_run_id);
+            return err_resp("RUN_LAUNCH_FAILED", "unknown subprocess launch error", 500,
+                            {{"run_id", effective_run_id}, {"runs_dir", runs_dir}});
+        }
         state->job_store.update_state(job_id, JobState::running, {
             {"input_dir", input_dirs.front()},
             {"runs_dir", runs_dir},
@@ -1139,6 +1405,7 @@ void register_runs_routes(CrowApp& app,
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = effective_run_id;
+            state->active_config_revision_id = revision_id;
         }
         state->ui_event_store.push(
             "run.start",
@@ -1532,14 +1799,14 @@ void register_runs_routes(CrowApp& app,
         }
 
         if (!requested_yaml.empty()) {
-            const std::string current_yaml = tile_compile::routes::read_file_str(run_config_path);
-            if (!current_yaml.empty() && current_yaml != requested_yaml) {
-                persist_run_config_snapshot(run_dir, current_yaml, "resume_previous_config", run_id);
+            try {
+                replace_run_config_with_revisions(
+                    run_dir, requested_yaml,
+                    "resume_previous_config", "resume_selected_config", run_id);
+            } catch (const std::exception& e) {
+                return err_resp("RUN_CONFIG_REVISION_FAILED", e.what(), 500,
+                                {{"run_id", run_id}, {"path", run_config_path.string()}});
             }
-            if (!tile_compile::routes::write_file_str(run_config_path, requested_yaml)) {
-                return err_resp("Cannot write: " + run_config_path.string(), 500);
-            }
-            persist_run_config_snapshot(run_dir, requested_yaml, "resume_selected_config", run_id);
             const std::string active_revision_id =
                 state->revision_store.add(run_config_path, requested_yaml, "resume_config", run_id);
             {
@@ -1820,14 +2087,14 @@ void register_runs_routes(CrowApp& app,
         if (!state->runtime.is_path_allowed(target)) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target.string(), 403, {{"path", target.string()}});
         }
-        const std::string current_yaml = tile_compile::routes::read_file_str(target);
-        if (!current_yaml.empty() && current_yaml != rev->yaml_text) {
-            persist_run_config_snapshot(run_dir, current_yaml, "restore_previous_config", run_id);
+        try {
+            replace_run_config_with_revisions(
+                run_dir, rev->yaml_text,
+                "restore_previous_config", "restore_selected_config", run_id);
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CONFIG_REVISION_FAILED", e.what(), 500,
+                            {{"run_id", run_id}, {"path", target.string()}});
         }
-        if (!tile_compile::routes::write_file_str(target, rev->yaml_text)) {
-            return err_resp("BACKEND_COMMAND_FAILED", "failed to restore revision", 502, {{"path", target.string()}});
-        }
-        persist_run_config_snapshot(run_dir, rev->yaml_text, "restore_selected_config", run_id);
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->active_config_revision_id = rev_id;

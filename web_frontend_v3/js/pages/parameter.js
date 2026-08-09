@@ -47,7 +47,16 @@ export function createParameterPage() {
   // Category sidebar with search
   const sidebar = el("div", { class: "tc-card tc-scroll", style: { maxHeight: "70vh", overflowY: "auto" } },
     el("div", { class: "tc-card-title" }, t("ui.title.categories", "Kategorien")),
-    el("input", { type: "text", class: "tc-input tc-mb-2", placeholder: t("ui.placeholder.search", "Suche..."), id: "param-search" }),
+    el("input", {
+      type: "text",
+      class: "tc-input tc-mb-2",
+      placeholder: t("ui.placeholder.search", "Parameter suchen..."),
+      id: "param-search",
+      oninput: () => {
+        renderCategories();
+        renderEditorForCategory(getUiState().selectedCategory || "all");
+      },
+    }),
     el("div", { class: "tc-flex-col", id: "param-categories" },
       el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "L\u00e4dt...")),
     ),
@@ -163,34 +172,95 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   }
 }
 
+function normalizeParameterSearchText(value) {
+  return String(value || "")
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function parameterSearchTerm() {
+  return normalizeParameterSearchText(
+    document.getElementById("param-search")?.value || "",
+  ).trim();
+}
+
+function parameterSearchEntries(schemaPaths, schema) {
+  return (schemaPaths || []).map((path) => {
+    const fieldSchema = getSchemaForPath(schema, path);
+    const category = path.split(".")[0] || "";
+    const label = t(`param.${path}.label`, path);
+    const shortHelp = shortHelpForPath(path, fieldSchema);
+    const explanation = explainHelpForPath(path, fieldSchema);
+    const searchable = normalizeParameterSearchText([
+      path,
+      label,
+      category,
+      humanizeCategory(category),
+      shortHelp,
+      explanation,
+      ...(fieldSchema?.enum || []),
+    ].join(" "));
+    return { path, category, searchable };
+  });
+}
+
+function parameterMatchesSearch(entry, filter) {
+  return !filter || entry.searchable.includes(filter);
+}
+
+function matchingParameterPaths(schemaPaths, schema, filter) {
+  return parameterSearchEntries(schemaPaths, schema)
+    .filter((entry) => parameterMatchesSearch(entry, filter))
+    .map((entry) => entry.path);
+}
+
 function renderCategories() {
   const container = document.getElementById("param-categories");
   if (!container) return;
   clear(container);
 
-  const { categories, schemaPaths, config } = getConfigState();
-  if (!categories) {
+  const { categories, schema, schemaPaths } = getConfigState();
+  if (!categories || !schemaPaths) {
     container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_data", "Keine Daten")));
     return;
   }
 
-  const searchInput = document.getElementById("param-search");
-  const filter = (searchInput?.value || "").toLowerCase().trim();
+  const filter = parameterSearchTerm();
+  const entries = parameterSearchEntries(schemaPaths, schema);
+  const matchingEntries = entries.filter((entry) => parameterMatchesSearch(entry, filter));
+  const matchingCategories = new Set(matchingEntries.map((entry) => entry.category));
+  const visibleCategories = filter
+    ? categories.filter((cat) => cat === "all" || matchingCategories.has(cat))
+    : categories;
+  const savedCat = getUiState().selectedCategory || "all";
 
-  for (const cat of categories) {
+  if (filter && matchingEntries.length === 0) {
+    container.appendChild(el("div", { class: "tc-text-muted tc-text-sm" },
+      t("ui.state.no_parameter_results", "Keine passenden Parameter gefunden")));
+    return;
+  }
+
+  for (const cat of visibleCategories) {
     const label = humanizeCategory(cat);
-    if (filter && !label.toLowerCase().includes(filter) && !cat.includes(filter)) continue;
-    const savedCat = getUiState().selectedCategory || "all";
-    const item = categoryItem(label, cat === savedCat);
+    const count = filter && cat !== "all"
+      ? matchingEntries.filter((entry) => entry.category === cat).length
+      : null;
+    const item = categoryItem(count === null ? label : `${label} (${count})`, cat === savedCat);
     item.dataset.category = cat;
     item.onclick = (e) => {
       e.target.parentElement.querySelectorAll(".tc-param-category")
-        .forEach(c => c.classList.remove("active"));
+        .forEach((c) => c.classList.remove("active"));
       e.target.classList.add("active");
       setUiState({ selectedCategory: cat });
       renderEditorForCategory(cat);
     };
     container.appendChild(item);
+  }
+
+  if (filter) {
+    container.appendChild(el("div", { class: "tc-text-muted tc-text-sm tc-mt-2" },
+      t("ui.state.parameter_results", "{count} Parameter gefunden").replace("{count}", String(matchingEntries.length))));
   }
 }
 
@@ -219,15 +289,26 @@ function renderEditorForCategory(category) {
 
   const bgeMethod = draft?.bge?.method ?? "none";
 
-  const paths = category === "all"
+  const filter = parameterSearchTerm();
+  const categoryPaths = category === "all"
     ? [...schemaPaths]
     : [...schemaPaths].filter(p => p.startsWith(category + ".") || p === category);
+  const paths = filter
+    ? matchingParameterPaths(schemaPaths, schema, filter)
+    : categoryPaths;
 
+  let renderedCount = 0;
   for (const path of paths) {
     if (!isBgeParamVisible(path, bgeMethod)) continue;
     const fieldSchema = getSchemaForPath(schema, path);
     const value = draft ? (getConfigValue(draft, path) ?? fieldSchema?.default) : "";
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));
+    renderedCount += 1;
+  }
+
+  if (filter && renderedCount === 0) {
+    editorBody.appendChild(el("div", { class: "tc-text-muted tc-text-sm" },
+      t("ui.state.no_parameter_results", "Keine passenden Parameter gefunden")));
   }
 
   updateDiff();
@@ -372,13 +453,30 @@ function syncCalibrationToDraft() {
   const { draft } = getConfigState();
   if (!draft) return;
 
-  // Prefer master over dir when both set
-  const biasMaster = cal.bias_master && cal.bias_master.trim() ? cal.bias_master : "";
-  const biasDir = biasMaster ? "" : (cal.bias_dir || "");
-  const darkMaster = cal.dark_master && cal.dark_master.trim() ? cal.dark_master : "";
-  const darkDir = darkMaster ? "" : (cal.dark_dir || "");
-  const flatMaster = cal.flat_master && cal.flat_master.trim() ? cal.flat_master : "";
-  const flatDir = flatMaster ? "" : (cal.flat_dir || "");
+  const sourceFor = (type) => {
+    const explicitSource = cal[`${type}_source`];
+    if (explicitSource === "master" || explicitSource === "dir") return explicitSource;
+    const explicitUseMaster = cal[`${type}_use_master`];
+    if (typeof explicitUseMaster === "boolean") return explicitUseMaster ? "master" : "dir";
+    const hasMaster = Boolean((cal[`${type}_master`] || "").trim());
+    const hasDir = Boolean((cal[`${type}_dir`] || "").trim());
+    return hasMaster && !hasDir ? "master" : "dir";
+  };
+
+  const effective = (type) => {
+    const source = sourceFor(type);
+    const master = (cal[`${type}_master`] || "").trim();
+    const dir = cal[`${type}_dir`] || "";
+    return {
+      useMaster: source === "master",
+      dir: source === "master" ? "" : dir,
+      master: source === "master" ? master : "",
+    };
+  };
+
+  const bias = effective("bias");
+  const dark = effective("dark");
+  const flat = effective("flat");
 
   const useBias = cal.bias_enabled ?? false;
   const useDark = cal.dark_enabled ?? false;
@@ -386,17 +484,17 @@ function syncCalibrationToDraft() {
 
   const entries = [
     ["calibration.use_bias", useBias],
-    ["calibration.bias_use_master", useBias && !!biasMaster],
-    ["calibration.bias_dir", useBias ? biasDir : ""],
-    ["calibration.bias_master", useBias ? biasMaster : ""],
+    ["calibration.bias_use_master", useBias && bias.useMaster],
+    ["calibration.bias_dir", useBias ? bias.dir : ""],
+    ["calibration.bias_master", useBias ? bias.master : ""],
     ["calibration.use_dark", useDark],
-    ["calibration.dark_use_master", useDark && !!darkMaster],
-    ["calibration.darks_dir", useDark ? darkDir : ""],
-    ["calibration.dark_master", useDark ? darkMaster : ""],
+    ["calibration.dark_use_master", useDark && dark.useMaster],
+    ["calibration.darks_dir", useDark ? dark.dir : ""],
+    ["calibration.dark_master", useDark ? dark.master : ""],
     ["calibration.use_flat", useFlat],
-    ["calibration.flat_use_master", useFlat && !!flatMaster],
-    ["calibration.flats_dir", useFlat ? flatDir : ""],
-    ["calibration.flat_master", useFlat ? flatMaster : ""],
+    ["calibration.flat_use_master", useFlat && flat.useMaster],
+    ["calibration.flats_dir", useFlat ? flat.dir : ""],
+    ["calibration.flat_master", useFlat ? flat.master : ""],
   ];
 
   let changed = false;

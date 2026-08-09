@@ -572,6 +572,17 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
     return result;
   }
 
+  if (cfg.cherry_pick && cfg.cherry_pick_mode == "auto_reject") {
+    std::cerr << "[OpenCL] AQMH cherry_pick auto_reject uses CPU fallback"
+              << std::endl;
+    result = reconstruct_aqmh_weighted(
+        frame_count, load_frame, q_map_cache, global_weights, canvas_mask, width,
+        height, cfg, load_frame_valid_mask, load_frame_region,
+        load_frame_valid_mask_region, progress);
+    result.acceleration_fallback = true;
+    return result;
+  }
+
   if (static_cast<int>(frame_count) > kMaxFramesCompile) {
     std::cerr << "[OpenCL] frame_count " << frame_count
               << " exceeds compile-time limit " << kMaxFramesCompile
@@ -591,7 +602,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
     result.cherry_pick_per_pixel_mode = true;
   }
   result.k_nominal_median = static_cast<float>(
-      cherry_enabled ? cfg.cherry_pick_k_min_required : 0);
+      cherry_enabled
+          ? (cfg.cherry_pick_mode == "auto_reject"
+                 ? static_cast<int>(frame_count)
+                 : cfg.cherry_pick_k_min_required)
+          : 0);
 
   // Use a moderate chunk size for OpenCL. Auto size based on a 2 GB budget.
   int chunk_rows;

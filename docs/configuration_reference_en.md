@@ -87,7 +87,7 @@ Output file and directory configuration.
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
 **Purpose:** Persist registered frames as FITS (`reg_XXXXX.fit`).
 
@@ -154,7 +154,7 @@ Input data configuration.
 
 ## 4. Linearity
 
-Linearity correction settings.
+Input-frame linearity diagnostics. The check looks for evidence of non-linear preprocessing (stretch, curves, hard compression), but it is not a direct camera-response linearity test.
 
 ### `linearity.enabled`
 
@@ -163,7 +163,9 @@ Linearity correction settings.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable linearity correction.
+**Purpose:** Enable/disable linearity diagnostics in phase 0 (SCAN_INPUT).
+
+**Behavior:** Flagged frames are logged and kept by the current runner in warn-only mode.
 
 ### `linearity.max_frames`
 
@@ -181,7 +183,7 @@ Linearity correction settings.
 | **Type** | number |
 | **Default** | `0.9` |
 
-**Purpose:** Minimum acceptable global linearity score.
+**Purpose:** Minimum acceptable diagnostic score. If the sampled frames fall below this value, a warning is emitted.
 
 ### `linearity.strictness`
 
@@ -191,11 +193,13 @@ Linearity correction settings.
 | **Values** | `strict`, `moderate`, `permissive` |
 | **Default** | `"strict"` |
 
-**Purpose:** Controls whether linearity violations fail, warn, or are ignored.
+**Purpose:** Selects the diagnostic thresholds.
 
-- **`strict`**: Linearity violations cause the run to abort.
-- **`moderate`**: A warning is issued; processing continues.
-- **`permissive`**: Violations are silently ignored (not recommended for scientific workflows).
+The hard decision is conservative and object-agnostic: robust distribution shape plus obvious hard clipping/compression. Spectral, gradient, and variance metrics remain diagnostic because linear frames can legitimately vary strongly across objects (empty fields, star clusters, nebulosity, galaxy cores, CFA texture).
+
+- **`strict`**: Tightest diagnostic thresholds, recommended for raw/calibrated linear data.
+- **`moderate`**: More tolerant diagnostics for lightly preprocessed data or difficult fields.
+- **`permissive`**: High tolerance for known problematic data.
 
 ---
 
@@ -604,6 +608,32 @@ All chained warps are validated with NCC against the reference frame. Particular
 - Strong moonlight with gradients
 - Bright background structures (nebulae, galaxies)
 - Uneven background from flat correction errors
+
+---
+
+### `registration.affine_refinement_enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Default-enabled conservative per-frame affine fine registration after the normal global registration. It detects stars on the reference and already warped proxy, builds mutual nearest-neighbor matches, and fits a small affine correction with RANSAC. The correction is applied only when the inlier count and spatial coverage are sufficient, scale/shear/rotation/center displacement remain conservative, matched-star median and p90 residuals both improve without RMS regression, and NCC/overlap do not regress. Otherwise the original warp is preserved.
+
+**Units and applicability:** All residual, match-radius, and center-displacement gates use proxy pixels (normally half-resolution for OSC). Frames below the internal p90 trigger, the reference frame, and frames without enough distributed stars are non-applicable and remain unchanged. Set it to `false` for an unrefined control or diagnostic run.
+
+---
+
+### `registration.smooth_local_refinement_enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable the default-gated smooth local per-frame correction after global registration and, when accepted, after affine refinement. Mutual nearest-neighbor star residuals fit a regularized 4x4 Gaussian inverse displacement field. A deterministic 25% held-out star set must improve in median, p90, and RMS; the full matched set, spatial coverage, maximum displacement, dense Jacobian/local-scale sampling, common-support NCC, and overlap must also pass.
+
+**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with AQMH `debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception preserves the unchanged global/affine warp. Per-frame evidence is written to `global_registration.json`. Set it to `false` for a global/affine-only control or diagnostic run.
 
 ---
 
@@ -1243,6 +1273,18 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
+#### `aqmh.pyramid.score_scale`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >0 |
+| **Default** | `1.8` |
+
+**Purpose:** Scales the combined local AQMH score before the sigmoid. Higher values increase per-pixel quality-map selectivity so sharper frames are favored more strongly; the map remains bounded to `[0,1]`.
+
+---
+
 #### `aqmh.pyramid.k_artifact`
 
 | Property | Value |
@@ -1320,7 +1362,19 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Enables selective stacking — only the highest-quality frames are used for AQMH reconstruction. Useful for large datasets with strongly varying quality (e.g. sessions interrupted by clouds).
+**Purpose:** Enables selective AQMH frame handling during reconstruction. The default mode keeps almost all usable frames and rejects only clear local low-score outliers.
+
+---
+
+#### `aqmh.cherry_pick.mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `auto_reject`, `top_k` |
+| **Default** | `auto_reject` |
+
+**Purpose:** `auto_reject` is the conservative mode for production stacking: it keeps most locally rankable frames and only removes extreme local quality outliers. `top_k` is the legacy fixed-fraction selector and can increase noise when it discards many otherwise useful frames.
 
 ---
 
@@ -1344,7 +1398,31 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Range** | >0 – 1 |
 | **Default** | `0.30` |
 
-**Purpose:** Fraction of best frames (sorted by AQMH quality) used for cherry-pick stacking. `0.30` = best 30% of frames.
+**Purpose:** Fraction of best frames used only when `aqmh.cherry_pick.mode: top_k`. It is ignored by the default `auto_reject` mode.
+
+---
+
+#### `aqmh.cherry_pick.reject_below_best_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Purpose:** In `auto_reject` mode, a local sample becomes rejectable only when its AQMH score is below this fraction of the local best score.
+
+---
+
+#### `aqmh.cherry_pick.min_keep_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | >0 – 1 |
+| **Default** | `0.90` |
+
+**Purpose:** In `auto_reject` mode, retains at least this fraction of locally rankable samples. This limits noise growth by preventing aggressive per-pixel frame removal.
 
 ---
 
@@ -1608,6 +1686,67 @@ Per-pixel weighted reconstruction parameters.
 | **Default** | `true` |
 
 **Purpose:** Controls whether the disk-backed `cache/prewarped_frames` directory is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
+
+----
+
+#### `aqmh.reconstruction.prewarp_interpolation`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `linear`, `cubic`, `lanczos4` |
+| **Default** | `cubic` |
+
+**Purpose:** Selects the interpolation kernel used when registered frames are prewarped onto the common canvas before AQMH reconstruction and stacking. `cubic` is the evidence-based sharpness default: controlled comparisons improved technical output and AQMH FWHM over `linear`, with a smaller background increase than `lanczos4`. `linear` remains the conservative low-noise fallback. `lanczos4` may preserve marginally more high-frequency detail but has a higher background-noise and ringing risk.
+
+----
+
+#### `aqmh.reconstruction.debayer_first`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enables a real RGB path for OSC data before PREWARP/AQMH. When a Bayer pattern is known, each calibrated frame is demosaiced first, then R/G/B are geometrically prewarped. AQMH computes quality maps on a luma plane and reconstructs the final R/G/B channels directly from the prewarped RGB planes. This avoids reconstructing a geometrically warped CFA mosaic and debayering it only after stacking.
+
+**Fallback:** For mono/RGB input, unknown Bayer patterns, or `false`, the previous path remains active.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `bilinear`, `nearest`, `vng`, `edge_aware` |
+| **Default** | `edge_aware` |
+
+**Purpose:** Selects the demosaicing method for `debayer_first`. `bilinear` is robust and conservative; `vng` and `edge_aware` can preserve stronger edges but may amplify artificial chroma/pixel patterns on very low-SNR data. `nearest` is mainly diagnostic.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `shared_luma` |
+| **Default** | `shared_luma` |
+
+**Purpose:** Defines which quality maps are used for RGB reconstruction when `debayer_first` is active. `shared_luma` reuses the same luma Q-maps and global weights for R, G, and B so the color planes remain geometrically and weight-wise consistent.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Values** | `sequential` |
+| **Default** | `sequential` |
+
+**Purpose:** Controls the memory path for RGB reconstruction when `debayer_first` is active. `sequential` reconstructs R, G, and B one after another to bound RAM/VRAM peaks.
 
 ----
 
@@ -3007,8 +3146,8 @@ This appendix provides a compact but explicit **runtime behavior** description f
 
 - `linearity.enabled`: enables linearity diagnostics in scan/early validation.
 - `linearity.max_frames`: sample size for linearity checks (tradeoff speed vs certainty).
-- `linearity.min_overall_linearity`: pass/fail threshold for linearity score.
-- `linearity.strictness`: policy mapping (fail/warn/ignore behavior).
+- `linearity.min_overall_linearity`: warning threshold for the linearity diagnostic score.
+- `linearity.strictness`: threshold preset for robust distribution and clipping diagnostics.
 - `calibration.use_bias`, `use_dark`, `use_flat`: activate master-frame correction stages.
 - `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: use explicit master files vs building from directories.
 - `calibration.dark_auto_select`: auto-match dark masters by exposure (and optional temperature).

@@ -271,7 +271,7 @@ void measure_star_tail_metrics_at_samples(
   out.star_count = static_cast<int>(tail_abs.size());
   if (!tail_abs.empty()) {
     out.tail11_abs_median = percentile(tail_abs, 0.5f);
-    out.tail11_p90 = percentile(tail_raw, 0.9f);
+    out.tail11_p90 = percentile(tail_abs, 0.9f);
   }
   if (!elongations.empty()) {
     out.elongation_median = percentile(elongations, 0.5f);
@@ -361,6 +361,56 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
 }
 
 } // namespace
+
+AqmhValidationGateDecision evaluate_aqmh_validation_gates(
+    const AqmhValidationComparison &comparison,
+    const config::AqmhValidationConfig &cfg) {
+  AqmhValidationGateDecision decision;
+  decision.background_ok =
+      !comparison.background_rms_applicable ||
+      comparison.background_rms_regression <=
+          cfg.max_background_rms_regression;
+  decision.fwhm_ok = !comparison.fwhm_applicable ||
+                     comparison.fwhm_regression <= cfg.max_fwhm_regression;
+  decision.seam_ok = !comparison.seam_applicable ||
+                     comparison.seam_score_regression <=
+                         cfg.max_seam_score_regression;
+  decision.tail_ok = !comparison.tail_applicable ||
+                     comparison.tail11_abs_regression <=
+                         cfg.max_tail11_abs_regression;
+  decision.elongation_ok =
+      !comparison.elongation_applicable ||
+      comparison.elongation_regression <= cfg.max_elongation_regression;
+  decision.all_ok = decision.background_ok && decision.fwhm_ok &&
+                    decision.seam_ok && decision.tail_ok &&
+                    decision.elongation_ok;
+  return decision;
+}
+
+AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
+    const AqmhValidationComparison &candidate_vs_raw,
+    const AqmhValidationComparison &raw_vs_control,
+    const AqmhValidationComparison &candidate_vs_control,
+    const config::AqmhValidationConfig &cfg) {
+  const auto candidate_raw_gates =
+      evaluate_aqmh_validation_gates(candidate_vs_raw, cfg);
+  const auto raw_control_gates =
+      evaluate_aqmh_validation_gates(raw_vs_control, cfg);
+  const auto candidate_control_gates =
+      evaluate_aqmh_validation_gates(candidate_vs_control, cfg);
+
+  if (candidate_raw_gates.all_ok)
+    return {true, "strict_raw_baseline_pass"};
+  if (raw_control_gates.all_ok)
+    return {false, "raw_baseline_valid_and_candidate_regresses_raw"};
+  if (!candidate_control_gates.all_ok)
+    return {false, "candidate_fails_uniform_control"};
+
+  // The immutable raw baseline is a hard safety boundary. A candidate that
+  // repairs a raw-vs-control failure is accepted only when its complete
+  // candidate-vs-raw comparison passes the same strict gates above.
+  return {false, "candidate_exceeds_raw_baseline_guard"};
+}
 
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask) {

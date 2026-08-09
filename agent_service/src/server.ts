@@ -105,6 +105,25 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       await handleAnalyzeStream(req, res, body);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/run-completion-analysis") {
+      const body = await readJson(req);
+      if (String(body?.schema_version || "") !== "pi.run-completion-analysis.request.v1") {
+        sendJson(res, 400, { error: true, code: "INVALID_SCHEMA", message: "Expected pi.run-completion-analysis.request.v1" });
+        return;
+      }
+      appendTrafficLog(`POST /run-completion-analysis request ${JSON.stringify({ ...body, image_base64: body?.image_base64 ? "<image>" : undefined }).substring(0, 10000)}`);
+      const service = new RunChatService(config.agent, modelService);
+      const result = await service.ask(body);
+      if (String(result.schema_version || "") !== "pi.run-completion-analysis.v1" ||
+          !Array.isArray(result.findings) || !Array.isArray(result.updates) ||
+          !result.resume_recommendation || typeof result.resume_recommendation !== "object") {
+        sendJson(res, 502, { error: true, code: "INVALID_MODEL_RESPONSE", message: "Completion analysis response does not match pi.run-completion-analysis.v1" });
+        return;
+      }
+      appendTrafficLog(`POST /run-completion-analysis response ${JSON.stringify(result).substring(0, 10000)}`);
+      sendJson(res, 200, result);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/run-chat") {
       const body = await readJson(req);
       appendTrafficLog(`POST /run-chat request ${JSON.stringify({ ...body, image_base64: body?.image_base64 ? "<image>" : undefined }).substring(0, 10000)}`);

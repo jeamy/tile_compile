@@ -23,9 +23,10 @@ Matrix2Df prepare_ecc_image(const Matrix2Df& img) {
 }
 
 /// @brief Implements phasecorr translation.
-/// @details Part of low-level ECC/phase-correlation registration image operations; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @details Returns the forward content displacement reported by OpenCV:
+/// applying a regular (non-inverse-map) affine translation of (dx,dy) to
+/// `moving` aligns it with `ref`. Callers that build a warp for
+/// `apply_warp()`/`WARP_INVERSE_MAP` must negate both components.
 std::pair<float, float> phasecorr_translation(const Matrix2Df& moving, const Matrix2Df& ref) {
     cv::Mat cv_moving(moving.rows(), moving.cols(), CV_32F, const_cast<float*>(moving.data()));
     cv::Mat cv_ref(ref.rows(), ref.cols(), CV_32F, const_cast<float*>(ref.data()));

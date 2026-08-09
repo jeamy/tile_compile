@@ -66,7 +66,9 @@ long sidecar_connect_timeout_ms() {
 }
 
 long sidecar_request_timeout_ms(const AiConfig& config, const std::string& endpoint) {
-    const bool analysis_request = endpoint == "/analyze" || endpoint == "/analyze/stream";
+    const bool analysis_request = endpoint == "/analyze" ||
+                                  endpoint == "/analyze/stream" ||
+                                  endpoint == "/run-completion-analysis";
     if (!analysis_request) return static_cast<long>(config.timeout_ms);
     const int configured = env_int("AI_AGENT_ANALYSIS_TIMEOUT_MS", 1200000, 60000, 3600000);
     return static_cast<long>(std::max(config.timeout_ms, configured));

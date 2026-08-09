@@ -82,6 +82,76 @@ TEST_CASE("aqmh_config_validates_q_region") {
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
 }
 
+TEST_CASE("aqmh_config_validates_quality_map_score_scale") {
+  tile_compile::config::Config cfg;
+  cfg.aqmh.enabled = true;
+  cfg.aqmh.pyramid.score_scale = 0.25f;
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.pyramid.score_scale = 0.0f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+}
+
+TEST_CASE("aqmh_config_validates_cherry_pick_auto_reject_parameters") {
+  tile_compile::config::Config cfg;
+  cfg.aqmh.enabled = true;
+  cfg.aqmh.cherry_pick.enabled = true;
+  cfg.aqmh.cherry_pick.mode = "auto_reject";
+  cfg.aqmh.cherry_pick.reject_below_best_fraction = 0.25f;
+  cfg.aqmh.cherry_pick.min_keep_fraction = 0.90f;
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.cherry_pick.mode = "invalid";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.aqmh.cherry_pick.mode = "auto_reject";
+  cfg.aqmh.cherry_pick.min_keep_fraction = 0.0f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+}
+
+TEST_CASE("aqmh_config_validates_prewarp_interpolation") {
+  tile_compile::config::Config cfg;
+  cfg.aqmh.enabled = true;
+  cfg.aqmh.reconstruction.prewarp_interpolation = "cubic";
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.reconstruction.prewarp_interpolation = "linear";
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.reconstruction.prewarp_interpolation = "lanczos4";
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.reconstruction.prewarp_interpolation = "spline";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+}
+
+TEST_CASE("aqmh_config_validates_debayer_first_rgb_options") {
+  tile_compile::config::Config cfg;
+  cfg.aqmh.enabled = true;
+  cfg.aqmh.reconstruction.debayer_first = true;
+  cfg.aqmh.reconstruction.pre_debayer_method = "edge_aware";
+  cfg.aqmh.reconstruction.rgb_q_map_mode = "shared_luma";
+  cfg.aqmh.reconstruction.rgb_memory_strategy = "sequential";
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.reconstruction.pre_debayer_method = "bilinear";
+  REQUIRE_NOTHROW(cfg.validate());
+  cfg.aqmh.reconstruction.pre_debayer_method = "nearest";
+  REQUIRE_NOTHROW(cfg.validate());
+  cfg.aqmh.reconstruction.pre_debayer_method = "vng";
+  REQUIRE_NOTHROW(cfg.validate());
+
+  cfg.aqmh.reconstruction.pre_debayer_method = "ahd";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.aqmh.reconstruction.pre_debayer_method = "edge_aware";
+
+  cfg.aqmh.reconstruction.rgb_q_map_mode = "per_channel";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.aqmh.reconstruction.rgb_q_map_mode = "shared_luma";
+
+  cfg.aqmh.reconstruction.rgb_memory_strategy = "parallel";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+}
+
 TEST_CASE("aqmh_eps_noise_is_background_offset_invariant") {
   const std::vector<float> a{1000.0f, 1000.001f, 999.999f, 1000.002f};
   const std::vector<float> b{0.0f, 0.001f, -0.001f, 0.002f};

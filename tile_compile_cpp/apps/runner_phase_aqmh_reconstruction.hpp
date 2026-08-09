@@ -28,6 +28,9 @@ struct AqmhReconstructionPhaseResult {
   Matrix2Df raw_output;
   Matrix2Df output;
   Matrix2Df weight_sum;
+  Matrix2Df output_R;
+  Matrix2Df output_G;
+  Matrix2Df output_B;
   bool osc_rgb_cleared = false;
 };
 
@@ -48,6 +51,9 @@ bool run_phase_aqmh_reconstruction(
     const std::chrono::steady_clock::time_point &phase_started_at,
     int prev_cv_threads,
     AqmhReconstructionPhaseResult &out,
-    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr);
+    reconstruction::AqmhPrefetchCoordinator* prefetch_coordinator = nullptr,
+    const DiskCacheFrameStore* prewarped_frames_r = nullptr,
+    const DiskCacheFrameStore* prewarped_frames_g = nullptr,
+    const DiskCacheFrameStore* prewarped_frames_b = nullptr);
 
 } // namespace tile_compile::runner

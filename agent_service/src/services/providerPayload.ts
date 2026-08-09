@@ -12,8 +12,10 @@ export function modelCapabilitySummary(model: any) {
 
 export function sanitizeProviderPayloadForModel(payload: Record<string, unknown>, model: any, label: string) {
   const provider = String(model?.provider || "").toLowerCase();
+  const api = String(model?.api || "").toLowerCase();
   const id = String(model?.id || "");
   const supportsReasoning = Boolean(model?.reasoning);
+  const isCodexResponses = provider.includes("codex") || api.includes("codex-responses");
   const removed: string[] = [];
   const clamped: string[] = [];
   const remove = (key: string) => {
@@ -22,6 +24,12 @@ export function sanitizeProviderPayloadForModel(payload: Record<string, unknown>
       removed.push(key);
     }
   };
+
+  if (isCodexResponses) {
+    // OpenAI Codex Responses rejects temperature, including when it is added
+    // by the shared before_provider_request extension after request building.
+    remove("temperature");
+  }
 
   if (!supportsReasoning) {
     remove("thinking");

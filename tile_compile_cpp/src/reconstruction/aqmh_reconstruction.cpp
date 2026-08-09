@@ -181,9 +181,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           const size_t full_i = static_cast<size_t>(y0) * width + i;
           if (!canvas_mask.empty() && canvas_mask[full_i] == 0u) continue;
           const int n = rankable[i];
-          nominal_values.push_back(static_cast<float>(aqmh_k_nominal(
-              n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
-                                       cfg.tiered_k_frac))));
+          nominal_values.push_back(cfg.cherry_pick_mode == "auto_reject"
+              ? static_cast<float>(n)
+              : static_cast<float>(aqmh_k_nominal(
+                    n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                             cfg.tiered_k_frac))));
         }
       }
     } else {
@@ -210,9 +212,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         for (int x = 0; x < width; ++x) {
           if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
           const int n = static_cast<int>(rankable(y, x));
-          nominal_values.push_back(static_cast<float>(aqmh_k_nominal(
-              n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
-                                       cfg.tiered_k_frac))));
+          nominal_values.push_back(cfg.cherry_pick_mode == "auto_reject"
+              ? static_cast<float>(n)
+              : static_cast<float>(aqmh_k_nominal(
+                    n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                             cfg.tiered_k_frac))));
         }
       }
     result.k_nominal_median = quantile(std::move(nominal_values), 0.5f);
@@ -372,9 +376,15 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         if (cherry_enabled) {
           int nominal = 0;
           float margin = -1.0f;
-          auto selected = aqmh_select_top_k(samples, cfg.cherry_pick_k_min_required,
-                                             cfg.cherry_pick_k_frac,
-                                             cfg.tiered_k_frac, &nominal, &margin);
+          auto selected = cfg.cherry_pick_mode == "auto_reject"
+              ? aqmh_select_auto_reject(
+                    samples, cfg.cherry_pick_k_min_required,
+                    cfg.cherry_pick_reject_below_best_fraction,
+                    cfg.cherry_pick_min_keep_fraction,
+                    cfg.cherry_pick_margin_min, &nominal, &margin)
+              : aqmh_select_top_k(samples, cfg.cherry_pick_k_min_required,
+                                  cfg.cherry_pick_k_frac, cfg.tiered_k_frac,
+                                  &nominal, &margin);
           if (!selected.empty()) {
             if (selected.size() < samples.size()) {
 #if defined(_OPENMP)

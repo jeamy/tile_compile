@@ -100,6 +100,39 @@ TEST_CASE("aqmh_weighted_mad_quickselect_is_deterministic") {
     REQUIRE(a.retained[i].frame_index == b.retained[i].frame_index);
 }
 
+TEST_CASE("aqmh_cherry_pick_auto_reject_keeps_most_frames") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  for (int i = 0; i < 10; ++i) {
+    samples.push_back({static_cast<float>(i), 1.0f, 1.0f,
+                       static_cast<size_t>(i)});
+  }
+  samples.push_back({10.0f, 0.05f, 0.05f, 10u});
+  samples.push_back({11.0f, 0.04f, 0.04f, 11u});
+
+  int nominal = 0;
+  float margin = -1.0f;
+  const auto selected = recon::aqmh_select_auto_reject(
+      samples, 3, 0.25f, 0.80f, 0.02f, &nominal, &margin);
+  REQUIRE(nominal == 12);
+  REQUIRE(selected.size() == 10);
+  REQUIRE(margin > 0.02f);
+}
+
+TEST_CASE("aqmh_cherry_pick_auto_reject_preserves_low_separation_samples") {
+  std::vector<recon::AqmhWeightedSample> samples;
+  for (int i = 0; i < 12; ++i) {
+    const float score = 1.0f - 0.01f * static_cast<float>(i);
+    samples.push_back({static_cast<float>(i), score, score,
+                       static_cast<size_t>(i)});
+  }
+
+  float margin = -1.0f;
+  const auto selected = recon::aqmh_select_auto_reject(
+      samples, 3, 0.95f, 0.50f, 0.02f, nullptr, &margin);
+  REQUIRE(selected.size() == samples.size());
+  REQUIRE(margin < 0.02f);
+}
+
 TEST_CASE("aqmh_symmetric_clipping_preserves_background_location") {
   std::vector<recon::AqmhWeightedSample> samples;
   samples.reserve(401);
@@ -401,6 +434,68 @@ TEST_CASE("aqmh_validation_comparison_handles_mismatched_dimensions") {
       recon::compare_aqmh_to_uniform_control(smaller_candidate, control));
 }
 
+TEST_CASE("aqmh_validation_gates_centralize_metric_decisions") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison comparison;
+  comparison.background_rms_regression = 0.06f;
+  comparison.fwhm_regression = 0.01f;
+  comparison.seam_score_regression = 0.04f;
+  comparison.tail_applicable = true;
+  comparison.tail11_abs_regression = 0.11f;
+  comparison.elongation_regression = 0.01f;
+
+  const auto gates = recon::evaluate_aqmh_validation_gates(comparison, cfg);
+  REQUIRE_FALSE(gates.background_ok);
+  REQUIRE(gates.fwhm_ok);
+  REQUIRE(gates.seam_ok);
+  REQUIRE_FALSE(gates.tail_ok);
+  REQUIRE_FALSE(gates.all_ok);
+}
+
+TEST_CASE("aqmh_raw_guard_does_not_relax_valid_seam_metric") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  raw_vs_control.background_rms_regression = 0.20f;
+
+  recon::AqmhValidationComparison candidate_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.background_rms_regression = -0.01f;
+  candidate_vs_raw.seam_score_regression = 0.08f;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE_FALSE(decision.ok);
+  REQUIRE(decision.reason == "candidate_exceeds_raw_baseline_guard");
+}
+
+TEST_CASE("aqmh_raw_guard_accepts_candidate_improving_failed_metric") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  raw_vs_control.background_rms_regression = 0.20f;
+
+  recon::AqmhValidationComparison candidate_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.background_rms_regression = -0.01f;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE(decision.ok);
+  REQUIRE(decision.reason == "strict_raw_baseline_pass");
+}
+
+TEST_CASE("aqmh_raw_guard_rejects_regression_when_raw_is_valid") {
+  tc::config::AqmhValidationConfig cfg;
+  recon::AqmhValidationComparison raw_vs_control;
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.seam_score_regression = 0.06f;
+  recon::AqmhValidationComparison candidate_vs_control;
+
+  const auto decision = recon::aqmh_raw_baseline_guard_decision(
+      candidate_vs_raw, raw_vs_control, candidate_vs_control, cfg);
+  REQUIRE_FALSE(decision.ok);
+  REQUIRE(decision.reason == "raw_baseline_valid_and_candidate_regresses_raw");
+}
+
 TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
   constexpr int W = 256;
   constexpr int H = 192;
@@ -530,6 +625,10 @@ TEST_CASE("aqmh_baseline_defaults_match_object_agnostic_analysis") {
   REQUIRE(reconstruction.clip_sigma_high == Catch::Approx(2.0f));
   REQUIRE(reconstruction.clip_iterations == 4);
   REQUIRE(reconstruction.min_fraction == Catch::Approx(0.40f));
+  REQUIRE(reconstruction.debayer_first);
+  REQUIRE(reconstruction.pre_debayer_method == "edge_aware");
+  REQUIRE(reconstruction.rgb_q_map_mode == "shared_luma");
+  REQUIRE(reconstruction.rgb_memory_strategy == "sequential");
   REQUIRE(reconstruction.registration_weight_floor == Catch::Approx(0.30f));
   REQUIRE(reconstruction.registration_sequential_factor == Catch::Approx(0.92f));
   REQUIRE(reconstruction.registration_predicted_factor == Catch::Approx(0.50f));
@@ -557,6 +656,10 @@ TEST_CASE("aqmh_schema_exposes_current_baseline_parameters") {
   REQUIRE(reconstruction.at("clip_sigma_high").at("default") == 2.0);
   REQUIRE(reconstruction.at("clip_iterations").at("default") == 4);
   REQUIRE(reconstruction.at("min_fraction").at("default") == 0.4);
+  REQUIRE(reconstruction.at("debayer_first").at("default") == true);
+  REQUIRE(reconstruction.at("pre_debayer_method").at("default") == "edge_aware");
+  REQUIRE(reconstruction.at("rgb_q_map_mode").at("default") == "shared_luma");
+  REQUIRE(reconstruction.at("rgb_memory_strategy").at("default") == "sequential");
   REQUIRE(reconstruction.at("registration_sequential_factor").at("default") == 0.92);
   REQUIRE(reconstruction.at("registration_predicted_factor").at("default") == 0.50);
   REQUIRE(reconstruction.contains("structure_mask_low_q"));

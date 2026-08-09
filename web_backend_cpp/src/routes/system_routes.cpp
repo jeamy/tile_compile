@@ -1,5 +1,7 @@
 #include "routes/system_routes.hpp"
 #include "routes/route_utils.hpp"
+#include "tile_compile/core/build_info.hpp"
+#include "tile_compile/core/utils.hpp"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -32,6 +34,22 @@ static bool directory_entry_dir_first(const fs::directory_entry& a,
     return a.path().filename().string() < b.path().filename().string();
 }
 
+static nlohmann::json installed_binary_version(const fs::path& path) {
+    nlohmann::json result = tile_compile::core::binary_provenance_json(path);
+    const fs::path sidecar =
+        path.parent_path() / (path.stem().string() + ".build-info.json");
+    result["build_info_sidecar"] = sidecar.string();
+    result["build_info"] = nullptr;
+    if (!fs::is_regular_file(sidecar)) return result;
+    try {
+        result["build_info"] = nlohmann::json::parse(
+            tile_compile::core::read_text(sidecar));
+    } catch (const std::exception& e) {
+        result["build_info_error"] = e.what();
+    }
+    return result;
+}
+
 /// @brief Registers system endpoints for runtime health, path resolution, and backend metadata.
 /// @details This is the route-group entry point called from main during Crow setup.
 void register_system_routes(CrowApp& app,
@@ -44,11 +62,12 @@ void register_system_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/version")
     ([state](const crow::request& req) {
-        fs::path cli_path = fs::path(state->runtime.cli_exe);
-        fs::path runner_path = fs::path(state->runtime.runner_exe);
+        const fs::path cli_path = fs::path(state->runtime.cli_exe);
+        const fs::path runner_path = fs::path(state->runtime.runner_exe);
         return json_resp({
-            {"cli",    (fs::exists(cli_path) ? "found:" : "missing:") + cli_path.string()},
-            {"runner", (fs::exists(runner_path) ? "found:" : "missing:") + runner_path.string()},
+            {"backend", tile_compile::core::build_info_json(true)},
+            {"cli", installed_binary_version(cli_path)},
+            {"runner", installed_binary_version(runner_path)},
         });
     });
 

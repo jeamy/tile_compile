@@ -1,7 +1,9 @@
 #pragma once
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
+#include <string>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -33,6 +35,20 @@ struct AqmhValidationComparison {
   bool elongation_applicable = false;  // requires sufficient star_count in both images
 };
 
+struct AqmhValidationGateDecision {
+  bool background_ok = true;
+  bool fwhm_ok = true;
+  bool seam_ok = true;
+  bool tail_ok = true;
+  bool elongation_ok = true;
+  bool all_ok = true;
+};
+
+struct AqmhRawBaselineGuardDecision {
+  bool ok = false;
+  std::string reason;
+};
+
 struct AqmhValidationStarSample {
   int x = 0;
   int y = 0;
@@ -48,6 +64,10 @@ struct AqmhValidationReference {
   int height = 0;
 };
 
+AqmhValidationGateDecision evaluate_aqmh_validation_gates(
+    const AqmhValidationComparison &comparison,
+    const config::AqmhValidationConfig &cfg);
+
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask = {});
 AqmhValidationReference prepare_aqmh_validation_reference(
@@ -58,5 +78,11 @@ AqmhValidationComparison compare_aqmh_to_reference(
 AqmhValidationComparison compare_aqmh_to_uniform_control(
     const Matrix2Df &aqmh, const Matrix2Df &control,
     const std::vector<uint8_t> &validation_mask = {});
+
+AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
+    const AqmhValidationComparison &candidate_vs_raw,
+    const AqmhValidationComparison &raw_vs_control,
+    const AqmhValidationComparison &candidate_vs_control,
+    const config::AqmhValidationConfig &cfg);
 
 } // namespace tile_compile::reconstruction

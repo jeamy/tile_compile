@@ -1,0 +1,263 @@
+method: aqmh
+pipeline:
+  mode: production
+output:
+  registered_dir: registered
+  write_registered_frames: false
+  crop_to_nonzero_bbox: true
+data:
+  image_width: 0
+  image_height: 0
+  color_mode: OSC
+  bayer_pattern: auto
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: false
+  flat_use_master: false
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+dithering:
+  enabled: true
+  min_shift_px: 0.7
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: strict
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  transform_model: affine
+  star_topk: 80
+  star_min_inliers: 4
+  star_inlier_tol_px: 4
+  star_dist_bin_px: 5
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  reject_shift_px_min: 100
+  reject_shift_median_multiplier: 5
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.05
+  blind_chain_drift_threshold_px: 2
+  use_astrometry: true
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200
+  affine_refinement_enabled: true
+  smooth_local_refinement_enabled: true
+aqmh:
+  enabled: true
+  storage:
+    resolution_divisor: 2
+    dtype: uint16
+    max_resident_maps: 2
+  pyramid:
+    base_window_px: 4
+    scales: 4
+    w_sharp: 0.6
+    w_snr: 0.4
+    score_scale: 1.8
+    k_artifact: 3
+    frac_artifact_max: 0.25
+  global_quality:
+    g_floor: 0.03
+    g_w_sharp: 0.55
+    g_w_snr: 0.3
+    g_w_background_penalty: 0.25
+    g_k_scale: 1.5
+  diagnostics:
+    enabled: true
+    level: full
+    per_frame_blocks: false
+    heatmaps: false
+    regions: false
+    format: json
+    binary_block_size_px: 64
+    q_region: 0.75
+    r_morph_canvas_px: 6
+    tau_artifact: 0.2
+  reconstruction:
+    clip_sigma: 2
+    clip_sigma_low: 2
+    clip_sigma_high: 2
+    clip_iterations: 4
+    min_fraction: 0.4
+    min_n_eff: 2
+    chunk_rows: 0
+    memory_budget_mb: 0
+    delete_prewarped_cache_after_run: false
+    prewarp_interpolation: cubic
+    debayer_first: true
+    pre_debayer_method: edge_aware
+    rgb_q_map_mode: shared_luma
+    rgb_memory_strategy: sequential
+    registration_weight_guard: true
+    registration_weight_floor: 0.3
+    registration_cc_floor: 0.35
+    registration_cc_full: 0.8
+    registration_sequential_factor: 0.92
+    registration_predicted_factor: 0.5
+    registration_chain_depth_penalty: 0.03
+    registration_chain_depth_max_penalty: 0.15
+    structure_mask_low_q: 0.4
+    structure_mask_high_q: 0.9
+    structure_mask_blur_sigma_px: 4
+  cherry_pick:
+    enabled: false
+  validation:
+    max_fwhm_regression: 0.02
+    max_background_rms_regression: 0.05
+    max_seam_score_regression: 0.05
+    max_tail11_abs_regression: 0.1
+    max_elongation_regression: 0.08
+runtime_limits:
+  memory_budget: 4096
+  parallel_workers: 8
+  acceleration_backend: auto
+  allow_emergency_mode: false
+  hard_abort_hours: 6
+  tile_analysis_max_factor_vs_stack: 3
+  tile_reconstruction_diagnostics: full
+
+astrometry:
+  enabled: true
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
+  search_radius: 183
+tile:
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
+  overlap_fraction: 0.25
+  star_min_count: 8
+  star_soft_count: 4
+stacking:
+  method: rej
+  common_overlap_required_fraction: 1
+  tile_common_valid_min_fraction: 1
+  output_stretch: false
+  cosmetic_correction: true
+  cosmetic_correction_sigma: 4
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 2.5
+  sigma_clip:
+    sigma_low: 2
+    sigma_high: 1.5
+    max_iters: 3
+    min_fraction: 0.4
+  cluster_quality_weighting:
+    enabled: true
+    kappa_cluster: 1
+    cap_enabled: false
+    cap_ratio: 20
+bge:
+  enabled: true
+  method: autobge
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    patch_estimator: median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
+    exclusion_polygons: []
+    user_sample_points: []
+  tile_weight_lambda_structure: 1
+  autotune:
+    enabled: true
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.1
+  sample_estimator: quantile
+  min_sample_bg_value: 1
+  sample_quantile: 0.2
+  structure_thresh_percentile: 0.8
+  min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_samples_for_apply: 96
+  mask:
+    star_dilate_px: 4
+    sat_dilate_px: 4
+  grid:
+    N_g: 32
+    G_min_px: 64
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: discard
+  fit:
+    method: rbf
+    robust_loss: huber
+    huber_delta: 1.5
+    irls_max_iterations: 10
+    irls_tolerance: 0.0001
+    polynomial_order: 2
+    rbf_phi: multiquadric
+    rbf_mu_factor: 1.5
+    rbf_lambda: 0.01
+    rbf_epsilon: 1
+pcc:
+  enabled: true
+  source: siril
+  mag_limit: 14
+  mag_bright_limit: 6
+  aperture_radius_px: 8
+  annulus_inner_px: 10
+  annulus_outer_px: 16
+  min_stars: 3
+  sigma_clip: 2.5
+  background_model: plane
+  background_neutralization_mode: auto
+  radii_mode: auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3
+  annulus_outer_fwhm_mult: 5
+  min_aperture_px: 4
+  siril_catalog_dir: /media/data/Astro/siril_catalog
+  apply_attenuation: true
+  chroma_strength: 0.7
+  k_max: 2.4
+  max_condition_number: 3
+  max_residual_rms: 0.9
+hypermetric_stretch:
+  enabled: true
+  require_successful_pcc: true
+  mode: ready_to_use
+  sensor_profile: rec709
+  fallback_profile: rec709
+  adaptive_anchor: true
+  target_bg: 0.12
+  protect_b: 6
+  convergence_power: 4
+  log_d_mode: fixed
+  fixed_log_d: 3.5
+  color_strategy: fixed
+  fixed_color_strategy: 0
+  color_grip: 1
+  shadow_convergence: 0
+  shadow_color_floor: 1
+  linear_expansion: 0
+  write_channels: false
+  output_rgb: stacked_rgb_hms.fits
+validation:
+  min_fwhm_improvement_percent: 5
+  max_background_rms_increase_percent: 0
+  min_tile_weight_variance: 0.1
+  require_no_tile_pattern: true

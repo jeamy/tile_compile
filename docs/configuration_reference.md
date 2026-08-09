@@ -208,7 +208,7 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 
 ## 4. Linearity
 
-Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen Operationen (Stretch, Curves) angewendet wurden.
+Linearitätsdiagnostik der Input-Frames. Die Prüfung sucht Hinweise auf nichtlineare Vorverarbeitung (Stretch, Curves, harte Kompression), ist aber kein direkter Kamerasensor-Linearitätstest.
 
 ### `linearity.enabled`
 
@@ -217,7 +217,9 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Aktiviert die Linearitätsprüfung in Phase 0 (SCAN_INPUT).
+**Zweck:** Aktiviert die Linearitätsdiagnostik in Phase 0 (SCAN_INPUT).
+
+**Verhalten:** Auffällige Frames werden protokolliert und im aktuellen Runner im Warn-only-Modus behalten.
 
 ---
 
@@ -243,7 +245,7 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Bereich** | 0.0 – 1.0 |
 | **Default** | `0.9` |
 
-**Zweck:** Mindest-Linearitäts-Score (0 = komplett nichtlinear, 1 = perfekt linear). Frames unter diesem Schwellenwert gelten als nicht-linear.
+**Zweck:** Mindest-Linearitäts-Score (0 = auffällig, 1 = unauffällig). Liegt die Stichprobe darunter, wird eine Warnung ausgegeben.
 
 ---
 
@@ -255,12 +257,14 @@ Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen O
 | **Werte** | `strict`, `moderate`, `permissive` |
 | **Default** | `"strict"` |
 
-**Zweck:** Strictness-Level für die Linearitäts-Validierung.
+**Zweck:** Strictness-Level für die Diagnose-Schwellen.
+
+**Verhalten:** Die harte Entscheidung ist konservativ und objektunabhängig: robuste Verteilungsform plus offensichtliches hartes Clipping/Kompression. Spektral-, Gradienten- und Varianzkennzahlen bleiben Diagnosewerte, weil lineare Frames je nach Objekt (leeres Feld, Sternhaufen, Nebel, Galaxienkern, CFA-Struktur) dort legitimerweise stark variieren.
 
 | Level | Beschreibung |
 |-------|-------------|
-| **`strict`** | Strenge Prüfung — empfohlen für kalibrierte Daten |
-| **`moderate`** | Moderate Toleranz — für leicht vorverarbeitete Daten |
+| **`strict`** | Engste Diagnose-Schwellen — empfohlen für lineare Roh-/kalibrierte Daten |
+| **`moderate`** | Tolerantere Diagnose — für leicht vorverarbeitete oder schwierige Motive |
 | **`permissive`** | Hohe Toleranz — nur für bekannt problematische Daten |
 
 ---
@@ -745,7 +749,7 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
 **Zweck:** Aktiviert lokale Hintergrundsubtraktion vor der Sternerkennung.
 
@@ -753,6 +757,32 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 - Starkem Mondlicht mit Gradienten
 - Starmer Hintergrundstruktur (Nebel, Galaxien)
 - Unebenem Hintergrund durch Flat-Korrektur-Fehler
+
+---
+
+### `registration.affine_refinement_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Standardmäßig aktive, konservative affine Feinkorrektur pro Frame nach der normalen globalen Registrierung. Sie erkennt Sterne im Referenz- und bereits gewarpten Proxy, bildet gegenseitige Nearest-Neighbor-Matches und schätzt mit RANSAC eine kleine affine Korrektur. Die Korrektur wird nur angewendet, wenn Inlierzahl und räumliche Abdeckung ausreichen, Skalierung/Shear/Rotation/Zentrumsverschiebung konservativ bleiben, Median und p90 der identischen Sternpaare ohne RMS-Regression sinken und NCC/Überlappung nicht schlechter werden. Andernfalls bleibt der ursprüngliche Warp unverändert.
+
+**Einheiten und Anwendbarkeit:** Alle Residual-, Matchradius- und Zentrumsverschiebungs-Gates verwenden Proxy-Pixel (bei OSC normalerweise halbe Auflösung). Frames unterhalb des internen p90-Triggers, der Referenzframe und Frames ohne ausreichend verteilte Sterne sind nicht anwendbar und bleiben unverändert. Für einen reinen Kontrolllauf oder zur Diagnose kann die Stufe mit `false` deaktiviert werden.
+
+---
+
+### `registration.smooth_local_refinement_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert die standardmäßig gegatete, geglättete lokale Feinkorrektur pro Frame nach der globalen und, falls akzeptiert, nach der affinen Registrierung. Gegenseitige Nearest-Neighbor-Sternresiduen fitten ein regularisiertes inverses 4x4-Gaussian-Displacement-Feld. Ein deterministischer 25-%-Held-out-Sternsatz muss sich in Median, p90 und RMS verbessern; zusätzlich müssen der gesamte Matchsatz, räumliche Abdeckung, Maximalverschiebung, dicht geprüfte Jacobian-/Lokalskalengrenzen, NCC auf gemeinsamem Support und Überlappung bestehen.
+
+**Einheiten, Grenzen und Wechselwirkungen:** Residuen und die interne Maximalverschiebung verwenden Proxy-Pixel; beim Prewarp wird das Feld auf volle Auflösung skaliert. Interne konservative Grenzen umfassen mindestens 32 Matches, mindestens 24 Trainings- und 8 Held-out-Sterne, 15 % Convex-Hull-Abdeckung, maximal 1,5 Proxy-Pixel Verschiebung, Jacobian-Determinante 0,94–1,06 und lokale Singulärwerte 0,96–1,04. Das Modell läuft am Bildrand auf null aus und wird direkt mit der inversen globalen/affinen Map komponiert, sodass keine zweite Full-Resolution-Resampling-Stufe entsteht. Anwendbar ist es derzeit nur für MONO und OSC mit AQMH-`debayer_first` und bekanntem Bayer-Muster; CFA-Mosaik- und nicht unterstützte Farbpfade behalten den unveränderten globalen/affinen Warp. Jedes gescheiterte Gate, jeder nicht anwendbare Frame und jede Ausnahme verwenden denselben unveränderten-Warp-Fallback. Per-Frame-Nachweise stehen in `global_registration.json`. Für einen reinen global/affinen Kontrolllauf oder zur Diagnose kann die Stufe mit `false` deaktiviert werden.
 
 ---
 
@@ -1450,6 +1480,18 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 
 ---
 
+#### `aqmh.pyramid.score_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.8` |
+
+**Zweck:** Skaliert den kombinierten lokalen AQMH-Score vor dem Sigmoid. Höhere Werte erhöhen die Pixel-Selektivität der Qualitätskarten, damit scharfe Frames lokal stärker bevorzugt werden; die Karte bleibt weiterhin auf `[0,1]` begrenzt.
+
+---
+
 #### `aqmh.pyramid.k_artifact`
 
 | Eigenschaft | Wert |
@@ -1527,7 +1569,19 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert selektives Stacking — nur die qualitativ besten Frames werden für die AQMH-Rekonstruktion herangezogen. Nützlich bei großen Frame-Mengen mit stark variierender Qualität (z.B. mit Wolken durchsetzte Sessions).
+**Zweck:** Aktiviert selektive AQMH-Framebehandlung während der Rekonstruktion. Der Standardmodus behält fast alle nutzbaren Frames und verwirft nur klare lokale Ausreißer mit sehr niedrigem Score.
+
+---
+
+#### `aqmh.cherry_pick.mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `auto_reject`, `top_k` |
+| **Default** | `auto_reject` |
+
+**Zweck:** `auto_reject` ist der konservative Modus für produktives Stacking: Er behält die meisten lokal rankbaren Frames und entfernt nur extreme lokale Qualitätsausreißer. `top_k` ist die alte feste Anteils-Auswahl und kann das Rauschen erhöhen, wenn viele eigentlich brauchbare Frames verworfen werden.
 
 ---
 
@@ -1551,7 +1605,31 @@ Steuerung der Laplacian-Pyramide zur Schärfe- und SNR-Bestimmung pro Frame.
 | **Bereich** | >0 – 1 |
 | **Default** | `0.30` |
 
-**Zweck:** Anteil der besten Frames (nach AQMH-Qualität sortiert), der für das Cherry-Pick-Stacking verwendet wird. `0.30` = die besten 30% der Frames.
+**Zweck:** Anteil der besten Frames, der nur bei `aqmh.cherry_pick.mode: top_k` verwendet wird. Der Standardmodus `auto_reject` ignoriert diesen Wert.
+
+---
+
+#### `aqmh.cherry_pick.reject_below_best_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.25` |
+
+**Zweck:** Im Modus `auto_reject` wird ein lokales Sample nur dann verwerfbar, wenn sein AQMH-Score unter diesem Anteil des lokal besten Scores liegt.
+
+---
+
+#### `aqmh.cherry_pick.min_keep_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | >0 – 1 |
+| **Default** | `0.90` |
+
+**Zweck:** Im Modus `auto_reject` bleibt mindestens dieser Anteil der lokal rankbaren Samples erhalten. Das begrenzt Rauschzuwachs durch zu aggressiven lokalen Frame-Verwurf.
 
 ---
 
@@ -1815,6 +1893,67 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 | **Default** | `true` |
 
 **Zweck:** Steuert, ob der diskbasierte Cache `cache/prewarped_frames` nach einem erfolgreichen Lauf gelöscht wird. Bei `false` bleibt er erhalten und ermöglicht ein späteres Resume ab `AQMH_RECONSTRUCTION` oder `STACKING`, ohne Registration und Prewarp erneut auszuführen. Der Cache benötigt zusätzlichen Speicherplatz.
+
+----
+
+#### `aqmh.reconstruction.prewarp_interpolation`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `linear`, `cubic`, `lanczos4` |
+| **Default** | `cubic` |
+
+**Zweck:** Wählt den Interpolationskern, mit dem registrierte Frames vor AQMH-Rekonstruktion und Stacking auf die gemeinsame Arbeitsfläche vorverzerrt werden. `cubic` ist der belegte Schärfe-Default: In kontrollierten Vergleichen verbesserte er die technische Output- und AQMH-FWHM gegenüber `linear`, bei geringerem Hintergrundanstieg als `lanczos4`. `linear` bleibt der konservative Low-Noise-Fallback. `lanczos4` kann minimal mehr Hochfrequenzdetail erhalten, erhöht aber das Risiko für Hintergrundrauschen und Ringing.
+
+----
+
+#### `aqmh.reconstruction.debayer_first`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert für OSC-Daten einen echten RGB-Pfad vor PREWARP/AQMH. Wenn ein Bayer-Pattern bekannt ist, wird jedes kalibrierte Frame zuerst debayert, danach werden R/G/B geometrisch vorverzerrt. AQMH berechnet die Qualitätskarten auf einer Luma-Ebene und rekonstruiert die finalen R/G/B-Kanäle direkt aus den vorverzerrten RGB-Ebenen. Dadurch wird vermieden, dass ein geometrisch gewarpter CFA-Mosaik-Stack erst nachträglich debayert wird.
+
+**Fallback:** Für Mono/RGB-Daten, unbekanntes Bayer-Pattern oder `false` bleibt der bisherige Pfad aktiv.
+
+----
+
+#### `aqmh.reconstruction.pre_debayer_method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `bilinear`, `nearest`, `vng`, `edge_aware` |
+| **Default** | `edge_aware` |
+
+**Zweck:** Wählt das Debayer-Verfahren für `debayer_first`. `bilinear` ist robust und konservativ; `vng` und `edge_aware` können Kanten stärker erhalten, können bei sehr niedrigem SNR aber künstliche Chroma-/Pixelmuster verstärken. `nearest` ist primär diagnostisch.
+
+----
+
+#### `aqmh.reconstruction.rgb_q_map_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `shared_luma` |
+| **Default** | `shared_luma` |
+
+**Zweck:** Legt fest, welche Qualitätskarten bei `debayer_first` für die RGB-Rekonstruktion verwendet werden. `shared_luma` nutzt dieselben Luma-Q-Maps und globalen Gewichte für R, G und B, damit die Farbebenen geometrisch und gewichtet konsistent bleiben.
+
+----
+
+#### `aqmh.reconstruction.rgb_memory_strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Werte** | `sequential` |
+| **Default** | `sequential` |
+
+**Zweck:** Steuert den Speicherpfad für die RGB-Rekonstruktion bei `debayer_first`. `sequential` rekonstruiert R, G und B nacheinander und begrenzt dadurch RAM-/VRAM-Spitzen.
 
 ----
 
@@ -3787,8 +3926,8 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 - `linearity.enabled`: aktiviert Linearitätsdiagnostik in Scan/Frühvalidierung.
 - `linearity.max_frames`: Stichprobengröße der Linearitätsprüfung (Speed vs. Sicherheit).
-- `linearity.min_overall_linearity`: Schwellwert für Linearity-Pass/Fail.
-- `linearity.strictness`: Policy-Mapping (Fail/Warn/Ignore-Verhalten).
+- `linearity.min_overall_linearity`: Schwellwert für die Linearity-Diagnosewarnung.
+- `linearity.strictness`: Schwellenpreset für robuste Verteilungs- und Clippingdiagnostik.
 - `calibration.use_bias`, `use_dark`, `use_flat`: schaltet jeweilige Master-Kalibrierstufe ein.
 - `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: nutzt explizite Masterdateien statt Directory-Stacking.
 - `calibration.dark_auto_select`: automatische Dark-Master-Auswahl nach Belichtungszeit (optional Temperatur).

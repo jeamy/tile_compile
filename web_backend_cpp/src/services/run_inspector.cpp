@@ -818,7 +818,10 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         std::string phase_name = phase_name_from_event(ev);
 
         if (event_type == "run_start") {
-            reset_phase_tracking();
+            // An in-place resume launches the normal `run` command, which emits
+            // run_start after the resume marker. Preserve that marker's phase
+            // reset and current phase instead of treating it as a new run.
+            if (!resume_active) reset_phase_tracking();
             run_status = "running";
         }
 

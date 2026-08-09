@@ -10,6 +10,16 @@ namespace tile_compile::image {
 
 namespace {
 constexpr float kMinRestoreScale = 1.0e-6f;
+
+int interpolation_flag_from_name(const std::string &name) {
+  if (name == "nearest")
+    return cv::INTER_NEAREST;
+  if (name == "cubic")
+    return cv::INTER_CUBIC;
+  if (name == "lanczos4")
+    return cv::INTER_LANCZOS4;
+  return cv::INTER_LINEAR;
+}
 }
 
 /// @brief Applies normalization inplace.
@@ -106,13 +116,14 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
-                            ColorMode mode, int out_rows, int out_cols) {
+                            ColorMode mode, int out_rows, int out_cols,
+                            const std::string &interpolation) {
   if (img.size() <= 0 || out_rows <= 0 || out_cols <= 0) {
     return Matrix2Df();
   }
   if (mode == ColorMode::OSC) {
     return warp_cfa_mosaic_via_subplanes(img, warp, out_rows, out_cols,
-                                         "constant", "linear");
+                                         "constant", interpolation);
   }
   // For MONO/RGB: use standard warp with WARP_INVERSE_MAP
   // (imported via registration header would create circular dep — inline here)
@@ -124,7 +135,8 @@ Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
       warp_matrix.at<float>(i, j) = warp(i, j);
   cv::Mat warped;
   cv::warpAffine(cv_img, warped, warp_matrix, cv::Size(out_cols, out_rows),
-                 cv::INTER_LINEAR | cv::WARP_INVERSE_MAP);
+                 interpolation_flag_from_name(interpolation) |
+                     cv::WARP_INVERSE_MAP);
   Matrix2Df result(out_rows, out_cols);
   std::memcpy(result.data(), warped.data,
               static_cast<size_t>(result.size()) * sizeof(float));
