@@ -2239,6 +2239,39 @@ nlohmann::json apply_validated_preview(const nlohmann::json& preview,
 
 } // namespace
 
+nlohmann::json tile_compile::routes::build_run_completion_preview_image(const fs::path& run_dir) {
+    static const std::string source_rel = "outputs/stacked_rgb.fits";
+    auto source = resolve_run_relative_artifact(run_dir, source_rel);
+    if (!source) {
+        return {
+            {"available", false},
+            {"path", source_rel},
+            {"reason", "stacked_rgb_missing"}
+        };
+    }
+    try {
+        const auto png = render_fits_preview_png_for_pi(*source, 1568);
+        std::error_code ec;
+        const auto source_bytes = fs::file_size(*source, ec);
+        return {
+            {"available", true},
+            {"path", source_rel},
+            {"mime", "image/png"},
+            {"base64", base64_encode(png)},
+            {"preview_bytes", png.size()},
+            {"source_bytes", ec ? 0 : source_bytes},
+            {"source_kind", "immutable_pre_bge_pre_hms"}
+        };
+    } catch (const std::exception& e) {
+        return {
+            {"available", false},
+            {"path", source_rel},
+            {"reason", "preview_failed"},
+            {"error", e.what()}
+        };
+    }
+}
+
 void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppState> state) {
     CROW_ROUTE(app, "/api/pi/context").methods("GET"_method)
     ([state]() {

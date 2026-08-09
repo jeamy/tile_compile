@@ -1,8 +1,10 @@
 #include "routes/ai_routes.hpp"
 #include "app_state.hpp"
+#include "routes/pi_routes.hpp"
 #include "routes/route_utils.hpp"
 #include "subprocess_manager.hpp"
 #include "services/ai_service.hpp"
+#include "services/run_inspector.hpp"
 #include "services/pi/pi_action_plan.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
@@ -21,6 +23,7 @@
 #include <iomanip>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <openssl/sha.h>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -1088,6 +1091,144 @@ fs::path ai_analyses_dir(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / ".ai_analyses";
 }
 
+std::string completion_decode_base64url(std::string value) {
+    for (char& ch : value) {
+        if (ch == '-') ch = '+';
+        else if (ch == '_') ch = '/';
+    }
+    while (value.size() % 4 != 0) value.push_back('=');
+    static const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int buffer = 0;
+    int bits_collected = 0;
+    for (char ch : value) {
+        if (ch == '=') break;
+        const auto pos = alphabet.find(ch);
+        if (pos == std::string::npos) return "";
+        buffer = (buffer << 6) | static_cast<int>(pos);
+        bits_collected += 6;
+        if (bits_collected >= 8) {
+            bits_collected -= 8;
+            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
+        }
+    }
+    return out;
+}
+
+std::string decode_completion_run_id(std::string run_id) {
+    if (run_id.rfind("b64_", 0) != 0) return run_id;
+    const std::string decoded = completion_decode_base64url(run_id.substr(4));
+    return decoded.empty() ? run_id : decoded;
+}
+
+std::string sha256_hex(const std::string& value) {
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest);
+    std::ostringstream out;
+    out << std::hex << std::setfill('0');
+    for (unsigned char byte : digest) out << std::setw(2) << static_cast<int>(byte);
+    return out.str();
+}
+
+fs::path completion_analysis_path(const std::shared_ptr<AppState>& state,
+                                  const std::string& run_id) {
+    return ai_analyses_dir(state) / ("run_completion_" + sha256_hex(run_id).substr(0, 24) + ".json");
+}
+
+json load_completion_analysis(const std::shared_ptr<AppState>& state,
+                              const std::string& run_id) {
+    auto parsed = parse_json_file(completion_analysis_path(state, run_id));
+    if (!parsed || parsed->value("schema_version", std::string()) != "pi.run-completion-analysis.v1" ||
+        parsed->value("run_id", std::string()) != run_id) {
+        return {{"has_analysis", false}, {"run_id", run_id}};
+    }
+    (*parsed)["has_analysis"] = true;
+    (*parsed)["from_cache"] = true;
+    return *parsed;
+}
+
+bool persist_completion_analysis(const std::shared_ptr<AppState>& state,
+                                 const std::string& run_id,
+                                 const json& analysis) {
+    std::error_code ec;
+    const fs::path path = completion_analysis_path(state, run_id);
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) return false;
+    const fs::path temporary = path.string() + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) return false;
+        out << analysis.dump(2) << '\n';
+        if (!out) return false;
+    }
+    fs::remove(path, ec);
+    ec.clear();
+    fs::rename(temporary, path, ec);
+    if (ec) {
+        fs::remove(temporary, ec);
+        return false;
+    }
+    return true;
+}
+
+std::optional<crow::response> resolve_completion_run_dir(
+    const std::shared_ptr<AppState>& state,
+    const std::string& run_id,
+    const std::string& requested_run_dir,
+    fs::path& run_dir) {
+    if (requested_run_dir.empty()) {
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+            return std::nullopt;
+        } catch (const std::exception& e) {
+            return err_resp("RUN_NOT_FOUND", e.what(), 404);
+        }
+    }
+    auto resolved = state->runtime.resolve_input_path(fs::path(requested_run_dir), true);
+    run_dir = resolved.path;
+    if (resolved.status == PathStatus::not_allowed) {
+        return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403);
+    }
+    if (resolved.status == PathStatus::not_found || !fs::is_directory(run_dir)) {
+        return err_resp("RUN_NOT_FOUND", "Run directory does not exist: " + run_dir.string(), 404);
+    }
+    return std::nullopt;
+}
+
+json completion_config_schema(const SchemaInfo& schema) {
+    json result = json::object();
+    for (const auto& [path, node] : schema.paths) {
+        if (!node.is_object()) continue;
+        json entry = json::object();
+        for (const std::string key : {"type", "enum", "description", "default", "minimum", "maximum"}) {
+            if (node.contains(key)) entry[key == "description" ? "desc" : key] = node[key];
+        }
+        if (!entry.empty()) result[path] = std::move(entry);
+    }
+    return result;
+}
+
+json extract_resume_recommendation(const json& analysis) {
+    static const std::set<std::string> supported = {
+        "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT", "NORMALIZATION",
+        "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP", "LOCAL_METRICS",
+        "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES", "AQMH_MAPS",
+        "AQMH_GLOBAL_QUALITY", "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
+        "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"
+    };
+    json recommendation = analysis.value("resume_recommendation", json::object());
+    if (!recommendation.is_object()) recommendation = json::object();
+    const std::string phase = recommendation.value("from_phase", std::string());
+    if (!supported.count(phase)) {
+        recommendation["from_phase"] = "DEBAYER";
+        recommendation["reason"] = "Fallback to the earliest safe phase that regenerates stacked_rgb.fits.";
+        recommendation["model_phase_rejected"] = phase;
+    }
+    recommendation["feasibility"] = "requires_dry_run";
+    return recommendation;
+}
+
 json extract_scan_metadata(const json& scan_result) {
     json meta = json::object();
     if (!scan_result.is_object()) return meta;
@@ -1868,6 +2009,151 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         }
         res.body = stream.str();
         return res;
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/completion-analysis").methods("GET"_method)
+    ([state](const crow::request&, std::string run_id) {
+        run_id = decode_completion_run_id(std::move(run_id));
+        return json_resp(load_completion_analysis(state, run_id));
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/completion-analysis").methods("POST"_method)
+    ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_completion_run_id(std::move(run_id));
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+
+        fs::path run_dir;
+        if (auto error = resolve_completion_run_dir(
+                state, run_id, body->value("run_dir", std::string()), run_dir)) {
+            return std::move(*error);
+        }
+        const json run_status = read_run_status(run_dir);
+        if (run_status.value("status", std::string()) != "completed") {
+            return err_resp("RUN_NOT_COMPLETED", "Completion analysis requires a completed run", 409,
+                            {{"status", run_status.value("status", std::string("unknown"))}});
+        }
+
+        const fs::path config_path = run_dir / "config.yaml";
+        const std::string config_yaml = tile_compile::routes::read_file_str(config_path);
+        auto base_config = parse_yaml_text(config_yaml);
+        if (!base_config || !base_config->is_object()) {
+            return err_resp("RUN_CONFIG_UNAVAILABLE", "Completed run config.yaml is missing or invalid", 409);
+        }
+
+        json preview = build_run_completion_preview_image(run_dir);
+        if (!preview.value("available", false)) {
+            return err_resp("STACKED_RGB_UNAVAILABLE",
+                            "outputs/stacked_rgb.fits is required for completion analysis", 404,
+                            {{"source_artifact", preview.value("path", std::string("outputs/stacked_rgb.fits"))},
+                             {"reason", preview.value("reason", std::string("unavailable"))}});
+        }
+        const std::string source_fingerprint = sha256_hex(
+            preview.value("base64", std::string()) + "\n" + config_yaml);
+        const bool force = body->value("force", false);
+        if (!force) {
+            json cached = load_completion_analysis(state, run_id);
+            if (cached.value("has_analysis", false) &&
+                cached.value("source_fingerprint", std::string()) == source_fingerprint) {
+                return json_resp(cached);
+            }
+        }
+
+        auto ai_config = current_ai_config(state);
+        if (!ai_config.enabled) {
+            return json_resp({
+                {"schema_version", "pi.run-completion-analysis.v1"},
+                {"status", "AI_DISABLED"},
+                {"has_analysis", false},
+                {"run_id", run_id},
+                {"source_artifact", "outputs/stacked_rgb.fits"}
+            });
+        }
+
+        std::string schema_error;
+        auto schema = load_schema_info(state, schema_error);
+        if (!schema) return err_resp("SCHEMA_UNAVAILABLE", schema_error, 502);
+        json allowed_paths = json::array();
+        for (const auto& [path, _] : schema->paths) allowed_paths.push_back(path);
+        const json config_schema = completion_config_schema(*schema);
+
+        const std::string prompt =
+            "You are PI for tile_compile. Analyze the attached preview rendered from the immutable "
+            "outputs/stacked_rgb.fits before BGE and hypermetric stretch. Return exactly one JSON object, "
+            "without markdown, with schema_version pi.run-completion-analysis.v1. Required fields: summary "
+            "(string), findings (array of objects with severity, title, evidence, recommendation), updates "
+            "(array of objects with path, value, reason, confidence, risk), and resume_recommendation "
+            "(object with from_phase and reason). Recommend object-agnostic parameter improvements for a new "
+            "run. Use only allowed_config_paths and config_schema. Do not infer defects that are hidden by the "
+            "preview. AQMH and Classic Tile Compile are independent: never feed Classic local/tile quality "
+            "metrics into AQMH weights. Select the earliest necessary supported resume phase and explain why; "
+            "the backend will verify feasibility separately.";
+
+        json image_info = preview;
+        image_info.erase("base64");
+        json request_payload = {
+            {"schema_version", "pi.run-completion-analysis.request.v1"},
+            {"run_id", run_id},
+            {"run_status", run_status},
+            {"source_artifact", image_info},
+            {"source_fingerprint", source_fingerprint},
+            {"base_config", *base_config},
+            {"config_schema", config_schema},
+            {"allowed_config_paths", allowed_paths},
+            {"image_base64", preview["base64"]},
+            {"image_mime", preview.value("mime", std::string("image/png"))},
+            {"model", json_string_field(*body, "model", ai_config.model)},
+            {"prompt", prompt},
+            {"ai_request", tile_compile::pi::build_ai_request_v2({
+                {"task", "run_completion_analysis"},
+                {"user_message", prompt},
+                {"run_context", {{"run_id", run_id}, {"status", run_status}, {"source_artifact", image_info}}},
+                {"config", {{"base_config", *base_config}, {"config_schema", config_schema}}},
+                {"allowed_config_paths", allowed_paths},
+                {"expected_response", "pi.run-completion-analysis.v1"},
+                {"provider", ai_config.provider},
+                {"model", json_string_field(*body, "model", ai_config.model)},
+                {"source_request_schema", "pi.run-completion-analysis.request.v1"}
+            })}
+        };
+
+        try {
+            tile_compile::ai::AiSidecarClient client(ai_config);
+            json analysis = client.post("/run-completion-analysis", request_payload);
+            if (!analysis.is_object() ||
+                analysis.value("schema_version", std::string()) != "pi.run-completion-analysis.v1") {
+                return err_resp("INVALID_AI_RESPONSE", "AI sidecar returned an invalid completion analysis", 502);
+            }
+            // Never persist image payloads even if a provider mirrors request fields.
+            analysis.erase("image_base64");
+            analysis.erase("image");
+            analysis.erase("images");
+            const json candidates = normalize_candidate_updates(analysis);
+            const json validated = validate_updates_against_schema(candidates, *schema, *base_config, state);
+            analysis["schema_version"] = "pi.run-completion-analysis.v1";
+            analysis["status"] = "ready";
+            analysis["has_analysis"] = true;
+            analysis["from_cache"] = false;
+            analysis["run_id"] = run_id;
+            analysis["run_dir"] = run_dir.string();
+            analysis["source_artifact"] = image_info;
+            analysis["source_fingerprint"] = source_fingerprint;
+            analysis["updates"] = candidates;
+            analysis["validated_updates"] = validated["validated_updates"];
+            analysis["rejected_updates"] = validated["rejected_updates"];
+            analysis["validation"] = validated["validation"];
+            analysis["config_yaml"] = validated["patched_config_yaml"];
+            analysis["resume_recommendation"] = extract_resume_recommendation(analysis);
+            const std::string analysis_id = state->job_store.create("run_completion_analysis");
+            analysis["analysis_id"] = analysis_id;
+            state->job_store.update_state(analysis_id, JobState::ok, analysis);
+            if (!persist_completion_analysis(state, run_id, analysis)) {
+                return err_resp("ANALYSIS_PERSIST_FAILED", "Completion analysis could not be persisted", 500);
+            }
+            return json_resp(analysis);
+        } catch (const std::exception& e) {
+            return sidecar_error_response(e);
+        }
     });
 
     CROW_ROUTE(app, "/api/scan/analysis/apply").methods("POST"_method)

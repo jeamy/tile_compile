@@ -11,7 +11,8 @@ import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
-import { getConfigState, validateConfig } from "../state/config-state.js";
+import { getConfigState, setConfigState, validateConfig } from "../state/config-state.js";
+import { parseYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { promptGrantRoot } from "../components/path-picker-modal.js";
@@ -19,6 +20,22 @@ import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
+
+function createCompletionAnalysisPanel() {
+  return el("div", { class: "tc-card", id: "run-completion-analysis", style: "display:none" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between tc-gap-2" },
+      el("span", {}, t("ui.title.completion_analysis", "KI-Ergebnisanalyse")),
+      el("button", {
+        class: "tc-btn tc-btn-sm tc-btn-primary",
+        id: "completion-analysis-refresh",
+        onclick: () => requestCompletionAnalysis(),
+      }, t("ui.button.create_analysis", "KI-Analyse erstellen")),
+    ),
+    el("div", { class: "tc-text-sm tc-text-muted", id: "completion-analysis-status" },
+      t("ui.state.completion_analysis_waiting", "Wartet auf einen abgeschlossenen Run.")),
+    el("div", { class: "tc-flex-col tc-gap-3 tc-mt-3", id: "completion-analysis-content" }),
+  );
+}
 
 export function createRunMonitorPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
@@ -104,6 +121,7 @@ export function createRunMonitorPage() {
   );
 
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
+  const completionAnalysis = createCompletionAnalysisPanel();
   const runChat = createRunChatPanel();
 
   // Log viewer (component-based)
@@ -121,7 +139,7 @@ export function createRunMonitorPage() {
   );
   activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, stats, runPreview, runMonitorTabs);
+  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, runPreview, runMonitorTabs);
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -156,6 +174,9 @@ let activeWarningBanner = null;
 let runChatTrafficTimer = null;
 let replayedRunLogEvents = new Set();
 let resumeFeasibilitySeq = 0;
+let currentCompletionAnalysis = null;
+let completionAnalysisLoading = false;
+const completionAnalysisCacheLoads = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
 const RESUME_CONFIG_SECTIONS = [
@@ -189,6 +210,175 @@ function sameRunIdentity(a, b, aDir = "", bDir = "") {
   if (!a || !b || a !== b) return false;
   if (!aDir || !bDir) return true;
   return aDir === bDir;
+}
+
+function completionAnalysisText(value, fallback = "") {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return fallback;
+  return String(value.title || value.message || value.text || value.reason || fallback);
+}
+
+function renderCompletionAnalysis(analysis) {
+  const panel = document.getElementById("run-completion-analysis");
+  const status = document.getElementById("completion-analysis-status");
+  const content = document.getElementById("completion-analysis-content");
+  const actionButton = document.getElementById("completion-analysis-refresh");
+  if (!panel || !status || !content) return;
+  panel.style.display = "";
+  clear(content);
+  currentCompletionAnalysis = analysis?.has_analysis ? analysis : null;
+
+  if (!analysis?.has_analysis) {
+    if (actionButton) actionButton.textContent = t("ui.button.create_analysis", "KI-Analyse erstellen");
+    status.textContent = analysis?.status === "AI_DISABLED"
+      ? t("ui.state.completion_analysis_disabled", "KI-Analyse ist deaktiviert.")
+      : t("ui.state.completion_analysis_unavailable", "Noch keine Ergebnisanalyse verfügbar.");
+    return;
+  }
+
+  if (actionButton) actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+  status.textContent = t("ui.state.completion_analysis_ready", "Analyse von {artifact} abgeschlossen.", {
+    artifact: analysis?.source_artifact?.path || "outputs/stacked_rgb.fits",
+  });
+  if (analysis.summary) content.appendChild(el("div", { class: "tc-text-sm" }, analysis.summary));
+
+  const findings = Array.isArray(analysis.findings) ? analysis.findings : [];
+  if (findings.length) {
+    const list = el("div", { class: "tc-flex-col tc-gap-2" });
+    for (const finding of findings) {
+      const title = completionAnalysisText(finding, t("ui.label.finding", "Befund"));
+      const evidence = finding && typeof finding === "object" ? completionAnalysisText(finding.evidence) : "";
+      const recommendation = finding && typeof finding === "object" ? completionAnalysisText(finding.recommendation) : "";
+      list.appendChild(el("div", { class: "tc-run-chat-list-item" },
+        el("div", { class: "tc-text-sm" }, title),
+        evidence ? el("div", { class: "tc-text-sm tc-text-muted" }, evidence) : null,
+        recommendation ? el("div", { class: "tc-text-sm" }, recommendation) : null,
+      ));
+    }
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.findings", "Befunde")),
+      list,
+    ));
+  }
+
+  const updates = Array.isArray(analysis.validated_updates) ? analysis.validated_updates : [];
+  if (updates.length) {
+    const list = el("div", { class: "tc-flex-col tc-gap-1" });
+    for (const update of updates) {
+      list.appendChild(el("div", { class: "tc-run-chat-list-item" },
+        el("div", { class: "tc-text-sm tc-mono" }, `${update.path}: ${JSON.stringify(update.value)}`),
+        update.reason ? el("div", { class: "tc-text-sm tc-text-muted" }, update.reason) : null,
+      ));
+    }
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.validated_parameter_updates", "Validierte Parameterverbesserungen")),
+      list,
+    ));
+  }
+
+  const resume = analysis.resume_recommendation || {};
+  if (resume.from_phase) {
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
+      el("div", { class: "tc-text-sm tc-mono" }, resume.from_phase),
+      resume.reason ? el("div", { class: "tc-text-sm tc-text-muted" }, resume.reason) : null,
+      el("div", { class: "tc-text-sm tc-text-warning" },
+        t("ui.message.resume_requires_dry_run", "Die Machbarkeit wird vor dem Resume per Dry-Run geprüft.")),
+    ));
+  }
+
+  content.appendChild(el("div", { class: "tc-flex tc-gap-2 tc-flex-wrap" },
+    el("button", {
+      class: "tc-btn tc-btn-primary",
+      disabled: !analysis.config_yaml || updates.length === 0,
+      onclick: () => applyCompletionConfigToNewRun(),
+    }, t("ui.button.apply_for_new_run", "Für neuen Run übernehmen")),
+    el("button", {
+      class: "tc-btn",
+      disabled: !analysis.config_yaml || !resume.from_phase,
+      onclick: () => prepareCompletionResume(false),
+    }, t("ui.button.prepare_resume", "Parameter übernehmen & Resume vorbereiten")),
+    el("button", {
+      class: "tc-btn",
+      disabled: !analysis.config_yaml || !resume.from_phase,
+      onclick: () => prepareCompletionResume(true),
+    }, t("ui.button.apply_and_resume", "Übernehmen & Resume")),
+  ));
+}
+
+async function requestCompletionAnalysis() {
+  const { currentRunId, currentRunDir, status: runStatus } = getRunState();
+  if (!currentRunId || runStatus !== "completed" || completionAnalysisLoading) return;
+  const panel = document.getElementById("run-completion-analysis");
+  const status = document.getElementById("completion-analysis-status");
+  const actionButton = document.getElementById("completion-analysis-refresh");
+  if (panel) panel.style.display = "";
+  if (status) status.textContent = t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...");
+  if (actionButton) actionButton.disabled = true;
+  completionAnalysisLoading = true;
+  try {
+    const payload = { force: true };
+    if (currentRunDir) payload.run_dir = currentRunDir;
+    const result = await api.post(API_ENDPOINTS.runs.completionAnalysis(currentRunId), payload, { timeoutMs: 1200000 });
+    renderCompletionAnalysis(result);
+    if (result?.has_analysis) toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+  } catch (error) {
+    currentCompletionAnalysis = null;
+    if (status) status.textContent = error.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen.");
+    toastError(t("ui.toast.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen"), error.message);
+  } finally {
+    completionAnalysisLoading = false;
+    if (actionButton) actionButton.disabled = false;
+  }
+}
+
+async function maybeLoadCompletionAnalysis(status) {
+  const { currentRunId, currentRunDir } = getRunState();
+  const panel = document.getElementById("run-completion-analysis");
+  if (status !== "completed" || !currentRunId) {
+    if (panel) panel.style.display = "none";
+    return;
+  }
+  if (panel) panel.style.display = "";
+  const key = `${currentRunId}|${currentRunDir || ""}`;
+  if (completionAnalysisCacheLoads.has(key)) return;
+  completionAnalysisCacheLoads.add(key);
+  try {
+    const cached = await api.get(API_ENDPOINTS.runs.completionAnalysis(currentRunId));
+    renderCompletionAnalysis(cached);
+  } catch {
+    renderCompletionAnalysis({ has_analysis: false });
+  }
+}
+
+async function applyCompletionConfigToNewRun() {
+  const yaml = currentCompletionAnalysis?.config_yaml || "";
+  if (!yaml) return false;
+  const parsed = parseYaml(yaml);
+  setConfigState({ draft: parsed, draftYaml: yaml, dirty: true, validation: currentCompletionAnalysis.validation || null });
+  const validation = await validateConfig();
+  if (validation?.valid === false || validation?.errors?.length) {
+    toastError(t("ui.toast.config_invalid", "Config ungültig"), t("ui.error.completion_config_revalidation_failed", "Die übernommene Config konnte nicht erneut validiert werden."));
+    return false;
+  }
+  toastSuccess(t("ui.toast.parameters_applied_for_new_run", "Parameter für neuen Run übernommen"));
+  return true;
+}
+
+async function prepareCompletionResume(startImmediately) {
+  const analysis = currentCompletionAnalysis;
+  const phase = analysis?.resume_recommendation?.from_phase || "";
+  if (!analysis?.config_yaml || !phase) return false;
+  await applyResumeRecommendation(phase);
+  const editor = document.getElementById("resume-config-yaml");
+  if (editor) {
+    editor.value = analysis.config_yaml;
+    updateResumeConfigSectionHighlights(editor.value);
+  }
+  const feasible = await checkResumeFeasibility(phase);
+  if (!feasible || !startImmediately) return feasible;
+  const confirmed = window.confirm(t("ui.confirm.apply_and_resume", "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?", { phase }));
+  return confirmed ? resumeRun() : false;
 }
 
 function resumeErrorPayload(error) {
@@ -1137,6 +1327,9 @@ function resetRunMonitorNoRun() {
     updateStat(id, value);
   }
   restoreMonitorRunChat();
+  currentCompletionAnalysis = null;
+  const completionPanel = document.getElementById("run-completion-analysis");
+  if (completionPanel) completionPanel.style.display = "none";
   if (activeLogViewer) activeLogViewer.clearLines();
   const preview = document.getElementById("run-monitor-image-preview");
   if (preview) {
@@ -1487,11 +1680,15 @@ async function refreshRunStatus(runId) {
     updateStat("info-run-id", status.run_id || runId);
     updateStat("info-run-dir", status.run_dir || "\u2014");
     updateStat("info-status", status.status || "\u2014");
+    setRunState({
+      status: status.status || getRunState().status || null,
+      currentRunDir: status.run_dir || getRunState().currentRunDir || null,
+    });
+    maybeLoadCompletionAnalysis(status.status);
     updateStat("info-color-mode", status.color_mode || "\u2014");
     updateStat("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
 
     if (status.run_dir) {
-      setRunState({ currentRunDir: status.run_dir });
       updateStat("info-output-dir", status.run_dir + "/outputs");
       refreshCurrentImagePreview();
     }
