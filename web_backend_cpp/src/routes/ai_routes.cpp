@@ -1131,13 +1131,72 @@ std::string sha256_hex(const std::string& value) {
     return out.str();
 }
 
+std::mutex completion_job_mutex;
+
 fs::path completion_analysis_path(const std::shared_ptr<AppState>& state,
                                   const std::string& run_id) {
     return ai_analyses_dir(state) / ("run_completion_" + sha256_hex(run_id).substr(0, 24) + ".json");
 }
 
+fs::path completion_analysis_status_path(const std::shared_ptr<AppState>& state,
+                                         const std::string& run_id) {
+    return ai_analyses_dir(state) / ("run_completion_" + sha256_hex(run_id).substr(0, 24) + ".status.json");
+}
+
+bool persist_completion_payload(const fs::path& path, const json& payload) {
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) return false;
+    const fs::path temporary = path.string() + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) return false;
+        out << payload.dump(2) << '\n';
+        if (!out) return false;
+    }
+    fs::remove(path, ec);
+    ec.clear();
+    fs::rename(temporary, path, ec);
+    if (ec) {
+        fs::remove(temporary, ec);
+        return false;
+    }
+    return true;
+}
+
 json load_completion_analysis(const std::shared_ptr<AppState>& state,
                               const std::string& run_id) {
+    auto status = parse_json_file(completion_analysis_status_path(state, run_id));
+    if (status &&
+        status->value("schema_version", std::string()) == "pi.run-completion-analysis.status.v1" &&
+        status->value("run_id", std::string()) == run_id) {
+        const std::string state_name = status->value("status", std::string());
+        if (state_name == "running" || state_name == "pending") {
+            const std::string job_id = status->value("analysis_id", std::string());
+            const auto job = job_id.empty() ? std::optional<Job>{} : state->job_store.get(job_id);
+            if (job && (job->state == JobState::running || job->state == JobState::pending)) {
+                (*status)["has_analysis"] = false;
+                return *status;
+            }
+            if (job && job->state == JobState::ok) {
+                // The worker publishes the result before marking the in-memory job complete.
+            } else {
+                (*status)["status"] = "error";
+                (*status)["has_analysis"] = false;
+                (*status)["error"] = {
+                    {"code", "COMPLETION_ANALYSIS_INTERRUPTED"},
+                    {"message", job && !job->error_message.empty()
+                        ? job->error_message
+                        : "Completion analysis was interrupted before a result was persisted"}
+                };
+                return *status;
+            }
+        } else if (state_name == "error") {
+            (*status)["has_analysis"] = false;
+            return *status;
+        }
+    }
+
     auto parsed = parse_json_file(completion_analysis_path(state, run_id));
     if (!parsed || parsed->value("schema_version", std::string()) != "pi.run-completion-analysis.v1" ||
         parsed->value("run_id", std::string()) != run_id) {
@@ -1151,25 +1210,13 @@ json load_completion_analysis(const std::shared_ptr<AppState>& state,
 bool persist_completion_analysis(const std::shared_ptr<AppState>& state,
                                  const std::string& run_id,
                                  const json& analysis) {
-    std::error_code ec;
-    const fs::path path = completion_analysis_path(state, run_id);
-    fs::create_directories(path.parent_path(), ec);
-    if (ec) return false;
-    const fs::path temporary = path.string() + ".tmp";
-    {
-        std::ofstream out(temporary, std::ios::trunc);
-        if (!out) return false;
-        out << analysis.dump(2) << '\n';
-        if (!out) return false;
-    }
-    fs::remove(path, ec);
-    ec.clear();
-    fs::rename(temporary, path, ec);
-    if (ec) {
-        fs::remove(temporary, ec);
-        return false;
-    }
-    return true;
+    return persist_completion_payload(completion_analysis_path(state, run_id), analysis);
+}
+
+bool persist_completion_analysis_status(const std::shared_ptr<AppState>& state,
+                                        const std::string& run_id,
+                                        const json& status) {
+    return persist_completion_payload(completion_analysis_status_path(state, run_id), status);
 }
 
 std::optional<crow::response> resolve_completion_run_dir(
@@ -2117,43 +2164,134 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             })}
         };
 
-        try {
-            tile_compile::ai::AiSidecarClient client(ai_config);
-            json analysis = client.post("/run-completion-analysis", request_payload);
-            if (!analysis.is_object() ||
-                analysis.value("schema_version", std::string()) != "pi.run-completion-analysis.v1") {
-                return err_resp("INVALID_AI_RESPONSE", "AI sidecar returned an invalid completion analysis", 502);
+        json initial_job_data = {
+            {"run_id", run_id},
+            {"run_dir", run_dir.string()},
+            {"source_fingerprint", source_fingerprint},
+            {"source_artifact", image_info}
+        };
+        std::string analysis_id;
+        {
+            std::lock_guard<std::mutex> lock(completion_job_mutex);
+            auto status = parse_json_file(completion_analysis_status_path(state, run_id));
+            if (status && status->value("status", std::string()) == "running") {
+                const std::string existing_id = status->value("analysis_id", std::string());
+                const auto existing_job = existing_id.empty()
+                    ? std::optional<Job>{}
+                    : state->job_store.get(existing_id);
+                if (existing_job && (existing_job->state == JobState::running ||
+                                     existing_job->state == JobState::pending)) {
+                    (*status)["has_analysis"] = false;
+                    (*status)["deduplicated"] = true;
+                    return json_resp(*status, 202);
+                }
             }
-            // Never persist image payloads even if a provider mirrors request fields.
-            analysis.erase("image_base64");
-            analysis.erase("image");
-            analysis.erase("images");
-            const json candidates = normalize_candidate_updates(analysis);
-            const json validated = validate_updates_against_schema(candidates, *schema, *base_config, state);
-            analysis["schema_version"] = "pi.run-completion-analysis.v1";
-            analysis["status"] = "ready";
-            analysis["has_analysis"] = true;
-            analysis["from_cache"] = false;
-            analysis["run_id"] = run_id;
-            analysis["run_dir"] = run_dir.string();
-            analysis["source_artifact"] = image_info;
-            analysis["source_fingerprint"] = source_fingerprint;
-            analysis["updates"] = candidates;
-            analysis["validated_updates"] = validated["validated_updates"];
-            analysis["rejected_updates"] = validated["rejected_updates"];
-            analysis["validation"] = validated["validation"];
-            analysis["config_yaml"] = validated["patched_config_yaml"];
-            analysis["resume_recommendation"] = extract_resume_recommendation(analysis);
-            const std::string analysis_id = state->job_store.create("run_completion_analysis");
-            analysis["analysis_id"] = analysis_id;
-            state->job_store.update_state(analysis_id, JobState::ok, analysis);
-            if (!persist_completion_analysis(state, run_id, analysis)) {
-                return err_resp("ANALYSIS_PERSIST_FAILED", "Completion analysis could not be persisted", 500);
+
+            analysis_id = state->job_store.create("run_completion_analysis", run_id);
+            initial_job_data["analysis_id"] = analysis_id;
+            json running_status = {
+                {"schema_version", "pi.run-completion-analysis.status.v1"},
+                {"status", "running"},
+                {"has_analysis", false},
+                {"run_id", run_id},
+                {"run_dir", run_dir.string()},
+                {"analysis_id", analysis_id},
+                {"source_artifact", image_info},
+                {"source_fingerprint", source_fingerprint}
+            };
+            if (!persist_completion_analysis_status(state, run_id, running_status)) {
+                state->job_store.update_state(
+                    analysis_id, JobState::error, initial_job_data,
+                    "Completion analysis status could not be persisted");
+                return err_resp("ANALYSIS_PERSIST_FAILED",
+                                "Completion analysis status could not be persisted", 500);
             }
-            return json_resp(analysis);
-        } catch (const std::exception& e) {
-            return sidecar_error_response(e);
+            state->job_store.update_state(analysis_id, JobState::running, initial_job_data);
         }
+
+        std::thread([
+            state,
+            run_id,
+            run_dir,
+            source_fingerprint,
+            image_info,
+            request_payload,
+            ai_config,
+            schema = *schema,
+            base_config = *base_config,
+            analysis_id
+        ]() mutable {
+            try {
+                tile_compile::ai::AiSidecarClient client(ai_config);
+                json analysis = client.post("/run-completion-analysis", request_payload);
+                if (!analysis.is_object() ||
+                    analysis.value("schema_version", std::string()) != "pi.run-completion-analysis.v1") {
+                    throw std::runtime_error("AI sidecar returned an invalid completion analysis");
+                }
+                // Never persist image payloads even if a provider mirrors request fields.
+                analysis.erase("image_base64");
+                analysis.erase("image");
+                analysis.erase("images");
+                const json candidates = normalize_candidate_updates(analysis);
+                const json validated = validate_updates_against_schema(
+                    candidates, schema, base_config, state);
+                analysis["schema_version"] = "pi.run-completion-analysis.v1";
+                analysis["status"] = "ready";
+                analysis["has_analysis"] = true;
+                analysis["from_cache"] = false;
+                analysis["run_id"] = run_id;
+                analysis["run_dir"] = run_dir.string();
+                analysis["source_artifact"] = image_info;
+                analysis["source_fingerprint"] = source_fingerprint;
+                analysis["updates"] = candidates;
+                analysis["validated_updates"] = validated["validated_updates"];
+                analysis["rejected_updates"] = validated["rejected_updates"];
+                analysis["validation"] = validated["validation"];
+                analysis["config_yaml"] = validated["patched_config_yaml"];
+                analysis["resume_recommendation"] = extract_resume_recommendation(analysis);
+                analysis["analysis_id"] = analysis_id;
+                if (!persist_completion_analysis(state, run_id, analysis)) {
+                    throw std::runtime_error("Completion analysis could not be persisted");
+                }
+                const json ready_status = {
+                    {"schema_version", "pi.run-completion-analysis.status.v1"},
+                    {"status", "ready"},
+                    {"has_analysis", true},
+                    {"run_id", run_id},
+                    {"analysis_id", analysis_id},
+                    {"source_fingerprint", source_fingerprint}
+                };
+                if (!persist_completion_analysis_status(state, run_id, ready_status)) {
+                    throw std::runtime_error("Completion analysis status could not be persisted");
+                }
+                state->job_store.update_state(analysis_id, JobState::ok, analysis);
+            } catch (const std::exception& e) {
+                json error_status = {
+                    {"schema_version", "pi.run-completion-analysis.status.v1"},
+                    {"status", "error"},
+                    {"has_analysis", false},
+                    {"run_id", run_id},
+                    {"run_dir", run_dir.string()},
+                    {"analysis_id", analysis_id},
+                    {"source_artifact", image_info},
+                    {"source_fingerprint", source_fingerprint},
+                    {"error", {{"code", "COMPLETION_ANALYSIS_FAILED"}, {"message", e.what()}}}
+                };
+                persist_completion_analysis_status(state, run_id, error_status);
+                state->job_store.update_state(analysis_id, JobState::error, error_status, e.what());
+            }
+        }).detach();
+
+        return json_resp({
+            {"schema_version", "pi.run-completion-analysis.status.v1"},
+            {"status", "running"},
+            {"has_analysis", false},
+            {"run_id", run_id},
+            {"run_dir", run_dir.string()},
+            {"analysis_id", analysis_id},
+            {"source_artifact", image_info},
+            {"source_fingerprint", source_fingerprint}
+        }, 202);
     });
 
     CROW_ROUTE(app, "/api/scan/analysis/apply").methods("POST"_method)

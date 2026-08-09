@@ -22,6 +22,28 @@ import { createYamlDiff } from "../components/yaml-diff.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 function createCompletionAnalysisPanel() {
+  const trafficId = "completion-analysis-traffic";
+  const traffic = el("div", { class: "tc-accordion open", id: "completion-analysis-traffic-panel" },
+    el("div", {
+      class: "tc-accordion-header",
+      onclick: () => document.getElementById("completion-analysis-traffic-panel")?.classList.toggle("open"),
+    }, "\u25b8 " + t("ui.title.ai_traffic", "KI-Datenverkehr")),
+    el("div", { class: "tc-accordion-body" },
+      el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
+        el("button", {
+          class: "tc-btn tc-btn-sm",
+          title: t("ui.tooltip.ai.refresh_traffic", "Lädt den persistenten PI/KI-Traffic-Log aus dem Sidecar."),
+          onclick: () => loadCompletionAnalysisTrafficLog(),
+        }, t("ui.button.refresh", "Aktualisieren")),
+        el("span", { class: "tc-text-muted tc-text-sm", id: `${trafficId}-status` },
+          t("ui.state.not_loaded", "nicht geladen")),
+      ),
+      el("div", { class: "tc-log-viewer", id: trafficId, style: { maxHeight: "260px" } },
+        el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")),
+      ),
+    ),
+  );
+
   return el("div", { class: "tc-card", id: "run-completion-analysis", style: "display:none" },
     el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between tc-gap-2" },
       el("span", {}, t("ui.title.completion_analysis", "KI-Ergebnisanalyse")),
@@ -34,10 +56,18 @@ function createCompletionAnalysisPanel() {
     el("div", { class: "tc-text-sm tc-text-muted", id: "completion-analysis-status" },
       t("ui.state.completion_analysis_waiting", "Wartet auf einen abgeschlossenen Run.")),
     el("div", { class: "tc-flex-col tc-gap-3 tc-mt-3", id: "completion-analysis-content" }),
+    el("div", { class: "tc-mt-3" }, traffic),
   );
 }
 
 export function createRunMonitorPage() {
+  // A page rebuild (including browser navigation back to this tab) only resets
+  // UI polling. The server-side completion job continues independently.
+  stopCompletionAnalysisPolling();
+  stopCompletionAnalysisTrafficPolling();
+  completionAnalysisCacheLoads.clear();
+  completionAnalysisLoading = false;
+
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
 
   // Run control
@@ -172,6 +202,11 @@ let monitorRunChatMessages = [];
 let activeLogViewer = null;
 let activeWarningBanner = null;
 let runChatTrafficTimer = null;
+let completionAnalysisPollTimer = null;
+let completionAnalysisTrafficTimer = null;
+let completionAnalysisPollInFlight = false;
+let completionAnalysisPollGeneration = 0;
+let completionAnalysisNotifiedId = "";
 let replayedRunLogEvents = new Set();
 let resumeFeasibilitySeq = 0;
 let currentCompletionAnalysis = null;
@@ -225,18 +260,39 @@ function renderCompletionAnalysis(analysis) {
   const actionButton = document.getElementById("completion-analysis-refresh");
   if (!panel || !status || !content) return;
   panel.style.display = "";
+  const analysisStatus = String(analysis?.status || "").toLowerCase();
+  const isRunning = analysisStatus === "running" || analysisStatus === "pending";
   clear(content);
   currentCompletionAnalysis = analysis?.has_analysis ? analysis : null;
+  if (actionButton) actionButton.disabled = completionAnalysisLoading || isRunning;
 
-  if (!analysis?.has_analysis) {
-    if (actionButton) actionButton.textContent = t("ui.button.create_analysis", "KI-Analyse erstellen");
-    status.textContent = analysis?.status === "AI_DISABLED"
-      ? t("ui.state.completion_analysis_disabled", "KI-Analyse ist deaktiviert.")
-      : t("ui.state.completion_analysis_unavailable", "Noch keine Ergebnisanalyse verfügbar.");
+  if (isRunning) {
+    if (actionButton) actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+    status.textContent = `${t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...")} ${t("ui.state.background_running", "(läuft im Hintergrund)")}`;
     return;
   }
 
-  if (actionButton) actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+  if (!analysis?.has_analysis) {
+    if (actionButton) {
+      actionButton.textContent = t("ui.button.create_analysis", "KI-Analyse erstellen");
+      actionButton.disabled = completionAnalysisLoading;
+    }
+    if (analysisStatus === "error") {
+      const message = analysis?.error?.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen.");
+      status.textContent = message;
+      content.appendChild(el("div", { class: "tc-text-sm tc-text-error" }, message));
+    } else {
+      status.textContent = analysis?.status === "AI_DISABLED"
+        ? t("ui.state.completion_analysis_disabled", "KI-Analyse ist deaktiviert.")
+        : t("ui.state.completion_analysis_unavailable", "Noch keine Ergebnisanalyse verfügbar.");
+    }
+    return;
+  }
+
+  if (actionButton) {
+    actionButton.textContent = t("ui.button.analyze_again", "Erneut analysieren");
+    actionButton.disabled = false;
+  }
   status.textContent = t("ui.state.completion_analysis_ready", "Analyse von {artifact} abgeschlossen.", {
     artifact: analysis?.source_artifact?.path || "outputs/stacked_rgb.fits",
   });
@@ -306,6 +362,109 @@ function renderCompletionAnalysis(analysis) {
   ));
 }
 
+function completionAnalysisIsRunning(analysis) {
+  const status = String(analysis?.status || "").toLowerCase();
+  return status === "running" || status === "pending";
+}
+
+function renderCompletionAnalysisTrafficLog(items) {
+  const container = document.getElementById("completion-analysis-traffic");
+  if (!container) return;
+  clear(container);
+  if (!Array.isArray(items) || items.length === 0) {
+    container.appendChild(el("div", { class: "tc-text-muted" }, t("ui.state.no_traffic", "Keine Daten")));
+    return;
+  }
+  for (const line of items.slice(-100)) {
+    container.appendChild(el("div", { class: "tc-text-sm tc-mono" }, String(line)));
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+async function loadCompletionAnalysisTrafficLog() {
+  const status = document.getElementById("completion-analysis-traffic-status");
+  if (status) status.textContent = t("ui.state.loading", "Lädt...");
+  try {
+    const payload = await api.get(API_ENDPOINTS.ai.traffic(500));
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    renderCompletionAnalysisTrafficLog(items);
+    if (status) {
+      const enabled = payload?.enabled === false
+        ? t("ui.state.disabled", "deaktiviert")
+        : t("ui.state.enabled", "aktiv");
+      status.textContent = `${enabled} · ${t("ui.pi.traffic_count", "{count} Zeilen", { count: payload?.count || items.length })}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+}
+
+function startCompletionAnalysisTrafficPolling() {
+  stopCompletionAnalysisTrafficPolling();
+  loadCompletionAnalysisTrafficLog();
+  completionAnalysisTrafficTimer = setInterval(() => loadCompletionAnalysisTrafficLog(), 1500);
+}
+
+function stopCompletionAnalysisTrafficPolling() {
+  if (!completionAnalysisTrafficTimer) return;
+  clearInterval(completionAnalysisTrafficTimer);
+  completionAnalysisTrafficTimer = null;
+}
+
+async function pollCompletionAnalysisState(generation = completionAnalysisPollGeneration) {
+  if (generation !== completionAnalysisPollGeneration || completionAnalysisPollInFlight) return;
+  const { currentRunId, status: runStatus } = getRunState();
+  if (!currentRunId || runStatus !== "completed") {
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
+    return;
+  }
+  completionAnalysisPollInFlight = true;
+  try {
+    const result = await api.get(API_ENDPOINTS.runs.completionAnalysis(currentRunId));
+    if (generation !== completionAnalysisPollGeneration ||
+        getRunState().currentRunId !== currentRunId) return;
+    renderCompletionAnalysis(result);
+    if (completionAnalysisIsRunning(result)) {
+      if (!completionAnalysisTrafficTimer) startCompletionAnalysisTrafficPolling();
+      return;
+    }
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
+    loadCompletionAnalysisTrafficLog();
+    const notificationId = String(result?.analysis_id || "");
+    if (result?.has_analysis && notificationId && notificationId !== completionAnalysisNotifiedId) {
+      completionAnalysisNotifiedId = notificationId;
+      toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+    } else if (String(result?.status || "").toLowerCase() === "error" &&
+               notificationId !== completionAnalysisNotifiedId) {
+      completionAnalysisNotifiedId = notificationId;
+      toastError(
+        t("ui.toast.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen"),
+        result?.error?.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen."),
+      );
+    }
+  } catch {
+    // A transient GET failure must not stop the backend job or status polling.
+  } finally {
+    completionAnalysisPollInFlight = false;
+  }
+}
+
+function startCompletionAnalysisPolling() {
+  stopCompletionAnalysisPolling();
+  const generation = ++completionAnalysisPollGeneration;
+  pollCompletionAnalysisState(generation);
+  completionAnalysisPollTimer = setInterval(() => pollCompletionAnalysisState(generation), 1500);
+}
+
+function stopCompletionAnalysisPolling() {
+  completionAnalysisPollGeneration += 1;
+  if (!completionAnalysisPollTimer) return;
+  clearInterval(completionAnalysisPollTimer);
+  completionAnalysisPollTimer = null;
+}
+
 async function requestCompletionAnalysis() {
   const { currentRunId, currentRunDir, status: runStatus } = getRunState();
   if (!currentRunId || runStatus !== "completed" || completionAnalysisLoading) return;
@@ -313,22 +472,34 @@ async function requestCompletionAnalysis() {
   const status = document.getElementById("completion-analysis-status");
   const actionButton = document.getElementById("completion-analysis-refresh");
   if (panel) panel.style.display = "";
-  if (status) status.textContent = t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...");
+  if (status) status.textContent = `${t("ui.state.completion_analysis_running", "KI analysiert stacked_rgb.fits...")} ${t("ui.state.background_running", "(läuft im Hintergrund)")}`;
   if (actionButton) actionButton.disabled = true;
   completionAnalysisLoading = true;
+  let continuesInBackground = false;
+  startCompletionAnalysisTrafficPolling();
   try {
     const payload = { force: true };
     if (currentRunDir) payload.run_dir = currentRunDir;
-    const result = await api.post(API_ENDPOINTS.runs.completionAnalysis(currentRunId), payload, { timeoutMs: 1200000 });
+    const result = await api.post(API_ENDPOINTS.runs.completionAnalysis(currentRunId), payload);
+    continuesInBackground = completionAnalysisIsRunning(result);
     renderCompletionAnalysis(result);
-    if (result?.has_analysis) toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+    if (continuesInBackground) {
+      startCompletionAnalysisPolling();
+    } else if (result?.has_analysis) {
+      completionAnalysisNotifiedId = String(result?.analysis_id || "");
+      toastSuccess(t("ui.toast.completion_analysis_done", "Ergebnisanalyse abgeschlossen"));
+    }
   } catch (error) {
     currentCompletionAnalysis = null;
     if (status) status.textContent = error.message || t("ui.state.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen.");
     toastError(t("ui.toast.completion_analysis_failed", "Ergebnisanalyse fehlgeschlagen"), error.message);
   } finally {
     completionAnalysisLoading = false;
-    if (actionButton) actionButton.disabled = false;
+    if (!continuesInBackground) {
+      stopCompletionAnalysisTrafficPolling();
+      loadCompletionAnalysisTrafficLog();
+      if (actionButton) actionButton.disabled = false;
+    }
   }
 }
 
@@ -336,6 +507,8 @@ async function maybeLoadCompletionAnalysis(status) {
   const { currentRunId, currentRunDir } = getRunState();
   const panel = document.getElementById("run-completion-analysis");
   if (status !== "completed" || !currentRunId) {
+    stopCompletionAnalysisPolling();
+    stopCompletionAnalysisTrafficPolling();
     if (panel) panel.style.display = "none";
     return;
   }
@@ -345,7 +518,13 @@ async function maybeLoadCompletionAnalysis(status) {
   completionAnalysisCacheLoads.add(key);
   try {
     const cached = await api.get(API_ENDPOINTS.runs.completionAnalysis(currentRunId));
+    if (getRunState().currentRunId !== currentRunId) return;
     renderCompletionAnalysis(cached);
+    loadCompletionAnalysisTrafficLog();
+    if (completionAnalysisIsRunning(cached)) {
+      startCompletionAnalysisTrafficPolling();
+      startCompletionAnalysisPolling();
+    }
   } catch {
     renderCompletionAnalysis({ has_analysis: false });
   }
@@ -1297,6 +1476,11 @@ function savePhaseToStore(phaseName, status, pct) {
 
 function resetRunMonitorNoRun() {
   stopPolling();
+  stopCompletionAnalysisPolling();
+  stopCompletionAnalysisTrafficPolling();
+  completionAnalysisCacheLoads.clear();
+  completionAnalysisLoading = false;
+  completionAnalysisPollInFlight = false;
   disconnectWebSocket();
   logTailSnapshot = null;
   clearSelectedPhase();
