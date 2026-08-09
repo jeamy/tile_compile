@@ -479,8 +479,8 @@ registration:
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
-  # New parameters (v2.0)
-  max_blind_chain_depth: 0        # auto (N/10) for cloud blocks
+  # Legacy compatibility; no effect with independent_global_consensus_v2
+  max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true            # Astrometric rescue when needed
@@ -497,7 +497,7 @@ registration:
   allow_rotation: true
   max_shift_px: 80
   reject_outliers: true
-  # New parameters (v2.0) — for strong gradients
+  # Legacy compatibility; no effect with independent_global_consensus_v2
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
   blind_chain_drift_threshold_px: 2.0

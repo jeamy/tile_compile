@@ -6,6 +6,7 @@
 
 **AQMH reconstruction and registration:**
 
+- Replaced order-dependent neighboring-frame registration chains with `independent_global_consensus_v2`: fixed anchors are independently solved against the master reference, and every ordinary frame evaluates up to five nearest fixed anchors plus the master in the same global coordinate system. Direct selection now requires at least two transforms agreeing in wrapped angle, scale, and transformed center/corners, or one strong candidate that is clearly superior in global NCC. Ambiguous frames remain unresolved for frame-independent master ECC, astrometry, or the global model; valid direct-global source selections cannot be replaced by temporal transforms, recovered frames cannot propagate transforms, and registration artifacts record the exact gates and aggregate consensus decisions.
 - Improved global registration for long or difficult sessions with stronger anchor handling, cascade refinement, affine refinement, smooth local refinement, confidence checks, and safer fallback behavior.
 - Added registration-confidence weighting and chain-depth penalties so uncertain or indirectly registered frames contribute less aggressively to AQMH reconstruction.
 - Extended AQMH reconstruction candidate handling with immutable raw-AQMH output, uniform-control comparison, adaptive low-frequency neutralisation, structure-masked detail candidates, and validation against both the uniform control and raw baseline.

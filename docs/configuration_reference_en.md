@@ -538,12 +538,9 @@ All chained warps are validated with NCC against the reference frame. Particular
 | **Maximum** | 100 |
 | **Default** | `0` |
 
-**Purpose:** Maximum depth for blind-chain rescue. `0` = automatic (N/10, min 12, max 50).
+**Compatibility:** Historical parameter for the disabled blind-chain rescue. It is still parsed and serialized so existing configurations remain valid, but it does not affect the current `independent_global_consensus_v2` strategy. `0` still resolves to `clamp(N/10, 12, 50)` when legacy artifacts or tools inspect the value.
 
-- **Value 0 (auto):** Automatic calculation based on frame count N. Formula: `clamp(N/10, 12, 50)`
-- **Value >0:** Manual override of maximum chain depth
-
-**Note:** Higher values allow longer chains during cloud blocks but increase drift error risk.
+**Fallback behavior:** Unresolved frames are not recovered through chain depth. They are independently optimized by seeded ECC directly against the master reference, then fall back to astrometry or the global transform model.
 
 ----
 
@@ -556,9 +553,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | **Maximum** | 0.5 |
 | **Default** | `0.08` |
 
-**Purpose:** CC threshold for "strong anchors" in blind chains. Frames with higher CC can start deeper chains.
-
-**Note:** Lower values allow more frames as strong anchors (aggressive), higher values are more conservative.
+**Compatibility:** Historical CC threshold for strong blind-chain anchors. The value remains schema- and parser-compatible but is not used by `independent_global_consensus_v2` for warp selection.
 
 ----
 
@@ -571,10 +566,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | **Maximum** | 10.0 |
 | **Default** | `2.0` |
 
-**Purpose:** Maximum allowed drift in pixels per frame within a blind chain.
-
-- Chain is aborted when cumulative drift exceeds this value
-- Protects against accumulating errors in long chains
+**Compatibility:** Historical per-frame drift limit in pixels. Because current registration does not create neighboring-frame chains, this metric is non-applicable and the value has no effect on new runs.
 
 ----
 

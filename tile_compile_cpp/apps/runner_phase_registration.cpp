@@ -18,6 +18,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cstdint>
@@ -1263,51 +1264,40 @@ bool run_phase_registration_prewarp(
 
         auto resolve_requested_anchor = [&](int anchor_pos,
                                             int parent_pos) -> bool {
+          (void)parent_pos;
           if (anchor_pos < 0 ||
-              anchor_pos >= static_cast<int>(requested_anchor_indices.size()) ||
-              parent_pos < 0 ||
-              parent_pos >= static_cast<int>(requested_anchor_indices.size())) {
+              anchor_pos >= static_cast<int>(requested_anchor_indices.size())) {
             return false;
           }
           if (requested_anchor_resolved[static_cast<size_t>(anchor_pos)] != 0) {
             return true;
           }
-          if (requested_anchor_resolved[static_cast<size_t>(parent_pos)] == 0) {
-            return false;
-          }
 
           const int anchor_idx =
               requested_anchor_indices[static_cast<size_t>(anchor_pos)];
-          const int parent_idx =
-              requested_anchor_indices[static_cast<size_t>(parent_pos)];
           const Matrix2Df &anchor_proxy =
               requested_anchor_proxies[static_cast<size_t>(anchor_pos)];
-          const Matrix2Df &parent_proxy =
-              requested_anchor_proxies[static_cast<size_t>(parent_pos)];
 
-          if (anchor_proxy.size() <= 0 || parent_proxy.size() <= 0 ||
+          if (anchor_proxy.size() <= 0 ||
               anchor_proxy.rows() != ref_reg.rows() ||
-              anchor_proxy.cols() != ref_reg.cols() ||
-              parent_proxy.rows() != ref_reg.rows() ||
-              parent_proxy.cols() != ref_reg.cols()) {
+              anchor_proxy.cols() != ref_reg.cols()) {
             return false;
           }
 
+          // Every fixed anchor is solved independently against the immutable
+          // master reference. No requested anchor inherits another anchor's
+          // transform, so one bad anchor cannot create an anchor chain.
           const auto sfr_anchor = registration::register_single_frame(
-              anchor_proxy, parent_proxy, registration_cfg);
+              anchor_proxy, ref_reg, registration_cfg);
           if (!sfr_anchor.reg.success) {
             return false;
           }
 
-          const WarpMatrix w_parent_proxy = registration::scale_translation_warp(
-              global_frame_warps[static_cast<size_t>(parent_idx)],
-              proxy_scale());
-          const WarpMatrix w_chained =
-              concatenate_affine_warps(sfr_anchor.reg.warp, w_parent_proxy);
+          const WarpMatrix w_global = sfr_anchor.reg.warp;
           const Matrix2Df warped_global =
-              registration::apply_warp(anchor_proxy, w_chained);
+              registration::apply_warp(anchor_proxy, w_global);
           const cv::Mat valid_mask_global =
-              registration::warp_valid_mask(anchor_proxy, w_chained);
+              registration::warp_valid_mask(anchor_proxy, w_global);
           int overlap_px = 0;
           const float ncc_global = registration::compute_ncc_masked(
               warped_global, ref_reg, valid_mask_global, &overlap_px);
@@ -1322,10 +1312,8 @@ bool run_phase_registration_prewarp(
           }
           set_registration_state(
               static_cast<size_t>(anchor_idx),
-              registration::scale_translation_warp(w_chained, global_reg_scale),
-              std::max(ncc_global, 0.01f),
-              parent_idx != global_ref_idx,
-              std::max(0, reg_chain_depth[static_cast<size_t>(parent_idx)]) + 1,
+              registration::scale_translation_warp(w_global, global_reg_scale),
+              std::max(ncc_global, 0.01f), false, 0,
               RegistrationProvenance::direct_global);
           requested_anchor_resolved[static_cast<size_t>(anchor_pos)] = 1;
           if (ncc_global >= kStrongActiveAnchorCc) {
@@ -1353,6 +1341,21 @@ bool run_phase_registration_prewarp(
             resolve_requested_anchor(pos, parent_pos);
           }
         }
+
+        constexpr size_t kMaxNearestConsensusAnchors = 5;
+        constexpr float kConsensusAngleToleranceDeg = 0.75f;
+        constexpr float kConsensusScaleToleranceFraction = 0.005f;
+        constexpr float kConsensusSampleDisplacementTolerancePx = 3.0f;
+        constexpr float kSingletonNccAdvantage = 0.03f;
+        constexpr float kSingletonNoRunnerUpNcc = 0.50f;
+        const float kSingletonStrongNcc =
+            std::max(kStrongActiveAnchorCc, 0.35f);
+        std::atomic<int64_t> reg_multi_anchor_frames_evaluated{0};
+        std::atomic<int64_t> reg_multi_anchor_candidates_attempted{0};
+        std::atomic<int64_t> reg_multi_anchor_candidates_globally_valid{0};
+        std::atomic<int64_t> reg_multi_anchor_consensus_accepted{0};
+        std::atomic<int64_t> reg_multi_anchor_singleton_accepted{0};
+        std::atomic<int64_t> reg_multi_anchor_no_consensus{0};
 
         int current_reg_pass_workers = reg_workers;
         std::string current_reg_pass_label = "direct";
@@ -1394,70 +1397,269 @@ bool run_phase_registration_prewarp(
                                            false, -1,
                                            RegistrationProvenance::unresolved);
                   } else {
-                    const size_t anchor_slot =
-                        nearest_active_anchor_slot(static_cast<int>(fi));
-                    const int anchor_idx = active_anchor_indices[anchor_slot];
-                    const Matrix2Df &anchor_reg =
-                        active_anchor_proxies[anchor_slot];
+                    struct GlobalAnchorCandidate {
+                      int anchor_index = -1;
+                      WarpMatrix warp_proxy = registration::identity_warp();
+                      float ncc_global = 0.0f;
+                      float ncc_identity = 0.0f;
+                      int overlap_px = 0;
+                      std::string method;
+                    };
 
-                    auto sfr = registration::register_single_frame(
-                        mov_reg, anchor_reg, registration_cfg);
+                    ++reg_multi_anchor_frames_evaluated;
 
-                    if (sfr.reg.success) {
+                    size_t master_slot = active_anchor_indices.size();
+                    std::vector<size_t> nearest_slots;
+                    nearest_slots.reserve(active_anchor_indices.size());
+                    for (size_t slot = 0; slot < active_anchor_indices.size();
+                         ++slot) {
+                      if (active_anchor_indices[slot] == global_ref_idx) {
+                        master_slot = slot;
+                      } else {
+                        nearest_slots.push_back(slot);
+                      }
+                    }
+                    std::sort(nearest_slots.begin(), nearest_slots.end(),
+                              [&](size_t lhs, size_t rhs) {
+                                const int lhs_dist = std::abs(
+                                    active_anchor_indices[lhs] -
+                                    static_cast<int>(fi));
+                                const int rhs_dist = std::abs(
+                                    active_anchor_indices[rhs] -
+                                    static_cast<int>(fi));
+                                if (lhs_dist != rhs_dist) {
+                                  return lhs_dist < rhs_dist;
+                                }
+                                return active_anchor_indices[lhs] <
+                                       active_anchor_indices[rhs];
+                              });
+                    if (nearest_slots.size() >
+                        kMaxNearestConsensusAnchors) {
+                      nearest_slots.resize(kMaxNearestConsensusAnchors);
+                    }
+                    std::vector<size_t> candidate_slots = nearest_slots;
+                    if (master_slot < active_anchor_indices.size()) {
+                      candidate_slots.push_back(master_slot);
+                    }
+
+                    std::vector<GlobalAnchorCandidate> candidates;
+                    candidates.reserve(candidate_slots.size());
+                    for (const size_t anchor_slot : candidate_slots) {
+                      ++reg_multi_anchor_candidates_attempted;
+                      const int anchor_idx =
+                          active_anchor_indices[anchor_slot];
+                      const Matrix2Df &anchor_reg =
+                          active_anchor_proxies[anchor_slot];
+                      const auto sfr = registration::register_single_frame(
+                          mov_reg, anchor_reg, registration_cfg);
+                      if (!sfr.reg.success) {
+                        continue;
+                      }
+
                       const WarpMatrix w_anchor_proxy =
                           registration::scale_translation_warp(
                               global_frame_warps[static_cast<size_t>(anchor_idx)],
                               proxy_scale());
-                      const WarpMatrix w_chained =
-                          concatenate_affine_warps(sfr.reg.warp, w_anchor_proxy);
-                      const Matrix2Df warped_global =
-                          registration::apply_warp(mov_reg, w_chained);
-                      const cv::Mat valid_mask_global =
-                          registration::warp_valid_mask(mov_reg, w_chained);
-                      int overlap_px = 0;
-                      const float ncc_global = registration::compute_ncc_masked(
-                          warped_global, ref_reg, valid_mask_global,
-                          &overlap_px);
-
-                      if (overlap_px <= 16 ||
-                          ncc_global < kWeakGlobalRegistrationCc) {
-                        set_registration_state(
-                            fi, registration::identity_warp(), 0.0f, false, -1,
-                            RegistrationProvenance::unresolved);
-                      } else {
-                        const bool chained_anchor = anchor_idx != global_ref_idx;
-                        const int chained_depth =
-                            chained_anchor
-                                ? (std::max(
-                                       0,
-                                       reg_chain_depth[static_cast<size_t>(
-                                           anchor_idx)]) +
-                                   1)
-                                : 0;
-                        const WarpMatrix w_full =
-                            registration::scale_translation_warp(
-                                w_chained, global_reg_scale);
-                        set_registration_state(
-                            fi, w_full, std::max(ncc_global, 0.01f),
-                            chained_anchor &&
-                                ncc_global >= kWeakGlobalRegistrationCc,
-                            chained_depth,
-                            RegistrationProvenance::direct_global);
+                      const WarpMatrix w_global_proxy =
+                          concatenate_affine_warps(sfr.reg.warp,
+                                                   w_anchor_proxy);
+                      if (!w_global_proxy.allFinite()) {
+                        continue;
                       }
+                      const Matrix2Df warped_global =
+                          registration::apply_warp(mov_reg, w_global_proxy);
+                      const cv::Mat valid_mask_global =
+                          registration::warp_valid_mask(mov_reg,
+                                                        w_global_proxy);
+                      int overlap_px = 0;
+                      const float ncc_global =
+                          registration::compute_ncc_masked(
+                              warped_global, ref_reg, valid_mask_global,
+                              &overlap_px);
+                      if (overlap_px <= 16 || !std::isfinite(ncc_global) ||
+                          ncc_global < kWeakGlobalRegistrationCc) {
+                        continue;
+                      }
+
+                      ++reg_multi_anchor_candidates_globally_valid;
+                      candidates.push_back(GlobalAnchorCandidate{
+                          anchor_idx,
+                          w_global_proxy,
+                          ncc_global,
+                          sfr.ncc_identity,
+                          overlap_px,
+                          sfr.method_used,
+                      });
+                    }
+
+                    auto wrapped_angle_difference_deg = [](float lhs,
+                                                           float rhs) {
+                      float diff = std::fmod(std::fabs(lhs - rhs), 360.0f);
+                      if (diff > 180.0f) {
+                        diff = 360.0f - diff;
+                      }
+                      return diff;
+                    };
+                    auto warp_rotation_deg = [](const WarpMatrix &warp) {
+                      return std::atan2(-warp(0, 1), warp(0, 0)) *
+                             (180.0f / kPi);
+                    };
+                    auto warp_scale = [](const WarpMatrix &warp) {
+                      const float determinant =
+                          warp(0, 0) * warp(1, 1) -
+                          warp(0, 1) * warp(1, 0);
+                      return std::sqrt(std::fabs(determinant));
+                    };
+                    auto transformed_sample = [](const WarpMatrix &warp,
+                                                  float x, float y) {
+                      return Eigen::Vector2f(
+                          warp(0, 0) * x + warp(0, 1) * y + warp(0, 2),
+                          warp(1, 0) * x + warp(1, 1) * y + warp(1, 2));
+                    };
+                    auto candidates_agree = [&](const GlobalAnchorCandidate &lhs,
+                                                const GlobalAnchorCandidate &rhs) {
+                      const float angle_difference =
+                          wrapped_angle_difference_deg(
+                              warp_rotation_deg(lhs.warp_proxy),
+                              warp_rotation_deg(rhs.warp_proxy));
+                      if (angle_difference > kConsensusAngleToleranceDeg) {
+                        return false;
+                      }
+
+                      const float lhs_scale = warp_scale(lhs.warp_proxy);
+                      const float rhs_scale = warp_scale(rhs.warp_proxy);
+                      const float scale_denominator =
+                          std::max({lhs_scale, rhs_scale, 1.0e-6f});
+                      if (std::fabs(lhs_scale - rhs_scale) /
+                              scale_denominator >
+                          kConsensusScaleToleranceFraction) {
+                        return false;
+                      }
+
+                      const float max_x =
+                          static_cast<float>(mov_reg.cols() - 1);
+                      const float max_y =
+                          static_cast<float>(mov_reg.rows() - 1);
+                      const std::array<Eigen::Vector2f, 5> samples = {
+                          Eigen::Vector2f(0.5f * max_x, 0.5f * max_y),
+                          Eigen::Vector2f(0.0f, 0.0f),
+                          Eigen::Vector2f(max_x, 0.0f),
+                          Eigen::Vector2f(0.0f, max_y),
+                          Eigen::Vector2f(max_x, max_y),
+                      };
+                      for (const auto &sample : samples) {
+                        const Eigen::Vector2f lhs_point = transformed_sample(
+                            lhs.warp_proxy, sample.x(), sample.y());
+                        const Eigen::Vector2f rhs_point = transformed_sample(
+                            rhs.warp_proxy, sample.x(), sample.y());
+                        if ((lhs_point - rhs_point).norm() >
+                            kConsensusSampleDisplacementTolerancePx) {
+                          return false;
+                        }
+                      }
+                      return true;
+                    };
+
+                    int selected_candidate = -1;
+                    int selected_support = 0;
+                    std::string selection_reason = "no_consensus";
+                    for (size_t ci = 0; ci < candidates.size(); ++ci) {
+                      int support = 1;
+                      for (size_t cj = 0; cj < candidates.size(); ++cj) {
+                        if (ci != cj &&
+                            candidates_agree(candidates[ci], candidates[cj])) {
+                          ++support;
+                        }
+                      }
+                      if (support >= 2 &&
+                          (support > selected_support ||
+                           (support == selected_support &&
+                            (selected_candidate < 0 ||
+                             candidates[ci].ncc_global >
+                                 candidates[static_cast<size_t>(
+                                     selected_candidate)]
+                                     .ncc_global)))) {
+                        selected_candidate = static_cast<int>(ci);
+                        selected_support = support;
+                      }
+                    }
+
+                    if (selected_candidate >= 0) {
+                      selection_reason = "consensus";
+                      ++reg_multi_anchor_consensus_accepted;
+                    } else if (!candidates.empty()) {
+                      size_t best = 0;
+                      for (size_t ci = 1; ci < candidates.size(); ++ci) {
+                        if (candidates[ci].ncc_global >
+                            candidates[best].ncc_global) {
+                          best = ci;
+                        }
+                      }
+                      float runner_up_ncc =
+                          -std::numeric_limits<float>::infinity();
+                      for (size_t ci = 0; ci < candidates.size(); ++ci) {
+                        if (ci != best) {
+                          runner_up_ncc = std::max(
+                              runner_up_ncc, candidates[ci].ncc_global);
+                        }
+                      }
+                      const bool has_runner_up =
+                          std::isfinite(runner_up_ncc);
+                      const bool strong_enough =
+                          candidates[best].ncc_global >= kSingletonStrongNcc;
+                      const bool uniquely_superior =
+                          has_runner_up
+                              ? candidates[best].ncc_global >=
+                                    runner_up_ncc + kSingletonNccAdvantage
+                              : candidates[best].ncc_global >=
+                                    kSingletonNoRunnerUpNcc;
+                      if (strong_enough && uniquely_superior) {
+                        selected_candidate = static_cast<int>(best);
+                        selected_support = 1;
+                        selection_reason = "uniquely_superior_singleton";
+                        ++reg_multi_anchor_singleton_accepted;
+                      }
+                    }
+
+                    if (selected_candidate < 0) {
+                      ++reg_multi_anchor_no_consensus;
+                      set_registration_state(
+                          fi, registration::identity_warp(), 0.0f, false, -1,
+                          RegistrationProvenance::unresolved);
                     } else {
-                      set_registration_state(fi, registration::identity_warp(), 0.0f,
-                                             false, -1,
-                                             RegistrationProvenance::unresolved);
+                      const auto &selected = candidates[static_cast<size_t>(
+                          selected_candidate)];
+                      const WarpMatrix w_full =
+                          registration::scale_translation_warp(
+                              selected.warp_proxy, global_reg_scale);
+                      // Every candidate terminates at an independently
+                      // master-solved fixed anchor (or the master itself).
+                      // Consensus therefore validates alternate paths without
+                      // introducing recursive or temporal propagation.
+                      set_registration_state(
+                          fi, w_full, std::max(selected.ncc_global, 0.01f),
+                          false, 0, RegistrationProvenance::direct_global);
                     }
 
                     // Per-frame logging
-                    if (fi < 5 || fi == frames.size() - 1 || (fi % 50 == 0)) {
+                    if (fi < 5 || fi == frames.size() - 1 ||
+                        (fi % 50 == 0)) {
                       std::lock_guard<std::mutex> lock(reg_log_mutex);
-                      std::cout << "[REG] frame " << fi << "/" << frames.size()
-                                << " anchor=" << anchor_idx
-                                << " method=" << sfr.method_used
-                                << " ncc_id=" << sfr.ncc_identity
-                                << " cc=" << global_frame_cc[fi] << std::endl;
+                      std::cout << "[REG] frame " << fi << "/"
+                                << frames.size()
+                                << " candidates=" << candidates.size()
+                                << "/" << candidate_slots.size()
+                                << " selection=" << selection_reason
+                                << " support=" << selected_support;
+                      if (selected_candidate >= 0) {
+                        const auto &selected = candidates[static_cast<size_t>(
+                            selected_candidate)];
+                        std::cout << " anchor=" << selected.anchor_index
+                                  << " method=" << selected.method
+                                  << " ncc_id=" << selected.ncc_identity
+                                  << " overlap=" << selected.overlap_px;
+                      }
+                      std::cout << " cc=" << global_frame_cc[fi] << std::endl;
                     }
                   }
                 }
@@ -1537,16 +1739,14 @@ bool run_phase_registration_prewarp(
 
         run_registration_pass(reg_workers, nullptr, "direct");
 
-        // Adaptive Anker-Anzahl: mehr Anker bei vielen Frames oder schlechtem Seeing
-        // Alt: min(21, max(3, (N+59)/60)) -> bei 325 Frames nur 6 Anker
-        // Neu: min(32, max(4, (N+29)/30)) -> bei 325 Frames 12 Anker
+        // Keep the active anchor set fixed after each requested anchor has
+        // been independently solved against the master reference. Promoting
+        // ordinary frames would reintroduce recursive anchor chains and make
+        // later results depend on earlier registration decisions.
         const int target_active_anchor_count =
-            std::max(requested_anchor_count,
-                     std::min(32, std::max(4, (static_cast<int>(frames.size()) + 29) / 30)));
-        const int promote_limit_per_round =
-            std::clamp((static_cast<int>(frames.size()) + 159) / 160, 2, 8);
-        const int max_direct_anchor_rounds =
-            std::clamp((static_cast<int>(frames.size()) + 239) / 240, 3, 8);
+            static_cast<int>(active_anchor_indices.size());
+        const int promote_limit_per_round = 0;
+        const int max_direct_anchor_rounds = 0;
 
         auto promote_strong_direct_anchors = [&]() -> std::vector<int> {
           std::vector<int> promoted_indices;
@@ -1818,38 +2018,12 @@ bool run_phase_registration_prewarp(
             return true;
           };
 
-          // Hüpfende Sequential Refine: suche nächsten guten Frame (cc>0.4) wenn direkter Nachbar schlecht
-          const float kGoodAnchorCc = 0.40f;
-          auto find_good_neighbor_refine = [&](size_t fi, int direction) -> size_t {
-            // direction: +1 für vorwärts, -1 für rückwärts
-            for (int dist = 1; dist <= 5; ++dist) {
-              int neighbor = static_cast<int>(fi) + direction * dist;
-              if (neighbor < 0 || neighbor >= static_cast<int>(frames.size())) continue;
-              if (global_frame_cc[static_cast<size_t>(neighbor)] > kGoodAnchorCc) {
-                return static_cast<size_t>(neighbor);
-              }
-            }
-            // Fallback: direkter Nachbar
-            return (direction > 0) ? fi - 1 : fi + 1;
-          };
-
-          for (size_t fi = static_cast<size_t>(global_ref_idx) + 1;
-               fi < frames.size(); ++fi) {
-            size_t neighbor = fi - 1;
-            // Wenn direkter Nachbar schlecht, suche besseren
-            if (global_frame_cc[neighbor] <= kGoodAnchorCc) {
-              neighbor = find_good_neighbor_refine(fi, -1);
-            }
-            try_sequential_refine(fi, neighbor);
-          }
-          for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            size_t neighbor = static_cast<size_t>(fi + 1);
-            // Wenn direkter Nachbar schlecht, suche besseren
-            if (global_frame_cc[neighbor] <= kGoodAnchorCc) {
-              neighbor = find_good_neighbor_refine(static_cast<size_t>(fi), +1);
-            }
-            try_sequential_refine(static_cast<size_t>(fi), neighbor);
-          }
+          // Direct-global source selections are immutable. A temporal neighbor may
+          // be useful diagnostically, but it must never replace a transform
+          // that was independently validated against the master reference.
+          // This avoids order-dependent PSF broadening from accumulated
+          // translation/rotation errors. Unresolved frames are handled below
+          // by master-reference seeded ECC and global model/astrometric paths.
         }
 
         if (reg_sequential_refined > 0) {
@@ -1977,43 +2151,9 @@ bool run_phase_registration_prewarp(
             return true;
           };
 
-          // Hüpfende Sequential Rescue: suche nächsten guten Anker wenn direkter Nachbar schlecht
-          const float kGoodRescueAnchorCc = 0.30f; // etwas niedriger für Rescue
-          auto find_good_anchor_rescue = [&](size_t fi, int direction) -> size_t {
-            for (int dist = 1; dist <= 8; ++dist) {
-              int anchor = static_cast<int>(fi) + direction * dist;
-              if (anchor < 0 || anchor >= static_cast<int>(frames.size())) continue;
-              size_t ai = static_cast<size_t>(anchor);
-              if (global_frame_cc[ai] > kGoodRescueAnchorCc && can_anchor_blind_chain(ai)) {
-                return ai;
-              }
-            }
-            // Fallback: direkter Nachbar
-            return (direction > 0) ? fi - 1 : fi + 1;
-          };
-
-          // Forward pass: ref -> last frame
-          for (size_t fi = static_cast<size_t>(global_ref_idx) + 1;
-               fi < frames.size(); ++fi) {
-            size_t anchor = fi - 1;
-            // Wenn direkter Nachbar kein guter Anker, suche weiter
-            if (global_frame_cc[anchor] <= kGoodRescueAnchorCc ||
-                !can_anchor_blind_chain(anchor)) {
-              anchor = find_good_anchor_rescue(fi, -1);
-            }
-            if (try_sequential(fi, anchor)) ++reg_sequential_rescued;
-          }
-          // Backward pass: ref -> first frame
-          for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            size_t anchor = static_cast<size_t>(fi + 1);
-            // Wenn direkter Nachbar kein guter Anker, suche weiter
-            if (global_frame_cc[anchor] <= kGoodRescueAnchorCc ||
-                !can_anchor_blind_chain(anchor)) {
-              anchor = find_good_anchor_rescue(static_cast<size_t>(fi), +1);
-            }
-            if (try_sequential(static_cast<size_t>(fi), anchor))
-              ++reg_sequential_rescued;
-          }
+          // Deliberately do not recover unresolved frames from neighboring
+          // frames. A low-correlation neighbor can otherwise become a new
+          // anchor and propagate one mistaken transform across the sequence.
         }
 
         if (reg_sequential_rescued > 0) {
@@ -2087,8 +2227,14 @@ bool run_phase_registration_prewarp(
         auto build_bridge_seed_proxy = [&](size_t fi, WarpMatrix &seed) -> bool {
           std::vector<size_t> valid_idx;
           valid_idx.reserve(frames.size());
+          // Build the seed exclusively from immutable global solutions. A
+          // frame recovered in this stage must never influence another frame,
+          // which keeps the result independent of traversal order.
           for (size_t i = 0; i < frames.size(); ++i) {
-            if (global_frame_cc[i] > 0.0f) {
+            if (global_frame_cc[i] > 0.0f &&
+                is_active_anchor_frame[i] != 0 &&
+                (reg_provenance[i] == RegistrationProvenance::reference ||
+                 reg_provenance[i] == RegistrationProvenance::direct_global)) {
               valid_idx.push_back(i);
             }
           }
@@ -2212,7 +2358,7 @@ bool run_phase_registration_prewarp(
 
           set_registration_state(
               fi, registration::scale_translation_warp(ecc_res.warp, global_reg_scale),
-              ncc_warped, true, 1,
+              ncc_warped, false, 0,
               RegistrationProvenance::seeded_ecc_rescue);
           return true;
         };
@@ -2350,75 +2496,21 @@ bool run_phase_registration_prewarp(
           return true;
         };
 
-        // Iterate rescue stages so newly recovered frames can immediately act as
-        // anchors for neighboring failures in the same problematic block.
-        for (int pass = 0; pass < 4; ++pass) {
-          bool progress = false;
-
-          for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            if (global_frame_cc[static_cast<size_t>(fi)] > 0.0f) {
-              continue;
-            }
-            int anchor = fi + 1;
-            while (anchor < static_cast<int>(frames.size()) &&
-                   global_frame_cc[static_cast<size_t>(anchor)] <= 0.0f) {
-              ++anchor;
-            }
-            if (anchor < static_cast<int>(frames.size()) &&
-                try_temporal_rescue(static_cast<size_t>(fi),
-                                    static_cast<size_t>(anchor))) {
-              ++reg_temporal_rescued_backward;
-              progress = true;
-            }
+        // Frame-independent fallback: every unresolved frame is optimized
+        // directly against the immutable master reference. The seed is
+        // interpolated only from the original global solutions captured by
+        // build_bridge_seed_proxy; recovered frames are never reused.
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (static_cast<int>(fi) == global_ref_idx ||
+              global_frame_cc[fi] > 0.0f) {
+            continue;
           }
-
-          for (size_t fi = static_cast<size_t>(global_ref_idx + 1);
-               fi < frames.size(); ++fi) {
-            if (global_frame_cc[fi] > 0.0f) {
-              continue;
-            }
-            int anchor = static_cast<int>(fi) - 1;
-            while (anchor >= 0 &&
-                   global_frame_cc[static_cast<size_t>(anchor)] <= 0.0f) {
-              --anchor;
-            }
-            if (anchor >= 0 &&
-                try_temporal_rescue(fi, static_cast<size_t>(anchor))) {
-              ++reg_temporal_rescued_forward;
-              progress = true;
-            }
-          }
-
-          for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            if (try_seeded_ecc_rescue(static_cast<size_t>(fi))) {
+          if (try_seeded_ecc_rescue(fi)) {
+            if (static_cast<int>(fi) < global_ref_idx) {
               ++reg_seeded_ecc_rescued_backward;
-              progress = true;
-            }
-          }
-          for (size_t fi = static_cast<size_t>(global_ref_idx + 1);
-               fi < frames.size(); ++fi) {
-            if (try_seeded_ecc_rescue(fi)) {
+            } else {
               ++reg_seeded_ecc_rescued_forward;
-              progress = true;
             }
-          }
-
-          for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
-            if (try_local_reference_rescue(static_cast<size_t>(fi))) {
-              ++reg_local_reference_rescued_backward;
-              progress = true;
-            }
-          }
-          for (size_t fi = static_cast<size_t>(global_ref_idx + 1);
-               fi < frames.size(); ++fi) {
-            if (try_local_reference_rescue(fi)) {
-              ++reg_local_reference_rescued_forward;
-              progress = true;
-            }
-          }
-
-          if (!progress) {
-            break;
           }
         }
 
@@ -2429,6 +2521,52 @@ bool run_phase_registration_prewarp(
         const int reg_local_reference_rescued =
             reg_local_reference_rescued_backward +
             reg_local_reference_rescued_forward;
+        global_reg_extra["diag"]["registration_selection_strategy"] =
+            "independent_global_consensus_v2";
+        global_reg_extra["diag"]["temporal_chain_transforms_enabled"] = false;
+        global_reg_extra["diag"]["recursive_anchor_promotion_enabled"] = false;
+        global_reg_extra["diag"]["requested_anchors_independent_master"] = true;
+        global_reg_extra["diag"]["direct_global_source_selection_immutable"] =
+            true;
+        global_reg_extra["diag"]["model_uses_original_global_sources_only"] =
+            true;
+        global_reg_extra["diag"]["seeded_ecc_uses_original_global_anchors_only"] =
+            true;
+        global_reg_extra["diag"]["multi_anchor_consensus_enabled"] = true;
+        global_reg_extra["diag"]["multi_anchor_max_nearest_fixed_anchors"] =
+            static_cast<int>(kMaxNearestConsensusAnchors);
+        global_reg_extra["diag"]["multi_anchor_master_always_evaluated"] = true;
+        global_reg_extra["diag"]["multi_anchor_angle_tolerance_deg"] =
+            kConsensusAngleToleranceDeg;
+        global_reg_extra["diag"]["multi_anchor_scale_tolerance_fraction"] =
+            kConsensusScaleToleranceFraction;
+        global_reg_extra["diag"]
+                        ["multi_anchor_sample_displacement_tolerance_proxy_px"] =
+            kConsensusSampleDisplacementTolerancePx;
+        global_reg_extra["diag"]["multi_anchor_min_consensus_support"] = 2;
+        global_reg_extra["diag"]["multi_anchor_singleton_strong_ncc"] =
+            kSingletonStrongNcc;
+        global_reg_extra["diag"]["multi_anchor_singleton_ncc_advantage"] =
+            kSingletonNccAdvantage;
+        global_reg_extra["diag"]["multi_anchor_singleton_no_runner_up_ncc"] =
+            kSingletonNoRunnerUpNcc;
+        global_reg_extra["diag"]["reg_multi_anchor_frames_evaluated"] =
+            reg_multi_anchor_frames_evaluated.load(std::memory_order_relaxed);
+        global_reg_extra["diag"]["reg_multi_anchor_candidates_attempted"] =
+            reg_multi_anchor_candidates_attempted.load(
+                std::memory_order_relaxed);
+        global_reg_extra["diag"]
+                        ["reg_multi_anchor_candidates_globally_valid"] =
+            reg_multi_anchor_candidates_globally_valid.load(
+                std::memory_order_relaxed);
+        global_reg_extra["diag"]["reg_multi_anchor_consensus_accepted"] =
+            reg_multi_anchor_consensus_accepted.load(
+                std::memory_order_relaxed);
+        global_reg_extra["diag"]["reg_multi_anchor_singleton_accepted"] =
+            reg_multi_anchor_singleton_accepted.load(
+                std::memory_order_relaxed);
+        global_reg_extra["diag"]["reg_multi_anchor_no_consensus"] =
+            reg_multi_anchor_no_consensus.load(std::memory_order_relaxed);
         global_reg_extra["diag"]["reg_sequential_refined"] = reg_sequential_refined;
         global_reg_extra["diag"]["reg_sequential_rescued"] = reg_sequential_rescued;
         global_reg_extra["diag"]["reg_sequential_anchor_blocked"] =
@@ -3041,7 +3179,11 @@ bool run_phase_registration_prewarp(
     {
       std::vector<float> vfi, vang_raw, vtx, vty, vcc;
       for (size_t fi = 0; fi < frames.size(); ++fi) {
-        if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
+        const bool immutable_global_source =
+            reg_provenance[fi] == RegistrationProvenance::reference ||
+            reg_provenance[fi] == RegistrationProvenance::direct_global;
+        if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f &&
+            immutable_global_source) {
           const auto &w = global_frame_warps[fi];
           vfi.push_back(static_cast<float>(fi));
           vang_raw.push_back(std::atan2(w(0, 1), w(0, 0)));

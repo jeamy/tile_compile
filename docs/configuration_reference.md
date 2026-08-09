@@ -687,12 +687,9 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | **Maximum** | 100 |
 | **Default** | `0` |
 
-**Zweck:** Maximale Tiefe für Blind-Chain-Rescue. `0` = automatisch (N/10, min 12, max 50).
+**Kompatibilitaet:** Historischer Parameter der deaktivierten Blind-Chain-Rescue. Er wird weiterhin geparst und serialisiert, damit bestehende Konfigurationen gueltig bleiben, beeinflusst die aktuelle Strategie `independent_global_consensus_v2` aber nicht. `0` wird weiterhin als `clamp(N/10, 12, 50)` aufgeloest, falls ein altes Artefakt oder Werkzeug den Legacy-Wert auswertet.
 
-- **Wert 0 (auto):** Automatische Berechnung basierend auf Frame-Anzahl N. Formel: `clamp(N/10, 12, 50)`
-- **Wert >0:** Manuelle Überschreibung der maximalen Chain-Tiefe
-
-**Hinweis:** Höhere Werte erlauben längere Ketten bei Wolkenblöcken, erhöhen aber auch das Risiko von Drift-Fehlern.
+**Fallback-Verhalten:** Ungeloeste Frames werden nicht ueber Kettentiefe gerettet. Sie werden unabhaengig per Seeded-ECC direkt gegen den Master-Referenzframe validiert und fallen danach auf Astrometrie bzw. das globale Transformationsmodell zurueck.
 
 ----
 
@@ -705,9 +702,7 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | **Maximum** | 0.5 |
 | **Default** | `0.08` |
 
-**Zweck:** CC-Schwelle für "starke Anker" in Blind-Chains. Frames mit höherem CC können tiefere Ketten starten.
-
-**Hinweis:** Niedrigere Werte erlauben mehr Frames als starke Anker (aggressiver), höhere Werte sind konservativer.
+**Kompatibilitaet:** Historische CC-Schwelle fuer starke Blind-Chain-Anker. Der Wert bleibt schema- und parserkompatibel, wird von `independent_global_consensus_v2` jedoch nicht fuer die Warp-Auswahl verwendet.
 
 ----
 
@@ -720,10 +715,7 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | **Maximum** | 10.0 |
 | **Default** | `2.0` |
 
-**Zweck:** Maximal erlaubte Drift in Pixeln pro Frame innerhalb einer Blind-Chain.
-
-- Die Kette wird abgebrochen wenn die kumulative Drift diesen Wert überschreitet
-- Schützt vor akkumulierenden Fehlern in langen Ketten
+**Kompatibilitaet:** Historische Driftgrenze in Pixeln pro Frame. Da die aktuelle Registrierung keine Nachbarframe-Ketten erzeugt, ist die Metrik nicht anwendbar und der Wert hat keinen Einfluss auf neue Runs.
 
 ----
 

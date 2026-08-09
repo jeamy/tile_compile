@@ -1490,9 +1490,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         cfg.data.color_mode + "'",
                     log_file);
   }
-  if (!cfg.data.bayer_pattern.empty() && detected_mode == ColorMode::OSC &&
-      cfg.data.bayer_pattern != detected_bayer_str &&
-      detected_bayer != BayerPattern::UNKNOWN) {
+  // `auto` intentionally delegates Bayer-pattern selection to FITS metadata;
+  // a detected concrete pattern is therefore not a configuration mismatch.
+  // Compare parsed concrete patterns so case/whitespace variations such as
+  // `gbrg` are treated equivalently to the canonical `GBRG` spelling.
+  std::string normalized_cfg_bayer = cfg.data.bayer_pattern;
+  normalized_cfg_bayer.erase(
+      normalized_cfg_bayer.begin(),
+      std::find_if(normalized_cfg_bayer.begin(), normalized_cfg_bayer.end(),
+                   [](unsigned char c) { return !std::isspace(c); }));
+  normalized_cfg_bayer.erase(
+      std::find_if(normalized_cfg_bayer.rbegin(), normalized_cfg_bayer.rend(),
+                   [](unsigned char c) { return !std::isspace(c); })
+          .base(),
+      normalized_cfg_bayer.end());
+  std::transform(normalized_cfg_bayer.begin(), normalized_cfg_bayer.end(),
+                 normalized_cfg_bayer.begin(), [](unsigned char c) {
+                   return static_cast<char>(std::toupper(c));
+                 });
+  const bool cfg_bayer_is_auto = normalized_cfg_bayer == "AUTO";
+  if (detected_mode == ColorMode::OSC &&
+      !cfg.data.bayer_pattern.empty() && !cfg_bayer_is_auto &&
+      detected_bayer != BayerPattern::UNKNOWN &&
+      (cfg_bayer == BayerPattern::UNKNOWN || cfg_bayer != detected_bayer)) {
     emitter.warning(run_id,
                     "Detected bayer pattern '" + detected_bayer_str +
                         "' differs from config.data.bayer_pattern '" +

@@ -1,11 +1,11 @@
-# REGISTRATION — Kaskadierte globale Registrierung + Pre-Warping
+# REGISTRATION — Globale Multi-Anchor-Konsensregistrierung + Pre-Warping
 
 > **C++ Implementierung:** `global_registration.cpp`, `registration.cpp`, `runner_phase_registration.cpp`
 > **Phase-Enum:** `Phase::REGISTRATION` (gefolgt von eigener `Phase::PREWARP`)
 
 ## Übersicht
 
-Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsystem aus. Der aktuelle C++-Runner kombiniert eine **6-stufige Einzelbild-Registrierungskaskade** mit einer **Multi-Anchor-Strategie**, sequentiellen Frame-zu-Frame-Rescues und optionaler Astrometrie. Das ist speziell fuer lange Alt/Az-Sequenzen mit Feldrotation wichtig, bei denen ein einziger spaeter Referenzframe fuer fruehe Frames oft geometrisch zu weit entfernt ist. Anschliessend werden alle Frames in der **eigenen Pipeline-Phase `PREWARP`** vollaufgeloest vorgewrapt, bevor lokale Tile-Metriken berechnet werden.
+Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsystem aus. Der aktuelle C++-Runner kombiniert eine **6-stufige Einzelbild-Registrierungskaskade** mit einer **festen Multi-Anchor-Konsensstrategie** und optionaler Astrometrie. Das ist speziell fuer lange Alt/Az-Sequenzen mit Feldrotation wichtig, bei denen ein einziger spaeter Referenzframe fuer fruehe Frames oft geometrisch zu weit entfernt ist. Kein Warp wird aus einem vorhergehenden Frame oder aus einem rekursiv promovierten Anchor abgeleitet. Anschliessend werden alle Frames in der **eigenen Pipeline-Phase `PREWARP`** vollaufgeloest vorgewrapt, bevor lokale Tile-Metriken berechnet werden.
 
 **Kernprinzip:** Keine Frame-Selektion. Jeder Frame bleibt im Datenfluss; die Provenienz wird ueber `source`, `chain_depth` und Registration-Telemetrie dokumentiert.
 
@@ -14,19 +14,17 @@ Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsy
 1. Vor dem CFA-Warp ist optional eine **deterministische CFA-Defektpixel-Unterdrückung** zulässig, solange CFA-Phase und Sample-Geometrie erhalten bleiben.
 2. Die Identity-Akzeptanz für den Referenzframe und für nahezu perfekt ausgerichtete Frames ist ein **korrekter Sonderfall**, kein Registrierungsfehler.
 
-```
+```text
 ┌──────────────────────────────────────────────────────────┐
 │  Fuer jeden Frame f != master_ref:                       │
 │                                                          │
-│  1. Waehle 1/3/5 hochwertige, zeitlich verteilte Anker   │
-│  2. Verankere Anchor-Frames gegen den Master-Anchor      │
-│  3. Registriere jedes Frame direkt gegen den naechsten   │
-│     aktiven Anchor (Einzelbild-Kaskade darunter)         │
-│  4. Promote starke direkte Treffer zu weiteren Anchors   │
-│     und wiederhole direkte Paesse                        │
-│  5. Rescue-Stufen: sequential refine -> phase-corr       │
-│     -> temporal/local/ECC -> optional Astrometrie        │
-│  6. Optionales Feldrotationsmodell fuer Restfaelle       │
+│  1. Waehle hochwertige, zeitlich verteilte feste Anker   │
+│  2. Loese jeden festen Anker unabhaengig gegen Master    │
+│  3. Teste bis zu 5 naechste feste Anker plus Master      │
+│  4. Validiere jeden Warp im Master-System (NCC/Overlap)  │
+│  5. Akzeptiere Transform-Konsens oder einen eindeutig    │
+│     ueberlegenen starken Einzelkandidaten                │
+│  6. Sonst: Master-ECC -> Modell -> optionale ASTAP-Pruefung│
 │  7. Pre-warp ganzes Bild (CFA-aware bei OSC)             │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -52,57 +50,77 @@ Nach der Anchor-Auswahl laeuft die direkte Registrierung so:
 
 - Aufnahmezeit-Gaps aus Dateinamen im Format `YYYYMMDD-HHMMSS...` trennen
   unabhaengige Serien. Fuer jedes erkannte Segment werden die Randframes und
-  zusaetzliche lokale Quality-Anker erzwungen. Dadurch bekommt ein kombinierter
-  Run wie `part1 + part2` pro Serie eine lokale Ankerkette statt nur einen
-  groben globalen Anker.
-- Angeforderte Anchor-Frames werden zuerst gegen bereits aktive Anchors verankert.
-  Sie werden nur dann als aktive Referenz-Anker genutzt, wenn ihre globale
-  Korrelation stark genug ist. Schwache angeforderte Anker bleiben normale
-  Registrierungen und duerfen die direkte Registrierung benachbarter Frames
-  nicht fuehren.
-- Jedes normale Frame wird direkt gegen den **zeitlich naechsten aktiven Anchor** registriert, nicht zwangslaeufig gegen den Master-Anchor.
-- Starke `direct_global`-Treffer koennen zu weiteren aktiven Anchors promoted werden.
-  Zusaetzlich koennen Rand-/Frontier-Treffer mit niedrigerer, aber noch
-  plausibler globaler Korrelation promoted werden, wenn sie an ungeloste Frames
-  angrenzen oder den aktiven Anchor-Bereich nach aussen erweitern. Das verhindert,
-  dass stark rotierende Sequenzenden trotz lokal brauchbarer Registrierung
-  komplett in `model_interpolated`/`unresolved` fallen.
-- Die Promotion skaliert ebenfalls mit `N`: Zielgroesse fuer aktive Anchors ist aktuell ungefaehr **1 aktiver Anchor pro 30 Frames**, begrenzt auf `32`.
-- Pro Promote-Runde duerfen aktuell ungefaehr **1 neue Anchors pro 160 Frames** dazukommen, begrenzt auf `2..8` pro Runde.
-- Die Anzahl zusaetzlicher Direktpaesse skaliert ebenfalls mit `N` und ist aktuell auf `ceil(N / 240)` begrenzt, mindestens `3`, maximal `8`.
+  zusaetzliche lokale Quality-Anker erzwungen. Dadurch besitzt auch ein
+  kombinierter Run wie `part1 + part2` feste Anker in jeder Aufnahmeserie.
+- Angeforderte Anchor-Frames werden jeweils direkt gegen den unveraenderlichen
+  Master-Referenzframe geloest und global per Overlap/NCC validiert. Kein Anchor
+  erbt die Transformation eines anderen Anchors.
+- Fuer jedes normale Frame werden deterministisch die bis zu **fuenf zeitlich
+  naechsten festen Anchors plus der Master** getestet. Die
+  Frame-zu-Anchor-Transformation wird mit dem unabhaengigen Anchor-zu-Master-Warp
+  zusammengesetzt; anschliessend wird jeder Kandidat gegen dasselbe Masterbild
+  mit maskiertem Overlap und globalem NCC bewertet.
+- Primaer wird nur ein Kandidat mit mindestens einem zweiten uebereinstimmenden
+  Kandidaten akzeptiert. Uebereinstimmung bedeutet im Registrierungs-Proxy:
+  hoechstens `0.75 deg` Winkeldifferenz, `0.5 %` relative Skalendifferenz und
+  hoechstens `3 px` Abstand an Bildmittelpunkt und allen vier Ecken. Dadurch
+  bilden auch korrekt gefundene `180 deg`-Meridian-Flip-Warps eine gemeinsame
+  Orientierungsfamilie, waehrend ein isolierter Halbturn-Alias keinen Konsens
+  erhaelt.
+- Ohne Zweierkonsens darf nur der global beste **starke und eindeutig
+  ueberlegene** Kandidat passieren: NCC mindestens
+  `max(registration.reject_cc_min_abs, 0.35)` und mindestens `0.03` ueber dem Runner-up. Existiert kein global gueltiger
+  Runner-up, gilt die strengere absolute NCC-Schwelle `0.50`.
+- Normale Frames werden nicht zu neuen Anchors promoted. Ein frueher
+  Registrierungsfehler kann daher weder die Anchor-Menge noch spaetere Frames
+  beeinflussen. Kandidaten ohne Konsens bzw. eindeutigen Sieger gehen
+  `unresolved` in die frame-unabhaengige Rescue aus Abschnitt 1.2.
+- `global_registration.json` protokolliert Strategie, exakte Schwellen sowie
+  aggregierte Anzahlen fuer Versuche, global gueltige Kandidaten,
+  Konsensannahmen, Einzelannahmen und Ablehnungen ohne Konsens.
 
-## 1.2 Rescue-Hierarchie nach dem Direktpass
+## 1.2 Globale, frame-unabhaengige Rescue nach dem Direktpass
 
-Wenn die direkte Registrierung fuer ein Frame nicht ausreicht, folgen in dieser Reihenfolge weitere Stufen:
+Die Quell- und Basisauswahl einer gueltigen `direct_global`-Transformation ist
+nach dem Direktpass unveraenderlich: Sie wird weder durch einen zeitlichen
+Nachbarn noch durch eine Frame-zu-Frame-Kette ersetzt. Die spaeteren,
+frame-lokalen affinen und Smooth-Local-Refinements duerfen diesen Basis-Warp
+weiterhin nur unter ihren Residual-, Geometrie-, NCC- und Overlap-Gates
+verfeinern; sie erzeugen keine Abhaengigkeit zu anderen Frames. Damit kann eine
+Fehlregistrierung nicht mehr als Anker fuer nachfolgende Frames wirken oder den
+Stern-PSF ueber eine lange Kette verbreitern.
 
-1. `sequential_refined`: direktes Frame-zu-Frame-Matching gegen den zeitlichen Nachbarn mit anschliessender globaler Konsistenzpruefung.
-2. `sequential_rescue`: Phase-Correlation-Rescue gegen den Nachbarn fuer Bloecke, in denen die globale Korrelation verloren ging.
-3. `temporal_rescue`, `seeded_ecc_rescue`, `local_reference_rescue`: weitere Bruecken- und Unterstuetzungsstufen fuer verbleibende Ausfaelle.
-4. `astrometric_rescue`: ASTAP-basierte Plate-Solve-Rettung fuer unresolved oder sehr schwache/chained Ergebnisse.
-5. `model_predicted` / `model_blended`: Feldrotationsmodell als letzter geometrischer Rueckfall.
+Fuer jedes noch ungeloeste Frame gelten stattdessen unabhaengige globale
+Stufen:
 
-Bei der Phase-Correlation liefert OpenCV den **Vorwaerts-Content-Shift**. Da die
-Pipeline-Warps mit `WARP_INVERSE_MAP` angewendet werden, werden `dx` und `dy`
-vor dem Einsetzen in den Warp negiert; bei aktivierter Rotation wird die
-gesamte affine Vorwaertstransformation (Rotation um das Bildzentrum plus
-Translation) invertiert, nicht nur die Translation. `sequential_refined`
-benoetigt zusaetzlich eine lokale NCC-Mindestuebereinstimmung, eine minimale
-globale Plausibilitaet und verwendet Phase-Correlation nur bis zu einer
-plausiblen Schrittweite. Aktive Direktanker werden nicht durch
-`sequential_refined` ueberschrieben. Eine zeitlich validierte Kette wird
-ausserdem nur dann gegen Low-CC-Rejection geschuetzt, wenn ihre globale
-Korrelation nicht auf Alias-Niveau liegt; reine lokale Ketten mit sehr niedriger
-globaler Korrelation werden verworfen. Der globale Rotationstrend wird
-haeufig nur aus dem hochkorrelierten Mittelteil einer langen Alt/Az-Sequenz
-bestimmt und waere an den zeitlichen Raendern eine unzulaessige Extrapolation.
+1. `seeded_ecc_rescue`: Aus den urspruenglichen `direct_global`- und
+   Referenz-Warps wird nur ein geometrischer Interpolations-Seed gebildet. Das
+   Frame selbst wird anschliessend direkt gegen den unveraenderlichen
+   Master-Referenzframe optimiert und per globalem Overlap/NCC validiert.
+2. Die Ergebnisse dieser Stufe werden niemals als Seeds oder Stuetzpunkte fuer
+   andere Frames bzw. das Feldrotationsmodell wiederverwendet; die Ausgabe ist
+   deshalb unabhaengig von Iterationsrichtung und Frame-Reihenfolge.
+3. `model_interpolated` / `model_blended`: globales Feldrotationsmodell als
+   geometrischer Rueckfall fuer noch ungeloeste Frames. Nicht global plausible
+   Vorhersagen bleiben `unresolved` und werden nicht als scheinbar gueltige
+   Ketten weitergereicht.
+4. `astrometric_rescue`: Wenn ASTAP konfiguriert und verfuegbar ist, werden
+   weiterhin ungeloeste Frames sowie die synthetischen Modellwarps mit niedriger
+   CC per Plate Solve geprueft. Eine erfolgreiche astrometrische Loesung ersetzt
+   den schwachen Modellwarp; ohne ASTAP bleibt der konservative Modell- bzw.
+   `unresolved`-Fallback erhalten.
 
-Vor der Modellvorhersage wird die zeitliche Transformations-Komponente auf
-Nachbar-Kontinuitaet geprueft. Ein einzelner grosser Sprung trennt die
-Aufnahmeserien. Jede abgetrennte Komponente mit eigenem starkem
-`direct_global`-/Astrometrie-Anker bleibt erhalten; nur unankerte Ketten werden
-modelliert. So werden unabhaengige Serien nicht als falsche Starfeld-Aeste
-verworfen. Modellierte Restframes bleiben im Datenfluss und erhalten
-`model_predicted`/`model_blended` Warp-Provenienz.
+Die historischen Provenienzen `sequential_refined`, `sequential_rescue`,
+`temporal_rescue` und `local_reference_rescue` bleiben fuer die Lesbarkeit alter
+Run-Artefakte bekannt, werden von der aktuellen Auswahlstrategie
+`independent_global_consensus_v2` aber nicht mehr erzeugt. `global_registration.json`
+weist die Strategie und `temporal_chain_transforms_enabled: false` explizit aus.
+
+Vor der Modellvorhersage wird die zeitliche Transformations-Komponente weiterhin
+nur als **Outlier-Diagnose** auf Nachbar-Kontinuitaet geprueft. Diese Pruefung
+schaetzt oder ersetzt keinen Warp. Ein einzelner grosser Sprung kann damit
+Aufnahmeserien trennen, ohne dass ein Nachbarframe zur geometrischen Referenz
+eines anderen Frames wird.
 
 ## 2. Downsample für Registrierung
 
