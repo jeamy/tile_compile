@@ -457,6 +457,22 @@ int rerun_existing_run_in_place(const fs::path &run_dir,
       << " --project-root " << shell_quote(fs::current_path().string())
       << " --run-id " << shell_quote(run_id);
 
+  {
+    std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
+                                 std::ios::out | std::ios::app);
+    if (event_log_file) {
+      tile_compile::runner::TeeBuf tee_buf(std::cout.rdbuf(),
+                                           event_log_file.rdbuf());
+      std::ostream log_file(&tee_buf);
+      core::emit_event(
+          "resume_start", run_id,
+          {{"run_dir", run_dir.string()},
+           {"from_phase", from_phase},
+           {"mode", "inplace_full_rerun"}},
+          log_file);
+    }
+  }
+
   std::cout << "[RESUME][rerun] Replaying full pipeline in place for requested "
             << "phase " << from_phase << ": " << cmd.str() << std::endl;
 

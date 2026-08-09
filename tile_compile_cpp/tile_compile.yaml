@@ -11,18 +11,20 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 calibration:
-  dark_master: ""
-  bias_master: ""
-  flats_dir: ""
+  dark_master: 
+  bias_master: 
+  flats_dir: 
   use_dark: false
-  flat_master: ""
+  flat_master: 
   dark_match_exposure_tolerance_percent: 10
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
-  bias_dir: ""
+  bias_dir: 
   dark_use_master: false
   use_bias: false
   flat_use_master: false
+  bias_use_master: false
+  use_flat: false
 normalization:
   enabled: true
   mode: background
@@ -101,7 +103,7 @@ aqmh:
     chunk_rows: 0
     memory_budget_mb: 0
     delete_prewarped_cache_after_run: false
-    prewarp_interpolation: cubic
+    prewarp_interpolation: linear
     registration_weight_guard: true
     registration_weight_floor: 0.3
     registration_cc_floor: 0.35

@@ -1837,7 +1837,12 @@ async function refreshRunStatus(runId) {
       return;
     }
 
-    if (status.phases && Array.isArray(status.phases)) {
+    // Resume events and the log-tail replay are the authoritative live source
+    // for the phase list. The in-place runner has historically emitted a
+    // normal `run_start`; do not let a stale reconstructed snapshot replace
+    // newer local phase progress while a resume is active.
+    const keepLiveResumePhases = getResumePending() || getResumeActive();
+    if (status.phases && Array.isArray(status.phases) && !keepLiveResumePhases) {
       // Merge backend statuses into the correct phase order for the run method.
       // This prevents backend-specific or out-of-order phases (e.g. GLOBAL_METRICS
       // for AQMH) from appearing at the bottom of the list.
@@ -2054,7 +2059,14 @@ async function resumeRun() {
     updateStat("stat-status", "running");
     updateStat("info-status", `running — ${phase}`);
     const newPhases = resetPhasesForResume(phase);
-    if (newPhases.length > 0) setRunState({ phases: newPhases });
+    if (newPhases.length > 0) {
+      // resetPhasesForResume updates the visible list optimistically. Render the
+      // same state explicitly as well, so the DOM and persisted monitor state
+      // cannot diverge when a resume is initiated after navigation/restoration.
+      setPhaseList(newPhases);
+      setRunState({ phases: newPhases });
+    }
+    refreshRunStatus(currentRunId);
     connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
     activateRunMonitorTab("log");
@@ -2243,7 +2255,10 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   if (type === "phase_start" || type === "phase_progress" || type === "phase_end") {
     const phaseName = getEventPhaseName(data, payload);
     if (!phaseName || phaseName === "null") return;
-    if (getResumePending() && !getResumeActive()) return;
+    // The resume WebSocket cursor starts at the resume boundary, so these
+    // events belong to the resumed execution even before `resume_start` is
+    // observed. Do not discard an early phase event while the runner is
+    // starting; it is the only live progress signal in that interval.
     const pct = normalizedEventPercent(data.pct ?? payload.pct ?? payload.progress ?? data.progress) ?? 0;
     const label = payload.label || null;
     if (getResumeActive() && isBeforeResumePhase(phaseName)) {
@@ -2264,26 +2279,32 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
   }
 
-  // Run status with full phase array
-  // Skip stale run_status during resumePending or resumeActive —
-  // backend sends old completed/failed phase list until resume events arrive,
-  // and even after resume_start the run_status may contain stale phase data.
-  // Individual phase_start/phase_progress/phase_end events drive the UI instead.
-  if (type === "run_status" && !getResumePending() && !getResumeActive()) {
-    if (payload.phases && Array.isArray(payload.phases)) {
-      setPhaseList(payload.phases);
-      setRunState({ phases: payload.phases });
-    }
+  // Run status with full phase array. During resume, accept only an active
+  // `running` snapshot: this is the backend's authoritative overlay and also
+  // restores progress when `resume_start` was delayed or missed. Older
+  // terminal snapshots remain ignored until the resume state has cleared.
+  if (type === "run_status") {
     const runStatus = data.state || payload.status || data.status || "";
-    if (runStatus) {
-      updateStat("stat-status", runStatus);
-      updateStat("info-status", runStatus);
-      setRunState({ status: runStatus });
-      setRunButtonsActive(runStatus === "running");
-    }
-    const currentPhase = payload.current_phase || data.phase || "";
-    if (currentPhase && currentPhase !== "null" && runStatus === "running") {
-      updateStat("info-status", `${runStatus} — ${currentPhase}`);
+    const acceptSnapshot = (!getResumePending() && !getResumeActive()) || runStatus === "running";
+    if (acceptSnapshot) {
+      // Live phase events (or the REST log-tail fallback) advance the visible
+      // resume state. Do not overwrite them with a snapshot while the resume
+      // marker is active; this also protects old runs that lack that marker.
+      if (payload.phases && Array.isArray(payload.phases) &&
+          !getResumePending() && !getResumeActive()) {
+        setPhaseList(payload.phases);
+        setRunState({ phases: payload.phases });
+      }
+      if (runStatus) {
+        updateStat("stat-status", runStatus);
+        updateStat("info-status", runStatus);
+        setRunState({ status: runStatus });
+        setRunButtonsActive(runStatus === "running");
+      }
+      const currentPhase = payload.current_phase || data.phase || "";
+      if (currentPhase && currentPhase !== "null" && runStatus === "running") {
+        updateStat("info-status", `${runStatus} — ${currentPhase}`);
+      }
     }
   }
 
