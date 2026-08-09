@@ -558,6 +558,30 @@ if(CLI11_FOUND)
     target_compile_definitions(tile_compile_cli PRIVATE HAVE_CLI11)
 endif()
 
+get_filename_component(TILE_COMPILE_REPOSITORY_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+include("${TILE_COMPILE_REPOSITORY_ROOT}/cmake/TileCompileBuildInfo.cmake")
+set(_tile_compile_build_info_source
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/build_info.cpp")
+set(_tile_compile_feature_flags
+    "cuda=${TILE_COMPILE_WITH_CUDA}|openmp=${OpenMP_CXX_FOUND}|cli11=${CLI11_FOUND}|spdlog=${spdlog_FOUND}")
+tile_compile_add_build_info(tile_compile_runner
+    COMPONENT tile_compile_runner
+    PROJECT_VERSION "${PROJECT_VERSION}"
+    SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+    OPENCV_VERSION "${OpenCV_VERSION}"
+    CUDA_VERSION "${CUDAToolkit_VERSION}"
+    FEATURE_FLAGS "${_tile_compile_feature_flags}"
+    BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
+tile_compile_add_build_info(tile_compile_cli
+    COMPONENT tile_compile_cli
+    PROJECT_VERSION "${PROJECT_VERSION}"
+    SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+    OPENCV_VERSION "${OpenCV_VERSION}"
+    CUDA_VERSION "${CUDAToolkit_VERSION}"
+    FEATURE_FLAGS "${_tile_compile_feature_flags}"
+    BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
+
 if(APPLE)
     set(_TC_INSTALL_RPATH "@executable_path/../lib")
 elseif(UNIX)

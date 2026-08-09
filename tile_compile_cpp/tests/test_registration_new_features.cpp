@@ -60,18 +60,29 @@ TEST_CASE("RegistrationConfig new parameter defaults") {
     // §4.4, §8.D — Lokale Hintergrundsubtraktion
     REQUIRE(cfg.enable_local_background_subtraction == false);
 
-    // Conservative post-registration affine refinement is opt-in.
-    REQUIRE(cfg.affine_refinement_enabled == false);
+    // Gated post-registration refinements are enabled by default.
+    REQUIRE(cfg.affine_refinement_enabled == true);
+    REQUIRE(cfg.smooth_local_refinement_enabled == true);
 }
 
-TEST_CASE("RegistrationConfig parses affine refinement opt-in") {
+TEST_CASE("RegistrationConfig refinement flags parse and roundtrip") {
     const YAML::Node node = YAML::Load(R"(
 registration:
   affine_refinement_enabled: true
+  smooth_local_refinement_enabled: true
 )");
     const Config cfg = Config::from_yaml(node);
     REQUIRE(cfg.registration.affine_refinement_enabled);
+    REQUIRE(cfg.registration.smooth_local_refinement_enabled);
     REQUIRE_NOTHROW(cfg.validate());
+
+    const YAML::Node serialized = cfg.to_yaml();
+    REQUIRE(serialized["registration"]["affine_refinement_enabled"].as<bool>());
+    REQUIRE(serialized["registration"]["smooth_local_refinement_enabled"].as<bool>());
+    const Config reparsed = Config::from_yaml(serialized);
+    REQUIRE(reparsed.registration.affine_refinement_enabled);
+    REQUIRE(reparsed.registration.smooth_local_refinement_enabled);
+    REQUIRE_NOTHROW(reparsed.validate());
 }
 
 TEST_CASE("RegistrationConfig parameter validation ranges") {

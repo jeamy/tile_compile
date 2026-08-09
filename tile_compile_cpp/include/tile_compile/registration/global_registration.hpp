@@ -39,14 +39,27 @@ struct AffineStarRefinementResult {
 };
 
 // Smooth inverse displacement model C(q)=q+d(q) on proxy reference
-// coordinates. The fixed 4x4 Gaussian basis keeps the experiment bounded and
-// serializable without adding a TPS/OpenCV-shape dependency.
+// coordinates. The fixed 4x4 Gaussian basis keeps the experiment bounded
+// without adding a TPS/OpenCV-shape dependency.
 struct SmoothLocalWarpModel {
+    using Coefficients = Eigen::Matrix<float, 16, 1>;
+
     bool valid = false;
     int image_rows = 0;
     int image_cols = 0;
-    VectorXf coeff_x;
-    VectorXf coeff_y;
+    Coefficients coeff_x = Coefficients::Zero();
+    Coefficients coeff_y = Coefficients::Zero();
+};
+
+struct SmoothLocalRemapPlan {
+    cv::Mat map_x;
+    cv::Mat map_y;
+    std::vector<uint8_t> valid_mask;
+    int source_rows = 0;
+    int source_cols = 0;
+    int output_rows = 0;
+    int output_cols = 0;
+    bool has_data = false;
 };
 
 struct SmoothLocalRefinementResult {
@@ -134,21 +147,29 @@ SmoothLocalRefinementResult estimate_smooth_local_star_refinement(
     int image_rows, int image_cols,
     float match_radius_px = 3.0f);
 
-cv::Point2f evaluate_smooth_local_displacement(
-    const SmoothLocalWarpModel& model, float x, float y);
-
 void render_smooth_local_displacement(
     const SmoothLocalWarpModel& model, int output_rows, int output_cols,
     float model_coordinate_scale, float model_offset_x, float model_offset_y,
     cv::Mat& displacement_x, cv::Mat& displacement_y);
 
-Matrix2Df apply_smooth_local_correction(
-    const Matrix2Df& already_warped,
-    const SmoothLocalWarpModel& model,
-    const std::string& interpolation = "cubic");
+bool prepare_smooth_local_remap(
+    int source_rows, int source_cols, const WarpMatrix& global_inverse_warp,
+    const SmoothLocalWarpModel& model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    SmoothLocalRemapPlan& plan);
 
-cv::Mat smooth_local_valid_mask(int image_rows, int image_cols,
-                                const SmoothLocalWarpModel& model);
+bool remap_frame_with_smooth_local_plan(
+    const Matrix2Df& source, const SmoothLocalRemapPlan& plan,
+    const std::string& interpolation, Matrix2Df& warped_out,
+    bool* has_data_out = nullptr);
+
+bool warp_frame_with_smooth_local_model(
+    const Matrix2Df& source, const WarpMatrix& global_inverse_warp,
+    const SmoothLocalWarpModel& model, int output_rows, int output_cols,
+    float model_coordinate_scale, float model_offset_x, float model_offset_y,
+    const std::string& interpolation, Matrix2Df& warped_out,
+    std::vector<uint8_t>* valid_mask_out = nullptr,
+    bool* has_data_out = nullptr);
 
 RegistrationResult star_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,

@@ -46,6 +46,9 @@ stacking:
 **Standard-Konfiguration (empfohlen):**
 
 ```yaml
+registration:
+  affine_refinement_enabled: true       # nur bei vollständig bestandenen Residual-/NCC-/Overlap-Gates anwenden
+  smooth_local_refinement_enabled: true # zusätzlicher Held-out-/Jacobian-Guard; sonst atomarer Warp-Fallback
 aqmh:
   enabled: true
   pyramid:
@@ -68,7 +71,7 @@ aqmh:
     g_k_scale: 1.5         # begrenzte Sigmoid-Temperatur
   reconstruction:
     delete_prewarped_cache_after_run: true  # false fuer Resume; Cache liegt unter cache/prewarped_frames
-    prewarp_interpolation: linear            # konservativer Prewarp; cubic/lanczos4 gezielt auf Schaerfe testen
+    prewarp_interpolation: cubic             # belegter Schärfe-Default; linear = Low-Noise-Fallback, lanczos4 = Tuning
     debayer_first: true                      # OSC: vor PREWARP/AQMH debayern und RGB direkt rekonstruieren
     pre_debayer_method: edge_aware           # konservativ bei sehr niedrigem SNR: bilinear testen
     rgb_q_map_mode: shared_luma
@@ -483,8 +486,8 @@ registration:
   use_astrometry: true            # Astrometrische Rescue bei Bedarf
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, Äquatorial: 60
-  affine_refinement_enabled: false # Opt-in; nur nach Residualmessung kontrolliert testen
-  smooth_local_refinement_enabled: false # Experimentell; nur MONO/debayer-first, immer gegen Kontrolle
+  affine_refinement_enabled: true  # gegatet; bei Ablehnung bleibt der globale Warp unverändert
+  smooth_local_refinement_enabled: true # Held-out/Jacobian/NCC-gegatet; MONO oder debayer-first
 ```
 
 **Sternenarm / Nebel / wolkige Daten:**

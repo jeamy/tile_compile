@@ -143,9 +143,9 @@ json device_tile_batch_to_json(const DeviceTileBatch &batch);
 class AccelerationOps {
 public:
   explicit AccelerationOps(AccelerationSelection selection,
-                           std::string prewarp_interpolation = "linear");
+                           std::string prewarp_interpolation = "cubic");
   AccelerationOps(const AccelerationContext &context, AccelerationPhase phase,
-                  std::string prewarp_interpolation = "linear");
+                  std::string prewarp_interpolation = "cubic");
 
   const AccelerationSelection &selection() const { return selection_; }
 

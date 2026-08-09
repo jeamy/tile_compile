@@ -765,11 +765,11 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
-**Zweck:** Optional aktivierbare affine Feinkorrektur pro Frame nach der normalen globalen Registrierung. Sie erkennt Sterne im Referenz- und bereits gewarpten Proxy, bildet gegenseitige Nearest-Neighbor-Matches und schätzt mit RANSAC eine kleine affine Korrektur. Die Korrektur wird nur angewendet, wenn Inlierzahl und räumliche Abdeckung ausreichen, Skalierung/Shear/Rotation/Zentrumsverschiebung konservativ bleiben, Median und p90 der identischen Sternpaare ohne RMS-Regression sinken und NCC/Überlappung nicht schlechter werden. Andernfalls bleibt der ursprüngliche Warp unverändert.
+**Zweck:** Standardmäßig aktive, konservative affine Feinkorrektur pro Frame nach der normalen globalen Registrierung. Sie erkennt Sterne im Referenz- und bereits gewarpten Proxy, bildet gegenseitige Nearest-Neighbor-Matches und schätzt mit RANSAC eine kleine affine Korrektur. Die Korrektur wird nur angewendet, wenn Inlierzahl und räumliche Abdeckung ausreichen, Skalierung/Shear/Rotation/Zentrumsverschiebung konservativ bleiben, Median und p90 der identischen Sternpaare ohne RMS-Regression sinken und NCC/Überlappung nicht schlechter werden. Andernfalls bleibt der ursprüngliche Warp unverändert.
 
-**Einheiten und Anwendbarkeit:** Alle Residual-, Matchradius- und Zentrumsverschiebungs-Gates verwenden Proxy-Pixel (bei OSC normalerweise halbe Auflösung). Frames unterhalb des internen p90-Triggers, der Referenzframe und Frames ohne ausreichend verteilte Sterne sind nicht anwendbar und bleiben unverändert. Nur bei nachgewiesenen lokalen Registrierungsresiduen aktivieren und gegen einen unveränderten Kontrolllauf vergleichen.
+**Einheiten und Anwendbarkeit:** Alle Residual-, Matchradius- und Zentrumsverschiebungs-Gates verwenden Proxy-Pixel (bei OSC normalerweise halbe Auflösung). Frames unterhalb des internen p90-Triggers, der Referenzframe und Frames ohne ausreichend verteilte Sterne sind nicht anwendbar und bleiben unverändert. Für einen reinen Kontrolllauf oder zur Diagnose kann die Stufe mit `false` deaktiviert werden.
 
 ---
 
@@ -778,11 +778,11 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
-**Zweck:** Aktiviert eine experimentelle geglättete lokale Feinkorrektur pro Frame nach der globalen und, falls aktiviert und akzeptiert, nach der affinen Registrierung. Gegenseitige Nearest-Neighbor-Sternresiduen fitten ein regularisiertes inverses 4x4-Gaussian-Displacement-Feld. Ein deterministischer 25-%-Held-out-Sternsatz muss sich in Median, p90 und RMS verbessern; zusätzlich müssen der gesamte Matchsatz, räumliche Abdeckung, Maximalverschiebung, dicht geprüfte Jacobian-/Lokalskalengrenzen, NCC auf gemeinsamem Support und Überlappung bestehen.
+**Zweck:** Aktiviert die standardmäßig gegatete, geglättete lokale Feinkorrektur pro Frame nach der globalen und, falls akzeptiert, nach der affinen Registrierung. Gegenseitige Nearest-Neighbor-Sternresiduen fitten ein regularisiertes inverses 4x4-Gaussian-Displacement-Feld. Ein deterministischer 25-%-Held-out-Sternsatz muss sich in Median, p90 und RMS verbessern; zusätzlich müssen der gesamte Matchsatz, räumliche Abdeckung, Maximalverschiebung, dicht geprüfte Jacobian-/Lokalskalengrenzen, NCC auf gemeinsamem Support und Überlappung bestehen.
 
-**Einheiten, Grenzen und Wechselwirkungen:** Residuen und die interne Maximalverschiebung verwenden Proxy-Pixel; beim Prewarp wird das Feld auf volle Auflösung skaliert. Interne konservative Grenzen umfassen mindestens 32 Matches, mindestens 24 Trainings- und 8 Held-out-Sterne, 15 % Convex-Hull-Abdeckung, maximal 1,5 Proxy-Pixel Verschiebung, Jacobian-Determinante 0,94–1,06 und lokale Singulärwerte 0,96–1,04. Das Modell läuft am Bildrand auf null aus und wird direkt mit der inversen globalen/affinen Map komponiert, sodass keine zweite Full-Resolution-Resampling-Stufe entsteht. Anwendbar ist es derzeit nur für MONO und OSC mit AQMH-`debayer_first` und bekanntem Bayer-Muster; CFA-Mosaik- und nicht unterstützte Farbpfade behalten den unveränderten globalen/affinen Warp. Jedes gescheiterte Gate, jeder nicht anwendbare Frame und jede Ausnahme verwenden denselben Fallback. Per-Frame-Nachweise stehen in `global_registration.json`. Außerhalb kontrollierter Vergleiche deaktiviert lassen.
+**Einheiten, Grenzen und Wechselwirkungen:** Residuen und die interne Maximalverschiebung verwenden Proxy-Pixel; beim Prewarp wird das Feld auf volle Auflösung skaliert. Interne konservative Grenzen umfassen mindestens 32 Matches, mindestens 24 Trainings- und 8 Held-out-Sterne, 15 % Convex-Hull-Abdeckung, maximal 1,5 Proxy-Pixel Verschiebung, Jacobian-Determinante 0,94–1,06 und lokale Singulärwerte 0,96–1,04. Das Modell läuft am Bildrand auf null aus und wird direkt mit der inversen globalen/affinen Map komponiert, sodass keine zweite Full-Resolution-Resampling-Stufe entsteht. Anwendbar ist es derzeit nur für MONO und OSC mit AQMH-`debayer_first` und bekanntem Bayer-Muster; CFA-Mosaik- und nicht unterstützte Farbpfade behalten den unveränderten globalen/affinen Warp. Jedes gescheiterte Gate, jeder nicht anwendbare Frame und jede Ausnahme verwenden denselben unveränderten-Warp-Fallback. Per-Frame-Nachweise stehen in `global_registration.json`. Für einen reinen global/affinen Kontrolllauf oder zur Diagnose kann die Stufe mit `false` deaktiviert werden.
 
 ---
 
@@ -1902,9 +1902,9 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 |-------------|------|
 | **Typ** | string |
 | **Werte** | `linear`, `cubic`, `lanczos4` |
-| **Default** | `linear` |
+| **Default** | `cubic` |
 
-**Zweck:** Wählt den Interpolationskern, mit dem registrierte Frames vor AQMH-Rekonstruktion und Stacking auf die gemeinsame Arbeitsfläche vorverzerrt werden. `linear` ist der konservative Default. `cubic` und `lanczos4` sind explizite Tuning-Optionen, die mehr Hochfrequenzdetail erhalten können, aber Hintergrundrauschen oder Ringing verstärken können.
+**Zweck:** Wählt den Interpolationskern, mit dem registrierte Frames vor AQMH-Rekonstruktion und Stacking auf die gemeinsame Arbeitsfläche vorverzerrt werden. `cubic` ist der belegte Schärfe-Default: In kontrollierten Vergleichen verbesserte er die technische Output- und AQMH-FWHM gegenüber `linear`, bei geringerem Hintergrundanstieg als `lanczos4`. `linear` bleibt der konservative Low-Noise-Fallback. `lanczos4` kann minimal mehr Hochfrequenzdetail erhalten, erhöht aber das Risiko für Hintergrundrauschen und Ringing.
 
 ----
 

@@ -105,14 +105,14 @@ struct RegistrationConfig {
   // Must cover the maximum expected inter-frame shift.  For equatorial mounts
   // 60 px is sufficient; for Alt/Az sessions (e.g. DWARF II) use 200-400 px.
   float star_shift_radius_px = 200.0f;
-  // Optional conservative affine fine registration on already aligned proxy
-  // stars. Disabled by default; rejected candidates leave the original warp
-  // unchanged and are reported in global_registration.json.
-  bool affine_refinement_enabled = false;
-  // Experimental smooth local inverse displacement field fitted after the
-  // affine/global warp. Held-out, coverage, Jacobian, NCC, and overlap gates
-  // must all pass; otherwise prewarp uses the unchanged affine/global warp.
-  bool smooth_local_refinement_enabled = false;
+  // Conservative affine fine registration on already aligned proxy stars.
+  // Enabled by default; rejected candidates leave the original warp unchanged
+  // and are reported in global_registration.json.
+  bool affine_refinement_enabled = true;
+  // Smooth local inverse displacement field fitted after the affine/global
+  // warp. Held-out, coverage, Jacobian, NCC, and overlap gates must all pass;
+  // otherwise prewarp uses the unchanged affine/global warp.
+  bool smooth_local_refinement_enabled = true;
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe
@@ -277,7 +277,7 @@ struct AqmhReconstructionConfig {
   int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
   size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
   bool delete_prewarped_cache_after_run = true;
-  std::string prewarp_interpolation = "linear";
+  std::string prewarp_interpolation = "cubic";
   bool debayer_first = true;          // OSC: demosaic before prewarp/AQMH, then reconstruct RGB channels directly
   std::string pre_debayer_method = "edge_aware"; // "bilinear" | "nearest" | "vng" | "edge_aware"
   std::string rgb_q_map_mode = "shared_luma";  // RGB channel reconstruction reuses luma Q-maps

@@ -10,6 +10,7 @@
 #include "routes/ws_routes.hpp"
 #include "routes/tools_routes.hpp"
 #include "routes/preprocessing_routes.hpp"
+#include "tile_compile/core/build_info.hpp"
 
 #define CROW_MAIN
 #include "crow_app.hpp"
@@ -269,6 +270,22 @@ void cleanup_orphan_queue_staging(const BackendRuntime& runtime) {
 /// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 int main(int argc, char* argv[]) {
+    bool version_requested = false;
+    bool version_json = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        version_requested = version_requested || arg == "--version";
+        version_json = version_json || arg == "--json";
+    }
+    if (version_requested) {
+        if (version_json) {
+            std::cout << tile_compile::core::build_info_json(true).dump(2)
+                      << std::endl;
+        } else {
+            std::cout << tile_compile::core::build_info_text() << std::endl;
+        }
+        return 0;
+    }
     try {
         auto state = std::make_shared<AppState>();
         state->runtime = BackendRuntime::from_env();

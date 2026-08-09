@@ -226,6 +226,26 @@ target_compile_definitions(tile_compile_web_backend PRIVATE
     CROW_ENFORCE_WS_SPEC
 )
 
+get_filename_component(TILE_COMPILE_REPOSITORY_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+include("${TILE_COMPILE_REPOSITORY_ROOT}/cmake/TileCompileBuildInfo.cmake")
+set(_tile_compile_backend_opencv_version "${OpenCV_VERSION}")
+if(NOT _tile_compile_backend_opencv_version)
+    set(_tile_compile_backend_opencv_version "${OPENCV4_VERSION}")
+endif()
+set(_tile_compile_backend_feature_flags
+    "crow_ssl=true|backend_static_stdlib=${TILE_COMPILE_BACKEND_STATIC_STDLIB}|cuda=false")
+tile_compile_add_build_info(tile_compile_web_backend
+    COMPONENT tile_compile_web_backend
+    PROJECT_VERSION "${PROJECT_VERSION}"
+    SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+    OPENCV_VERSION "${_tile_compile_backend_opencv_version}"
+    CUDA_VERSION "not_enabled"
+    FEATURE_FLAGS "${_tile_compile_backend_feature_flags}"
+    BUILD_INFO_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tile_compile_cpp/src/core/build_info.cpp")
+install(TARGETS tile_compile_web_backend RUNTIME DESTINATION bin)
+
 if(WIN32)
     target_compile_definitions(tile_compile_web_backend PRIVATE
         _WIN32_WINNT=0x0601

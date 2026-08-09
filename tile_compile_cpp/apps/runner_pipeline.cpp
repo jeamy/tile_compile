@@ -1,6 +1,7 @@
 #include "runner_pipeline.hpp"
 
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/build_info.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/mode_gating.hpp"
@@ -56,6 +57,7 @@
 
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -85,6 +87,86 @@ using tile_compile::runner::shell_quote;
 using tile_compile::runner::system_cmd;
 
 using NormalizationScales = image::NormalizationScales;
+
+core::json provenance_file_json(const fs::path &path,
+                                const fs::path &source_path = {}) {
+  std::error_code ec;
+  fs::path normalized = fs::absolute(path, ec);
+  if (ec) normalized = path.lexically_normal();
+  if (!fs::is_regular_file(normalized, ec) || ec) {
+    throw std::runtime_error("Provenance input is not a readable file: " +
+                             normalized.string());
+  }
+  const auto size_bytes = fs::file_size(normalized, ec);
+  if (ec) {
+    throw std::runtime_error("Cannot determine provenance file size: " +
+                             normalized.string() + ": " + ec.message());
+  }
+  fs::path recorded_path = source_path;
+  if (recorded_path.empty()) {
+    recorded_path = fs::weakly_canonical(normalized, ec);
+    if (ec) recorded_path = normalized;
+  }
+  core::json result = {{"path", recorded_path.string()},
+                       {"size_bytes", size_bytes},
+                       {"sha256", core::sha256_file(normalized)}};
+  if (recorded_path != normalized) result["materialized_input"] = true;
+  return result;
+}
+
+core::json make_run_provenance(
+    const fs::path &config_snapshot,
+    const std::vector<fs::path> &ordered_frames) {
+  core::json entries = core::json::array();
+  std::unordered_map<std::string, core::json> origin_manifests;
+  for (size_t index = 0; index < ordered_frames.size(); ++index) {
+    const fs::path &frame = ordered_frames[index];
+    const fs::path origin_manifest_path =
+        frame.parent_path() / ".tile_compile_input_origins.json";
+    const std::string manifest_key = origin_manifest_path.string();
+    auto manifest_it = origin_manifests.find(manifest_key);
+    if (manifest_it == origin_manifests.end()) {
+      core::json origin_manifest = core::json::object();
+      if (fs::is_regular_file(origin_manifest_path)) {
+        try {
+          origin_manifest = core::json::parse(
+              core::read_text(origin_manifest_path));
+          if (!origin_manifest.is_object()) {
+            origin_manifest = core::json::object();
+          }
+        } catch (...) {
+          origin_manifest = core::json::object();
+        }
+      }
+      manifest_it = origin_manifests.emplace(
+          manifest_key, std::move(origin_manifest)).first;
+    }
+
+    fs::path source_path;
+    const std::string filename = frame.filename().string();
+    if (manifest_it->second.contains(filename) &&
+        manifest_it->second[filename].is_string()) {
+      source_path = manifest_it->second[filename].get<std::string>();
+    }
+    core::json entry = provenance_file_json(frame, source_path);
+    entry["index"] = index;
+    entries.push_back(std::move(entry));
+  }
+  const std::string canonical_manifest = entries.dump();
+  const std::vector<uint8_t> manifest_bytes(canonical_manifest.begin(),
+                                             canonical_manifest.end());
+  const core::json config_file = provenance_file_json(config_snapshot);
+  return {
+      {"schema_version", 1},
+      {"created_at", core::get_iso_timestamp()},
+      {"build", core::build_info_json(true)},
+      {"config", config_file},
+      {"input_manifest",
+       {{"ordering", "lexicographic_path_after_max_frames"},
+        {"entry_count", entries.size()},
+        {"entries", std::move(entries)},
+        {"sha256", core::sha256_bytes(manifest_bytes)}}}};
+}
 
 image::HyperMetricStretchConfig to_image_hms_config(
     const tile_compile::config::HyperMetricStretchConfig &src) {
@@ -1128,11 +1210,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
+  const fs::path config_snapshot_path = run_dir / "config.yaml";
   if (use_stdin_config) {
-    std::ofstream out(run_dir / "config.yaml", std::ios::out);
+    std::ofstream out(config_snapshot_path, std::ios::out);
+    if (!out) {
+      std::cerr << "Error: cannot write run config snapshot: "
+                << config_snapshot_path << std::endl;
+      return 1;
+    }
     out << cfg_text;
   } else {
-    core::copy_config(cfg_path, run_dir / "config.yaml");
+    core::copy_config(cfg_path, config_snapshot_path);
+  }
+
+  core::json run_provenance;
+  const fs::path run_provenance_path =
+      run_dir / "artifacts" / "run_provenance.json";
+  try {
+    run_provenance = make_run_provenance(config_snapshot_path, frames);
+    core::write_text(run_provenance_path, run_provenance.dump(2));
+  } catch (const std::exception &e) {
+    std::cerr << "Error: cannot establish immutable run provenance: "
+              << e.what() << std::endl;
+    return 1;
   }
 
   std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
@@ -1148,8 +1248,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   core::EventEmitter emitter;
   emitter.run_start(run_id,
                     {{"config_path", config_path},
+                     {"config_snapshot", config_snapshot_path.string()},
+                     {"config_sha256", run_provenance["config"]["sha256"]},
                      {"input_dir", input_dir},
+                     {"input_manifest_sha256",
+                      run_provenance["input_manifest"]["sha256"]},
                      {"run_dir", run_dir.string()},
+                     {"provenance_path", run_provenance_path.string()},
+                     {"build_id", run_provenance["build"]["build_id"]},
+                     {"git_sha", run_provenance["build"]["source"]["git_sha"]},
+                     {"git_dirty",
+                      run_provenance["build"]["source"]["git_dirty"]},
+                     {"binary_sha256",
+                      run_provenance["build"]["binary"]["sha256"]},
                      {"frames_discovered", frames.size()},
                      {"dry_run", dry_run}},
                     log_file);

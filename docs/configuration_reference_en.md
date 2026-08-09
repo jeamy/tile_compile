@@ -616,11 +616,11 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
-**Purpose:** Opt-in per-frame affine fine registration after the normal global registration. It detects stars on the reference and already warped proxy, builds mutual nearest-neighbor matches, and fits a small affine correction with RANSAC. The correction is applied only when the inlier count and spatial coverage are sufficient, scale/shear/rotation/center displacement remain conservative, matched-star median and p90 residuals both improve without RMS regression, and NCC/overlap do not regress. Otherwise the original warp is preserved.
+**Purpose:** Default-enabled conservative per-frame affine fine registration after the normal global registration. It detects stars on the reference and already warped proxy, builds mutual nearest-neighbor matches, and fits a small affine correction with RANSAC. The correction is applied only when the inlier count and spatial coverage are sufficient, scale/shear/rotation/center displacement remain conservative, matched-star median and p90 residuals both improve without RMS regression, and NCC/overlap do not regress. Otherwise the original warp is preserved.
 
-**Units and applicability:** All residual, match-radius, and center-displacement gates use proxy pixels (normally half-resolution for OSC). Frames below the internal p90 trigger, the reference frame, and frames without enough distributed stars are non-applicable and remain unchanged. Keep disabled unless the dataset has measured local registration residuals and compare against an unchanged control run.
+**Units and applicability:** All residual, match-radius, and center-displacement gates use proxy pixels (normally half-resolution for OSC). Frames below the internal p90 trigger, the reference frame, and frames without enough distributed stars are non-applicable and remain unchanged. Set it to `false` for an unrefined control or diagnostic run.
 
 ---
 
@@ -629,11 +629,11 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
-**Purpose:** Enable an experimental smooth local per-frame correction after global registration and, when enabled and accepted, after affine refinement. Mutual nearest-neighbor star residuals fit a regularized 4x4 Gaussian inverse displacement field. A deterministic 25% held-out star set must improve in median, p90, and RMS; the full matched set, spatial coverage, maximum displacement, dense Jacobian/local-scale sampling, common-support NCC, and overlap must also pass.
+**Purpose:** Enable the default-gated smooth local per-frame correction after global registration and, when accepted, after affine refinement. Mutual nearest-neighbor star residuals fit a regularized 4x4 Gaussian inverse displacement field. A deterministic 25% held-out star set must improve in median, p90, and RMS; the full matched set, spatial coverage, maximum displacement, dense Jacobian/local-scale sampling, common-support NCC, and overlap must also pass.
 
-**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with AQMH `debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception uses the same fallback. Per-frame evidence is written to `global_registration.json`. Keep disabled outside controlled comparisons.
+**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with AQMH `debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception preserves the unchanged global/affine warp. Per-frame evidence is written to `global_registration.json`. Set it to `false` for a global/affine-only control or diagnostic run.
 
 ---
 
@@ -1695,9 +1695,9 @@ Per-pixel weighted reconstruction parameters.
 |----------|-------|
 | **Type** | string |
 | **Values** | `linear`, `cubic`, `lanczos4` |
-| **Default** | `linear` |
+| **Default** | `cubic` |
 
-**Purpose:** Selects the interpolation kernel used when registered frames are prewarped onto the common canvas before AQMH reconstruction and stacking. `linear` is the conservative default. `cubic` and `lanczos4` are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing.
+**Purpose:** Selects the interpolation kernel used when registered frames are prewarped onto the common canvas before AQMH reconstruction and stacking. `cubic` is the evidence-based sharpness default: controlled comparisons improved technical output and AQMH FWHM over `linear`, with a smaller background increase than `lanczos4`. `linear` remains the conservative low-noise fallback. `lanczos4` may preserve marginally more high-frequency detail but has a higher background-noise and ringing risk.
 
 ----
 

@@ -133,6 +133,107 @@ Matrix2Df structure_masked_aqmh_detail(const Matrix2Df &aqmh,
   return out;
 }
 
+struct RgbLumaDetailTransfer {
+  Matrix2Df candidate_r;
+  Matrix2Df candidate_g;
+  Matrix2Df candidate_b;
+  Matrix2Df raw_luma;
+  Matrix2Df candidate_luma;
+  bool numerical_ok = false;
+  size_t transferred_pixels = 0;
+  size_t denominator_floor_pixels = 0;
+  size_t gain_clamped_pixels = 0;
+  float denominator_epsilon = 0.0f;
+  float gain_min = 0.25f;
+  float gain_max = 4.0f;
+};
+
+RgbLumaDetailTransfer transfer_luma_detail_to_rgb(
+    const Matrix2Df &raw_r, const Matrix2Df &raw_g,
+    const Matrix2Df &raw_b, const Matrix2Df &raw_aqmh_luma,
+    const Matrix2Df &selected_luma,
+    const std::vector<uint8_t> &valid_mask) {
+  RgbLumaDetailTransfer result;
+  const int rows = static_cast<int>(raw_r.rows());
+  const int cols = static_cast<int>(raw_r.cols());
+  if (rows <= 0 || cols <= 0 || raw_g.rows() != rows ||
+      raw_g.cols() != cols || raw_b.rows() != rows ||
+      raw_b.cols() != cols || raw_aqmh_luma.rows() != rows ||
+      raw_aqmh_luma.cols() != cols || selected_luma.rows() != rows ||
+      selected_luma.cols() != cols) {
+    return result;
+  }
+
+  const size_t pixel_count =
+      static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  const bool have_mask = valid_mask.size() == pixel_count;
+  std::vector<float> finite_scale_samples;
+  finite_scale_samples.reserve(std::min<size_t>(pixel_count, 1u << 20));
+  const size_t sample_step = std::max<size_t>(1, pixel_count / (1u << 20));
+  for (size_t i = 0; i < pixel_count; i += sample_step) {
+    if (have_mask && valid_mask[i] == 0u) continue;
+    const float value = raw_aqmh_luma.data()[i];
+    if (std::isfinite(value) && std::fabs(value) > 0.0f)
+      finite_scale_samples.push_back(std::fabs(value));
+  }
+  const float scale = quantile_inplace(finite_scale_samples, 0.5f);
+  result.denominator_epsilon = std::max(
+      64.0f * std::numeric_limits<float>::epsilon(), scale * 1.0e-6f);
+
+  result.candidate_r = raw_r;
+  result.candidate_g = raw_g;
+  result.candidate_b = raw_b;
+  result.raw_luma.resize(rows, cols);
+  result.candidate_luma.resize(rows, cols);
+  for (size_t i = 0; i < pixel_count; ++i) {
+    const float r = raw_r.data()[i];
+    const float g = raw_g.data()[i];
+    const float b = raw_b.data()[i];
+    const float rgb_luma = 0.25f * r + 0.50f * g + 0.25f * b;
+    result.raw_luma.data()[i] = rgb_luma;
+    result.candidate_luma.data()[i] = rgb_luma;
+    if (have_mask && valid_mask[i] == 0u) continue;
+
+    const float raw_luma = raw_aqmh_luma.data()[i];
+    const float final_luma = selected_luma.data()[i];
+    if (!std::isfinite(r) || !std::isfinite(g) || !std::isfinite(b) ||
+        !std::isfinite(rgb_luma) || !std::isfinite(raw_luma) ||
+        !std::isfinite(final_luma)) {
+      return result;
+    }
+
+    float gain = 1.0f;
+    if (std::fabs(raw_luma) <= result.denominator_epsilon) {
+      ++result.denominator_floor_pixels;
+    } else {
+      const float requested_gain = final_luma / raw_luma;
+      if (!std::isfinite(requested_gain)) return result;
+      gain = std::clamp(requested_gain, result.gain_min, result.gain_max);
+      if (gain != requested_gain) ++result.gain_clamped_pixels;
+    }
+
+    const float candidate_r = r * gain;
+    const float candidate_g = g * gain;
+    const float candidate_b = b * gain;
+    const float candidate_luma =
+        0.25f * candidate_r + 0.50f * candidate_g + 0.25f * candidate_b;
+    if (!std::isfinite(candidate_r) || !std::isfinite(candidate_g) ||
+        !std::isfinite(candidate_b) || !std::isfinite(candidate_luma)) {
+      return result;
+    }
+    result.candidate_r.data()[i] = candidate_r;
+    result.candidate_g.data()[i] = candidate_g;
+    result.candidate_b.data()[i] = candidate_b;
+    result.candidate_luma.data()[i] = candidate_luma;
+    if (std::fabs(gain - 1.0f) > 8.0f *
+            std::numeric_limits<float>::epsilon()) {
+      ++result.transferred_pixels;
+    }
+  }
+  result.numerical_ok = true;
+  return result;
+}
+
 struct RegistrationWeightGuardResult {
   VectorXf weights;
   bool applied = false;
@@ -1082,6 +1183,106 @@ bool run_phase_aqmh_reconstruction(
   } else {
     raw_baseline_guard_reason = final_raw_guard.reason;
   }
+
+  bool rgb_detail_transfer_applicable = false;
+  bool rgb_detail_transfer_numerical_ok = false;
+  bool rgb_detail_transfer_applied = false;
+  std::string rgb_detail_transfer_reason =
+      debayer_first_rgb ? "rgb_reconstruction_unavailable" : "not_applicable";
+  size_t rgb_detail_transfer_pixels = 0;
+  size_t rgb_detail_transfer_denominator_floor_pixels = 0;
+  size_t rgb_detail_transfer_gain_clamped_pixels = 0;
+  float rgb_detail_transfer_denominator_epsilon = 0.0f;
+  float rgb_detail_transfer_gain_min = 0.25f;
+  float rgb_detail_transfer_gain_max = 4.0f;
+  reconstruction::AqmhValidationComparison rgb_raw_vs_control_validation;
+  reconstruction::AqmhValidationComparison rgb_candidate_vs_control_validation;
+  reconstruction::AqmhValidationComparison rgb_candidate_vs_raw_validation;
+  std::string rgb_detail_transfer_raw_guard_reason = "not_evaluated";
+  const bool reconstructed_rgb_available =
+      out.output_R.rows() == canvas_height &&
+      out.output_R.cols() == canvas_width &&
+      out.output_G.rows() == canvas_height &&
+      out.output_G.cols() == canvas_width &&
+      out.output_B.rows() == canvas_height &&
+      out.output_B.cols() == canvas_width;
+  if (debayer_first_rgb && reconstructed_rgb_available) {
+    rgb_detail_transfer_applicable = true;
+    auto rgb_transfer = transfer_luma_detail_to_rgb(
+        out.output_R, out.output_G, out.output_B, raw_aqmh_output,
+        aqmh_recon.output, reconstruction_valid_mask);
+    rgb_detail_transfer_numerical_ok = rgb_transfer.numerical_ok;
+    rgb_detail_transfer_pixels = rgb_transfer.transferred_pixels;
+    rgb_detail_transfer_denominator_floor_pixels =
+        rgb_transfer.denominator_floor_pixels;
+    rgb_detail_transfer_gain_clamped_pixels =
+        rgb_transfer.gain_clamped_pixels;
+    rgb_detail_transfer_denominator_epsilon =
+        rgb_transfer.denominator_epsilon;
+    rgb_detail_transfer_gain_min = rgb_transfer.gain_min;
+    rgb_detail_transfer_gain_max = rgb_transfer.gain_max;
+
+    if (rgb_transfer.numerical_ok) {
+      const auto raw_rgb_luma_reference =
+          reconstruction::prepare_aqmh_validation_reference(
+              rgb_transfer.raw_luma, validation_common_mask);
+      rgb_raw_vs_control_validation =
+          reconstruction::compare_aqmh_to_reference(
+              rgb_transfer.raw_luma, uniform_control_reference,
+              uniform_control_validation_mask);
+      rgb_candidate_vs_control_validation =
+          reconstruction::compare_aqmh_to_reference(
+              rgb_transfer.candidate_luma, uniform_control_reference,
+              uniform_control_validation_mask);
+      rgb_candidate_vs_raw_validation =
+          reconstruction::compare_aqmh_to_reference(
+              rgb_transfer.candidate_luma, raw_rgb_luma_reference,
+              validation_common_mask);
+      const auto rgb_control_gates =
+          reconstruction::evaluate_aqmh_validation_gates(
+              rgb_candidate_vs_control_validation, cfg.aqmh.validation);
+      const auto rgb_raw_guard =
+          reconstruction::aqmh_raw_baseline_guard_decision(
+              rgb_candidate_vs_raw_validation,
+              rgb_raw_vs_control_validation,
+              rgb_candidate_vs_control_validation,
+              cfg.aqmh.validation);
+      rgb_detail_transfer_raw_guard_reason = rgb_raw_guard.reason;
+      if (rgb_control_gates.all_ok && rgb_raw_guard.ok) {
+        out.output_R = std::move(rgb_transfer.candidate_r);
+        out.output_G = std::move(rgb_transfer.candidate_g);
+        out.output_B = std::move(rgb_transfer.candidate_b);
+        rgb_detail_transfer_applied = true;
+        rgb_detail_transfer_reason =
+            rgb_detail_transfer_pixels > 0 ? "validated_transfer"
+                                           : "validated_identity";
+        log_file << "[AQMH_RECONSTRUCTION] RGB luma detail transfer "
+                 << "accepted: pixels=" << rgb_detail_transfer_pixels
+                 << " denominator_floor_pixels="
+                 << rgb_detail_transfer_denominator_floor_pixels
+                 << " gain_clamped_pixels="
+                 << rgb_detail_transfer_gain_clamped_pixels
+                 << " raw_guard=" << rgb_raw_guard.reason << std::endl;
+      } else {
+        rgb_detail_transfer_reason =
+            !rgb_control_gates.all_ok ? "uniform_control_gate_failed"
+                                     : rgb_raw_guard.reason;
+        emitter.warning(
+            run_id,
+            "AQMH RGB luma detail transfer rejected; preserving all three "
+            "raw AQMH RGB channels atomically (reason=" +
+                rgb_detail_transfer_reason + ")",
+            log_file);
+      }
+    } else {
+      rgb_detail_transfer_reason = "numerical_guard_failed";
+      emitter.warning(
+          run_id,
+          "AQMH RGB luma detail transfer hit a non-finite value; preserving "
+          "all three raw AQMH RGB channels atomically",
+          log_file);
+    }
+  }
   const double validation_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     validation_started_at)
@@ -1139,6 +1340,35 @@ bool run_phase_aqmh_reconstruction(
   artifact["rgb_memory_strategy"] =
       debayer_first_rgb ? cfg.aqmh.reconstruction.rgb_memory_strategy
                         : std::string("not_applicable");
+  artifact["rgb_luma_detail_transfer"] = {
+      {"applicable", rgb_detail_transfer_applicable},
+      {"numerical_ok", rgb_detail_transfer_numerical_ok},
+      {"applied", rgb_detail_transfer_applied},
+      {"atomic_rgb_fallback", rgb_detail_transfer_applicable &&
+                                  !rgb_detail_transfer_applied},
+      {"reason", rgb_detail_transfer_reason},
+      {"luma_coefficients", {0.25f, 0.50f, 0.25f}},
+      {"transferred_pixels", rgb_detail_transfer_pixels},
+      {"denominator_floor_pixels",
+       rgb_detail_transfer_denominator_floor_pixels},
+      {"gain_clamped_pixels", rgb_detail_transfer_gain_clamped_pixels},
+      {"denominator_epsilon", rgb_detail_transfer_denominator_epsilon},
+      {"gain_min", rgb_detail_transfer_gain_min},
+      {"gain_max", rgb_detail_transfer_gain_max},
+      {"raw_baseline_guard_reason",
+       rgb_detail_transfer_raw_guard_reason}};
+  if (rgb_detail_transfer_applicable && rgb_detail_transfer_numerical_ok) {
+    artifact["rgb_luma_detail_transfer"]["raw_rgb_luma_vs_uniform_control"] =
+        validation_comparison_json(rgb_raw_vs_control_validation,
+                                   &cfg.aqmh.validation);
+    artifact["rgb_luma_detail_transfer"]
+            ["candidate_rgb_luma_vs_uniform_control"] =
+        validation_comparison_json(rgb_candidate_vs_control_validation,
+                                   &cfg.aqmh.validation);
+    artifact["rgb_luma_detail_transfer"]["candidate_rgb_luma_vs_raw_rgb_luma"] =
+        validation_comparison_json(rgb_candidate_vs_raw_validation,
+                                   &cfg.aqmh.validation);
+  }
   artifact["uniform_control_same_pass"] =
       acceleration_used && backend_supplied_uniform_control;
   artifact["uniform_control_mode"] =

@@ -12,9 +12,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 - `registration.enable_star_pair_fallback`
   - controls whether the optional Star-Pairs stage is used in the global registration cascade.
 - `registration.affine_refinement_enabled`
-  - opt-in conservative per-frame affine fine registration; rejected candidates preserve the original warp and are reported in `global_registration.json`.
+  - default-enabled conservative per-frame affine fine registration; rejected candidates preserve the original warp and are reported in `global_registration.json`.
 - `registration.smooth_local_refinement_enabled`
-  - experimental smooth local inverse displacement field after global/affine registration; held-out residual, coverage, displacement, Jacobian, NCC, and overlap gates preserve the prior warp on every rejection.
+  - default-enabled gated smooth local inverse displacement field after global/affine registration; held-out residual, coverage, displacement, Jacobian, NCC, and overlap gates preserve the prior warp on every rejection.
 
 - `dithering.*`
   - documents acquisition dithering expectation and shift threshold used for diagnostics.
@@ -61,7 +61,7 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `frac_artifact_max`: max. Artefaktanteil pro Fenster (auf 0.30–0.40 erhöhen bei Satellitenspuren)
   - `storage.*`: `resolution_divisor` (1/2/4), `dtype` (float32/uint16/uint8), `max_resident_maps` — Standard `2`/`uint16`; Cherry-Pick benötigt `1`/`float32`.
   - `global_quality.*`: begrenzte Sigmoid-Gewichtung mit `g_floor: 0.03`, `g_w_sharp: 0.55`, `g_w_snr: 0.30`, `g_w_background_penalty: 0.25`, `g_k_scale: 1.5`.
-  - `reconstruction.*`: asymmetrisches AQMH-Clipping (`2.0` unten, `1.5` oben, vier Iterationen), konservativer Prewarp (`prewarp_interpolation: linear`), OSC-`debayer_first` mit direkter RGB-Rekonstruktion, Registrierungs-Gewichtsschutz und Strukturmaske (`0.40`/`0.90`, Sigma `4.0`). `delete_prewarped_cache_after_run: false` behält den Prewarp-Cache für spätere Resumes.
+  - `reconstruction.*`: asymmetrisches AQMH-Clipping (`2.0` unten, `1.5` oben, vier Iterationen), schärfeerhaltender Prewarp (`prewarp_interpolation: cubic`), OSC-`debayer_first` mit direkter RGB-Rekonstruktion, Registrierungs-Gewichtsschutz und Strukturmaske (`0.40`/`0.90`, Sigma `4.0`). `linear` bleibt der konservative Low-Noise-Fallback; `lanczos4` ist wegen des höheren Ringing-/Rauschrisikos nur eine Tuning-Option. `delete_prewarped_cache_after_run: false` behält den Prewarp-Cache für spätere Resumes.
   - `validation.*`: jeder Nachverarbeitungskandidat muss die Grenzwerte sowohl gegen das uniforme Kontrollmittel als auch gegen das rohe AQMH bestehen.
   - `cherry_pick.*`: selektive AQMH-Framebehandlung. `mode: auto_reject` behaelt die meisten Frames und verwirft nur klare Low-Score-Ausreisser; `top_k` ist die Legacy-Auswahl ueber `k_frac` (Default disabled; `k_min_required` schuetzt vor Unterbestimmung).
   - `diagnostics.*`: Schwellen für `artifacts/aqmh.json` Diagnose-Output.
