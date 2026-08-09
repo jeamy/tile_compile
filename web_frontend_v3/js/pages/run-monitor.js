@@ -1224,6 +1224,43 @@ function normalizeLogLine(line) {
   return typeof line === "string" ? line : JSON.stringify(line);
 }
 
+function formatEventTimestamp(value) {
+  const raw = String(value || "");
+  const isoMatch = raw.match(/T(\d{2}:\d{2}:\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const timeMatch = raw.match(/^(\d{2}:\d{2}:\d{2})/);
+  return timeMatch ? timeMatch[1] : (raw || formatTime());
+}
+
+function normalizedEventPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric;
+}
+
+function eventDedupeKey(event) {
+  const payload = event?.payload || event || {};
+  const values = [
+    event?.run_id || payload.run_id || "",
+    event?.ts || payload.ts || "",
+    event?.type || payload.type || "",
+    event?.phase_name || event?.phase || payload.phase_name || payload.phase || "",
+    event?.current ?? payload.current ?? "",
+    event?.total ?? payload.total ?? "",
+    event?.pass || payload.pass || "",
+    event?.substep || payload.substep || "",
+    event?.status || payload.status || "",
+  ];
+  return `event:${values.map(value => String(value)).join("|")}`;
+}
+
+function addStructuredLogLine(logViewer, event, level, text) {
+  if (!logViewer) return;
+  const payload = event?.payload || event || {};
+  const timestamp = formatEventTimestamp(event?.ts || payload.ts);
+  logViewer.addLine(timestamp, level, text, eventDedupeKey(event));
+}
+
 function findLogTailStart(previousLines, currentLines) {
   if (!previousLines || previousLines.length === 0) return 0;
   const samePrefix = previousLines.length <= currentLines.length &&
@@ -1267,7 +1304,7 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
         try {
           const ev = JSON.parse(line);
           parsedEvent = ev;
-          ts = ev.ts ? ev.ts.split("T")[1]?.replace("Z", "") || ev.ts : formatTime();
+          ts = formatEventTimestamp(ev.ts);
           level = (ev.type === "error" || ev.type === "warning") ? ev.type.toUpperCase() : "INFO";
           evType = ev.type || "";
           text = formatEventMessage(ev);
@@ -1281,7 +1318,8 @@ async function loadInitialLogs(runId, logViewer, warningBanner, runDir = "") {
         text = line.message || line.text || "";
       }
       if (logViewer) {
-        logViewer.addLine(ts, level, text);
+        if (parsedEvent) addStructuredLogLine(logViewer, parsedEvent, level, text);
+        else logViewer.addLine(formatEventTimestamp(ts), level, text);
       } else {
         const body = document.getElementById("log-viewer-body");
         if (!body) continue;
@@ -1331,32 +1369,68 @@ function stopLogTailPolling() {
   logTailTimer = null;
 }
 
+const PHASE_I18N_KEYS = {
+  AQMH_MAPS: "phase.aqmh_maps",
+  AQMH_GLOBAL_QUALITY: "phase.aqmh_global_quality",
+  AQMH_RECONSTRUCTION: "phase.aqmh_reconstruction",
+  AQMH_DIAGNOSTICS: "phase.aqmh_diagnostics",
+};
+
+function localizedPhaseName(value) {
+  const raw = String(value || "");
+  const key = PHASE_I18N_KEYS[raw];
+  return key ? t(key, raw) : raw;
+}
+
+function localizedAqmhSubstep(pass, rawSubstep) {
+  const substep = String(rawSubstep || "");
+  const key = `monitor.log.aqmh.${pass || ""}`;
+  const params = {};
+  const rowMatch = substep.match(/(\d+)\/(\d+)$/);
+  if (rowMatch) {
+    params.current = rowMatch[1];
+    params.total = rowMatch[2];
+  }
+  const alphaMatch = substep.match(/alpha=([0-9.eE+-]+)/);
+  if (alphaMatch) params.alpha = alphaMatch[1];
+  const iterationMatch = substep.match(/(?:Schritt|step)\s+(\d+)\/4/i);
+  if (iterationMatch) params.iteration = iterationMatch[1];
+  const translated = t(key, "", params);
+  return translated || substep;
+}
+
 function formatEventMessage(ev) {
   const type = ev.type || "";
-  const phase = ev.phase_name || ev.phase || "";
-  if (type === "phase_start") return `${phase} | start`;
+  const payload = ev.payload || ev;
+  const phase = localizedPhaseName(ev.phase_name || ev.phase || payload.phase_name || payload.phase);
+  if (type === "phase_start") return `${phase} | ${t("monitor.log.start", "start")}`;
   if (type === "phase_progress") {
-    const pct = ev.pct != null ? ` (${Math.round(ev.pct)}%)` : "";
-    const substep = ev.substep || ev.payload?.substep || "";
-    return `${phase} | progress${pct}${substep ? ` | ${substep}` : ""}`;
+    const pctValue = normalizedEventPercent(ev.pct ?? payload.pct ?? ev.progress ?? payload.progress);
+    const pct = pctValue != null ? ` (${Math.round(pctValue)}%)` : "";
+    const substep = payload.substep || ev.substep || "";
+    const pass = payload.pass || ev.pass || "";
+    const detail = pass.startsWith("core_") || pass.startsWith("rgb_") || pass
+      ? localizedAqmhSubstep(pass, substep)
+      : substep;
+    return `${phase} | ${t("monitor.log.progress", "progress")}${pct}${detail ? ` | ${detail}` : ""}`;
   }
   if (type === "phase_end") {
-    const status = ev.status || "ok";
-    const reason = ev.reason ? ` (${ev.reason})` : "";
-    return `${phase} | ${status}${reason}`;
+    const status = payload.status || ev.status || "ok";
+    const reason = payload.reason || ev.reason ? ` (${payload.reason || ev.reason})` : "";
+    return `${phase} | ${t(`monitor.log.status.${status}`, status)}${reason}`;
   }
-  if (type === "run_start") return "Run gestartet";
-  if (type === "run_end") return `Run beendet | ${ev.status || "ok"}`;
+  if (type === "run_start") return t("monitor.log.run_started", "Run started");
+  if (type === "run_end") return `${t("monitor.log.run_finished", "Run finished")} | ${t(`monitor.log.status.${payload.status || ev.status || "ok"}`, payload.status || ev.status || "ok")}`;
   if (type === "resume_start") {
-    const fromPhase = ev.from_phase || "";
-    return `Resume | start | ${fromPhase}`;
+    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    return `${t("monitor.log.resume", "Resume")} | ${t("monitor.log.start", "start")} | ${fromPhase}`;
   }
   if (type === "resume_end") {
-    const ok = ev.success ?? false;
-    const fromPhase = ev.from_phase || "";
-    return `Resume | ${ok ? "OK" : "ERROR"} | ${fromPhase}`;
+    const ok = payload.success ?? ev.success ?? false;
+    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    return `${t("monitor.log.resume", "Resume")} | ${ok ? t("monitor.log.ok", "OK") : t("monitor.log.error", "ERROR")} | ${fromPhase}`;
   }
-  if (type === "queue_progress") return ev.message || "Queue progress";
+  if (type === "queue_progress") return payload.message || ev.message || t("monitor.log.queue_progress", "Queue progress");
   if (ev.message) return ev.message;
   return type || JSON.stringify(ev).slice(0, 200);
 }
@@ -1771,15 +1845,14 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
   // Log lines — backend sends type "log_line" with message in payload.message
   if (type === "log_line" || type === "log") {
     const msg = payload.message || payload.text || data.message || data.text || "";
-    const ts = data.ts || payload.ts || formatTime();
     const level = payload.level || data.level || (type === "error" || type === "warning" ? type.toUpperCase() : "INFO");
-    logViewer.addLine(ts, level, msg);
+    addStructuredLogLine(logViewer, data, level, msg);
   }
 
   // Warning / error events also go to log and warning banner
   if (type === "warning" || type === "error") {
     const msg = payload.message || payload.text || data.message || data.text || JSON.stringify(payload);
-    logViewer.addLine(data.ts || formatTime(), type.toUpperCase(), msg);
+    addStructuredLogLine(logViewer, data, type.toUpperCase(), msg);
     if (warningBanner) addRunWarning(warningBanner, msg, type);
   }
 
@@ -1790,17 +1863,10 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     const phaseName = getEventPhaseName(data, payload);
     if (!phaseName || phaseName === "null") return;
     if (getResumePending() && !getResumeActive()) return;
-    const pct = data.pct ?? payload.pct ?? payload.progress ?? data.progress ?? 0;
+    const pct = normalizedEventPercent(data.pct ?? payload.pct ?? payload.progress ?? data.progress) ?? 0;
     const label = payload.label || null;
-    const pctStr = pct > 0 ? ` (${Math.round(pct)}%)` : "";
-    const logLabel = label || phaseName;
-    const substep = payload.substep || data.substep || "";
     if (getResumeActive() && isBeforeResumePhase(phaseName)) {
-      logViewer.addLine(
-        data.ts || formatTime(),
-        "INFO",
-        `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
-      );
+      addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
       return;
     }
     if ((getResumePending() || getResumeActive()) && type === "phase_start") {
@@ -1813,12 +1879,8 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     updatePhaseState(phaseName, status, pct, label);
     savePhaseToStore(phaseName, status, pct);
     if (payload.elapsed || data.elapsed) updateStat("stat-elapsed", payload.elapsed || data.elapsed);
-    // Also log phase events
-    logViewer.addLine(
-      data.ts || formatTime(),
-      "INFO",
-      `${logLabel} | ${type.replace("phase_", "")}${pctStr}${substep ? ` | ${substep}` : ""}`,
-    );
+    // Also log phase events through the shared localized formatter.
+    addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
   }
 
   // Run status with full phase array
@@ -1851,7 +1913,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const fromPhase = payload.from_phase || data.from_phase || "";
     setResumeFromPhase(fromPhase);
-    logViewer.addLine(data.ts || formatTime(), "INFO", `Resume | start | ${fromPhase}`);
+    addStructuredLogLine(logViewer, data, "INFO", formatEventMessage(data));
     if (fromPhase) {
       updatePhaseState(fromPhase, "running", 0);
       savePhaseToStore(fromPhase, "running", 0);
@@ -1867,7 +1929,7 @@ function handleWsMessage(data, logViewer, phases, warningBanner) {
     if (resumePendingTimer) { clearTimeout(resumePendingTimer); resumePendingTimer = null; }
     const success = payload.success ?? data.success ?? false;
     const fromPhase = payload.from_phase || data.from_phase || "";
-    logViewer.addLine(data.ts || formatTime(), success ? "INFO" : "ERROR", `Resume | ${success ? "OK" : "ERROR"} | ${fromPhase}`);
+    addStructuredLogLine(logViewer, data, success ? "INFO" : "ERROR", formatEventMessage(data));
     if (success) {
       if (fromPhase) {
         updatePhaseState(fromPhase, "ok", 100);
