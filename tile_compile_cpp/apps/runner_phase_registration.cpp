@@ -3562,7 +3562,11 @@ bool run_phase_registration_prewarp(
         std::error_code ec;
         fs::path data_dir_path(astap_data);
         auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
-        if (ec || relative.empty() || relative.native().rfind("..", 0) == 0) {
+        const bool relative_is_outside = [&relative]() {
+          auto component = relative.begin();
+          return component != relative.end() && *component == fs::path("..");
+        }();
+        if (ec || relative.empty() || relative_is_outside) {
           astap_data = astap_bin_path.parent_path().string();
         }
       }
