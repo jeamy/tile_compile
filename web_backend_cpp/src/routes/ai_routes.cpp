@@ -2333,15 +2333,23 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             (*body)["selected_paths"].is_array() &&
             !(*body)["selected_paths"].empty();
 
-        // If no specific paths are selected AND the analysis file carries a fully-validated
-        // patched_config_yaml (written at analysis time), use it directly — identical to
-        // loading a preset config.  This avoids re-patching against a potentially stale
-        // live config and guarantees the result matches what was validated originally.
+        // When the caller supplies an explicit base YAML (e.g. the parameter editor draft),
+        // always patch onto that base and never use the analysis-time patched_config_yaml —
+        // the editor draft may have diverged from the config that was originally analyzed.
+        const bool has_caller_base_yaml = body->contains("yaml") && (*body)["yaml"].is_string()
+            && !(*body)["yaml"].get<std::string>().empty();
+
+        // If no specific paths are selected AND no caller base YAML is supplied AND the
+        // analysis file carries a fully-validated patched_config_yaml (written at analysis
+        // time), use it directly — identical to loading a preset config.  This avoids
+        // re-patching against a potentially stale live config and guarantees the result
+        // matches what was validated originally.
         static const json empty_ctx = json::object();
         const json& ctx = analysis_data.contains("analysis_context") && analysis_data["analysis_context"].is_object()
             ? analysis_data["analysis_context"]
             : empty_ctx;
         const bool has_full_patch = !has_selected_paths
+            && !has_caller_base_yaml
             && ctx.contains("patched_config_yaml")
             && ctx["patched_config_yaml"].is_string()
             && !ctx["patched_config_yaml"].get<std::string>().empty();

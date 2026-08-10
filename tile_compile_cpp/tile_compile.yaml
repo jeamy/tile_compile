@@ -1,7 +1,7 @@
 aqmh:
   cherry_pick:
-    enabled: false
-    k_frac: 0.90000000000000002
+    enabled: true
+    k_frac: 0.40000000000000002
     k_min_required: 30
     margin_min: 0.02
     min_keep_fraction: 0.90000000000000002
@@ -64,7 +64,7 @@ aqmh:
   storage:
     dtype: uint16
     max_resident_maps: 2
-    resolution_divisor: 2
+    resolution_divisor: 1
   validation:
     max_background_rms_regression: 0.050000000000000003
     max_elongation_regression: 0.080000000000000002
@@ -182,11 +182,11 @@ global_metrics:
     - 3
   weight_exponent_scale: 1.8
   weights:
-    background: 0.40000000000000002
-    fwhm: 0
-    gradient: 0.29999999999999999
-    noise: 0.29999999999999999
-    roundness: 0
+    background: 0.34999999999999998
+    fwhm: 0.10000000000000001
+    gradient: 0.25
+    noise: 0.25
+    roundness: 0.050000000000000003
     star_count: 0
 hypermetric_stretch:
   adaptive_anchor: true

@@ -7,9 +7,12 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { pollJob } from "../utils/poll.js";
-import { createYamlDiff } from "../components/yaml-diff.js";
 import { getScanData, getQueueItems, getCalValues } from "./input-scan.js";
 import { getScanState } from "../state/scan-state.js";
+import { getConfigState, setConfigState, deepClone } from "../state/config-state.js";
+import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
+import { renderEditorForCategory, updateDiff, setConfigValue } from "./parameter.js";
+import { getUiState } from "../state/ui-state.js";
 
 export function createAiModelSettingsPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard());
@@ -131,16 +134,9 @@ export function createAiEmpfehlungPage() {
   );
   const applyBar = el("div", { class: "tc-flex tc-gap-3" },
     learnMemory,
-    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.pi_preview", "Zeigt geplante Config-Aenderungen als validierten YAML-Diff, ohne zu speichern."), onclick: () => previewPiActionPlan() }, t("ui.button.pi_preview", "PI Preview")),
-    el("button", { class: "tc-btn", id: "ai-pi-apply", disabled: true, title: t("ui.tooltip.ai.pi_apply", "Speichert die letzte gueltige PI Preview als neue Config-Revision."), onclick: () => applyPiActionPlan() }, t("ui.button.pi_apply", "PI anwenden")),
-    el("button", { class: "tc-btn tc-btn-primary", title: t("ui.tooltip.ai.apply_selected", "Wendet nur markierte Empfehlungen auf die Config an."), onclick: () => applyRecommendations() }, t("ui.button.apply_selected", "Ausgewaehlte anwenden")),
-    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.apply_all", "Wendet alle Empfehlungen aus der aktuellen Analyse an."), onclick: () => applyRecommendations(true) }, t("ui.button.apply_all", "Alle anwenden")),
+    el("button", { class: "tc-btn tc-btn-primary", title: t("ui.tooltip.ai.apply_selected", "Wendet nur markierte Empfehlungen auf den Editor-Draft an."), onclick: () => applyRecommendations() }, t("ui.button.apply_selected", "Ausgewaehlte anwenden")),
+    el("button", { class: "tc-btn", title: t("ui.tooltip.ai.apply_all", "Wendet alle Empfehlungen aus der aktuellen Analyse auf den Editor-Draft an."), onclick: () => applyRecommendations(true) }, t("ui.button.apply_all", "Alle anwenden")),
     el("button", { class: "tc-btn", title: t("ui.tooltip.ai.discard", "Verwirft die aktuelle Analyseanzeige ohne Config-Aenderung."), onclick: () => discardRecommendations() }, t("ui.button.discard", "Verwerfen")),
-  );
-
-  const piPreview = el("div", { class: "tc-card", id: "ai-pi-preview" },
-    el("div", { class: "tc-card-title" }, t("ui.title.pi_preview", "PI Preview")),
-    el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_preview", "Noch keine Preview.")),
   );
 
   const piStorage = el("div", { class: "tc-card", id: "ai-pi-storage" },
@@ -221,7 +217,7 @@ export function createAiEmpfehlungPage() {
     ),
   );
 
-  page.append(scanCtx, actions, recs, applyBar, piPreview, piStorage, piMemories, piAudit, traffic);
+  page.append(scanCtx, actions, recs, applyBar, piStorage, piMemories, piAudit, traffic);
 
   // Load persisted provider/model before loading the model registry.
   loadAiConfig().finally(() => loadModels());
@@ -275,7 +271,6 @@ export function createAiEmpfehlungPage() {
 
 let _allModels = [];
 let _aiUnsub = null;
-let _lastPiPreview = null;
 let _aiUiPersistTimer = null;
 
 function persistentAiUiFromForm(form = getAiFormData()) {
@@ -946,7 +941,6 @@ function renderRecommendations(recs) {
           title: t("ui.tooltip.ai.recommendation_select", "Legt fest, ob diese Empfehlung angewendet wird."),
           onchange: (e) => {
             rec.selected = e.target.checked;
-            clearPiPreview();
           },
         }),
         el("span", { class: "tc-mono tc-text-sm" }, rec.path || rec.id || ""),
@@ -972,124 +966,48 @@ function selectedRecommendations(all = false) {
   return all ? recs : recs.filter(r => r.selected !== false);
 }
 
-function actionPlanFromCurrentAnalysis(selected) {
-  const { currentAnalysis } = getAiState();
-  if (!currentAnalysis) return null;
-  if (currentAnalysis.action_plan && Array.isArray(currentAnalysis.action_plan.actions)) {
-    const selectedPaths = new Set(selected.map((r) => String(r.path || "")).filter(Boolean));
-    const plan = JSON.parse(JSON.stringify(currentAnalysis.action_plan));
-    plan.actions = plan.actions.flatMap((action) => {
-      if (action?.type === "config.set") return selectedPaths.has(String(action.path || "")) ? [action] : [];
-      if (action?.type === "config.patch" && Array.isArray(action.updates)) {
-        const updates = action.updates.filter((u) => selectedPaths.has(String(u?.path || "")));
-        return updates.length ? [{ ...action, updates }] : [];
-      }
-      return [action];
-    });
-    return plan;
-  }
-  const actions = selected
-    .filter((rec) => rec?.path && Object.prototype.hasOwnProperty.call(rec, "value"))
-    .map((rec, index) => ({
-      id: `gui3_ai_update_${index + 1}`,
-      type: "config.set",
-      path: String(rec.path || ""),
-      value: rec.value,
-      rationale: String(rec.reason || rec.rationale || "validated AI recommendation"),
-    }));
-  if (!actions.length) return null;
-  return {
-    schema_version: "pi.action-plan.v1",
-    goal: String(currentAnalysis.summary || "Apply selected AI recommendations"),
-    confidence: Number.isFinite(Number(currentAnalysis.confidence)) ? Number(currentAnalysis.confidence) : 0,
-    actions,
-    post_conditions: [{ type: "config.valid" }],
-    warnings: [],
-  };
-}
-
-function clearPiPreview() {
-  _lastPiPreview = null;
-  const applyButton = document.getElementById("ai-pi-apply");
-  if (applyButton) applyButton.disabled = true;
-}
-
-function renderPiPreview(preview) {
-  const container = document.getElementById("ai-pi-preview");
-  if (!container) return;
-  container.innerHTML = "";
-  const valid = Boolean(preview?.config_valid);
-  container.appendChild(el("div", { class: "tc-card-title" }, t("ui.title.pi_preview", "PI Preview")));
-  container.appendChild(el("div", { class: valid ? "tc-text-success tc-text-sm" : "tc-text-error tc-text-sm" },
-    valid ? t("ui.state.config_valid", "Config gültig") : t("ui.state.config_invalid", "Config ungültig"),
-  ));
-  container.appendChild(createYamlDiff(preview?.base_config || {}, preview?.patched_config || {}));
-}
-
-async function previewPiActionPlan() {
-  const selected = selectedRecommendations(false);
-  if (!selected.length) {
-    toastError(t("ui.toast.preview_failed", "Preview fehlgeschlagen"), t("ui.state.no_selection", "Keine Empfehlung ausgewählt."));
-    return;
-  }
-  const plan = actionPlanFromCurrentAnalysis(selected);
-  if (!plan) {
-    toastError(t("ui.toast.preview_failed", "Preview fehlgeschlagen"), t("ui.error.no_action_plan", "No action plan available"));
-    return;
-  }
-  try {
-    const currentConfig = await api.get(API_ENDPOINTS.config.current);
-    const result = await api.post(API_ENDPOINTS.pi.actionPlanPreview, {
-      plan,
-      yaml: currentConfig?.config || "",
-    });
-    _lastPiPreview = { plan, preview: result.preview };
-    renderPiPreview(result.preview);
-    const applyButton = document.getElementById("ai-pi-apply");
-    if (applyButton) applyButton.disabled = !result.preview?.config_valid;
-    toastSuccess(t("ui.toast.preview_done", "Preview erstellt"));
-  } catch (e) {
-    clearPiPreview();
-    toastError(t("ui.toast.preview_failed", "Preview fehlgeschlagen"), e.message);
-  }
-}
-
-async function applyPiActionPlan() {
-  if (!_lastPiPreview?.plan || !_lastPiPreview?.preview?.config_valid) {
-    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.preview_required", "Erst PI Preview ausführen."));
-    return;
-  }
-  if (!window.confirm(t("ui.confirm.pi_apply", "PI Preview als neue Config-Revision speichern?"))) return;
-  try {
-    const result = await api.post(API_ENDPOINTS.pi.actionPlanApply, {
-      plan: _lastPiPreview.plan,
-      confirmed: true,
-      expected_patched_yaml: _lastPiPreview.preview.patched_yaml || "",
-      base_config: _lastPiPreview.preview.base_config || {},
-    });
-    clearPiPreview();
-    toastSuccess(`${t("ui.toast.applied", "Angewendet")} ${result?.revision_id || ""}`.trim());
-    await loadPiAudit();
-  } catch (e) {
-    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), e.message);
-  }
-}
-
 async function applyRecommendations(all = false) {
   const { currentAnalysis } = getAiState();
   if (!currentAnalysis) return;
   const selected = selectedRecommendations(all);
-  if (!selected.length) return;
+  if (!selected.length) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.no_selection", "Keine Empfehlung ausgewählt."));
+    return;
+  }
+  const { draftYaml } = getConfigState();
+  if (!draftYaml) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.no_config_draft", "Kein Config-Draft im Editor geladen."));
+    return;
+  }
   try {
     const learn = Boolean(document.getElementById("ai-learn-memory")?.checked);
     const result = await api.post(API_ENDPOINTS.scan.analysisApply, {
       analysis_id: currentAnalysis.analysis_id || currentAnalysis.job_id || "",
       selected_paths: selected.map((r) => r.path).filter(Boolean),
       recommendations: selected,
+      yaml: draftYaml,
       learn,
     });
+    if (!result?.ok && result?.code === "CONFIG_VALIDATION_FAILED") {
+      toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.config_invalid", "Config ungültig"));
+      return;
+    }
+    const yamlText = result?.config_yaml || "";
+    if (!yamlText) {
+      toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.error.no_config_yaml", "Keine Config-YAML im Ergebnis."));
+      return;
+    }
+    const parsed = parseYaml(yamlText);
+    setConfigState({
+      draft: deepClone(parsed),
+      draftYaml: yamlText,
+      dirty: true,
+    });
+    const savedCat = getUiState()?.selectedCategory || "all";
+    renderEditorForCategory(savedCat);
+    updateDiff();
     const memory = result?.memory?.created ? `, ${t("ui.pi.memory", "Memory")} ${result.memory.memory_id}` : "";
-    toastSuccess(`${t("ui.toast.applied", "Empfehlungen angewendet")}${memory}`);
+    toastSuccess(`${t("ui.toast.applied_to_draft", "Empfehlungen in Editor geladen")}${memory}`);
     await loadPiMemories();
     await loadPiAudit();
   } catch (e) {
@@ -1235,6 +1153,7 @@ async function loadPiMemories() {
           memoryOutcomeSummary(memory) ? el("div", { class: "tc-text-sm tc-text-muted" }, memoryOutcomeSummary(memory)) : null,
           memory?.review?.note ? el("div", { class: "tc-text-sm" }, memory.review.note) : null,
           el("div", { class: "tc-flex tc-gap-2 tc-mt-2" },
+            (statusName === "accepted" || statusName === "promotable") ? el("button", { class: "tc-btn tc-btn-sm tc-btn-primary", title: t("ui.tooltip.ai.memory_apply", "Wendet die gespeicherten Config-Updates dieser Memory auf den Editor-Draft an."), onclick: () => applyPiMemoryToDraft(memory) }, t("ui.button.apply", "Apply")) : null,
             canReview && statusName !== "accepted" ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_accept", "Markiert diese Erfahrung als nuetzlich fuer spaetere Sessions."), onclick: () => reviewPiMemory(id, "accepted") }, t("ui.button.accept", "Accept")) : null,
             canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_reject", "Markiert diese Erfahrung als nicht hilfreich."), onclick: () => reviewPiMemory(id, "rejected") }, t("ui.button.reject", "Reject")) : null,
             canReview ? el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.memory_deprecate", "Markiert diese Erfahrung als ueberholt."), onclick: () => reviewPiMemory(id, "deprecated") }, t("ui.button.deprecate", "Deprecate")) : null,
@@ -1272,6 +1191,51 @@ async function reviewPiMemory(memoryId, reviewStatus) {
   } catch (e) {
     toastError(t("ui.toast.save_failed", "Speichern fehlgeschlagen"), e.message);
   }
+}
+
+async function applyPiMemoryToDraft(memory) {
+  const updates = Array.isArray(memory?.config_updates) ? memory.config_updates : [];
+  if (!updates.length) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.error.no_config_updates", "Diese Memory enthält keine Config-Updates."));
+    return;
+  }
+  const { draft } = getConfigState();
+  if (!draft) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.state.no_config_draft", "Kein Config-Draft im Editor geladen."));
+    return;
+  }
+  const next = deepClone(draft);
+  let applied = 0;
+  for (const u of updates) {
+    const path = String(u?.path || "");
+    if (!path || !Object.prototype.hasOwnProperty.call(u, "value")) continue;
+    setConfigValue(next, path, u.value);
+    applied++;
+  }
+  if (!applied) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), t("ui.error.no_config_updates", "Diese Memory enthält keine Config-Updates."));
+    return;
+  }
+  const yamlText = stringifyYaml(next);
+  try {
+    const validation = await api.post(API_ENDPOINTS.config.validate, { yaml: yamlText });
+    if (validation?.errors?.length) {
+      toastError(t("ui.toast.validation_failed", "Validation failed"), `${validation.errors.length} Fehler`);
+      return;
+    }
+  } catch (e) {
+    toastError(t("ui.toast.apply_failed", "Anwenden fehlgeschlagen"), e.message);
+    return;
+  }
+  setConfigState({
+    draft: next,
+    draftYaml: yamlText,
+    dirty: true,
+  });
+  const savedCat = getUiState()?.selectedCategory || "all";
+  renderEditorForCategory(savedCat);
+  updateDiff();
+  toastSuccess(t("ui.toast.applied_to_draft", "Empfehlungen in Editor geladen"));
 }
 
 function splitScopeLines(value) {

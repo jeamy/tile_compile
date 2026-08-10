@@ -281,7 +281,7 @@ function isBgeParamVisible(path, bgeMethod) {
   return isClassicOnly;
 }
 
-function renderEditorForCategory(category) {
+export function renderEditorForCategory(category) {
   const { schema, schemaPaths, config, draft } = getConfigState();
   const editorBody = document.getElementById("param-editor-body");
   if (!editorBody || !schemaPaths) return;
@@ -512,7 +512,7 @@ function syncCalibrationToDraft() {
   }
 }
 
-function setConfigValue(obj, path, value) {
+export function setConfigValue(obj, path, value) {
   const parts = path.split(".");
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -554,7 +554,7 @@ function parseValue(s) {
   return str;
 }
 
-function updateDiff() {
+export function updateDiff() {
   const { config, draft } = getConfigState();
   const diffContainer = document.getElementById("param-yaml-diff");
   if (!diffContainer) return;
