@@ -139,7 +139,20 @@ export class RunChatService {
             "",
           ].join("\n")
         : "";
-      const prompt = `${aiRequestSection}${String(body.prompt || "")}`;
+      const piContext = body.pi_context && typeof body.pi_context === "object" && !Array.isArray(body.pi_context)
+        ? body.pi_context
+        : body.ai_request && typeof body.ai_request === "object" && !Array.isArray(body.ai_request)
+          ? body.ai_request.pi_context
+          : undefined;
+      const piContextSection = piContext
+        ? [
+            "=== PI CONTEXT V2 (authoritative run facts, artifact index and evidence rules) ===",
+            "Use this before generic knowledge. Do not invent schema defaults, schema ranges or measured values. If a required fact or parameter catalog entry is missing, say so.",
+            JSON.stringify(piContext, null, 2),
+            "",
+          ].join("\n")
+        : "";
+      const prompt = `${aiRequestSection}${piContextSection}${String(body.prompt || "")}`;
       appendTrafficLog(`run_chat prompt model=${model.id} has_image=${images ? "yes" : "no"} ai_request=${body.ai_request ? "yes" : "no"} prompt_length=${prompt.length}`);
       appendTrafficLog(`run_chat prompt_text ${prompt.substring(0, 50000)}`);
       await waitForProviderSlot(model, prompt, this.config, "run_chat");

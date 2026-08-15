@@ -17,6 +17,7 @@
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 
 #include "runner_shared.hpp"
 #include "runner_phase_post_stack_output.hpp"
@@ -24,6 +25,7 @@
 #include "runner_phase_aqmh_diagnostics.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -31,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -881,13 +884,15 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       const fs::path pcc_r = outputs_dir / "pcc_R.fit";
       const fs::path pcc_g = outputs_dir / "pcc_G.fit";
       const fs::path pcc_b = outputs_dir / "pcc_B.fit";
-      if (fs::exists(pcc_r) && fs::exists(pcc_g) && fs::exists(pcc_b)) {
+      if (cfg.pcc.enabled && fs::exists(pcc_r) && fs::exists(pcc_g) &&
+          fs::exists(pcc_b)) {
         std::tie(R, hdr) = io::read_fits_float(pcc_r);
         G = io::read_fits_pixels_float(pcc_g);
         B = io::read_fits_pixels_float(pcc_b);
         input_stage = "pcc_channels";
         input_rgb = pcc_r.string() + ";" + pcc_g.string() + ";" + pcc_b.string();
-      } else if (fs::exists(outputs_dir / "stacked_rgb_pcc.fits")) {
+      } else if (cfg.pcc.enabled &&
+                 fs::exists(outputs_dir / "stacked_rgb_pcc.fits")) {
         auto rgb = io::read_fits_rgb(outputs_dir / "stacked_rgb_pcc.fits");
         R = std::move(rgb.R);
         G = std::move(rgb.G);
@@ -920,7 +925,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", e.what()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "read_input_failed"}},
+                       {{"success", false},
+                        {"status", "read_input_failed"},
+                        {"error", e.what()}},
                        log_file);
       return 1;
     }
@@ -932,7 +939,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           cfg.hypermetric_stretch.require_successful_pcc}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "missing_pcc_artifacts"}},
+                       {{"success", false},
+                        {"status", "missing_pcc_artifacts"},
+                        {"error", "no PCC output artifacts found and require_successful_pcc is true"}},
                        log_file);
       return 1;
     }
@@ -980,7 +989,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", hms_diag.error_message}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "stretch_failed"}},
+                       {{"success", false},
+                        {"status", "stretch_failed"},
+                        {"error", hms_diag.error_message}},
                        log_file);
       return 1;
     }
@@ -1020,7 +1031,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", e.what()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "write_output_failed"}},
+                       {{"success", false},
+                        {"status", "write_output_failed"},
+                        {"error", e.what()}},
                        log_file);
       return 1;
     }
@@ -1282,7 +1295,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", e.what()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "read_synthetic_failed"}},
+                       {{"success", false},
+                        {"status", "read_synthetic_failed"},
+                        {"error", e.what()},
+                        {"file", synthetic_entries.front().second.string()}},
                        log_file);
       return 1;
     }
@@ -1292,7 +1308,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"file", synthetic_entries.front().second.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "empty_synthetic"}},
+                       {{"success", false},
+                        {"status", "empty_synthetic"},
+                        {"error", "first synthetic frame has zero pixel data"},
+                        {"file", synthetic_entries.front().second.string()}},
                        log_file);
       return 1;
     }
@@ -1313,7 +1332,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event("resume_end", run_id,
                          {{"success", false},
-                          {"status", "normalization_artifact_invalid"}},
+                          {"status", "normalization_artifact_invalid"},
+                          {"error", scaling_error}},
                          log_file);
         std::cerr << "Error: " << scaling_error << std::endl;
         return 1;
@@ -1356,7 +1376,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                            {"crop_height", crop.height}},
                           log_file);
         core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "invalid_stored_crop"}},
+                         {{"success", false},
+                          {"status", "invalid_stored_crop"},
+                          {"error", "stored crop bbox is out of bounds for synthetic frame"},
+                          {"crop_x", crop.x}, {"crop_y", crop.y},
+                          {"crop_width", crop.width},
+                          {"crop_height", crop.height}},
                          log_file);
         return 1;
       }
@@ -1377,7 +1402,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", canvas_mask_error}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "canvas_mask_invalid"}},
+                       {{"success", false},
+                        {"status", "canvas_mask_invalid"},
+                        {"error", canvas_mask_error}},
                        log_file);
       return 1;
     }
@@ -1396,7 +1423,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "analysis_mask_invalid"}},
+            {{"success", false},
+             {"status", "analysis_mask_invalid"},
+             {"error", analysis_mask_error}},
             log_file);
         return 1;
       }
@@ -1494,7 +1523,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                            {"error", e.what()}},
                           log_file);
         core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "read_synthetic_failed"}},
+                         {{"success", false},
+                          {"status", "read_synthetic_failed"},
+                          {"error", e.what()},
+                          {"file", path.string()}},
                          log_file);
         return 1;
       }
@@ -1511,7 +1543,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                             log_file);
           core::emit_event("resume_end", run_id,
                            {{"success", false},
-                            {"status", "synthetic_crop_out_of_bounds"}},
+                            {"status", "synthetic_crop_out_of_bounds"},
+                            {"error", "stored crop bbox exceeds synthetic frame dimensions"},
+                            {"file", path.string()}},
                            log_file);
           return 1;
         }
@@ -1550,7 +1584,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         {{"reason", "no_valid_synthetic_frames"}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "no_valid_synthetic"}},
+                       {{"success", false},
+                        {"status", "no_valid_synthetic"},
+                        {"error", "all synthetic frame reads produced empty data"}},
                        log_file);
       return 1;
     }
@@ -1724,7 +1760,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event("resume_end", run_id,
                          {{"success", false},
-                          {"status", "canvas_mask_size_mismatch"}},
+                          {"status", "canvas_mask_size_mismatch"},
+                          {"error", msg}},
                          log_file);
         return 1;
       }
@@ -1738,7 +1775,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "analysis_mask_size_mismatch"}},
+            {{"success", false},
+             {"status", "analysis_mask_size_mismatch"},
+             {"error", "analysis mask pixel count does not match reconstruction canvas"}},
             log_file);
         return 1;
       }
@@ -1757,7 +1796,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                             "crop_to_nonzero_bbox produced empty valid canvas"}},
                           log_file);
         core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "empty_valid_crop"}},
+                         {{"success", false},
+                          {"status", "empty_valid_crop"},
+                          {"error", "crop_to_nonzero_bbox produced empty valid canvas"}},
                          log_file);
         return 1;
       }
@@ -1814,7 +1855,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                             log_file);
           core::emit_event("resume_end", run_id,
                            {{"success", false},
-                            {"status", "canvas_mask_write_failed"}},
+                            {"status", "canvas_mask_write_failed"},
+                            {"error", mask_write_error}},
                            log_file);
           return 1;
         }
@@ -1880,7 +1922,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"error", post_result.error}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "output_write_failed"}},
+                       {{"success", false},
+                        {"status", "output_write_failed"},
+                        {"error", post_result.error}},
                        log_file);
       return 1;
     }
@@ -1932,16 +1976,38 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
   }
 
-  fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
   fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+  if (fs::exists(stacked_rgb_solve_path) && fs::exists(stacked_rgb_path)) {
+    try {
+      const auto [solve_w, solve_h, solve_planes] =
+          io::get_fits_dimensions(stacked_rgb_solve_path);
+      const auto [rgb_w, rgb_h, rgb_planes] =
+          io::get_fits_dimensions(stacked_rgb_path);
+      if ((solve_planes != 3 || solve_w != rgb_w || solve_h != rgb_h) &&
+          rgb_planes == 3) {
+        auto stacked_rgb = io::read_fits_rgb(stacked_rgb_path);
+        io::write_fits_rgb(stacked_rgb_solve_path, stacked_rgb.R,
+                           stacked_rgb.G, stacked_rgb.B, stacked_rgb.header);
+        std::cout << "[ASTROMETRY][resume] Rewrote stale "
+                  << "stacked_rgb_solve.fits as RGB cube from stacked_rgb.fits"
+                  << std::endl;
+      }
+    } catch (const std::exception &e) {
+      std::cout << "[ASTROMETRY][resume] Could not validate "
+                << "stacked_rgb_solve.fits shape: " << e.what() << std::endl;
+    }
+  }
+  fs::path rgb_path = stacked_rgb_solve_path;
   if (!fs::exists(rgb_path)) {
     rgb_path = stacked_rgb_path;
   }
   if (!fs::exists(rgb_path)) {
     std::cerr << "Error: missing stacked RGB cube in run outputs" << std::endl;
     core::emit_event("resume_end", run_id,
-                     {{"success", false}, {"status", "missing_rgb"}},
+                     {{"success", false},
+                      {"status", "missing_rgb"},
+                      {"error", "missing stacked RGB cube in run outputs"}},
                      log_file);
     return 1;
   }
@@ -1952,7 +2018,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   } catch (const std::exception &e) {
     std::cerr << "Error: failed to read RGB FITS: " << e.what() << std::endl;
     core::emit_event("resume_end", run_id,
-                     {{"success", false}, {"status", "read_rgb_failed"}},
+                     {{"success", false},
+                      {"status", "read_rgb_failed"},
+                      {"error", e.what()}},
                      log_file);
     return 1;
   }
@@ -1991,6 +2059,33 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       have_wcs = false;
     }
   }
+
+  std::string astrometry_resume_error;
+
+  auto resolve_astrometry_image_height = [&]() -> int {
+    if (cfg.data.image_height > 0) {
+      return cfg.data.image_height;
+    }
+    const fs::path events_path = run_dir / "logs" / "run_events.jsonl";
+    std::ifstream in(events_path);
+    std::string line;
+    while (std::getline(in, line)) {
+      try {
+        const auto event = core::json::parse(line);
+        if (event.value("phase_name", std::string()) != "SCAN_INPUT" ||
+            event.value("status", std::string()) != "ok" ||
+            !event.contains("image_height")) {
+          continue;
+        }
+        const int image_height = event["image_height"].get<int>();
+        if (image_height > 0) {
+          return image_height;
+        }
+      } catch (const std::exception &) {
+      }
+    }
+    return 0;
+  };
 
   auto run_astrometry_if_needed = [&](bool force_rerun = false) -> bool {
     core::EventEmitter emitter;
@@ -2048,16 +2143,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return true;
     }
 
+    const auto astap_stamp =
+        std::chrono::steady_clock::now().time_since_epoch().count();
+    fs::path astap_output_prefix =
+        fs::temp_directory_path() /
+        ("tile_compile_astap_" + run_id + "_" +
+         std::to_string(astap_stamp));
+    fs::path wcs_out = astap_output_prefix;
+    wcs_out.replace_extension(".wcs");
+
     std::string cmd = runner::shell_quote(astap_bin_path.string()) + " -f " +
                       runner::shell_quote(rgb_path.string()) + " -d " +
                       runner::shell_quote(astap_data) + " -r " +
-                      std::to_string(cfg.astrometry.search_radius);
+                      std::to_string(cfg.astrometry.search_radius) +
+                      " -wcs -o " +
+                      runner::shell_quote(astap_output_prefix.string());
 
     std::cout << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
     int ret = std::system(cmd.c_str());
-
-    fs::path wcs_out = rgb_path;
-    wcs_out.replace_extension(".wcs");
 
     if (ret == 0 && fs::exists(wcs_out)) {
       try {
@@ -2065,6 +2168,29 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         have_wcs = wcs.valid();
       } catch (const std::exception &) {
         have_wcs = false;
+      }
+    }
+
+    const int astrometry_image_height = resolve_astrometry_image_height();
+    if (!have_wcs && astrometry_image_height > 0) {
+      const auto sensor_fov_deg =
+          runner::estimate_astap_sensor_fov_deg(rgb.header,
+                                                astrometry_image_height);
+      if (sensor_fov_deg) {
+        std::ostringstream fov_ss;
+        fov_ss << std::fixed << std::setprecision(3) << *sensor_fov_deg;
+        const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
+        std::cout << "[ASTROMETRY][resume] Retry with sensor FOV: "
+                  << retry_cmd << std::endl;
+        ret = std::system(retry_cmd.c_str());
+        if (ret == 0 && fs::exists(wcs_out)) {
+          try {
+            wcs = astro::parse_wcs_file(wcs_out.string());
+            have_wcs = wcs.valid();
+          } catch (const std::exception &) {
+            have_wcs = false;
+          }
+        }
       }
     }
 
@@ -2103,6 +2229,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         return true;
       } else {
+        astrometry_resume_error =
+            "astap plate solve failed (exit code " + std::to_string(ret) + ")";
         emitter.phase_end(run_id, Phase::ASTROMETRY, "error",
                           {{"reason", "solve_failed"}, {"exit_code", ret}},
                           log_file);
@@ -2129,21 +2257,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (seeing_fwhm_loaded) return;
     seeing_fwhm_loaded = true;
 
-    const fs::path tile_grid_path = run_dir / "artifacts" / "tile_grid.json";
-    if (!fs::exists(tile_grid_path)) return;
-
-    try {
-      const auto j = core::json::parse(core::read_text(tile_grid_path));
-      if (j.contains("seeing_fwhm_median") &&
-          j["seeing_fwhm_median"].is_number()) {
-        const double f = j["seeing_fwhm_median"].get<double>();
-        if (std::isfinite(f) && f > 0.0) {
-          seeing_fwhm_median = f;
-          have_seeing_fwhm = true;
+    const std::array<fs::path, 2> candidates = {
+        run_dir / "artifacts" / "tile_grid.json",
+        run_dir / "artifacts" / "validation.json"};
+    for (const auto &path : candidates) {
+      if (!fs::exists(path)) continue;
+      try {
+        const auto j = core::json::parse(core::read_text(path));
+        if (j.contains("seeing_fwhm_median") &&
+            j["seeing_fwhm_median"].is_number()) {
+          const double f = j["seeing_fwhm_median"].get<double>();
+          if (std::isfinite(f) && f > 0.0) {
+            seeing_fwhm_median = f;
+            have_seeing_fwhm = true;
+            return;
+          }
         }
+      } catch (const std::exception &) {
       }
-    } catch (const std::exception &) {
-      have_seeing_fwhm = false;
     }
   };
 
@@ -2166,6 +2297,38 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         bge_tile_metrics_source = bge_have_local_metrics ? "classic_local_metrics" : "none";
     }
     bge_have_bge_grid = ok_grid && !bge_tile_grid.tiles.empty();
+    if (cfg.aqmh.enabled && !bge_have_bge_grid && rgb.R.rows() > 0 &&
+        rgb.R.cols() > 0) {
+      load_seeing_fwhm_if_needed();
+      const float fwhm = have_seeing_fwhm
+                             ? static_cast<float>(seeing_fwhm_median)
+                             : 3.0f;
+      const int tmin = std::max(16, cfg.tile.min_size);
+      const int divisor = std::max(1, cfg.tile.max_divisor);
+      const int tmax = std::max(
+          tmin, std::min(static_cast<int>(rgb.R.cols()),
+                         static_cast<int>(rgb.R.rows())) /
+                    divisor);
+      const int tile_size = static_cast<int>(std::floor(std::clamp(
+          static_cast<float>(cfg.tile.size_factor) * fwhm,
+          static_cast<float>(tmin), static_cast<float>(tmax))));
+      const float overlap =
+          std::clamp(cfg.tile.overlap_fraction, 0.0f, 0.5f);
+      bge_tile_grid.tile_size = tile_size;
+      bge_tile_grid.overlap_fraction = overlap;
+      bge_tile_grid.tiles = tile_compile::pipeline::build_initial_tile_grid(
+          rgb.R.cols(), rgb.R.rows(), tile_size, overlap);
+      for (const auto &tile : bge_tile_grid.tiles) {
+        bge_tile_grid.rows = std::max(bge_tile_grid.rows, tile.row + 1);
+        bge_tile_grid.cols = std::max(bge_tile_grid.cols, tile.col + 1);
+      }
+      bge_have_bge_grid = !bge_tile_grid.tiles.empty();
+      if (bge_have_bge_grid) {
+        std::cout << "[BGE][resume] Reconstructed AQMH BGE grid from RGB output: "
+                  << bge_tile_grid.tiles.size() << " tiles, tile_size="
+                  << tile_size << ", overlap=" << overlap << std::endl;
+      }
+    }
     bge_metrics_tiles_match =
         bge_have_local_metrics && bge_have_bge_grid &&
         (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
@@ -2212,8 +2375,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                                        const Matrix2Df &G_src,
                                        const Matrix2Df &B_src,
                                        const io::FitsHeader &hdr) {
-    io::write_fits_rgb(path, R_src, G_src, B_src, hdr);
+    write_stretched_rgb_snapshot(path, R_src, G_src, B_src, hdr, false,
+                                 "BGE");
   };
+
+  std::string bge_resume_error;
 
   auto run_bge_phase = [&]() -> bool {
     namespace image = tile_compile::image;
@@ -2257,6 +2423,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         rgb.B.rows() != rows || rgb.G.cols() != cols ||
         rgb.B.cols() != cols) {
       mask_error = "invalid RGB dimensions";
+      bge_resume_error = mask_error;
       emitter.phase_end(run_id, Phase::BGE, "error",
                         {{"reason", "output_canvas_mask_invalid"},
                          {"error", mask_error}},
@@ -2267,6 +2434,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
             bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
             bge_cfg.common_mask_cols, mask_error)) {
+      bge_resume_error = mask_error;
       emitter.phase_end(run_id, Phase::BGE, "error",
                         {{"reason", "output_canvas_mask_invalid"},
                          {"error", mask_error}},
@@ -2433,7 +2601,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   if (phase_l == "astrometry") {
     if (!run_astrometry_if_needed(true)) {
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "astrometry_failed"}},
+                       {{"success", false},
+                        {"status", "astrometry_failed"},
+                        {"error", astrometry_resume_error.empty()
+                            ? "astrometry phase failed during resume"
+                            : astrometry_resume_error}},
                        log_file);
       return 1;
     }
@@ -2449,7 +2621,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     if (!run_bge_phase()) {
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "bge_failed"}},
+                       {{"success", false},
+                        {"status", "bge_failed"},
+                        {"error", bge_resume_error.empty()
+                            ? "BGE phase failed during resume"
+                            : bge_resume_error}},
                        log_file);
       return 1;
     }
@@ -2463,7 +2639,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     core::emit_event("resume_end", run_id,
                      {{"success", false},
                       {"status", "unsupported_phase"},
-                      {"from_phase", phase_upper}},
+                      {"from_phase", phase_upper},
+                      {"error", "unsupported resume phase: " + phase_upper}},
                      log_file);
     return 1;
   }
@@ -2471,7 +2648,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   if (phase_l == "pcc") {
     if (!run_astrometry_if_needed()) {
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "astrometry_failed"}},
+                       {{"success", false},
+                        {"status", "astrometry_failed"},
+                        {"error", astrometry_resume_error.empty()
+                            ? "astrometry phase failed during resume"
+                            : astrometry_resume_error}},
                        log_file);
       return 1;
     }
@@ -2518,7 +2699,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "no_wcs"}}, log_file);
+                       {{"success", false},
+                        {"status", "no_wcs"},
+                        {"error", "no valid WCS solution available for PCC"}},
+                       log_file);
       return 1;
     }
 
@@ -2539,7 +2723,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         log_file);
       core::emit_event(
           "resume_end", run_id,
-          {{"success", false}, {"status", "no_catalog_stars"}}, log_file);
+          {{"success", false},
+           {"status", "no_catalog_stars"},
+           {"error", "PCC catalog query returned no stars"},
+           {"search_radius_deg", search_r},
+           {"source", used_source}},
+          log_file);
       return 1;
     }
 
@@ -2559,7 +2748,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
+            {{"success", false},
+             {"status", "output_canvas_mask_invalid"},
+             {"error", mask_error}},
             log_file);
         return 1;
       }
@@ -2572,7 +2763,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
+            {{"success", false},
+             {"status", "output_canvas_mask_invalid"},
+             {"error", mask_error}},
             log_file);
         return 1;
       }
@@ -2594,7 +2787,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "analysis_mask_invalid"}},
+            {{"success", false},
+             {"status", "analysis_mask_invalid"},
+             {"error", analysis_mask_error}},
             log_file);
         return 1;
       }
@@ -2650,7 +2845,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
-                       {{"success", false}, {"status", "fit_failed"}},
+                       {{"success", false},
+                        {"status", "fit_failed"},
+                        {"error", result.error_message},
+                        {"residual_rms", result.residual_rms},
+                        {"stars_matched", result.n_stars_matched},
+                        {"stars_used", result.n_stars_used}},
                        log_file);
       return 1;
     }
@@ -2739,7 +2939,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                            {"error", hms_diag.error_message}},
                           log_file);
         core::emit_event("resume_end", run_id,
-                         {{"success", false}, {"status", "stretch_failed"}},
+                         {{"success", false},
+                          {"status", "stretch_failed"},
+                          {"error", hms_diag.error_message}},
                          log_file);
         return 1;
       }

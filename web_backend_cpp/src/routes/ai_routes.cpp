@@ -8,7 +8,9 @@
 #include "services/pi/pi_action_plan.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
+#include "services/pi/pi_context_v2.hpp"
 #include "services/pi/pi_memory_store.hpp"
+#include "services/pi/pi_recommendation_validator.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/scan_summary.hpp"
 
@@ -186,44 +188,6 @@ json latest_analysis(const InMemoryJobStore& store) {
 }
 
 
-json parse_scalar_value(const json& raw_value) {
-    if (!raw_value.is_string()) return raw_value;
-    std::string text = raw_value.get<std::string>();
-    text.erase(text.begin(), std::find_if(text.begin(), text.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }));
-    text.erase(std::find_if(text.rbegin(), text.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base(), text.end());
-    if (text.empty()) return raw_value;
-
-    std::string lowered = text;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    if (lowered == "true") return true;
-    if (lowered == "false") return false;
-    if (lowered == "null" || lowered == "~") return nullptr;
-
-    char* end = nullptr;
-    errno = 0;
-    const double numeric = std::strtod(text.c_str(), &end);
-    if (errno == 0 && end != text.c_str() && end && *end == '\0' && std::isfinite(numeric)) {
-        if (text.find('.') == std::string::npos &&
-            text.find('e') == std::string::npos &&
-            text.find('E') == std::string::npos) {
-            try {
-                return std::stoll(text);
-            } catch (...) {
-                return numeric;
-            }
-        }
-        return numeric;
-    }
-
-    return raw_value;
-}
-
 std::string json_string_value(const json& value, const std::string& fallback = "") {
     if (value.is_string()) return value.get<std::string>();
     if (value.is_boolean()) return value.get<bool>() ? "true" : "false";
@@ -333,217 +297,6 @@ std::optional<SchemaInfo> load_schema_info(const std::shared_ptr<AppState>& stat
     SchemaInfo info;
     collect_schema_paths(*parsed, "", info);
     return info;
-}
-
-bool schema_type_matches(const json& schema, const json& value) {
-    if (!schema.is_object() || !schema.contains("type")) return true;
-
-    std::vector<std::string> types;
-    if (schema["type"].is_string()) {
-        types.push_back(schema["type"].get<std::string>());
-    } else if (schema["type"].is_array()) {
-        for (const auto& t : schema["type"]) {
-            if (t.is_string()) types.push_back(t.get<std::string>());
-        }
-    }
-    if (types.empty()) return true;
-
-    for (const auto& type : types) {
-        if (type == "object" && value.is_object()) return true;
-        if (type == "array" && value.is_array()) return true;
-        if (type == "string" && value.is_string()) return true;
-        if (type == "boolean" && value.is_boolean()) return true;
-        if (type == "integer" && value.is_number_integer()) return true;
-        if (type == "number" && value.is_number()) return true;
-        if (type == "null" && value.is_null()) return true;
-    }
-    return false;
-}
-
-bool schema_enum_matches(const json& schema, const json& value) {
-    if (!schema.is_object() || !schema.contains("enum") || !schema["enum"].is_array()) return true;
-    return std::find(schema["enum"].begin(), schema["enum"].end(), value) != schema["enum"].end();
-}
-
-json normalize_candidate_updates(const json& analysis) {
-    json updates = json::array();
-    const json* source = nullptr;
-    if (analysis.contains("updates") && analysis["updates"].is_array()) {
-        source = &analysis["updates"];
-    } else if (analysis.contains("recommendations") && analysis["recommendations"].is_array()) {
-        source = &analysis["recommendations"];
-    }
-    if (!source) return updates;
-
-    for (const auto& item : *source) {
-        if (!item.is_object()) continue;
-        const std::string path = item.contains("path") && item["path"].is_string()
-            ? item["path"].get<std::string>()
-            : std::string();
-        if (path.empty() || !item.contains("value")) continue;
-        json update = {
-            {"path", path},
-            {"value", parse_scalar_value(item["value"])},
-            {"reason", json_string_field(item, "reason", json_string_field(item, "rationale"))},
-            {"confidence", json_double_field(item, "confidence", 0.0)},
-            {"risk", json_string_field(item, "risk", "unknown")},
-        };
-        if (item.contains("id") && item["id"].is_string()) update["id"] = item["id"];
-        if (item.contains("current_value")) update["current_value"] = item["current_value"];
-        if (item.contains("review_required") && item["review_required"].is_boolean()) {
-            update["review_required"] = item["review_required"];
-        }
-        if (item.contains("evidence") && item["evidence"].is_array()) {
-            update["evidence"] = json::array();
-            for (const auto& evidence : item["evidence"]) {
-                update["evidence"].push_back(json_string_value(evidence));
-            }
-        }
-        updates.push_back(std::move(update));
-    }
-    return updates;
-}
-
-json validate_updates_against_schema(const json& candidates,
-                                     const SchemaInfo& schema,
-                                     const json& base_config,
-                                     const std::shared_ptr<AppState>& state) {
-    json validated = json::array();
-    json rejected = json::array();
-    json patched = base_config;
-
-    for (const auto& update : candidates) {
-        const std::string path = json_string_field(update, "path");
-        auto schema_it = schema.paths.find(path);
-        if (schema_it == schema.paths.end()) {
-            json reject = update;
-            reject["applicable"] = false;
-            reject["reject_reason"] = "unknown_path";
-            rejected.push_back(std::move(reject));
-            continue;
-        }
-        const json value = update.contains("value") ? update["value"] : json(nullptr);
-        if (!schema_type_matches(schema_it->second, value)) {
-            json reject = update;
-            reject["applicable"] = false;
-            reject["reject_reason"] = "wrong_type";
-            rejected.push_back(std::move(reject));
-            continue;
-        }
-        if (!schema_enum_matches(schema_it->second, value)) {
-            json reject = update;
-            reject["applicable"] = false;
-            reject["reject_reason"] = "enum_mismatch";
-            rejected.push_back(std::move(reject));
-            continue;
-        }
-        set_dotted(patched, path, value);
-        json accepted = update;
-        accepted["applicable"] = true;
-        validated.push_back(std::move(accepted));
-    }
-
-    // Validate the full patch first (fast path)
-    const std::string yaml_text = yaml_dump(patched);
-    SubprocessResult res = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
-                                          state->runtime.project_root.string(),
-                                          yaml_text);
-    auto validation = parse_json_string(res.stdout_str).value_or(json::object());
-    if (res.exit_code != 0 || !validation.value("valid", false)) {
-        // Weight groups that must be validated together (members must sum to 1.0)
-        static const std::vector<std::vector<std::string>> weight_groups = {
-            {"global_metrics.weights.background", "global_metrics.weights.gradient", "global_metrics.weights.noise"},
-            {"quality_filter.weights.contrast", "quality_filter.weights.fwhm", "quality_filter.weights.roundness"},
-        };
-
-        // Determine which validated paths belong to a weight group
-        auto group_for_path = [&](const std::string& p) -> int {
-            for (int g = 0; g < (int)weight_groups.size(); ++g)
-                for (const auto& m : weight_groups[g])
-                    if (m == p) return g;
-            return -1;
-        };
-
-        // Build set of paths present in validated updates
-        std::map<std::string, json*> path_to_item;
-        for (auto& item : validated)
-            path_to_item[json_string_field(item, "path")] = &item;
-
-        std::set<int> groups_attempted;
-        json surviving = json::array();
-        json current_base = base_config;
-
-        // First pass: try each complete weight group together
-        for (int g = 0; g < (int)weight_groups.size(); ++g) {
-            const auto& grp = weight_groups[g];
-            bool any_in_group = false;
-            for (const auto& m : grp) if (path_to_item.count(m)) { any_in_group = true; break; }
-            if (!any_in_group) continue;
-            groups_attempted.insert(g);
-            json trial = current_base;
-            bool all_present = true;
-            for (const auto& m : grp) {
-                if (!path_to_item.count(m)) { all_present = false; break; }
-                set_dotted(trial, m, (*path_to_item[m])["value"]);
-            }
-            if (!all_present) continue; // partial group – handled in individual pass
-            const std::string trial_yaml = yaml_dump(trial);
-            SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
-                                                   state->runtime.project_root.string(), trial_yaml);
-            auto vresult = parse_json_string(vres.stdout_str).value_or(json::object());
-            if (vres.exit_code == 0 && vresult.value("valid", false)) {
-                current_base = trial;
-                for (const auto& m : grp) surviving.push_back(*path_to_item[m]);
-            } else {
-                for (const auto& m : grp) {
-                    (*path_to_item[m])["applicable"] = false;
-                    (*path_to_item[m])["reject_reason"] = "weight_group_validation_failed";
-                    rejected.push_back(*path_to_item[m]);
-                }
-            }
-        }
-
-        // Second pass: validate remaining (non-weight-group) updates individually
-        for (auto& item : validated) {
-            const std::string ipath = json_string_field(item, "path");
-            if (group_for_path(ipath) >= 0) continue; // already handled above
-            const json ivalue = item.contains("value") ? item["value"] : json(nullptr);
-            json trial = current_base;
-            set_dotted(trial, ipath, ivalue);
-            const std::string trial_yaml = yaml_dump(trial);
-            SubprocessResult vres = run_subprocess({state->runtime.cli_exe, "validate-config", "--stdin"},
-                                                   state->runtime.project_root.string(), trial_yaml);
-            auto vresult = parse_json_string(vres.stdout_str).value_or(json::object());
-            if (vres.exit_code != 0 || !vresult.value("valid", false)) {
-                item["applicable"] = false;
-                item["reject_reason"] = "config_validation_failed";
-                rejected.push_back(item);
-            } else {
-                current_base = trial;
-                surviving.push_back(item);
-            }
-        }
-        validated = surviving;
-        // Re-generate final yaml from surviving updates
-        const std::string final_yaml = yaml_dump(current_base);
-        return {
-            {"validated_updates", validated},
-            {"rejected_updates", rejected},
-            {"candidate_count", candidates.size()},
-            {"patched_config", current_base},
-            {"patched_config_yaml", final_yaml},
-            {"validation", validation},
-        };
-    }
-
-    return {
-        {"validated_updates", validated},
-        {"rejected_updates", rejected},
-        {"candidate_count", candidates.size()},
-        {"patched_config", patched},
-        {"patched_config_yaml", yaml_text},
-        {"validation", validation},
-    };
 }
 
 json selected_validated_updates(const json& data, const json& body) {
@@ -1694,6 +1447,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 }
                 if (schema_node.contains("default")) entry["default"] = schema_node["default"];
                 if (schema_node.contains("minimum")) entry["minimum"] = schema_node["minimum"];
+                if (schema_node.contains("exclusiveMinimum")) entry["exclusiveMinimum"] = schema_node["exclusiveMinimum"];
                 if (schema_node.contains("maximum")) entry["maximum"] = schema_node["maximum"];
                 if (!entry.empty()) config_schema[path] = std::move(entry);
             }
@@ -1712,6 +1466,13 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 {"base_config", *base_config},
                 {"allowed_config_paths", body->value("allowed_config_paths", allowed_paths)},
                 {"config_schema", config_schema},
+                {"pi_context", tile_compile::pi::build_scan_pi_context(
+                    schema->paths,
+                    *base_config,
+                    scan_result,
+                    body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()
+                        ? (*body)["scan_metrics"]
+                        : json::object())},
                 {"model", json_string_field(*body, "model", config.model)},
                 {"send_paths", config.send_paths},
                 {"force", force},
@@ -1736,8 +1497,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 }},
                 {"config", {
                     {"base_config", *base_config},
-                    {"config_schema", config_schema}
+                    {"config_schema", config_schema},
+                    {"parameter_catalog", request_payload["pi_context"]["parameter_catalog"]}
                 }},
+                {"pi_context", request_payload["pi_context"]},
                 {"allowed_config_paths", body->value("allowed_config_paths", allowed_paths)},
                 {"session_context", session_context},
                 {"expected_response", "pi.scan-analysis.v1 with parameter recommendations, evidence, risks, confidence and action plan candidates"},
@@ -1757,8 +1520,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (!analysis.is_object() || json_string_field(analysis, "schema_version") != "pi.scan-analysis.v1") {
                 return err_resp("INVALID_AI_RESPONSE", "AI sidecar returned an invalid analysis payload", 502);
             }
-            const json candidates = normalize_candidate_updates(analysis);
-            const json validation = validate_updates_against_schema(candidates, *schema, *base_config, state);
+            const json candidates = tile_compile::pi::normalize_candidate_updates(analysis);
+            const json validation = tile_compile::pi::validate_recommendation_updates(
+                candidates, schema->paths, *base_config, state, request_payload["pi_context"]);
             analysis["updates"] = candidates;
             analysis["validated_updates"] = validation["validated_updates"];
             analysis["rejected_updates"] = validation["rejected_updates"];
@@ -1768,6 +1532,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             analysis["rejected_count"] = validation["rejected_updates"].size();
             analysis["config_path"] = target_config_path.string();
             analysis["analysis_context"] = build_analysis_context(scan_result, request_payload);
+            analysis["analysis_context"]["pi_context"] = request_payload["pi_context"];
             if (validation.contains("patched_config") && validation["patched_config"].is_object())
                 analysis["analysis_context"]["patched_config"] = validation["patched_config"];
             if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
@@ -1826,8 +1591,12 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         const json scan_metrics = body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()
             ? (*body)["scan_metrics"]
             : json::object();
-        const json candidates = normalize_candidate_updates(analysis);
-        const json validation = validate_updates_against_schema(candidates, *schema, *base_config, state);
+        const json pi_context = body->contains("pi_context") && (*body)["pi_context"].is_object()
+            ? (*body)["pi_context"]
+            : tile_compile::pi::build_scan_pi_context(schema->paths, *base_config, scan_result, scan_metrics);
+        const json candidates = tile_compile::pi::normalize_candidate_updates(analysis);
+        const json validation = tile_compile::pi::validate_recommendation_updates(
+            candidates, schema->paths, *base_config, state, pi_context);
         analysis["updates"] = candidates;
         analysis["validated_updates"] = validation["validated_updates"];
         analysis["rejected_updates"] = validation["rejected_updates"];
@@ -1840,6 +1609,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         // Override base_config with the parsed version so the persisted context
         // contains a proper JSON object, not a raw YAML string.
         analysis["analysis_context"]["base_config"] = *base_config;
+        analysis["analysis_context"]["pi_context"] = pi_context;
         if (validation.contains("patched_config") && validation["patched_config"].is_object())
             analysis["analysis_context"]["patched_config"] = validation["patched_config"];
         if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
@@ -1957,12 +1727,17 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 }
                 if (schema_node.contains("default")) entry["default"] = schema_node["default"];
                 if (schema_node.contains("minimum")) entry["minimum"] = schema_node["minimum"];
+                if (schema_node.contains("exclusiveMinimum")) entry["exclusiveMinimum"] = schema_node["exclusiveMinimum"];
                 if (schema_node.contains("maximum")) entry["maximum"] = schema_node["maximum"];
                 if (!entry.empty()) config_schema[path] = std::move(entry);
             }
         }
 
         const json selected_allowed_paths = body->value("allowed_config_paths", allowed_paths);
+        const json scan_metrics = body->contains("scan_metrics") && (*body)["scan_metrics"].is_object()
+            ? (*body)["scan_metrics"]
+            : json::object();
+        const json pi_context = tile_compile::pi::build_scan_pi_context(schema->paths, *base_config, scan_result, scan_metrics);
         const json session_context = session_context_with_accepted_memories(
             state,
             *body,
@@ -1975,6 +1750,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             {"base_config", *base_config},
             {"allowed_config_paths", selected_allowed_paths},
             {"config_schema", config_schema},
+            {"pi_context", pi_context},
             {"model", json_string_field(*body, "model", config.model)},
             {"send_paths", config.send_paths},
             {"force", force},
@@ -1999,8 +1775,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             }},
             {"config", {
                 {"base_config", *base_config},
-                {"config_schema", config_schema}
+                {"config_schema", config_schema},
+                {"parameter_catalog", pi_context["parameter_catalog"]}
             }},
+            {"pi_context", pi_context},
             {"allowed_config_paths", selected_allowed_paths},
             {"session_context", session_context},
             {"expected_response", "pi.scan-analysis.v1 stream with parameter recommendations, evidence, risks and confidence"},
@@ -2025,8 +1803,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 res.body = stream.str();
                 return res;
             }
-            const json candidates = normalize_candidate_updates(analysis);
-            const json validation = validate_updates_against_schema(candidates, *schema, *base_config, state);
+            const json candidates = tile_compile::pi::normalize_candidate_updates(analysis);
+            const json validation = tile_compile::pi::validate_recommendation_updates(
+                candidates, schema->paths, *base_config, state, pi_context);
             analysis["updates"] = candidates;
             analysis["validated_updates"] = validation["validated_updates"];
             analysis["rejected_updates"] = validation["rejected_updates"];
@@ -2036,6 +1815,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             analysis["rejected_count"] = validation["rejected_updates"].size();
             analysis["config_path"] = target_config_path.string();
             analysis["analysis_context"] = build_analysis_context(scan_result, request_payload);
+            analysis["analysis_context"]["pi_context"] = pi_context;
             if (validation.contains("patched_config") && validation["patched_config"].is_object())
                 analysis["analysis_context"]["patched_config"] = validation["patched_config"];
             if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
@@ -2123,6 +1903,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         json allowed_paths = json::array();
         for (const auto& [path, _] : schema->paths) allowed_paths.push_back(path);
         const json config_schema = completion_config_schema(*schema);
+        const json pi_context = tile_compile::pi::build_run_completed_pi_context(schema->paths, *base_config, run_dir, run_status);
 
         const std::string prompt =
             "You are PI for tile_compile. Analyze the attached preview rendered from the immutable "
@@ -2146,6 +1927,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             {"source_fingerprint", source_fingerprint},
             {"base_config", *base_config},
             {"config_schema", config_schema},
+            {"pi_context", pi_context},
             {"allowed_config_paths", allowed_paths},
             {"image_base64", preview["base64"]},
             {"image_mime", preview.value("mime", std::string("image/png"))},
@@ -2155,7 +1937,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 {"task", "run_completion_analysis"},
                 {"user_message", prompt},
                 {"run_context", {{"run_id", run_id}, {"status", run_status}, {"source_artifact", image_info}}},
-                {"config", {{"base_config", *base_config}, {"config_schema", config_schema}}},
+                {"config", {{"base_config", *base_config}, {"config_schema", config_schema}, {"parameter_catalog", pi_context["parameter_catalog"]}}},
+                {"pi_context", pi_context},
                 {"allowed_config_paths", allowed_paths},
                 {"expected_response", "pi.run-completion-analysis.v1"},
                 {"provider", ai_config.provider},
@@ -2219,6 +2002,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             ai_config,
             schema = *schema,
             base_config = *base_config,
+            pi_context,
             analysis_id
         ]() mutable {
             try {
@@ -2232,9 +2016,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 analysis.erase("image_base64");
                 analysis.erase("image");
                 analysis.erase("images");
-                const json candidates = normalize_candidate_updates(analysis);
-                const json validated = validate_updates_against_schema(
-                    candidates, schema, base_config, state);
+                const json candidates = tile_compile::pi::normalize_candidate_updates(analysis);
+                const json validated = tile_compile::pi::validate_recommendation_updates(
+                    candidates, schema.paths, base_config, state, pi_context);
                 analysis["schema_version"] = "pi.run-completion-analysis.v1";
                 analysis["status"] = "ready";
                 analysis["has_analysis"] = true;
@@ -2243,6 +2027,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 analysis["run_dir"] = run_dir.string();
                 analysis["source_artifact"] = image_info;
                 analysis["source_fingerprint"] = source_fingerprint;
+                analysis["pi_context"] = pi_context;
                 analysis["updates"] = candidates;
                 analysis["validated_updates"] = validated["validated_updates"];
                 analysis["rejected_updates"] = validated["rejected_updates"];

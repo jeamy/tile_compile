@@ -63,7 +63,7 @@ function compactLargeJson(value: unknown, depth = 0): unknown {
       out.frames = { _omitted_array: true, original_length: child.length };
       continue;
     }
-    if ((key === "scan_result" || key === "scan_metrics" || key === "base_config" || key === "config_schema") && depth <= 2) {
+    if ((key === "scan_result" || key === "scan_metrics" || key === "base_config" || key === "config_schema" || key === "pi_context") && depth <= 2) {
       out[key] = { _omitted_duplicate_section: true };
       continue;
     }
@@ -251,6 +251,7 @@ export class FrameAnalysisService {
       scan_result: request.scan_result,
       base_config: request.base_config,
       config_schema: request.config_schema,
+      pi_context: request.pi_context,
       scan_metrics: request.scan_metrics,
       session_context: request.session_context,
       allowed_config_paths: request.allowed_config_paths,
@@ -258,7 +259,7 @@ export class FrameAnalysisService {
       force: request.force,
     };
     appendTrafficLog(`prompt_length ${prompt.length} sections=${[
-      'AI REQUEST V2','IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
+      'AI REQUEST V2','PI CONTEXT V2','PARAMETER CATALOG','IMAGE QUALITY METRICS','FRAME STATISTICS','CURRENT CONFIG','CONFIG SCHEMA','SCAN RESULT','scan_metrics'
     ].map(s => s + ':' + (prompt.includes(s) ? 'YES' : 'NO')).join(' ')}`);
     appendTrafficLog(`prompt ${prompt.substring(0, 50000)}`);
 
@@ -404,6 +405,7 @@ export class FrameAnalysisService {
       request_sha256: sha256Json(requestAuditPayload),
       base_config_sha256: request.base_config === undefined ? undefined : sha256Json(request.base_config),
       config_schema_sha256: request.config_schema === undefined ? undefined : sha256Json(request.config_schema),
+      pi_context_sha256: request.pi_context === undefined ? undefined : sha256Json(request.pi_context),
       scan_result_sha256: request.scan_result === undefined ? undefined : sha256Json(request.scan_result),
       scan_metrics_sha256: request.scan_metrics === undefined ? undefined : sha256Json(request.scan_metrics),
     };
@@ -432,6 +434,16 @@ export class FrameAnalysisService {
     const configContext = aiRequest.config && typeof aiRequest.config === "object" && !Array.isArray(aiRequest.config)
       ? aiRequest.config as Record<string, any>
       : {};
+    const piContext = request.pi_context && typeof request.pi_context === "object" && !Array.isArray(request.pi_context)
+      ? request.pi_context as Record<string, any>
+      : aiRequest.pi_context && typeof aiRequest.pi_context === "object" && !Array.isArray(aiRequest.pi_context)
+        ? aiRequest.pi_context as Record<string, any>
+        : {};
+    const parameterCatalog = piContext.parameter_catalog && typeof piContext.parameter_catalog === "object" && !Array.isArray(piContext.parameter_catalog)
+      ? piContext.parameter_catalog as Record<string, any>
+      : configContext.parameter_catalog && typeof configContext.parameter_catalog === "object" && !Array.isArray(configContext.parameter_catalog)
+        ? configContext.parameter_catalog as Record<string, any>
+        : {};
     const sessionContextFromAiRequest = aiRequest.session_context && typeof aiRequest.session_context === "object" && !Array.isArray(aiRequest.session_context)
       ? aiRequest.session_context as SessionContext
       : undefined;
@@ -448,9 +460,27 @@ export class FrameAnalysisService {
       const parts = [path, `type:${info?.type || "unknown"}`];
       if (info?.enum) parts.push(`enum:${JSON.stringify(info.enum)}`);
       if (info?.minimum !== undefined) parts.push(`min:${info.minimum}`);
+      if (info?.exclusiveMinimum !== undefined) parts.push(`exclusive_min:${info.exclusiveMinimum}`);
       if (info?.maximum !== undefined) parts.push(`max:${info.maximum}`);
       if (info?.desc) parts.push(info.desc);
       schemaLines.push(parts.join("  "));
+    }
+    const catalogLines: string[] = [];
+    for (const [path, meta] of Object.entries<any>(parameterCatalog)) {
+      const parts = [path];
+      if (meta?.current_value !== undefined) parts.push(`current:${JSON.stringify(meta.current_value)}`);
+      if (meta?.cpp_default !== undefined) parts.push(`cpp_default:${JSON.stringify(meta.cpp_default)}`);
+      if (meta?.schema_default !== undefined) parts.push(`schema_default:${JSON.stringify(meta.schema_default)}`);
+      if (meta?.schema_enum !== undefined) parts.push(`schema_enum:${JSON.stringify(meta.schema_enum)}`);
+      if (meta?.schema_min !== undefined) parts.push(`schema_min:${JSON.stringify(meta.schema_min)}`);
+      if (meta?.schema_exclusive_min !== undefined) parts.push(`schema_exclusive_min:${JSON.stringify(meta.schema_exclusive_min)}`);
+      if (Object.prototype.hasOwnProperty.call(meta || {}, "schema_max")) parts.push(`schema_max:${JSON.stringify(meta.schema_max)}`);
+      if (Object.prototype.hasOwnProperty.call(meta || {}, "recommended_value")) parts.push(`recommended_value:${JSON.stringify(meta.recommended_value)}`);
+      if (meta?.diagnostic_only !== undefined) parts.push(`diagnostic_only:${Boolean(meta.diagnostic_only)}`);
+      if (meta?.semantic) parts.push(`semantic:${String(meta.semantic)}`);
+      if (Array.isArray(meta?.requires_evidence)) parts.push(`requires_evidence:${JSON.stringify(meta.requires_evidence)}`);
+      if (Array.isArray(meta?.hard_rules)) parts.push(`hard_rules:${JSON.stringify(meta.hard_rules)}`);
+      catalogLines.push(parts.join("  "));
     }
 
     // Build compact scan summary (no frame list, just counts and metadata)
@@ -609,6 +639,13 @@ export class FrameAnalysisService {
       "- The value MUST match the type constraint: boolean for boolean, number for number/integer, string for string.",
       "- If the schema lists enum values, the value MUST be one of those enum values.",
       "- If the schema lists min/max constraints, the value MUST be within that range. Never recommend a value outside [min, max].",
+      "- If PI CONTEXT V2 / PARAMETER CATALOG is provided, treat it as the authoritative source for defaults, schema bounds, recommended values, disabled sentinels, semantic meaning, diagnostic-only status and hard rules.",
+      "- Never claim a schema maximum, schema default, schema recommendation or recommended value unless that exact field is present and non-null in PARAMETER CATALOG or CONFIG SCHEMA.",
+      "- If a metadata field is null or absent, say it is unknown; do not infer it from general astrophotography knowledge.",
+      "- Current values equal to cpp_default or schema_default are not misconfigurations.",
+      "- Do not recommend a threshold stricter than an observed successful phase metric. Example: do not set pcc.max_residual_rms below pcc.residual_rms when pcc.status is ok.",
+      "- Diagnostic-only parameters cannot be claimed to improve reconstruction quality.",
+      "- Evidence should cite fact IDs from PI CONTEXT V2 when available, not free-form invented metric names.",
       "- Do NOT recommend paths of type 'object' or 'array'.",
       "- Do NOT recommend file/directory paths (e.g. calibration.darks_dir, calibration.flat_master).",
       "- Do NOT recommend aqmh.cherry_pick.* paths. Cherry-pick is excluded from AI recommendations because it has produced unreliable quality decisions.",
@@ -704,6 +741,20 @@ export class FrameAnalysisService {
           "",
         ];
       })()),
+      ...((() => {
+        if (!piContext || Object.keys(piContext).length === 0) return [];
+        return [
+          "=== PI CONTEXT V2 (authoritative facts, parameter catalog and evidence rules) ===",
+          "Use this context before any generic knowledge. Every schema/default/recommended claim must be traceable to it.",
+          boundedJson(piContext, MAX_AI_REQUEST_JSON_CHARS),
+          "",
+        ];
+      })()),
+      ...(catalogLines.length > 0 ? [
+        "=== PARAMETER CATALOG (authoritative semantic metadata) ===",
+        ...catalogLines,
+        "",
+      ] : []),
       "=== CONFIG SCHEMA (path  type  [enum]  [description]) ===",
       ...schemaLines,
       "",

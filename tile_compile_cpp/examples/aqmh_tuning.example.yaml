@@ -111,7 +111,7 @@ aqmh:
     scales: 4                # Number of pyramid scales
     w_sharp: 0.6             # Sharpness weight in quality metric
     w_snr: 0.4               # SNR weight in quality metric
-    score_scale: 1.8        # lokale AQMH-Selektivitaet
+    score_scale: 0.6        # lokale AQMH-Selektivitaet
     k_artifact: 3.0           # Artifact detection sensitivity (MAD multiplier)
     frac_artifact_max: 0.25  # Maximum tolerated outlier fraction per window
 
@@ -196,11 +196,11 @@ global_metrics:
     - -3
     - 3
   weights:
-    background: 0.4
-    fwhm: 0.0
-    gradient: 0.3
-    noise: 0.3
-    roundness: 0.0
+    background: 0.25
+    fwhm: 0.25
+    gradient: 0.2
+    noise: 0.2
+    roundness: 0.1
     star_count: 0.0
 
 local_metrics:

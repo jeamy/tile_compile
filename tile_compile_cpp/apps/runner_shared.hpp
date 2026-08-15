@@ -12,12 +12,17 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <streambuf>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <vector>
+
+namespace tile_compile::io {
+struct FitsHeader;
+}
 
 namespace tile_compile::runner {
 
@@ -118,6 +123,11 @@ std::string system_cmd(const std::string &cmd);
 /// Resolve an ASTAP CLI binary path across platforms.
 std::filesystem::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
                                                 const std::string &astap_data_dir);
+
+/// Estimate the optical image-height FOV for ASTAP from original frame height
+/// and FITS focal/pixel-size metadata.
+std::optional<double> estimate_astap_sensor_fov_deg(const io::FitsHeader &header,
+                                                    int image_height);
 
 /// Simple parallel-for loop over indices [0, count).
 template <typename Fn>

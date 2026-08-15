@@ -69,17 +69,19 @@ static double parse_fits_double(const std::string &val_str) {
 WCS parse_wcs_file(const std::string &path) {
     WCS w;
 
-    std::ifstream f(path);
+    std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return w;
+    std::ostringstream buffer;
+    buffer << f.rdbuf();
+    const std::string content = buffer.str();
 
     double cdelt1 = 0, cdelt2 = 0, crota1 = 0, crota2 = 0;
     bool have_cd = false;
 
-    std::string line;
-    while (std::getline(f, line)) {
+    auto parse_record = [&](std::string line) {
         // FITS keyword = value / comment
         auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
+        if (eq == std::string::npos) return;
 
         std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
@@ -104,6 +106,23 @@ WCS parse_wcs_file(const std::string &path) {
         else if (key == "CD1_2")   { w.cd1_2 = dval; have_cd = true; }
         else if (key == "CD2_1")   { w.cd2_1 = dval; have_cd = true; }
         else if (key == "CD2_2")   { w.cd2_2 = dval; have_cd = true; }
+    };
+
+    if (content.find('\n') != std::string::npos ||
+        content.find('\r') != std::string::npos) {
+        std::istringstream lines(content);
+        std::string line;
+        while (std::getline(lines, line)) {
+            parse_record(line);
+        }
+    } else {
+        for (size_t pos = 0; pos + 8 <= content.size(); pos += 80) {
+            std::string card = content.substr(pos, std::min<size_t>(80, content.size() - pos));
+            std::string key = card.substr(0, std::min<size_t>(8, card.size()));
+            while (!key.empty() && key.back() == ' ') key.pop_back();
+            if (key == "END") break;
+            parse_record(card);
+        }
     }
 
     // If NAXIS1/NAXIS2 missing, infer from CRPIX (center pixel convention)

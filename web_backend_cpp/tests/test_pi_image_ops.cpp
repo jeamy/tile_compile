@@ -290,6 +290,88 @@ int main() {
                    "phase 2 operation applies to linear FITS image");
         }
 
+        // --- curves (master + per-channel) ---
+        {
+            cv::Mat linear;
+            img.convertTo(linear, CV_32FC3, 1.0 / 255.0);
+            // 5-point identity: Catmull-Rom spline is exact linear for equally-spaced points
+            const auto id5 = [&]() { return nlohmann::json::array({{0.0, 0.0}, {0.25, 0.25}, {0.5, 0.5}, {0.75, 0.75}, {1.0, 1.0}}); };
+
+            // Master curve: identity should not change the image
+            nlohmann::json identity_op = {
+                {"type", "curves"},
+                {"params", {{"points", id5()}}}
+            };
+            auto v_id = tile_compile::pi::validate_op(identity_op);
+            EXPECT(v_id.empty(), "curves identity validates");
+            auto r_id = tile_compile::pi::apply_image_op_fits(linear, identity_op);
+            EXPECT(r_id.success, "curves identity succeeds");
+            cv::Mat diff_id;
+            cv::absdiff(linear, r_id.image, diff_id);
+            // 256-entry LUT introduces quantization of ~1/255 per value;
+            // total over 64x64x3 values can reach ~24.
+            EXPECT(cv::sum(diff_id)[0] < 30.0, "curves identity preserves image (LUT quantization)");
+
+            // Master curve: lift midtones
+            nlohmann::json lift_op = {
+                {"type", "curves"},
+                {"params", {{"points", nlohmann::json::array({{0.0, 0.0}, {0.5, 0.7}, {1.0, 1.0}})}}}
+            };
+            auto r_lift = tile_compile::pi::apply_image_op_fits(linear, lift_op);
+            EXPECT(r_lift.success, "curves lift succeeds");
+            // All 3 channels should increase (midtone lift)
+            EXPECT(channel_mean(r_lift.image, 0) > channel_mean(linear, 0),
+                   "curves master lift increases B channel mean");
+            EXPECT(channel_mean(r_lift.image, 2) > channel_mean(linear, 2),
+                   "curves master lift increases R channel mean");
+
+            // Per-channel: only lift R (ch2 in BGR), leave G/B unchanged
+            nlohmann::json per_ch_op = {
+                {"type", "curves"},
+                {"params", {
+                    {"points", id5()},  // master = identity
+                    {"points_r", nlohmann::json::array({{0.0, 0.0}, {0.5, 0.8}, {1.0, 1.0}})},  // R lift
+                    {"points_g", id5()},  // G identity
+                    {"points_b", id5()}   // B identity
+                }}
+            };
+            auto v_pc = tile_compile::pi::validate_op(per_ch_op);
+            EXPECT(v_pc.empty(), "curves per-channel validates");
+            auto r_pc = tile_compile::pi::apply_image_op_fits(linear, per_ch_op);
+            EXPECT(r_pc.success, "curves per-channel succeeds");
+            // R (ch2) should increase
+            EXPECT(channel_mean(r_pc.image, 2) > channel_mean(linear, 2),
+                   "curves per-channel: R channel lifted");
+            // G (ch1) and B (ch0) should be unchanged
+            cv::Mat diff_gb;
+            cv::absdiff(linear, r_pc.image, diff_gb);
+            cv::Mat planes[3];
+            cv::split(diff_gb, planes);
+            EXPECT(cv::sum(planes[0])[0] < 30.0, "curves per-channel: B unchanged (LUT quantization)");
+            EXPECT(cv::sum(planes[1])[0] < 30.0, "curves per-channel: G unchanged (LUT quantization)");
+            EXPECT(cv::sum(planes[2])[0] > 30.0, "curves per-channel: R changed");
+
+            // Validation: reject bad per-channel points
+            nlohmann::json bad_pc = {
+                {"type", "curves"},
+                {"params", {
+                    {"points", id5()},
+                    {"points_r", nlohmann::json::array({0.5})}  // only 1 point
+                }}
+            };
+            auto v_bad = tile_compile::pi::validate_op(bad_pc);
+            EXPECT(!v_bad.empty() && v_bad.contains("error"),
+                   "curves validation rejects single-point points_r");
+
+            // Validation: accept per-channel only (no master)
+            nlohmann::json ch_only = {
+                {"type", "curves"},
+                {"params", {{"points_g", id5()}}}
+            };
+            auto v_ch = tile_compile::pi::validate_op(ch_only);
+            EXPECT(v_ch.empty(), "curves validation accepts per-channel without master");
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION: " << e.what() << "\n";
         ++failures;

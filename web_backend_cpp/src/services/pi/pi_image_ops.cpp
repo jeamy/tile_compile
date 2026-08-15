@@ -102,8 +102,17 @@ nlohmann::json validate_op(const nlohmann::json& op) {
         if (check(require("gamma", 0.1, 5.0))) return {{"error", err}};
         if (p["black"].get<double>() >= p["white"].get<double>()) return {{"error", "black must be < white"}};
     } else if (type == "curves") {
-        if (!p.contains("points") || !p["points"].is_array() || p["points"].size() < 2 || p["points"].size() > 32)
-            return {{"error", "curves requires 2-32 points"}};
+        const bool has_master = p.contains("points") && p["points"].is_array() && p["points"].size() >= 2 && p["points"].size() <= 32;
+        const auto ch_ok = [&](const char* k) { return p.contains(k) && p[k].is_array() && p[k].size() >= 2 && p[k].size() <= 32; };
+        const bool has_any_channel = ch_ok("points_r") || ch_ok("points_g") || ch_ok("points_b");
+        if (!has_master && !has_any_channel)
+            return {{"error", "curves requires points (2-32) or per-channel points_r/g/b"}};
+        if (p.contains("points_r") && !ch_ok("points_r"))
+            return {{"error", "points_r requires 2-32 points"}};
+        if (p.contains("points_g") && !ch_ok("points_g"))
+            return {{"error", "points_g requires 2-32 points"}};
+        if (p.contains("points_b") && !ch_ok("points_b"))
+            return {{"error", "points_b requires 2-32 points"}};
     } else if (type == "shadow_recovery" || type == "highlight_recovery") {
         if (check(require("strength", 0.0, 1.0))) return {{"error", err}};
     } else if (type == "local_contrast") {
@@ -206,7 +215,7 @@ cv::Mat apply_levels_float(const cv::Mat& img, double black, double white, doubl
     return out;
 }
 
-cv::Mat apply_curves_float(const cv::Mat& img, const nlohmann::json& points) {
+cv::Mat build_curves_lut(const nlohmann::json& points) {
     std::vector<std::pair<double, double>> p;
     for (const auto& point : points) {
         double x = 0.0, y = 0.0;
@@ -215,9 +224,13 @@ cv::Mat apply_curves_float(const cv::Mat& img, const nlohmann::json& points) {
         else continue;
         p.emplace_back(clamp_param(x, 0.0, 1.0), clamp_param(y, 0.0, 1.0));
     }
-    if (p.size() < 2) return img.clone();
-    std::sort(p.begin(), p.end());
     cv::Mat lut(1, 256, CV_32F);
+    lut.setTo(0.0f);
+    if (p.size() < 2) {
+        for (int i = 0; i < 256; ++i) lut.at<float>(0, i) = static_cast<float>(i) / 255.0f;
+        return lut;
+    }
+    std::sort(p.begin(), p.end());
     for (int i = 0; i < 256; ++i) {
         const double x = i / 255.0;
         size_t j = 1; while (j < p.size() && x > p[j].first) ++j;
@@ -230,12 +243,46 @@ cv::Mat apply_curves_float(const cv::Mat& img, const nlohmann::json& points) {
         const double spline = 0.5 * ((2.0 * y0) + (-yprev + y1) * t + (2.0 * yprev - 5.0 * y0 + 4.0 * y1 - ynext) * t2 + (-yprev + 3.0 * y0 - 3.0 * y1 + ynext) * t3);
         lut.at<float>(0, i) = static_cast<float>(clamp_param(spline, 0.0, 1.0));
     }
+    return lut;
+}
+
+bool valid_curves_points(const nlohmann::json& points) {
+    return points.is_array() && points.size() >= 2 && points.size() <= 32;
+}
+
+cv::Mat apply_curves_float(const cv::Mat& img, const nlohmann::json& points) {
+    cv::Mat lut = build_curves_lut(points);
     cv::Mat out = img.clone();
     for (int y = 0; y < out.rows; ++y) {
         auto* row = out.ptr<cv::Vec3f>(y);
         for (int x = 0; x < out.cols; ++x) for (int c = 0; c < 3; ++c) {
             const int idx = std::clamp(static_cast<int>(row[x][c] * 255.0f), 0, 255);
             row[x][c] = lut.at<float>(0, idx);
+        }
+    }
+    return out;
+}
+
+// Per-channel curves: OpenCV uses BGR order (ch0=B, ch1=G, ch2=R).
+// points_r → ch2, points_g → ch1, points_b → ch0.
+// points (master) is used as fallback for any channel without its own curve.
+cv::Mat apply_curves_per_channel_float(const cv::Mat& img,
+                                        const nlohmann::json& points,
+                                        const nlohmann::json& points_r,
+                                        const nlohmann::json& points_g,
+                                        const nlohmann::json& points_b) {
+    cv::Mat lut_master = build_curves_lut(points);
+    // OpenCV BGR: index 0=B, 1=G, 2=R
+    cv::Mat luts[3];
+    luts[0] = valid_curves_points(points_b) ? build_curves_lut(points_b) : lut_master;
+    luts[1] = valid_curves_points(points_g) ? build_curves_lut(points_g) : lut_master;
+    luts[2] = valid_curves_points(points_r) ? build_curves_lut(points_r) : lut_master;
+    cv::Mat out = img.clone();
+    for (int y = 0; y < out.rows; ++y) {
+        auto* row = out.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < out.cols; ++x) for (int c = 0; c < 3; ++c) {
+            const int idx = std::clamp(static_cast<int>(row[x][c] * 255.0f), 0, 255);
+            row[x][c] = luts[c].at<float>(0, idx);
         }
     }
     return out;
@@ -939,7 +986,14 @@ ImageOpResult apply_image_op_fits(const cv::Mat& input, const nlohmann::json& op
         } else if (type == "levels") {
             result.image = apply_levels_float(input, p["black"].get<double>(), p["white"].get<double>(), p["gamma"].get<double>());
         } else if (type == "curves") {
-            result.image = apply_curves_float(input, p["points"]);
+            const auto& pm = p.value("points", nlohmann::json::array());
+            const auto& pr = p.value("points_r", nlohmann::json::array());
+            const auto& pg = p.value("points_g", nlohmann::json::array());
+            const auto& pb = p.value("points_b", nlohmann::json::array());
+            if (valid_curves_points(pr) || valid_curves_points(pg) || valid_curves_points(pb))
+                result.image = apply_curves_per_channel_float(input, pm, pr, pg, pb);
+            else
+                result.image = apply_curves_float(input, pm);
         } else if (type == "shadow_recovery") {
             result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), true);
         } else if (type == "highlight_recovery") {
@@ -1042,7 +1096,14 @@ ImageOpResult apply_image_op(const cv::Mat& input, const nlohmann::json& op) {
         } else if (type == "levels") {
             result.image = apply_levels_float(input, p["black"].get<double>(), p["white"].get<double>(), p["gamma"].get<double>());
         } else if (type == "curves") {
-            result.image = apply_curves_float(input, p["points"]);
+            const auto& pm = p.value("points", nlohmann::json::array());
+            const auto& pr = p.value("points_r", nlohmann::json::array());
+            const auto& pg = p.value("points_g", nlohmann::json::array());
+            const auto& pb = p.value("points_b", nlohmann::json::array());
+            if (valid_curves_points(pr) || valid_curves_points(pg) || valid_curves_points(pb))
+                result.image = apply_curves_per_channel_float(input, pm, pr, pg, pb);
+            else
+                result.image = apply_curves_float(input, pm);
         } else if (type == "shadow_recovery") {
             result.image = apply_shadow_highlight_float(input, p["strength"].get<double>(), true);
         } else if (type == "highlight_recovery") {

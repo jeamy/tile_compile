@@ -1310,11 +1310,19 @@ PreprocessPostprocessResult run_preprocess_postprocess(
                         {{"reason", "astap_not_found"}, {"astap_bin", reported_bin}},
                         event_out);
     } else {
+      const auto astap_stamp =
+          std::chrono::steady_clock::now().time_since_epoch().count();
+      fs::path astap_output_prefix =
+          fs::temp_directory_path() /
+          ("tile_compile_astap_" + run_id + "_" +
+           std::to_string(astap_stamp));
       const std::string cmd = runner::shell_quote(astap_bin_path.string()) + " -f " +
                               runner::shell_quote(stack.stacked_rgb_path.string()) + " -d " +
-                              runner::shell_quote(astap_data) + " -r " + std::to_string(search_radius);
+                              runner::shell_quote(astap_data) + " -r " +
+                              std::to_string(search_radius) + " -wcs -o " +
+                              runner::shell_quote(astap_output_prefix.string());
       const int ret = std::system(runner::system_cmd(cmd).c_str());
-      fs::path wcs_path = stack.stacked_rgb_path;
+      fs::path wcs_path = astap_output_prefix;
       wcs_path.replace_extension(".wcs");
       if (ret == 0 && fs::exists(wcs_path)) {
         try {

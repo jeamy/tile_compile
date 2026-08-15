@@ -1,4 +1,5 @@
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/astrometric_rescue.hpp"
 
@@ -7,6 +8,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 namespace tile_compile::config {
@@ -63,6 +67,40 @@ TEST_CASE("RegistrationConfig new parameter defaults") {
     // Gated post-registration refinements are enabled by default.
     REQUIRE(cfg.affine_refinement_enabled == true);
     REQUIRE(cfg.smooth_local_refinement_enabled == true);
+}
+
+TEST_CASE("ASTAP WCS parser accepts FITS card blocks without newlines") {
+    auto card = [](const std::string& text) {
+        std::string out = text.substr(0, 80);
+        out.resize(80, ' ');
+        return out;
+    };
+
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "tile_compile_astap_card_block_test.wcs";
+    {
+        std::ofstream out(path, std::ios::binary);
+        out << card("SIMPLE  =                    T");
+        out << card("NAXIS   =                    0");
+        out << card("CRPIX1  =  3.066000000000E+003");
+        out << card("CRPIX2  =  2.548000000000E+003");
+        out << card("CRVAL1  =  3.131875872374E+002");
+        out << card("CRVAL2  =  4.481452317469E+001");
+        out << card("CD1_1   = -1.398426438181E-004");
+        out << card("CD1_2   =  8.162100089949E-004");
+        out << card("CD2_1   = -8.162729908422E-004");
+        out << card("CD2_2   = -1.397843182575E-004");
+        out << card("END");
+    }
+
+    const auto wcs = tile_compile::astrometry::parse_wcs_file(path.string());
+    std::filesystem::remove(path);
+
+    REQUIRE(wcs.valid());
+    REQUIRE(wcs.naxis1 == 6132);
+    REQUIRE(wcs.naxis2 == 5096);
+    REQUIRE(wcs.crval1 == Catch::Approx(313.1875872374));
+    REQUIRE(wcs.pixel_scale_arcsec() == Catch::Approx(2.981).margin(0.002));
 }
 
 TEST_CASE("RegistrationConfig refinement flags parse and roundtrip") {

@@ -49,6 +49,7 @@ namespace config = tile_compile::config;
 namespace astrometry = tile_compile::astrometry;
 namespace registration = tile_compile::registration;
 namespace metrics = tile_compile::metrics;
+namespace io = tile_compile::io;
 
 namespace {
 
@@ -154,6 +155,34 @@ int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
 }
 
 } // namespace
+
+std::optional<double> estimate_astap_sensor_fov_deg(const io::FitsHeader &header,
+                                                    int image_height) {
+  if (image_height <= 0) {
+    return std::nullopt;
+  }
+
+  std::optional<double> pixel_size_um = header.get_double("YPIXSZ");
+  if (!pixel_size_um || !std::isfinite(*pixel_size_um) || *pixel_size_um <= 0.0) {
+    pixel_size_um = header.get_double("XPIXSZ");
+  }
+  const std::optional<double> focal_len_mm = header.get_double("FOCALLEN");
+  if (!pixel_size_um || !focal_len_mm ||
+      !std::isfinite(*pixel_size_um) || !std::isfinite(*focal_len_mm) ||
+      *pixel_size_um <= 0.0 || *focal_len_mm <= 0.0) {
+    return std::nullopt;
+  }
+
+  const double sensor_height_mm =
+      static_cast<double>(image_height) * (*pixel_size_um) * 1.0e-3;
+  const double fov_rad =
+      2.0 * std::atan(sensor_height_mm / (2.0 * (*focal_len_mm)));
+  const double fov_deg = fov_rad * 180.0 / std::acos(-1.0);
+  if (!std::isfinite(fov_deg) || fov_deg < 0.05 || fov_deg > 60.0) {
+    return std::nullopt;
+  }
+  return fov_deg;
+}
 
 ScopedOpenCvThreadLimit::ScopedOpenCvThreadLimit(int outer_workers) noexcept {
 #if defined(__APPLE__)

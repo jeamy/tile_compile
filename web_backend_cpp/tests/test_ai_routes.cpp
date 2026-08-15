@@ -4,11 +4,13 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <netinet/in.h>
 #include <stdexcept>
+#include <algorithm>
 #include <string>
 #include <sys/socket.h>
 #include <thread>
@@ -103,15 +105,46 @@ private:
 
         int client = accept(fd, nullptr, nullptr);
         if (client >= 0) {
-            char buffer[32768];
-            const ssize_t received = recv(client, buffer, sizeof(buffer) - 1, 0);
-            if (received > 0) {
-                buffer[received] = '\0';
-                const std::string request(buffer, static_cast<size_t>(received));
-                const auto body_pos = request.find("\r\n\r\n");
-                if (body_pos != std::string::npos) {
-                    _request_body = request.substr(body_pos + 4);
+            std::string request;
+            char buffer[8192];
+            size_t content_length = 0;
+            size_t body_pos = std::string::npos;
+            while (true) {
+                const ssize_t received = recv(client, buffer, sizeof(buffer), 0);
+                if (received <= 0) break;
+                request.append(buffer, static_cast<size_t>(received));
+                if (body_pos == std::string::npos) {
+                    body_pos = request.find("\r\n\r\n");
+                    if (body_pos != std::string::npos) {
+                        const std::string header = request.substr(0, body_pos);
+                        std::string header_lower = header;
+                        std::transform(header_lower.begin(), header_lower.end(), header_lower.begin(), [](unsigned char ch) {
+                            return static_cast<char>(std::tolower(ch));
+                        });
+                        const std::string marker = "content-length:";
+                        const auto cl_pos = header_lower.find(marker);
+                        if (cl_pos != std::string::npos) {
+                            const auto value_start = cl_pos + marker.size();
+                            const auto value_end = header_lower.find("\r\n", value_start);
+                            try {
+                                content_length = static_cast<size_t>(std::stoul(
+                                    header.substr(value_start, value_end - value_start)));
+                            } catch (...) {
+                                content_length = 0;
+                            }
+                        }
+                    }
                 }
+                if (body_pos != std::string::npos && content_length > 0 &&
+                    request.size() >= body_pos + 4 + content_length) {
+                    break;
+                }
+                if (body_pos != std::string::npos && content_length == 0) {
+                    break;
+                }
+            }
+            if (body_pos != std::string::npos) {
+                _request_body = request.substr(body_pos + 4, content_length > 0 ? content_length : std::string::npos);
             }
             const std::string body = _response.dump();
             const std::string http =
@@ -240,6 +273,48 @@ int main(int argc, char** argv) {
                     {"reason", "fixture wrong type"},
                     {"confidence", 0.6},
                     {"risk", "high"}
+                },
+                {
+                    {"path", "pcc.max_residual_rms"},
+                    {"value", 0.05},
+                    {"reason", "Current value exceeds the schema-declared maximum and the schema recommends 0.05."},
+                    {"confidence", 0.94},
+                    {"risk", "high"}
+                },
+                {
+                    {"path", "pcc.k_max"},
+                    {"value", 0.5},
+                    {"reason", "Current k_max is a physically implausible atmospheric extinction coefficient at the schema maximum."},
+                    {"confidence", 0.88},
+                    {"risk", "high"}
+                },
+                {
+                    {"path", "aqmh.pyramid.base_window_px"},
+                    {"value", 64},
+                    {"reason", "Current value is below the schema range 16-256 and schema recommended value 64."},
+                    {"confidence", 0.88},
+                    {"risk", "medium"}
+                },
+                {
+                    {"path", "aqmh.diagnostics.r_morph_canvas_px"},
+                    {"value", 64},
+                    {"reason", "Improves reconstruction quality by fixing the diagnostic morphology radius."},
+                    {"confidence", 0.8},
+                    {"risk", "low"}
+                },
+                {
+                    {"path", "validation.max_background_rms_increase_percent"},
+                    {"value", 5},
+                    {"reason", "Current value 0 means any background RMS increase automatically disables cherry-pick."},
+                    {"confidence", 0.86},
+                    {"risk", "medium"}
+                },
+                {
+                    {"path", "registration.enable_local_background_subtraction"},
+                    {"value", true},
+                    {"reason", "The schema default is true, so false is a non-default misconfiguration."},
+                    {"confidence", 0.72},
+                    {"risk", "medium"}
                 }
             }},
             {"warnings", nlohmann::json::array()},
@@ -388,7 +463,7 @@ int main(int argc, char** argv) {
         expect_equal(analysis["_http_status"].get<long>(), 200L, "scan ai analysis status");
         expect_equal(analysis["schema_version"].get<std::string>(), "pi.scan-analysis.v1", "scan ai schema");
         expect_equal(static_cast<long>(analysis["validated_updates"].size()), 1L, "scan ai validated update count");
-        expect_equal(static_cast<long>(analysis["rejected_updates"].size()), 2L, "scan ai rejected update count");
+        expect_equal(static_cast<long>(analysis["rejected_updates"].size()), 8L, "scan ai rejected update count");
         expect_equal(analysis["validated_updates"][0]["path"].get<std::string>(), "data.color_mode", "scan ai validated path");
         expect_equal(analysis["validated_updates"][0]["reason"].get<std::string>(), "true", "scan ai coerces boolean reason");
         expect_equal(analysis["validated_updates"][0]["risk"].get<std::string>(), "false", "scan ai coerces boolean risk");
@@ -425,6 +500,13 @@ int main(int argc, char** argv) {
                     "scan ai retrieval_coverage_summary lists systemically_missing_context_fields");
         expect_true(sidecar_request["ai_request"]["retrieval_coverage_summary"].contains("note"),
                     "scan ai retrieval_coverage_summary includes explanatory note for the model");
+        expect_true(sidecar_request.contains("pi_context"),
+                    "scan ai request includes pi_context");
+        expect_equal(sidecar_request["pi_context"]["schema_version"].get<std::string>(),
+                     "pi.context.v2",
+                     "scan ai request pi context schema");
+        expect_true(sidecar_request["pi_context"]["parameter_catalog"].contains("pcc.max_residual_rms"),
+                    "scan ai request includes pcc parameter metadata");
         expect_equal(static_cast<long>(sidecar_request["session_context"]["accepted_pi_memories"].size()), 2L,
                      "scan ai request includes accepted pi memories");
         bool found_accepted_memory = false;
@@ -446,15 +528,42 @@ int main(int argc, char** argv) {
         expect_true(sidecar_request["session_context"]["negative_pi_memories"][0].contains("match_explanation"),
                     "negative memory context includes retrieval explanation");
         bool rejected_wrong_type_from_memory_context = false;
+        bool rejected_unsupported_schema_claim = false;
+        bool rejected_diagnostic_quality_claim = false;
+        bool rejected_disabled_sentinel = false;
+        bool rejected_default_claim = false;
         for (const auto& rejected : analysis["rejected_updates"]) {
             if (rejected.value("path", std::string()) == "data.color_mode" &&
                 rejected.value("reject_reason", std::string()) == "wrong_type") {
                 rejected_wrong_type_from_memory_context = true;
-                break;
+            }
+            if (rejected.value("path", std::string()) == "pcc.max_residual_rms" &&
+                rejected.value("reject_reason", std::string()) == "unsupported_schema_claim") {
+                rejected_unsupported_schema_claim = true;
+            }
+            if (rejected.value("path", std::string()) == "aqmh.diagnostics.r_morph_canvas_px" &&
+                rejected.value("reject_reason", std::string()) == "diagnostic_only_quality_claim") {
+                rejected_diagnostic_quality_claim = true;
+            }
+            if (rejected.value("path", std::string()) == "validation.max_background_rms_increase_percent" &&
+                rejected.value("reject_reason", std::string()) == "disabled_sentinel_misinterpreted") {
+                rejected_disabled_sentinel = true;
+            }
+            if (rejected.value("path", std::string()) == "registration.enable_local_background_subtraction" &&
+                rejected.value("reject_reason", std::string()) == "unsupported_default_claim") {
+                rejected_default_claim = true;
             }
         }
         expect_true(rejected_wrong_type_from_memory_context,
                     "accepted memory context cannot bypass config schema validation");
+        expect_true(rejected_unsupported_schema_claim,
+                    "semantic validator rejects invented schema claims");
+        expect_true(rejected_diagnostic_quality_claim,
+                    "semantic validator rejects diagnostic-only quality claims");
+        expect_true(rejected_disabled_sentinel,
+                    "semantic validator rejects validation disabled sentinel misinterpretation");
+        expect_true(rejected_default_claim,
+                    "semantic validator rejects false schema default claim");
         expect_equal(analysis["action_plan"]["schema_version"].get<std::string>(),
                      "pi.action-plan.v1",
                      "scan ai attaches pi action plan");
@@ -567,7 +676,16 @@ int main(int argc, char** argv) {
         const std::string analysis_id = analysis["analysis_id"].get<std::string>();
         const auto apply = harness.post_json("/api/scan/analysis/apply", {
             {"analysis_id", analysis_id},
-            {"base_config", {{"data", {{"color_mode", "OSC"}}}}},
+            {"base_config", {
+                {"data", {{"color_mode", "OSC"}}},
+                {"pcc", {{"max_residual_rms", 0.9}, {"k_max", 2.0}}},
+                {"aqmh", {
+                    {"pyramid", {{"base_window_px", 4}}},
+                    {"diagnostics", {{"r_morph_canvas_px", 6}}}
+                }},
+                {"validation", {{"max_background_rms_increase_percent", 0.0}}},
+                {"registration", {{"enable_local_background_subtraction", false}}}
+            }},
             {"selected_paths", {"data.color_mode"}},
             {"persist", true},
             {"learn", true}

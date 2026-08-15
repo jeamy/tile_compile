@@ -47,6 +47,79 @@ TEST_CASE("write_fits_rgb_u32_preserves_full_range_presentation_values") {
     std::filesystem::remove(path);
 }
 
+TEST_CASE("fits_header_preserves_dwarf2_style_keyword_types") {
+    // DWARF II FITS files trigger CFITSIO fits_get_keytype to return wrong
+    // types (e.g. FOCALLEN=100. as 'L', FILTER='Astro' as 'L',
+    // DATE-OBS='2026-...' as 'F').  The reader must detect the actual type
+    // from the value, not from fits_get_keytype.
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "tile_compile_fits_hdr_type_test.fit";
+    std::filesystem::remove(path);
+
+    tile_compile::Matrix2Df data(2, 2);
+    data << 1.0f, 2.0f, 3.0f, 4.0f;
+    tile_compile::io::FitsHeader hdr;
+    hdr.set("FOCALLEN", 100.0);      // float — was misclassified as 'L'
+    hdr.set("GAIN", 80);             // int — correctly classified
+    hdr.set("EXPTIME", 10.0);        // float — correctly classified
+    hdr.set("FILTER", std::string("Astro"));   // string — was misclassified as 'L'
+    hdr.set("FIRMWARE", std::string("2.2.18")); // string — was misclassified as 'L'
+    hdr.set("TELESCOP", std::string("DWARF II")); // string — was misclassified as 'L'
+    hdr.set("INSTRUME", std::string("DWARF II")); // string — was 'F' but stod fallback worked
+    hdr.set("DATE-OBS", std::string("2026-08-13T22:16:21.136")); // string — was 'F', stod parsed 2026
+    hdr.set("RA", 274.704);          // float
+    hdr.set("DEC", -13.80589);       // float
+    hdr.set("RESTACK", 0);           // int
+    hdr.set("EQMODE", 0);            // int
+
+    tile_compile::io::write_fits_float(path, data, hdr);
+    const auto read_hdr = tile_compile::io::read_fits_header(path);
+
+    // FOCALLEN must be numeric 100.0, not bool false
+    REQUIRE(read_hdr.get_double("FOCALLEN").has_value());
+    REQUIRE(read_hdr.get_double("FOCALLEN").value() == Catch::Approx(100.0));
+    REQUIRE(!read_hdr.get_string("FOCALLEN").has_value());
+
+    // GAIN must be int 80
+    REQUIRE(read_hdr.get_int("GAIN").has_value());
+    REQUIRE(read_hdr.get_int("GAIN").value() == 80);
+
+    // FILTER must be string "Astro", not bool false
+    REQUIRE(read_hdr.get_string("FILTER").has_value());
+    REQUIRE(read_hdr.get_string("FILTER").value() == "Astro");
+
+    // FIRMWARE must be string "2.2.18", not bool false
+    REQUIRE(read_hdr.get_string("FIRMWARE").has_value());
+    REQUIRE(read_hdr.get_string("FIRMWARE").value() == "2.2.18");
+
+    // TELESCOP must be string "DWARF II", not bool false
+    REQUIRE(read_hdr.get_string("TELESCOP").has_value());
+    REQUIRE(read_hdr.get_string("TELESCOP").value() == "DWARF II");
+
+    // INSTRUME must be string "DWARF II"
+    REQUIRE(read_hdr.get_string("INSTRUME").has_value());
+    REQUIRE(read_hdr.get_string("INSTRUME").value() == "DWARF II");
+
+    // DATE-OBS must be full string, not truncated float 2026.0
+    REQUIRE(read_hdr.get_string("DATE-OBS").has_value());
+    REQUIRE(read_hdr.get_string("DATE-OBS").value() == "2026-08-13T22:16:21.136");
+    REQUIRE(!read_hdr.get_double("DATE-OBS").has_value());
+
+    // RA/DEC must be float
+    REQUIRE(read_hdr.get_double("RA").has_value());
+    REQUIRE(read_hdr.get_double("RA").value() == Catch::Approx(274.704));
+    REQUIRE(read_hdr.get_double("DEC").has_value());
+    REQUIRE(read_hdr.get_double("DEC").value() == Catch::Approx(-13.80589));
+
+    // RESTACK/EQMODE must be int
+    REQUIRE(read_hdr.get_int("RESTACK").has_value());
+    REQUIRE(read_hdr.get_int("RESTACK").value() == 0);
+    REQUIRE(read_hdr.get_int("EQMODE").has_value());
+    REQUIRE(read_hdr.get_int("EQMODE").value() == 0);
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("calculate_global_weights_are_positive_and_not_normalized") {
     std::vector<tile_compile::FrameMetrics> ms(3);
     ms[0] = {1.0f, 1.0f, 1.0f, 1.0f};

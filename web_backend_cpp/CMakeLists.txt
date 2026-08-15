@@ -178,6 +178,10 @@ set(BACKEND_SOURCES
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_storage_paths.cpp
     src/services/pi/pi_context_builder.cpp
+    src/services/pi/pi_context_v2.cpp
+    src/services/pi/pi_parameter_catalog.cpp
+    src/services/pi/pi_recommendation_validator.cpp
+    src/services/pi/pi_schema_utils.cpp
     src/services/pi/pi_tool_registry.cpp
     src/services/pi/pi_assistant.cpp
     src/services/pi/pi_image_ops.cpp
@@ -346,18 +350,32 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
     add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
     add_backend_cpp_test(web_backend_cpp_ai_routes tests/test_ai_routes.cpp)
-    target_sources(web_backend_cpp_ai_routes PRIVATE src/services/ai_service.cpp)
+    target_sources(web_backend_cpp_ai_routes PRIVATE
+        src/backend_runtime.cpp
+        src/job_store.cpp
+        src/subprocess_manager.cpp
+        src/services/ai_service.cpp
+        src/services/pi/pi_context_v2.cpp
+        src/services/pi/pi_parameter_catalog.cpp
+        src/services/pi/pi_recommendation_validator.cpp
+        src/services/pi/pi_schema_utils.cpp
+    )
     target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl)
     add_backend_cpp_test(web_backend_cpp_pi_action_plan tests/test_pi_action_plan.cpp)
     target_sources(web_backend_cpp_pi_action_plan PRIVATE
         src/services/pi/pi_action_plan.cpp
         src/services/pi/pi_action_validator.cpp
+        src/services/pi/pi_schema_utils.cpp
     )
     add_backend_cpp_test(web_backend_cpp_pi_memory_store tests/test_pi_memory_store.cpp)
     target_sources(web_backend_cpp_pi_memory_store PRIVATE
         src/services/pi/pi_memory_store.cpp
     )
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
+    target_sources(web_backend_cpp_pi_routes PRIVATE
+        src/services/pi/pi_context_v2.cpp
+        src/services/pi/pi_parameter_catalog.cpp
+    )
     target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)

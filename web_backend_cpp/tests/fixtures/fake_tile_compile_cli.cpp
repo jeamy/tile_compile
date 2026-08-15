@@ -65,6 +65,55 @@ int main(int argc, char** argv) {
                                     {"maximum", 1}
                                 }}
                             }}
+                        }},
+                        {"pyramid", {
+                            {"type", "object"},
+                            {"properties", {
+                                {"base_window_px", {
+                                    {"type", "integer"},
+                                    {"minimum", 1},
+                                    {"default", 4}
+                                }}
+                            }}
+                        }},
+                        {"diagnostics", {
+                            {"type", "object"},
+                            {"properties", {
+                                {"r_morph_canvas_px", {
+                                    {"type", "integer"},
+                                    {"minimum", 1},
+                                    {"default", 6}
+                                }}
+                            }}
+                        }}
+                    }}
+                }},
+                {"pcc", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"max_residual_rms", {
+                            {"type", "number"},
+                            {"exclusiveMinimum", 0}
+                        }},
+                        {"k_max", {
+                            {"type", "number"},
+                            {"exclusiveMinimum", 0}
+                        }}
+                    }}
+                }},
+                {"registration", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"enable_local_background_subtraction", {
+                            {"type", "boolean"}
+                        }}
+                    }}
+                }},
+                {"validation", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"max_background_rms_increase_percent", {
+                            {"type", "number"}
                         }}
                     }}
                 }}

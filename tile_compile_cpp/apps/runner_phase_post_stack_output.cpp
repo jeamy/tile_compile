@@ -258,6 +258,8 @@ bool write_post_stack_outputs(
         G_solve.array() += scaling.bg_g;
         Matrix2Df B_solve = recon_B * scaling.scale_b;
         B_solve.array() += scaling.bg_b;
+        image::enforce_canvas_mask_on_rgb(R_solve, G_solve, B_solve,
+                                          common_valid_mask);
         io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits",
                            R_solve, G_solve, B_solve, first_hdr);
       } else {

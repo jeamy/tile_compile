@@ -47,6 +47,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -82,6 +83,7 @@ using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
+using tile_compile::runner::estimate_astap_sensor_fov_deg;
 using tile_compile::runner::resolve_astap_binary_path;
 using tile_compile::runner::shell_quote;
 using tile_compile::runner::system_cmd;
@@ -5747,7 +5749,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            first_hdr);
       write_output_rgb_snapshot(stacked_rgb_path, R_out, G_out, B_out, first_hdr,
                                 "STACKING");
-      // Write an additional linear (non-stretched) cube for plate solving.
+      // Write an additional linear RGB cube for plate solving.
       io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
 
       emitter.phase_end(
@@ -5807,18 +5809,24 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           {{"reason", "astap_not_found"},
                            {"astap_bin", cfg.astrometry.astap_bin.empty() ? astap_data + "/astap_cli" : cfg.astrometry.astap_bin}}, log_file);
       } else {
+        const auto astap_stamp =
+            std::chrono::steady_clock::now().time_since_epoch().count();
+        fs::path astap_output_prefix =
+            fs::temp_directory_path() /
+            ("tile_compile_astap_" + run_id + "_" +
+             std::to_string(astap_stamp));
+        fs::path wcs_path = astap_output_prefix;
+        wcs_path.replace_extension(".wcs");
+
         // Run ASTAP plate solve on the linear (non-stretched) RGB cube
         std::string cmd = shell_quote(astap_bin_path.string()) + " -f " +
             shell_quote(stacked_rgb_solve_path.string()) +
             " -d " + shell_quote(astap_data) +
-            " -r " + std::to_string(cfg.astrometry.search_radius);
+            " -r " + std::to_string(cfg.astrometry.search_radius) +
+            " -wcs -o " + shell_quote(astap_output_prefix.string());
 
         std::cout << "[ASTROMETRY] Running: " << cmd << std::endl;
         int ret = std::system(system_cmd(cmd).c_str());
-
-        // ASTAP writes a .wcs file next to the input
-        fs::path wcs_path = stacked_rgb_solve_path;
-        wcs_path.replace_extension(".wcs");
 
         if (ret == 0 && fs::exists(wcs_path)) {
           try {
@@ -5826,6 +5834,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             have_wcs = wcs.valid();
           } catch (const std::exception &e) {
             std::cerr << "[ASTROMETRY] WCS parse error: " << e.what() << std::endl;
+          }
+        }
+
+        if (!have_wcs) {
+          const auto sensor_fov_deg =
+              estimate_astap_sensor_fov_deg(first_hdr, height);
+          if (sensor_fov_deg) {
+            std::ostringstream fov_ss;
+            fov_ss << std::fixed << std::setprecision(3) << *sensor_fov_deg;
+            const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
+            std::cout << "[ASTROMETRY] Retry with sensor FOV: "
+                      << retry_cmd << std::endl;
+            ret = std::system(system_cmd(retry_cmd).c_str());
+            if (ret == 0 && fs::exists(wcs_path)) {
+              try {
+                wcs = astro::parse_wcs_file(wcs_path.string());
+                have_wcs = wcs.valid();
+              } catch (const std::exception &e) {
+                std::cerr << "[ASTROMETRY] WCS parse error after FOV retry: "
+                          << e.what() << std::endl;
+              }
+            }
           }
         }
 

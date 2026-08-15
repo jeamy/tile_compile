@@ -6,6 +6,7 @@
 #include "services/pi/pi_assistant.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_builder.hpp"
+#include "services/pi/pi_context_v2.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_storage_paths.hpp"
@@ -2392,6 +2393,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                         }
                     }
                 }
+                const nlohmann::json pi_context = tile_compile::pi::build_run_chat_pi_context(
+                    run_id, run_dir, status, artifacts, problem_ids);
                 const nlohmann::json ai_request = tile_compile::pi::build_ai_request_v2({
                     {"task", "run_chat"},
                     {"user_message", message},
@@ -2415,6 +2418,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     }},
                     {"artifacts", artifacts},
                     {"image_context", image_info},
+                    {"pi_context", pi_context},
                     {"positive_memories", positive_memories},
                     {"conversation", messages},
                     {"expected_response", "pi.run-chat-answer.v1 with diagnosis, checks, recommendations, resume phase and action plan candidates"},
@@ -2429,6 +2433,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"model", ai_config.model},
                     {"prompt", prompt},
                     {"ai_request", ai_request},
+                    {"pi_context", pi_context},
                     {"run_id", run_id},
                     {"object_name", object_name},
                     {"image_available", image.value("available", false)},

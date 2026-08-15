@@ -37,6 +37,7 @@ export interface ScanAnalysisRequest {
   scan_result?: unknown;
   base_config?: unknown;
   config_schema?: Record<string, unknown>;
+  pi_context?: unknown;
   scan_metrics?: unknown;
   session_context?: SessionContext;
   allowed_config_paths?: string[];
@@ -66,6 +67,7 @@ export interface ScanAnalysisResponse {
     request_sha256?: string;
     base_config_sha256?: string;
     config_schema_sha256?: string;
+    pi_context_sha256?: string;
     scan_result_sha256?: string;
     scan_metrics_sha256?: string;
   };

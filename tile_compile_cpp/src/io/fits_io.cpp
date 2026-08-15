@@ -170,47 +170,69 @@ FitsHeader read_current_header(fitsfile* fptr, int& status) {
             continue;
         }
 
-        char dtype;
-        fits_get_keytype(card, &dtype, &status);
-        if (status) {
-            status = 0;
-            continue;
-        }
-
         fits_parse_value(card, value, comment, &status);
         if (status) {
             status = 0;
             continue;
         }
 
-        std::string val_str(value);
+        // Determine the value type from the raw value string rather than
+        // relying on fits_get_keytype, which returns incorrect types for
+        // some non-standard FITS producers (e.g. DWARF II: FOCALLEN=100.
+        // classified as 'L', FILTER='Astro' as 'L', DATE-OBS='2026-...'
+        // as 'F').  The raw value from fits_parse_value preserves the
+        // leading quote for string keywords, which we use as the primary
+        // type discriminator.
+        std::string raw_value(value);
+        // Strip leading spaces only — keep the quote for type detection
+        size_t first_nonspace = raw_value.find_first_not_of(' ');
+        if (first_nonspace == std::string::npos) first_nonspace = 0;
+
+        const bool is_quoted_string =
+            (first_nonspace < raw_value.size() && raw_value[first_nonspace] == '\'');
+
+        // Clean value: strip spaces and single quotes for storage
+        std::string val_str(raw_value);
         val_str.erase(0, val_str.find_first_not_of(" '"));
         val_str.erase(val_str.find_last_not_of(" '") + 1);
 
-        switch (dtype) {
-            case 'C':
-                header.set(key, val_str);
-                break;
-            case 'L':
-                header.set(key, val_str == "T" || val_str == "1");
-                break;
-            case 'I':
+        if (is_quoted_string) {
+            // Definitely a string — fits_parse_value confirmed the quote
+            header.set(key, val_str);
+        } else if (val_str == "T" || val_str == "F") {
+            // FITS logical value (unquoted T or F)
+            header.set(key, val_str == "T");
+        } else {
+            // Try integer first (no decimal point), then float, then string
+            bool parsed = false;
+            if (val_str.find('.') == std::string::npos &&
+                val_str.find('e') == std::string::npos &&
+                val_str.find('E') == std::string::npos) {
                 try {
-                    header.set(key, std::stoi(val_str));
-                } catch (...) {
-                    header.set(key, val_str);
-                }
-                break;
-            case 'F':
+                    size_t pos = 0;
+                    int int_val = std::stoi(val_str, &pos);
+                    if (pos == val_str.size()) {
+                        header.set(key, int_val);
+                        parsed = true;
+                    }
+                } catch (...) {}
+            }
+            if (!parsed) {
                 try {
-                    header.set(key, std::stod(val_str));
-                } catch (...) {
-                    header.set(key, val_str);
-                }
-                break;
-            default:
+                    size_t pos = 0;
+                    double dbl_val = std::stod(val_str, &pos);
+                    // Accept partial parse only if it consumed the entire
+                    // value (e.g. "100." → 100.0, but not "2026-08-13..."
+                    // which would parse as 2026 and leave a suffix).
+                    if (pos == val_str.size()) {
+                        header.set(key, dbl_val);
+                        parsed = true;
+                    }
+                } catch (...) {}
+            }
+            if (!parsed) {
                 header.set(key, val_str);
-                break;
+            }
         }
     }
 

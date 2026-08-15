@@ -1974,7 +1974,8 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                                               const ColorMatrix &m, bool verbose,
+                                               const ColorMatrix &m, double strength,
+                                               bool verbose,
                                                const std::vector<uint8_t> *analysis_mask = nullptr,
                                                const std::vector<uint8_t> *output_mask = nullptr) {
     const int rows = R.rows();
@@ -2010,13 +2011,20 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
         bg_b = static_cast<double>(estimate_background(B, analysis_mask));
     }
 
-    const float gain_r = static_cast<float>(m[0][0]);
-    const float gain_g = static_cast<float>(m[1][1]);
-    const float gain_b = static_cast<float>(m[2][2]);
+    const float s = static_cast<float>(std::clamp(strength, 0.0, 1.0));
+    const float fitted_gain_r = static_cast<float>(m[0][0]);
+    const float fitted_gain_g = static_cast<float>(m[1][1]);
+    const float fitted_gain_b = static_cast<float>(m[2][2]);
+    const float gain_r = 1.0f + s * (fitted_gain_r - 1.0f);
+    const float gain_g = 1.0f + s * (fitted_gain_g - 1.0f);
+    const float gain_b = 1.0f + s * (fitted_gain_b - 1.0f);
     const float bg_ref = static_cast<float>((bg_r + bg_g + bg_b) / 3.0);
-    const float offset_r = bg_ref - static_cast<float>(bg_r) * gain_r;
-    const float offset_g = bg_ref - static_cast<float>(bg_g) * gain_g;
-    const float offset_b = bg_ref - static_cast<float>(bg_b) * gain_b;
+    const float offset_r =
+        s * (bg_ref - static_cast<float>(bg_r) * fitted_gain_r);
+    const float offset_g =
+        s * (bg_ref - static_cast<float>(bg_g) * fitted_gain_g);
+    const float offset_b =
+        s * (bg_ref - static_cast<float>(bg_b) * fitted_gain_b);
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -2055,7 +2063,8 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
                                 : 0.0;
         std::cout << "[PCC] Affine diagonal apply valid pixels: " << valid_px << "/" << total_px
                   << " (" << (100.0 * frac) << "%)" << std::endl;
-        std::cout << "[PCC] Affine diagonal gains: R=" << gain_r
+        std::cout << "[PCC] Affine diagonal strength=" << s
+                  << " gains: R=" << gain_r
                   << " G=" << gain_g
                   << " B=" << gain_b << std::endl;
         std::cout << "[PCC] Affine diagonal background medians: R=" << bg_r
@@ -2593,6 +2602,13 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             }
         }
 
+        const ColorMatrix fitted_diagonal_matrix = result.matrix;
+        if (matrix_is_diagonal && chroma_strength < 0.999) {
+            result.matrix = blend_matrix_with_identity_per_channel(
+                result.matrix, chroma_strength, chroma_strength);
+            update_result_matrix_metrics(&result);
+        }
+
         const double residual_before_apply = result.residual_rms;
         int applied_n_stars_used = result.n_stars_used;
         const double applied_residual_rms = recompute_residual_rms_for_matrix(
@@ -2611,9 +2627,9 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
 
         if (matrix_is_diagonal) {
-            apply_diagonal_color_matrix_affine(R, G, B, result.matrix, true,
-                                               analysis_mask_ptr,
-                                               output_mask_ptr);
+            apply_diagonal_color_matrix_affine(
+                R, G, B, fitted_diagonal_matrix, chroma_strength, true,
+                analysis_mask_ptr, output_mask_ptr);
             result.apply_mode = "affine_diagonal";
         } else if (effective_apply_attenuation) {
             apply_color_matrix_impl(R, G, B, result.matrix, true,

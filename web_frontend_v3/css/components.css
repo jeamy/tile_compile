@@ -1053,6 +1053,31 @@
   cursor: crosshair;
   touch-action: none;
 }
+.live-image-viewer__curves-channels {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.live-image-viewer__curves-channel {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.live-image-viewer__curves-channel:hover {
+  border-color: var(--border-strong, var(--border));
+  color: var(--text);
+}
+.live-image-viewer__curves-channel--active {
+  border-width: 2px;
+  font-weight: 700;
+}
 .live-image-viewer__operation-editor--curves {
   width: min(440px, calc(100vw - var(--space-4) - var(--space-4)));
 }

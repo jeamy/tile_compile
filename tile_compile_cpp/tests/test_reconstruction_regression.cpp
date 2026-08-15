@@ -1,6 +1,8 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
+#include "../apps/runner_phase_post_stack_output.hpp"
 #include "../apps/runner_shared.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
@@ -10,7 +12,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
 #include <limits>
+#include <sstream>
 
 using tile_compile::Matrix2Df;
 using tile_compile::Tile;
@@ -32,6 +36,18 @@ using tile_compile::reconstruction::sigma_clip_stack;
 using tile_compile::reconstruction::sigma_clip_weighted_tile;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 using tile_compile::reconstruction::wiener_tile_filter;
+
+TEST_CASE("astap_sensor_fov_uses_original_frame_height_and_fits_optics") {
+  tile_compile::io::FitsHeader header;
+  header.numeric_values["YPIXSZ"] = 1.45;
+  header.numeric_values["FOCALLEN"] = 100.0;
+
+  const auto fov =
+      tile_compile::runner::estimate_astap_sensor_fov_deg(header, 2160);
+
+  REQUIRE(fov.has_value());
+  REQUIRE(*fov == Catch::Approx(1.794).margin(0.002));
+}
 
 TEST_CASE("tile_weighted_path_uses_all_frames_without_preselection") {
   std::vector<Matrix2Df> tiles(3, Matrix2Df::Zero(1, 1));
@@ -290,6 +306,64 @@ TEST_CASE("canvas_mask_zeroes_rgb_channels_consistently") {
   REQUIRE(R(1, 1) == Catch::Approx(0.0f).margin(1e-6));
   REQUIRE(G(1, 1) == Catch::Approx(0.0f).margin(1e-6));
   REQUIRE(B(1, 1) == Catch::Approx(0.0f).margin(1e-6));
+}
+
+TEST_CASE("post_stack_solve_output_keeps_canvas_mask_after_background_restore") {
+  namespace fs = std::filesystem;
+
+  Matrix2Df recon(2, 2);
+  Matrix2Df R(2, 2);
+  Matrix2Df G(2, 2);
+  Matrix2Df B(2, 2);
+  recon << 1.0f, 2.0f, 3.0f, 4.0f;
+  R << 10.0f, 20.0f, 30.0f, 40.0f;
+  G << 11.0f, 21.0f, 31.0f, 41.0f;
+  B << 12.0f, 22.0f, 32.0f, 42.0f;
+
+  std::vector<uint8_t> canvas_mask = {1u, 0u, 1u, 0u};
+  std::vector<uint8_t> analysis_mask = canvas_mask;
+
+  tile_compile::runner::OutputScaling scaling;
+  scaling.scale_r = 2.0f;
+  scaling.scale_g = 3.0f;
+  scaling.scale_b = 4.0f;
+  scaling.bg_r = 100.0f;
+  scaling.bg_g = 200.0f;
+  scaling.bg_b = 300.0f;
+
+  tile_compile::runner::PostStackOutputConfig cfg;
+  cfg.output_stretch = true;
+  cfg.crop_to_nonzero_bbox = false;
+  cfg.aqmh_enabled = true;
+
+  const fs::path out_dir =
+      fs::temp_directory_path() / "tile_compile_post_stack_mask_test";
+  fs::remove_all(out_dir);
+  fs::create_directories(out_dir / "outputs");
+
+  tile_compile::core::EventEmitter emitter;
+  std::ostringstream log;
+  tile_compile::runner::PostStackOutputResult result;
+  tile_compile::io::FitsHeader hdr;
+
+  REQUIRE(tile_compile::runner::write_post_stack_outputs(
+      recon, R, G, B, canvas_mask, analysis_mask, scaling,
+      tile_compile::ColorMode::OSC, "GBRG", 0, 0, hdr, cfg, out_dir,
+      "mask_test", emitter, log, result));
+
+  auto solved = tile_compile::io::read_fits_rgb(out_dir / "outputs" /
+                                                "stacked_rgb_solve.fits");
+  REQUIRE(solved.R(0, 0) == Catch::Approx(120.0f).margin(1e-5));
+  REQUIRE(solved.G(0, 0) == Catch::Approx(233.0f).margin(1e-5));
+  REQUIRE(solved.B(0, 0) == Catch::Approx(348.0f).margin(1e-5));
+  REQUIRE(solved.R(0, 1) == Catch::Approx(0.0f).margin(1e-5));
+  REQUIRE(solved.G(0, 1) == Catch::Approx(0.0f).margin(1e-5));
+  REQUIRE(solved.B(0, 1) == Catch::Approx(0.0f).margin(1e-5));
+  REQUIRE(solved.R(1, 1) == Catch::Approx(0.0f).margin(1e-5));
+  REQUIRE(solved.G(1, 1) == Catch::Approx(0.0f).margin(1e-5));
+  REQUIRE(solved.B(1, 1) == Catch::Approx(0.0f).margin(1e-5));
+
+  fs::remove_all(out_dir);
 }
 
 TEST_CASE("wiener_tile_filter_preserves_high_snr_tiles_and_returns_finite_output") {

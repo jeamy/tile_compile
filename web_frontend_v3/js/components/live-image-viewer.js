@@ -582,18 +582,33 @@ export function createLiveImageViewer(runId, runDir, onClose) {
   function openCurvesEditor() {
     beginOperationDialog(t("liveImage.cmd.curves", "Kurven"));
     operationEditor.classList.add("live-image-viewer__operation-editor--curves");
-    const points = [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]];
+    const defaultPts = () => [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]];
+    const curves = { all: defaultPts(), r: null, g: null, b: null };
+    let activeChannel = "all";
+    const channelColors = { all: "#60a5fa", r: "#ef4444", g: "#22c55e", b: "#3b82f6" };
+    const channelKeys = ["all", "r", "g", "b"];
+    const channelLabels = {
+      all: t("liveImage.curves.channelAll", "Alle"),
+      r: t("liveImage.curves.channelR", "R"),
+      g: t("liveImage.curves.channelG", "G"),
+      b: t("liveImage.curves.channelB", "B"),
+    };
+    const getActivePoints = () => activeChannel === "all" ? curves.all : (curves[activeChannel] ?? curves.all);
+    const buildOperation = () => {
+      const params = { points: curves.all.map((p) => [...p]) };
+      if (curves.r) params.points_r = curves.r.map((p) => [...p]);
+      if (curves.g) params.points_g = curves.g.map((p) => [...p]);
+      if (curves.b) params.points_b = curves.b.map((p) => [...p]);
+      return { type: "curves", params };
+    };
     const canvas = document.createElement("canvas"); canvas.width = 360; canvas.height = 260; canvas.className = "live-image-viewer__curves-canvas";
     const ctx = canvas.getContext("2d");
     const pad = 28; const plotW = canvas.width - pad - 10; const plotH = canvas.height - pad - 10;
     const toCanvas = (p) => [pad + p[0] * plotW, 10 + (1 - p[1]) * plotH];
     const fromCanvas = (x, y) => [Math.max(0, Math.min(1, (x - pad) / plotW)), Math.max(0, Math.min(1, 1 - (y - 10) / plotH))];
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
-      for (let i = 0; i <= 4; i++) { const x = pad + i * plotW / 4; const y = 10 + i * plotH / 4; ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, 10 + plotH); ctx.stroke(); ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke(); }
-      const sorted = [...points].sort((a, b) => a[0] - b[0]);
-      ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2; ctx.beginPath();
+    const drawCurve = (pts, color, lineWidth, drawPoints) => {
+      const sorted = [...pts].sort((a, b) => a[0] - b[0]);
+      ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.beginPath();
       for (let i = 0; i <= 100; i++) {
         const x = i / 100; let j = 1;
         while (j < sorted.length && x > sorted[j][0]) j++;
@@ -610,25 +625,65 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
       }
       ctx.stroke();
-      for (const p of sorted) { const [x, y] = toCanvas(p); ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "#2563eb"; ctx.stroke(); }
+      if (drawPoints) {
+        for (const p of sorted) { const [x, y] = toCanvas(p); ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = color; ctx.stroke(); }
+      }
+    };
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) { const x = pad + i * plotW / 4; const y = 10 + i * plotH / 4; ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, 10 + plotH); ctx.stroke(); ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke(); }
+      // Ghost curves for inactive channels
+      for (const ch of channelKeys) {
+        if (ch === activeChannel) continue;
+        const pts = curves[ch] ?? curves.all;
+        drawCurve(pts, channelColors[ch] + "55", 1, false);
+      }
+      const activePts = getActivePoints();
+      drawCurve(activePts, channelColors[activeChannel], 2, true);
     };
     let dragging = null;
-    const nearest = (x, y) => { let best = null; let dist = 14; for (const p of points) { const [px, py] = toCanvas(p); const d = Math.hypot(px - x, py - y); if (d < dist) { best = p; dist = d; } } return best; };
+    const nearest = (x, y) => { let best = null; let dist = 14; for (const p of getActivePoints()) { const [px, py] = toCanvas(p); const d = Math.hypot(px - x, py - y); if (d < dist) { best = p; dist = d; } } return best; };
     const eventPoint = (event) => {
       const r = canvas.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) return null;
       return [(event.clientX - r.left) * canvas.width / r.width, (event.clientY - r.top) * canvas.height / r.height];
     };
-    const updateFromPointer = (event) => { const pos = eventPoint(event); if (!pos || !dragging) return; const [x, y] = fromCanvas(pos[0], pos[1]); dragging[0] = x; dragging[1] = y; draw(); previewOperation({ type: "curves", params: { points } }); };
-    canvas.addEventListener("pointerdown", (event) => { const pos = eventPoint(event); if (!pos) return; const [x, y] = pos; dragging = nearest(x, y); if (!dragging && points.length < 32) { const p = fromCanvas(x, y); points.push(p); dragging = p; draw(); previewOperation({ type: "curves", params: { points } }); } if (dragging) canvas.setPointerCapture(event.pointerId); });
+    const updateFromPointer = (event) => { const pos = eventPoint(event); if (!pos || !dragging) return; const [x, y] = fromCanvas(pos[0], pos[1]); dragging[0] = x; dragging[1] = y; draw(); previewOperation(buildOperation()); };
+    canvas.addEventListener("pointerdown", (event) => { const pos = eventPoint(event); if (!pos) return; const [x, y] = pos; const pts = getActivePoints(); dragging = nearest(x, y); if (!dragging && pts.length < 32) { const p = fromCanvas(x, y); pts.push(p); dragging = p; draw(); previewOperation(buildOperation()); } if (dragging) canvas.setPointerCapture(event.pointerId); });
     canvas.addEventListener("pointermove", (event) => { if (dragging) updateFromPointer(event); });
     canvas.addEventListener("pointerup", () => { dragging = null; });
     canvas.addEventListener("pointercancel", () => { dragging = null; });
     canvas.addEventListener("lostpointercapture", () => { dragging = null; });
-    canvas.addEventListener("dblclick", (event) => { const pos = eventPoint(event); if (!pos) return; const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && points.length > 2) { points.splice(points.indexOf(p), 1); draw(); previewOperation({ type: "curves", params: { points } }); } });
-    canvas.addEventListener("contextmenu", (event) => { event.preventDefault(); const pos = eventPoint(event); if (!pos) return; const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && points.length > 2) { points.splice(points.indexOf(p), 1); draw(); previewOperation({ type: "curves", params: { points } }); } });
+    canvas.addEventListener("dblclick", (event) => { const pos = eventPoint(event); if (!pos) return; const pts = getActivePoints(); const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && pts.length > 2) { pts.splice(pts.indexOf(p), 1); draw(); previewOperation(buildOperation()); } });
+    canvas.addEventListener("contextmenu", (event) => { event.preventDefault(); const pos = eventPoint(event); if (!pos) return; const pts = getActivePoints(); const p = nearest(pos[0], pos[1]); if (p && p[0] !== 0 && p[0] !== 1 && pts.length > 2) { pts.splice(pts.indexOf(p), 1); draw(); previewOperation(buildOperation()); } });
+    // Channel selector
+    const channelBar = document.createElement("div");
+    channelBar.className = "live-image-viewer__curves-channels";
+    const channelBtns = {};
+    const switchChannel = (ch) => {
+      activeChannel = ch;
+      if (ch !== "all" && curves[ch] === null) curves[ch] = curves.all.map((p) => [...p]);
+      for (const k of channelKeys) {
+        channelBtns[k].classList.toggle("live-image-viewer__curves-channel--active", k === ch);
+        channelBtns[k].style.borderColor = k === ch ? channelColors[k] : "";
+        channelBtns[k].style.color = k === ch ? channelColors[k] : "";
+      }
+      draw();
+    };
+    for (const ch of channelKeys) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "live-image-viewer__curves-channel";
+      btn.textContent = channelLabels[ch];
+      btn.addEventListener("click", () => switchChannel(ch));
+      channelBtns[ch] = btn;
+      channelBar.appendChild(btn);
+    }
+    switchChannel("all");
+    operationEditor.appendChild(channelBar);
     operationEditor.appendChild(canvas); draw();
-    state.editorOperationProvider = () => ({ type: "curves", params: { points } });
+    state.editorOperationProvider = () => buildOperation();
     appendOperationDialogFooter(() => {
       const operation = state.editorOperationProvider();
       clearOperationPreview();
