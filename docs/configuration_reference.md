@@ -2920,7 +2920,7 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Default** | `auto` |
 | **Erlaubte Werte** | `always`, `auto`, `off` |
 
-**Zweck:** Steuert die Hintergrundneutralisierung nach dem PCC-Apply. `always` erzwingt neutrale Hintergrund-Offsets, `off` deaktiviert den Schritt, und `auto` schwaecht ihn ab oder ueberspringt ihn, wenn der gemessene "Hintergrund" eher wie Nebel/Feldstruktur als wie neutraler Himmel aussieht.
+**Zweck:** Steuert die Hintergrundneutralisierung nach dem PCC-Apply unabhaengig von `chroma_strength` und vom Matrix-Typ. `always` erzwingt neutrale Hintergrund-Offsets, `off` erhaelt die kanalweisen Hintergrundwerte, und `auto` neutralisiert einen raeumlich kohaerenten globalen Farbstich vollstaendig, schwaecht die Korrektur bei lokal variierender Nebel-/Feldstruktur aber ab oder ueberspringt sie. Diagonale PCC-Gains werden um den jeweiligen Kanalhintergrund angewendet und neutralisieren ihn daher nicht implizit.
 
 ### `pcc.chroma_strength`
 

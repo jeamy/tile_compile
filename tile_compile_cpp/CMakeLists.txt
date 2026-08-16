@@ -639,6 +639,7 @@ if(BUILD_TESTS)
             tests/test_tile_scheduler.cpp
             tests/test_reconstruction_parallel.cpp
             tests/test_hypermetric_stretch.cpp
+            tests/test_photometric_color_cal.cpp
             tests/test_aqmh_quality_map.cpp
             tests/test_aqmh_quality_map_cache.cpp
             tests/test_aqmh_reconstruction.cpp

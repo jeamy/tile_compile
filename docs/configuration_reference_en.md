@@ -2603,7 +2603,7 @@ Photometric Color Calibration settings.
 | **Default** | `auto` |
 | **Allowed Values** | `always`, `auto`, `off` |
 
-**Purpose:** Controls the post-PCC background neutralization step. `always` forces neutral background offsets, `off` disables the step, and `auto` attenuates or skips it when the measured "background" looks nebulosity-dominated rather than truly neutral sky.
+**Purpose:** Controls post-PCC background neutralization independently of `chroma_strength` and matrix type. `always` forces neutral background offsets, `off` preserves the per-channel backgrounds, and `auto` fully neutralizes a spatially coherent global color cast while attenuating or skipping correction for locally varying nebulosity or field structure. Diagonal PCC gains are applied around each channel background and therefore do not neutralize it implicitly.
 
 ### `pcc.chroma_strength`
 

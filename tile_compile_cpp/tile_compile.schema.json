@@ -1477,9 +1477,9 @@
           "enum": [
             "always",
             "auto",
-            false
+            "off"
           ],
-          "description": "Background neutralization mode. always = always neutralize background after PCC. auto = neutralize only if background is significantly off-neutral. off = no background neutralization. Default: auto.",
+          "description": "Background neutralization mode, independent of chroma_strength and matrix type. always = always neutralize background after PCC. auto = fully neutralize a spatially coherent global color cast while attenuating locally varying nebulosity or field structure. off = preserve per-channel backgrounds. Default: auto.",
           "default": "auto"
         },
         "source": {

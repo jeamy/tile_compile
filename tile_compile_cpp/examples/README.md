@@ -103,7 +103,8 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `pcc.background_model` (`median|plane`)
   - Includes post-apply background neutralization control:
     - `pcc.background_neutralization_mode` (`always|auto|off`)
-    - examples default to `auto` so nebulous fields are not forced back to gray sky
+    - examples default to `auto`, which removes coherent global casts while protecting spatially varying nebulosity
+    - neutralization is independent of `pcc.chroma_strength` and the fitted matrix type
   - Includes FWHM-adaptive radii controls:
     - `pcc.radii_mode` (`fixed|auto_fwhm`)
     - `pcc.aperture_fwhm_mult`

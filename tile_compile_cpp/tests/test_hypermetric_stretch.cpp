@@ -139,6 +139,41 @@ TEST_CASE("hypermetric_ready_to_use_scaling_preserves_weak_blue_channel") {
   REQUIRE(diag.black_clip_percent < 1.0f);
 }
 
+TEST_CASE("hypermetric_ready_to_use_preserves_extended_highlight_headroom") {
+  constexpr int kSize = 160;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float dx = static_cast<float>(x - kSize / 2);
+      const float dy = static_cast<float>(y - kSize / 2);
+      const float core = 0.72f * std::exp(-(dx * dx + dy * dy) / 800.0f);
+      const float base = 0.012f + core;
+      R(y, x) = base * 1.03f;
+      G(y, x) = base;
+      B(y, x) = base * 0.92f;
+    }
+  }
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.adaptive_anchor = false;
+  cfg.log_d_mode = "fixed";
+  cfg.fixed_log_d = 3.5f;
+  cfg.target_bg = 0.12f;
+
+  const auto diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+
+  REQUIRE(diag.success);
+  REQUIRE(diag.white_clip_percent == Catch::Approx(0.0f).margin(1e-4f));
+  REQUIRE(R(kSize / 2, kSize / 2) < 1.0f);
+  REQUIRE(G(kSize / 2, kSize / 2) < 1.0f);
+  REQUIRE(B(kSize / 2, kSize / 2) < 1.0f);
+}
+
 TEST_CASE("hypermetric_resolves_dwarf_ii_imx415_profile") {
   tile_compile::Matrix2Df R(16, 16);
   tile_compile::Matrix2Df G(16, 16);

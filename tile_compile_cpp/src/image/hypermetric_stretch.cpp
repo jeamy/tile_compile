@@ -493,10 +493,70 @@ void adaptive_output_scaling(
   const float span_b = std::max(ceil_b - floor_b, 1e-6f);
   const float shared_span = std::max({span_r, span_g, span_b});
 
-  // Channel floor + shared scale: map [floor_ch, floor_ch + shared_span] to
-  // [pedestal, 0.98].
+  // The p99 span supplies contrast, but is not a safe upper bound for an
+  // extended bright core. Preserve a real highlight maximum so the following
+  // MTF and soft rolloff never begin from already hard-clipped channel data.
+  float max_luma = 0.0f;
+  float max_r = 0.0f;
+  float max_g = 0.0f;
+  float max_b = 0.0f;
+  int max_y = 0;
+  int max_x = 0;
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
+        continue;
+      }
+      const float r = sanitize01(R(y, x));
+      const float g = sanitize01(G(y, x));
+      const float b = sanitize01(B(y, x));
+      max_r = std::max(max_r, r);
+      max_g = std::max(max_g, g);
+      max_b = std::max(max_b, b);
+      const float luma = w[0] * r + w[1] * g + w[2] * b;
+      if (luma > max_luma) {
+        max_luma = luma;
+        max_y = y;
+        max_x = x;
+      }
+    }
+  }
+
+  bool physical_highlight = max_luma > 0.001f;
+  if (physical_highlight) {
+    float neighbor_max = 0.0f;
+    int neighbors = 0;
+    for (int yy = std::max(0, max_y - 1); yy <= std::min(rows - 1, max_y + 1);
+         ++yy) {
+      for (int xx = std::max(0, max_x - 1); xx <= std::min(cols - 1, max_x + 1);
+           ++xx) {
+        if ((yy == max_y && xx == max_x) ||
+            !mask_valid(statistics_mask, mask_rows, mask_cols, yy, xx)) {
+          continue;
+        }
+        neighbor_max = std::max(
+            neighbor_max,
+            w[0] * sanitize01(R(yy, xx)) +
+                w[1] * sanitize01(G(yy, xx)) +
+                w[2] * sanitize01(B(yy, xx)));
+        ++neighbors;
+      }
+    }
+    physical_highlight = neighbors == 0 || neighbor_max >= max_luma * 0.20f;
+  }
+
+  const float contrast_scale = (0.98f - pedestal) / (shared_span + 1e-9f);
+  float scale = contrast_scale;
+  if (physical_highlight) {
+    const float physical_span = std::max(
+        {max_r - floor_r, max_g - floor_g, max_b - floor_b, 1e-6f});
+    const float physical_scale = (0.999f - pedestal) / physical_span;
+    scale = std::min(contrast_scale, physical_scale);
+  }
+
+  // Channel floor + shared scale preserves the color relation while retaining
+  // headroom for the MTF and soft highlight rolloff.
   auto make_expand = [&](float floor_ch) {
-    const float scale = (0.98f - pedestal) / (shared_span + 1e-9f);
     return [floor_ch, scale, pedestal](float v) {
       return std::clamp((v - floor_ch) * scale + pedestal, 0.0f, 1.0f);
     };

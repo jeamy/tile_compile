@@ -266,8 +266,11 @@ pcc:
   min_aperture_px: 4.0
   apply_attenuation: false
   chroma_strength: 1.0
+  background_neutralization_mode: auto  # always | auto | off
   k_max: 3.2
 ```
+
+`chroma_strength` begrenzt die PCC-Farb-Gains, nicht die Hintergrundneutralisierung. `auto` neutralisiert einen raeumlich kohaerenten globalen Farbstich vollstaendig, schuetzt aber lokal variierende Nebel- oder Feldfarbe.
 
 ---
 

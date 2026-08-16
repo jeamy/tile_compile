@@ -464,8 +464,6 @@ export class FrameAnalysisService {
     for (const [path, info] of Object.entries<any>(configSchema)) {
       if (isAqmhMethod && isClassicOnlyPath(path)) continue;
       if (path.startsWith("aqmh.cherry_pick.")) continue;
-      if (path.startsWith("global_metrics.weights.")) continue;
-      if (path === "global_metrics.weight_exponent_scale") continue;
       if (path === "aqmh.storage.dtype") continue;
       if (path === "aqmh.storage.max_resident_maps") continue;
       if (info?.type === "object") continue; // skip parent objects

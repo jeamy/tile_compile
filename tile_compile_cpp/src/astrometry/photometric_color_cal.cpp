@@ -1,4 +1,5 @@
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
+#include "tile_compile/astrometry/detail/photometric_color_cal_detail.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 
@@ -1617,6 +1618,8 @@ struct PCCBackgroundNeutralizationDecision {
     float bg_luma_sigma = 0.0f;
     float rg_std = std::numeric_limits<float>::infinity();
     float bg_std = std::numeric_limits<float>::infinity();
+    float global_chroma_offset = 0.0f;
+    float relative_chroma_scatter = std::numeric_limits<float>::infinity();
     float max_abs_shift = 0.0f;
     float shift_sigma_ratio = 0.0f;
     double bg_r = 0.0;
@@ -1860,6 +1863,16 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
             : 0.0f;
     out.rg_std = image::log_chroma_std_background(R, G, bg_mask);
     out.bg_std = image::log_chroma_std_background(B, G, bg_mask);
+    if (out.bg_r > 0.0 && out.bg_g > 0.0 && out.bg_b > 0.0) {
+        out.global_chroma_offset = std::max(
+            std::abs(std::log(static_cast<float>(out.bg_r / out.bg_g))),
+            std::abs(std::log(static_cast<float>(out.bg_b / out.bg_g))));
+    }
+    const float chroma_std = std::max(
+        std::isfinite(out.rg_std) ? out.rg_std : 0.0f,
+        std::isfinite(out.bg_std) ? out.bg_std : 0.0f);
+    out.relative_chroma_scatter =
+        chroma_std / std::max(out.global_chroma_offset, 1.0e-3f);
 
     if (mode == "always") {
         out.apply = true;
@@ -1872,19 +1885,20 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
         (out.bg_mask_fraction <= 0.10f)
             ? 0.0f
             : std::clamp((out.bg_mask_fraction - 0.10f) / 0.25f, 0.0f, 1.0f);
-    const float chroma_std = std::max(
-        std::isfinite(out.rg_std) ? out.rg_std : 0.0f,
-        std::isfinite(out.bg_std) ? out.bg_std : 0.0f);
     const bool stable_low_chroma_background =
         std::isfinite(chroma_std) && chroma_std <= 0.0030f;
+    const bool coherent_global_cast =
+        out.global_chroma_offset >= 0.03f &&
+        std::isfinite(out.relative_chroma_scatter) &&
+        out.relative_chroma_scatter <= 0.10f;
     const float shift_factor =
-        stable_low_chroma_background
+        (stable_low_chroma_background || coherent_global_cast)
             ? 1.0f
             : ((out.shift_sigma_ratio <= 3.0f)
                    ? 1.0f
                    : std::sqrt(std::clamp(3.0f / out.shift_sigma_ratio, 0.0f, 1.0f)));
     const float chroma_factor =
-        (chroma_std <= 0.015f)
+        (coherent_global_cast || chroma_std <= 0.015f)
             ? 1.0f
             : std::clamp(0.03f / chroma_std, 0.0f, 1.0f);
 
@@ -1922,7 +1936,10 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
               << " shift=" << decision.max_abs_shift
               << " shift_sigma_ratio=" << decision.shift_sigma_ratio
               << " rg_std=" << decision.rg_std
-              << " bg_std=" << decision.bg_std << std::endl;
+              << " bg_std=" << decision.bg_std
+              << " global_chroma_offset=" << decision.global_chroma_offset
+              << " relative_chroma_scatter=" << decision.relative_chroma_scatter
+              << std::endl;
     if (!decision.apply) return;
 
     const float dr =
@@ -2018,13 +2035,12 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
     const float gain_r = 1.0f + s * (fitted_gain_r - 1.0f);
     const float gain_g = 1.0f + s * (fitted_gain_g - 1.0f);
     const float gain_b = 1.0f + s * (fitted_gain_b - 1.0f);
-    const float bg_ref = static_cast<float>((bg_r + bg_g + bg_b) / 3.0);
-    const float offset_r =
-        s * (bg_ref - static_cast<float>(bg_r) * fitted_gain_r);
-    const float offset_g =
-        s * (bg_ref - static_cast<float>(bg_g) * fitted_gain_g);
-    const float offset_b =
-        s * (bg_ref - static_cast<float>(bg_b) * fitted_gain_b);
+    // Apply the diagonal gains to background-subtracted signal. Background
+    // neutralization is a separate operation governed solely by
+    // background_neutralization_mode, including when the mode is "off".
+    const float offset_r = static_cast<float>(bg_r) * (1.0f - gain_r);
+    const float offset_g = static_cast<float>(bg_g) * (1.0f - gain_g);
+    const float offset_b = static_cast<float>(bg_b) * (1.0f - gain_b);
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -2070,11 +2086,25 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
         std::cout << "[PCC] Affine diagonal background medians: R=" << bg_r
                   << " G=" << bg_g
                   << " B=" << bg_b
-                  << " -> target=" << bg_ref << std::endl;
+                  << " (preserved before configured neutralization)" << std::endl;
         std::cout << "[PCC] Affine diagonal offsets: R=" << offset_r
                   << " G=" << offset_g
                   << " B=" << offset_b << std::endl;
     }
+}
+
+void detail::apply_diagonal_color_correction(
+    Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+    const ColorMatrix &matrix, double chroma_strength,
+    const std::string &background_neutralization_mode,
+    const std::vector<uint8_t> &analysis_mask,
+    const std::vector<uint8_t> *output_mask,
+    bool verbose) {
+    apply_diagonal_color_matrix_affine(
+        R, G, B, matrix, chroma_strength, verbose,
+        &analysis_mask, output_mask);
+    neutralize_background_offsets(
+        R, G, B, analysis_mask, background_neutralization_mode, output_mask);
 }
 
 
@@ -2627,9 +2657,10 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
 
         if (matrix_is_diagonal) {
-            apply_diagonal_color_matrix_affine(
-                R, G, B, fitted_diagonal_matrix, chroma_strength, true,
-                analysis_mask_ptr, output_mask_ptr);
+            detail::apply_diagonal_color_correction(
+                R, G, B, fitted_diagonal_matrix, chroma_strength,
+                config.background_neutralization_mode, analysis_mask,
+                output_mask_ptr, true);
             result.apply_mode = "affine_diagonal";
         } else if (effective_apply_attenuation) {
             apply_color_matrix_impl(R, G, B, result.matrix, true,
