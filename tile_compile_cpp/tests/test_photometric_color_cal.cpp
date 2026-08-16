@@ -89,3 +89,28 @@ TEST_CASE("diagonal PCC auto neutralizes stable low-chroma background") {
   REQUIRE(median(image.G) == Catch::Approx(expected_background).margin(0.02f));
   REQUIRE(median(image.B) == Catch::Approx(expected_background).margin(0.02f));
 }
+
+TEST_CASE("diagonal PCC auto neutralizes realistic noisy background with green color cast") {
+  Matrix2Df R(128, 128);
+  Matrix2Df G(128, 128);
+  Matrix2Df B(128, 128);
+  std::vector<uint8_t> mask(128 * 128, 1);
+
+  // Realistic OSC noisy background: G=15.4, R=8.2, B=6.0 with ~0.6 ADU noise
+  for (int y = 0; y < 128; ++y) {
+    for (int x = 0; x < 128; ++x) {
+      const float noise = 0.35f * static_cast<float>((x * 7 + y * 13) % 11 - 5) / 5.0f;
+      R(y, x) = 8.2f + noise;
+      G(y, x) = 15.4f + noise;
+      B(y, x) = 6.0f + noise;
+    }
+  }
+
+  tile_compile::astrometry::detail::apply_diagonal_color_correction(
+      R, G, B, kDiagonalMatrix, 0.85, "auto", mask);
+
+  const float expected_bg = (8.2f + 15.4f + 6.0f) / 3.0f;
+  REQUIRE(median(R) == Catch::Approx(expected_bg).margin(0.15f));
+  REQUIRE(median(G) == Catch::Approx(expected_bg).margin(0.15f));
+  REQUIRE(median(B) == Catch::Approx(expected_bg).margin(0.15f));
+}

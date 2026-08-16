@@ -1884,23 +1884,21 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
     const float coverage_factor =
         (out.bg_mask_fraction <= 0.10f)
             ? 0.0f
-            : std::clamp((out.bg_mask_fraction - 0.10f) / 0.25f, 0.0f, 1.0f);
+            : std::clamp((out.bg_mask_fraction - 0.10f) / 0.15f, 0.0f, 1.0f);
     const bool stable_low_chroma_background =
-        std::isfinite(chroma_std) && chroma_std <= 0.0030f;
+        std::isfinite(chroma_std) && chroma_std <= 0.20f;
     const bool coherent_global_cast =
-        out.global_chroma_offset >= 0.03f &&
+        out.global_chroma_offset >= 0.02f &&
         std::isfinite(out.relative_chroma_scatter) &&
-        out.relative_chroma_scatter <= 0.10f;
+        out.relative_chroma_scatter <= 0.40f;
     const float shift_factor =
         (stable_low_chroma_background || coherent_global_cast)
             ? 1.0f
-            : ((out.shift_sigma_ratio <= 3.0f)
-                   ? 1.0f
-                   : std::sqrt(std::clamp(3.0f / out.shift_sigma_ratio, 0.0f, 1.0f)));
+            : std::clamp(0.20f / std::max(chroma_std, 1.0e-3f), 0.0f, 1.0f);
     const float chroma_factor =
-        (coherent_global_cast || chroma_std <= 0.015f)
+        (coherent_global_cast || chroma_std <= 0.20f)
             ? 1.0f
-            : std::clamp(0.03f / chroma_std, 0.0f, 1.0f);
+            : std::clamp(0.20f / std::max(chroma_std, 1.0e-3f), 0.0f, 1.0f);
 
     out.strength = coverage_factor * shift_factor * chroma_factor;
     if (out.strength >= 0.999f) {
