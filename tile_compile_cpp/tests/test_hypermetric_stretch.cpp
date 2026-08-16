@@ -8,6 +8,26 @@
 #include <cmath>
 #include <vector>
 
+namespace {
+
+float median_matrix(const tile_compile::Matrix2Df &m) {
+  std::vector<float> values;
+  values.reserve(static_cast<size_t>(m.rows()) * static_cast<size_t>(m.cols()));
+  for (int y = 0; y < m.rows(); ++y) {
+    for (int x = 0; x < m.cols(); ++x) {
+      values.push_back(m(y, x));
+    }
+  }
+  std::sort(values.begin(), values.end());
+  const size_t mid = values.size() / 2;
+  if (values.size() % 2 == 0) {
+    return 0.5f * (values[mid - 1] + values[mid]);
+  }
+  return values[mid];
+}
+
+} // namespace
+
 TEST_CASE("hypermetric_stretch_curve_is_monotonic_and_bounded") {
   float prev = tile_compile::image::hypermetric_hyperbolic_stretch_value(
       0.0f, 100.0f, 6.0f);
@@ -71,6 +91,52 @@ TEST_CASE("hypermetric_ready_to_use_rgb_run_produces_unit_range_output") {
       REQUIRE(B(y, x) <= 1.0f);
     }
   }
+}
+
+TEST_CASE("hypermetric_ready_to_use_scaling_preserves_weak_blue_channel") {
+  constexpr int kSize = 96;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float gradient = 0.00002f * static_cast<float>((x + 2 * y) % 31);
+      const float g = 0.0054f + gradient;
+      G(y, x) = g;
+      R(y, x) = g * 0.99f;
+      B(y, x) = g * 0.91f;
+    }
+  }
+  for (int i = 0; i < 24; ++i) {
+    const int y = 8 + (i * 7) % 80;
+    const int x = 10 + (i * 11) % 76;
+    G(y, x) = 0.08f + 0.002f * static_cast<float>(i % 5);
+    R(y, x) = G(y, x) * 0.99f;
+    B(y, x) = G(y, x) * 0.91f;
+  }
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.sensor_profile = "rec709";
+  cfg.adaptive_anchor = false;
+  cfg.log_d_mode = "fixed";
+  cfg.fixed_log_d = 2.0f;
+  cfg.color_strategy = "fixed";
+  cfg.target_bg = 0.15f;
+
+  const auto diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+
+  REQUIRE(diag.success);
+  const float r_med = median_matrix(R);
+  const float g_med = median_matrix(G);
+  const float b_med = median_matrix(B);
+  REQUIRE(g_med > 0.01f);
+  REQUIRE(r_med / g_med == Catch::Approx(0.99f).margin(0.12f));
+  REQUIRE(b_med / g_med == Catch::Approx(0.91f).margin(0.18f));
+  REQUIRE(b_med / g_med > 0.55f);
+  REQUIRE(diag.black_clip_percent < 1.0f);
 }
 
 TEST_CASE("hypermetric_resolves_dwarf_ii_imx415_profile") {

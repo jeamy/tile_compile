@@ -30,6 +30,20 @@ void add_fact(nlohmann::json& facts,
     facts[id] = std::move(fact);
 }
 
+const nlohmann::json* get_dotted_ptr(const nlohmann::json& root, const std::string& dotted_path) {
+    const nlohmann::json* cur = &root;
+    size_t start = 0;
+    while (start < dotted_path.size()) {
+        const size_t dot = dotted_path.find('.', start);
+        const std::string key = dotted_path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+        if (!cur->is_object() || !cur->contains(key)) return nullptr;
+        cur = &(*cur)[key];
+        if (dot == std::string::npos) break;
+        start = dot + 1;
+    }
+    return cur;
+}
+
 } // namespace
 
 nlohmann::json build_scan_pi_context(const SchemaPathMap& schema_paths,
@@ -38,6 +52,13 @@ nlohmann::json build_scan_pi_context(const SchemaPathMap& schema_paths,
                                      const nlohmann::json& scan_metrics,
                                      const std::string& context_kind) {
     nlohmann::json facts = nlohmann::json::object();
+    if (const nlohmann::json* method = get_dotted_ptr(base_config, "method")) {
+        add_fact(facts, "pipeline.method", *method, "base_config.method");
+    } else if (const nlohmann::json* aqmh_enabled = get_dotted_ptr(base_config, "aqmh.enabled")) {
+        if (aqmh_enabled->is_boolean() && aqmh_enabled->get<bool>()) {
+            add_fact(facts, "pipeline.method", "aqmh", "base_config.aqmh.enabled");
+        }
+    }
 
     if (scan_result.is_object()) {
         if (scan_result.contains("frames_detected")) add_fact(facts, "dataset.frame_count", scan_result["frames_detected"], "scan_result.frames_detected");

@@ -138,6 +138,26 @@ const nlohmann::json* get_dotted_ptr(const nlohmann::json& root, const std::stri
     return cur;
 }
 
+bool starts_with(const std::string& value, const std::string& prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+bool config_uses_aqmh(const nlohmann::json& base_config) {
+    if (const nlohmann::json* method = get_dotted_ptr(base_config, "method")) {
+        if (method->is_string() && method->get<std::string>() == "aqmh") return true;
+    }
+    if (const nlohmann::json* enabled = get_dotted_ptr(base_config, "aqmh.enabled")) {
+        if (enabled->is_boolean() && enabled->get<bool>()) return true;
+    }
+    return false;
+}
+
+bool classic_only_parameter(const std::string& path) {
+    return starts_with(path, "global_metrics.") ||
+           starts_with(path, "local_metrics.") ||
+           starts_with(path, "synthetic.");
+}
+
 std::optional<std::string> semantic_update_reject_reason(const nlohmann::json& update,
                                                          const nlohmann::json& schema_node,
                                                          const nlohmann::json& base_config,
@@ -145,6 +165,9 @@ std::optional<std::string> semantic_update_reject_reason(const nlohmann::json& u
     const std::string path = json_string_field(update, "path");
     const std::string reason = json_string_field(update, "reason");
     const nlohmann::json value = update.contains("value") ? update["value"] : nlohmann::json(nullptr);
+    if (config_uses_aqmh(base_config) && classic_only_parameter(path)) {
+        return "not_applicable_to_aqmh_reconstruction";
+    }
     const nlohmann::json catalog = pi_context.contains("parameter_catalog") && pi_context["parameter_catalog"].is_object()
         ? pi_context["parameter_catalog"]
         : build_parameter_catalog(SchemaPathMap{{path, schema_node}}, base_config);

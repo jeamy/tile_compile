@@ -16,6 +16,26 @@ const nlohmann::json* get_dotted_ptr(const nlohmann::json& root, const std::stri
     return cur;
 }
 
+bool starts_with(const std::string& value, const std::string& prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+bool config_uses_aqmh(const nlohmann::json& base_config) {
+    if (const nlohmann::json* method = get_dotted_ptr(base_config, "method")) {
+        if (method->is_string() && method->get<std::string>() == "aqmh") return true;
+    }
+    if (const nlohmann::json* enabled = get_dotted_ptr(base_config, "aqmh.enabled")) {
+        if (enabled->is_boolean() && enabled->get<bool>()) return true;
+    }
+    return false;
+}
+
+bool classic_only_parameter(const std::string& path) {
+    return starts_with(path, "global_metrics.") ||
+           starts_with(path, "local_metrics.") ||
+           starts_with(path, "synthetic.");
+}
+
 } // namespace
 
 nlohmann::json curated_parameter_metadata(const std::string& path) {
@@ -110,6 +130,7 @@ nlohmann::json curated_parameter_metadata(const std::string& path) {
 nlohmann::json build_parameter_catalog(const SchemaPathMap& schema_paths,
                                        const nlohmann::json& base_config) {
     nlohmann::json catalog = nlohmann::json::object();
+    const bool aqmh_method = config_uses_aqmh(base_config);
     for (const auto& [path, schema_node] : schema_paths) {
         if (!schema_node.is_object()) continue;
         const std::string schema_type = schema_node.contains("type") && schema_node["type"].is_string()
@@ -149,6 +170,24 @@ nlohmann::json build_parameter_catalog(const SchemaPathMap& schema_paths,
         else meta["schema_max"] = nullptr;
         if (schema_node.contains("description") && schema_node["description"].is_string()) {
             meta["description"] = schema_node["description"];
+        }
+        if (classic_only_parameter(path)) {
+            meta["method_scope"] = "classic_tile_compile";
+            if (starts_with(path, "global_metrics.")) {
+                meta["semantic"] = "Classic/global pre-AQMH frame metric weighting. Not an AQMH reconstruction weight.";
+            } else if (starts_with(path, "local_metrics.")) {
+                meta["semantic"] = "Classic tile/local quality metric configuration. AQMH skips classic local metrics and uses quality maps instead.";
+            } else if (starts_with(path, "synthetic.")) {
+                meta["semantic"] = "Classic clustering/synthetic-frame configuration. AQMH skips clustering and synthetic frame generation.";
+            }
+            if (aqmh_method) {
+                meta["applicable_current_method"] = false;
+                meta["recommendation_allowed"] = false;
+                meta["not_applicable_reason"] =
+                    "Current method is aqmh. This parameter belongs to the classic_tile_compile reconstruction path.";
+                meta["hard_rules"].push_back(
+                    "Do not recommend classic_tile_compile-only parameters for method=aqmh as AQMH quality/reconstruction tuning parameters.");
+            }
         }
         if (const nlohmann::json* cur = get_dotted_ptr(base_config, path)) {
             meta["current_value"] = *cur;

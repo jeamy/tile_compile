@@ -442,70 +442,13 @@ void adaptive_output_scaling(
     const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
-  std::vector<float> luma;
-  luma.reserve(static_cast<size_t>(rows) * static_cast<size_t>(cols));
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
-        continue;
-      }
-      luma.push_back(w[0] * sanitize01(R(y, x)) +
-                     w[1] * sanitize01(G(y, x)) +
-                     w[2] * sanitize01(B(y, x)));
-    }
-  }
-  if (luma.empty()) {
-    return;
-  }
-  const float med = median(luma);
-  const float sd = stddev(luma, med);
-  const float min_l = *std::min_element(luma.begin(), luma.end());
-  const float global_floor = std::max(min_l, med - 2.7f * sd);
-  constexpr float pedestal = 0.001f;
 
-  float abs_max = 0.0f;
-  int max_y = 0;
-  int max_x = 0;
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(statistics_mask, mask_rows, mask_cols, y, x)) {
-        continue;
-      }
-      const float l = w[0] * sanitize01(R(y, x)) +
-                      w[1] * sanitize01(G(y, x)) +
-                      w[2] * sanitize01(B(y, x));
-      if (l > abs_max) {
-        abs_max = l;
-        max_y = y;
-        max_x = x;
-      }
-    }
-  }
-
-  bool valid_physical_max = true;
-  if (abs_max > 0.001f) {
-    float max_neighbor = 0.0f;
-    int neighbors = 0;
-    for (int yy = std::max(0, max_y - 1); yy <= std::min(rows - 1, max_y + 1);
-         ++yy) {
-      for (int xx = std::max(0, max_x - 1); xx <= std::min(cols - 1, max_x + 1);
-           ++xx) {
-        if ((yy == max_y && xx == max_x) ||
-            !mask_valid(statistics_mask, mask_rows, mask_cols, yy, xx)) {
-          continue;
-        }
-        const float l = w[0] * sanitize01(R(yy, xx)) +
-                        w[1] * sanitize01(G(yy, xx)) +
-                        w[2] * sanitize01(B(yy, xx));
-        max_neighbor = std::max(max_neighbor, l);
-        ++neighbors;
-      }
-    }
-    if (neighbors > 0 && max_neighbor < abs_max * 0.20f) {
-      valid_physical_max = false;
-    }
-  }
-
+  // Sample per-channel statistics for channel-specific floor computation.
+  // Using a luma-based floor (with rec709 weights where G=71.5%) causes the
+  // floor to exceed the B channel background, clipping B to near-zero and
+  // producing a green tint. Use per-channel floors, but keep a shared robust
+  // expansion span so the final output scaling does not independently
+  // white-balance the channels.
   std::vector<float> sr;
   std::vector<float> sg;
   std::vector<float> sb;
@@ -523,34 +466,55 @@ void adaptive_output_scaling(
       sb.push_back(sanitize01(B(y, x)));
     }
   }
-  float soft_ceil = std::max({percentile(sr, 99.0f), percentile(sg, 99.0f),
-                              percentile(sb, 99.0f)});
-  if (soft_ceil <= global_floor) {
-    soft_ceil = global_floor + 1e-6f;
+  if (sr.empty()) {
+    return;
   }
-  if (abs_max <= soft_ceil) {
-    abs_max = soft_ceil + 1e-6f;
-  }
-  const float scale_contrast =
-      (0.98f - pedestal) / (soft_ceil - global_floor + 1e-9f);
-  float final_scale = scale_contrast;
-  if (valid_physical_max) {
-    const float scale_physical =
-        (1.0f - pedestal) / (abs_max - global_floor + 1e-9f);
-    final_scale = std::min(scale_contrast, scale_physical);
-  }
-  auto expand = [&](float v) {
-    return std::clamp((v - global_floor) * final_scale + pedestal, 0.0f, 1.0f);
+
+  auto channel_floor = [](std::vector<float> &vals) {
+    const float med = median(vals);
+    const float sd = stddev(vals, med);
+    const float min_v = *std::min_element(vals.begin(), vals.end());
+    return std::max(min_v, med - 2.7f * sd);
   };
+
+  const float floor_r = channel_floor(sr);
+  const float floor_g = channel_floor(sg);
+  const float floor_b = channel_floor(sb);
+  constexpr float pedestal = 0.001f;
+
+  // Per-channel soft ceilings define candidate dynamic ranges. The expansion
+  // uses a shared span, preventing low-dynamic-range channels from being
+  // amplified with a different color scale than the others.
+  const float ceil_r = percentile(sr, 99.0f);
+  const float ceil_g = percentile(sg, 99.0f);
+  const float ceil_b = percentile(sb, 99.0f);
+  const float span_r = std::max(ceil_r - floor_r, 1e-6f);
+  const float span_g = std::max(ceil_g - floor_g, 1e-6f);
+  const float span_b = std::max(ceil_b - floor_b, 1e-6f);
+  const float shared_span = std::max({span_r, span_g, span_b});
+
+  // Channel floor + shared scale: map [floor_ch, floor_ch + shared_span] to
+  // [pedestal, 0.98].
+  auto make_expand = [&](float floor_ch) {
+    const float scale = (0.98f - pedestal) / (shared_span + 1e-9f);
+    return [floor_ch, scale, pedestal](float v) {
+      return std::clamp((v - floor_ch) * scale + pedestal, 0.0f, 1.0f);
+    };
+  };
+
+  auto expand_r = make_expand(floor_r);
+  auto expand_g = make_expand(floor_g);
+  auto expand_b = make_expand(floor_b);
+
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
       if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
-      R(y, x) = expand(R(y, x));
-      G(y, x) = expand(G(y, x));
-      B(y, x) = expand(B(y, x));
+      R(y, x) = expand_r(R(y, x));
+      G(y, x) = expand_g(G(y, x));
+      B(y, x) = expand_b(B(y, x));
     }
   }
 
