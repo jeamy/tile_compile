@@ -1894,7 +1894,9 @@ static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
     const float shift_factor =
         (stable_low_chroma_background || coherent_global_cast)
             ? 1.0f
-            : std::clamp(0.20f / std::max(chroma_std, 1.0e-3f), 0.0f, 1.0f);
+            : ((out.shift_sigma_ratio <= 3.0f)
+                   ? 1.0f
+                   : std::sqrt(std::clamp(3.0f / out.shift_sigma_ratio, 0.0f, 1.0f)));
     const float chroma_factor =
         (coherent_global_cast || chroma_std <= 0.20f)
             ? 1.0f

@@ -5838,22 +5838,32 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         if (!have_wcs) {
-          const auto sensor_fov_deg =
-              estimate_astap_sensor_fov_deg(first_hdr, height);
-          if (sensor_fov_deg) {
-            std::ostringstream fov_ss;
-            fov_ss << std::fixed << std::setprecision(3) << *sensor_fov_deg;
-            const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
-            std::cout << "[ASTROMETRY] Retry with sensor FOV: "
-                      << retry_cmd << std::endl;
-            ret = std::system(system_cmd(retry_cmd).c_str());
-            if (ret == 0 && fs::exists(wcs_path)) {
-              try {
-                wcs = astro::parse_wcs_file(wcs_path.string());
-                have_wcs = wcs.valid();
-              } catch (const std::exception &e) {
-                std::cerr << "[ASTROMETRY] WCS parse error after FOV retry: "
-                          << e.what() << std::endl;
+          const int solve_height =
+              R_out.rows() > 0 ? static_cast<int>(R_out.rows()) : height;
+          const auto canvas_fov_deg =
+              estimate_astap_sensor_fov_deg(first_hdr, solve_height);
+          if (canvas_fov_deg) {
+            const std::vector<double> fov_candidates = {
+                *canvas_fov_deg * 0.75,
+                *canvas_fov_deg * 0.60,
+                *canvas_fov_deg,
+                *canvas_fov_deg * 0.50};
+            for (double cand_fov : fov_candidates) {
+              std::ostringstream fov_ss;
+              fov_ss << std::fixed << std::setprecision(3) << cand_fov;
+              const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
+              std::cout << "[ASTROMETRY] Retry with FOV " << fov_ss.str()
+                        << " deg: " << retry_cmd << std::endl;
+              ret = std::system(system_cmd(retry_cmd).c_str());
+              if (ret == 0 && fs::exists(wcs_path)) {
+                try {
+                  wcs = astro::parse_wcs_file(wcs_path.string());
+                  have_wcs = wcs.valid();
+                  if (have_wcs) break;
+                } catch (const std::exception &e) {
+                  std::cerr << "[ASTROMETRY] WCS parse error after FOV retry: "
+                            << e.what() << std::endl;
+                }
               }
             }
           }

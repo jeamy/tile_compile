@@ -2171,24 +2171,33 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
-    const int astrometry_image_height = resolve_astrometry_image_height();
-    if (!have_wcs && astrometry_image_height > 0) {
-      const auto sensor_fov_deg =
-          runner::estimate_astap_sensor_fov_deg(rgb.header,
-                                                astrometry_image_height);
-      if (sensor_fov_deg) {
-        std::ostringstream fov_ss;
-        fov_ss << std::fixed << std::setprecision(3) << *sensor_fov_deg;
-        const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
-        std::cout << "[ASTROMETRY][resume] Retry with sensor FOV: "
-                  << retry_cmd << std::endl;
-        ret = std::system(retry_cmd.c_str());
-        if (ret == 0 && fs::exists(wcs_out)) {
-          try {
-            wcs = astro::parse_wcs_file(wcs_out.string());
-            have_wcs = wcs.valid();
-          } catch (const std::exception &) {
-            have_wcs = false;
+    const int solve_height = rgb.R.rows() > 0
+                                ? static_cast<int>(rgb.R.rows())
+                                : resolve_astrometry_image_height();
+    if (!have_wcs && solve_height > 0) {
+      const auto canvas_fov_deg =
+          runner::estimate_astap_sensor_fov_deg(rgb.header, solve_height);
+      if (canvas_fov_deg) {
+        const std::vector<double> fov_candidates = {
+            *canvas_fov_deg * 0.75,
+            *canvas_fov_deg * 0.60,
+            *canvas_fov_deg,
+            *canvas_fov_deg * 0.50};
+        for (double cand_fov : fov_candidates) {
+          std::ostringstream fov_ss;
+          fov_ss << std::fixed << std::setprecision(3) << cand_fov;
+          const std::string retry_cmd = cmd + " -fov " + fov_ss.str();
+          std::cout << "[ASTROMETRY][resume] Retry with FOV " << fov_ss.str()
+                    << " deg: " << retry_cmd << std::endl;
+          ret = std::system(retry_cmd.c_str());
+          if (ret == 0 && fs::exists(wcs_out)) {
+            try {
+              wcs = astro::parse_wcs_file(wcs_out.string());
+              have_wcs = wcs.valid();
+              if (have_wcs) break;
+            } catch (const std::exception &) {
+              have_wcs = false;
+            }
           }
         }
       }
