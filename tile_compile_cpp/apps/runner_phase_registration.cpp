@@ -599,20 +599,28 @@ bool run_phase_registration_prewarp(
     return img;
   };
 
+  std::vector<Matrix2Df> in_memory_proxies(frames.size());
+  auto proxy_init_flags = std::make_unique<std::once_flag[]>(frames.size());
+
   auto load_registration_proxy = [&](size_t frame_index) -> Matrix2Df {
-    if (frame_cache) {
-      Matrix2Df proxy;
-      if (frame_cache->try_load_registration_proxy(frame_index, proxy)) {
-        return proxy;
+    if (frame_index >= frames.size()) return {};
+    std::call_once(proxy_init_flags[frame_index], [&]() {
+      if (frame_cache) {
+        Matrix2Df proxy;
+        if (frame_cache->try_load_registration_proxy(frame_index, proxy)) {
+          in_memory_proxies[frame_index] = std::move(proxy);
+          return;
+        }
       }
-    }
-    Matrix2Df img = load_frame_normalized(frame_index);
-    Matrix2Df proxy =
-        build_registration_proxy(img, detected_mode, detected_bayer_str);
-    if (frame_cache && proxy.size() > 0) {
-      frame_cache->store_registration_proxy(frame_index, proxy);
-    }
-    return proxy;
+      Matrix2Df img = load_frame_normalized(frame_index);
+      Matrix2Df proxy =
+          build_registration_proxy(img, detected_mode, detected_bayer_str);
+      if (frame_cache && proxy.size() > 0) {
+        frame_cache->store_registration_proxy(frame_index, proxy);
+      }
+      in_memory_proxies[frame_index] = std::move(proxy);
+    });
+    return in_memory_proxies[frame_index];
   };
 
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
@@ -4529,18 +4537,12 @@ bool run_phase_registration_prewarp(
             }
           }
           if (!local_remap_applied) {
-            prewarp_ops.warp_affine_frame(
-                std::move(debayer.R), w, ColorMode::MONO, canvas_height,
-                canvas_width, offset_x, offset_y, warped_r, &mask_r, &has_r,
-                stream);
-            prewarp_ops.warp_affine_frame(
-                std::move(debayer.G), w, ColorMode::MONO, canvas_height,
-                canvas_width, offset_x, offset_y, warped_g, &mask_g, &has_g,
-                stream);
-            prewarp_ops.warp_affine_frame(
-                std::move(debayer.B), w, ColorMode::MONO, canvas_height,
-                canvas_width, offset_x, offset_y, warped_b, &mask_b, &has_b,
-                stream);
+            prewarp_ops.warp_affine_rgb_frame(
+                std::move(debayer.R), std::move(debayer.G), std::move(debayer.B),
+                w, canvas_height, canvas_width, offset_x, offset_y,
+                warped_r, warped_g, warped_b, &mask_r, &has_r, stream);
+            has_g = has_r;
+            has_b = has_r;
           }
           if (warped_r.rows() == canvas_height &&
               warped_r.cols() == canvas_width &&

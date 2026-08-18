@@ -786,49 +786,98 @@ void accumulate_upsampled_log_psi(
     Matrix2Dd &log_sum, std::vector<uint8_t> &veto) {
   const int rows = static_cast<int>(src.rows());
   const int cols = static_cast<int>(src.cols());
+
+  if (factor <= 1 && rows == out_h && cols == out_w) {
 #pragma omp parallel for collapse(2) schedule(static)
-  for (int y = 0; y < out_h; ++y) {
-    for (int x = 0; x < out_w; ++x) {
-      float value = nan_value();
-      if (factor <= 1 && rows == out_h && cols == out_w) {
-        value = src(y, x);
-      } else {
-        const float sx = (static_cast<float>(x) + 0.5f) / factor - 0.5f;
-        const float sy = (static_cast<float>(y) + 0.5f) / factor - 0.5f;
-        const int x0 = static_cast<int>(std::floor(sx));
-        const int y0 = static_cast<int>(std::floor(sy));
-        double num = 0.0;
-        double den = 0.0;
-        for (int j = 0; j <= 1; ++j) {
-          for (int i = 0; i <= 1; ++i) {
-            const int xx = std::clamp(x0 + i, 0, cols - 1);
-            const int yy = std::clamp(y0 + j, 0, rows - 1);
-            const float wx =
-                1.0f - std::abs(sx - static_cast<float>(x0 + i));
-            const float wy =
-                1.0f - std::abs(sy - static_cast<float>(y0 + j));
-            const float weight =
-                std::max(wx, 0.0f) * std::max(wy, 0.0f);
-            const float sample = src(yy, xx);
-            if (weight > 0.0f && finite(sample)) {
-              num += weight * sample;
-              den += weight;
-            }
-          }
+    for (int y = 0; y < out_h; ++y) {
+      for (int x = 0; x < out_w; ++x) {
+        const float value = src(y, x);
+        const size_t idx =
+            static_cast<size_t>(y) * static_cast<size_t>(out_w) +
+            static_cast<size_t>(x);
+        if (veto[idx] != 0u)
+          continue;
+        if (!finite(value) || value <= 0.0f) {
+          veto[idx] = 1u;
+        } else {
+          log_sum(y, x) += std::log(static_cast<double>(value));
         }
-        if (den > 0.0)
-          value = static_cast<float>(num / den);
+      }
+    }
+    return;
+  }
+
+  // Precompute 1D interpolation LUTs for X and Y to eliminate all floor, clamp,
+  // and abs operations from the 2D pixel loops.
+  struct Interp1D {
+    int idx0;
+    int idx1;
+    float w0;
+    float w1;
+  };
+
+  std::vector<Interp1D> x_lut(static_cast<size_t>(out_w));
+  for (int x = 0; x < out_w; ++x) {
+    const float sx = (static_cast<float>(x) + 0.5f) / static_cast<float>(factor) - 0.5f;
+    const int x0 = static_cast<int>(std::floor(sx));
+    x_lut[static_cast<size_t>(x)] = {
+        std::clamp(x0, 0, cols - 1),
+        std::clamp(x0 + 1, 0, cols - 1),
+        std::max(1.0f - std::abs(sx - static_cast<float>(x0)), 0.0f),
+        std::max(1.0f - std::abs(sx - static_cast<float>(x0 + 1)), 0.0f)};
+  }
+
+  std::vector<Interp1D> y_lut(static_cast<size_t>(out_h));
+  for (int y = 0; y < out_h; ++y) {
+    const float sy = (static_cast<float>(y) + 0.5f) / static_cast<float>(factor) - 0.5f;
+    const int y0 = static_cast<int>(std::floor(sy));
+    y_lut[static_cast<size_t>(y)] = {
+        std::clamp(y0, 0, rows - 1),
+        std::clamp(y0 + 1, 0, rows - 1),
+        std::max(1.0f - std::abs(sy - static_cast<float>(y0)), 0.0f),
+        std::max(1.0f - std::abs(sy - static_cast<float>(y0 + 1)), 0.0f)};
+  }
+
+#pragma omp parallel for schedule(static)
+  for (int y = 0; y < out_h; ++y) {
+    const auto &yl = y_lut[static_cast<size_t>(y)];
+    const float *r0 = src.data() + static_cast<size_t>(yl.idx0) * static_cast<size_t>(cols);
+    const float *r1 = src.data() + static_cast<size_t>(yl.idx1) * static_cast<size_t>(cols);
+    double *log_row = log_sum.data() + static_cast<size_t>(y) * static_cast<size_t>(out_w);
+    uint8_t *veto_row = veto.data() + static_cast<size_t>(y) * static_cast<size_t>(out_w);
+
+    for (int x = 0; x < out_w; ++x) {
+      if (veto_row[x] != 0u)
+        continue;
+
+      const auto &xl = x_lut[static_cast<size_t>(x)];
+      const float s00 = r0[xl.idx0];
+      const float s01 = r0[xl.idx1];
+      const float s10 = r1[xl.idx0];
+      const float s11 = r1[xl.idx1];
+
+      const float w00 = yl.w0 * xl.w0;
+      const float w01 = yl.w0 * xl.w1;
+      const float w10 = yl.w1 * xl.w0;
+      const float w11 = yl.w1 * xl.w1;
+
+      double num = 0.0;
+      double den = 0.0;
+      if (w00 > 0.0f && finite(s00)) { num += w00 * s00; den += w00; }
+      if (w01 > 0.0f && finite(s01)) { num += w01 * s01; den += w01; }
+      if (w10 > 0.0f && finite(s10)) { num += w10 * s10; den += w10; }
+      if (w11 > 0.0f && finite(s11)) { num += w11 * s11; den += w11; }
+
+      if (den <= 0.0) {
+        veto_row[x] = 1u;
+        continue;
       }
 
-      const size_t idx =
-          static_cast<size_t>(y) * static_cast<size_t>(out_w) +
-          static_cast<size_t>(x);
-      if (veto[idx] != 0u)
-        continue;
-      if (!finite(value) || value <= 0.0f) {
-        veto[idx] = 1u;
+      const float val = static_cast<float>(num / den);
+      if (!finite(val) || val <= 0.0f) {
+        veto_row[x] = 1u;
       } else {
-        log_sum(y, x) += std::log(static_cast<double>(value));
+        log_row[x] += std::log(static_cast<double>(val));
       }
     }
   }

@@ -96,8 +96,8 @@ struct NormDistanceAsc {
 // This dramatically reduces comparisons, instructions, register pressure, and execution time
 // for thread-sequential sorting on the GPU compared to Bitonic Sort.
 template <int MaxFrames, typename Comp>
-__device__ void adaptive_sort(int* indices, int n, Comp comp) {
-  for (int i = 0; i < n; ++i) indices[i] = i;
+__device__ void adaptive_sort(short* indices, int n, Comp comp) {
+  for (short i = 0; i < static_cast<short>(n); ++i) indices[i] = i;
 
   // Empirical gap sequence optimized for N <= 1024
   const int gaps[] = {701, 301, 132, 57, 23, 10, 4, 1};
@@ -105,7 +105,7 @@ __device__ void adaptive_sort(int* indices, int n, Comp comp) {
     const int gap = gaps[g];
     if (gap >= n || gap >= MaxFrames) continue;
     for (int i = gap; i < n; ++i) {
-      const int temp = indices[i];
+      const short temp = indices[i];
       int j = i;
       while (j >= gap && comp(temp, indices[j - gap])) {
         indices[j] = indices[j - gap];
@@ -121,7 +121,7 @@ __device__ void adaptive_sort(int* indices, int n, Comp comp) {
 template <int MaxFrames>
 __device__ float weighted_median_value(
     const float* values, const float* weights, int n,
-    int* sort_buf) {
+    short* sort_buf) {
   if (n <= 0) return 0.0f;
   adaptive_sort<MaxFrames>(sort_buf, n, ValueAsc{values});
 
@@ -142,7 +142,7 @@ __device__ float weighted_median_value(
 template <int MaxFrames>
 __device__ float weighted_mad_value(
     const float* values, const float* weights, int n,
-    float center, int* sort_buf) {
+    float center, short* sort_buf) {
   if (n <= 0) return 0.0f;
   adaptive_sort<MaxFrames>(sort_buf, n, DeviationAsc{values, center});
 
@@ -164,7 +164,7 @@ __device__ float weighted_mad_value(
 // weighted_median_value(), so only the deviation ordering remains.
 template <int MaxFrames>
 __device__ float noise_floor_from_median(
-    const float* values, int n, float median, int* sort_buf) {
+    const float* values, int n, float median, short* sort_buf) {
   if (n <= 0) return device_eps();
   adaptive_sort<MaxFrames>(sort_buf, n, DeviationAsc{values, median});
   const float mad = (n % 2 == 1)
@@ -181,7 +181,7 @@ __device__ float noise_floor_from_median(
 template <int MaxFrames>
 __device__ int cherry_pick_top_k(
     float* values, float* weights, float* scores, int n,
-    int k_min_required, float k_frac, int* sort_buf) {
+    int k_min_required, float k_frac, short* sort_buf) {
   if (n < k_min_required) return n;
 
   const int nominal = max(0, static_cast<int>(floorf(k_frac * static_cast<float>(n))));
@@ -209,7 +209,7 @@ template <int MaxFrames>
 __device__ int cherry_pick_auto_reject(
     float* values, float* weights, float* scores, int n,
     int k_min_required, float reject_below_best_fraction,
-    float min_keep_fraction, float margin_min, int* sort_buf) {
+    float min_keep_fraction, float margin_min, short* sort_buf) {
   if (n < k_min_required) return n;
 
   adaptive_sort<MaxFrames>(sort_buf, n, ScoreDesc{scores});
@@ -253,7 +253,7 @@ __device__ int sigma_clip(
     float* values, float* weights, int n,
     float clip_sigma_low, float clip_sigma_high, int iterations,
     float min_fraction, float min_n_eff,
-    float* out_weight_sum, float* out_effective_n, int* sort_buf) {
+    float* out_weight_sum, float* out_effective_n, short* sort_buf) {
   if (n <= 0) {
     *out_weight_sum = 0.0f;
     *out_effective_n = 0.0f;
@@ -294,61 +294,39 @@ __device__ int sigma_clip(
         : 0.5f * (values[sort_buf[n / 2 - 1]] +
                   values[sort_buf[n / 2]]);
 
-    float mad;
-    float floor_val;
-    if (n <= 8) {
-      adaptive_sort<MaxFrames>(
-          sort_buf, n, DeviationAsc{values, center});
-      const int mid = n / 2;
-      mad = (n % 2 == 1)
-          ? fabsf(values[sort_buf[mid]] - center)
-          : 0.5f * (fabsf(values[sort_buf[mid - 1]] - center) +
-                    fabsf(values[sort_buf[mid]] - center));
+    const float mad = weighted_mad_value<MaxFrames>(values, weights, n, center, sort_buf);
+    const float floor_val = noise_floor_from_median<MaxFrames>(values, n, value_median, sort_buf);
 
-      adaptive_sort<MaxFrames>(sort_buf, n, ValueAsc{values});
-      const float val_med = (n % 2 == 1)
-          ? values[sort_buf[n / 2]]
-          : 0.5f * (values[sort_buf[n / 2 - 1]] +
-                    values[sort_buf[n / 2]]);
-      adaptive_sort<MaxFrames>(
-          sort_buf, n, DeviationAsc{values, val_med});
-      const float noise_mad = (n % 2 == 1)
-          ? fabsf(values[sort_buf[n / 2]] - val_med)
-          : 0.5f * (fabsf(values[sort_buf[n / 2 - 1]] - val_med) +
-                    fabsf(values[sort_buf[n / 2]] - val_med));
-      const float eps_rel = metrics::aqmh_eps_rel;
-      floor_val = fmaxf(device_eps(), eps_rel * noise_mad);
-    } else {
-      mad = weighted_mad_value<MaxFrames>(values, weights, n, center, sort_buf);
-      floor_val =
-          noise_floor_from_median<MaxFrames>(values, n, value_median, sort_buf);
-    }
-
+    const float eps_center = device_eps() * fmaxf(fabsf(center), 1.0f);
     if (mad <= floor_val) {
-      // All equal (within epsilon guard): keep only samples equal to center.
+      // All equal (within epsilon guard): keep only samples within eps_center.
       int keep_count = 0;
       for (int i = 0; i < n; ++i) {
-        if (values[i] == center) ++keep_count;
+        if (fabsf(values[i] - center) <= eps_center) ++keep_count;
       }
       if (keep_count == n) break;
       if (keep_count < keep_floor) {
         // Sort by normalized distance and keep floor closest to center.
         adaptive_sort<MaxFrames>(
             sort_buf, n,
-            NormDistanceAsc{values, center, fmaxf(1.4826f * mad, floor_val)});
+            NormDistanceAsc{values, center, floor_val});
+        float tmp_v[MaxFrames];
+        float tmp_w[MaxFrames];
         for (int i = 0; i < keep_floor; ++i) {
-          const int src = sort_buf[i];
-          if (src != i) {
-            values[i] = values[src];
-            weights[i] = weights[src];
-          }
+          const short src = sort_buf[i];
+          tmp_v[i] = values[src];
+          tmp_w[i] = weights[src];
+        }
+        for (int i = 0; i < keep_floor; ++i) {
+          values[i] = tmp_v[i];
+          weights[i] = tmp_w[i];
         }
         n = keep_floor;
       } else {
-        // Keep only samples equal to center.
+        // Keep only samples within eps_center.
         int m = 0;
         for (int i = 0; i < n; ++i) {
-          if (values[i] == center) {
+          if (fabsf(values[i] - center) <= eps_center) {
             values[m] = values[i];
             weights[m] = weights[i];
             ++m;
@@ -374,12 +352,16 @@ __device__ int sigma_clip(
     if (keep_count < keep_floor) {
       // Sort by normalized distance and keep floor.
       adaptive_sort<MaxFrames>(sort_buf, n, NormDistanceAsc{values, center, sigma});
+      float tmp_v[MaxFrames];
+      float tmp_w[MaxFrames];
       for (int i = 0; i < keep_floor; ++i) {
         const int src = sort_buf[i];
-        if (src != i) {
-          values[i] = values[src];
-          weights[i] = weights[src];
-        }
+        tmp_v[i] = values[src];
+        tmp_w[i] = weights[src];
+      }
+      for (int i = 0; i < keep_floor; ++i) {
+        values[i] = tmp_v[i];
+        weights[i] = tmp_w[i];
       }
       n = keep_floor;
       break;
@@ -470,7 +452,7 @@ __global__ void aqmh_reconstruction_kernel(
   float values[MaxFrames];
   float weights[MaxFrames];
   float scores[CherryPickEnabled ? MaxFrames : 1];
-  int scratch_buf[MaxFrames];
+  short scratch_buf[MaxFrames];
   int n_samples = 0;
   bool has_finite_q = false;
   double uniform_sum = 0.0;
@@ -690,7 +672,17 @@ void launch_reconstruction_kernel_for_frame_count(
     unsigned long long* d_numerical_guard_pixels,
     int width, int chunk_rows, int y0, int height,
     const AqmhReconstructionConfig& cfg) {
-  if (frame_count <= 128) {
+  if (frame_count <= 32) {
+    launch_reconstruction_kernel<32>(
+        cherry_enabled, grid, block, stream, bufs, d_global_weights,
+        d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+        width, chunk_rows, y0, height, frame_count, cfg);
+  } else if (frame_count <= 64) {
+    launch_reconstruction_kernel<64>(
+        cherry_enabled, grid, block, stream, bufs, d_global_weights,
+        d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+        width, chunk_rows, y0, height, frame_count, cfg);
+  } else if (frame_count <= 128) {
     launch_reconstruction_kernel<128>(
         cherry_enabled, grid, block, stream, bufs, d_global_weights,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
@@ -712,6 +704,95 @@ void launch_reconstruction_kernel_for_frame_count(
         width, chunk_rows, y0, height, frame_count, cfg);
   }
 }
+
+template <typename T>
+class PinnedBuffer {
+ public:
+  PinnedBuffer() : ptr_(nullptr), size_(0), is_pinned_(false) {}
+  explicit PinnedBuffer(size_t n, T init_val = T()) : ptr_(nullptr), size_(n), is_pinned_(false) {
+    if (n > 0) {
+      cudaError_t err = cudaHostAlloc(&ptr_, n * sizeof(T), cudaHostAllocPortable);
+      if (err != cudaSuccess || !ptr_) {
+        ptr_ = static_cast<T*>(std::malloc(n * sizeof(T)));
+        is_pinned_ = false;
+      } else {
+        is_pinned_ = true;
+      }
+      if (ptr_) {
+        std::fill(ptr_, ptr_ + n, init_val);
+      }
+    }
+  }
+  ~PinnedBuffer() {
+    if (ptr_) {
+      if (is_pinned_) {
+        cudaFreeHost(ptr_);
+      } else {
+        std::free(ptr_);
+      }
+      ptr_ = nullptr;
+    }
+  }
+  PinnedBuffer(const PinnedBuffer&) = delete;
+  PinnedBuffer& operator=(const PinnedBuffer&) = delete;
+  PinnedBuffer(PinnedBuffer&& o) noexcept : ptr_(o.ptr_), size_(o.size_), is_pinned_(o.is_pinned_) {
+    o.ptr_ = nullptr;
+    o.size_ = 0;
+    o.is_pinned_ = false;
+  }
+  PinnedBuffer& operator=(PinnedBuffer&& o) noexcept {
+    if (this != &o) {
+      if (ptr_) {
+        if (is_pinned_) cudaFreeHost(ptr_);
+        else std::free(ptr_);
+      }
+      ptr_ = o.ptr_;
+      size_ = o.size_;
+      is_pinned_ = o.is_pinned_;
+      o.ptr_ = nullptr;
+      o.size_ = 0;
+      o.is_pinned_ = false;
+    }
+    return *this;
+  }
+  void assign(size_t n, T val) {
+    if (n != size_ || !ptr_) {
+      if (ptr_) {
+        if (is_pinned_) cudaFreeHost(ptr_);
+        else std::free(ptr_);
+        ptr_ = nullptr;
+      }
+      size_ = n;
+      if (n > 0) {
+        cudaError_t err = cudaHostAlloc(&ptr_, n * sizeof(T), cudaHostAllocPortable);
+        if (err != cudaSuccess || !ptr_) {
+          ptr_ = static_cast<T*>(std::malloc(n * sizeof(T)));
+          is_pinned_ = false;
+        } else {
+          is_pinned_ = true;
+        }
+      }
+    }
+    if (ptr_ && size_ > 0) {
+      std::fill(ptr_, ptr_ + size_, val);
+    }
+  }
+  T* data() noexcept { return ptr_; }
+  const T* data() const noexcept { return ptr_; }
+  size_t size() const noexcept { return size_; }
+  bool empty() const noexcept { return size_ == 0 || ptr_ == nullptr; }
+  T& operator[](size_t i) noexcept { return ptr_[i]; }
+  const T& operator[](size_t i) const noexcept { return ptr_[i]; }
+  T* begin() noexcept { return ptr_; }
+  T* end() noexcept { return ptr_ + size_; }
+  const T* begin() const noexcept { return ptr_; }
+  const T* end() const noexcept { return ptr_ + size_; }
+
+ private:
+  T* ptr_ = nullptr;
+  size_t size_ = 0;
+  bool is_pinned_ = false;
+};
 
 #undef CUDA_CHECK
 
@@ -843,21 +924,21 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
   }
 
-  // Host staging buffers.
-  std::vector<float> h_frames(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
-  std::vector<float> h_q_maps(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
-  std::vector<uint8_t> h_masks(static_cast<size_t>(frame_count) * chunk_rows * width, 0u);
-  std::vector<uint8_t> h_canvas_mask(static_cast<size_t>(chunk_rows) * width, 0u);
-  std::vector<float> h_output(static_cast<size_t>(chunk_rows) * width, 0.0f);
-  std::vector<float> h_weight_sum(static_cast<size_t>(chunk_rows) * width, 0.0f);
-  std::vector<float> h_uniform_control;
-  std::vector<uint8_t> h_uniform_control_valid;
+  // Pinned host staging buffers for true asynchronous DMA transfers.
+  PinnedBuffer<float> h_frames(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
+  PinnedBuffer<float> h_q_maps(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
+  PinnedBuffer<uint8_t> h_masks(static_cast<size_t>(frame_count) * chunk_rows * width, 0u);
+  PinnedBuffer<uint8_t> h_canvas_mask(static_cast<size_t>(chunk_rows) * width, 0u);
+  PinnedBuffer<float> h_output(static_cast<size_t>(chunk_rows) * width, 0.0f);
+  PinnedBuffer<float> h_weight_sum(static_cast<size_t>(chunk_rows) * width, 0.0f);
+  PinnedBuffer<float> h_uniform_control;
+  PinnedBuffer<uint8_t> h_uniform_control_valid;
   if (cfg.compute_uniform_control)
     h_uniform_control.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
   if (cfg.compute_uniform_control)
     h_uniform_control_valid.assign(
         static_cast<size_t>(chunk_rows) * width, 0u);
-  std::vector<float> h_cherry_k_map;
+  PinnedBuffer<float> h_cherry_k_map;
   if (cherry_enabled)
     h_cherry_k_map.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
 

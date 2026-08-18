@@ -350,6 +350,39 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
   }
 }
 
+/// @brief Implements fused 3-channel (RGB) cuda warp affine with single stream synchronization.
+bool cuda_warp_affine_rgb_impl(
+    const cv::Mat &src_r, const cv::Mat &src_g, const cv::Mat &src_b,
+    const cv::Mat &warp_matrix, cv::Size output_size,
+    cv::Mat &dst_r, cv::Mat &dst_g, cv::Mat &dst_b,
+    int interpolation_flag, cv::cuda::Stream *stream) {
+  try {
+    cv::cuda::GpuMat d_src_r, d_src_g, d_src_b;
+    cv::cuda::GpuMat d_dst_r, d_dst_g, d_dst_b;
+    cv::cuda::Stream &cuda_stream =
+        stream ? *stream : cv::cuda::Stream::Null();
+    d_src_r.upload(src_r, cuda_stream);
+    d_src_g.upload(src_g, cuda_stream);
+    d_src_b.upload(src_b, cuda_stream);
+    cv::cuda::warpAffine(d_src_r, d_dst_r, warp_matrix, output_size,
+                         interpolation_flag | cv::WARP_INVERSE_MAP,
+                         cv::BORDER_CONSTANT, cv::Scalar(0), cuda_stream);
+    cv::cuda::warpAffine(d_src_g, d_dst_g, warp_matrix, output_size,
+                         interpolation_flag | cv::WARP_INVERSE_MAP,
+                         cv::BORDER_CONSTANT, cv::Scalar(0), cuda_stream);
+    cv::cuda::warpAffine(d_src_b, d_dst_b, warp_matrix, output_size,
+                         interpolation_flag | cv::WARP_INVERSE_MAP,
+                         cv::BORDER_CONSTANT, cv::Scalar(0), cuda_stream);
+    d_dst_r.download(dst_r, cuda_stream);
+    d_dst_g.download(dst_g, cuda_stream);
+    d_dst_b.download(dst_b, cuda_stream);
+    cuda_stream.waitForCompletion();
+    return !dst_r.empty() && !dst_g.empty() && !dst_b.empty();
+  } catch (...) {
+    return false;
+  }
+}
+
 /// @brief Implements cuda warp cfa mosaic.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -2408,6 +2441,80 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
                                prewarp_interpolation_);
   update_valid_outputs_from_warp(src_height, src_width);
   return warped_out.size() > 0;
+}
+
+/// @brief Implements fused 3-channel (RGB) warp affine frame with support mask update.
+bool AccelerationOps::warp_affine_rgb_frame(
+    Matrix2Df img_r, Matrix2Df img_g, Matrix2Df img_b,
+    const WarpMatrix &warp, int canvas_height, int canvas_width,
+    int offset_x, int offset_y,
+    Matrix2Df &warped_r_out, Matrix2Df &warped_g_out, Matrix2Df &warped_b_out,
+    std::vector<uint8_t> *valid_mask_out,
+    bool *has_data_out,
+    cv::cuda::Stream *stream) const {
+  if (img_r.size() <= 0 || img_g.size() <= 0 || img_b.size() <= 0) {
+    warped_r_out.resize(0, 0);
+    warped_g_out.resize(0, 0);
+    warped_b_out.resize(0, 0);
+    if (valid_mask_out != nullptr) valid_mask_out->clear();
+    if (has_data_out != nullptr) *has_data_out = false;
+    return false;
+  }
+
+  const int src_height = static_cast<int>(img_r.rows());
+  const int src_width = static_cast<int>(img_r.cols());
+  const int interpolation_flag =
+      interpolation_flag_from_name(prewarp_interpolation_);
+
+  auto update_valid_outputs_from_warp = [&](int sh, int sw) {
+    cv::Mat support_mask;
+    if (!build_warped_support_mask(warp_matrix_to_cv(warp), sh, sw,
+                                   cv::Size(canvas_width, canvas_height),
+                                   support_mask)) {
+      support_mask = cv::Mat(canvas_height, canvas_width, CV_8U, cv::Scalar(0));
+    }
+    invalidate_matrix_outside_support(warped_r_out, support_mask);
+    invalidate_matrix_outside_support(warped_g_out, support_mask);
+    invalidate_matrix_outside_support(warped_b_out, support_mask);
+    write_valid_outputs_from_mask(support_mask, valid_mask_out, has_data_out);
+  };
+
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
+  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+      selection_.phase == AccelerationPhase::prewarp) {
+    const cv::Mat src_r(src_height, src_width, CV_32F, const_cast<float *>(img_r.data()));
+    const cv::Mat src_g(src_height, src_width, CV_32F, const_cast<float *>(img_g.data()));
+    const cv::Mat src_b(src_height, src_width, CV_32F, const_cast<float *>(img_b.data()));
+    const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
+    cv::Mat dst_r, dst_g, dst_b;
+    if (cuda_warp_affine_rgb_impl(src_r, src_g, src_b, warp_matrix,
+                                  cv::Size(canvas_width, canvas_height),
+                                  dst_r, dst_g, dst_b,
+                                  interpolation_flag, stream)) {
+      warped_r_out.resize(canvas_height, canvas_width);
+      warped_g_out.resize(canvas_height, canvas_width);
+      warped_b_out.resize(canvas_height, canvas_width);
+      const size_t byte_count = static_cast<size_t>(canvas_height * canvas_width) * sizeof(float);
+      std::memcpy(warped_r_out.data(), dst_r.data, byte_count);
+      std::memcpy(warped_g_out.data(), dst_g.data, byte_count);
+      std::memcpy(warped_b_out.data(), dst_b.data, byte_count);
+      update_valid_outputs_from_warp(src_height, src_width);
+      return true;
+    }
+  }
+#endif
+
+  // Fallback: per-channel affine warp
+  bool r_ok = warp_affine_frame(std::move(img_r), warp, ColorMode::MONO,
+                                canvas_height, canvas_width, offset_x, offset_y,
+                                warped_r_out, valid_mask_out, has_data_out, stream);
+  bool g_ok = warp_affine_frame(std::move(img_g), warp, ColorMode::MONO,
+                                canvas_height, canvas_width, offset_x, offset_y,
+                                warped_g_out, nullptr, nullptr, stream);
+  bool b_ok = warp_affine_frame(std::move(img_b), warp, ColorMode::MONO,
+                                canvas_height, canvas_width, offset_x, offset_y,
+                                warped_b_out, nullptr, nullptr, stream);
+  return r_ok && g_ok && b_ok;
 }
 
 /// @brief Implements sigma clip reduce.

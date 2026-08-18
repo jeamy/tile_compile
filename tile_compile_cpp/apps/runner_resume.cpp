@@ -2160,7 +2160,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                       runner::shell_quote(astap_output_prefix.string());
 
     std::cout << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
-    int ret = std::system(cmd.c_str());
+    int ret = std::system(runner::system_cmd(cmd).c_str());
 
     if (ret == 0 && fs::exists(wcs_out)) {
       try {

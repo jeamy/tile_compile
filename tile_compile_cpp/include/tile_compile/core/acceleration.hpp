@@ -156,6 +156,15 @@ public:
                          bool *has_data_out = nullptr,
                          cv::cuda::Stream *stream = nullptr) const;
 
+  bool warp_affine_rgb_frame(
+      Matrix2Df img_r, Matrix2Df img_g, Matrix2Df img_b,
+      const WarpMatrix &warp, int canvas_height, int canvas_width,
+      int offset_x, int offset_y,
+      Matrix2Df &warped_r_out, Matrix2Df &warped_g_out, Matrix2Df &warped_b_out,
+      std::vector<uint8_t> *valid_mask_out = nullptr,
+      bool *has_data_out = nullptr,
+      cv::cuda::Stream *stream = nullptr) const;
+
   reconstruction::WeightedTileResult sigma_clip_reduce(
       const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
       float sigma_low, float sigma_high, int max_iters, float min_fraction,
