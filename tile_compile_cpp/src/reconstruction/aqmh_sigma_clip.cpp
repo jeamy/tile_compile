@@ -10,40 +10,44 @@
 namespace tile_compile::reconstruction {
 namespace {
 
-float sample_key(const AqmhWeightedSample &sample, bool deviations,
-                 float center) {
-  return deviations ? std::abs(sample.value - center) : sample.value;
-}
+struct WeightedVal {
+  float val;
+  float weight;
+};
 
 // Deterministic three-way weighted quickselect. This replaces a complete
 // O(N log N) sort for every median and MAD evaluation with expected O(N).
-float weighted_median_select(std::vector<AqmhWeightedSample> &samples,
-                             bool deviations, float center = 0.0f) {
-  if (samples.empty()) return 0.0f;
+float weighted_median_select(WeightedVal *arr, size_t n) {
+  if (n == 0) return 0.0f;
+  if (n == 1) return arr[0].val;
+  if (n == 2) {
+    if (arr[0].val > arr[1].val) std::swap(arr[0], arr[1]);
+    return arr[0].weight >= arr[1].weight ? arr[0].val : arr[1].val;
+  }
   double target = 0.0;
-  for (const auto &sample : samples) target += sample.weight;
+  for (size_t i = 0; i < n; ++i) target += arr[i].weight;
   target *= 0.5;
-  size_t first = 0, last = samples.size();
+  size_t first = 0, last = n;
   while (last - first > 1) {
-    const float a = sample_key(samples[first], deviations, center);
-    const float b = sample_key(samples[first + (last - first) / 2],
-                               deviations, center);
-    const float c = sample_key(samples[last - 1], deviations, center);
+    const size_t mid_idx = first + (last - first) / 2;
+    const float a = arr[first].val;
+    const float b = arr[mid_idx].val;
+    const float c = arr[last - 1].val;
     const float pivot = std::max(std::min(a, b), std::min(std::max(a, b), c));
     size_t lower = first, scan = first, upper = last;
     while (scan < upper) {
-      const float key = sample_key(samples[scan], deviations, center);
+      const float key = arr[scan].val;
       if (key < pivot) {
-        std::swap(samples[lower++], samples[scan++]);
+        std::swap(arr[lower++], arr[scan++]);
       } else if (key > pivot) {
-        std::swap(samples[scan], samples[--upper]);
+        std::swap(arr[scan], arr[--upper]);
       } else {
         ++scan;
       }
     }
     double lower_weight = 0.0, equal_weight = 0.0;
-    for (size_t i = first; i < lower; ++i) lower_weight += samples[i].weight;
-    for (size_t i = lower; i < upper; ++i) equal_weight += samples[i].weight;
+    for (size_t i = first; i < lower; ++i) lower_weight += arr[i].weight;
+    for (size_t i = lower; i < upper; ++i) equal_weight += arr[i].weight;
     if (target <= lower_weight && lower > first) {
       last = lower;
     } else if (target <= lower_weight + equal_weight || upper == last) {
@@ -53,17 +57,27 @@ float weighted_median_select(std::vector<AqmhWeightedSample> &samples,
       first = upper;
     }
   }
-  return sample_key(samples[first], deviations, center);
+  return arr[first].val;
 }
 
-float noise_floor(const std::vector<AqmhWeightedSample> &samples,
-                  std::vector<float> &values) {
-  values.clear();
-  values.reserve(samples.size());
-  for (const auto &sample : samples) values.push_back(sample.value);
-  const float center = tile_compile::core::median_of(values);
-  for (float &value : values) value = std::abs(value - center);
-  const float mad = tile_compile::core::median_of(values);
+inline float fast_median_inplace(float *data, size_t n) {
+  if (n == 0) return 0.0f;
+  const size_t mid = n / 2;
+  std::nth_element(data, data + mid, data + n);
+  const float hi = data[mid];
+  if ((n % 2) == 1) return hi;
+  std::nth_element(data, data + mid - 1, data + mid);
+  const float lo = data[mid - 1];
+  return 0.5f * (lo + hi);
+}
+
+float noise_floor_fast(const AqmhWeightedSample *samples, size_t n,
+                       std::vector<float> &scratch) {
+  scratch.resize(n);
+  for (size_t i = 0; i < n; ++i) scratch[i] = samples[i].value;
+  const float center = fast_median_inplace(scratch.data(), n);
+  for (size_t i = 0; i < n; ++i) scratch[i] = std::abs(scratch[i] - center);
+  const float mad = fast_median_inplace(scratch.data(), n);
   return std::max(std::nextafter(0.0f, 1.0f),
                   metrics::aqmh_eps_rel * mad);
 }
@@ -81,12 +95,25 @@ AqmhSigmaClipResult aqmh_sigma_clip(
     std::vector<AqmhWeightedSample> samples, float clip_sigma_low,
     float clip_sigma_high, int iterations, float min_fraction,
     float min_effective_n) {
-  samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
-                  return !std::isfinite(s.value) || !std::isfinite(s.weight) ||
-                         !(s.weight > 0.0f);
-                }), samples.end());
   AqmhSigmaClipResult result;
   if (samples.empty()) return result;
+
+  // Quick check if filtering needed
+  bool has_invalid = false;
+  for (const auto &s : samples) {
+    if (!std::isfinite(s.value) || !std::isfinite(s.weight) || !(s.weight > 0.0f)) {
+      has_invalid = true;
+      break;
+    }
+  }
+  if (has_invalid) {
+    samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
+                    return !std::isfinite(s.value) || !std::isfinite(s.weight) ||
+                           !(s.weight > 0.0f);
+                  }), samples.end());
+    if (samples.empty()) return result;
+  }
+
   const size_t n0 = samples.size();
 
   // Small-N fast path: for N<=8 use a fixed-size stack array instead of heap
@@ -96,73 +123,85 @@ AqmhSigmaClipResult aqmh_sigma_clip(
 
   const size_t keep_floor = std::min(
       n0, std::max<size_t>(1, static_cast<size_t>(std::ceil(min_fraction * n0))));
+
+  thread_local std::vector<WeightedVal> wvals;
+  thread_local std::vector<float> noise_values;
+
   for (int iter = 0; iter < iterations; ++iter) {
-    const float center = weighted_median_select(samples, false);
-    thread_local std::vector<AqmhWeightedSample> deviations;
-    thread_local std::vector<float> noise_values;
+    const size_t n = samples.size();
+    float center;
     float mad;
     float floor_val;
     if (n0 <= kSmallN) {
       // Stack-based path: no heap alloc.
-      float dev_arr[kSmallN];
+      WeightedVal stack_wvals[kSmallN];
+      for (size_t i = 0; i < n; ++i) stack_wvals[i] = {samples[i].value, samples[i].weight};
+      center = weighted_median_select(stack_wvals, n);
+      for (size_t i = 0; i < n; ++i) stack_wvals[i] = {std::abs(samples[i].value - center), samples[i].weight};
+      mad = weighted_median_select(stack_wvals, n);
+
       float noise_arr[kSmallN];
-      const size_t n = samples.size();
-      for (size_t i = 0; i < n; ++i) dev_arr[i] = std::abs(samples[i].value - center);
-      // Selection sort for tiny N (O(N²) but N<=8, ~28 comparisons max).
-      for (size_t i = 0; i < n; ++i)
-        for (size_t j = i + 1; j < n; ++j)
-          if (dev_arr[j] < dev_arr[i]) std::swap(dev_arr[i], dev_arr[j]);
-      const size_t mid = n / 2;
-      mad = n % 2 ? dev_arr[mid] : 0.5f * (dev_arr[mid - 1] + dev_arr[mid]);
       for (size_t i = 0; i < n; ++i) noise_arr[i] = samples[i].value;
-      for (size_t i = 0; i < n; ++i)
-        for (size_t j = i + 1; j < n; ++j)
-          if (noise_arr[j] < noise_arr[i]) std::swap(noise_arr[i], noise_arr[j]);
-      const float val_med = n % 2 ? noise_arr[mid] : 0.5f * (noise_arr[mid-1] + noise_arr[mid]);
+      const float val_med = fast_median_inplace(noise_arr, n);
       for (size_t i = 0; i < n; ++i) noise_arr[i] = std::abs(noise_arr[i] - val_med);
-      for (size_t i = 0; i < n; ++i)
-        for (size_t j = i + 1; j < n; ++j)
-          if (noise_arr[j] < noise_arr[i]) std::swap(noise_arr[i], noise_arr[j]);
-      const float noise_mad = n % 2 ? noise_arr[mid] : 0.5f * (noise_arr[mid-1] + noise_arr[mid]);
+      const float noise_mad = fast_median_inplace(noise_arr, n);
       floor_val = std::max(std::nextafter(0.0f, 1.0f), metrics::aqmh_eps_rel * noise_mad);
     } else {
-      deviations.assign(samples.begin(), samples.end());
-      mad = weighted_median_select(deviations, true, center);
-      floor_val = noise_floor(samples, noise_values);
+      wvals.resize(n);
+      for (size_t i = 0; i < n; ++i) wvals[i] = {samples[i].value, samples[i].weight};
+      center = weighted_median_select(wvals.data(), n);
+
+      for (size_t i = 0; i < n; ++i) wvals[i] = {std::abs(samples[i].value - center), samples[i].weight};
+      mad = weighted_median_select(wvals.data(), n);
+
+      floor_val = noise_floor_fast(samples.data(), n, noise_values);
     }
+
     size_t keep_count = 0;
-    if (mad <= floor_val) {
-      for (const auto &s : samples) keep_count += std::abs(s.value - center) <= std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f);
-    } else {
-      const float sigma = tile_compile::core::kMadToSigma * mad;
+    const bool use_noise_floor = (mad <= floor_val);
+    const float eps_center = std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f);
+    const float sigma = tile_compile::core::kMadToSigma * mad;
+    const float hi_bound = center + clip_sigma_high * sigma;
+    const float lo_bound = center - clip_sigma_low * sigma;
+
+    if (use_noise_floor) {
       for (const auto &s : samples)
-        keep_count += (s.value >= center)
-                          ? (s.value - center <= clip_sigma_high * sigma)
-                          : (center - s.value <= clip_sigma_low * sigma);
+        keep_count += (std::abs(s.value - center) <= eps_center);
+    } else {
+      for (const auto &s : samples)
+        keep_count += (s.value >= lo_bound && s.value <= hi_bound);
     }
+
     if (keep_count == samples.size()) {
       // All samples within band: distribution is stable, no further clipping
       // needed. Early exit saves remaining iterations (typically iter 1..N-1).
       break;
     }
+
     if (keep_count < keep_floor) {
+      const float denom = std::max(use_noise_floor ? 0.0f : sigma, floor_val);
       std::sort(samples.begin(), samples.end(), [&](const auto &a, const auto &b) {
-        const float ar = std::abs(a.value - center) / std::max(tile_compile::core::kMadToSigma * mad, floor_val);
-        const float br = std::abs(b.value - center) / std::max(tile_compile::core::kMadToSigma * mad, floor_val);
+        const float ar = std::abs(a.value - center) / denom;
+        const float br = std::abs(b.value - center) / denom;
         return ar != br ? ar < br : a.frame_index < b.frame_index;
       });
       samples.resize(keep_floor);
     } else if (keep_count < samples.size()) {
-      const float sigma = tile_compile::core::kMadToSigma * mad;
-      samples.erase(std::remove_if(samples.begin(), samples.end(),
-          [&](const auto &s) {
-            return mad <= floor_val ? std::abs(s.value - center) > std::numeric_limits<float>::epsilon() * std::max(std::abs(center), 1.0f)
-                                   : ((s.value >= center)
-                                          ? (s.value - center >
-                                             clip_sigma_high * sigma)
-                                          : (center - s.value >
-                                             clip_sigma_low * sigma));
-          }), samples.end());
+      size_t write_idx = 0;
+      if (use_noise_floor) {
+        for (size_t i = 0; i < samples.size(); ++i) {
+          if (std::abs(samples[i].value - center) <= eps_center) {
+            samples[write_idx++] = samples[i];
+          }
+        }
+      } else {
+        for (size_t i = 0; i < samples.size(); ++i) {
+          if (samples[i].value >= lo_bound && samples[i].value <= hi_bound) {
+            samples[write_idx++] = samples[i];
+          }
+        }
+      }
+      samples.resize(write_idx);
     } else {
       break;
     }

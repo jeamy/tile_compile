@@ -67,7 +67,8 @@ RobustFiniteStats robust_finite_stats_inplace(std::vector<float> &values) {
   if (values.empty()) return out;
   out.median = median_inplace(values);
 
-  std::vector<float> work(values.size());
+  thread_local std::vector<float> work;
+  work.resize(values.size());
   for (size_t i = 0; i < values.size(); ++i)
     work[i] = std::abs(values[i] - out.median);
   out.mad = median_inplace(work);
@@ -284,9 +285,11 @@ AqmhValidationMetrics measure_aqmh_validation_metrics_at_samples(
     const std::vector<uint8_t> &validation_mask) {
   AqmhValidationMetrics out;
   if (image.rows() <= 0 || image.cols() <= 0) return out;
-  std::vector<float> finite;
+  thread_local std::vector<float> finite;
+  thread_local std::vector<float> differences;
+  finite.clear();
+  differences.clear();
   finite.reserve(static_cast<size_t>(image.size()));
-  std::vector<float> differences;
   differences.reserve(static_cast<size_t>(image.size()) * 2u);
   double gradient_sum = 0.0;
   uint64_t gradient_count = 0;

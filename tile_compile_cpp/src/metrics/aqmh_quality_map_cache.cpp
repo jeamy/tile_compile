@@ -264,6 +264,23 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
     }
 
     Matrix2Df region(rows, full_width_);
+    struct XInterp {
+      int ax0;
+      int ax1;
+      float tx;
+      float inv_tx;
+    };
+    std::vector<XInterp> x_lut(full_width_);
+    for (int x = 0; x < full_width_; ++x) {
+      const float sx = (static_cast<float>(x) + 0.5f) / static_cast<float>(d) - 0.5f;
+      const int base_x = static_cast<int>(std::floor(sx));
+      const float tx = sx - static_cast<float>(base_x);
+      x_lut[x].ax0 = std::clamp(base_x, 0, stored_width_ - 1);
+      x_lut[x].ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
+      x_lut[x].tx = tx;
+      x_lut[x].inv_tx = 1.0f - tx;
+    }
+
     // Upsample only the requested rows using the same pixel-centre convention as
     // upsample_to_full_resolution().
     for (int ry = 0; ry < rows; ++ry) {
@@ -271,22 +288,17 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
       const float sy = (static_cast<float>(y) + 0.5f) / static_cast<float>(d) - 0.5f;
       const int base_y = static_cast<int>(std::floor(sy));
       const float ty = sy - static_cast<float>(base_y);
+      const float inv_ty = 1.0f - ty;
       const int ay0 = std::clamp(base_y, 0, stored_height_ - 1) - sy0;
       const int ay1 = std::clamp(base_y + 1, 0, stored_height_ - 1) - sy0;
+      const float *row0 = stored.data() + static_cast<size_t>(ay0) * stored_width_;
+      const float *row1 = stored.data() + static_cast<size_t>(ay1) * stored_width_;
+      float *dst_row = region.data() + static_cast<size_t>(ry) * full_width_;
       for (int x = 0; x < full_width_; ++x) {
-        const float sx = (static_cast<float>(x) + 0.5f) /
-                         static_cast<float>(d) - 0.5f;
-        const int base_x = static_cast<int>(std::floor(sx));
-        const float tx = sx - static_cast<float>(base_x);
-        const int ax0 = std::clamp(base_x, 0, stored_width_ - 1);
-        const int ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
-        const float v00 = stored(ay0, ax0);
-        const float v10 = stored(ay0, ax1);
-        const float v01 = stored(ay1, ax0);
-        const float v11 = stored(ay1, ax1);
-        const float v0 = (1.0f - tx) * v00 + tx * v10;
-        const float v1 = (1.0f - tx) * v01 + tx * v11;
-        region(ry, x) = clamp_q((1.0f - ty) * v0 + ty * v1);
+        const auto &lut = x_lut[x];
+        const float v0 = lut.inv_tx * row0[lut.ax0] + lut.tx * row0[lut.ax1];
+        const float v1 = lut.inv_tx * row1[lut.ax0] + lut.tx * row1[lut.ax1];
+        dst_row[x] = clamp_q(inv_ty * v0 + ty * v1);
       }
     }
 
@@ -296,22 +308,34 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
       const size_t bit_count = static_cast<size_t>(rows) * full_width_;
       const size_t first_byte = first_bit / 8u;
       const size_t last_byte = (first_bit + bit_count + 7u) / 8u;
-      std::vector<uint8_t> packed(last_byte - first_byte, 0u);
       const uint8_t *veto = mapped_veto_bytes(fi);
+      const uint8_t *packed_ptr = nullptr;
+      std::vector<uint8_t> packed;
       if (veto != nullptr) {
-        std::copy(veto + first_byte, veto + last_byte, packed.begin());
+        packed_ptr = veto + first_byte;
       } else {
+        packed.resize(last_byte - first_byte);
         std::ifstream in(veto_path(fi), std::ios::binary);
-        if (!in) return empty_matrix();
-        in.seekg(static_cast<std::streamoff>(first_byte));
-        in.read(reinterpret_cast<char *>(packed.data()),
-                static_cast<std::streamsize>(packed.size()));
-        if (!in) return empty_matrix();
+        if (in) {
+          in.seekg(static_cast<std::streamoff>(first_byte));
+          in.read(reinterpret_cast<char *>(packed.data()),
+                  static_cast<std::streamsize>(packed.size()));
+          if (in) packed_ptr = packed.data();
+        }
       }
-      for (size_t i = 0; i < bit_count; ++i) {
-        const size_t global_bit = first_bit + i;
-        if (((packed[global_bit / 8u - first_byte] >> (global_bit % 8u)) & 1u) != 0u)
-          region.data()[i] = 0.0f;
+      if (packed_ptr != nullptr) {
+        bool has_veto = false;
+        const size_t byte_count = last_byte - first_byte;
+        for (size_t b = 0; b < byte_count; ++b) {
+          if (packed_ptr[b] != 0u) { has_veto = true; break; }
+        }
+        if (has_veto) {
+          for (size_t i = 0; i < bit_count; ++i) {
+            const size_t global_bit = first_bit + i;
+            if (((packed_ptr[global_bit / 8u - first_byte] >> (global_bit % 8u)) & 1u) != 0u)
+              region.data()[i] = 0.0f;
+          }
+        }
       }
     }
 
@@ -632,33 +656,50 @@ Matrix2Df QualityMapCache::decode_stored_rows(
     in.seekg(static_cast<std::streamoff>(offset));
   }
   if (storage_cfg_.dtype == "float32") {
-    if (mapped) std::memcpy(out.data(), mapped + offset, count * sizeof(float));
-    else {
+    if (mapped) {
+      const float *src_f = reinterpret_cast<const float *>(mapped + offset);
+#pragma omp simd
+      for (size_t i = 0; i < count; ++i) out.data()[i] = clamp_q(src_f[i]);
+    } else {
       in.read(reinterpret_cast<char *>(out.data()),
               static_cast<std::streamsize>(count * sizeof(float)));
       if (!in) return empty_matrix();
+      for (size_t i = 0; i < count; ++i) out.data()[i] = clamp_q(out.data()[i]);
     }
-    for (size_t i = 0; i < count; ++i) out.data()[i] = clamp_q(out.data()[i]);
   } else if (storage_cfg_.dtype == "uint16") {
-    std::vector<uint16_t> raw(count);
-    if (mapped) std::memcpy(raw.data(), mapped + offset, count * sizeof(uint16_t));
-    else {
+    constexpr float kInv65535 = 1.0f / 65535.0f;
+    if (mapped) {
+      const uint16_t *src_u16 = reinterpret_cast<const uint16_t *>(mapped + offset);
+#pragma omp simd
+      for (size_t i = 0; i < count; ++i)
+        out.data()[i] = static_cast<float>(src_u16[i]) * kInv65535;
+    } else {
+      thread_local std::vector<uint16_t> raw;
+      raw.resize(count);
       in.read(reinterpret_cast<char *>(raw.data()),
               static_cast<std::streamsize>(count * sizeof(uint16_t)));
       if (!in) return empty_matrix();
+#pragma omp simd
+      for (size_t i = 0; i < count; ++i)
+        out.data()[i] = static_cast<float>(raw[i]) * kInv65535;
     }
-    for (size_t i = 0; i < count; ++i)
-      out.data()[i] = static_cast<float>(raw[i]) / 65535.0f;
   } else {
-    std::vector<uint8_t> raw(count);
-    if (mapped) std::memcpy(raw.data(), mapped + offset, count);
-    else {
+    constexpr float kInv255 = 1.0f / 255.0f;
+    if (mapped) {
+      const uint8_t *src_u8 = mapped + offset;
+#pragma omp simd
+      for (size_t i = 0; i < count; ++i)
+        out.data()[i] = static_cast<float>(src_u8[i]) * kInv255;
+    } else {
+      thread_local std::vector<uint8_t> raw;
+      raw.resize(count);
       in.read(reinterpret_cast<char *>(raw.data()),
               static_cast<std::streamsize>(count));
       if (!in) return empty_matrix();
+#pragma omp simd
+      for (size_t i = 0; i < count; ++i)
+        out.data()[i] = static_cast<float>(raw[i]) * kInv255;
     }
-    for (size_t i = 0; i < count; ++i)
-      out.data()[i] = static_cast<float>(raw[i]) / 255.0f;
   }
   return out;
 }

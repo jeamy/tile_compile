@@ -59,7 +59,13 @@ AqmhUniformControlResult compute_aqmh_uniform_control(
   }
 
   constexpr int control_chunk_rows = 128;
-  for (int y0 = 0; y0 < height; y0 += control_chunk_rows) {
+  const int chunk_count = (height + control_chunk_rows - 1) / control_chunk_rows;
+
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+  for (int chunk_idx = 0; chunk_idx < chunk_count; ++chunk_idx) {
+    const int y0 = chunk_idx * control_chunk_rows;
     const int rows = std::min(control_chunk_rows, height - y0);
     const size_t pixel_count = static_cast<size_t>(rows) * width;
     std::vector<double> sums(pixel_count, 0.0);
@@ -128,8 +134,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   AqmhReconstructionResult result;
   result.output = Matrix2Df::Zero(height, width);
   result.weight_sum = Matrix2Df::Zero(height, width);
-  if (cfg.compute_uniform_control)
+  if (cfg.compute_uniform_control) {
     result.uniform_control_output = Matrix2Df::Zero(height, width);
+    result.uniform_control_valid_mask.assign(
+        static_cast<size_t>(std::max(0, width)) *
+            static_cast<size_t>(std::max(0, height)),
+        0u);
+  }
   if (!load_frame || !q_map_cache || frame_count == 0 || width <= 0 || height <= 0)
     return result;
 
@@ -266,74 +277,153 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
       sample_scores.assign(pixel_count * frame_count, 0.0f);
     std::vector<uint32_t> finite_maps(pixel_count, 0u);
 
-    for (size_t fi = 0; fi < frame_count; ++fi) {
-      if (frame_mask_compatible[fi] == 0u) {
-        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-        continue;
+    const int num_threads = std::max(1, cfg.parallel_workers);
+    std::vector<double> control_sums;
+    std::vector<uint32_t> control_counts;
+    if (cfg.compute_uniform_control) {
+      control_sums.assign(pixel_count, 0.0);
+      control_counts.assign(pixel_count, 0u);
+    }
+
+#if defined(_OPENMP)
+#pragma omp parallel num_threads(num_threads) if(num_threads > 1)
+#endif
+    {
+      std::vector<double> local_control_sums;
+      std::vector<uint32_t> local_control_counts;
+      if (cfg.compute_uniform_control) {
+        local_control_sums.assign(pixel_count, 0.0);
+        local_control_counts.assign(pixel_count, 0u);
       }
-      Matrix2Df frame;
-      const bool frame_ok = load_frame_region
-          ? load_frame_region(fi, y0, rows, frame)
-          : load_frame(fi, frame);
-      if (!frame_ok || frame.cols() != width ||
-          frame.rows() != (load_frame_region ? rows : height)) continue;
-      Matrix2Df q = load_frame_region
-          ? q_map_cache->read_region(fi, y0, rows)
-          : q_map_cache->read_cached(fi);
-      if (q.cols() != width || q.rows() != (load_frame_region ? rows : height)) {
-        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-        continue;
+
+#if defined(_OPENMP)
+#pragma omp for schedule(dynamic, 1)
+#endif
+      for (std::ptrdiff_t fi_signed = 0;
+           fi_signed < static_cast<std::ptrdiff_t>(frame_count);
+           ++fi_signed) {
+        const size_t fi = static_cast<size_t>(fi_signed);
+        if (frame_mask_compatible[fi] == 0u) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+          continue;
+        }
+        Matrix2Df frame;
+        const bool frame_ok = load_frame_region
+            ? load_frame_region(fi, y0, rows, frame)
+            : load_frame(fi, frame);
+        if (!frame_ok || frame.cols() != width ||
+            frame.rows() != (load_frame_region ? rows : height)) continue;
+        Matrix2Df q = load_frame_region
+            ? q_map_cache->read_region(fi, y0, rows)
+            : q_map_cache->read_cached(fi);
+        if (q.cols() != width || q.rows() != (load_frame_region ? rows : height)) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+          continue;
+        }
+        std::vector<uint8_t> fm;
+        const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
+        const bool mask_ok = use_region_mask
+            ? load_frame_valid_mask_region(fi, y0, rows, fm)
+            : (!load_frame_valid_mask || load_frame_valid_mask(fi, fm));
+        const size_t expected_mask = static_cast<size_t>(width) *
+                                     (use_region_mask ? rows : height);
+        if ((load_frame_valid_mask || use_region_mask) &&
+            (!mask_ok || fm.size() != expected_mask)) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+          result.missing_map_samples += static_cast<uint64_t>(rows) * width;
+          continue;
+        }
+        const float gw = global_weight(global_weights, fi);
+        const float *frame_ptr = frame.data();
+        const float *q_ptr = q.data();
+        for (int yy = 0; yy < rows; ++yy) {
+          const int y = y0 + yy;
+          const size_t row_offset = static_cast<size_t>(yy) * static_cast<size_t>(width);
+          const size_t full_row_offset = static_cast<size_t>(y) * static_cast<size_t>(width);
+          for (int x = 0; x < width; ++x) {
+            const size_t full_i = full_row_offset + static_cast<size_t>(x);
+            const size_t local_i = row_offset + static_cast<size_t>(x);
+            const size_t mask_i = use_region_mask ? local_i : full_i;
+            if (!canvas_valid(canvas_mask, width, height, x, y) ||
+                (!fm.empty() && (mask_i >= fm.size() || fm[mask_i] == 0u))) continue;
+            const float frame_v = frame_ptr[local_i];
+            if (!std::isfinite(frame_v)) continue;
+            if (cfg.compute_uniform_control) {
+              local_control_sums[local_i] += frame_v;
+              ++local_control_counts[local_i];
+            }
+            const float q_v = q_ptr[local_i];
+            if (!std::isfinite(q_v)) {
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+              ++result.missing_map_samples;
+              continue;
+            }
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+            ++finite_maps[local_i];
+#if defined(_OPENMP)
+#pragma omp atomic
+#endif
+            ++result.finite_map_samples;
+            const float score = gw * std::max(0.0f, q_v);
+            const float weight = cfg.uniform_weights && score > 0.0f
+                                     ? 1.0f : score;
+            if (weight > 0.0f) {
+              const size_t sample_i = local_i * frame_count + fi;
+              sample_values[sample_i] = frame_v;
+              sample_weights[sample_i] = weight;
+              if (!sample_scores.empty()) sample_scores[sample_i] = score;
+            }
+          }
+        }
       }
-      std::vector<uint8_t> fm;
-      const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
-      const bool mask_ok = use_region_mask
-          ? load_frame_valid_mask_region(fi, y0, rows, fm)
-          : (!load_frame_valid_mask || load_frame_valid_mask(fi, fm));
-      const size_t expected_mask = static_cast<size_t>(width) *
-                                   (use_region_mask ? rows : height);
-      if ((load_frame_valid_mask || use_region_mask) &&
-          (!mask_ok || fm.size() != expected_mask)) {
-        result.missing_map_samples += static_cast<uint64_t>(rows) * width;
-        continue;
-      }
-      const float gw = global_weight(global_weights, fi);
-      for (int yy = 0; yy < rows; ++yy) {
-        const int y = y0 + yy;
-        for (int x = 0; x < width; ++x) {
-          const size_t full_i = static_cast<size_t>(y * width + x);
-          const size_t local_i = static_cast<size_t>(yy * width + x);
-          const int source_y = load_frame_region ? yy : y;
-          const size_t mask_i = use_region_mask ? local_i : full_i;
-          if (!canvas_valid(canvas_mask, width, height, x, y) ||
-              (!fm.empty() && (mask_i >= fm.size() || fm[mask_i] == 0u)) ||
-              !std::isfinite(frame(source_y, x))) continue;
-          if (!std::isfinite(q(source_y, x))) { ++result.missing_map_samples; continue; }
-          ++finite_maps[local_i];
-          ++result.finite_map_samples;
-          const float score = gw * std::max(0.0f, q(source_y, x));
-          const float weight = cfg.uniform_weights && score > 0.0f
-                                   ? 1.0f : score;
-          if (weight > 0.0f) {
-            const size_t sample_i = local_i * frame_count + fi;
-            sample_values[sample_i] = frame(source_y, x);
-            sample_weights[sample_i] = weight;
-            if (!sample_scores.empty()) sample_scores[sample_i] = score;
+
+      if (cfg.compute_uniform_control) {
+#if defined(_OPENMP)
+#pragma omp critical
+#endif
+        {
+          for (size_t i = 0; i < pixel_count; ++i) {
+            control_sums[i] += local_control_sums[i];
+            control_counts[i] += local_control_counts[i];
           }
         }
       }
     }
 
-    const int num_threads = std::max(1, cfg.parallel_workers);
+    if (cfg.compute_uniform_control) {
+      for (int yy = 0; yy < rows; ++yy) {
+        const int y = y0 + yy;
+        for (int x = 0; x < width; ++x) {
+          const size_t local_i = static_cast<size_t>(yy * width + x);
+          if (control_counts[local_i] > 0u) {
+            result.uniform_control_output(y, x) = static_cast<float>(
+                control_sums[local_i] / static_cast<double>(control_counts[local_i]));
+            result.uniform_control_valid_mask[static_cast<size_t>(y * width + x)] = 1u;
+          }
+        }
+      }
+    }
+
 #if defined(_OPENMP)
 #pragma omp parallel num_threads(num_threads) if(num_threads > 1)
 #endif
     {
       std::vector<AqmhWeightedSample> samples;
-      std::vector<AqmhWeightedSample> control_samples;
       std::vector<float> local_effective_k;
       std::vector<float> local_margins;
       samples.reserve(frame_count);
-      if (cfg.compute_uniform_control) control_samples.reserve(frame_count);
 #if defined(_OPENMP)
 #pragma omp for schedule(dynamic, 64)
 #endif
@@ -398,33 +488,6 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           }
           result.cherry_pick_k_map(y, x) = static_cast<float>(samples.size());
         }
-        bool reuse_control_result = false;
-        if (cfg.compute_uniform_control) {
-          reuse_control_result = !samples.empty();
-          const float first_weight = samples.front().weight;
-          for (const auto &sample : samples) {
-            if (sample.weight != first_weight) {
-              reuse_control_result = false;
-              break;
-            }
-          }
-        }
-        if (cfg.compute_uniform_control && !reuse_control_result) {
-          control_samples.assign(samples.begin(), samples.end());
-          for (auto &sample : control_samples) sample.weight = 1.0f;
-          auto control = aqmh_sigma_clip(
-              std::move(control_samples), cfg.clip_sigma_low,
-              cfg.clip_sigma_high, cfg.clip_iterations, cfg.min_fraction,
-              cfg.min_n_eff);
-          if (control.denominator_ok) {
-            double control_accum = 0.0;
-            for (const auto &s : control.retained)
-              control_accum += s.weight * s.value;
-            result.uniform_control_output(y, x) =
-                static_cast<float>(control_accum / control.weight_sum);
-          }
-          control_samples = std::move(control.retained);
-        }
         auto clipped = aqmh_sigma_clip(std::move(samples), cfg.clip_sigma_low,
                                        cfg.clip_sigma_high,
                                        cfg.clip_iterations, cfg.min_fraction,
@@ -445,8 +508,6 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         for (const auto &s : clipped.retained) accum += s.weight * s.value;
         result.output(y, x) = static_cast<float>(accum / clipped.weight_sum);
         result.weight_sum(y, x) = clipped.weight_sum;
-        if (cfg.compute_uniform_control && reuse_control_result)
-          result.uniform_control_output(y, x) = result.output(y, x);
         samples = std::move(clipped.retained);
       }
 #if defined(_OPENMP)
@@ -475,14 +536,6 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
     result.cherry_pick_k_max_observed = static_cast<int>(*std::max_element(effective_k.begin(), effective_k.end()));
   }
   if (!margins.empty()) result.low_rank_separation = quantile(margins, 0.5f) < cfg.cherry_pick_margin_min;
-  if (cfg.compute_uniform_control) {
-    auto control = compute_aqmh_uniform_control(
-        frame_count, load_frame, canvas_mask, width, height,
-        load_frame_valid_mask, load_frame_region,
-        load_frame_valid_mask_region);
-    result.uniform_control_output = std::move(control.output);
-    result.uniform_control_valid_mask = std::move(control.valid_mask);
-  }
   return result;
 }
 
