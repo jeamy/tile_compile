@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.4.7 (2026-08-19)
+
+**CUDA fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:**
+
+- **CUDA fix:** Restored 60% VRAM budget and made double-buffering adaptive — single-stream single-buffer is now the default, eliminating the performance regression where halved `chunk_rows` doubled chunk count for negligible overlap benefit.
+- **AQMH performance:** Parallelized frame loading, accelerated sigma clipping with in-place Quickselect, SIMD vectorized quality map decoding, subsampled FWHM validation, and inlined uniform control averaging.
+- **PCC/HMS:** Fixed photometric color calibration green-cast and channel balance issues; fixed HyperMetric Stretch application and preview glitches.
+- **Registration:** Stronger anchor handling, improved cascade refinement, cached-star parameters for `triangle_star_matching` to avoid redundant star detection.
+- **PI/AI:** Refactored backend PI routes with new context v2, parameter catalog, recommendation validator, and schema utils; expanded agent-service frame analysis and run chat.
+- **Frontend:** Improved live image viewer, AI-Empfehlung page, and i18n updates.
+
 ## v0.4.6 (2026-08-08)
 
 **AQMH quality, registration robustness, PI/AI integration, and Run Monitor improvements:**

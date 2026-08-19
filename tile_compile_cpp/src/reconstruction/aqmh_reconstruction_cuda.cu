@@ -1002,34 +1002,66 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   unsigned long long* d_unsupported_pixels = nullptr;
   unsigned long long* d_zero_veto_pixels = nullptr;
   unsigned long long* d_numerical_guard_pixels = nullptr;
-  CUDA_CHECK(cudaMalloc(&d_unsupported_pixels, sizeof(unsigned long long)));
-  CUDA_CHECK(cudaMalloc(&d_zero_veto_pixels, sizeof(unsigned long long)));
-  CUDA_CHECK(cudaMalloc(&d_numerical_guard_pixels, sizeof(unsigned long long)));
-  CUDA_CHECK(cudaMemsetAsync(d_unsupported_pixels, 0, sizeof(unsigned long long), 0));
-  CUDA_CHECK(cudaMemsetAsync(d_zero_veto_pixels, 0, sizeof(unsigned long long), 0));
-  CUDA_CHECK(cudaMemsetAsync(d_numerical_guard_pixels, 0, sizeof(unsigned long long), 0));
-
-  const dim3 block(32, 8);
   cudaStream_t stream = nullptr;
   cudaStream_t stream2 = nullptr;
-  CUDA_CHECK(cudaStreamCreate(&stream));
-  if (use_double_buffer) {
-    CUDA_CHECK(cudaStreamCreate(&stream2));
-  }
   cudaEvent_t h2d_start = nullptr, kernel_start = nullptr;
   cudaEvent_t kernel_end = nullptr, d2h_end = nullptr;
-  CUDA_CHECK(cudaEventCreate(&h2d_start));
-  CUDA_CHECK(cudaEventCreate(&kernel_start));
-  CUDA_CHECK(cudaEventCreate(&kernel_end));
-  CUDA_CHECK(cudaEventCreate(&d2h_end));
   cudaEvent_t h2d_start2 = nullptr, kernel_start2 = nullptr;
   cudaEvent_t kernel_end2 = nullptr, d2h_end2 = nullptr;
+
+  auto cleanup_on_error = [&]() {
+    cudaFree(d_global_weights);
+    free_chunk_buffers(bufs);
+    if (use_double_buffer) free_chunk_buffers(bufs2);
+    cudaFree(d_unsupported_pixels);
+    cudaFree(d_zero_veto_pixels);
+    cudaFree(d_numerical_guard_pixels);
+    if (stream) cudaStreamDestroy(stream);
+    if (stream2) cudaStreamDestroy(stream2);
+    if (h2d_start) cudaEventDestroy(h2d_start);
+    if (kernel_start) cudaEventDestroy(kernel_start);
+    if (kernel_end) cudaEventDestroy(kernel_end);
+    if (d2h_end) cudaEventDestroy(d2h_end);
+    if (h2d_start2) cudaEventDestroy(h2d_start2);
+    if (kernel_start2) cudaEventDestroy(kernel_start2);
+    if (kernel_end2) cudaEventDestroy(kernel_end2);
+    if (d2h_end2) cudaEventDestroy(d2h_end2);
+  };
+#define CUDA_CHECK_ALLOC(expr)                                                \
+  do {                                                                        \
+    cudaError_t err = (expr);                                                  \
+    if (err != cudaSuccess) {                                                  \
+      std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << " "      \
+                << cudaGetErrorString(err) << std::endl;                       \
+      cleanup_on_error();                                                      \
+      result.acceleration_fallback = true;                                     \
+      return result;                                                           \
+    }                                                                          \
+  } while (0)
+
+  CUDA_CHECK_ALLOC(cudaMalloc(&d_unsupported_pixels, sizeof(unsigned long long)));
+  CUDA_CHECK_ALLOC(cudaMalloc(&d_zero_veto_pixels, sizeof(unsigned long long)));
+  CUDA_CHECK_ALLOC(cudaMalloc(&d_numerical_guard_pixels, sizeof(unsigned long long)));
+  CUDA_CHECK_ALLOC(cudaMemsetAsync(d_unsupported_pixels, 0, sizeof(unsigned long long), 0));
+  CUDA_CHECK_ALLOC(cudaMemsetAsync(d_zero_veto_pixels, 0, sizeof(unsigned long long), 0));
+  CUDA_CHECK_ALLOC(cudaMemsetAsync(d_numerical_guard_pixels, 0, sizeof(unsigned long long), 0));
+
+  const dim3 block(32, 8);
+  CUDA_CHECK_ALLOC(cudaStreamCreate(&stream));
   if (use_double_buffer) {
-    CUDA_CHECK(cudaEventCreate(&h2d_start2));
-    CUDA_CHECK(cudaEventCreate(&kernel_start2));
-    CUDA_CHECK(cudaEventCreate(&kernel_end2));
-    CUDA_CHECK(cudaEventCreate(&d2h_end2));
+    CUDA_CHECK_ALLOC(cudaStreamCreate(&stream2));
   }
+  CUDA_CHECK_ALLOC(cudaEventCreate(&h2d_start));
+  CUDA_CHECK_ALLOC(cudaEventCreate(&kernel_start));
+  CUDA_CHECK_ALLOC(cudaEventCreate(&kernel_end));
+  CUDA_CHECK_ALLOC(cudaEventCreate(&d2h_end));
+  if (use_double_buffer) {
+    CUDA_CHECK_ALLOC(cudaEventCreate(&h2d_start2));
+    CUDA_CHECK_ALLOC(cudaEventCreate(&kernel_start2));
+    CUDA_CHECK_ALLOC(cudaEventCreate(&kernel_end2));
+    CUDA_CHECK_ALLOC(cudaEventCreate(&d2h_end2));
+  }
+#undef CUDA_CHECK_ALLOC
 
   // Prepare the next frame regions while the current chunk is executing on
   // the device.  The loader owns the returned matrices, so the current chunk

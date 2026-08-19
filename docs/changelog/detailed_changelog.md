@@ -1,5 +1,60 @@
 ## Changelog
 
+### (2026-08-19)
+
+**v0.4.7 — CUDA double-buffering fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:**
+
+**CUDA reconstruction fix:**
+
+- Fixed GPU performance regression caused by mandatory double-buffering: the device-budget was halved from 60% to 30% of free VRAM, which halved `chunk_rows` and doubled the chunk count. Since CUDA kernel time dominated (>99% of pipeline time), the overlap benefit was negligible while overhead doubled. The fix restores 60% VRAM budget, allocates one buffer set first with retry, then optionally attempts a second set for double-buffering only when VRAM is sufficient. Single-stream single-buffer mode is the default; double-buffering remains available as an adaptive fallback for GPUs with ample VRAM.
+- Fixed `triangle_star_matching` header/definition mismatch: the header declaration in `global_registration.hpp` had 9 parameters while the definition in `global_registration.cpp` had 11 (two additional cached-star pointers). Default arguments were incorrectly duplicated in the definition. Header now declares all 11 parameters with defaults; definition no longer repeats defaults.
+
+**AQMH reconstruction performance:**
+
+- Parallelized chunk frame loading with OpenMP across frames using dynamic scheduling for I/O overlap.
+- Accelerated sigma clipping with in-place Quickselect median/MAD selection and stack buffers, eliminating per-iteration allocations.
+- Vectorized quality map decoding with SIMD and optimized bilinear upsampling coordinate lookups.
+- Subsampled large canvases during FWHM validation to reduce post-processing overhead.
+- Inlined uniform control averaging into the reconstruction loop to avoid a separate pass.
+
+**PCC and HMS fixes:**
+
+- Fixed photometric color calibration issues affecting green cast and channel balance in stacked output.
+- Fixed HyperMetric Stretch glitches affecting stretch application and preview rendering.
+- Added PCC detail header with auxiliary metadata for calibration diagnostics.
+
+**Registration improvements:**
+
+- Reworked `runner_phase_registration.cpp` with stronger anchor handling, improved cascade refinement, and safer fallback behavior for difficult sessions.
+- Added `triangle_star_matching` cached-star parameters to avoid redundant star detection across registration attempts.
+- Updated registration process flow documentation.
+
+**PI and AI services:**
+
+- Refactored backend PI routes and AI route handling: `ai_routes.cpp` simplified, new `pi_context_v2.cpp`, `pi_parameter_catalog.cpp`, `pi_recommendation_validator.cpp`, and `pi_schema_utils.cpp` added for structured recommendation validation.
+- Added PI context protocol compression plan documentation.
+- Expanded agent-service frame analysis and run-chat services with improved streaming and context handling.
+- Added `pi_image_ops` test coverage and fake CLI fixture for backend tests.
+
+**Frontend:**
+
+- Improved live image viewer with enhanced preview lifecycle and drag detection.
+- Updated AI-Empfehlung page with refined run-chat UI and recommendation display.
+- Added CSS component styles and updated i18n strings in both German and English.
+
+**Configuration and schema:**
+
+- Updated `tile_compile.schema.json`, `tile_compile.schema.yaml`, and `tile_compile.yaml` with new and revised parameter defaults.
+- Updated configuration reference and practical examples documentation in both English and German.
+- Removed obsolete sharpness example profiles (`sharpness_100_cubic`, `sharpness_100_cubic_affine`, `sharpness_100_cubic_affine_local`, `sharpness_100_lanczos4`, `sharpness_100_linear`).
+- Updated `aqmh_tuning.example.yaml` with current parameter set.
+
+**Documentation:**
+
+- Added AQMH reconstruction optimization documentation (`docs/AQMH/aqmh_reconstruction_optimierung_de.md`).
+- Updated registration process flow documentation (`docs/process_flow/phase_1_registration.md`).
+- Removed obsolete M31 stacked RGB comparison document.
+
 ### (2026-08-08)
 
 **v0.4.6 — AQMH reconstruction quality, registration robustness, PI/AI integration, and run-monitor improvements:**
