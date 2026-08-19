@@ -253,9 +253,11 @@ Matrix2Df local_variance_linear(const Matrix2Df &m, int r) {
   const int rows = static_cast<int>(m.rows());
   const int cols = static_cast<int>(m.cols());
   const int radius = std::clamp(r, 0, kMaxWindowR);
-  Matrix2Df horizontal_sum = Matrix2Df::Zero(rows, cols);
-  Matrix2Df horizontal_square_sum = Matrix2Df::Zero(rows, cols);
-  Matrix2Df horizontal_count = Matrix2Df::Zero(rows, cols);
+  // P4: Avoid redundant zero-initialization — the parallel for below
+  // overwrites every element, so we only need allocation, not Zero().
+  Matrix2Df horizontal_sum(rows, cols);
+  Matrix2Df horizontal_square_sum(rows, cols);
+  Matrix2Df horizontal_count(rows, cols);
 
   // Sliding horizontal moments. This replaces a complete window scan per
   // pixel while retaining the source-valid (finite) support contract.
@@ -768,16 +770,50 @@ Matrix2Df phi_artifact(const Matrix2Df &img, const Matrix2Df &blur, int r,
 Matrix2Df robust_zscore(const Matrix2Df &m) {
   Matrix2Df out(m.rows(), m.cols());
   out.setConstant(nan_value());
-  const auto values = finite_values(m);
-  const auto z = robust_zscore_eps_scale(values);
+  // P4: Compute median and MAD directly from finite_values without calling
+  // robust_zscore_eps_scale, which would redundantly re-filter (finite_only)
+  // and allocate another vector. We reuse the already-filtered values vector
+  // for nth_element in-place, avoiding a second heap allocation.
+  auto values = finite_values(m);
   if (values.empty())
     return out;
+  const float med = [&] {
+    const size_t mid = values.size() / 2;
+    std::nth_element(values.begin(), values.begin() + mid, values.end());
+    const float upper = values[mid];
+    if (values.size() % 2 != 0) return upper;
+    const float lower = *std::max_element(values.begin(), values.begin() + mid);
+    return 0.5f * (lower + upper);
+  }();
+  // Compute MAD from the same values (need a copy since nth_element mutates).
+  std::vector<float> devs(values.size());
+  for (size_t i = 0; i < values.size(); ++i)
+    devs[i] = std::abs(values[i] - med);
+  const float mad = [&] {
+    const size_t mid = devs.size() / 2;
+    std::nth_element(devs.begin(), devs.begin() + mid, devs.end());
+    const float upper = devs[mid];
+    if (devs.size() % 2 != 0) return upper;
+    const float lower = *std::max_element(devs.begin(), devs.begin() + mid);
+    return 0.5f * (lower + upper);
+  }();
+  if (!(mad > 0.0f) || !std::isfinite(mad)) {
+    // All values collapse to 0 z-score.
+    const auto n = static_cast<std::ptrdiff_t>(m.size());
+    const float *m_data = m.data();
+    float *out_data = out.data();
+    for (std::ptrdiff_t i = 0; i < n; ++i)
+      if (finite(m_data[i])) out_data[i] = 0.0f;
+    return out;
+  }
+  const float eps_floor = std::nextafter(0.0f, 1.0f);
+  const float eps = std::max(eps_floor, metrics::aqmh_eps_rel * std::max(std::abs(med), mad));
+  const float scale = std::max(core::kMadToSigma * mad, eps);
   const auto n = static_cast<std::ptrdiff_t>(m.size());
   const float *m_data = m.data();
   float *out_data = out.data();
-  size_t zi = 0;
   for (std::ptrdiff_t i = 0; i < n; ++i)
-    if (finite(m_data[i])) out_data[i] = z[zi++];
+    if (finite(m_data[i])) out_data[i] = (m_data[i] - med) / scale;
   return out;
 }
 

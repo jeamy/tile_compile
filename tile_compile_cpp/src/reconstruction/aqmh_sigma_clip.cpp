@@ -140,12 +140,25 @@ AqmhSigmaClipResult aqmh_sigma_clip(
       for (size_t i = 0; i < n; ++i) stack_wvals[i] = {std::abs(samples[i].value - center), samples[i].weight};
       mad = weighted_median_select(stack_wvals, n);
 
-      float noise_arr[kSmallN];
-      for (size_t i = 0; i < n; ++i) noise_arr[i] = samples[i].value;
-      const float val_med = fast_median_inplace(noise_arr, n);
-      for (size_t i = 0; i < n; ++i) noise_arr[i] = std::abs(noise_arr[i] - val_med);
-      const float noise_mad = fast_median_inplace(noise_arr, n);
-      floor_val = std::max(std::nextafter(0.0f, 1.0f), metrics::aqmh_eps_rel * noise_mad);
+      // §8-E: When all weights are equal, the weighted median equals the
+      // unweighted median, so skip the redundant fast_median_inplace calls.
+      bool uniform_weights = true;
+      if (n > 1) {
+        const float w0 = samples[0].weight;
+        for (size_t i = 1; i < n; ++i) {
+          if (samples[i].weight != w0) { uniform_weights = false; break; }
+        }
+      }
+      if (uniform_weights) {
+        floor_val = std::max(std::nextafter(0.0f, 1.0f), metrics::aqmh_eps_rel * mad);
+      } else {
+        float noise_arr[kSmallN];
+        for (size_t i = 0; i < n; ++i) noise_arr[i] = samples[i].value;
+        const float val_med = fast_median_inplace(noise_arr, n);
+        for (size_t i = 0; i < n; ++i) noise_arr[i] = std::abs(noise_arr[i] - val_med);
+        const float noise_mad = fast_median_inplace(noise_arr, n);
+        floor_val = std::max(std::nextafter(0.0f, 1.0f), metrics::aqmh_eps_rel * noise_mad);
+      }
     } else {
       wvals.resize(n);
       for (size_t i = 0; i < n; ++i) wvals[i] = {samples[i].value, samples[i].weight};

@@ -146,9 +146,14 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
 
   // Validate each full M_f digest once. The previous slab loop re-read and
   // re-hashed a full mask for every frame and every slab.
+  // §8-G: Parallelized — SHA-256 is embarrassingly parallel across frames.
   std::vector<uint8_t> frame_mask_compatible(frame_count, 1u);
   if (load_frame_valid_mask) {
-    for (size_t fi = 0; fi < frame_count; ++fi) {
+    #if defined(_OPENMP)
+    #pragma omp parallel for schedule(dynamic, 1)
+    #endif
+    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
+      const size_t fi = static_cast<size_t>(fi_ptr);
       std::vector<uint8_t> full_mask;
       frame_mask_compatible[fi] =
           load_frame_valid_mask(fi, full_mask) &&
@@ -156,6 +161,15 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           q_map_cache->source_mask_hash(fi) ==
               tile_compile::core::sha256_bytes(full_mask);
     }
+  }
+
+  // §8-A: Pre-materialize a flat bool array from canvas_mask for O(1) lookup
+  // in the innermost pixel loop, eliminating per-pixel bounds checks.
+  const size_t total_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+  std::vector<uint8_t> canvas_valid_flat(total_pixels, 1u);
+  if (!canvas_mask.empty() && canvas_mask.size() == total_pixels) {
+    for (size_t i = 0; i < total_pixels; ++i)
+      canvas_valid_flat[i] = canvas_mask[i] != 0u ? 1u : 0u;
   }
 
   bool cherry_enabled = cfg.cherry_pick;
@@ -285,16 +299,35 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
       control_counts.assign(pixel_count, 0u);
     }
 
+    // §8-C: Shared per-thread containers to avoid omp critical merge.
+    // Each thread accumulates into its own slot; merge is done serially
+    // after the parallel region with no synchronization needed.
+#if defined(_OPENMP)
+    const int max_threads = omp_get_max_threads();
+#else
+    const int max_threads = 1;
+#endif
+    std::vector<std::vector<uint32_t>> per_thread_finite_maps(max_threads);
+    std::vector<std::vector<double>> per_thread_control_sums(max_threads);
+    std::vector<std::vector<uint32_t>> per_thread_control_counts(max_threads);
+
 #if defined(_OPENMP)
 #pragma omp parallel num_threads(num_threads) if(num_threads > 1)
 #endif
     {
-      std::vector<double> local_control_sums;
-      std::vector<uint32_t> local_control_counts;
+#if defined(_OPENMP)
+      const int tid = omp_get_thread_num();
+#else
+      const int tid = 0;
+#endif
+      per_thread_finite_maps[tid].assign(pixel_count, 0u);
       if (cfg.compute_uniform_control) {
-        local_control_sums.assign(pixel_count, 0.0);
-        local_control_counts.assign(pixel_count, 0u);
+        per_thread_control_sums[tid].assign(pixel_count, 0.0);
+        per_thread_control_counts[tid].assign(pixel_count, 0u);
       }
+      auto& local_finite_maps = per_thread_finite_maps[tid];
+      auto& local_control_sums = per_thread_control_sums[tid];
+      auto& local_control_counts = per_thread_control_counts[tid];
 
 #if defined(_OPENMP)
 #pragma omp for schedule(dynamic, 1)
@@ -352,7 +385,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
             const size_t full_i = full_row_offset + static_cast<size_t>(x);
             const size_t local_i = row_offset + static_cast<size_t>(x);
             const size_t mask_i = use_region_mask ? local_i : full_i;
-            if (!canvas_valid(canvas_mask, width, height, x, y) ||
+            if ((!canvas_valid_flat.empty() && canvas_valid_flat[full_i] == 0u) ||
                 (!fm.empty() && (mask_i >= fm.size() || fm[mask_i] == 0u))) continue;
             const float frame_v = frame_ptr[local_i];
             if (!std::isfinite(frame_v)) continue;
@@ -368,10 +401,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
               ++result.missing_map_samples;
               continue;
             }
-#if defined(_OPENMP)
-#pragma omp atomic
-#endif
-            ++finite_maps[local_i];
+            ++local_finite_maps[local_i];
 #if defined(_OPENMP)
 #pragma omp atomic
 #endif
@@ -389,15 +419,17 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         }
       }
 
-      if (cfg.compute_uniform_control) {
-#if defined(_OPENMP)
-#pragma omp critical
-#endif
-        {
-          for (size_t i = 0; i < pixel_count; ++i) {
-            control_sums[i] += local_control_sums[i];
-            control_counts[i] += local_control_counts[i];
-          }
+    }
+
+    // §8-C: Merge per-thread accumulators serially after the parallel region.
+    // No omp critical needed — all threads have finished.
+    for (int t = 0; t < max_threads; ++t) {
+      if (per_thread_finite_maps[t].empty()) continue;
+      for (size_t i = 0; i < pixel_count; ++i) {
+        finite_maps[i] += per_thread_finite_maps[t][i];
+        if (cfg.compute_uniform_control) {
+          control_sums[i] += per_thread_control_sums[t][i];
+          control_counts[i] += per_thread_control_counts[t][i];
         }
       }
     }
@@ -433,7 +465,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         const int yy = static_cast<int>(local_pixel / width);
         const int x = static_cast<int>(local_pixel % width);
         const int y = y0 + yy;
-        if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
+        if (!canvas_valid_flat.empty() &&
+            canvas_valid_flat[static_cast<size_t>(y * width + x)] == 0u) continue;
 #if defined(_OPENMP)
 #pragma omp atomic
 #endif

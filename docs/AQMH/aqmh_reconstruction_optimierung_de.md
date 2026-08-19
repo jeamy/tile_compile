@@ -40,13 +40,12 @@ Ziel dieser Optimierung war:
 ### 3.1 `tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp`
 - **Inlining der Uniform-Control-Akkumulation:** Die Mittelwertbildung für das ungewichtete Uniform-Control wird direkt während des Frame-Ladevorgangs parallel im Speicher akkumuliert. Der redundante zweite Ladedurchlauf wurde vollständig eliminiert.
 - **Paralleles Chunk-Loading:** OpenMP-Parallelisierung (`#pragma omp for schedule(dynamic, 1)`) über die Frames hinweg beim Einlesen der Chunks in das Pixel-Major Structure-of-Arrays (SoA) Layout.
-- **Einmalige Masken-Vorabprüfung:** Frame-Masken-Kompatibilitätsprüfungen werden einmalig vor der Slab-Schleife ausgeführt. Für jedes Frame wird die vollständige Maske über `load_frame_valid_mask` geladen und ihr SHA-256-Hash mit dem im `QualityMapCache` persistierten `source_mask_hash(fi)` verglichen. Das setzt den Overhead aus den Slab-Schleifen in einen einmaligen sequenziellen Pass; bei 645 Frames à 28 MP (≈ 28 MB/Maske) liegt der SHA-256-Berechnungsaufwand jedoch im messbaren Sekundenbereich und dominiert bei rein CPU-gebundenem Hashing. Eine Parallelisierung dieses Vorab-Passes wäre möglich und ist als weiteres Potential in §8 (Punkt G) festgehalten.
+- **Einmalige Masken-Vorabprüfung:** Frame-Masken-Kompatibilitätsprüfungen werden einmalig vor der Slab-Schleife ausgeführt. Für jedes Frame wird die vollständige Maske über `load_frame_valid_mask` geladen und ihr SHA-256-Hash mit dem im `QualityMapCache` persistierten `source_mask_hash(fi)` verglichen. Das setzt den Overhead aus den Slab-Schleifen in einen einmaligen sequenziellen Pass; bei 645 Frames à 28 MP (≈ 28 MB/Maske) liegt der SHA-256-Berechnungsaufwand jedoch im messbaren Sekundenbereich und dominiert bei rein CPU-gebundenem Hashing. Eine Parallelisierung dieses Vorab-Passes wurde implementiert (`#pragma omp parallel for schedule(dynamic, 1)`, s. §8 Punkt G).
 
 ### 3.2 `tile_compile_cpp/src/reconstruction/aqmh_sigma_clip.cpp`
 - **In-Place Quickselect:** Ersatz des vollständigen Sortierens durch `std::nth_element`-basiertes `fast_median_inplace` ($O(N)$).
 - **Stack-Puffer & Thread-Local Vektoren:** Für kleine Stichproben ($N \le 8$) werden feste Stack-Arrays genutzt. Für größere Stichproben vermeiden `thread_local`-Vektoren alle Allokationen im inneren Pixel-Loop.
 - **Early-Exit:** Wenn in einer Iteration alle Werte innerhalb der Klipp-Schranken liegen (`keep_count == samples.size()`), bricht die Iterationsschleife sofort ab.
-- **In-Place Kompaktierung:** Entfernen geklippter Werte ohne `std::remove_if`-Overhead.
 
 ### 3.3 `tile_compile_cpp/src/metrics/aqmh_quality_map_cache.cpp`
 - **1D X-Interpolations-LUT:** Vorberechnung der Subpixel-X-Positionen und bilinearen Gewichte für die Zeilenbreite.
@@ -121,10 +120,9 @@ Ziel dieser Optimierung war:
    - **GPU-Pfad (`accelerated_local_variance`):** Die Zwischenpuffer sind über `thread_local CudaMomentsWorkspace workspace` bereits persistent; pro Frame-Aufruf findet kein `cudaMalloc`/`cudaFree` statt. **Dieser Pfad ist bereits optimiert.**
    - **CPU-Fallback-Pfad (`local_variance_linear`):** Allokiert pro Aufruf 4 vollständige $W \times H$ Matrizen (je ≈12 MB bei 28 MP: `horizontal_sum`, `horizontal_square_sum`, `horizontal_count`, `out`).
    - *Algorithmische Einschränkung:* Die im Originaldokument genannte Maßnahme „Horizontale Pufferzeilen statt $W \times H$“ ist für den separablen 2-Pass-Filter nicht direkt anwendbar: Pass 2 (vertikal, parallelisiert über x) benötigt random access auf alle Ergebnisse aus Pass 1. Ein echter O($W \times r$)-Stripe-Ansatz würde die OMP-Parallelisierung im vertikalen Pass brechen und ist ein eigenständiges Redesign.
-   - *Tatsächlich umsetzbarer Fix (CPU):* `thread_local`-Pre-Allokierung der 3 Zwischenmatrizen, um wiederholtes malloc/free für 3×112 MB zu vermeiden. Auswirkung ist begrenzt, da GPU der Primärpfad ist und der CPU-Fallback intern per OMP parallelisiert. *(Status: für GPU-Pfad erledigt; CPU-Fallback thread_local-Fix offen, niedriger Priorität)*
-3. **Heap-Allokationen in `finite_values`:** *(Status: Noch nicht umgesetzt)*
-   - `finite_values(m)` gibt weiterhin einen dynamischen `std::vector<float>` mit bis zu 28 Millionen Einträgen zurück, der für jede Z-Score-Berechnung neu allokiert wird.
-   - *Maßnahme:* In-Place Z-Score-Filterung mit zwei Durchläufen (Welford/Median-Partitionierung) ohne Heap-Duplikation.
+   - *Tatsächlich umsetzbarer Fix (CPU):* Vermeidung redundanter `Zero()`-Initialisierung der 3 Zwischenmatrizen, da die OMP-parallel-for-Schleife alle Elemente überschreibt. `thread_local` ist aufgrund des OMP-parallel-for nicht anwendbar (Worker-Threads erhalten uninitialisierte 0×0-Kopien → SIGSEGV). Auswirkung ist begrenzt, da GPU der Primärpfad ist. *(Status: erledigt & verifiziert)*
+3. **Heap-Allokationen in `finite_values`:** *(Status: Erledigt & Verifiziert)*
+   - `robust_zscore` berechnet nun Median und MAD direkt aus dem `finite_values`-Vektor via `nth_element` ohne separaten `robust_zscore_eps_scale`-Aufruf, wodurch eine redundante Filterung und zweite Heap-Allokation vermieden wird.
 
 ---
 
@@ -152,7 +150,7 @@ Ziel dieser Optimierung war:
 ### 6.3 Fehlendes Double-Buffering / Stream-Overlap
 - **Problem:** In `reconstruct_aqmh_weighted_cuda` werden H2D-Upload, Kernel-Launch und D2H-Download für jeden Chunk sequentiell in einem einzigen `cudaStream_t` ausgeführt. GPU-seitige Überlappung zwischen aufeinanderfolgenden Chunks ist nicht möglich.
 - **Partiell umgesetzt (CPU-Prefetch):** Ein `std::future<std::vector<Matrix2Df>> next_frame_prefetch` überlappt das CPU-seitige Laden der Frame-Regionen von Disk für Chunk $k+1$ mit der GPU-Ausführung für Chunk $k$. CUDA-Events (`h2d_start`, `kernel_start`, `kernel_end`, `d2h_end`) messen H2D/Kernel/D2H je Chunk. Der Code-Kommentar ist dabei explizit: *„This is a conservative first overlap step: Q-map/mask loading stays synchronous.“* Q-Map- und Masken-Zugriffe bleiben synchron.
-- **Noch offen (GPU Double-Buffering):** Echtes GPU-seitiges Double-Buffering mit zwei `cudaStream_t`-Instanzen – Stream A: H2D-Upload Chunk $k+1$ parallel zu Stream B: Kernel-Execution Chunk $k$ parallel zu D2H-Download Chunk $k-1$ – ist **nicht implementiert**. Es wäre doppelte Gerätepuffer (frames/q\_maps/masks/output) erforderlich. Geschätztes weiteres Einsparpotenzial: 15–25% GPU-Laufzeit (s. §7, Status: offen).
+- **Erledigt (GPU Double-Buffering):** Echtes GPU-seitiges Double-Buffering mit zwei `cudaStream_t`-Instanzen ist nun implementiert – Stream A: H2D-Upload Chunk $k+1$ parallel zu Stream B: Kernel-Execution Chunk $k$ parallel zu D2H-Download Chunk $k-1$. Zwei `GpuBuffers`-Sets und zwei `PinnedBuffer`-Sets ermöglichen Ping-Pong-Überlappung. Geschätztes Einsparpotenzial: 15–25% GPU-Laufzeit (s. §7, Status: erledigt & verifiziert).
 
 ### 6.4 OpenCV CUDA Acceleration Mapping
 - In `tile_compile_cpp/src/core/acceleration.cpp:64-67` ist `AccelerationPhase::aqmh_maps` für CUDA hardcodiert auf `false` gesetzt.
@@ -170,11 +168,11 @@ Ziel dieser Optimierung war:
 | **P2** | **CUDA Kernel** | Kompakte 16-Bit-Indizes (`short`) & engere Spezialisierungsstufen ($N \le 32, 64, 128, 256, 512, 1024$) in `aqmh_reconstruction_cuda.cu` | **Erledigt & Verifiziert** | Halbiert Index-Puffer-Footprint im GPU-Thread und verhindert Spilling |
 | **P2** | **AQMH Maps** | 1D-X- und Y-Interpolations-LUTs in `accumulate_upsampled_log_psi` (`aqmh_quality_map.cpp`) | **Erledigt & Verifiziert** | Entfernt Subpixel-`floor`/`clamp`/`abs`-Kosten aus 28M-Pixel-Schleife |
 | **P3** | **Registration**| Thread-safe In-Memory-Proxy-Caching (`in_memory_proxies`, `proxy_init_flags`) in `runner_phase_registration.cpp` | **Erledigt & Verifiziert** | Verhindert redundante FITS-Dekodierung bei Multi-Anchor- und Support-Suchen |
-| **P3** | **CUDA Core** | GPU Double-Buffering / Stream-Overlap (§6.3): zwei `cudaStream_t` + Ping-Pong-Gerätepuffer | **Offen** – CPU-Prefetch für Frame-Regionen partiell umgesetzt; H2D/Kernel/D2H je Chunk weiterhin sequenziell | Geschätztes Potenzial: 15–25% GPU-Laufzeit |
+| **P3** | **CUDA Core** | GPU Double-Buffering / Stream-Overlap (§6.3): zwei `cudaStream_t` + Ping-Pong-Gerätepuffer | **Erledigt & Verifiziert** – Zwei Streams, zwei GpuBuffers-Sets, zwei PinnedBuffer-Sets; H2D[k+1] überlappt mit Kernel[k], D2H[k] überlappt mit Kernel[k+1] | Geschätztes Potenzial: 15–25% GPU-Laufzeit |
 | **P3** | **Prewarp** | CFA-Subplane Fused CUDA Kernel (§5.2.3): GPU-seitige Extraktion, Warp und Reassemblierung | **Offen** – Stream-Konsolidierung (1× sync) implementiert; CPU-seitige Subplane-Extraktion/Reassemblierung weiterhin vorhanden | – |
-| **P4** | **AQMH Maps** | `local_variance_linear` CPU-Fallback: `thread_local`-Pre-Allokierung der 3 Zwischenmatrizen (§5.3.2) | **GPU-Pfad erledigt** (thread\_local workspace); CPU-Fallback thread\_local offen | GPU: kein cudaMalloc/cudaFree je Frame; CPU: Reduktion wiederholter 3×112 MB malloc |
-| **P4** | **AQMH Maps** | `finite_values` In-Place Z-Score (§5.3.3) | **Offen** | Vermeidet 28M-Element `std::vector<float>` je Z-Score-Durchlauf |
-| **P4** | **CUDA Core** | SHA-256 Masken-Vorabprüfungs-Parallelisierung (§3.1-Anmerkung) | **Offen** | Parallelisierbar über OpenMP; bei 645 × 28 MP Masken im messbaren Sekundenbereich |
+| **P4** | **AQMH Maps** | `local_variance_linear` CPU-Fallback: Vermeidung redundanter Zero-Initialisierung (§5.3.2) | **Erledigt & Verifiziert** – `Matrix2Df(rows, cols)` ohne `Zero()` da parallel for alle Elemente überschreibt; thread_local aufgrund OMP-parallel-for nicht anwendbar (revertiert) | Reduziert Initialisierungs-Overhead; GPU-Pfad weiterhin via thread_local workspace optimiert |
+| **P4** | **AQMH Maps** | `finite_values` In-Place Z-Score (§5.3.3) | **Erledigt & Verifiziert** – `robust_zscore` berechnet Median und MAD direkt aus `finite_values`-Vektor via `nth_element` ohne separaten `robust_zscore_eps_scale`-Aufruf | Vermeidet redundante Filterung und zweite Heap-Allokation |
+| **P4** | **CUDA Core** | SHA-256 Masken-Vorabprüfungs-Parallelisierung (§3.1-Anmerkung) | **Erledigt & Verifiziert** – `#pragma omp parallel for schedule(dynamic, 1)` parallelisiert SHA-256-Hashing über Frames | Reduziert Vorabprüfungszeit durch parallele I/O und Hashing |
 
 ### Test- und Verifikationsergebnis
 - **Catch2 Test Suite:** 282 von 282 Testfällen erfolgreich bestanden (`29823 assertions in 282 test cases`).
@@ -184,34 +182,41 @@ Ziel dieser Optimierung war:
 
 ## 8. Neu identifizierte Optimierungspotenziale (Code-Review)
 
-Die folgenden Punkte wurden durch Quellcode-Analyse nach Abschluss der P1–P3-Maßnahmen identifiziert. Sie sind noch nicht implementiert und für künftige Optimierungsrunden vorgemerkt.
+Die folgenden Punkte wurden durch Quellcode-Analyse nach Abschluss der P1–P3-Maßnahmen identifiziert. Punkte A–G sind nun implementiert und verifiziert (s. §7 Status-Tabelle).
 
-### A. `canvas_valid()` im innersten Pixel-Loop
+### A. `canvas_valid()` im innersten Pixel-Loop ✅
 - **Problem:** `canvas_valid(canvas_mask, width, height, x, y)` wird in `reconstruct_aqmh_weighted` für **jedes** Pixel, für **jeden** Frame, innerhalb jedes Chunks aufgerufen – mit Bounds-Checks und Vektor-Indexierung. Die Canvas-Mask ist über die gesamte Phase konstant.
 - **Maßnahme:** Einmalig ein flaches `bool`-Array (oder `std::bitset`) aus `canvas_mask` materialisieren; direkte 1D-Indexierung ohne Bounds-Checks im innersten Loop. Reduziert Branch-Overhead und verbessert Cache-Lokalität.
+- **Status:** **Erledigt & Verifiziert** – Flaches `bool`-Array ersetzt `canvas_valid()`-Aufrufe im innersten Loop.
 
-### B. `#pragma omp atomic` auf `finite_maps[]` als Hotspot
+### B. `#pragma omp atomic` auf `finite_maps[]` als Hotspot ✅
 - **Problem:** Im Frame-Lade-Loop wird `finite_maps[local_i]` per `#pragma omp atomic` inkrementiert – bei 645 Frames × Millionen Pixel pro Chunk entstehen sehr viele atomare Operationen auf einem kleinen Array (hohe Kollisionsrate unter vielen Threads).
 - **Maßnahme:** Thread-lokale `finite_maps_local[]`-Zähler innerhalb des OMP-Parallel-Blocks akkumulieren und per `#pragma omp critical` einmalig mergen – analog zu `local_control_sums`.
+- **Status:** **Erledigt & Verifiziert** – Thread-lokale Zähler ersetzen atomare Operationen.
 
-### C. `#pragma omp critical` für Uniform-Control-Merge
+### C. `#pragma omp critical` für Uniform-Control-Merge ✅
 - **Problem:** Das Mergen von `local_control_sums[]`/`local_control_counts[]` in die gemeinsamen Arrays geschieht per `#pragma omp critical` mit einer $O(pixel\_count)$-Schleife (bei `chunk_rows=256`, `width=6252` ca. 1,6 Mio. Additionen im kritischen Abschnitt; vollständig serialisiert für alle Threads).
 - **Maßnahme:** OpenMP-`reduction`-Klausel auf Array-Ebene (ab OpenMP 4.5), oder zweistufiges Merge (Unter-Akkumulationen pro Thread-Gruppe), um die Sperrzeit erheblich zu reduzieren.
+- **Status:** **Erledigt & Verifiziert** – Thread-lokale Akkumulatoren mit seriellem Merge ersetzen `omp critical`.
 
-### D. `read_region`-LUT bei jedem Cache-Miss neu allokiert
+### D. `read_region`-LUT bei jedem Cache-Miss neu allokiert ✅
 - **Problem:** Die `x_lut`-Berechnung (`std::vector<XInterp>`, Länge `full_width`) wird bei jedem `read_region`-Cache-Miss neu allokiert und befüllt. Bei 645 Frames × mehrere Chunks entstehen Tausende redundanter `std::vector`-Allokierungen, obwohl `full_width` und `resolution_divisor` über die gesamte Rekonstruktionsphase konstant sind.
 - **Maßnahme:** `x_lut` einmalig im `QualityMapCache`-Konstruktor berechnen und als konstantes Mitglied cachen.
+- **Status:** **Erledigt & Verifiziert** – `x_lut_` als Member im Konstruktor vorberechnet, `read_region` verwendet Cache.
 
-### E. `aqmh_sigma_clip` Small-N-Pfad: doppelte Median-Berechnung
+### E. `aqmh_sigma_clip` Small-N-Pfad: doppelte Median-Berechnung ✅
 - **Problem:** Im `n₀ ≤ 8`-Pfad (Stack-Array-Zweig) wird der Median zweimal berechnet: gewichtet (`weighted_median_select`) für `center` und ungewichtet (`fast_median_inplace` auf `noise_arr`) für `val_med`. Bei gleichgewichteten Samples sind beide Werte identisch.
 - **Maßnahme:** Wenn alle Gewichte innerhalb einer engen Toleranz gleich sind, gewichteten Median direkt als `val_med` wiederverwenden. Oder: kombinierte Funktion, die beide Mediane in einem einzigen Partitionierungsdurchlauf liefert.
+- **Status:** **Erledigt & Verifiziert** – Bei uniformen Gewichten wird gewichteter Median als `val_med` wiederverwendet.
 
-### F. CUDA-Kernel-Occupancy bleibt bei `frame_count ≥ 513` niedrig
+### F. CUDA-Kernel-Occupancy bleibt bei `frame_count ≥ 513` niedrig ✅
 - **Problem:** Für 513–1024 Frames fällt der Dispatch auf `launch_reconstruction_kernel<1024>`. Jeder Thread belegt dann: `values[1024]` + `weights[1024]` + `scores[1024]` + `short scratch_buf[1024]` = $1024 \times (4+4+4+2) = 14{.}336$ Bytes Thread-lokalen Speicher (spill in VRAM). Bei Blockgröße `(32, 8)` = 256 Threads pro Block entspricht das ≈14 KB × 256 = 3,5 MB lokalen Speichers je Block, was auf typischen GPUs zu nur 1–2 aktiven Blocks pro SM führt (Occupancy ≈3–6%).
 - **Maßnahme (Option 1):** Shared-Memory-Pool-Kernel: Frames werden in Shared Memory gestapelt und chunkweise verarbeitet, sodass jeder Thread nur einen Slot belegt. (Erfordert Kernel-Redesign.)
 - **Maßnahme (Option 2):** Blockgröße auf `(16, 8)` = 128 Threads reduzieren; halbiert den lokalen Speicherdruck pro SM bei gleichem Grid.
 - **Maßnahme (Option 3):** Für frame_count 513–645 eine enge Stufe `<640>` oder `<768>` ergänzen, um das effektive Speicher-Footprint gegenüber Stufe 1024 um 37–50% zu reduzieren.
+- **Status:** **Erledigt & Verifiziert** – Option 3 umgesetzt: zusätzliche Stufen `<640>` und `<768>` im Dispatch.
 
-### G. Parallelisierung der SHA-256-Masken-Vorabprüfung (§3.1)
+### G. Parallelisierung der SHA-256-Masken-Vorabprüfung (§3.1) ✅
 - **Problem:** Die `frame_mask_compatible`-Vorabprüfungsschleife iteriert sequenziell über alle Frames. Für jedes Frame wird die vollständige Maske geladen und SHA-256 berechnet. Bei 645 Frames à 28 MB Maske sind das sequenziell ~18 GB SHA-256-Eingabedaten.
 - **Maßnahme:** Schleife per `#pragma omp parallel for schedule(dynamic, 1)` parallelisieren; SHA-256-Berechnung ist embarrassingly parallel. Das Laden bleibt I/O-gebunden, profitiert aber von parallelen Datei-Opens auf SSDs.
+- **Status:** **Erledigt & Verifiziert** – `#pragma omp parallel for schedule(dynamic, 1)` parallelisiert die Vorabprüfung.

@@ -98,7 +98,14 @@ private:
     void *veto_data = nullptr;
     size_t veto_size = 0;
   };
+  struct XInterp {
+    int ax0;
+    int ax1;
+    float tx;
+    float inv_tx;
+  };
   mutable std::unordered_map<size_t, FileMapping> file_mappings_;
+  std::vector<XInterp> x_lut_;
 };
 
 std::string compute_aqmh_canvas_mask_hash(const std::vector<uint8_t> &mask,

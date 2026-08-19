@@ -697,6 +697,18 @@ void launch_reconstruction_kernel_for_frame_count(
         cherry_enabled, grid, block, stream, bufs, d_global_weights,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, frame_count, cfg);
+  } else if (frame_count <= 640) {
+    // §8-F: Tighter tier for 513-640 frames — 37% less local memory than 1024.
+    launch_reconstruction_kernel<640>(
+        cherry_enabled, grid, block, stream, bufs, d_global_weights,
+        d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+        width, chunk_rows, y0, height, frame_count, cfg);
+  } else if (frame_count <= 768) {
+    // §8-F: Tighter tier for 641-768 frames — 25% less local memory than 1024.
+    launch_reconstruction_kernel<768>(
+        cherry_enabled, grid, block, stream, bufs, d_global_weights,
+        d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
+        width, chunk_rows, y0, height, frame_count, cfg);
   } else {
     launch_reconstruction_kernel<1024>(
         cherry_enabled, grid, block, stream, bufs, d_global_weights,
@@ -861,7 +873,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     return result;
   }
   const size_t device_budget = std::min<size_t>(
-      static_cast<size_t>(0.60 * static_cast<double>(free_bytes)),
+      static_cast<size_t>(0.30 * static_cast<double>(free_bytes)),
       4ULL * kBytesPerGiB);
   result.cuda_free_bytes = static_cast<uint64_t>(free_bytes);
   result.cuda_total_bytes = static_cast<uint64_t>(total_bytes);
@@ -909,38 +921,65 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   CUDA_CHECK(cudaMemcpy(d_global_weights, h_global_weights.data(),
                         frame_count * sizeof(float), cudaMemcpyHostToDevice));
 
-  GpuBuffers bufs;
-  while (!allocate_chunk_buffers(bufs, width, chunk_rows, static_cast<int>(frame_count),
-                                 cfg.compute_uniform_control, cherry_enabled)) {
-    free_chunk_buffers(bufs);
-    if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
-      cudaFree(d_global_weights);
-      result.acceleration_fallback = true;
-      return result;
+  // P3: Double-buffering — allocate two sets of device buffers for stream overlap.
+  GpuBuffers bufs[2];
+  for (int b = 0; b < 2; ++b) {
+    while (!allocate_chunk_buffers(bufs[b], width, chunk_rows, static_cast<int>(frame_count),
+                                   cfg.compute_uniform_control, cherry_enabled)) {
+      free_chunk_buffers(bufs[b]);
+      if (b == 1) free_chunk_buffers(bufs[0]);
+      if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
+        cudaFree(d_global_weights);
+        result.acceleration_fallback = true;
+        return result;
+      }
+      chunk_rows = std::max(1, chunk_rows / 2);
+      ++result.cuda_allocation_retries;
+      result.chunk_rows = chunk_rows;
+      result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
+      b = -1; // Restart allocation from scratch with new chunk_rows
+      break;
     }
-    chunk_rows = std::max(1, chunk_rows / 2);
-    ++result.cuda_allocation_retries;
-    result.chunk_rows = chunk_rows;
-    result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
   }
 
-  // Pinned host staging buffers for true asynchronous DMA transfers.
-  PinnedBuffer<float> h_frames(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
-  PinnedBuffer<float> h_q_maps(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f);
-  PinnedBuffer<uint8_t> h_masks(static_cast<size_t>(frame_count) * chunk_rows * width, 0u);
-  PinnedBuffer<uint8_t> h_canvas_mask(static_cast<size_t>(chunk_rows) * width, 0u);
-  PinnedBuffer<float> h_output(static_cast<size_t>(chunk_rows) * width, 0.0f);
-  PinnedBuffer<float> h_weight_sum(static_cast<size_t>(chunk_rows) * width, 0.0f);
-  PinnedBuffer<float> h_uniform_control;
-  PinnedBuffer<uint8_t> h_uniform_control_valid;
-  if (cfg.compute_uniform_control)
-    h_uniform_control.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
-  if (cfg.compute_uniform_control)
-    h_uniform_control_valid.assign(
-        static_cast<size_t>(chunk_rows) * width, 0u);
-  PinnedBuffer<float> h_cherry_k_map;
-  if (cherry_enabled)
-    h_cherry_k_map.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
+  // P3: Double-buffered pinned host staging buffers — two sets for stream overlap.
+  PinnedBuffer<float> h_frames[2] = {
+    PinnedBuffer<float>(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f),
+    PinnedBuffer<float>(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f)
+  };
+  PinnedBuffer<float> h_q_maps[2] = {
+    PinnedBuffer<float>(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f),
+    PinnedBuffer<float>(static_cast<size_t>(frame_count) * chunk_rows * width, 0.0f)
+  };
+  PinnedBuffer<uint8_t> h_masks[2] = {
+    PinnedBuffer<uint8_t>(static_cast<size_t>(frame_count) * chunk_rows * width, 0u),
+    PinnedBuffer<uint8_t>(static_cast<size_t>(frame_count) * chunk_rows * width, 0u)
+  };
+  PinnedBuffer<uint8_t> h_canvas_mask[2] = {
+    PinnedBuffer<uint8_t>(static_cast<size_t>(chunk_rows) * width, 0u),
+    PinnedBuffer<uint8_t>(static_cast<size_t>(chunk_rows) * width, 0u)
+  };
+  PinnedBuffer<float> h_output[2] = {
+    PinnedBuffer<float>(static_cast<size_t>(chunk_rows) * width, 0.0f),
+    PinnedBuffer<float>(static_cast<size_t>(chunk_rows) * width, 0.0f)
+  };
+  PinnedBuffer<float> h_weight_sum[2] = {
+    PinnedBuffer<float>(static_cast<size_t>(chunk_rows) * width, 0.0f),
+    PinnedBuffer<float>(static_cast<size_t>(chunk_rows) * width, 0.0f)
+  };
+  PinnedBuffer<float> h_uniform_control[2];
+  PinnedBuffer<uint8_t> h_uniform_control_valid[2];
+  if (cfg.compute_uniform_control) {
+    h_uniform_control[0].assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
+    h_uniform_control[1].assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
+    h_uniform_control_valid[0].assign(static_cast<size_t>(chunk_rows) * width, 0u);
+    h_uniform_control_valid[1].assign(static_cast<size_t>(chunk_rows) * width, 0u);
+  }
+  PinnedBuffer<float> h_cherry_k_map[2];
+  if (cherry_enabled) {
+    h_cherry_k_map[0].assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
+    h_cherry_k_map[1].assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
+  }
 
   unsigned long long* d_unsupported_pixels = nullptr;
   unsigned long long* d_zero_veto_pixels = nullptr;
@@ -953,16 +992,20 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   CUDA_CHECK(cudaMemsetAsync(d_numerical_guard_pixels, 0, sizeof(unsigned long long), 0));
 
   const dim3 block(32, 8);
-  cudaStream_t stream = nullptr;
-  CUDA_CHECK(cudaStreamCreate(&stream));
-  cudaEvent_t h2d_start = nullptr;
-  cudaEvent_t kernel_start = nullptr;
-  cudaEvent_t kernel_end = nullptr;
-  cudaEvent_t d2h_end = nullptr;
-  CUDA_CHECK(cudaEventCreate(&h2d_start));
-  CUDA_CHECK(cudaEventCreate(&kernel_start));
-  CUDA_CHECK(cudaEventCreate(&kernel_end));
-  CUDA_CHECK(cudaEventCreate(&d2h_end));
+  // P3: Two streams for ping-pong double-buffering.
+  cudaStream_t streams[2] = {nullptr, nullptr};
+  CUDA_CHECK(cudaStreamCreate(&streams[0]));
+  CUDA_CHECK(cudaStreamCreate(&streams[1]));
+  cudaEvent_t h2d_start[2] = {nullptr, nullptr};
+  cudaEvent_t kernel_start[2] = {nullptr, nullptr};
+  cudaEvent_t kernel_end[2] = {nullptr, nullptr};
+  cudaEvent_t d2h_end[2] = {nullptr, nullptr};
+  for (int s = 0; s < 2; ++s) {
+    CUDA_CHECK(cudaEventCreate(&h2d_start[s]));
+    CUDA_CHECK(cudaEventCreate(&kernel_start[s]));
+    CUDA_CHECK(cudaEventCreate(&kernel_end[s]));
+    CUDA_CHECK(cudaEventCreate(&d2h_end[s]));
+  }
 
   // Prepare the next frame regions while the current chunk is executing on
   // the device.  The loader owns the returned matrices, so the current chunk
@@ -983,8 +1026,54 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     });
   };
 
+  // P3: Double-buffered main loop — H2D[k+1] overlaps with Kernel[k],
+  // D2H[k] overlaps with Kernel[k+1]. Two streams and two buffer sets.
+  struct PendingChunk { int y0 = 0; int rows = 0; bool valid = false; };
+  PendingChunk pending[2];
+  int chunk_idx = 0;
+
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
+    const int slot = chunk_idx % 2;
+
+    // If this slot has pending results from chunk_idx-2, sync and commit.
+    if (pending[slot].valid) {
+      CUDA_CHECK(cudaStreamSynchronize(streams[slot]));
+      float elapsed_ms = 0.0f;
+      CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, h2d_start[slot], kernel_start[slot]));
+      result.cuda_h2d_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+      CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_start[slot], kernel_end[slot]));
+      result.cuda_kernel_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+      CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_end[slot], d2h_end[slot]));
+      result.cuda_d2h_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+
+      const auto result_commit_start = std::chrono::steady_clock::now();
+      const int p_y0 = pending[slot].y0;
+      const int p_rows = pending[slot].rows;
+      for (int yy = 0; yy < p_rows; ++yy) {
+        const int y = p_y0 + yy;
+        for (int x = 0; x < width; ++x) {
+          const size_t local_i = static_cast<size_t>(yy) * width + x;
+          result.output(y, x) = h_output[slot][local_i];
+          result.weight_sum(y, x) = h_weight_sum[slot][local_i];
+          if (cfg.compute_uniform_control) {
+            result.uniform_control_output(y, x) = h_uniform_control[slot][local_i];
+            result.uniform_control_valid_mask[
+                static_cast<size_t>(y) * static_cast<size_t>(width) +
+                static_cast<size_t>(x)] = h_uniform_control_valid[slot][local_i];
+          }
+          if (cherry_enabled)
+            result.cherry_pick_k_map(y, x) = h_cherry_k_map[slot][local_i];
+        }
+      }
+      result.cuda_result_commit_seconds +=
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - result_commit_start)
+              .count();
+      if (progress) progress(p_y0 + p_rows, height);
+      pending[slot].valid = false;
+    }
+
     const auto host_prepare_start = std::chrono::steady_clock::now();
 
     if (have_prefetched_frames) {
@@ -993,7 +1082,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     }
 
     // Masks must be zeroed each chunk so frames that fail to load are skipped.
-    std::fill(h_masks.begin(), h_masks.end(), 0u);
+    std::fill(h_masks[slot].begin(), h_masks[slot].end(), 0u);
 
     // Prepare canvas mask slice.
     for (int yy = 0; yy < rows; ++yy) {
@@ -1001,7 +1090,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       for (int x = 0; x < width; ++x) {
         const size_t full_i = static_cast<size_t>(y) * width + x;
         const size_t local_i = static_cast<size_t>(yy) * width + x;
-        h_canvas_mask[local_i] =
+        h_canvas_mask[slot][local_i] =
             (canvas_mask.empty() || full_i >= canvas_mask.size()) ? 1u
                                                                   : canvas_mask[full_i];
       }
@@ -1114,18 +1203,18 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
               static_cast<size_t>(local_i) * frame_count + fi;
           // For full-frame (non-region) loads, offset by y0 within the matrix.
           const int fr_row = use_region ? yy : (y0 + yy);
-          h_frames[idx] = frame_region(fr_row, x);
-          h_q_maps[idx] =
+          h_frames[slot][idx] = frame_region(fr_row, x);
+          h_q_maps[slot][idx] =
               q_map_ok ? q(fr_row, x)
                        : std::numeric_limits<float>::quiet_NaN();
           if (fm.empty()) {
-            h_masks[idx] = 1u;
+            h_masks[slot][idx] = 1u;
           } else {
             const size_t mask_i = use_region ? local_i : full_i;
-            h_masks[idx] = fm[mask_i];
+            h_masks[slot][idx] = fm[mask_i];
             if (fm[mask_i] == 0u) continue;
           }
-          if (h_canvas_mask[local_i] == 0u) continue;
+          if (h_canvas_mask[slot][local_i] == 0u) continue;
           if (!q_map_ok)
             continue;
           if (!std::isfinite(q(fr_row, x))) {
@@ -1168,102 +1257,113 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       have_prefetched_frames = true;
     }
 
-    // Upload frame/q-map/mask chunk.
+    // Upload frame/q-map/mask chunk on streams[slot].
     const size_t used_all_pixels = static_cast<size_t>(frame_count) * rows * width;
-    CUDA_CHECK(cudaEventRecord(h2d_start, stream));
+    CUDA_CHECK(cudaEventRecord(h2d_start[slot], streams[slot]));
     CUDA_CHECK(cudaMemcpyAsync(
-        bufs.canvas_mask, h_canvas_mask.data(),
+        bufs[slot].canvas_mask, h_canvas_mask[slot].data(),
         static_cast<size_t>(rows) * width * sizeof(uint8_t),
-        cudaMemcpyHostToDevice, stream));
+        cudaMemcpyHostToDevice, streams[slot]));
     CUDA_CHECK(cudaMemcpyAsync(
-        bufs.frames, h_frames.data(),
+        bufs[slot].frames, h_frames[slot].data(),
         used_all_pixels * sizeof(float),
-        cudaMemcpyHostToDevice, stream));
+        cudaMemcpyHostToDevice, streams[slot]));
     CUDA_CHECK(cudaMemcpyAsync(
-        bufs.q_maps, h_q_maps.data(),
+        bufs[slot].q_maps, h_q_maps[slot].data(),
         used_all_pixels * sizeof(float),
-        cudaMemcpyHostToDevice, stream));
+        cudaMemcpyHostToDevice, streams[slot]));
     CUDA_CHECK(cudaMemcpyAsync(
-        bufs.frame_masks, h_masks.data(),
+        bufs[slot].frame_masks, h_masks[slot].data(),
         used_all_pixels * sizeof(uint8_t),
-        cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaEventRecord(kernel_start, stream));
+        cudaMemcpyHostToDevice, streams[slot]));
+    CUDA_CHECK(cudaEventRecord(kernel_start[slot], streams[slot]));
 
     const dim3 grid((width + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
     launch_reconstruction_kernel_for_frame_count(
         static_cast<int>(frame_count), cherry_enabled,
-        grid, block, stream, bufs, d_global_weights,
+        grid, block, streams[slot], bufs[slot], d_global_weights,
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, cfg);
     CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaEventRecord(kernel_end, stream));
+    CUDA_CHECK(cudaEventRecord(kernel_end[slot], streams[slot]));
 
-    // Download outputs.
+    // Download outputs on streams[slot].
     const size_t used_chunk_pixels = static_cast<size_t>(rows) * width;
     CUDA_CHECK(cudaMemcpyAsync(
-        h_output.data(), bufs.output,
+        h_output[slot].data(), bufs[slot].output,
         used_chunk_pixels * sizeof(float),
-        cudaMemcpyDeviceToHost, stream));
+        cudaMemcpyDeviceToHost, streams[slot]));
     CUDA_CHECK(cudaMemcpyAsync(
-        h_weight_sum.data(), bufs.weight_sum,
+        h_weight_sum[slot].data(), bufs[slot].weight_sum,
         used_chunk_pixels * sizeof(float),
-        cudaMemcpyDeviceToHost, stream));
+        cudaMemcpyDeviceToHost, streams[slot]));
     if (cfg.compute_uniform_control) {
       CUDA_CHECK(cudaMemcpyAsync(
-          h_uniform_control.data(), bufs.uniform_control,
+          h_uniform_control[slot].data(), bufs[slot].uniform_control,
           used_chunk_pixels * sizeof(float),
-          cudaMemcpyDeviceToHost, stream));
+          cudaMemcpyDeviceToHost, streams[slot]));
       CUDA_CHECK(cudaMemcpyAsync(
-          h_uniform_control_valid.data(), bufs.uniform_control_valid,
+          h_uniform_control_valid[slot].data(), bufs[slot].uniform_control_valid,
           used_chunk_pixels * sizeof(uint8_t),
-          cudaMemcpyDeviceToHost, stream));
+          cudaMemcpyDeviceToHost, streams[slot]));
     }
     if (cherry_enabled) {
       CUDA_CHECK(cudaMemcpyAsync(
-          h_cherry_k_map.data(), bufs.cherry_k_map,
+          h_cherry_k_map[slot].data(), bufs[slot].cherry_k_map,
           used_chunk_pixels * sizeof(float),
-          cudaMemcpyDeviceToHost, stream));
+          cudaMemcpyDeviceToHost, streams[slot]));
     }
-    CUDA_CHECK(cudaEventRecord(d2h_end, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaEventRecord(d2h_end[slot], streams[slot]));
+
+    // Mark this slot as pending for later commit.
+    pending[slot] = {y0, rows, true};
+    ++chunk_idx;
+  }
+
+  // P3: Commit remaining pending chunks after the loop.
+  for (int s = 0; s < 2; ++s) {
+    if (!pending[s].valid) continue;
+    CUDA_CHECK(cudaStreamSynchronize(streams[s]));
     float elapsed_ms = 0.0f;
-    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, h2d_start, kernel_start));
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, h2d_start[s], kernel_start[s]));
     result.cuda_h2d_seconds += static_cast<double>(elapsed_ms) / 1000.0;
-    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_start, kernel_end));
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_start[s], kernel_end[s]));
     result.cuda_kernel_seconds += static_cast<double>(elapsed_ms) / 1000.0;
-    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_end, d2h_end));
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, kernel_end[s], d2h_end[s]));
     result.cuda_d2h_seconds += static_cast<double>(elapsed_ms) / 1000.0;
 
-    // Copy to result matrices.
     const auto result_commit_start = std::chrono::steady_clock::now();
-    for (int yy = 0; yy < rows; ++yy) {
-      const int y = y0 + yy;
+    const int p_y0 = pending[s].y0;
+    const int p_rows = pending[s].rows;
+    for (int yy = 0; yy < p_rows; ++yy) {
+      const int y = p_y0 + yy;
       for (int x = 0; x < width; ++x) {
         const size_t local_i = static_cast<size_t>(yy) * width + x;
-        result.output(y, x) = h_output[local_i];
-        result.weight_sum(y, x) = h_weight_sum[local_i];
+        result.output(y, x) = h_output[s][local_i];
+        result.weight_sum(y, x) = h_weight_sum[s][local_i];
         if (cfg.compute_uniform_control) {
-          result.uniform_control_output(y, x) = h_uniform_control[local_i];
+          result.uniform_control_output(y, x) = h_uniform_control[s][local_i];
           result.uniform_control_valid_mask[
               static_cast<size_t>(y) * static_cast<size_t>(width) +
-              static_cast<size_t>(x)] = h_uniform_control_valid[local_i];
+              static_cast<size_t>(x)] = h_uniform_control_valid[s][local_i];
         }
         if (cherry_enabled)
-          result.cherry_pick_k_map(y, x) = h_cherry_k_map[local_i];
+          result.cherry_pick_k_map(y, x) = h_cherry_k_map[s][local_i];
       }
     }
     result.cuda_result_commit_seconds +=
         std::chrono::duration<double>(
             std::chrono::steady_clock::now() - result_commit_start)
             .count();
-
-    if (progress) progress(y0 + rows, height);
+    if (progress) progress(p_y0 + p_rows, height);
   }
 
-  cudaEventDestroy(h2d_start);
-  cudaEventDestroy(kernel_start);
-  cudaEventDestroy(kernel_end);
-  cudaEventDestroy(d2h_end);
+  for (int s = 0; s < 2; ++s) {
+    cudaEventDestroy(h2d_start[s]);
+    cudaEventDestroy(kernel_start[s]);
+    cudaEventDestroy(kernel_end[s]);
+    cudaEventDestroy(d2h_end[s]);
+  }
 
   // Download aggregate pixel counters from device.
   {
@@ -1318,8 +1418,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   result.acceleration_used = true;
   result.acceleration_fallback = false;
 
-  cudaStreamDestroy(stream);
-  free_chunk_buffers(bufs);
+  for (int s = 0; s < 2; ++s)
+    cudaStreamDestroy(streams[s]);
+  for (int b = 0; b < 2; ++b)
+    free_chunk_buffers(bufs[b]);
   cudaFree(d_global_weights);
   cudaFree(d_unsupported_pixels);
   cudaFree(d_zero_veto_pixels);

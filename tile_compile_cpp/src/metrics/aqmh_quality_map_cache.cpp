@@ -101,6 +101,19 @@ QualityMapCache::QualityMapCache(
   stored_height_ =
       std::max(1, (full_height_ + storage_cfg_.resolution_divisor - 1) /
                       storage_cfg_.resolution_divisor);
+  // §8-D: Pre-compute x interpolation LUT once — full_width and
+  // resolution_divisor are constant for the cache's lifetime.
+  const int d = storage_cfg_.resolution_divisor;
+  x_lut_.resize(full_width_);
+  for (int x = 0; x < full_width_; ++x) {
+    const float sx = (static_cast<float>(x) + 0.5f) / static_cast<float>(d) - 0.5f;
+    const int base_x = static_cast<int>(std::floor(sx));
+    const float tx = sx - static_cast<float>(base_x);
+    x_lut_[x].ax0 = std::clamp(base_x, 0, stored_width_ - 1);
+    x_lut_[x].ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
+    x_lut_[x].tx = tx;
+    x_lut_[x].inv_tx = 1.0f - tx;
+  }
   config_hash_ = make_config_hash(pyramid_cfg_, storage_cfg_, full_width_,
                                   full_height_, map_stream_id_,
                                   canvas_mask_hash_, execution_backend_);
@@ -264,22 +277,9 @@ Matrix2Df QualityMapCache::read_region(size_t fi, int y0, int rows) const {
     }
 
     Matrix2Df region(rows, full_width_);
-    struct XInterp {
-      int ax0;
-      int ax1;
-      float tx;
-      float inv_tx;
-    };
-    std::vector<XInterp> x_lut(full_width_);
-    for (int x = 0; x < full_width_; ++x) {
-      const float sx = (static_cast<float>(x) + 0.5f) / static_cast<float>(d) - 0.5f;
-      const int base_x = static_cast<int>(std::floor(sx));
-      const float tx = sx - static_cast<float>(base_x);
-      x_lut[x].ax0 = std::clamp(base_x, 0, stored_width_ - 1);
-      x_lut[x].ax1 = std::clamp(base_x + 1, 0, stored_width_ - 1);
-      x_lut[x].tx = tx;
-      x_lut[x].inv_tx = 1.0f - tx;
-    }
+
+    // §8-D: Use pre-computed x_lut_ instead of reallocating on every cache miss.
+    const auto &x_lut = x_lut_;
 
     // Upsample only the requested rows using the same pixel-centre convention as
     // upsample_to_full_resolution().
