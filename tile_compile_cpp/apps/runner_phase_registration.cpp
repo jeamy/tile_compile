@@ -601,6 +601,8 @@ bool run_phase_registration_prewarp(
 
   std::vector<Matrix2Df> in_memory_proxies(frames.size());
   auto proxy_init_flags = std::make_unique<std::once_flag[]>(frames.size());
+  std::vector<std::vector<registration::StarPoint>> in_memory_star_lists(frames.size());
+  auto star_list_init_flags = std::make_unique<std::once_flag[]>(frames.size());
 
   auto load_registration_proxy = [&](size_t frame_index) -> Matrix2Df {
     if (frame_index >= frames.size()) return {};
@@ -621,6 +623,21 @@ bool run_phase_registration_prewarp(
       in_memory_proxies[frame_index] = std::move(proxy);
     });
     return in_memory_proxies[frame_index];
+  };
+
+  auto load_registration_stars = [&](size_t frame_index)
+      -> const std::vector<registration::StarPoint> & {
+    static const std::vector<registration::StarPoint> empty_stars;
+    if (frame_index >= frames.size()) return empty_stars;
+    std::call_once(star_list_init_flags[frame_index], [&]() {
+      const Matrix2Df proxy = load_registration_proxy(frame_index);
+      if (proxy.size() > 0) {
+        in_memory_star_lists[frame_index] = registration::detect_stars_simple(
+            proxy, registration_cfg.star_topk,
+            registration_cfg.enable_local_background_subtraction);
+      }
+    });
+    return in_memory_star_lists[frame_index];
   };
 
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
@@ -1295,8 +1312,13 @@ bool run_phase_registration_prewarp(
           // Every fixed anchor is solved independently against the immutable
           // master reference. No requested anchor inherits another anchor's
           // transform, so one bad anchor cannot create an anchor chain.
+          const auto &anchor_stars = load_registration_stars(
+              static_cast<size_t>(anchor_idx));
+          const auto &reference_stars = load_registration_stars(
+              static_cast<size_t>(global_ref_idx));
           const auto sfr_anchor = registration::register_single_frame(
-              anchor_proxy, ref_reg, registration_cfg);
+              anchor_proxy, ref_reg, registration_cfg, 0.01f,
+              &anchor_stars, &reference_stars);
           if (!sfr_anchor.reg.success) {
             return false;
           }
@@ -1458,8 +1480,12 @@ bool run_phase_registration_prewarp(
                           active_anchor_indices[anchor_slot];
                       const Matrix2Df &anchor_reg =
                           active_anchor_proxies[anchor_slot];
+                      const auto &moving_stars = load_registration_stars(fi);
+                      const auto &anchor_stars = load_registration_stars(
+                          static_cast<size_t>(anchor_idx));
                       const auto sfr = registration::register_single_frame(
-                          mov_reg, anchor_reg, registration_cfg);
+                          mov_reg, anchor_reg, registration_cfg, 0.01f,
+                          &moving_stars, &anchor_stars);
                       if (!sfr.reg.success) {
                         continue;
                       }

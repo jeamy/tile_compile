@@ -126,7 +126,9 @@ struct SingleFrameRegResult {
 SingleFrameRegResult register_single_frame(
     const Matrix2Df& mov, const Matrix2Df& ref,
     const config::RegistrationConfig& rcfg,
-    float min_ncc_improvement = 0.01f);
+    float min_ncc_improvement = 0.01f,
+    const std::vector<StarPoint>* mov_stars = nullptr,
+    const std::vector<StarPoint>* ref_stars = nullptr);
 
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
 Matrix2Df downsample2x2_mean(const Matrix2Df& in);

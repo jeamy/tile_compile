@@ -1795,14 +1795,20 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
                              int topk_stars, int min_inliers,
                              float inlier_tol_px, float dist_bin_px,
                              const std::string &transform_model,
-                             bool enable_local_background_subtraction) {
+                             bool enable_local_background_subtraction,
+                             const std::vector<StarPoint> *mov_stars_cached = nullptr,
+                             const std::vector<StarPoint> *ref_stars_cached = nullptr) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
-  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
+  const auto mov_stars = mov_stars_cached
+      ? *mov_stars_cached
+      : detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  const auto ref_stars = ref_stars_cached
+      ? *ref_stars_cached
+      : detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
     return res;
@@ -2032,14 +2038,20 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        float inlier_tol_px,
                        const std::string &transform_model,
                        bool enable_local_background_subtraction,
-                       float shift_radius_px) {
+                       float shift_radius_px,
+                       const std::vector<StarPoint> *mov_stars_cached = nullptr,
+                       const std::vector<StarPoint> *ref_stars_cached = nullptr) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
-  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
+  const auto mov_stars = mov_stars_cached
+      ? *mov_stars_cached
+      : detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  const auto ref_stars = ref_stars_cached
+      ? *ref_stars_cached
+      : detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
 
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
@@ -2453,7 +2465,9 @@ float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
 SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
                                            const config::RegistrationConfig &rcfg,
-                                           float min_ncc_improvement) {
+                                           float min_ncc_improvement,
+                                           const std::vector<StarPoint> *mov_stars_cached,
+                                           const std::vector<StarPoint> *ref_stars_cached) {
   // Thread-safe diagnostic counter (only log first few calls)
   static std::atomic<int> diag_counter{0};
   const int diag_id = diag_counter.fetch_add(1);
@@ -2584,7 +2598,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                rcfg.star_inlier_tol_px,
                                rcfg.transform_model,
                                rcfg.enable_local_background_subtraction,
-                               rcfg.star_shift_radius_px),
+                               rcfg.star_shift_radius_px,
+                               mov_stars_cached, ref_stars_cached),
         "triangle");
     if (!ok && rcfg.enable_star_pair_fallback) {
       ok = try_method(
@@ -2592,7 +2607,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
               mov, ref, rcfg.allow_rotation, rcfg.star_topk,
               rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
               rcfg.star_dist_bin_px, rcfg.transform_model,
-              rcfg.enable_local_background_subtraction),
+              rcfg.enable_local_background_subtraction,
+              mov_stars_cached, ref_stars_cached),
           "star_pair");
     }
     return ok;
@@ -2620,7 +2636,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                 rcfg.star_inlier_tol_px,
                                 rcfg.transform_model,
                                 rcfg.enable_local_background_subtraction,
-                                rcfg.star_shift_radius_px),
+                                rcfg.star_shift_radius_px,
+                                mov_stars_cached, ref_stars_cached),
           "triangle");
     }
   }

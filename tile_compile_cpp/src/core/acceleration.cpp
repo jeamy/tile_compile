@@ -62,7 +62,7 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
   case AccelerationPhase::prewarp:
     return TILE_COMPILE_HAS_OPENCV_CUDA_WARPING != 0;
   case AccelerationPhase::aqmh_maps:
-    return false;
+    return TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS != 0;
   case AccelerationPhase::aqmh_reconstruction:
     return false;
   case AccelerationPhase::tile_reconstruction:
@@ -96,6 +96,7 @@ bool phase_supports_backend(AccelerationPhase phase,
     return true;
   case AccelerationBackend::opencv_cuda:
     return phase == AccelerationPhase::prewarp ||
+           phase == AccelerationPhase::aqmh_maps ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::opencv_opencl:
@@ -113,7 +114,8 @@ bool phase_supports_backend(AccelerationPhase phase,
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 bool opencv_cuda_runtime_available() {
-#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && \
+    (TILE_COMPILE_HAS_OPENCV_CUDA_WARPING || TILE_COMPILE_HAS_OPENCV_CUDA_FILTERS)
   try {
     return cv::cuda::getCudaEnabledDeviceCount() > 0;
   } catch (...) {

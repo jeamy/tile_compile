@@ -153,9 +153,16 @@ Ziel dieser Optimierung war:
 - **Erledigt (GPU Double-Buffering):** Echtes GPU-seitiges Double-Buffering mit zwei `cudaStream_t`-Instanzen ist nun implementiert – Stream A: H2D-Upload Chunk $k+1$ parallel zu Stream B: Kernel-Execution Chunk $k$ parallel zu D2H-Download Chunk $k-1$. Zwei `GpuBuffers`-Sets und zwei `PinnedBuffer`-Sets ermöglichen Ping-Pong-Überlappung. Geschätztes Einsparpotenzial: 15–25% GPU-Laufzeit (s. §7, Status: erledigt & verifiziert).
 
 ### 6.4 OpenCV CUDA Acceleration Mapping
-- In `tile_compile_cpp/src/core/acceleration.cpp:64-67` ist `AccelerationPhase::aqmh_maps` für CUDA hardcodiert auf `false` gesetzt.
-- Die rechenintensiven Filter (Gauß-Filter, separable Gradienten) in `AQMH_MAPS` laufen daher selbst bei aktiver GPU-Konfiguration immer über die CPU.
-- **Lösung:** Anbindung von `cv::cuda::createGaussianFilter` und `cv::cuda::createLinearFilter` in `AQMH_MAPS`.
+- **Implementiert:** `AccelerationPhase::aqmh_maps` wird in `tile_compile_cpp/src/core/acceleration.cpp` als OpenCV-CUDA-fähig ausgewiesen, wenn die CUDA-Filter-Header vorhanden sind. Die Phase wird außerdem als unterstützte `opencv_cuda`-Phase selektiert.
+- `compute_aqmh_quality_map()` verwendet den bestehenden GPU-Pfad `accelerated_local_variance()` pro Pyramiden-Skala. Dieser nutzt `cv::cuda::createBoxFilter` sowie CUDA-Arithmetik für die lokale Varianz und besitzt einen per Skala greifenden CPU-Fallback.
+- Die Runtime-Prüfung akzeptiert CUDA-Filter auch dann, wenn das OpenCV-Warping-Modul nicht gebaut wurde. Damit wird `AQMH_MAPS` nicht mehr fälschlich wegen einer nicht benötigten Warping-Komponente auf CPU zurückgestuft.
+- **Nicht behauptet:** Ein separater `cv::cuda::createGaussianFilter`- oder vollständiger fused AQMH-Pyramidenkernel wurde nicht eingeführt; Downsampling, SNR, Artefaktbewertung und PSI-Akkumulation bleiben bewusst semantisch unverändert und werden weiterhin auf CPU berechnet.
+
+### 6.5 Registrierungs-Sternlisten-Cache
+- `runner_phase_registration.cpp` hält nun neben den Proxy-Bildern auch die erkannten `StarPoint`-Listen frame-indexiert im Speicher.
+- `std::once_flag` stellt sicher, dass jede Liste höchstens einmal pro Registration-Run berechnet wird; parallele Zugriffe sind thread-safe.
+- `register_single_frame()` akzeptiert optionale gecachte Moving-/Reference-Sternlisten. Multi-Anchor-Kandidaten und Anchor-Registrierungen verwenden diese Listen direkt; ohne Cache bleiben die bisherigen Erkennungs- und Fallback-Semantiken erhalten.
+- Das persistente Proxy-Caching und der CPU-Fallback bleiben unverändert.
 
 ---
 
@@ -168,6 +175,8 @@ Ziel dieser Optimierung war:
 | **P2** | **CUDA Kernel** | Kompakte 16-Bit-Indizes (`short`) & engere Spezialisierungsstufen ($N \le 32, 64, 128, 256, 512, 1024$) in `aqmh_reconstruction_cuda.cu` | **Erledigt & Verifiziert** | Halbiert Index-Puffer-Footprint im GPU-Thread und verhindert Spilling |
 | **P2** | **AQMH Maps** | 1D-X- und Y-Interpolations-LUTs in `accumulate_upsampled_log_psi` (`aqmh_quality_map.cpp`) | **Erledigt & Verifiziert** | Entfernt Subpixel-`floor`/`clamp`/`abs`-Kosten aus 28M-Pixel-Schleife |
 | **P3** | **Registration**| Thread-safe In-Memory-Proxy-Caching (`in_memory_proxies`, `proxy_init_flags`) in `runner_phase_registration.cpp` | **Erledigt & Verifiziert** | Verhindert redundante FITS-Dekodierung bei Multi-Anchor- und Support-Suchen |
+| **P3** | **Registration**| Frame-indexierter Sternlisten-Cache (`in_memory_star_lists`, `star_list_init_flags`) und Weitergabe an `register_single_frame()` | **Implementiert & Build-verifiziert** | Verhindert wiederholte Sterndetektion bei Multi-Anchor-Kandidaten; Fallback ohne Cache bleibt erhalten |
+| **P3** | **AQMH Maps** | OpenCV-CUDA-Auswahl für `aqmh_maps` und Nutzung des bestehenden `accelerated_local_variance()`-Pfads mit `cv::cuda::createBoxFilter` | **Implementiert & Build-verifiziert** – CUDA-Runtime in dieser Umgebung nicht verfügbar | CUDA wird bei vorhandenen Filter-Headern und Runtime ausgewählt; CPU-Fallback bleibt pro Skala verfügbar |
 | **P3** | **CUDA Core** | GPU Double-Buffering / Stream-Overlap (§6.3): zwei `cudaStream_t` + Ping-Pong-Gerätepuffer | **Erledigt & Verifiziert** – Zwei Streams, zwei GpuBuffers-Sets, zwei PinnedBuffer-Sets; H2D[k+1] überlappt mit Kernel[k], D2H[k] überlappt mit Kernel[k+1] | Geschätztes Potenzial: 15–25% GPU-Laufzeit |
 | **P3** | **Prewarp** | CFA-Subplane Fused CUDA Kernel (§5.2.3): GPU-seitige Extraktion, Warp und Reassemblierung | **Offen** – Stream-Konsolidierung (1× sync) implementiert; CPU-seitige Subplane-Extraktion/Reassemblierung weiterhin vorhanden | – |
 | **P4** | **AQMH Maps** | `local_variance_linear` CPU-Fallback: Vermeidung redundanter Zero-Initialisierung (§5.3.2) | **Erledigt & Verifiziert** – `Matrix2Df(rows, cols)` ohne `Zero()` da parallel for alle Elemente überschreibt; thread_local aufgrund OMP-parallel-for nicht anwendbar (revertiert) | Reduziert Initialisierungs-Overhead; GPU-Pfad weiterhin via thread_local workspace optimiert |
