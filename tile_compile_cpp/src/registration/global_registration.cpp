@@ -2039,8 +2039,8 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        const std::string &transform_model,
                        bool enable_local_background_subtraction,
                        float shift_radius_px,
-                       const std::vector<StarPoint> *mov_stars_cached = nullptr,
-                       const std::vector<StarPoint> *ref_stars_cached = nullptr) {
+                       const std::vector<StarPoint> *mov_stars_cached,
+                       const std::vector<StarPoint> *ref_stars_cached) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;

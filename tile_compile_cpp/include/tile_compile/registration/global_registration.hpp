@@ -191,7 +191,9 @@ RegistrationResult triangle_star_matching(
     int topk_stars, int min_inliers,
     float inlier_tol_px, const std::string& transform_model,
     bool enable_local_background_subtraction = false,
-    float shift_radius_px = 200.0f);
+    float shift_radius_px = 200.0f,
+    const std::vector<StarPoint>* mov_stars_cached = nullptr,
+    const std::vector<StarPoint>* ref_stars_cached = nullptr);
 
 RegistrationResult robust_phase_ecc(
     const Matrix2Df& mov, const Matrix2Df& ref,
