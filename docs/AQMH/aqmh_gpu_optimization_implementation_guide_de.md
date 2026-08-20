@@ -1,336 +1,450 @@
 # AQMH GPU-Optimierung — Detaillierte Implementationsanleitung
 
-> **Hinweis zur Entstehung:** Diese Anleitung wurde in einer Analyse-Session ohne
-> lokalen GPU-/`nvcc`-Zugriff erstellt. Sie beschreibt Befunde und Maßnahmen anhand
-> von Code-Lesen, nicht von Profiling-Messungen auf echter Hardware. Jede Work
-> Package (WP) muss auf einer Maschine mit echtem CUDA-Build vor dem Merge
-> **gemessen** werden (siehe §10). Nutze das begleitende Dokument
-> `aqmh_gpu_optimization_handshake_prompt_de.md`, um eine lokale Claude-Code-Session
-> mit diesem Kontext zu starten.
+> Ziel: „ideale" GPU-Performance für die Phasen **AQMH_RECONSTRUCTION** und
+> **AQMH_MAPS**, ohne die numerische CPU-Parität und die Resume-/Cache-Verträge
+> zu brechen.
+>
+> Diese Anleitung ist so geschrieben, dass sie **lokal auf einer Maschine mit
+> CUDA-Toolkit und GPU** ausgeführt werden kann. Der zugehörige
+> **Handshake-Prompt** (`aqmh_gpu_optimization_handshake_prompt_de.md`) fasst
+> Reihenfolge, Guardrails und Abnahmekriterien für die lokale Ausführung
+> zusammen.
 
-## 0. Ausgangslage & Zielbild
+---
 
-### 0.1 Betroffene Dateien
+## 0. Ausgangslage und Zielbild
 
-| Datei | Rolle |
+### Betroffene Dateien
+
+| Rolle | Datei |
 |---|---|
-| `tile_compile_cpp/src/reconstruction/aqmh_reconstruction_cuda.cu` | CUDA-Kernel + Host-Orchestrierung für AQMH_RECONSTRUCTION |
-| `tile_compile_cpp/src/reconstruction/aqmh_reconstruction_opencl.cpp` | OpenCL-Spiegel derselben Logik (über `cv::ocl`) |
-| `tile_compile_cpp/src/metrics/aqmh_quality_map.cpp` | AQMH_MAPS; nur lokale Varianz/Sharpness ist GPU-offloadet |
-| `tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp` | Ruft die Rekonstruktion 4× auf (Luma/Core + R + G + B) |
-| `tile_compile_cpp/apps/runner_phase_local_metrics.cpp` | Worker-Pool-Orchestrierung für AQMH_MAPS |
-| `tile_compile_cpp/apps/runner_shared.cpp` | `compute_aqmh_map_worker_plan` (Worker-Anzahl-Planung) |
-| `tile_compile_cpp/src/core/acceleration.cpp` | Backend-Dispatch (`AccelerationOps::reconstruct_aqmh`) |
-| `tile_compile_cpp/include/tile_compile/reconstruction/aqmh_reconstruction.hpp` | `AqmhReconstructionConfig`/`AqmhReconstructionResult`, Loader-Typaliase |
-| `tile_compile_cpp/tests/test_aqmh_reconstruction.cpp` | Parity-Test (`aqmh_cuda_reconstruction_matches_cpu_streaming_reference`, Zeile ~293) |
+| CUDA-Reconstruction-Kernel + Host-Loop | `tile_compile_cpp/src/reconstruction/aqmh_reconstruction_cuda.cu` |
+| OpenCL-Reconstruction | `tile_compile_cpp/src/reconstruction/aqmh_reconstruction_opencl.cpp` |
+| CPU-Referenz (Parität) | `tile_compile_cpp/src/reconstruction/aqmh_reconstruction.cpp` |
+| Dispatch | `tile_compile_cpp/src/core/acceleration.cpp` (`AccelerationOps::reconstruct_aqmh`, ~Z. 2593) |
+| Header/Config | `tile_compile_cpp/include/tile_compile/reconstruction/aqmh_reconstruction.hpp` |
+| RGB-/Luma-Aufrufer (4 Pässe) | `tile_compile_cpp/apps/runner_phase_aqmh_reconstruction.cpp` (~Z. 610–688) |
+| Maps-Kernel (BoxFilter-Offload) | `tile_compile_cpp/src/metrics/aqmh_quality_map.cpp` (`accelerated_local_variance`, ~Z. 339) |
+| Maps-Orchestrierung (Worker/Streams) | `tile_compile_cpp/apps/runner_phase_local_metrics.cpp` (~Z. 470–690) |
+| Worker-Plan | `tile_compile_cpp/apps/runner_shared.cpp` (`compute_aqmh_map_worker_plan`, ~Z. 478) |
+| Parität-/Regressionstests | `tile_compile_cpp/tests/test_aqmh_reconstruction.cpp`, `test_aqmh_quality_map.cpp`, `test_reconstruction_regression.cpp` |
 
-### 0.2 Kernbefunde (kondensiert)
+### Kernbefunde (verdichtet)
 
-1. **4× redundante Rekonstruktionsdurchläufe (Luma + R + G + B).** Jeder Durchlauf
-   allokiert eigene GPU-Puffer, lädt Q-Maps/Masken/Gewichte neu und durchläuft den
-   kompletten Kernel — obwohl Q-Maps, Canvas-Maske und globale Gewichte für alle
-   vier Kanäle identisch sind. `runner_phase_aqmh_reconstruction.cpp:681-684` ruft
-   `reconstruct_rgb_plane` sequentiell dreimal nach dem Luma/Core-Pass auf.
-2. **Thread-private Arrays im Kernel** (`aqmh_reconstruction_cuda.cu:452-454`,
-   `values[MaxFrames]`, `weights[MaxFrames]`, `scores[...]`) sind bei den größeren
-   Tiers (512/640/768/1024 Frames) zu groß für Register und spillen in Local Memory
-   — das kostet Bandbreite und senkt Occupancy. Zusätzliche temporäre Arrays
-   `tmp_v`/`tmp_w` (Zeilen ~313-314, ~357-358) verschärfen das.
-3. **Pixel-major Layout** (`aqmh_reconstruction_cuda.cu:463`) führt zu unkoalesziertem
-   globalem Speicherzugriff über Frames hinweg.
-4. **Serieller Host-Commit** nach jedem Chunk (mehrere Stellen, u. a.
-   ~1129-1144, ~1411-1426, ~1451-1465, ~1486-1500) statt paralleler/asynchroner
-   Übertragung.
-5. **Buffer-Alloc/Free pro Aufruf** (~927-1000, ~1574-1585) statt Session-persistenter
-   Puffer — bei 4 Aufrufen pro Bild vervierfacht sich der `cudaMalloc`/`cudaFree`-Overhead.
-6. **OpenCL-Pfad ist strukturell schlechter dran:** Bitonic Sort läuft immer über
-   `MAX_FRAMES=1024`, unabhängig vom tatsächlichen `n` (Zeilen ~37-142); zusätzliche
-   thread-private Arrays (`sort_indices`, `deviations`, `sorted_values`,
-   `control_values`/`control_weights`); synchrones, blockierendes `kernel.run(...,true)`
-   (Zeile ~798) ohne Double-Buffering; `auto_reject`-Modus fällt komplett auf CPU
-   zurück (~575-584).
-7. **AQMH_MAPS:** Nur `accelerated_local_variance` (BoxFilter, ~339-462) ist
-   GPU-offloadet; der Rest der Pyramide (Laplacian, SNR, Artefakt-Erkennung, PSI)
-   läuft CPU-seitig. Worker-Planung (`runner_shared.cpp` `compute_aqmh_map_worker_plan`,
-   ~478-520) nutzt `WorkerParallelProfile::CpuBound` auch wenn ein GPU-Backend aktiv
-   ist — viele CPU-Threads serialisieren dann auf einer GPU.
+1. **AQMH_RECONSTRUCTION läuft bei Debayer-First-RGB 4× vollständig** (Kern/Luma
+   + R + G + B), strikt sequenziell verkettet
+   (`runner_phase_aqmh_reconstruction.cpp:610` und `:682–684`). Über alle 4 Pässe
+   sind **Q-Maps, Frame-Masken, Canvas-Mask, Global-Weights und damit die
+   Cherry-Pick-Scores identisch** — nur die Pixelwerte (`d_frames`) je Kanal
+   unterscheiden sich. Aktuell werden Q-Maps/Masken 4× aus dem Cache gelesen, 4×
+   host-seitig ins pixel-major Layout gepackt und 4× über PCIe hochgeladen.
+2. **Der CUDA-Kernel hat massiven Thread-privaten Speicher** (`values`,
+   `weights`, `scores`, `scratch_buf`, je `MaxFrames`, plus `tmp_v/tmp_w` in
+   `sigma_clip`). Bei hohen Frame-Zahlen → Local-Memory-Spilling → Occupancy am
+   Boden (`aqmh_reconstruction_cuda.cu:452–455`, `:313–314`, `:357–358`).
+3. **Nicht-coalescierter Gather**: pixel-major Layout `canvas_idx*frame_count+fi`
+   → benachbarte Threads greifen `frame_count` floats auseinander zu
+   (`aqmh_reconstruction_cuda.cu:463`).
+4. **Serieller Host-Commit** (elementweise `result.output(y,x)=...`,
+   `:1129–1144`, `:1411–1426`).
+5. **OpenCL** sortiert **immer über `MAX_FRAMES=1024`** unabhängig von `n`
+   (`aqmh_reconstruction_opencl.cpp:37–39` etc.), hat noch mehr Private-Arrays,
+   ist synchron/ohne Double-Buffering, und `auto_reject` fällt komplett auf CPU
+   zurück.
+6. **AQMH_MAPS** lagert nur den BoxFilter (lokale Varianz/Schärfe) aus; alle
+   anderen Schritte laufen CPU/OpenMP. Viele CPU-Worker teilen sich eine GPU mit
+   blockierendem `waitForCompletion()` pro Scale
+   (`aqmh_quality_map.cpp:410`), Worker-Zahl kommt aus dem CPU-Bound-Profil.
 
-### 0.3 Erwarteter Effekt (grobe Einordnung, auf echter HW zu verifizieren)
+### Erwarteter Gesamteffekt
 
-| Maßnahme | Erwarteter Hebel | Risiko |
-|---|---|---|
-| WP-A (4×-Dedup) | groß (Q-Map/Masken-Reload entfällt 3×) | mittel (State-Management) |
-| WP-B (Two-Stage-Kernel) | mittel–groß bei großen Tiers | mittel |
-| WP-C (Occupancy/Local-Mem) | mittel | niedrig |
-| WP-D (Coalescing) | mittel | niedrig |
-| WP-E (fp16/bit-packed) | klein–mittel (Bandbreite) | mittel (Genauigkeit!) |
-| WP-F (paralleler Host-Commit) | klein–mittel, einfach zu holen | niedrig |
-| WP-G (OpenCL n-bound + async) | groß für OpenCL-Pfad | niedrig–mittel |
-| WP-H (Maps GPU-Ausbau) | unklar, erst messen | mittel |
+- **WP-A/WP-B (RGB-Dedup + Multi-Channel-Batch)**: 4-Pass-Block von „~4×" auf
+  „~1,3–2× eines Einzelpasses". Größter Hebel, weil genau die teuren geteilten
+  Teile (Q-Map-Upload/-Pack, Score-Sort) amortisiert werden.
+- **WP-C/WP-D (Occupancy + Coalescing)**: Kernel-interne Beschleunigung, stark
+  hardware-abhängig; realistisch 1,5–4× auf den Kernel-Sekunden bei hohem N.
+- **WP-E (Transferreduktion)**: −25…−45 % H2D-Volumen.
+- **WP-G (OpenCL)**: Größenordnungen auf Nicht-CUDA-GPUs (durch `n`-Bound-Sort).
+- **WP-H (Maps)**: entweder messbarer Gewinn durch tieferen Offload, oder
+  bewusste Entscheidung, den BoxFilter-Roundtrip zu entfernen.
 
-## 1. Guardrails (verbindlich für alle WPs)
+---
 
-- **CPU-Fallback bleibt immer vorhanden und getestet.** Kein Entfernen von
-  CPU-Pfaden. (AGENTS.md: "GPU paths must preserve CPU semantics within
-  documented tolerances and retain a tested CPU fallback.")
-- **Persistiertes Datenformat ändert sich nicht** (Cache-Dateien, Q-Map-Layout auf
-  Disk) ohne expliziten Auftrag.
-- **Jede WP ist flag-gated** (neuer Pfad nur aktiv, wenn explizit gewählt/aktiviert),
-  bis Parität bewiesen ist.
-- **Ein Commit pro WP.** Kein Sammel-Commit über mehrere WPs.
-- **Parity-Test ist die Leine:** `aqmh_cuda_reconstruction_matches_cpu_streaming_reference`
-  (`tests/test_aqmh_reconstruction.cpp:293`) muss nach jeder WP grün bleiben —
-  inklusive der Timing-Felder (`gpu.cuda_host_prepare_seconds`,
-  `gpu.cuda_host_chunk_setup_seconds`, `gpu.cuda_host_frame_read_worker_seconds`,
-  `gpu.cuda_host_q_map_read_worker_seconds`, `gpu.cuda_host_mask_read_worker_seconds`).
-  Toleranzen im Test **nicht** aufweichen, um ihn grün zu bekommen.
-- **Domänenentscheidungen nicht selbst treffen.** Insbesondere: Ob der separate
-  Luma/Core-Pass entfallen und Luma stattdessen aus R/G/B abgeleitet werden darf
-  (`rgb_luma = 0.25*r + 0.50*g + 0.25*b`, `RgbLumaDetailTransfer`,
-  `runner_phase_aqmh_reconstruction.cpp:192`), ist eine fachliche Frage
-  (Validierungsmetriken hängen am separaten Luma-Pass) — **vorher fragen**, nicht
-  eigenmächtig entfernen.
+## 1. Guardrails (für alle Work Packages verbindlich)
 
-## 2. WP-A — 4×-RGB-Dedup (persistente Session)
+- **CPU-Parität**: GPU-Ergebnisse müssen die CPU-Referenz innerhalb der in
+  `test_aqmh_reconstruction.cpp` verwendeten Toleranzen reproduzieren. Der
+  bestehende Test `aqmh_cuda_reconstruction_matches_cpu_streaming_reference`
+  (`:293`) ist der Leitplanken-Test; er darf nie schwächer werden.
+- **CPU-Fallback bleibt erhalten und getestet** (AGENTS.md: „GPU paths must
+  preserve CPU semantics … and retain a tested CPU fallback").
+- **Resume-/Cache-Verträge**: Cache-Schlüssel (`execution_backend` in
+  `aqmh_quality_map_cache.cpp`) und die geschriebenen Artefakte
+  (`out_aqmh_cache->write`, `frame_mask_store.write`) dürfen sich nicht
+  unbeabsichtigt ändern. Ein Layout-/Präzisionswechsel der **persistierten**
+  Q-Maps ist tabu; fp16 (WP-E) betrifft nur die **GPU-Transfer-Staging-Kopie**,
+  nicht den Cache.
+- **Keine stillen Verhaltensänderungen**: jede neue Datenpfad-Variante hinter
+  einem Config-Flag mit unverändertem Default, bis die Parität lokal auf GPU
+  bestätigt ist.
+- **Diagnose-Timings erhalten**: die `cuda_*_seconds`-Felder werden von Tests
+  und Report ausgewertet (`test_aqmh_reconstruction.cpp:353–357`). Neue Pfade
+  müssen sie weiter befüllen (ggf. neue Felder ergänzen statt ersetzen).
 
-### 2.1 Grundidee: `AqmhCudaReconstructionSession`
+---
 
-Statt pro Aufruf (`reconstruct_aqmh_weighted_cuda`) Puffer zu allokieren, Q-Maps/
-Maske hochzuladen und am Ende freizugeben, eine Session-Klasse einführen, die
-über die 4 Aufrufe (Luma, R, G, B) hinweg lebt:
+## 2. Work Package A — 4×-RGB-Deduplizierung (Host-Orchestrierung)
+
+**Priorität: 1 (höchster Wert, geringstes Risiko, ohne Kernel-Änderung).**
+
+### Ziel
+Die über alle 4 Pässe **identischen** Eingaben (Q-Maps, Frame-Masken,
+Canvas-Mask, Global-Weights) nur **einmal** vorbereiten/hochladen und die
+GPU-Buffer über die Pässe **persistent** halten, statt 4× zu allozieren/freizugeben.
+
+### 2.1 Persistente Session statt Einzelaufrufe
+
+Aktuell ruft `runner_phase_aqmh_reconstruction.cpp` viermal
+`aqmh_reconstruction_ops.reconstruct_aqmh(...)` auf (`:610`, `:682–684`), und
+`reconstruct_aqmh_weighted_cuda` alloziert/freigibt intern jedes Mal alles
+(`aqmh_reconstruction_cuda.cu:927–1000`, `:1574–1585`).
+
+**Umsetzung:** Einführung eines Session-Objekts in `aqmh_reconstruction_cuda.cu`:
 
 ```cpp
-// Skizze — Header ergänzen in aqmh_reconstruction.hpp oder neuen
-// aqmh_reconstruction_cuda_session.hpp
+// Neuer öffentlicher Typ (Header: aqmh_reconstruction_cuda.hpp)
 class AqmhCudaReconstructionSession {
  public:
-  AqmhCudaReconstructionSession(int width, int height,
-                                 const std::vector<uint8_t>& canvas_mask,
-                                 const AqmhReconstructionConfig& cfg);
-  ~AqmhCudaReconstructionSession();
+  // Alloziert Buffer, Streams, Events; lädt Global-Weights;
+  // bestimmt chunk_rows EINMAL. q_map_cache + Masken werden als geteilt
+  // markiert.
+  bool init(size_t frame_count, metrics::QualityMapCache* q_map_cache,
+            const VectorXf& global_weights,
+            const std::vector<uint8_t>& canvas_mask,
+            int width, int height,
+            const AqmhReconstructionConfig& shared_cfg,
+            const AqmhMaskLoader&, const AqmhFrameRegionLoader&,
+            const AqmhMaskRegionLoader&);
 
-  // Lädt Q-Maps/Maske/Gewichte EINMAL hoch (für den ersten Kanal).
-  void upload_shared_inputs(metrics::QualityMapCache* q_map_cache,
-                             const VectorXf& global_weights);
-
-  // Rekonstruiert einen Kanal; nutzt die bereits residenten Q-Maps/Maske.
-  AqmhReconstructionResult reconstruct_channel(
-      size_t frame_count, const AqmhFrameLoader& load_frame,
-      const AqmhMaskLoader& load_frame_valid_mask,
+  // Ein Reconstruction-Durchlauf über eine Wert-Ebene (Luma oder R/G/B).
+  // Verwendet die in init() hochgeladenen/gepackten Q-Maps + Masken erneut.
+  AqmhReconstructionResult run_plane(
+      const AqmhFrameLoader& load_frame,
       const AqmhFrameRegionLoader& load_frame_region,
-      const AqmhMaskRegionLoader& load_frame_valid_mask_region,
+      bool compute_uniform_control,
       const AqmhProgressCallback& progress);
 
- private:
-  // persistente Device-Puffer über alle Kanäle:
-  float* d_q_maps_ = nullptr;        // resident für Luma/R/G/B
-  uint8_t* d_canvas_mask_ = nullptr; // resident
-  float* d_global_weights_ = nullptr; // resident (identisch für alle Kanäle)
-  cudaStream_t stream_ = nullptr, stream2_ = nullptr;
-  // Frame-Daten (values) bleiben PRO Kanal neu, da R/G/B/Luma unterschiedliche
-  // Pixelwerte haben — nur Q-Maps/Maske/Gewichte sind kanalübergreifend gleich.
+  ~AqmhCudaReconstructionSession();  // gibt alles frei
 };
 ```
 
-### 2.2 Q-Map/Masken-Residenz — zwei Varianten
+- `init()` übernimmt die heutige Vorbereitung aus
+  `reconstruct_aqmh_weighted_cuda` bis einschließlich Buffer-/Stream-/Event-Setup
+  (`:866–1063`).
+- `run_plane()` übernimmt die Chunk-Schleife (`:1092–1508`), **aber**:
+  - Q-Maps und Masken werden nur beim **ersten** `run_plane` (bzw. in `init`)
+    gepackt/hochgeladen und danach als „resident" behandelt (siehe 2.2).
+  - Nur `d_frames` wird je Plane neu gepackt/hochgeladen.
+- `reconstruct_aqmh_weighted_cuda(...)` bleibt als dünner Wrapper bestehen
+  (Session mit genau einem `run_plane`), damit Einzelaufrufer und Tests
+  unverändert funktionieren.
 
-- **R1 (konservativ, zuerst umsetzen):** Q-Maps/Maske/Gewichte bleiben über die
-  gesamte Chunk-Schleife eines Kanals resident (Status quo pro Kanal), aber die
-  **Chunk-Puffer für `q_maps`/`canvas_mask`/`weight_sum`-Infrastruktur werden
-  zwischen den 4 Kanal-Aufrufen wiederverwendet** (`cudaMalloc` einmal, nicht 4×).
-  Spart Alloc/Free-Overhead (Befund 5), ändert aber noch nicht das Reload-Problem
-  von Q-Maps (Befund 1).
-- **R2 (weitergehend):** Q-Maps und Canvas-Maske werden echt nur **einmal**
-  hochgeladen (beim ersten Kanal) und für R/G/B wiederverwendet, da sie
-  kanalunabhängig sind. Erfordert, dass `reconstruct_channel` die
-  Upload-Schritte für Q-Maps/Maske überspringen kann, wenn bereits resident.
-  Das ist der Schritt mit dem größten Hebel aus Befund 1.
+### 2.2 Q-Maps/Masken GPU-resident halten
 
-Reihenfolge: **erst R1, dann R2** (siehe Rollout-Tabelle §11) — R1 ist risikoarm
-und schon ein Gewinn; R2 verlangt sorgfältiges State-Tracking (welche Chunks/
-Regionen sind schon geladen) und mehr Tests.
+Zentrale Erkenntnis: Q-Maps + Masken hängen **nicht** vom Kanal ab. Zwei
+Varianten, je nach VRAM:
 
-### 2.3 Score-Wiederverwendung (Cherry-Pick)
+- **Variante R1 (bevorzugt, wenn VRAM reicht):** Q-Maps + Masken **einmal pro
+  Chunk** hochladen und über die 4 Plane-Läufe im Device-Buffer belassen. Das
+  bedeutet: die Chunk-Schleife wird so umgestellt, dass sie **pro Chunk alle
+  Kanäle** abarbeitet (Chunk-außen, Kanal-innen). Dann wird pro Chunk
+  Q-Map/Maske genau 1× hochgeladen und 4 Kernel-Launches (Luma/R/G/B) darauf
+  ausgeführt, jeder mit eigener `d_frames`-Ebene und eigenem Output.
+  → maximale Ersparnis, aber invasivster Umbau der Schleifenstruktur.
+- **Variante R2 (einfacher, konservativ):** Chunk-außen, Kanal-innen bleibt
+  ungenutzt; stattdessen wird nur der **Host-Pack** von Q-Maps/Masken einmal
+  erzeugt und für alle 4 Pässe wiederverwendet (spart Cache-Reads + Host-Pack,
+  aber nicht den H2D-Upload). Deutlich weniger Umbau, ~50–70 % des Gewinns.
 
-Falls `cherry_pick` aktiv ist: Die Scores basieren auf den Q-Maps (kanalunabhängig)
-kombiniert mit den Pixelwerten (kanalabhängig) — prüfen, ob der score-relevante
-Anteil, der nur von Q-Maps abhängt, zwischengespeichert werden kann. Nur umsetzen,
-wenn Profiling zeigt, dass Score-Berechnung ein messbarer Anteil ist (nicht blind
-vorab optimieren).
+**Empfehlung:** R2 zuerst umsetzen und messen; R1 nur, wenn die Messung den
+H2D-Upload der Q-Maps als weiterhin dominant ausweist (`cuda_h2d_seconds`).
 
-### 2.4 Caller-Anpassung
+### 2.3 Score-Wiederverwendung
 
-`runner_phase_aqmh_reconstruction.cpp` (~610-684): `AqmhCudaReconstructionSession`
-einmal vor dem Luma/Core-Pass erzeugen, für alle 4 `reconstruct_aqmh`/
-`reconstruct_rgb_plane`-Aufrufe wiederverwenden, danach freigeben. Der
-Dispatch über `core::AccelerationOps::reconstruct_aqmh` (`acceleration.cpp:2593-2626`)
-muss dafür entweder eine Session-Variante bekommen oder die Session unterhalb
-dieser Schicht leben (Session lebt in `aqmh_reconstruction_cuda.cu`, wird über
-einen opaken Handle durchgereicht).
+Der Score `gw * fmax(0,q)` (`aqmh_reconstruction_cuda.cu:479–480`) und damit die
+Cherry-Pick-Sortierreihenfolge sind kanalunabhängig. In R1 (4 Kernel-Launches
+pro Chunk) kann die **Score-Sortierung einmal** berechnet und die resultierende
+Index-Permutation für alle 4 Kanäle wiederverwendet werden — das ist der
+teuerste Kernel-Teil. Das erfordert einen Kernel, der die Sortier-Permutation in
+einen Device-Buffer schreibt (Phase 1) und einen zweiten Kernel, der pro Kanal
+nur Sigma-Clip + gewichteten Mittelwert auf der permutierten Reihenfolge rechnet
+(Phase 2). → Deckt sich mit WP-B; dort im Detail.
 
-**Wichtig:** Ob der separate Luma/Core-Pass dabei ganz entfallen kann (Luma aus
-R/G/B ableiten statt einen 4. Pass zu rechnen), **nicht eigenmächtig entscheiden**
-— das ändert Validierungsmetriken-Semantik (`rgb_luma_validation`,
-`raw_rgb_luma_reference`, ~Zeilen 1277-1330). Erst den User fragen.
+### 2.4 Aufrufer anpassen
 
-### 2.5 Neuer Test
+`runner_phase_aqmh_reconstruction.cpp`:
+- Wenn `debayer_first_rgb` **und** Backend == CUDA: eine Session erzeugen,
+  darüber Luma + R + G + B laufen lassen.
+- Sonst: unveränderter Pfad (Einzelaufrufe, CPU/OpenCL).
+- **Fachliche Prüfung (nicht mechanisch):** ob der separate Kern-/Luma-Pass
+  (`:610`) im RGB-Fall überhaupt nötig ist oder aus R/G/B ableitbar wäre
+  (`RgbLumaDetailTransfer`, `:136–194`, berechnet Luma = 0.25R+0.5G+0.25B). Das
+  ist eine Domänenentscheidung — **nicht** ohne ausdrückliche Zustimmung
+  umsetzen; nur als Kommentar/Frage dokumentieren.
 
-Ergänzender Test (analog zum bestehenden Parity-Test), der die 4-Kanal-Session
-gegen 4 unabhängige Einzelaufrufe (heutiges Verhalten) vergleicht — Ergebnisse
-müssen bitidentisch bzw. innerhalb der bestehenden Toleranz sein, und die
-Session-Variante muss messbar schneller sein (Timing-Felder vergleichen).
+### 2.5 Parität
+- `AqmhReconstructionResult` je Plane muss bitidentisch zum heutigen
+  Einzelaufruf sein (die Wiederverwendung ändert nur *wann/wie oft* Daten
+  bewegt werden, nicht *was* gerechnet wird). Neuer Test:
+  `aqmh_cuda_session_multichannel_matches_individual_calls` (siehe §9).
 
-## 3. WP-B — Two-Stage-Kernel (Select + Reduce)
+---
 
-Statt eines monolithischen Kernels, der pro Pixel Sortierung, Sigma-Clipping und
-gewichtete Aggregation in einem Thread erledigt (was die großen thread-privaten
-Arrays erzwingt), in zwei Kernel aufteilen:
+## 3. Work Package B — Multi-Channel-Batched Kernel (CUDA, zweistufig)
 
-1. **Select-Kernel:** bestimmt pro Pixel die Menge der behaltenen Samples
-   (Cherry-Pick + Sigma-Clip-Maske) und schreibt eine kompakte Bitmaske/Indexliste
-   nach Global Memory statt alles im Register/Local Memory zu halten.
-2. **Reduce-Kernel:** liest die Maske und aggregiert (gewichteter Mittelwert) —
-   kann mit kleineren, tier-angepassten Registerbudgets arbeiten, da hier keine
-   vollständige Sortierung mehr nötig ist (nur noch Reduktion über die bereits
-   selektierte Teilmenge).
+**Priorität: 2 (der eigentliche Reconstruction-Gewinn; baut auf WP-A/R1 auf).**
 
-Nutzen: bricht die MaxFrames-großen Stack-Arrays auf; erlaubt bessere Occupancy
-für den (teureren) Select-Schritt getrennt vom (leichteren) Reduce-Schritt.
-Kosten: ein zusätzlicher Kernel-Launch + Zwischenspeicher in Global Memory —
-nur sinnvoll, wenn WP-C/D die Registerdruck-Probleme nicht schon ausreichend lösen.
-**Erst nach WP-C/D messen, ob WP-B überhaupt noch nötig ist.**
+### Ziel
+Gather + Score + Cherry-Pick-Sortierung **einmal** für alle Kanäle; nur
+Sigma-Clip + gewichteter Mittelwert je Kanal.
 
-## 4. WP-C — Occupancy & Local-Memory-Druck
+### 3.1 Zweistufiger Kernel
 
-- Register-Nutzung pro Tier mit `nvcc --ptxas-options=-v` bzw. `nsight compute`
-  prüfen (`launch_reconstruction_kernel_for_frame_count`, Tier-Dispatch bei
-  32/64/128/256/512/640/768/1024 Frames).
-- `__launch_bounds__` pro Tier justieren, falls der Compiler ungünstig registriert.
-- Prüfen, ob `tmp_v`/`tmp_w` (Zeilen ~313-314, ~357-358) durch In-Place-Umsortierung
-  der bestehenden `values`/`weights`-Arrays vermieden werden können (spart
-  MaxFrames-große Extra-Arrays).
-- Bei sehr großen Tiers (768/1024) evaluieren, ob ein Shared-Memory-Tile pro
-  Threadblock (statt rein thread-privater Arrays) die Local-Memory-Spills
-  reduziert — Trade-off gegen Bank-Conflicts sorgfältig messen.
+- **Kernel 1 (`aqmh_select_kernel`)** pro Pixel:
+  - Gather der gültigen Sample-Indizes (Maske + finite q), Score-Berechnung.
+  - Cherry-Pick-Sortierung → schreibt die **selektierte Index-Liste** und
+    `k_effective` in Device-Buffer (`int32` Indizes, `uint16` k je Pixel).
+  - Diese Ausgabe ist **kanalunabhängig** und wird von allen Kanälen genutzt.
+- **Kernel 2 (`aqmh_reduce_kernel`)** pro (Pixel, Kanal):
+  - liest die selektierten Indizes, holt die Kanalwerte, führt Sigma-Clip +
+    gewichteten Mittelwert aus, schreibt `output`/`weight_sum`.
+  - Sigma-Clip ist kanalspezifisch (Clipping auf Werten), daher hier.
 
-## 5. WP-D — Speicherlayout / Coalescing
+**Achtung Semantik:** Der heutige Sigma-Clip verändert die Sample-Menge
+(`n`) iterativ **abhängig von den Werten**. Da die Werte je Kanal verschieden
+sind, **muss** Sigma-Clip je Kanal separat laufen — das ist korrekt so. Nur
+Gather + Score + Cherry-Pick werden geteilt. Die Parität bleibt exakt, weil
+Cherry-Pick nur von Scores abhängt (bestätigt in
+`aqmh_reconstruction_cuda.cu:485–487, 519–534`).
 
-- Aktuelles Pixel-major-Layout (`aqmh_reconstruction_cuda.cu:463`) auf
-  Frame-major bzw. ein gekacheltes Layout (z. B. Pixel-Block × Frame) umstellen,
-  sodass benachbarte Threads (= benachbarte Pixel) beim Lesen eines gegebenen
-  Frames benachbarte Adressen berühren.
-- Das betrifft sowohl den Host-seitigen Chunk-Aufbau (SoA-Umkopieren beim Laden)
-  als auch den Kernel-Zugriff selbst — beide Seiten konsistent ändern.
-- Mit `ncu --set full` Memory-Throughput vor/nach vergleichen.
+### 3.2 Speicher
+- Selektions-Buffer: `frame_count`-breite Index-Liste je Pixel ist zu groß für
+  alle Pixel gleichzeitig → nur **chunkweise** materialisieren (passt zur
+  Chunk-Struktur). Alternativ nur `k_effective` + kompakte Indexliste bis
+  `k_max` speichern.
+- Damit sinkt der Thread-private Speicher in Kernel 2 auf die **selektierten**
+  `k` Samples statt `MaxFrames` (hilft zusätzlich WP-C).
 
-## 6. WP-E — Reduzierte Bandbreite (fp16 Q-Maps, bit-gepackte Masken)
+### 3.3 Fallbacks
+- Wenn `cherry_pick == false`: Kernel 1 entfällt weitgehend (nur Gather/Score),
+  Selektion = alle gültigen Samples. Trotzdem Gather einmal teilen.
+- Bei nur 1 Kanal (kein Debayer-First-RGB): Zweistufigkeit bringt nichts →
+  einstufigen Kernel behalten (Flag-gesteuert).
 
-- Q-Maps von `float32` auf `float16`/`__half` für die Device-Repräsentation
-  reduzieren (Host-seitig bleibt `float32` als Wahrheit; Konvertierung beim
-  Upload). **Genauigkeitseinfluss muss explizit gegen den Parity-Test geprüft
-  werden** — ggf. nur für Q-Maps (Gewichtungsfaktor), nicht für rekonstruierte
-  Pixelwerte selbst.
-- Canvas-/Frame-Masken sind bereits `uint8_t` pro Pixel — auf 1-Bit-gepackt
-  (`uint32_t`-Wörter à 32 Pixel) umstellen spart Bandbreite beim Laden, kostet
-  Bit-Test-Overhead im Kernel. Nur lohnend, wenn Masken-Load laut Profiling
-  ins Gewicht fällt.
-- **Diese WP ändert reale Zahlenwerte (Rundung) — nur nach expliziter Freigabe
-  und mit verschärftem, nicht aufgeweichtem Toleranz-Check umsetzen.**
+---
 
-## 7. WP-F — Paralleler/asynchroner Host-Commit
+## 4. Work Package C — Occupancy / Local-Memory-Druck (CUDA)
 
-- Die seriellen Commit-Loops nach jedem Chunk (~1129-1144, ~1411-1426,
-  ~1451-1465, ~1486-1500) auf `cudaMemcpyAsync` + Event-basierte Synchronisation
-  umstellen, sodass Host-Commit von Chunk N mit GPU-Arbeit an Chunk N+1
-  überlappt (Double-Buffering existiert für `stream`/`stream2` bereits teilweise —
-  konsequent für alle Commit-Stellen nutzen, nicht nur einen Teil).
-- Das ist die risikoärmste WP (reine Host-Orchestrierung, keine Kernel-Änderung,
-  keine Zahlenänderung) — **als erste WP umsetzen** (siehe Rollout §11).
+**Priorität: 3 (hardwareabhängig, nur mit GPU verifizierbar).**
 
-## 8. WP-G — OpenCL: n-bound Sort + Async/Double-Buffer
+### Maßnahmen
+1. **`sigma_clip` `tmp_v/tmp_w` eliminieren** (`:313–314`, `:357–358`): Die
+   „keep_floor"-Permutation kann in-place über die Index-Permutation erfolgen
+   (wie im Cherry-Pick-Kompaktierungszweig `:195–203`), statt zwei zusätzliche
+   `MaxFrames`-Arrays anzulegen. Spart 8·MaxFrames Byte/Thread.
+2. **`scratch_buf` als `short` ist gut** — beibehalten. Prüfen, ob `values`
+   nach WP-B nur noch `k_max` statt `MaxFrames` braucht.
+3. **`__launch_bounds__`** am Kernel setzen, um dem Compiler das Register-Budget
+   vorzugeben; Blockgröße experimentell tunen (heute fix `block(32,8)`,
+   `:1049`). Bei hohem Local-Mem-Druck sind kleinere Blöcke oft schneller.
+4. **Optional Shared-Memory-kooperativer Sort** (ein Warp pro Pixel statt ein
+   Thread): größter Occupancy-Gewinn, aber höchstes Risiko und größter Umbau —
+   **nur** angehen, wenn Profiling (Nsight Compute) Local-Memory-Traffic /
+   Sort als Top-Stall ausweist. Als **separates, letztes** WP behandeln.
 
-- **G1 (groß, einfach):** Bitonic Sort im OpenCL-Kernel läuft aktuell immer über
-  `MAX_FRAMES=1024` (~Zeilen 37-142), unabhängig vom tatsächlichen `n`. Auf die
-  nächstgrößere Zweierpotenz $\ge n$ begrenzen (Padding-Elemente mit neutralem
-  Sentinel-Wert, wie es der CUDA-Pfad mit `MaxFrames`-Tiering bereits tut).
-  Das ist der größte Einzelhebel für den OpenCL-Pfad.
-- Thread-private Arrays reduzieren (`sort_indices`, `deviations`, `sorted_values`,
-  `control_values`/`control_weights`, ~250-252/479-480) analog zu WP-C/B-Ideen.
-- Synchrones `kernel.run(...,true)` (~Zeile 798) durch asynchrones Enqueue +
-  Double-Buffering ersetzen (analog WP-F für CUDA).
-- `auto_reject`-Modus, der aktuell komplett auf CPU zurückfällt (~575-584): erst
-  messen, ob das in der Praxis überhaupt ins Gewicht fällt, bevor eine
-  GPU-Implementierung investiert wird.
+### Verifikation
+- Nsight Compute: `achieved_occupancy`, `local_memory` load/store, `stall_lg`
+  vor/nach jeder Maßnahme dokumentieren.
 
-## 9. WP-H — AQMH_MAPS: Messen, dann entscheiden
+---
 
-- Vor jeder Erweiterung des GPU-Anteils in `compute_aqmh_quality_map`
-  (`aqmh_quality_map.cpp:950-1086`) zuerst profilen, welcher Pyramiden-Schritt
-  (Laplacian, SNR, Artefakt-Erkennung, PSI-Kombination) tatsächlich Zeit kostet.
-  Nicht blind alles auf GPU verlagern.
-- Worker-Planung (`runner_shared.cpp` `compute_aqmh_map_worker_plan`, ~478-520)
-  von `WorkerParallelProfile::CpuBound` auf ein GPU-bewusstes Profil umstellen,
-  wenn ein GPU-Backend aktiv ist — sonst serialisieren viele CPU-Worker auf
-  einer GPU-Stream-Queue (`WorkerCudaStreams`, `acceleration.cpp:2095-2134`).
-  Das ist unabhängig von echten Kernel-Änderungen und risikoarm.
+## 5. Work Package D — Coalescing / Layout (CUDA)
 
-## 10. Build/Test-Kommandos
+**Priorität: 3 (mit WP-B kombinierbar).**
 
+- Heute pixel-major (`canvas_idx*frame_count+fi`) → Gather über den Warp
+  nicht-coalesciert (`:463`).
+- **Option D1:** Beim H2D bereits **frame-major** (`fi*chunk_pixels+canvas_idx`)
+  packen und den Gather-Load coalesciert über Shared-Memory-Staging in die
+  thread-privaten Arrays ziehen. Der Rest des Kernels bleibt pixel-lokal.
+- **Trade-off:** pixel-major hilft dem seriellen Per-Thread-Lesen; die
+  Coalescing-Variante hilft der Bandbreite. Nur mit Profiling entscheiden.
+- **Wichtig:** Host-Pack-Layout, Kernel-Indexierung und (falls resident, WP-A)
+  die Q-Map-/Masken-Buffer müssen konsistent umgestellt werden.
+
+---
+
+## 6. Work Package E — Transferreduktion (CUDA)
+
+**Priorität: 3.**
+
+1. **Q-Maps als `__half` (fp16) stagen**: Q geht nur als `fmax(0,q)`-Gewicht
+   ein; fp16 im **Transfer** ist ausreichend, sofern der Score in fp32
+   dequantisiert wird. **Nicht** den persistierten Cache ändern — nur die
+   Host-Staging-Kopie + Device-Buffer. Kernel liest `__half`, konvertiert zu
+   `float`. Halbiert das Q-Map-H2D-Volumen.
+   - Parität prüfen: fp16-Quantisierung des Scores kann Cherry-Pick-Cutoffs
+     minimal verschieben. Toleranztest nötig; bei Verletzung fp16 nur optional
+     (Flag).
+2. **Masken bit-packen** (1 Bit statt 1 Byte): 8× kleiner. Kernel entpackt per
+   Bit-Test. H2D-Maskenvolumen −87,5 %.
+3. Beide hinter Flags (`cfg.gpu_half_qmaps`, `cfg.gpu_packed_masks`), Default
+   aus, bis Parität lokal bestätigt.
+
+---
+
+## 7. Work Package F — Paralleler Host-Commit (CUDA)
+
+**Priorität: 2 (einfach, sicher, CPU-baubar).**
+
+- Heute elementweise Commit-Schleifen (`:1129–1144`, `:1411–1426`,
+  `:1451–1465`, `:1486–1500`).
+- Da `result.output` (Eigen `Matrix2Df`, row-major?) und `h_output` zeilenweise
+  gleiches Layout haben, pro Zeile `std::memcpy`/`Eigen::Map`-Block-Assign statt
+  Skalarkopie; die Schleife mit `#pragma omp parallel for` über `yy`
+  parallelisieren.
+- **Achtung Eigen-Speicherordnung prüfen:** `Matrix2Df` Spalten-/Zeilenordnung
+  in `core/types.hpp` verifizieren, bevor `memcpy` verwendet wird; sonst nur
+  OpenMP-parallelisierte Skalarkopie.
+- `cuda_result_commit_seconds` weiter befüllen.
+
+---
+
+## 8. Work Package G — OpenCL-Reconstruction
+
+**Priorität: 2 für den Sort-Fix (großer Gewinn, überschaubares Risiko).**
+
+1. **Bitonic auf `n` begrenzen**: statt Schleifen bis `MAX_FRAMES=1024`
+   (`:37–39`, `:63–65`, `:90–92`, `:118–120`) die nächste Zweierpotenz `≥ n`
+   verwenden und Sentinel-Padding nur bis dahin. Größter Einzelgewinn im
+   OpenCL-Pfad.
+2. **Private-Arrays reduzieren** (`sort_indices`, `deviations`, `sorted_values`,
+   `control_*`, `:250–252`, `:479–480`) — zusammenlegen/wiederverwenden.
+3. **Async + Double-Buffering** analog CUDA (`kernel.run(...,true)` blockiert,
+   `:798`); mindestens Uploads/Downloads über nicht-blockierende `UMat`-Pfade.
+4. **`auto_reject` auf GPU** statt CPU-Fallback (`:575–584`) — optional,
+   niedrigere Priorität.
+5. OpenCL hat **keine** Parität-Absicherung via Test — vor Merge einen
+   CPU-Vergleichstest analog `aqmh_cuda_reconstruction_matches_cpu_streaming_reference`
+   ergänzen (nur wenn OpenCL-Runtime im CI/lokal verfügbar).
+
+---
+
+## 9. Work Package H — AQMH_MAPS
+
+**Priorität: 3–4 (erst nach Reconstruction, da Maps nicht ver-4-facht wird).**
+
+1. **Entscheidungsmessung zuerst:** GPU-BoxFilter (`accelerated_local_variance`,
+   `:339`) vs. CPU-Sliding-Window (`local_variance_linear`, `:252`) bei realer
+   Auflösung/Frame-Zahl benchmarken. Der CPU-Pfad ist transferfrei und O(Pixel);
+   der GPU-Pfad hat pro Scale Up/Download + `waitForCompletion()` (`:410`).
+   - Wenn CPU ≥ GPU: BoxFilter-Offload **entfernen** oder nur bei sehr großen
+     Kernels/Auflösungen aktivieren.
+2. **Falls GPU bleibt:**
+   - **Worker-Zahl für GPU-Backend entkoppeln** (heute `CpuBound`,
+     `runner_shared.cpp:491–492`): bei CUDA wenige Worker (1–2) mit tiefen
+     Streams, statt vieler CPU-Threads, die eine GPU blockieren.
+   - **Tiefer offloaden**: SNR/Artefakt/Laplacian ebenfalls auf GPU, über
+     **alle Scales/Frames gebatcht**, statt pro Scale ein blockierender Filter.
+   - `waitForCompletion()` pro Scale vermeiden → Stream über die Scales laufen
+     lassen, erst am Frame-Ende synchronisieren.
+3. Parität via `test_aqmh_quality_map.cpp` (bestehende Toleranzen).
+
+---
+
+## 10. Test- und Paritätsstrategie
+
+### Build
 ```bash
-# CPU-only Referenzbuild (immer zuerst, als Baseline)
-cmake -S tile_compile_cpp -B build -DBUILD_TESTS=ON \
-  -DTILE_COMPILE_ENABLE_CUDA=OFF > /tmp/out_cpp_configure.txt 2>&1
-cmake --build build --target tile_compile_runner tests -j$(nproc) \
-  > /tmp/out_cpp_build.txt 2>&1
-./build/tests "[aqmh]" > /tmp/out_cpp_tests.txt 2>&1
+cd tile_compile_cpp
+# Ohne GPU (CPU-Pfade, Host-Logik, Kompilierbarkeit der .cpp):
+cmake -S . -B build -DBUILD_TESTS=ON > /tmp/out_cpp_configure.txt 2>&1
+cmake --build build --target tile_compile_runner tests -j2 > /tmp/out_cpp_build.txt 2>&1
+./build/tests > /tmp/out_cpp_tests.txt 2>&1
 
-# CUDA-Build (auf Maschine mit nvcc/GPU)
-cmake -S tile_compile_cpp -B build_cuda -DBUILD_TESTS=ON \
-  > /tmp/out_cuda_configure.txt 2>&1   # TILE_COMPILE_ENABLE_CUDA auto-ON bei nvcc
-cmake --build build_cuda --target tile_compile_runner tests -j$(nproc) \
-  > /tmp/out_cuda_build.txt 2>&1
-./build_cuda/tests "[aqmh]" > /tmp/out_cuda_tests.txt 2>&1
-
-# Gezielt der Parity-Test:
-./build_cuda/tests "aqmh_cuda_reconstruction_matches_cpu_streaming_reference"
-
-# Profiling (jeweils pro WP vor/nach vergleichen)
-nsys profile -o /tmp/aqmh_wp_X ./build_cuda/tile_compile_runner <args>
-ncu --set full -o /tmp/aqmh_wp_X_ncu ./build_cuda/tile_compile_runner <args>
+# Mit GPU (CUDA-Backend aktiv):
+cmake -S . -B build-cuda -DBUILD_TESTS=ON -DTILE_COMPILE_ENABLE_CUDA=ON \
+      > /tmp/out_cuda_configure.txt 2>&1
+cmake --build build-cuda --target tile_compile_runner tests -j2 \
+      > /tmp/out_cuda_build.txt 2>&1
+./build-cuda/tests "[aqmh]" > /tmp/out_cuda_tests.txt 2>&1
 ```
+> Hinweis: `TILE_COMPILE_ENABLE_CUDA` defaultet auf ON, wenn `nvcc` gefunden wird
+> (`CMakeLists.txt:74–91`). Für reine CPU-Builds explizit `=OFF` setzen.
 
-## 11. Rollout-Reihenfolge
+### Neue Tests (mindestens)
+- `aqmh_cuda_session_multichannel_matches_individual_calls`: Session (Luma+R+G+B)
+  vs. 4 Einzelaufrufe → bitidentische `output`/`weight_sum` je Plane.
+- `aqmh_cuda_two_stage_matches_single_stage` (WP-B): zweistufiger Kernel vs.
+  heutiger einstufiger Kernel.
+- Toleranztests für WP-E (fp16 q-maps, packed masks) gegen CPU-Referenz.
+- OpenCL-CPU-Vergleich (WP-G), sofern OpenCL-Runtime vorhanden.
 
-| # | WP | Begründung für Reihenfolge |
-|---|---|---|
-| 1 | F | risikoärmste, reine Host-Orchestrierung, kein Zahlenrisiko |
-| 2 | A/R2 | größter Einzelhebel (Q-Map-Reload 3× entfällt) |
-| 3 | G1 | größter Einzelhebel im OpenCL-Pfad, unabhängig von A/B/C |
-| 4 | A/R1 | falls R2 zu riskant/komplex zuerst — Fallback-Zwischenschritt |
-| 5 | B | nur falls C/D den Registerdruck nicht ausreichend lösen |
-| 6 | C | Occupancy/Local-Memory, nach Messen mit `ncu` |
-| 7 | E | Bandbreite senken — nur nach expliziter Freigabe (Zahlenänderung) |
-| 8 | D | Coalescing/Layout — größerer Umbau, spät wegen Testaufwand |
-| 9 | H | Maps-GPU-Ausbau nur nach Profiling-Beleg |
-| 10 | C+ | Nachjustierung Occupancy nach allen Layoutänderungen |
+### Verifikationsreihenfolge pro WP
+1. CPU-Build grün + `./build/tests` grün (Kompilierbarkeit, keine Regression).
+2. CUDA-Build grün.
+3. `[aqmh]`-Tests grün, inkl. neuer Paritätstests.
+4. Profiling (Nsight Systems/Compute) vor/nach → Kennzahlen dokumentieren.
+5. End-to-End-Lauf `tile_compile_runner` auf einem Referenz-Datensatz;
+   `cuda_*_seconds` und Gesamt-Phasenzeit vergleichen.
 
-## 12. Risiken
+---
 
-- **State-Bugs in der Session-Klasse (WP-A):** veraltete/falsch wiederverwendete
-  Q-Maps zwischen Kanälen — durch den ergänzenden Test in §2.5 abfangen.
-- **fp16-Rundung (WP-E):** kann Sigma-Clipping-Entscheidungen an Schwellwert-Kanten
-  kippen — nur mit explizitem Auftrag und verschärftem Toleranztest.
-- **OpenCL-Padding-Sentinel (WP-G1):** falscher Sentinel-Wert kann Sortierreihenfolge
-  verfälschen — Sentinel muss garantiert "schlechter als jeder reale Wert" sein
-  und aus der finalen Aggregation ausgeschlossen bleiben.
-- **Domänenfrage Luma-Pass:** nicht eigenmächtig entfernen (siehe §1, §2.4).
+## 11. Empfohlene Umsetzungsreihenfolge (Rollout)
 
-## 13. Definition of Done (pro WP)
+| Reihenfolge | WP | Baubar ohne GPU? | Risiko | Gewinn |
+|---|---|---|---|---|
+| 1 | **F** Host-Commit parallel | ja | niedrig | klein–mittel |
+| 2 | **A/R2** RGB-Pack-Dedup | ja (Logik), GPU-Verify | niedrig | groß |
+| 3 | **G1** OpenCL Bitonic-`n`-Bound | ja (Kompil.), OpenCL-Verify | niedrig | groß (OpenCL) |
+| 4 | **A/R1** Q-Maps resident (Chunk-außen/Kanal-innen) | GPU nötig | mittel | groß |
+| 5 | **B** Zweistufiger Multi-Channel-Kernel | GPU nötig | mittel–hoch | groß |
+| 6 | **C** Local-Mem/Occupancy (ohne Shared-Sort) | GPU nötig | mittel | mittel |
+| 7 | **E** fp16 q-maps / packed masks | GPU nötig | mittel | mittel |
+| 8 | **D** Coalescing-Layout | GPU nötig | mittel | mittel |
+| 9 | **H** Maps (Messung → Entscheidung) | teils | mittel | mittel |
+| 10 | **C+** Shared-Memory-kooperativer Sort | GPU nötig | hoch | groß (bei hohem N) |
 
-- [ ] Baseline-Messung (vor der Änderung) vorhanden (nsys/ncu oder zumindest Wall-Time).
-- [ ] Änderung flag-gated, CPU-Fallback unverändert.
-- [ ] Parity-Test grün, Toleranzen nicht aufgeweicht.
-- [ ] Neue/angepasste Tests für die spezifische WP (falls zutreffend, s. §2.5).
-- [ ] Nachher-Messung zeigt tatsächlichen Gewinn (nicht nur angenommen).
-- [ ] Ein Commit, klare Commit-Message mit WP-Kennung (z. B. `perf(aqmh-cuda): WP-F parallel host commit`).
-- [ ] Bei Domänenfragen (z. B. Luma-Pass-Entfernung): explizite Rückfrage vor Umsetzung.
+Jedes WP als **eigener Commit** auf `claude/aqmh-gpu-optimization-urpo5e`, mit
+grünem Build + Tests vor dem nächsten. Neue Datenpfade hinter Flags mit Default
+= altes Verhalten, bis GPU-Parität lokal bestätigt ist.
+
+---
+
+## 12. Risiken und Stolperfallen
+
+- **Eigen-Speicherordnung** (`Matrix2Df`) vor jedem `memcpy` prüfen (WP-F/A).
+- **fp16-Score-Drift** kann Cherry-Pick-Cutoffs kippen → Paritätstoleranz eng
+  halten, sonst Flag-optional (WP-E).
+- **VRAM-Budget** in R1: Q-Maps resident + 4 Output-Sets erhöhen den
+  Peak-Verbrauch; die adaptive Chunk-/Double-Buffer-Logik
+  (`:924–949`) muss den Multi-Channel-Fall einkalkulieren.
+- **Resume-Cache-Invalidierung** vermeiden: keine Änderung an persistierten
+  Q-Map-/Masken-Formaten oder `execution_backend`-Schlüsseln.
+- **Sandbox ohne GPU** ≠ „CUDA absent" (AGENTS.md:84): CUDA-Pfade nicht
+  wegoptimieren, nur weil die Build-Umgebung keine GPU sieht.
+- **Nsight-Profiling** braucht echte GPU + ggf. erhöhte Kernel-Trace-Rechte.
+
+---
+
+## 13. Definition of Done
+
+- Alle umgesetzten WP haben grünen CPU- **und** CUDA-Build.
+- `./build-cuda/tests "[aqmh]"` grün inkl. neuer Paritätstests.
+- Für jedes Kernel-relevante WP: Nsight-Kennzahlen vor/nach dokumentiert.
+- End-to-End: Reconstruction-Phasenzeit auf Referenzdatensatz gemessen und der
+  4-Pass-Block nachweislich amortisiert (`cuda_h2d_seconds`,
+  `cuda_kernel_seconds`, Gesamt).
+- Config-Doku (`configuration_reference*.md`, Schema-JSON/YAML) aktualisiert,
+  falls neue Flags eingeführt wurden (AGENTS.md §Configuration).
+- CPU-Fallback unverändert funktionsfähig und getestet.
