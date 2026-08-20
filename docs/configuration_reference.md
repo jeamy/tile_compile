@@ -2068,6 +2068,28 @@ Parameter für die pixelweise gewichtete Rekonstruktion.
 
 ----
 
+#### `aqmh.reconstruction.gpu_half_qmaps`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Nur relevant für den CUDA-Rekonstruktionspfad. Staged die Q-Maps für den Host→Device-Transfer als `fp16` statt `float32` (halbiert das Transfervolumen dieses Schritts) und dequantisiert sie vor der eigentlichen Kernel-Ausführung on-device wieder zurück auf `float32`. Bei Verdacht, dass fp16-Rundung Cherry-Pick- oder Sigma-Clip-Entscheidungen an Toleranzgrenzen verschiebt, `false` setzen.
+
+----
+
+#### `aqmh.reconstruction.gpu_packed_masks`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Nur relevant für den CUDA-Rekonstruktionspfad. Staged die Frame-Validitätsmasken für den Host→Device-Transfer bit-gepackt (1 Bit/Pixel statt 1 Byte/Pixel) und entpackt sie vor der Kernel-Ausführung on-device wieder zu `uint8`.
+
+----
+
 ### `aqmh.validation.*` — Output-Validierung
 
 Regressions-Schwellen für Vergleiche eines Nachverarbeitungskandidaten sowohl mit dem uniformen Kontrollmittel als auch mit der unveränderten rohen AQMH-Baseline. Tail- und Elongationswerte werden an denselben, in der jeweiligen Referenz erkannten Sternpositionen gemessen.

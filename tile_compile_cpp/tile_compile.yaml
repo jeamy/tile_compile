@@ -59,6 +59,8 @@ aqmh:
     structure_mask_blur_sigma_px: 4
     structure_mask_high_q: 0.9
     structure_mask_low_q: 0.4
+    gpu_half_qmaps: true
+    gpu_packed_masks: true
   storage:
     dtype: uint16
     max_resident_maps: 2

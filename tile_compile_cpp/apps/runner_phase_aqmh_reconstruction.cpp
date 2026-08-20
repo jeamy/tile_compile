@@ -514,6 +514,8 @@ bool run_phase_aqmh_reconstruction(
       ? cfg.aqmh.reconstruction.memory_budget_mb
       : static_cast<size_t>(cfg.runtime_limits.memory_budget);
   aqmh_recon_cfg.compute_uniform_control = true;
+  aqmh_recon_cfg.gpu_half_qmaps = cfg.aqmh.reconstruction.gpu_half_qmaps;
+  aqmh_recon_cfg.gpu_packed_masks = cfg.aqmh.reconstruction.gpu_packed_masks;
 
   auto aqmh_frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
     if (fi >= frames.size() || fi >= frame_has_data.size() ||
@@ -1587,6 +1589,8 @@ bool run_phase_aqmh_reconstruction(
   artifact["clip_iterations"] = aqmh_recon_cfg.clip_iterations;
   artifact["min_fraction"] = aqmh_recon_cfg.min_fraction;
   artifact["min_n_eff"] = aqmh_recon_cfg.min_n_eff;
+  artifact["gpu_half_qmaps"] = aqmh_recon_cfg.gpu_half_qmaps;
+  artifact["gpu_packed_masks"] = aqmh_recon_cfg.gpu_packed_masks;
   artifact["classic_tile_weights_used"] = false;
   artifact["fallback_to_classic"] = false;
   artifact["registration_weight_guard"] = {

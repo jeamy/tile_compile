@@ -294,6 +294,13 @@ struct AqmhReconstructionConfig {
   float structure_mask_low_q = 0.40f;             // gradient quantile mapped to mask=0 (was 0.70)
   float structure_mask_high_q = 0.90f;            // gradient quantile mapped to mask=1 (was 0.97)
   float structure_mask_blur_sigma_px = 4.0f;      // soft mask blur sigma (was 2.0)
+  // WP-E (GPU bandwidth reduction): stage Q-Maps as fp16 and frame masks as
+  // bit-packed (1 bit/pixel) for the H2D transfer, dequantized back to
+  // float32/uint8 on-device before the reconstruction kernel runs. Defaults
+  // on; disable per-run if fp16 rounding is suspected of shifting
+  // cherry-pick/sigma-clip decisions.
+  bool gpu_half_qmaps = true;
+  bool gpu_packed_masks = true;
 };
 
 struct AqmhValidationConfig {

@@ -1861,6 +1861,28 @@ Per-pixel weighted reconstruction parameters.
 
 ----
 
+#### `aqmh.reconstruction.gpu_half_qmaps`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** CUDA reconstruction path only. Stages Q-Maps as `fp16` instead of `float32` for the host-to-device transfer (halves that step's transfer volume), dequantized back to `float32` on-device before the reconstruction kernel runs. Set to `false` if fp16 rounding is suspected of shifting cherry-pick or sigma-clip decisions at a tolerance boundary.
+
+----
+
+#### `aqmh.reconstruction.gpu_packed_masks`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** CUDA reconstruction path only. Stages per-frame validity masks bit-packed (1 bit/pixel instead of 1 byte/pixel) for the host-to-device transfer, unpacked back to `uint8` on-device before the kernel runs.
+
+----
+
 ### `aqmh.validation.*` — Output validation
 
 Regression thresholds comparing every post-processing candidate against both the uniform-control mean and the immutable raw AQMH baseline. Tail and elongation are measured at the same star positions detected in the respective reference.

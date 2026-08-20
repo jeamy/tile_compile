@@ -1265,6 +1265,16 @@
               "exclusiveMinimum": 0,
               "default": 4.0,
               "description": "Gaussian blur sigma for soft structure mask transition."
+            },
+            "gpu_half_qmaps": {
+              "type": "boolean",
+              "default": true,
+              "description": "CUDA reconstruction only: stage Q-Maps as fp16 for the host-to-device transfer (halves that transfer's bandwidth), dequantized back to float32 on-device before use. Disable if fp16 rounding is suspected of shifting cherry-pick/sigma-clip decisions at the tolerance boundary."
+            },
+            "gpu_packed_masks": {
+              "type": "boolean",
+              "default": true,
+              "description": "CUDA reconstruction only: stage per-frame validity masks as 1-bit-per-pixel for the host-to-device transfer, unpacked back to uint8 on-device before use."
             }
           }
         },

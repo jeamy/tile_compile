@@ -458,6 +458,86 @@ TEST_CASE("aqmh_native_cuda_reconstruction_matches_cpu_reference") {
   }
   std::filesystem::remove_all(dir);
 }
+
+// WP-E: fp16 Q-Maps + bit-packed masks (gpu_half_qmaps/gpu_packed_masks,
+// default-on) must reproduce the CPU reference within the same tolerance as
+// the full-precision CUDA path, and must reproduce the full-precision CUDA
+// path itself (isolates the dequantize-kernel roundtrip from unrelated
+// CUDA-vs-CPU drift).
+TEST_CASE("aqmh_native_cuda_gpu_half_qmaps_packed_masks_matches_full_precision") {
+  const auto dir = unique_recon_cache_dir("aqmh_recon_native_cuda_wpe");
+  std::filesystem::remove_all(dir);
+  constexpr int H = 16, W = 18, N = 4;
+  auto cache = make_cache(dir, W, H);
+  std::vector<tile_compile::Matrix2Df> frames;
+  tile_compile::VectorXf global_weights(N);
+  global_weights << 1.0f, 0.8f, 1.2f, 1.0f;
+  for (int fi = 0; fi < N; ++fi) {
+    tile_compile::Matrix2Df frame(H, W);
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        frame(y, x) = 10.0f + 0.1f * x + 0.2f * y + fi;
+        q(y, x) = 0.3f + 0.15f * fi + 0.001f * (x + y);
+      }
+    }
+    if (fi == 3)
+      frame(5, 7) = 500.0f;
+    q(2, 3) = 0.0f;
+    frames.push_back(std::move(frame));
+    cache.write(static_cast<size_t>(fi), q);
+  }
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1u);
+  mask[0] = 0u;
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.clip_sigma = 2.0f;
+  cfg.min_fraction = 0.5f;
+  cfg.compute_uniform_control = true;
+
+  const auto cpu = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg);
+
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg_full = cfg;
+  cfg_full.gpu_half_qmaps = false;
+  cfg_full.gpu_packed_masks = false;
+  const auto gpu_full = tile_compile::reconstruction::reconstruct_aqmh_weighted_cuda(
+      frames.size(), loader_for(frames), &cache, global_weights, mask, W, H,
+      cfg_full);
+  if (!gpu_full.acceleration_used) {
+    std::filesystem::remove_all(dir);
+    SKIP("Native CUDA device is not available");
+  }
+
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg_compressed = cfg;
+  REQUIRE(cfg_compressed.gpu_half_qmaps);   // defaults must stay on
+  REQUIRE(cfg_compressed.gpu_packed_masks); // defaults must stay on
+  const auto gpu_compressed =
+      tile_compile::reconstruction::reconstruct_aqmh_weighted_cuda(
+          frames.size(), loader_for(frames), &cache, global_weights, mask, W,
+          H, cfg_compressed);
+
+  REQUIRE(gpu_compressed.acceleration_used);
+  REQUIRE_FALSE(gpu_compressed.acceleration_fallback);
+  REQUIRE(gpu_compressed.unsupported_pixels == cpu.unsupported_pixels);
+  REQUIRE(gpu_compressed.zero_veto_pixels == cpu.zero_veto_pixels);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      // vs. CPU reference: same tolerance as the full-precision CUDA path.
+      REQUIRE(gpu_compressed.output(y, x) ==
+              Catch::Approx(cpu.output(y, x)).margin(2.0e-4f));
+      // vs. full-precision CUDA: isolates fp16/bit-packing roundtrip error;
+      // slightly wider margin to cover fp16 quantization of the Q-Maps.
+      REQUIRE(gpu_compressed.output(y, x) ==
+              Catch::Approx(gpu_full.output(y, x)).margin(5.0e-3f));
+      REQUIRE(gpu_compressed.uniform_control_valid_mask[static_cast<size_t>(
+                  y * W + x)] ==
+              gpu_full.uniform_control_valid_mask[static_cast<size_t>(
+                  y * W + x)]);
+    }
+  }
+  std::filesystem::remove_all(dir);
+}
 #endif
 
 TEST_CASE("aqmh_native_opencl_reconstruction_matches_cpu_reference") {

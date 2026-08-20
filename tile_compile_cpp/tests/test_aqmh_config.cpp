@@ -117,6 +117,35 @@ aqmh:
   REQUIRE_THROWS(cfg.validate());
 }
 
+TEST_CASE("aqmh_reconstruction_gpu_half_qmaps_packed_masks_default_true_and_parse") {
+  // Defaults: on, even without an explicit config block.
+  {
+    YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+)");
+    auto cfg = tile_compile::config::Config::from_yaml(node);
+    REQUIRE(cfg.aqmh.reconstruction.gpu_half_qmaps);
+    REQUIRE(cfg.aqmh.reconstruction.gpu_packed_masks);
+  }
+  // Explicit override to false is honored.
+  {
+    YAML::Node node = YAML::Load(R"(
+method: aqmh
+aqmh:
+  enabled: true
+  reconstruction:
+    gpu_half_qmaps: false
+    gpu_packed_masks: false
+)");
+    auto cfg = tile_compile::config::Config::from_yaml(node);
+    REQUIRE_FALSE(cfg.aqmh.reconstruction.gpu_half_qmaps);
+    REQUIRE_FALSE(cfg.aqmh.reconstruction.gpu_packed_masks);
+    REQUIRE_NOTHROW(cfg.validate());
+  }
+}
+
 TEST_CASE("aqmh_reconstruction_prewarp_cache_cleanup_policy_parses") {
   YAML::Node defaults = YAML::Load(R"(
 method: aqmh
