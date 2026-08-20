@@ -21,6 +21,8 @@ tile_compile_cpp/.cache
 web_backend_cpp/build/
 web_backend_cpp/build-*/
 web_backend_cpp/cmake-build-*/
+build-cuda/*
+
 *.o
 *.a
 *.so
