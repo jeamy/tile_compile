@@ -29,14 +29,25 @@ const char* kAqmhReconstructionKernelSrc = R"ocl(
 
 #define MAX_FRAMES 1024
 
+// Returns the smallest power of two >= n, clamped to MAX_FRAMES.
+// Used to limit bitonic sort iterations to the actual data size.
+int next_pow2_int(int n) {
+  int p = 1;
+  while (p < n) p <<= 1;
+  return p < MAX_FRAMES ? p : MAX_FRAMES;
+}
+
 // Bitonic sort helpers for OpenCL C.  Separate functions are required because
 // OpenCL C has no function overloading/templates.
+// Each sort only iterates over next_pow2(n) elements instead of MAX_FRAMES,
+// reducing work from O(1024*log^2(1024)) to O(n_bound*log^2(n_bound)).
 
 void bitonic_sort_by_value_asc(int* indices, int n, const float* values) {
-  for (int i = n; i < MAX_FRAMES; ++i) indices[i] = i;
-  for (int k = 2; k <= MAX_FRAMES; k *= 2) {
+  int n_bound = next_pow2_int(n);
+  for (int i = n; i < n_bound; ++i) indices[i] = i;
+  for (int k = 2; k <= n_bound; k *= 2) {
     for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < MAX_FRAMES; ++i) {
+      for (int i = 0; i < n_bound; ++i) {
         int l = i ^ j;
         if (l > i) {
           int up = (i & k) == 0;
@@ -59,10 +70,11 @@ void bitonic_sort_by_value_asc(int* indices, int n, const float* values) {
 }
 
 void bitonic_sort_by_score_desc(int* indices, int n, const float* scores) {
-  for (int i = n; i < MAX_FRAMES; ++i) indices[i] = i;
-  for (int k = 2; k <= MAX_FRAMES; k *= 2) {
+  int n_bound = next_pow2_int(n);
+  for (int i = n; i < n_bound; ++i) indices[i] = i;
+  for (int k = 2; k <= n_bound; k *= 2) {
     for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < MAX_FRAMES; ++i) {
+      for (int i = 0; i < n_bound; ++i) {
         int l = i ^ j;
         if (l > i) {
           int up = (i & k) == 0;
@@ -86,10 +98,11 @@ void bitonic_sort_by_score_desc(int* indices, int n, const float* scores) {
 }
 
 void bitonic_sort_by_deviation_asc(int* indices, int n, const float* values, float center) {
-  for (int i = n; i < MAX_FRAMES; ++i) indices[i] = i;
-  for (int k = 2; k <= MAX_FRAMES; k *= 2) {
+  int n_bound = next_pow2_int(n);
+  for (int i = n; i < n_bound; ++i) indices[i] = i;
+  for (int k = 2; k <= n_bound; k *= 2) {
     for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < MAX_FRAMES; ++i) {
+      for (int i = 0; i < n_bound; ++i) {
         int l = i ^ j;
         if (l > i) {
           int up = (i & k) == 0;
@@ -114,10 +127,11 @@ void bitonic_sort_by_deviation_asc(int* indices, int n, const float* values, flo
 }
 
 void bitonic_sort_by_norm_distance_asc(int* indices, int n, const float* values, float center, float sigma) {
-  for (int i = n; i < MAX_FRAMES; ++i) indices[i] = i;
-  for (int k = 2; k <= MAX_FRAMES; k *= 2) {
+  int n_bound = next_pow2_int(n);
+  for (int i = n; i < n_bound; ++i) indices[i] = i;
+  for (int k = 2; k <= n_bound; k *= 2) {
     for (int j = k / 2; j > 0; j /= 2) {
-      for (int i = 0; i < MAX_FRAMES; ++i) {
+      for (int i = 0; i < n_bound; ++i) {
         int l = i ^ j;
         if (l > i) {
           int up = (i & k) == 0;
@@ -145,7 +159,7 @@ float device_weighted_median(
      float* values,  float* weights, int n,
      int* sort_indices) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
+  for (int i = 0; i < n; ++i) sort_indices[i] = i;
   bitonic_sort_by_value_asc(sort_indices, n, values);
   float total = 0.0f;
   for (int i = 0; i < n; ++i) total += weights[sort_indices[i]];
@@ -162,7 +176,7 @@ float weighted_mad_value(
      float* values,  float* weights, int n,
     float center,  int* sort_indices) {
   if (n <= 0) return 0.0f;
-  for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
+  for (int i = 0; i < n; ++i) sort_indices[i] = i;
   bitonic_sort_by_deviation_asc(sort_indices, n, values, center);
   float total = 0.0f;
   for (int i = 0; i < n; ++i) total += weights[sort_indices[i]];
@@ -177,12 +191,12 @@ float weighted_mad_value(
 
 float noise_floor_value(float* values, int n, int* sort_indices) {
   if (n <= 0) return FLT_EPSILON;
-  for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
+  for (int i = 0; i < n; ++i) sort_indices[i] = i;
   bitonic_sort_by_value_asc(sort_indices, n, values);
   float med = (n % 2 == 1)
       ? values[sort_indices[n / 2]]
       : 0.5f * (values[sort_indices[n / 2 - 1]] + values[sort_indices[n / 2]]);
-  for (int i = 0; i < MAX_FRAMES; ++i) sort_indices[i] = i;
+  for (int i = 0; i < n; ++i) sort_indices[i] = i;
   bitonic_sort_by_deviation_asc(sort_indices, n, values, med);
   float mad = (n % 2 == 1)
       ? fabs(values[sort_indices[n / 2]] - med)

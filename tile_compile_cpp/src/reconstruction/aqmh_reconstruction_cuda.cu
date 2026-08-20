@@ -7,6 +7,7 @@
 #include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
 
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 #include <device_launch_parameters.h>
 
 #include <algorithm>
@@ -310,17 +311,24 @@ __device__ int sigma_clip(
         adaptive_sort<MaxFrames>(
             sort_buf, n,
             NormDistanceAsc{values, center, floor_val});
-        float tmp_v[MaxFrames];
-        float tmp_w[MaxFrames];
-        for (int i = 0; i < keep_floor; ++i) {
-          const short src = sort_buf[i];
-          tmp_v[i] = values[src];
-          tmp_w[i] = weights[src];
+        // In-place gather via cycle-following: avoids tmp_v/tmp_w float arrays.
+        // Marks visited positions in sort_buf with bitwise NOT (gives negative).
+        for (int ci = 0; ci < keep_floor; ++ci) {
+          if (sort_buf[ci] < 0) continue;
+          const float sv = values[ci];
+          const float sw = weights[ci];
+          int j = ci;
+          for (;;) {
+            const short src = sort_buf[j];
+            sort_buf[j] = static_cast<short>(~src);
+            if (src == static_cast<short>(ci)) { values[j] = sv; weights[j] = sw; break; }
+            values[j] = values[src];
+            weights[j] = weights[src];
+            j = src;
+          }
         }
-        for (int i = 0; i < keep_floor; ++i) {
-          values[i] = tmp_v[i];
-          weights[i] = tmp_w[i];
-        }
+        for (int ci = 0; ci < keep_floor; ++ci)
+          if (sort_buf[ci] < 0) sort_buf[ci] = static_cast<short>(~sort_buf[ci]);
         n = keep_floor;
       } else {
         // Keep only samples within eps_center.
@@ -352,17 +360,23 @@ __device__ int sigma_clip(
     if (keep_count < keep_floor) {
       // Sort by normalized distance and keep floor.
       adaptive_sort<MaxFrames>(sort_buf, n, NormDistanceAsc{values, center, sigma});
-      float tmp_v[MaxFrames];
-      float tmp_w[MaxFrames];
-      for (int i = 0; i < keep_floor; ++i) {
-        const int src = sort_buf[i];
-        tmp_v[i] = values[src];
-        tmp_w[i] = weights[src];
+      // In-place gather via cycle-following: avoids tmp_v/tmp_w float arrays.
+      for (int ci = 0; ci < keep_floor; ++ci) {
+        if (sort_buf[ci] < 0) continue;
+        const float sv = values[ci];
+        const float sw = weights[ci];
+        int j = ci;
+        for (;;) {
+          const short src = sort_buf[j];
+          sort_buf[j] = static_cast<short>(~src);
+          if (src == static_cast<short>(ci)) { values[j] = sv; weights[j] = sw; break; }
+          values[j] = values[src];
+          weights[j] = weights[src];
+          j = src;
+        }
       }
-      for (int i = 0; i < keep_floor; ++i) {
-        values[i] = tmp_v[i];
-        weights[i] = tmp_w[i];
-      }
+      for (int ci = 0; ci < keep_floor; ++ci)
+        if (sort_buf[ci] < 0) sort_buf[ci] = static_cast<short>(~sort_buf[ci]);
       n = keep_floor;
       break;
     }
@@ -408,7 +422,8 @@ __device__ int sigma_clip(
 }
 
 template <bool CherryPickEnabled, int MaxFrames>
-__global__ void aqmh_reconstruction_kernel(
+__global__ __launch_bounds__(256, 2)
+void aqmh_reconstruction_kernel(
     const float* __restrict__ d_frames,
     const float* __restrict__ d_q_maps,
     const uint8_t* __restrict__ d_canvas_mask,
@@ -556,6 +571,218 @@ __global__ void aqmh_reconstruction_kernel(
   d_weight_sum[canvas_idx] = weight_sum;
 }
 
+// ---------------------------------------------------------------------------
+// WP-E: Dequantize kernel — converts fp16 Q-Maps and/or bit-packed masks
+// to full-precision float/byte in-place on the GPU.  Launched once per chunk
+// before the main reconstruction kernel when the corresponding config flags
+// are set (default: both false → no-op / not launched).
+// ---------------------------------------------------------------------------
+__global__ void aqmh_dequantize_kernel(
+    const uint16_t* __restrict__ d_q_maps_half,  // null if !half_qmaps
+    float* __restrict__ d_q_maps,                // float Q-Map to fill
+    const uint8_t* __restrict__ d_masks_packed,  // null if !packed_masks
+    uint8_t* __restrict__ d_masks,               // byte masks to fill
+    bool half_qmaps, bool packed_masks, int n) {
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  if (half_qmaps)
+    d_q_maps[i] = __half2float(*reinterpret_cast<const __half*>(&d_q_maps_half[i]));
+  if (packed_masks)
+    d_masks[i] = (d_masks_packed[i >> 3] >> (i & 7)) & 1u;
+}
+
+// ---------------------------------------------------------------------------
+// WP-B: aqmh_select_kernel — channel-independent selection phase.
+// Runs once per chunk for all planes.  Filters valid frames by mask +
+// Q-Map + global weight, then applies cherry-pick selection.
+// Outputs sorted valid frame indices and count per pixel.
+// ---------------------------------------------------------------------------
+template <bool CherryPickEnabled, int MaxFrames>
+__global__ __launch_bounds__(256, 2)
+void aqmh_select_kernel(
+    const float* __restrict__ d_q_maps,
+    const uint8_t* __restrict__ d_canvas_mask,
+    const uint8_t* __restrict__ d_frame_masks,
+    const float* __restrict__ d_global_weights,
+    int16_t* __restrict__ d_sel_indices,   // [chunk_pixels * frame_count]
+    uint16_t* __restrict__ d_sel_k,        // [chunk_pixels]
+    float* __restrict__ d_cherry_k_map,    // nullable
+    int width, int chunk_rows, int y0, int height, int frame_count,
+    float cherry_pick_k_frac, int cherry_pick_k_min_required, int cherry_pick_mode,
+    float cherry_pick_reject_below_best_fraction,
+    float cherry_pick_min_keep_fraction, float cherry_pick_margin_min) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int yy = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || yy >= chunk_rows || y0 + yy >= height) return;
+
+  const int canvas_idx = yy * width + x;
+  d_sel_k[canvas_idx] = 0;
+  if (d_cherry_k_map) d_cherry_k_map[canvas_idx] = 0.0f;
+  if (d_canvas_mask[canvas_idx] == 0u) return;
+
+  // Local arrays: scores for cherry-pick sorting, idx_buf for frame indices.
+  float scores[CherryPickEnabled ? MaxFrames : 1];
+  float wt_buf[MaxFrames];   // scratch (weights / sorting proxy)
+  short sort_buf[MaxFrames];
+  int n = 0;
+
+  const int pixel_base = canvas_idx * frame_count;
+  const int16_t* out_base = d_sel_indices + pixel_base;
+
+  for (int fi = 0; fi < frame_count && n < MaxFrames; ++fi) {
+    const int idx = pixel_base + fi;
+    if (d_frame_masks[idx] == 0u) continue;
+    const float q = d_q_maps[idx];
+    if (!isfinite_f(q)) continue;
+    const float gw = d_global_weights[fi];
+    const float score = gw * fmaxf(0.0f, q);
+    if (score <= 0.0f) continue;
+    if constexpr (CherryPickEnabled) scores[n] = score;
+    wt_buf[n] = static_cast<float>(fi);  // store fi in wt_buf as float (exact for fi < 2^24)
+    sort_buf[n] = static_cast<short>(n);
+    ++n;
+  }
+
+  int k = n;
+  if constexpr (CherryPickEnabled) {
+    if (n >= cherry_pick_k_min_required) {
+      for (int i = n; i < MaxFrames; ++i) scores[i] = -INFINITY;
+      adaptive_sort<MaxFrames>(sort_buf, n, ScoreDesc{scores});
+
+      const float best = scores[sort_buf[0]];
+      if (cherry_pick_mode == 1 && best > 0.0f && isfinite_f(best)) {
+        // auto_reject
+        const float threshold = best * fminf(1.0f, fmaxf(0.0f, cherry_pick_reject_below_best_fraction));
+        int keep = 0;
+        while (keep < n && scores[sort_buf[keep]] >= threshold) ++keep;
+        const int min_keep = min(n, max(cherry_pick_k_min_required,
+            static_cast<int>(ceilf(fminf(1.0f, fmaxf(0.0f, cherry_pick_min_keep_fraction))
+                                   * static_cast<float>(n)))));
+        keep = max(keep, min_keep);
+        if (keep < n) {
+          const float margin = (scores[sort_buf[keep - 1]] - scores[sort_buf[keep]]) / best;
+          k = (margin >= cherry_pick_margin_min) ? keep : n;
+        } else {
+          k = n;
+        }
+      } else {
+        // top_k
+        const int nominal = max(0, static_cast<int>(floorf(cherry_pick_k_frac * static_cast<float>(n))));
+        k = min(n, max(cherry_pick_k_min_required, nominal));
+      }
+
+      if (k < n) {
+        // Reorder wt_buf (which holds fi values) to sort_buf[0..k-1] order.
+        // We use scores[] as a float temp for the reordering.
+        for (int i = 0; i < k; ++i) scores[i] = wt_buf[sort_buf[i]];
+        for (int i = 0; i < k; ++i) wt_buf[i] = scores[i];
+        n = k;
+      }
+    }
+  }
+
+  // Write selected frame indices to output buffer.
+  for (int i = 0; i < n; ++i)
+    const_cast<int16_t*>(out_base)[i] = static_cast<int16_t>(wt_buf[i]);
+  d_sel_k[canvas_idx] = static_cast<uint16_t>(n);
+  if (d_cherry_k_map) d_cherry_k_map[canvas_idx] = static_cast<float>(n);
+}
+
+// ---------------------------------------------------------------------------
+// WP-B: aqmh_reduce_kernel — channel-specific sigma-clip + weighted mean.
+// Runs once per plane per chunk.  Reads pre-selected frame indices from
+// aqmh_select_kernel, loads channel values from d_frames, then applies
+// sigma-clip and computes the weighted output.
+// ---------------------------------------------------------------------------
+template <int MaxFrames>
+__global__ __launch_bounds__(256, 2)
+void aqmh_reduce_kernel(
+    const int16_t* __restrict__ d_sel_indices,  // [chunk_pixels * frame_count]
+    const uint16_t* __restrict__ d_sel_k,       // [chunk_pixels]
+    const float* __restrict__ d_frames,         // [chunk_pixels * frame_count]
+    const float* __restrict__ d_q_maps,         // to re-derive weights
+    const float* __restrict__ d_global_weights,
+    const uint8_t* __restrict__ d_canvas_mask,
+    float* __restrict__ d_output,
+    float* __restrict__ d_weight_sum,
+    unsigned long long* __restrict__ d_unsupported_pixels,
+    unsigned long long* __restrict__ d_zero_veto_pixels,
+    unsigned long long* __restrict__ d_numerical_guard_pixels,
+    int width, int chunk_rows, int y0, int height, int frame_count,
+    float clip_sigma_low, float clip_sigma_high, int clip_iterations,
+    float min_fraction, float min_n_eff) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int yy = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || yy >= chunk_rows || y0 + yy >= height) return;
+
+  const int canvas_idx = yy * width + x;
+  d_output[canvas_idx] = 0.0f;
+  d_weight_sum[canvas_idx] = 0.0f;
+  if (d_canvas_mask[canvas_idx] == 0u) return;
+
+  const int k_sel = static_cast<int>(d_sel_k[canvas_idx]);
+  if (k_sel == 0) {
+    atomicAdd(d_unsupported_pixels, 1ULL);
+    return;
+  }
+
+  float values[MaxFrames];
+  float weights[MaxFrames];
+  short sort_buf[MaxFrames];
+  int n = 0;
+  bool has_finite_q = false;
+
+  const int pixel_base = canvas_idx * frame_count;
+  const int16_t* sel = d_sel_indices + pixel_base;
+
+  for (int si = 0; si < k_sel && n < MaxFrames; ++si) {
+    const int fi = static_cast<int>(sel[si]);
+    const int idx = pixel_base + fi;
+    const float v = d_frames[idx];
+    if (!isfinite_f(v)) continue;
+    const float q = d_q_maps[idx];
+    if (!isfinite_f(q)) continue;
+    has_finite_q = true;
+    const float gw = d_global_weights[fi];
+    const float score = gw * fmaxf(0.0f, q);
+    if (score <= 0.0f) continue;
+    values[n] = v;
+    weights[n] = score;
+    sort_buf[n] = static_cast<short>(n);
+    ++n;
+  }
+
+  if (n == 0) {
+    atomicAdd(d_unsupported_pixels, 1ULL);
+    if (has_finite_q) atomicAdd(d_zero_veto_pixels, 1ULL);
+    return;
+  }
+
+  for (int i = n; i < MaxFrames; ++i) {
+    values[i] = INFINITY;
+    weights[i] = 0.0f;
+  }
+
+  float weight_sum = 0.0f;
+  float effective_n = 0.0f;
+  const int retained = sigma_clip<MaxFrames>(
+      values, weights, n,
+      clip_sigma_low, clip_sigma_high, clip_iterations, min_fraction, min_n_eff,
+      &weight_sum, &effective_n, sort_buf);
+
+  if (retained <= 0 || weight_sum <= 0.0f) {
+    atomicAdd(d_unsupported_pixels, 1ULL);
+    atomicAdd(d_numerical_guard_pixels, 1ULL);
+    return;
+  }
+
+  double accum = 0.0;
+  for (int i = 0; i < retained; ++i)
+    accum += static_cast<double>(weights[i]) * values[i];
+  d_output[canvas_idx] = static_cast<float>(accum / weight_sum);
+  d_weight_sum[canvas_idx] = weight_sum;
+}
+
 // CUDA error check helper.
 #define CUDA_CHECK(expr)                                                     \
   do {                                                                         \
@@ -577,16 +804,27 @@ struct GpuBuffers {
   float* uniform_control = nullptr;
   uint8_t* uniform_control_valid = nullptr;
   float* cherry_k_map = nullptr;
+  // WP-E: optional half-precision / bit-packed staging buffers
+  uint16_t* q_maps_half = nullptr;       // fp16 Q-Map staging (half the bytes)
+  uint8_t*  frame_masks_packed = nullptr; // bit-packed masks (1 bit/pixel)
 };
 
 bool allocate_chunk_buffers(
     GpuBuffers& bufs, int width, int chunk_rows, int frame_count,
-    bool compute_uniform_control, bool cherry_pick_enabled) {
+    bool compute_uniform_control, bool cherry_pick_enabled,
+    bool half_qmaps = false, bool packed_masks = false) {
   const size_t chunk_pixels = static_cast<size_t>(chunk_rows) * width;
   const size_t all_chunk_pixels = static_cast<size_t>(frame_count) * chunk_pixels;
   CUDA_CHECK(cudaMalloc(&bufs.frames, all_chunk_pixels * sizeof(float)));
+  // Float Q-Map buffer is always allocated (dequantize target when half_qmaps).
   CUDA_CHECK(cudaMalloc(&bufs.q_maps, all_chunk_pixels * sizeof(float)));
+  if (half_qmaps)
+    CUDA_CHECK(cudaMalloc(&bufs.q_maps_half, all_chunk_pixels * sizeof(uint16_t)));
+  // Byte mask buffer is always allocated (dequantize target when packed_masks).
   CUDA_CHECK(cudaMalloc(&bufs.frame_masks, all_chunk_pixels * sizeof(uint8_t)));
+  if (packed_masks)
+    CUDA_CHECK(cudaMalloc(&bufs.frame_masks_packed,
+                          (all_chunk_pixels + 7) / 8 * sizeof(uint8_t)));
   CUDA_CHECK(cudaMalloc(&bufs.canvas_mask, chunk_pixels * sizeof(uint8_t)));
   CUDA_CHECK(cudaMalloc(&bufs.output, chunk_pixels * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&bufs.weight_sum, chunk_pixels * sizeof(float)));
@@ -604,7 +842,9 @@ bool allocate_chunk_buffers(
 void free_chunk_buffers(GpuBuffers& bufs) {
   if (bufs.frames) cudaFree(bufs.frames);
   if (bufs.q_maps) cudaFree(bufs.q_maps);
+  if (bufs.q_maps_half) cudaFree(bufs.q_maps_half);
   if (bufs.frame_masks) cudaFree(bufs.frame_masks);
+  if (bufs.frame_masks_packed) cudaFree(bufs.frame_masks_packed);
   if (bufs.canvas_mask) cudaFree(bufs.canvas_mask);
   if (bufs.output) cudaFree(bufs.output);
   if (bufs.weight_sum) cudaFree(bufs.weight_sum);
@@ -715,6 +955,126 @@ void launch_reconstruction_kernel_for_frame_count(
         d_unsupported_pixels, d_zero_veto_pixels, d_numerical_guard_pixels,
         width, chunk_rows, y0, height, frame_count, cfg);
   }
+}
+
+// ---------------------------------------------------------------------------
+// WP-E: launch the dequantize kernel for a chunk.
+// n_elements = frame_count * chunk_pixels (one entry per (pixel,frame) pair).
+// ---------------------------------------------------------------------------
+void launch_dequantize(
+    const GpuBuffers& bufs, cudaStream_t stream,
+    bool half_qmaps, bool packed_masks, int n_elements) {
+  if (!half_qmaps && !packed_masks) return;
+  const int threads = 256;
+  const int blocks = (n_elements + threads - 1) / threads;
+  aqmh_dequantize_kernel<<<blocks, threads, 0, stream>>>(
+      half_qmaps ? bufs.q_maps_half : nullptr, bufs.q_maps,
+      packed_masks ? bufs.frame_masks_packed : nullptr, bufs.frame_masks,
+      half_qmaps, packed_masks, n_elements);
+}
+
+// ---------------------------------------------------------------------------
+// WP-B: dispatch aqmh_select_kernel for the given frame_count tier.
+// ---------------------------------------------------------------------------
+template <int MaxFrames>
+void launch_select_kernel(
+    bool cherry_enabled,
+    dim3 grid, dim3 block, cudaStream_t stream,
+    const GpuBuffers& bufs,
+    const float* d_global_weights,
+    int16_t* d_sel_indices, uint16_t* d_sel_k,
+    int width, int chunk_rows, int y0, int height, int frame_count,
+    const AqmhReconstructionConfig& cfg) {
+  const int cherry_pick_mode = cfg.cherry_pick_mode == "auto_reject" ? 1 : 0;
+  if (cherry_enabled) {
+    aqmh_select_kernel<true, MaxFrames><<<grid, block, 0, stream>>>(
+        bufs.q_maps, bufs.canvas_mask, bufs.frame_masks, d_global_weights,
+        d_sel_indices, d_sel_k, bufs.cherry_k_map,
+        width, chunk_rows, y0, height, frame_count,
+        cfg.cherry_pick_k_frac, cfg.cherry_pick_k_min_required, cherry_pick_mode,
+        cfg.cherry_pick_reject_below_best_fraction,
+        cfg.cherry_pick_min_keep_fraction, cfg.cherry_pick_margin_min);
+  } else {
+    aqmh_select_kernel<false, MaxFrames><<<grid, block, 0, stream>>>(
+        bufs.q_maps, bufs.canvas_mask, bufs.frame_masks, d_global_weights,
+        d_sel_indices, d_sel_k, nullptr,
+        width, chunk_rows, y0, height, frame_count,
+        cfg.cherry_pick_k_frac, cfg.cherry_pick_k_min_required, cherry_pick_mode,
+        cfg.cherry_pick_reject_below_best_fraction,
+        cfg.cherry_pick_min_keep_fraction, cfg.cherry_pick_margin_min);
+  }
+}
+
+template <int MaxFrames>
+void launch_reduce_kernel(
+    dim3 grid, dim3 block, cudaStream_t stream,
+    const GpuBuffers& bufs,
+    const float* d_global_weights,
+    const int16_t* d_sel_indices, const uint16_t* d_sel_k,
+    unsigned long long* d_unsupported, unsigned long long* d_zero_veto,
+    unsigned long long* d_numerical_guard,
+    int width, int chunk_rows, int y0, int height, int frame_count,
+    const AqmhReconstructionConfig& cfg) {
+  aqmh_reduce_kernel<MaxFrames><<<grid, block, 0, stream>>>(
+      d_sel_indices, d_sel_k,
+      bufs.frames, bufs.q_maps, d_global_weights, bufs.canvas_mask,
+      bufs.output, bufs.weight_sum,
+      d_unsupported, d_zero_veto, d_numerical_guard,
+      width, chunk_rows, y0, height, frame_count,
+      cfg.clip_sigma_low, cfg.clip_sigma_high, cfg.clip_iterations,
+      cfg.min_fraction, cfg.min_n_eff);
+}
+
+void launch_select_kernel_for_frame_count(
+    int frame_count, bool cherry_enabled,
+    dim3 grid, dim3 block, cudaStream_t stream,
+    const GpuBuffers& bufs, const float* d_global_weights,
+    int16_t* d_sel_indices, uint16_t* d_sel_k,
+    int width, int chunk_rows, int y0, int height,
+    const AqmhReconstructionConfig& cfg) {
+  if (frame_count <= 32)
+    launch_select_kernel<32>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 64)
+    launch_select_kernel<64>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 128)
+    launch_select_kernel<128>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 256)
+    launch_select_kernel<256>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 512)
+    launch_select_kernel<512>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 640)
+    launch_select_kernel<640>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 768)
+    launch_select_kernel<768>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+  else
+    launch_select_kernel<1024>(cherry_enabled, grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, width, chunk_rows, y0, height, frame_count, cfg);
+}
+
+void launch_reduce_kernel_for_frame_count(
+    int frame_count,
+    dim3 grid, dim3 block, cudaStream_t stream,
+    const GpuBuffers& bufs, const float* d_global_weights,
+    const int16_t* d_sel_indices, const uint16_t* d_sel_k,
+    unsigned long long* d_unsupported, unsigned long long* d_zero_veto,
+    unsigned long long* d_numerical_guard,
+    int width, int chunk_rows, int y0, int height,
+    const AqmhReconstructionConfig& cfg) {
+  if (frame_count <= 32)
+    launch_reduce_kernel<32>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 64)
+    launch_reduce_kernel<64>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 128)
+    launch_reduce_kernel<128>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 256)
+    launch_reduce_kernel<256>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 512)
+    launch_reduce_kernel<512>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 640)
+    launch_reduce_kernel<640>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else if (frame_count <= 768)
+    launch_reduce_kernel<768>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
+  else
+    launch_reduce_kernel<1024>(grid, block, stream, bufs, d_global_weights, d_sel_indices, d_sel_k, d_unsupported, d_zero_veto, d_numerical_guard, width, chunk_rows, y0, height, frame_count, cfg);
 }
 
 template <typename T>
@@ -1126,21 +1486,29 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         const auto result_commit_start = std::chrono::steady_clock::now();
         const int p_y0 = prev.y0;
         const int p_rows = prev.rows;
+        #if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(p_rows > 4)
+        #endif
         for (int yy = 0; yy < p_rows; ++yy) {
           const int y = p_y0 + yy;
-          for (int x = 0; x < width; ++x) {
-            const size_t local_i = static_cast<size_t>(yy) * width + x;
-            result.output(y, x) = cur_h_output[local_i];
-            result.weight_sum(y, x) = cur_h_weight_sum[local_i];
-            if (cfg.compute_uniform_control) {
-              result.uniform_control_output(y, x) = cur_h_uniform_control[local_i];
-              result.uniform_control_valid_mask[
-                  static_cast<size_t>(y) * static_cast<size_t>(width) +
-                  static_cast<size_t>(x)] = cur_h_uniform_control_valid[local_i];
-            }
-            if (cherry_enabled)
-              result.cherry_pick_k_map(y, x) = cur_h_cherry_k_map[local_i];
+          const size_t src_off = static_cast<size_t>(yy) * width;
+          std::memcpy(&result.output(y, 0), cur_h_output.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          std::memcpy(&result.weight_sum(y, 0), cur_h_weight_sum.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          if (cfg.compute_uniform_control) {
+            std::memcpy(&result.uniform_control_output(y, 0),
+                        cur_h_uniform_control.data() + src_off,
+                        static_cast<size_t>(width) * sizeof(float));
+            std::memcpy(result.uniform_control_valid_mask.data() +
+                            static_cast<size_t>(y) * width,
+                        cur_h_uniform_control_valid.data() + src_off,
+                        static_cast<size_t>(width));
           }
+          if (cherry_enabled)
+            std::memcpy(&result.cherry_pick_k_map(y, 0),
+                        cur_h_cherry_k_map.data() + src_off,
+                        static_cast<size_t>(width) * sizeof(float));
         }
         result.cuda_result_commit_seconds +=
             std::chrono::duration<double>(
@@ -1408,21 +1776,29 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       result.cuda_d2h_seconds += static_cast<double>(elapsed_ms) / 1000.0;
 
       const auto result_commit_start = std::chrono::steady_clock::now();
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static) if(rows > 4)
+      #endif
       for (int yy = 0; yy < rows; ++yy) {
         const int y = y0 + yy;
-        for (int x = 0; x < width; ++x) {
-          const size_t local_i = static_cast<size_t>(yy) * width + x;
-          result.output(y, x) = cur_h_output[local_i];
-          result.weight_sum(y, x) = cur_h_weight_sum[local_i];
-          if (cfg.compute_uniform_control) {
-            result.uniform_control_output(y, x) = cur_h_uniform_control[local_i];
-            result.uniform_control_valid_mask[
-                static_cast<size_t>(y) * static_cast<size_t>(width) +
-                static_cast<size_t>(x)] = cur_h_uniform_control_valid[local_i];
-          }
-          if (cherry_enabled)
-            result.cherry_pick_k_map(y, x) = cur_h_cherry_k_map[local_i];
+        const size_t src_off = static_cast<size_t>(yy) * width;
+        std::memcpy(&result.output(y, 0), cur_h_output.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        std::memcpy(&result.weight_sum(y, 0), cur_h_weight_sum.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        if (cfg.compute_uniform_control) {
+          std::memcpy(&result.uniform_control_output(y, 0),
+                      cur_h_uniform_control.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          std::memcpy(result.uniform_control_valid_mask.data() +
+                          static_cast<size_t>(y) * width,
+                      cur_h_uniform_control_valid.data() + src_off,
+                      static_cast<size_t>(width));
         }
+        if (cherry_enabled)
+          std::memcpy(&result.cherry_pick_k_map(y, 0),
+                      cur_h_cherry_k_map.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
       }
       result.cuda_result_commit_seconds +=
           std::chrono::duration<double>(
@@ -1448,21 +1824,29 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       const auto result_commit_start = std::chrono::steady_clock::now();
       const int p_y0 = pending_slot0.y0;
       const int p_rows = pending_slot0.rows;
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static) if(p_rows > 4)
+      #endif
       for (int yy = 0; yy < p_rows; ++yy) {
         const int y = p_y0 + yy;
-        for (int x = 0; x < width; ++x) {
-          const size_t local_i = static_cast<size_t>(yy) * width + x;
-          result.output(y, x) = h_output[local_i];
-          result.weight_sum(y, x) = h_weight_sum[local_i];
-          if (cfg.compute_uniform_control) {
-            result.uniform_control_output(y, x) = h_uniform_control[local_i];
-            result.uniform_control_valid_mask[
-                static_cast<size_t>(y) * static_cast<size_t>(width) +
-                static_cast<size_t>(x)] = h_uniform_control_valid[local_i];
-          }
-          if (cherry_enabled)
-            result.cherry_pick_k_map(y, x) = h_cherry_k_map[local_i];
+        const size_t src_off = static_cast<size_t>(yy) * width;
+        std::memcpy(&result.output(y, 0), h_output.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        std::memcpy(&result.weight_sum(y, 0), h_weight_sum.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        if (cfg.compute_uniform_control) {
+          std::memcpy(&result.uniform_control_output(y, 0),
+                      h_uniform_control.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          std::memcpy(result.uniform_control_valid_mask.data() +
+                          static_cast<size_t>(y) * width,
+                      h_uniform_control_valid.data() + src_off,
+                      static_cast<size_t>(width));
         }
+        if (cherry_enabled)
+          std::memcpy(&result.cherry_pick_k_map(y, 0),
+                      h_cherry_k_map.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
       }
       result.cuda_result_commit_seconds +=
           std::chrono::duration<double>(
@@ -1483,21 +1867,29 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
       const auto result_commit_start = std::chrono::steady_clock::now();
       const int p_y0 = pending_slot1.y0;
       const int p_rows = pending_slot1.rows;
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static) if(p_rows > 4)
+      #endif
       for (int yy = 0; yy < p_rows; ++yy) {
         const int y = p_y0 + yy;
-        for (int x = 0; x < width; ++x) {
-          const size_t local_i = static_cast<size_t>(yy) * width + x;
-          result.output(y, x) = h_output2[local_i];
-          result.weight_sum(y, x) = h_weight_sum2[local_i];
-          if (cfg.compute_uniform_control) {
-            result.uniform_control_output(y, x) = h_uniform_control2[local_i];
-            result.uniform_control_valid_mask[
-                static_cast<size_t>(y) * static_cast<size_t>(width) +
-                static_cast<size_t>(x)] = h_uniform_control_valid2[local_i];
-          }
-          if (cherry_enabled)
-            result.cherry_pick_k_map(y, x) = h_cherry_k_map2[local_i];
+        const size_t src_off = static_cast<size_t>(yy) * width;
+        std::memcpy(&result.output(y, 0), h_output2.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        std::memcpy(&result.weight_sum(y, 0), h_weight_sum2.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        if (cfg.compute_uniform_control) {
+          std::memcpy(&result.uniform_control_output(y, 0),
+                      h_uniform_control2.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          std::memcpy(result.uniform_control_valid_mask.data() +
+                          static_cast<size_t>(y) * width,
+                      h_uniform_control_valid2.data() + src_off,
+                      static_cast<size_t>(width));
         }
+        if (cherry_enabled)
+          std::memcpy(&result.cherry_pick_k_map(y, 0),
+                      h_cherry_k_map2.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
       }
       result.cuda_result_commit_seconds +=
           std::chrono::duration<double>(
@@ -1585,6 +1977,654 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   cudaFree(d_numerical_guard_pixels);
 #undef CUDA_CHECK
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// AqmhCudaReconstructionSession — R1 multi-plane session (chunk-outside,
+// plane-inside). Q-Maps and Frame-Masks are uploaded to the GPU once per
+// chunk; only d_frames differs per plane. This eliminates 3/4 of Q-Map
+// cache reads and H2D transfers in the debayer-first-RGB 4-pass case.
+// ---------------------------------------------------------------------------
+
+struct AqmhCudaReconstructionSession::Impl {
+  // Config captured in init()
+  size_t frame_count = 0;
+  int width = 0, height = 0, chunk_rows = 0;
+  bool cherry_enabled = false;
+  AqmhReconstructionConfig cfg;
+
+  // Non-owning references to shared inputs (valid for session lifetime)
+  metrics::QualityMapCache* q_map_cache = nullptr;
+  AqmhMaskLoader load_mask;
+  AqmhMaskRegionLoader load_mask_region;
+  const std::vector<uint8_t>* canvas_mask = nullptr;
+  VectorXf global_weights_stored;  // stored for run_plane() forwarding
+
+  // GPU device pointers
+  float*               d_global_weights     = nullptr;
+  unsigned long long*  d_unsupported_pixels = nullptr;
+  unsigned long long*  d_zero_veto_pixels   = nullptr;
+  unsigned long long*  d_numerical_guard_pixels = nullptr;
+  cudaStream_t         stream = nullptr;
+  cudaEvent_t          h2d_start = nullptr, kernel_start = nullptr,
+                       kernel_end = nullptr, d2h_end = nullptr;
+  GpuBuffers           bufs;
+
+  // Pinned host buffers (one chunk at a time)
+  PinnedBuffer<float>    h_frames;
+  PinnedBuffer<float>    h_q_maps;
+  PinnedBuffer<uint8_t>  h_masks;
+  PinnedBuffer<uint8_t>  h_canvas_mask;
+  PinnedBuffer<float>    h_output;
+  PinnedBuffer<float>    h_weight_sum;
+  PinnedBuffer<float>    h_uniform_control;
+  PinnedBuffer<uint8_t>  h_uniform_control_valid;
+  PinnedBuffer<float>    h_cherry_k_map;
+  // WP-E: optional half-precision / bit-packed host staging buffers
+  PinnedBuffer<uint16_t> h_q_maps_half;      // fp16 Q-Map host staging
+  PinnedBuffer<uint8_t>  h_masks_packed;     // bit-packed mask host staging
+  // WP-B: two-stage buffers on device (allocated in init when n_planes > 1)
+  int16_t*  d_sel_indices = nullptr;  // [chunk_pixels * frame_count]
+  uint16_t* d_sel_k       = nullptr;  // [chunk_pixels]
+  PinnedBuffer<float> h_cherry_k_map_shared; // D2H for cherry_k_map after select kernel
+
+  bool initialized = false;
+
+  ~Impl() {
+    if (!initialized) return;
+    if (stream)               cudaStreamDestroy(stream);
+    if (h2d_start)            cudaEventDestroy(h2d_start);
+    if (kernel_start)         cudaEventDestroy(kernel_start);
+    if (kernel_end)           cudaEventDestroy(kernel_end);
+    if (d2h_end)              cudaEventDestroy(d2h_end);
+    free_chunk_buffers(bufs);
+    if (d_global_weights)         cudaFree(d_global_weights);
+    if (d_unsupported_pixels)     cudaFree(d_unsupported_pixels);
+    if (d_zero_veto_pixels)       cudaFree(d_zero_veto_pixels);
+    if (d_numerical_guard_pixels) cudaFree(d_numerical_guard_pixels);
+    if (d_sel_indices)            cudaFree(d_sel_indices);
+    if (d_sel_k)                  cudaFree(d_sel_k);
+  }
+};
+
+AqmhCudaReconstructionSession::AqmhCudaReconstructionSession()
+    : impl_(std::make_unique<Impl>()) {}
+
+AqmhCudaReconstructionSession::~AqmhCudaReconstructionSession() = default;
+
+bool AqmhCudaReconstructionSession::init(
+    size_t frame_count,
+    metrics::QualityMapCache* q_map_cache,
+    const VectorXf& global_weights,
+    const std::vector<uint8_t>& canvas_mask,
+    int width, int height,
+    const AqmhReconstructionConfig& cfg,
+    const AqmhMaskLoader& load_mask,
+    const AqmhMaskRegionLoader& load_mask_region) {
+  Impl& I = *impl_;
+
+#define SESS_CHECK(expr)                                          \
+  do {                                                            \
+    cudaError_t _e = (expr);                                      \
+    if (_e != cudaSuccess) {                                      \
+      std::cerr << "[CUDA Session] " << cudaGetErrorString(_e)   \
+                << " at " << __FILE__ << ":" << __LINE__ << "\n";\
+      return false;                                               \
+    }                                                             \
+  } while (0)
+
+  if (frame_count == 0 || !q_map_cache || width <= 0 || height <= 0)
+    return false;
+  if (static_cast<int>(frame_count) > kMaxFramesCompile) return false;
+
+  I.frame_count    = frame_count;
+  I.width          = width;
+  I.height         = height;
+  I.cfg            = cfg;
+  I.q_map_cache    = q_map_cache;
+  I.load_mask      = load_mask;
+  I.load_mask_region = load_mask_region;
+  I.canvas_mask    = &canvas_mask;
+  I.global_weights_stored = global_weights;
+
+  I.cherry_enabled = cfg.cherry_pick &&
+      static_cast<int>(frame_count) >= cfg.cherry_pick_k_min_required;
+
+  // Determine VRAM budget and chunk_rows.
+  size_t free_bytes = 0, total_bytes = 0;
+  SESS_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+  const size_t device_budget = std::min<size_t>(
+      static_cast<size_t>(0.60 * static_cast<double>(free_bytes)),
+      4ULL * kBytesPerGiB);
+  // Per-row bytes: frames + q_maps + masks (float*2 + uint8) + output scratch
+  const size_t bytes_per_row =
+      static_cast<size_t>(frame_count) * width * sizeof(float) * 2 +
+      static_cast<size_t>(frame_count) * width * sizeof(uint8_t) +
+      static_cast<size_t>(width) * sizeof(float) * 4 +
+      static_cast<size_t>(width) * sizeof(uint8_t) *
+          (cfg.compute_uniform_control ? 2u : 1u);
+  int chunk_rows;
+  if (cfg.chunk_rows > 0) {
+    chunk_rows = std::min(height, cfg.chunk_rows);
+  } else {
+    const int budget_rows = static_cast<int>(
+        device_budget / std::max<size_t>(1, bytes_per_row));
+    chunk_rows = std::min(height, std::max(kMinAutoChunkRows, budget_rows));
+  }
+  I.chunk_rows = chunk_rows;
+
+  // Upload global weights.
+  std::vector<float> h_gw(frame_count, 1.0f);
+  for (Eigen::Index fi = 0; fi < global_weights.size() &&
+       fi < static_cast<Eigen::Index>(frame_count); ++fi) {
+    const float w = global_weights[fi];
+    h_gw[fi] = std::isfinite(w) && w > 0.0f ? w : 0.0f;
+  }
+  SESS_CHECK(cudaMalloc(&I.d_global_weights, frame_count * sizeof(float)));
+  SESS_CHECK(cudaMemcpy(I.d_global_weights, h_gw.data(),
+                        frame_count * sizeof(float), cudaMemcpyHostToDevice));
+
+  // Allocate GPU chunk buffers.
+  while (!allocate_chunk_buffers(I.bufs, width, chunk_rows,
+                                 static_cast<int>(frame_count),
+                                 cfg.compute_uniform_control,
+                                 I.cherry_enabled,
+                                 cfg.gpu_half_qmaps,
+                                 cfg.gpu_packed_masks)) {
+    free_chunk_buffers(I.bufs);
+    if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
+      cudaFree(I.d_global_weights); I.d_global_weights = nullptr;
+      return false;
+    }
+    chunk_rows = std::max(1, chunk_rows / 2);
+    I.chunk_rows = chunk_rows;
+  }
+
+  // Allocate pixel counters.
+  SESS_CHECK(cudaMalloc(&I.d_unsupported_pixels,     sizeof(unsigned long long)));
+  SESS_CHECK(cudaMalloc(&I.d_zero_veto_pixels,       sizeof(unsigned long long)));
+  SESS_CHECK(cudaMalloc(&I.d_numerical_guard_pixels, sizeof(unsigned long long)));
+
+  // Stream + events.
+  SESS_CHECK(cudaStreamCreate(&I.stream));
+  SESS_CHECK(cudaEventCreate(&I.h2d_start));
+  SESS_CHECK(cudaEventCreate(&I.kernel_start));
+  SESS_CHECK(cudaEventCreate(&I.kernel_end));
+  SESS_CHECK(cudaEventCreate(&I.d2h_end));
+
+  // Pinned host buffers (sized for one chunk).
+  const size_t chunk_pixels = static_cast<size_t>(chunk_rows) * width;
+  const size_t all_chunk   = static_cast<size_t>(frame_count) * chunk_pixels;
+  I.h_frames.assign(all_chunk, 0.0f);
+  I.h_q_maps.assign(all_chunk, 0.0f);
+  I.h_masks.assign(all_chunk, 0u);
+  I.h_canvas_mask.assign(chunk_pixels, 0u);
+  I.h_output.assign(chunk_pixels, 0.0f);
+  I.h_weight_sum.assign(chunk_pixels, 0.0f);
+  if (cfg.compute_uniform_control) {
+    I.h_uniform_control.assign(chunk_pixels, 0.0f);
+    I.h_uniform_control_valid.assign(chunk_pixels, 0u);
+  }
+  if (I.cherry_enabled) {
+    I.h_cherry_k_map.assign(chunk_pixels, 0.0f);
+    I.h_cherry_k_map_shared.assign(chunk_pixels, 0.0f);
+  }
+  // WP-E: half-precision Q-Map and bit-packed mask host staging buffers.
+  if (cfg.gpu_half_qmaps)
+    I.h_q_maps_half.assign(all_chunk, uint16_t(0));
+  if (cfg.gpu_packed_masks)
+    I.h_masks_packed.assign((all_chunk + 7) / 8, uint8_t(0));
+
+  // WP-B: per-pixel selection device buffers for two-stage path.
+  // Allocated unconditionally so run_planes_rgb can use them when n_planes > 1.
+  const cudaError_t sel_err1 = cudaMalloc(
+      &I.d_sel_indices, chunk_pixels * frame_count * sizeof(int16_t));
+  const cudaError_t sel_err2 = cudaMalloc(
+      &I.d_sel_k, chunk_pixels * sizeof(uint16_t));
+  // Non-fatal if allocation fails — two-stage path falls back to single-stage.
+  if (sel_err1 != cudaSuccess || sel_err2 != cudaSuccess) {
+    if (I.d_sel_indices) { cudaFree(I.d_sel_indices); I.d_sel_indices = nullptr; }
+    if (I.d_sel_k)       { cudaFree(I.d_sel_k);       I.d_sel_k       = nullptr; }
+  }
+
+  I.initialized = true;
+#undef SESS_CHECK
+  return true;
+}
+
+// Helper: post-process cherry-pick stats into a result (same logic as the
+// single-plane function).
+static void session_postprocess_cherry(
+    AqmhReconstructionResult& r, int height, int width, size_t frame_count,
+    const std::vector<uint8_t>& canvas_mask) {
+  uint64_t cherry_active = 0, canvas_pixels = 0;
+  std::vector<float> effective_k;
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      if (canvas_mask.empty() ||
+          static_cast<size_t>(y * width + x) >= canvas_mask.size() ||
+          canvas_mask[y * width + x] == 0u)
+        continue;
+      ++canvas_pixels;
+      const float k = r.cherry_pick_k_map(y, x);
+      if (k > 0.0f && k < static_cast<float>(frame_count)) {
+        ++cherry_active;
+        effective_k.push_back(k);
+      }
+    }
+  }
+  r.cherry_pick_active = cherry_active > 0;
+  r.cherry_pick_active_frac = canvas_pixels > 0
+      ? static_cast<float>(cherry_active) / static_cast<float>(canvas_pixels)
+      : 0.0f;
+  if (!effective_k.empty()) {
+    std::sort(effective_k.begin(), effective_k.end());
+    r.cherry_pick_mean_k = std::accumulate(
+        effective_k.begin(), effective_k.end(), 0.0f) / effective_k.size();
+    r.cherry_pick_median_k = effective_k[effective_k.size() / 2];
+    r.cherry_pick_k_min_observed = static_cast<int>(effective_k.front());
+    r.cherry_pick_k_max_observed = static_cast<int>(effective_k.back());
+    r.k_effective_p10 = effective_k[static_cast<size_t>(0.10f * effective_k.size())];
+    r.k_effective_p50 = r.cherry_pick_median_k;
+    r.k_effective_p90 = effective_k[static_cast<size_t>(0.90f * effective_k.size())];
+  }
+}
+
+std::vector<AqmhReconstructionResult> AqmhCudaReconstructionSession::run_planes_rgb(
+    const std::vector<AqmhFrameRegionLoader>& frame_region_loaders,
+    const std::vector<bool>& compute_uniform_control,
+    const AqmhProgressCallback& progress) {
+  Impl& I = *impl_;
+  const size_t n_planes = frame_region_loaders.size();
+  std::vector<AqmhReconstructionResult> results(n_planes);
+  if (!I.initialized || n_planes == 0) return results;
+
+  // Initialize result matrices.
+  for (size_t pi = 0; pi < n_planes; ++pi) {
+    auto& r = results[pi];
+    r.output = Matrix2Df::Zero(I.height, I.width);
+    r.weight_sum = Matrix2Df::Zero(I.height, I.width);
+    const bool uc = pi < compute_uniform_control.size() && compute_uniform_control[pi];
+    if (uc) {
+      r.uniform_control_output = Matrix2Df::Zero(I.height, I.width);
+      r.uniform_control_valid_mask.assign(
+          static_cast<size_t>(I.height) * I.width, 0u);
+    }
+    if (I.cherry_enabled)
+      r.cherry_pick_k_map = Matrix2Df::Zero(I.height, I.width);
+    r.chunk_rows = I.chunk_rows;
+    r.chunk_count = (I.height + I.chunk_rows - 1) / I.chunk_rows;
+    r.region_streaming_used = true;
+  }
+
+  const int frame_count = static_cast<int>(I.frame_count);
+  const int width = I.width, height = I.height, chunk_rows = I.chunk_rows;
+  const size_t chunk_pixels = static_cast<size_t>(chunk_rows) * width;
+  const dim3 block(32, 8);
+  const dim3 grid((width + 31) / 32, (chunk_rows + 7) / 8);
+
+#define SESS_RUN_CHECK(expr)                                        \
+  do {                                                              \
+    cudaError_t _e = (expr);                                        \
+    if (_e != cudaSuccess) {                                        \
+      std::cerr << "[CUDA Session run] " << cudaGetErrorString(_e) \
+                << " at " << __FILE__ << ":" << __LINE__ << "\n";  \
+      for (auto& r : results) r.acceleration_fallback = true;      \
+      return results;                                               \
+    }                                                               \
+  } while (0)
+
+  // Pixel counters are reset per-plane (inside the plane loop) so each plane
+  // gets its own counts. No global reset here.
+
+  const int num_host_threads = std::min(
+      frame_count,
+      std::max(1, static_cast<int>(std::thread::hardware_concurrency())));
+
+  // -----------------------------------------------------------------------
+  // R1 main loop: chunk-outside, plane-inside.
+  // -----------------------------------------------------------------------
+  for (int y0 = 0; y0 < height; y0 += chunk_rows) {
+    const int rows = std::min(chunk_rows, height - y0);
+    const size_t used_chunk_pixels = static_cast<size_t>(rows) * width;
+    const size_t used_all_pixels = static_cast<size_t>(frame_count) * used_chunk_pixels;
+
+    // --- Canvas mask slice ---
+    std::fill(I.h_canvas_mask.begin(), I.h_canvas_mask.end(), 0u);
+    for (int yy = 0; yy < rows; ++yy) {
+      const int y = y0 + yy;
+      for (int x = 0; x < width; ++x) {
+        const size_t full_i = static_cast<size_t>(y) * width + x;
+        const size_t local_i = static_cast<size_t>(yy) * width + x;
+        I.h_canvas_mask[local_i] = (I.canvas_mask->empty() ||
+            full_i >= I.canvas_mask->size()) ? 1u : (*I.canvas_mask)[full_i];
+      }
+    }
+
+    // --- Pack Q-Maps + Masks for this chunk (OMP, ONCE per chunk) ---
+    std::fill(I.h_masks.begin(), I.h_masks.end(), 0u);
+    double q_map_read_s = 0.0, mask_read_s = 0.0;
+    #if defined(_OPENMP)
+    #pragma omp parallel for num_threads(num_host_threads) schedule(dynamic,4) \
+        reduction(+:q_map_read_s, mask_read_s)
+    #endif
+    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(I.frame_count); ++fi_ptr) {
+      const size_t fi = static_cast<size_t>(fi_ptr);
+      // Q-Map
+      const auto tq = std::chrono::steady_clock::now();
+      Matrix2Df q = I.q_map_cache->read_region(fi, y0, rows);
+      q_map_read_s += std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - tq).count();
+      const bool q_ok = q.rows() == rows && q.cols() == width;
+
+      // Mask
+      const auto tm = std::chrono::steady_clock::now();
+      std::vector<uint8_t> fm;
+      if (I.load_mask_region)
+        I.load_mask_region(fi, y0, rows, fm);
+      else if (I.load_mask)
+        I.load_mask(fi, fm);
+      mask_read_s += std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - tm).count();
+
+      for (int yy = 0; yy < rows; ++yy) {
+        for (int x = 0; x < width; ++x) {
+          const size_t local_i = static_cast<size_t>(yy) * width + x;
+          const size_t idx = local_i * I.frame_count + fi;
+          I.h_q_maps[idx] = q_ok ? q(yy, x)
+                                  : std::numeric_limits<float>::quiet_NaN();
+          if (fm.empty()) {
+            I.h_masks[idx] = 1u;
+          } else {
+            const size_t mask_i = I.load_mask_region
+                ? local_i
+                : (static_cast<size_t>(y0 + yy) * width + x);
+            I.h_masks[idx] = (mask_i < fm.size()) ? fm[mask_i] : 0u;
+          }
+        }
+      }
+    }
+    for (size_t pi = 0; pi < n_planes; ++pi) {
+      results[pi].cuda_host_q_map_read_worker_seconds += q_map_read_s;
+      results[pi].cuda_host_mask_read_worker_seconds  += mask_read_s;
+    }
+
+    // WP-E: Convert float Q-Maps → fp16 and byte masks → bit-packed if requested.
+    if (I.cfg.gpu_half_qmaps) {
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static) num_threads(num_host_threads)
+      #endif
+      for (ptrdiff_t idx = 0; idx < static_cast<ptrdiff_t>(used_all_pixels); ++idx) {
+        const __half h = __float2half_rn(I.h_q_maps[static_cast<size_t>(idx)]);
+        I.h_q_maps_half[static_cast<size_t>(idx)] =
+            *reinterpret_cast<const uint16_t*>(&h);
+      }
+    }
+    if (I.cfg.gpu_packed_masks) {
+      std::fill(I.h_masks_packed.begin(), I.h_masks_packed.end(), uint8_t(0));
+      for (size_t idx = 0; idx < used_all_pixels; ++idx) {
+        if (I.h_masks[idx])
+          I.h_masks_packed[idx >> 3] |= uint8_t(1u << (idx & 7));
+      }
+    }
+
+    // H2D: canvas_mask + q_maps (or fp16 staging) + masks (or packed staging)
+    // (once per chunk for all planes)
+    SESS_RUN_CHECK(cudaMemcpyAsync(
+        I.bufs.canvas_mask, I.h_canvas_mask.data(),
+        used_chunk_pixels * sizeof(uint8_t), cudaMemcpyHostToDevice, I.stream));
+    if (I.cfg.gpu_half_qmaps) {
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.bufs.q_maps_half, I.h_q_maps_half.data(),
+          used_all_pixels * sizeof(uint16_t), cudaMemcpyHostToDevice, I.stream));
+    } else {
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.bufs.q_maps, I.h_q_maps.data(),
+          used_all_pixels * sizeof(float), cudaMemcpyHostToDevice, I.stream));
+    }
+    if (I.cfg.gpu_packed_masks) {
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.bufs.frame_masks_packed, I.h_masks_packed.data(),
+          (used_all_pixels + 7) / 8 * sizeof(uint8_t),
+          cudaMemcpyHostToDevice, I.stream));
+    } else {
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.bufs.frame_masks, I.h_masks.data(),
+          used_all_pixels * sizeof(uint8_t), cudaMemcpyHostToDevice, I.stream));
+    }
+    // WP-E: Dequantize fp16 / bit-packed data to float/byte in-place on GPU.
+    launch_dequantize(I.bufs, I.stream,
+                      I.cfg.gpu_half_qmaps, I.cfg.gpu_packed_masks,
+                      static_cast<int>(used_all_pixels));
+
+    // WP-B: Two-stage path — launch aqmh_select_kernel once for all planes,
+    // then aqmh_reduce_kernel per plane.  Falls back to single-stage if the
+    // selection buffers were not allocated (VRAM tight) or n_planes == 1.
+    const bool use_two_stage = n_planes > 1
+        && I.d_sel_indices != nullptr && I.d_sel_k != nullptr;
+
+    if (use_two_stage) {
+      // Zero selection counts so pixels outside the canvas are clearly empty.
+      SESS_RUN_CHECK(cudaMemsetAsync(I.d_sel_k, 0,
+          used_chunk_pixels * sizeof(uint16_t), I.stream));
+      launch_select_kernel_for_frame_count(
+          frame_count, I.cherry_enabled, grid, block, I.stream, I.bufs,
+          I.d_global_weights, I.d_sel_indices, I.d_sel_k,
+          width, rows, y0, height, I.cfg);
+      // D2H cherry_k_map once (shared across all planes).
+      if (I.cherry_enabled) {
+        SESS_RUN_CHECK(cudaMemcpyAsync(
+            I.h_cherry_k_map_shared.data(), I.bufs.cherry_k_map,
+            used_chunk_pixels * sizeof(float), cudaMemcpyDeviceToHost, I.stream));
+        SESS_RUN_CHECK(cudaStreamSynchronize(I.stream));
+      }
+    }
+
+    // --- Per-plane inner loop ---
+    for (size_t pi = 0; pi < n_planes; ++pi) {
+      auto& r = results[pi];
+      const bool uc = pi < compute_uniform_control.size() && compute_uniform_control[pi];
+      const auto& frame_loader = frame_region_loaders[pi];
+
+      // Pack frames for this plane/chunk (OMP parallel)
+      std::fill(I.h_frames.begin(), I.h_frames.end(), 0.0f);
+      double frame_read_s = 0.0, pack_s = 0.0;
+      #if defined(_OPENMP)
+      #pragma omp parallel for num_threads(num_host_threads) schedule(dynamic,4) \
+          reduction(+:frame_read_s, pack_s)
+      #endif
+      for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(I.frame_count); ++fi_ptr) {
+        const size_t fi = static_cast<size_t>(fi_ptr);
+        const auto tf = std::chrono::steady_clock::now();
+        Matrix2Df frame_region;
+        const bool frame_ok = frame_loader
+            ? frame_loader(fi, y0, rows, frame_region)
+            : false;
+        frame_read_s += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - tf).count();
+        if (!frame_ok || frame_region.rows() != rows ||
+            frame_region.cols() != width) {
+          #if defined(_OPENMP)
+          #pragma omp atomic
+          #endif
+          r.missing_map_samples += static_cast<uint64_t>(rows) * width;
+          continue;
+        }
+        const auto tp = std::chrono::steady_clock::now();
+        for (int yy = 0; yy < rows; ++yy) {
+          for (int x = 0; x < width; ++x) {
+            const size_t local_i = static_cast<size_t>(yy) * width + x;
+            const size_t idx = local_i * I.frame_count + fi;
+            I.h_frames[idx] = frame_region(yy, x);
+          }
+        }
+        pack_s += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - tp).count();
+      }
+      r.cuda_host_frame_read_worker_seconds += frame_read_s;
+      r.cuda_host_pack_worker_seconds       += pack_s;
+
+      // Reset per-plane pixel counters before this plane's kernels.
+      SESS_RUN_CHECK(cudaMemset(I.d_unsupported_pixels,     0, sizeof(unsigned long long)));
+      SESS_RUN_CHECK(cudaMemset(I.d_zero_veto_pixels,       0, sizeof(unsigned long long)));
+      SESS_RUN_CHECK(cudaMemset(I.d_numerical_guard_pixels, 0, sizeof(unsigned long long)));
+
+      // H2D: frames
+      SESS_RUN_CHECK(cudaEventRecord(I.h2d_start, I.stream));
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.bufs.frames, I.h_frames.data(),
+          used_all_pixels * sizeof(float), cudaMemcpyHostToDevice, I.stream));
+
+      SESS_RUN_CHECK(cudaEventRecord(I.kernel_start, I.stream));
+      if (use_two_stage) {
+        // WP-B: reduce kernel — reads pre-selected indices from select kernel.
+        launch_reduce_kernel_for_frame_count(
+            frame_count, grid, block, I.stream, I.bufs, I.d_global_weights,
+            I.d_sel_indices, I.d_sel_k,
+            I.d_unsupported_pixels, I.d_zero_veto_pixels,
+            I.d_numerical_guard_pixels,
+            width, rows, y0, height, I.cfg);
+      } else {
+        // Single-stage reconstruction kernel (original path).
+        AqmhReconstructionConfig plane_cfg = I.cfg;
+        plane_cfg.compute_uniform_control = uc;
+        launch_reconstruction_kernel_for_frame_count(
+            frame_count, I.cherry_enabled, grid, block, I.stream, I.bufs,
+            I.d_global_weights, I.d_unsupported_pixels, I.d_zero_veto_pixels,
+            I.d_numerical_guard_pixels, width, rows, y0, height, plane_cfg);
+      }
+
+      // D2H: output + weight_sum
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.h_output.data(), I.bufs.output,
+          used_chunk_pixels * sizeof(float), cudaMemcpyDeviceToHost, I.stream));
+      SESS_RUN_CHECK(cudaMemcpyAsync(
+          I.h_weight_sum.data(), I.bufs.weight_sum,
+          used_chunk_pixels * sizeof(float), cudaMemcpyDeviceToHost, I.stream));
+      if (!use_two_stage) {
+        if (uc) {
+          SESS_RUN_CHECK(cudaMemcpyAsync(
+              I.h_uniform_control.data(), I.bufs.uniform_control,
+              used_chunk_pixels * sizeof(float), cudaMemcpyDeviceToHost, I.stream));
+          SESS_RUN_CHECK(cudaMemcpyAsync(
+              I.h_uniform_control_valid.data(), I.bufs.uniform_control_valid,
+              used_chunk_pixels * sizeof(uint8_t), cudaMemcpyDeviceToHost, I.stream));
+        }
+        if (I.cherry_enabled) {
+          SESS_RUN_CHECK(cudaMemcpyAsync(
+              I.h_cherry_k_map.data(), I.bufs.cherry_k_map,
+              used_chunk_pixels * sizeof(float), cudaMemcpyDeviceToHost, I.stream));
+        }
+      }
+      SESS_RUN_CHECK(cudaEventRecord(I.kernel_end, I.stream));
+      SESS_RUN_CHECK(cudaEventRecord(I.d2h_end, I.stream));
+      SESS_RUN_CHECK(cudaStreamSynchronize(I.stream));
+
+      // Accumulate timings
+      float elapsed_ms = 0.0f;
+      cudaEventElapsedTime(&elapsed_ms, I.h2d_start, I.kernel_start);
+      r.cuda_h2d_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+      cudaEventElapsedTime(&elapsed_ms, I.kernel_start, I.kernel_end);
+      r.cuda_kernel_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+      cudaEventElapsedTime(&elapsed_ms, I.kernel_end, I.d2h_end);
+      r.cuda_d2h_seconds += static_cast<double>(elapsed_ms) / 1000.0;
+
+      // Commit this plane's chunk result
+      const auto commit_start = std::chrono::steady_clock::now();
+      const float* cherry_src = use_two_stage
+          ? I.h_cherry_k_map_shared.data()
+          : I.h_cherry_k_map.data();
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static) if(rows > 4)
+      #endif
+      for (int yy = 0; yy < rows; ++yy) {
+        const int y = y0 + yy;
+        const size_t src_off = static_cast<size_t>(yy) * width;
+        std::memcpy(&r.output(y, 0), I.h_output.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        std::memcpy(&r.weight_sum(y, 0), I.h_weight_sum.data() + src_off,
+                    static_cast<size_t>(width) * sizeof(float));
+        if (!use_two_stage && uc) {
+          std::memcpy(&r.uniform_control_output(y, 0),
+                      I.h_uniform_control.data() + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+          std::memcpy(r.uniform_control_valid_mask.data() +
+                          static_cast<size_t>(y) * width,
+                      I.h_uniform_control_valid.data() + src_off,
+                      static_cast<size_t>(width));
+        }
+        if (I.cherry_enabled)
+          std::memcpy(&r.cherry_pick_k_map(y, 0),
+                      cherry_src + src_off,
+                      static_cast<size_t>(width) * sizeof(float));
+      }
+      // Download per-plane pixel counters immediately after sync.
+      {
+        unsigned long long h_u = 0, h_z = 0, h_g = 0;
+        cudaMemcpy(&h_u, I.d_unsupported_pixels,
+                   sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&h_z, I.d_zero_veto_pixels,
+                   sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&h_g, I.d_numerical_guard_pixels,
+                   sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+        r.unsupported_pixels     += static_cast<uint64_t>(h_u);
+        r.zero_veto_pixels       += static_cast<uint64_t>(h_z);
+        r.numerical_guard_pixels += static_cast<uint64_t>(h_g);
+      }
+
+      r.cuda_result_commit_seconds += std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - commit_start).count();
+    } // end plane loop
+
+    if (progress) progress(y0 + rows, height);
+  } // end chunk loop
+
+  if (I.cherry_enabled) {
+    for (auto& r : results)
+      session_postprocess_cherry(r, height, I.width, I.frame_count, *I.canvas_mask);
+  }
+
+  for (auto& r : results) {
+    r.acceleration_used     = true;
+    r.acceleration_fallback = false;
+  }
+#undef SESS_RUN_CHECK
+  return results;
+}
+
+AqmhReconstructionResult AqmhCudaReconstructionSession::run_plane(
+    const AqmhFrameLoader& load_frame,
+    const AqmhFrameRegionLoader& load_frame_region,
+    bool compute_uniform_control_plane,
+    const AqmhProgressCallback& progress) {
+  if (!impl_->initialized) {
+    AqmhReconstructionResult r;
+    r.acceleration_fallback = true;
+    return r;
+  }
+  // Wrap load_frame as a region loader if no region loader provided.
+  AqmhFrameRegionLoader effective_region_loader = load_frame_region;
+  if (!effective_region_loader && load_frame) {
+    effective_region_loader = [lf = load_frame](size_t fi, int y0, int rows,
+                                                Matrix2Df& out) -> bool {
+      Matrix2Df full;
+      if (!lf(fi, full)) return false;
+      const int h = static_cast<int>(full.rows());
+      const int w = static_cast<int>(full.cols());
+      if (y0 < 0 || y0 + rows > h || rows <= 0) return false;
+      out = full.middleRows(y0, rows);
+      (void)w;
+      return true;
+    };
+  }
+  auto results = run_planes_rgb({effective_region_loader},
+                                {compute_uniform_control_plane}, progress);
+  if (results.empty()) {
+    AqmhReconstructionResult r;
+    r.acceleration_fallback = true;
+    return r;
+  }
+  return std::move(results[0]);
 }
 
 } // namespace tile_compile::reconstruction

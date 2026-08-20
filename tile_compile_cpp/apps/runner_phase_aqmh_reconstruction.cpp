@@ -4,6 +4,9 @@
 #include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 #include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/aqmh_pipeline_overlap.hpp"
+#if TILE_COMPILE_WITH_CUDA
+#include "tile_compile/reconstruction/aqmh_reconstruction_cuda.hpp"
+#endif
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -624,64 +627,120 @@ bool run_phase_aqmh_reconstruction(
       prewarped_frames_r != nullptr && prewarped_frames_g != nullptr &&
       prewarped_frames_b != nullptr;
   if (debayer_first_rgb) {
-    auto reconstruct_rgb_plane =
-        [&](const DiskCacheFrameStore &plane_store, Matrix2Df &plane_out,
-            const char *channel_name, int channel_index) -> bool {
-      auto frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
-        if (fi >= frames.size() || fi >= frame_has_data.size() ||
-            frame_has_data[fi] == 0u) {
-          return false;
-        }
-        output = plane_store.load(fi);
-        return output.rows() == canvas_height && output.cols() == canvas_width;
-      };
-      auto frame_region_loader =
-          [&](size_t fi, int y0, int rows, Matrix2Df &output) -> bool {
-        if (fi >= frames.size() || fi >= frame_has_data.size() ||
-            frame_has_data[fi] == 0u) {
-          return false;
-        }
-        return plane_store.extract_tile_into(
-            fi, Tile{0, y0, canvas_width, rows}, output);
-      };
-      reconstruction::AqmhReconstructionConfig plane_cfg = aqmh_recon_cfg;
-      plane_cfg.compute_uniform_control = false;
-      const int channel_base = 55 + 5 * channel_index;
-      auto plane_progress = [&](int rows_done, int rows_total) {
-        const int bounded_total = std::max(0, rows_total);
-        const int bounded_done = std::clamp(rows_done, 0, bounded_total);
-        const int current = bounded_total > 0
-            ? channel_base +
-                  static_cast<int>(5LL * bounded_done / bounded_total)
-            : channel_base;
-        emit_reconstruction_progress(
-            current,
-            "AQMH RGB-Kanal " + std::string(channel_name) +
-                " rekonstruieren: Zeilen " + std::to_string(rows_done) +
-                "/" + std::to_string(rows_total),
-            "rgb_" + std::string(channel_name));
-      };
-      emit_reconstruction_progress(
-          channel_base,
-          "AQMH RGB-Kanal " + std::string(channel_name) +
-              " rekonstruieren",
-          "rgb_" + std::string(channel_name));
-      std::cout << "[AQMH] Reconstructing debayer-first RGB channel "
-                << channel_name << std::endl;
-      auto plane_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
-          frames.size(), frame_loader, aqmh_cache.get(),
-          effective_aqmh_global_weights, reconstruction_valid_mask,
-          canvas_width, canvas_height, plane_cfg, nullptr, aqmh_mask_loader,
-          frame_region_loader, aqmh_mask_region_loader, plane_progress);
-      plane_out = std::move(plane_recon.output);
-      return plane_out.rows() == canvas_height &&
-             plane_out.cols() == canvas_width;
-    };
+    reconstruction::AqmhReconstructionConfig plane_cfg = aqmh_recon_cfg;
+    plane_cfg.compute_uniform_control = false;
     const auto rgb_started_at = std::chrono::steady_clock::now();
-    const bool rgb_ok =
-        reconstruct_rgb_plane(*prewarped_frames_r, out.output_R, "R", 0) &&
-        reconstruct_rgb_plane(*prewarped_frames_g, out.output_G, "G", 1) &&
-        reconstruct_rgb_plane(*prewarped_frames_b, out.output_B, "B", 2);
+    bool rgb_ok = false;
+
+#if TILE_COMPILE_WITH_CUDA
+    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda) {
+      emit_reconstruction_progress(
+          55, "AQMH RGB-Rekonstruktion (CUDA-Session)", "rgb_session_init");
+      reconstruction::AqmhCudaReconstructionSession session;
+      if (session.init(frames.size(), aqmh_cache.get(),
+                       effective_aqmh_global_weights, reconstruction_valid_mask,
+                       canvas_width, canvas_height, plane_cfg,
+                       aqmh_mask_loader, aqmh_mask_region_loader)) {
+        auto r_loader = [&](size_t fi, int y0, int rows, Matrix2Df &out_m) -> bool {
+          if (fi >= frames.size() || fi >= frame_has_data.size() || frame_has_data[fi] == 0u) return false;
+          return prewarped_frames_r->extract_tile_into(fi, Tile{0, y0, canvas_width, rows}, out_m);
+        };
+        auto g_loader = [&](size_t fi, int y0, int rows, Matrix2Df &out_m) -> bool {
+          if (fi >= frames.size() || fi >= frame_has_data.size() || frame_has_data[fi] == 0u) return false;
+          return prewarped_frames_g->extract_tile_into(fi, Tile{0, y0, canvas_width, rows}, out_m);
+        };
+        auto b_loader = [&](size_t fi, int y0, int rows, Matrix2Df &out_m) -> bool {
+          if (fi >= frames.size() || fi >= frame_has_data.size() || frame_has_data[fi] == 0u) return false;
+          return prewarped_frames_b->extract_tile_into(fi, Tile{0, y0, canvas_width, rows}, out_m);
+        };
+        auto rgb_progress = [&](int rows_done, int rows_total) {
+          const int bounded_total = std::max(0, rows_total);
+          const int bounded_done = std::clamp(rows_done, 0, bounded_total);
+          const int current = bounded_total > 0
+              ? 55 + static_cast<int>(15LL * bounded_done / bounded_total)
+              : 55;
+          emit_reconstruction_progress(
+              current,
+              "AQMH RGB-Session: Zeilen " + std::to_string(rows_done) +
+                  "/" + std::to_string(rows_total),
+              "rgb_session");
+        };
+        std::cout << "[AQMH] Reconstructing debayer-first RGB channels R+G+B "
+                     "via CUDA session" << std::endl;
+        auto rgb_results = session.run_planes_rgb(
+            {r_loader, g_loader, b_loader}, {false, false, false}, rgb_progress);
+        if (rgb_results.size() == 3) {
+          out.output_R = std::move(rgb_results[0].output);
+          out.output_G = std::move(rgb_results[1].output);
+          out.output_B = std::move(rgb_results[2].output);
+          rgb_ok =
+              out.output_R.rows() == canvas_height && out.output_R.cols() == canvas_width &&
+              out.output_G.rows() == canvas_height && out.output_G.cols() == canvas_width &&
+              out.output_B.rows() == canvas_height && out.output_B.cols() == canvas_width;
+        }
+      }
+      if (!rgb_ok)
+        log_file << "[AQMH_RECONSTRUCTION] CUDA session RGB failed; "
+                    "falling back to sequential" << std::endl;
+    }
+#endif
+
+    if (!rgb_ok) {
+      auto reconstruct_rgb_plane =
+          [&](const DiskCacheFrameStore &plane_store, Matrix2Df &plane_out,
+              const char *channel_name, int channel_index) -> bool {
+        auto frame_loader = [&](size_t fi, Matrix2Df &output) -> bool {
+          if (fi >= frames.size() || fi >= frame_has_data.size() ||
+              frame_has_data[fi] == 0u) {
+            return false;
+          }
+          output = plane_store.load(fi);
+          return output.rows() == canvas_height && output.cols() == canvas_width;
+        };
+        auto frame_region_loader =
+            [&](size_t fi, int y0, int rows, Matrix2Df &output) -> bool {
+          if (fi >= frames.size() || fi >= frame_has_data.size() ||
+              frame_has_data[fi] == 0u) {
+            return false;
+          }
+          return plane_store.extract_tile_into(
+              fi, Tile{0, y0, canvas_width, rows}, output);
+        };
+        const int channel_base = 55 + 5 * channel_index;
+        auto plane_progress = [&](int rows_done, int rows_total) {
+          const int bounded_total = std::max(0, rows_total);
+          const int bounded_done = std::clamp(rows_done, 0, bounded_total);
+          const int current = bounded_total > 0
+              ? channel_base +
+                    static_cast<int>(5LL * bounded_done / bounded_total)
+              : channel_base;
+          emit_reconstruction_progress(
+              current,
+              "AQMH RGB-Kanal " + std::string(channel_name) +
+                  " rekonstruieren: Zeilen " + std::to_string(rows_done) +
+                  "/" + std::to_string(rows_total),
+              "rgb_" + std::string(channel_name));
+        };
+        emit_reconstruction_progress(
+            channel_base,
+            "AQMH RGB-Kanal " + std::string(channel_name) + " rekonstruieren",
+            "rgb_" + std::string(channel_name));
+        std::cout << "[AQMH] Reconstructing debayer-first RGB channel "
+                  << channel_name << std::endl;
+        auto plane_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
+            frames.size(), frame_loader, aqmh_cache.get(),
+            effective_aqmh_global_weights, reconstruction_valid_mask,
+            canvas_width, canvas_height, plane_cfg, nullptr, aqmh_mask_loader,
+            frame_region_loader, aqmh_mask_region_loader, plane_progress);
+        plane_out = std::move(plane_recon.output);
+        return plane_out.rows() == canvas_height &&
+               plane_out.cols() == canvas_width;
+      };
+      rgb_ok =
+          reconstruct_rgb_plane(*prewarped_frames_r, out.output_R, "R", 0) &&
+          reconstruct_rgb_plane(*prewarped_frames_g, out.output_G, "G", 1) &&
+          reconstruct_rgb_plane(*prewarped_frames_b, out.output_B, "B", 2);
+    }
     rgb_reconstruction_seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                       rgb_started_at)

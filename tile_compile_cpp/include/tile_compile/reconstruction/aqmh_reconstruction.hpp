@@ -31,6 +31,8 @@ struct AqmhReconstructionConfig {
   int parallel_workers = 1;
   size_t memory_budget_mb = 2048;
   int chunk_rows = 0;           // 0 = auto
+  bool gpu_half_qmaps = false;  // H2D Q-Maps as fp16 (halves H2D bandwidth)
+  bool gpu_packed_masks = false; // H2D frame masks bit-packed (1 bit/pixel)
 };
 
 struct AqmhUniformControlResult {
