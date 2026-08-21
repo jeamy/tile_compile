@@ -1286,7 +1286,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   // insufficient for two sets, fall back to single-buffer single-stream mode.
   GpuBuffers bufs;
   while (!allocate_chunk_buffers(bufs, width, chunk_rows, static_cast<int>(frame_count),
-                                 cfg.compute_uniform_control, cherry_enabled)) {
+                                 cfg.compute_uniform_control, cherry_enabled,
+                                 cfg.gpu_half_qmaps, cfg.gpu_packed_masks)) {
     free_chunk_buffers(bufs);
     if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
       cudaFree(d_global_weights);
@@ -1303,7 +1304,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   GpuBuffers bufs2;
   const bool use_double_buffer = allocate_chunk_buffers(
       bufs2, width, chunk_rows, static_cast<int>(frame_count),
-      cfg.compute_uniform_control, cherry_enabled);
+      cfg.compute_uniform_control, cherry_enabled,
+      cfg.gpu_half_qmaps, cfg.gpu_packed_masks);
   if (!use_double_buffer) {
     free_chunk_buffers(bufs2);
   }
@@ -1331,6 +1333,15 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   if (cherry_enabled) {
     h_cherry_k_map.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
   }
+  // WP-E: optional fp16 Q-Map and bit-packed mask host staging buffers.
+  const size_t all_chunk_pixels =
+      static_cast<size_t>(frame_count) * chunk_rows * width;
+  PinnedBuffer<uint16_t> h_q_maps_half, h_q_maps_half2;
+  PinnedBuffer<uint8_t>  h_masks_packed, h_masks_packed2;
+  if (cfg.gpu_half_qmaps)
+    h_q_maps_half.assign(all_chunk_pixels, uint16_t(0));
+  if (cfg.gpu_packed_masks)
+    h_masks_packed.assign((all_chunk_pixels + 7) / 8, uint8_t(0));
 
   // Second set of pinned buffers for double-buffering.
   PinnedBuffer<float> h_frames2, h_q_maps2, h_output2, h_weight_sum2;
@@ -1357,6 +1368,10 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     if (cherry_enabled) {
       h_cherry_k_map2.assign(static_cast<size_t>(chunk_rows) * width, 0.0f);
     }
+    if (cfg.gpu_half_qmaps)
+      h_q_maps_half2.assign(all_chunk_pixels, uint16_t(0));
+    if (cfg.gpu_packed_masks)
+      h_masks_packed2.assign((all_chunk_pixels + 7) / 8, uint8_t(0));
   }
 
   unsigned long long* d_unsupported_pixels = nullptr;
@@ -1465,6 +1480,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     PinnedBuffer<float>& cur_h_uniform_control = use_slot2 ? h_uniform_control2 : h_uniform_control;
     PinnedBuffer<uint8_t>& cur_h_uniform_control_valid = use_slot2 ? h_uniform_control_valid2 : h_uniform_control_valid;
     PinnedBuffer<float>& cur_h_cherry_k_map = use_slot2 ? h_cherry_k_map2 : h_cherry_k_map;
+    // WP-E: staging buffer slot selection (only non-null when cfg flags set).
+    PinnedBuffer<uint16_t>& cur_h_q_maps_half = use_slot2 ? h_q_maps_half2 : h_q_maps_half;
+    PinnedBuffer<uint8_t>&  cur_h_masks_packed = use_slot2 ? h_masks_packed2 : h_masks_packed;
     cudaEvent_t& cur_h2d_start = use_slot2 ? h2d_start2 : h2d_start;
     cudaEvent_t& cur_kernel_start = use_slot2 ? kernel_start2 : kernel_start;
     cudaEvent_t& cur_kernel_end = use_slot2 ? kernel_end2 : kernel_end;
@@ -1695,6 +1713,27 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
             std::chrono::steady_clock::now() - host_prepare_start)
             .count();
 
+    // WP-E: host-side quantization into staging buffers.
+    const size_t used_all_pixels_pre = static_cast<size_t>(frame_count) * rows * width;
+    if (cfg.gpu_half_qmaps) {
+      #if defined(_OPENMP)
+      #pragma omp parallel for schedule(static)
+      #endif
+      for (ptrdiff_t idx = 0; idx < static_cast<ptrdiff_t>(used_all_pixels_pre); ++idx) {
+        const __half h = __float2half_rn(cur_h_q_maps[static_cast<size_t>(idx)]);
+        cur_h_q_maps_half[static_cast<size_t>(idx)] =
+            *reinterpret_cast<const uint16_t*>(&h);
+      }
+    }
+    if (cfg.gpu_packed_masks) {
+      const size_t packed_n = (used_all_pixels_pre + 7) / 8;
+      std::fill(cur_h_masks_packed.begin(),
+                cur_h_masks_packed.begin() + static_cast<ptrdiff_t>(packed_n),
+                uint8_t(0));
+      for (size_t idx = 0; idx < used_all_pixels_pre; ++idx)
+        if (cur_h_masks[idx]) cur_h_masks_packed[idx >> 3] |= uint8_t(1u << (idx & 7));
+    }
+
     if (can_prefetch_frames && y0 + rows < height) {
       const int next_y0 = y0 + rows;
       const int next_rows = std::min(chunk_rows, height - next_y0);
@@ -1713,14 +1752,33 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         cur_bufs.frames, cur_h_frames.data(),
         used_all_pixels * sizeof(float),
         cudaMemcpyHostToDevice, cur_stream));
-    CUDA_CHECK(cudaMemcpyAsync(
-        cur_bufs.q_maps, cur_h_q_maps.data(),
-        used_all_pixels * sizeof(float),
-        cudaMemcpyHostToDevice, cur_stream));
-    CUDA_CHECK(cudaMemcpyAsync(
-        cur_bufs.frame_masks, cur_h_masks.data(),
-        used_all_pixels * sizeof(uint8_t),
-        cudaMemcpyHostToDevice, cur_stream));
+    // WP-E: upload via staging buffers when enabled, else direct.
+    if (cfg.gpu_half_qmaps) {
+      CUDA_CHECK(cudaMemcpyAsync(
+          cur_bufs.q_maps_half, cur_h_q_maps_half.data(),
+          used_all_pixels * sizeof(uint16_t),
+          cudaMemcpyHostToDevice, cur_stream));
+    } else {
+      CUDA_CHECK(cudaMemcpyAsync(
+          cur_bufs.q_maps, cur_h_q_maps.data(),
+          used_all_pixels * sizeof(float),
+          cudaMemcpyHostToDevice, cur_stream));
+    }
+    if (cfg.gpu_packed_masks) {
+      CUDA_CHECK(cudaMemcpyAsync(
+          cur_bufs.frame_masks_packed, cur_h_masks_packed.data(),
+          (used_all_pixels + 7) / 8 * sizeof(uint8_t),
+          cudaMemcpyHostToDevice, cur_stream));
+    } else {
+      CUDA_CHECK(cudaMemcpyAsync(
+          cur_bufs.frame_masks, cur_h_masks.data(),
+          used_all_pixels * sizeof(uint8_t),
+          cudaMemcpyHostToDevice, cur_stream));
+    }
+    if (cfg.gpu_half_qmaps || cfg.gpu_packed_masks)
+      launch_dequantize(cur_bufs, cur_stream,
+                        cfg.gpu_half_qmaps, cfg.gpu_packed_masks,
+                        static_cast<int>(used_all_pixels));
     CUDA_CHECK(cudaEventRecord(cur_kernel_start, cur_stream));
 
     const dim3 grid((width + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
