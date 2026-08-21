@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.4.8 (2026-08-21)
+
+**CUDA RGB fallback and GPU telemetry:**
+
+- AQMH now starts the RGB CUDA session only after a successful GPU Luma/core pass; GPU fallbacks use the CPU RGB path directly.
+- Specific CUDA fallback reasons, actual RGB CUDA usage, and runtime are recorded in the reconstruction artifacts.
+
 ## v0.4.7 (2026-08-19)
 
 **CUDA fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:**

@@ -1,5 +1,13 @@
 ## Changelog
 
+### (2026-08-21)
+
+**v0.4.8 — CUDA RGB fallback and GPU telemetry:**
+
+- **CUDA fix:** The AQMH RGB CUDA session now starts only when the preceding Luma/core pass has successfully confirmed GPU usage. After a GPU fallback, the slow or failing RGB CUDA attempt is skipped and the CPU path is used directly.
+- **Fallback diagnostics:** CUDA fallbacks now record specific reasons, including invalid input, exceeded frame limits, insufficient VRAM, failed CUDA calls, and failed chunk-buffer allocations.
+- **Telemetry:** Reconstruction artifacts and phase metrics record the fallback reason, whether the RGB CUDA session was actually used, and its runtime.
+
 ### (2026-08-19)
 
 **v0.4.7 — CUDA double-buffering fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:**
