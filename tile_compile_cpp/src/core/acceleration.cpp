@@ -2602,6 +2602,7 @@ reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
     const reconstruction::AqmhMaskRegionLoader &load_frame_valid_mask_region,
     const reconstruction::AqmhProgressCallback &progress) const {
   (void)stream;
+  std::string cuda_fallback_reason;
 #if TILE_COMPILE_WITH_CUDA
   if (selection_.selected == AccelerationBackend::cuda &&
       selection_.phase == AccelerationPhase::aqmh_reconstruction) {
@@ -2612,6 +2613,9 @@ reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
     if (result.acceleration_used && !result.acceleration_fallback) {
       return result;
     }
+    cuda_fallback_reason = result.acceleration_fallback_reason.empty()
+        ? "cuda_path_declined_without_specific_reason"
+        : result.acceleration_fallback_reason;
   }
 #endif
   auto result = reconstruction::reconstruct_aqmh_weighted(
@@ -2621,6 +2625,7 @@ reconstruction::AqmhReconstructionResult AccelerationOps::reconstruct_aqmh(
   if (selection_.using_gpu &&
       selection_.phase == AccelerationPhase::aqmh_reconstruction) {
     result.acceleration_fallback = true;
+    result.acceleration_fallback_reason = cuda_fallback_reason;
   }
   return result;
 }

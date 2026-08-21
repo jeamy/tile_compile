@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace tile_compile::metrics { class QualityMapCache; }
@@ -47,6 +48,12 @@ struct AqmhReconstructionResult {
   std::vector<uint8_t> uniform_control_valid_mask;
   bool acceleration_used = false;
   bool acceleration_fallback = false;
+  // Human-readable reason the GPU path was not used (empty when
+  // acceleration_used is true, or when no GPU backend was selected at all).
+  // Populated by reconstruct_aqmh_weighted_cuda() at every early-return/
+  // fallback point so callers can log *why* the fallback happened instead of
+  // just *that* it happened.
+  std::string acceleration_fallback_reason;
   uint64_t unsupported_pixels = 0;
   uint64_t finite_map_samples = 0;
   uint64_t missing_map_samples = 0;

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <sstream>
 #include <limits>
 #include <numeric>
 #include <future>
@@ -1193,19 +1194,22 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
 
   if (frame_count == 0 || !q_map_cache || width <= 0 || height <= 0) {
     result.acceleration_fallback = true;
+    result.acceleration_fallback_reason = "invalid_input_arguments";
     return result;
   }
 
   // Validate frame_count against compile-time limit.
   if (static_cast<int>(frame_count) > kMaxFramesCompile) {
-    std::cerr << "[CUDA] frame_count " << frame_count
-              << " exceeds compile-time limit " << kMaxFramesCompile
-              << "; falling back to CPU" << std::endl;
+    const std::string reason =
+        "frame_count " + std::to_string(frame_count) +
+        " exceeds compile-time limit " + std::to_string(kMaxFramesCompile);
+    std::cerr << "[CUDA] " << reason << "; falling back to CPU" << std::endl;
     result = reconstruct_aqmh_weighted(
         frame_count, load_frame, q_map_cache, global_weights, canvas_mask,
         width, height, cfg, load_frame_valid_mask, load_frame_region,
         load_frame_valid_mask_region, progress);
     result.acceleration_fallback = true;
+    result.acceleration_fallback_reason = reason;
     return result;
   }
 
@@ -1227,9 +1231,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   size_t free_bytes = 0, total_bytes = 0;
   cudaError_t mem_err = cudaMemGetInfo(&free_bytes, &total_bytes);
   if (mem_err != cudaSuccess) {
-    std::cerr << "[CUDA] cudaMemGetInfo failed: " << cudaGetErrorString(mem_err)
-              << std::endl;
+    const std::string reason =
+        std::string("cudaMemGetInfo failed: ") + cudaGetErrorString(mem_err);
+    std::cerr << "[CUDA] " << reason << std::endl;
     result.acceleration_fallback = true;
+    result.acceleration_fallback_reason = reason;
     return result;
   }
   const size_t device_budget = std::min<size_t>(
@@ -1271,9 +1277,12 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   do {                                                                         \
     cudaError_t err = (expr);                                                  \
     if (err != cudaSuccess) {                                                  \
-      std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << " "      \
-                << cudaGetErrorString(err) << std::endl;                       \
+      std::ostringstream _reason_ss;                                           \
+      _reason_ss << "CUDA error at " << __FILE__ << ":" << __LINE__ << " "     \
+                 << cudaGetErrorString(err);                                   \
+      std::cerr << _reason_ss.str() << std::endl;                              \
       result.acceleration_fallback = true;                                     \
+      result.acceleration_fallback_reason = _reason_ss.str();                  \
       return result;                                                           \
     }                                                                          \
   } while (0)
@@ -1292,6 +1301,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     if (cfg.chunk_rows > 0 || chunk_rows <= 1) {
       cudaFree(d_global_weights);
       result.acceleration_fallback = true;
+      result.acceleration_fallback_reason =
+          "GPU chunk buffer allocation failed even at chunk_rows=" +
+          std::to_string(chunk_rows) + " (free_bytes=" +
+          std::to_string(free_bytes) + ", device_budget=" +
+          std::to_string(device_budget) + ")";
       return result;
     }
     chunk_rows = std::max(1, chunk_rows / 2);
@@ -1406,10 +1420,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   do {                                                                        \
     cudaError_t err = (expr);                                                  \
     if (err != cudaSuccess) {                                                  \
-      std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << " "      \
-                << cudaGetErrorString(err) << std::endl;                       \
+      std::ostringstream _reason_ss;                                           \
+      _reason_ss << "CUDA error at " << __FILE__ << ":" << __LINE__ << " "     \
+                 << cudaGetErrorString(err);                                   \
+      std::cerr << _reason_ss.str() << std::endl;                              \
       cleanup_on_error();                                                      \
       result.acceleration_fallback = true;                                     \
+      result.acceleration_fallback_reason = _reason_ss.str();                  \
       return result;                                                           \
     }                                                                          \
   } while (0)

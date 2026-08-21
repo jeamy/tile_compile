@@ -625,6 +625,7 @@ bool run_phase_aqmh_reconstruction(
   emit_reconstruction_progress(
       55, "AQMH Kernrekonstruktion abgeschlossen", "core_complete");
   double rgb_reconstruction_seconds = 0.0;
+  bool rgb_used_cuda_session = false;
   const bool debayer_first_rgb =
       prewarped_frames_r != nullptr && prewarped_frames_g != nullptr &&
       prewarped_frames_b != nullptr;
@@ -634,8 +635,37 @@ bool run_phase_aqmh_reconstruction(
     const auto rgb_started_at = std::chrono::steady_clock::now();
     bool rgb_ok = false;
 
+    // The CUDA multichannel session below shares Q-maps/masks across R/G/B
+    // and therefore reads noticeably less from the cache than the sequential
+    // CPU path, but it always executes real GPU kernels once started -- it
+    // has none of the "measure and bail early" guards that
+    // reconstruct_aqmh_weighted_cuda() has (VRAM budget, allocation
+    // failures, frame_count limits, ...). Rather than duplicate/second-guess
+    // those guards here, reuse their outcome: the Luma/core pass above just
+    // ran the exact same CUDA path on this machine with this frame_count and
+    // already tells us definitively whether CUDA is actually viable right
+    // now (aqmh_recon.acceleration_used). If it fell back to CPU there, the
+    // RGB session would very likely be just as unusable (or, as observed on
+    // memory-constrained GPUs, dramatically slower than CPU) -- so skip it
+    // automatically and log why instead of paying for a failed/slow GPU
+    // attempt on top of the CPU work we'll do anyway.
+    [[maybe_unused]] const bool luma_used_cuda =
+        aqmh_recon.acceleration_used && !aqmh_recon.acceleration_fallback;
 #if TILE_COMPILE_WITH_CUDA
-    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda) {
+    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda &&
+        !luma_used_cuda) {
+      const std::string reason = aqmh_recon.acceleration_fallback_reason.empty()
+          ? "unknown"
+          : aqmh_recon.acceleration_fallback_reason;
+      log_file << "[AQMH_RECONSTRUCTION] skipping CUDA RGB session: Luma/core "
+                  "pass already fell back to CPU for this frame_count on "
+                  "this GPU (reason: " << reason << "); using CPU RGB path "
+                  "directly" << std::endl;
+      std::cout << "[AQMH] Skipping CUDA RGB session (Luma pass fell back to "
+                   "CPU: " << reason << ")" << std::endl;
+    }
+    if (aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda &&
+        luma_used_cuda) {
       emit_reconstruction_progress(
           55, "AQMH RGB-Rekonstruktion (CUDA-Session)", "rgb_session_init");
       reconstruction::AqmhCudaReconstructionSession session;
@@ -679,6 +709,7 @@ bool run_phase_aqmh_reconstruction(
               out.output_R.rows() == canvas_height && out.output_R.cols() == canvas_width &&
               out.output_G.rows() == canvas_height && out.output_G.cols() == canvas_width &&
               out.output_B.rows() == canvas_height && out.output_B.cols() == canvas_width;
+          rgb_used_cuda_session = rgb_ok;
         }
       }
       if (!rgb_ok)
@@ -1577,6 +1608,8 @@ bool run_phase_aqmh_reconstruction(
   artifact["missing_map_samples"] = aqmh_recon.missing_map_samples;
   artifact["acceleration_used"] = acceleration_used;
   artifact["acceleration_fallback"] = acceleration_fallback;
+  artifact["acceleration_fallback_reason"] = aqmh_recon.acceleration_fallback_reason;
+  artifact["rgb_cuda_session_used"] = rgb_used_cuda_session;
   artifact["gpu_reconstruction_available"] =
       aqmh_reconstruction_acceleration.selected == core::AccelerationBackend::cuda;
   artifact["selected_backend"] =
@@ -1865,6 +1898,9 @@ bool run_phase_aqmh_reconstruction(
           {"execution_backend", execution_backend_str},
           {"acceleration_used", acceleration_used},
           {"acceleration_fallback", acceleration_fallback},
+          {"acceleration_fallback_reason", aqmh_recon.acceleration_fallback_reason},
+          {"rgb_cuda_session_used", rgb_used_cuda_session},
+          {"rgb_reconstruction_seconds", rgb_reconstruction_seconds},
           {"uniform_control_gate_triggered", aqmh_control_fallback},
           {"raw_aqmh_preserved_by_guard", raw_aqmh_preserved_by_guard},
           {"classic_tile_weights_used", false},
