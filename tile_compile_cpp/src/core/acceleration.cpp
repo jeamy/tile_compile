@@ -1841,6 +1841,62 @@ AccelerationBackend choose_auto_backend(AccelerationPhase phase,
   return AccelerationBackend::cpu;
 }
 
+// Keep stateless selection and run-scoped selection on one code path. The
+// caller supplies either freshly probed or context-snapshotted capabilities.
+AccelerationSelection select_with_capabilities(
+    const std::string &requested_backend_name, AccelerationPhase phase,
+    const AccelerationCapabilities &capabilities) {
+  AccelerationSelection selection;
+  selection.phase = phase;
+  selection.tile_compile_with_cuda = capabilities.tile_compile_with_cuda;
+  selection.opencv_cuda_headers = opencv_cuda_headers_available(phase);
+  selection.opencv_cuda_runtime = capabilities.opencv_cuda_runtime;
+  selection.opencv_opencl_headers = capabilities.opencv_opencl_headers;
+  selection.opencv_opencl_runtime = capabilities.opencv_opencl_runtime;
+  selection.requested_name = core::to_lower(requested_backend_name);
+  if (selection.requested_name.empty()) selection.requested_name = "auto";
+  selection.auto_requested = auto_backend_requested(selection.requested_name);
+
+  if (selection.auto_requested) {
+    selection.selected = choose_auto_backend(
+        phase, selection.tile_compile_with_cuda,
+        selection.opencv_cuda_runtime, selection.opencv_opencl_runtime);
+    selection.requested = selection.selected;
+    selection.gpu_requested = selection.selected != AccelerationBackend::cpu;
+    selection.using_gpu = selection.gpu_requested;
+    return selection;
+  }
+
+  AccelerationBackend requested = AccelerationBackend::cpu;
+  if (!parse_acceleration_backend(selection.requested_name, requested)) {
+    selection.request_honored = false;
+    selection.fallback_reason = "invalid_requested_backend";
+    return selection;
+  }
+  selection.requested = requested;
+  selection.selected = requested;
+  selection.gpu_requested = requested != AccelerationBackend::cpu;
+
+  const std::string missing = missing_backend_reason(
+      requested, selection.tile_compile_with_cuda,
+      selection.opencv_cuda_headers, selection.opencv_cuda_runtime,
+      selection.opencv_opencl_headers, selection.opencv_opencl_runtime);
+  if (!missing.empty()) {
+    selection.selected = AccelerationBackend::cpu;
+    selection.request_honored = false;
+    selection.fallback_reason = missing;
+    return selection;
+  }
+  if (!phase_supports_backend(phase, requested)) {
+    selection.selected = AccelerationBackend::cpu;
+    selection.request_honored = false;
+    selection.fallback_reason = unsupported_phase_reason(requested, phase);
+    return selection;
+  }
+  selection.using_gpu = selection.gpu_requested;
+  return selection;
+}
+
 } // namespace
 
 /// @brief Implements acceleration phase name.
@@ -1913,67 +1969,13 @@ bool parse_acceleration_backend(const std::string &name,
 /// artifact, and error-handling semantics expected by callers.
 AccelerationSelection select_acceleration_backend(
     const std::string &requested_backend_name, AccelerationPhase phase) {
-  AccelerationSelection selection;
-  selection.phase = phase;
-  selection.tile_compile_with_cuda = TILE_COMPILE_WITH_CUDA != 0;
-  selection.opencv_cuda_headers = opencv_cuda_headers_available(phase);
-  selection.opencv_cuda_runtime = opencv_cuda_runtime_available();
-  selection.opencv_opencl_headers = TILE_COMPILE_HAS_OPENCV_OPENCL != 0;
-  selection.opencv_opencl_runtime = opencv_opencl_runtime_available();
-
-  selection.requested_name = core::to_lower(requested_backend_name);
-  if (selection.requested_name.empty()) {
-    selection.requested_name = "auto";
-  }
-  selection.auto_requested = auto_backend_requested(selection.requested_name);
-
-  if (selection.auto_requested) {
-    selection.selected =
-        choose_auto_backend(phase, selection.tile_compile_with_cuda,
-                            selection.opencv_cuda_runtime,
-                            selection.opencv_opencl_runtime);
-    selection.requested = selection.selected;
-    selection.gpu_requested = selection.selected != AccelerationBackend::cpu;
-    selection.using_gpu = selection.selected != AccelerationBackend::cpu;
-    return selection;
-  }
-
-  AccelerationBackend requested_backend = AccelerationBackend::cpu;
-  if (!parse_acceleration_backend(selection.requested_name, requested_backend)) {
-    selection.request_honored = false;
-    selection.fallback_reason = "invalid_requested_backend";
-    selection.requested = AccelerationBackend::cpu;
-    selection.selected = AccelerationBackend::cpu;
-    return selection;
-  }
-
-  selection.requested = requested_backend;
-  selection.selected = requested_backend;
-  selection.gpu_requested = requested_backend != AccelerationBackend::cpu;
-
-  const std::string missing_reason =
-      missing_backend_reason(requested_backend, selection.tile_compile_with_cuda,
-                             selection.opencv_cuda_headers,
-                             selection.opencv_cuda_runtime,
-                             selection.opencv_opencl_headers,
-                             selection.opencv_opencl_runtime);
-  if (!missing_reason.empty()) {
-    selection.selected = AccelerationBackend::cpu;
-    selection.request_honored = false;
-    selection.fallback_reason = missing_reason;
-    return selection;
-  }
-
-  if (!phase_supports_backend(phase, requested_backend)) {
-    selection.selected = AccelerationBackend::cpu;
-    selection.request_honored = false;
-    selection.fallback_reason =
-        unsupported_phase_reason(requested_backend, phase);
-    return selection;
-  }
-
-  selection.using_gpu = requested_backend != AccelerationBackend::cpu;
-  return selection;
+  AccelerationCapabilities capabilities;
+  capabilities.tile_compile_with_cuda = TILE_COMPILE_WITH_CUDA != 0;
+  capabilities.opencv_cuda_runtime = opencv_cuda_runtime_available();
+  capabilities.opencv_opencl_headers = TILE_COMPILE_HAS_OPENCV_OPENCL != 0;
+  capabilities.opencv_opencl_runtime = opencv_opencl_runtime_available();
+  return select_with_capabilities(requested_backend_name, phase,
+                                  capabilities);
 }
 
 AccelerationContext::AccelerationContext(std::string requested_backend_name,
@@ -2014,53 +2016,8 @@ AccelerationContext::AccelerationContext(std::string requested_backend_name,
 
 AccelerationSelection
 AccelerationContext::selection_for(AccelerationPhase phase) const {
-  AccelerationSelection selection;
-  selection.phase = phase;
-  selection.tile_compile_with_cuda = capabilities_.tile_compile_with_cuda;
-  selection.opencv_cuda_headers = opencv_cuda_headers_available(phase);
-  selection.opencv_cuda_runtime = capabilities_.opencv_cuda_runtime;
-  selection.opencv_opencl_headers = capabilities_.opencv_opencl_headers;
-  selection.opencv_opencl_runtime = capabilities_.opencv_opencl_runtime;
-  selection.requested_name = requested_backend_name_;
-  selection.auto_requested = auto_backend_requested(selection.requested_name);
-
-  if (selection.auto_requested) {
-    selection.selected = choose_auto_backend(
-        phase, selection.tile_compile_with_cuda,
-        selection.opencv_cuda_runtime, selection.opencv_opencl_runtime);
-    selection.requested = selection.selected;
-    selection.gpu_requested = selection.selected != AccelerationBackend::cpu;
-    selection.using_gpu = selection.gpu_requested;
-    return selection;
-  }
-
-  AccelerationBackend requested = AccelerationBackend::cpu;
-  if (!parse_acceleration_backend(selection.requested_name, requested)) {
-    selection.request_honored = false;
-    selection.fallback_reason = "invalid_requested_backend";
-    return selection;
-  }
-  selection.requested = requested;
-  selection.selected = requested;
-  selection.gpu_requested = requested != AccelerationBackend::cpu;
-  const std::string missing = missing_backend_reason(
-      requested, selection.tile_compile_with_cuda,
-      selection.opencv_cuda_headers, selection.opencv_cuda_runtime,
-      selection.opencv_opencl_headers, selection.opencv_opencl_runtime);
-  if (!missing.empty()) {
-    selection.selected = AccelerationBackend::cpu;
-    selection.request_honored = false;
-    selection.fallback_reason = missing;
-    return selection;
-  }
-  if (!phase_supports_backend(phase, requested)) {
-    selection.selected = AccelerationBackend::cpu;
-    selection.request_honored = false;
-    selection.fallback_reason = unsupported_phase_reason(requested, phase);
-    return selection;
-  }
-  selection.using_gpu = selection.gpu_requested;
-  return selection;
+  return select_with_capabilities(requested_backend_name_, phase,
+                                  capabilities_);
 }
 
 json AccelerationContext::to_json() const {

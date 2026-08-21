@@ -85,4 +85,11 @@ AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
     const AqmhValidationComparison &candidate_vs_control,
     const config::AqmhValidationConfig &cfg);
 
+// Structure-detail candidates may repair a background or seam regression, but
+// must not trade away stellar concentration relative to the immutable raw AQMH
+// baseline. All quantities in the comparison use the same prepared reference
+// star samples.
+bool aqmh_preserves_raw_star_profile(
+    const AqmhValidationComparison &candidate_vs_raw);
+
 } // namespace tile_compile::reconstruction

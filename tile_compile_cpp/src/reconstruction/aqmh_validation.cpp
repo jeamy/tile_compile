@@ -415,6 +415,27 @@ AqmhRawBaselineGuardDecision aqmh_raw_baseline_guard_decision(
   return {false, "candidate_exceeds_raw_baseline_guard"};
 }
 
+bool aqmh_preserves_raw_star_profile(
+    const AqmhValidationComparison &candidate_vs_raw) {
+  // A post-processing candidate may improve the background, but it may never
+  // widen the matched-star PSF or strengthen either tail statistic relative to
+  // raw AQMH. The epsilon prevents selection jitter for equivalent candidates.
+  constexpr float eps = 1.0e-5f;
+  if (candidate_vs_raw.fwhm_applicable &&
+      candidate_vs_raw.fwhm_regression > eps) {
+    return false;
+  }
+  if (candidate_vs_raw.tail_applicable) {
+    if (candidate_vs_raw.tail11_abs_regression > eps) return false;
+    if (regression(candidate_vs_raw.aqmh.tail11_p90,
+                   candidate_vs_raw.control.tail11_p90) > eps) {
+      return false;
+    }
+  }
+  return !candidate_vs_raw.elongation_applicable ||
+         candidate_vs_raw.elongation_regression <= eps;
+}
+
 AqmhValidationMetrics measure_aqmh_validation_metrics(
     const Matrix2Df &image, const std::vector<uint8_t> &validation_mask) {
   return measure_aqmh_validation_metrics_at_samples(

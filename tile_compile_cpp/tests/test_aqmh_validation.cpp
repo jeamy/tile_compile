@@ -496,6 +496,26 @@ TEST_CASE("aqmh_raw_guard_rejects_regression_when_raw_is_valid") {
   REQUIRE(decision.reason == "raw_baseline_valid_and_candidate_regresses_raw");
 }
 
+TEST_CASE("aqmh_structure_candidate_preserves_raw_star_profile") {
+  recon::AqmhValidationComparison candidate_vs_raw;
+  candidate_vs_raw.fwhm_applicable = true;
+  candidate_vs_raw.tail_applicable = true;
+  candidate_vs_raw.elongation_applicable = true;
+  candidate_vs_raw.aqmh.tail11_p90 = 0.8f;
+  candidate_vs_raw.control.tail11_p90 = 1.0f;
+  candidate_vs_raw.fwhm_regression = -0.01f;
+  candidate_vs_raw.tail11_abs_regression = -0.02f;
+  candidate_vs_raw.elongation_regression = 0.0f;
+  REQUIRE(recon::aqmh_preserves_raw_star_profile(candidate_vs_raw));
+
+  candidate_vs_raw.fwhm_regression = 0.001f;
+  REQUIRE_FALSE(recon::aqmh_preserves_raw_star_profile(candidate_vs_raw));
+
+  candidate_vs_raw.fwhm_regression = -0.01f;
+  candidate_vs_raw.aqmh.tail11_p90 = 1.01f;
+  REQUIRE_FALSE(recon::aqmh_preserves_raw_star_profile(candidate_vs_raw));
+}
+
 TEST_CASE("aqmh_background_rms_ignores_diffuse_astronomical_structure") {
   constexpr int W = 256;
   constexpr int H = 192;

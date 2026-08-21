@@ -949,13 +949,6 @@ bool run_phase_aqmh_reconstruction(
           reconstruction::compare_aqmh_to_reference(
               structure_masked, raw_aqmh_reference, validation_common_mask);
       full_structure_masked_detail_vs_raw_evaluated = true;
-      const auto candidate_gates =
-          reconstruction::evaluate_aqmh_validation_gates(
-              structure_masked_detail_validation, cfg.aqmh.validation);
-      const bool candidate_background_ok = candidate_gates.background_ok;
-      const bool candidate_fwhm_ok = candidate_gates.fwhm_ok;
-      const bool candidate_seam_ok = candidate_gates.seam_ok;
-      const bool candidate_tail_ok = candidate_gates.tail_ok;
       const auto raw_gates =
           reconstruction::evaluate_aqmh_validation_gates(
               raw_validation, cfg.aqmh.validation);
@@ -965,7 +958,10 @@ bool run_phase_aqmh_reconstruction(
           raw_validation,
           structure_masked_detail_validation,
           cfg.aqmh.validation);
-      full_structure_masked_detail_preserves_raw = candidate_raw_guard.ok;
+      full_structure_masked_detail_preserves_raw =
+          candidate_raw_guard.ok &&
+          reconstruction::aqmh_preserves_raw_star_profile(
+              full_structure_masked_detail_vs_raw_validation);
       const bool improves_fwhm =
           structure_masked_detail_validation.fwhm_applicable &&
           structure_masked_detail_validation.aqmh.fwhm > 0.0f &&
@@ -1005,41 +1001,17 @@ bool run_phase_aqmh_reconstruction(
       const bool repairs_any_raw_gate_failure =
           repairs_raw_background_failure || repairs_raw_fwhm_failure ||
           repairs_raw_seam_failure || repairs_raw_tail_failure;
-      if (candidate_background_ok && candidate_fwhm_ok && candidate_seam_ok &&
-          candidate_tail_ok && candidate_raw_guard.ok &&
-          (improves_fwhm || improves_seam || repairs_any_raw_gate_failure)) {
-        aqmh_recon.output = std::move(structure_masked);
-        structure_masked_detail_applied = true;
-        structure_masked_detail_alpha = 1.0f;
-        raw_baseline_guard_reason = candidate_raw_guard.reason;
-        emitter.warning(
-            run_id,
-            "AQMH structure-masked detail applied: background_rms=" +
-                std::to_string(structure_masked_detail_validation.aqmh.background_rms) +
-                " control_background_rms=" +
-                std::to_string(structure_masked_detail_validation.control.background_rms) +
-                " fwhm=" +
-                std::to_string(structure_masked_detail_validation.aqmh.fwhm) +
-                " control_fwhm=" +
-                std::to_string(structure_masked_detail_validation.control.fwhm) +
-                " seam_score=" +
-                std::to_string(structure_masked_detail_validation.aqmh.seam_score) +
-                " control_seam_score=" +
-                std::to_string(structure_masked_detail_validation.control.seam_score),
-            log_file);
-      } else if (repairs_any_raw_gate_failure || improves_fwhm ||
-                 improves_seam) {
-        // Passing both immutable references is not monotonic in alpha: the
-        // uniform-control endpoint and the full-detail endpoint can fail
-        // different gates while an interior candidate passes. Probe the
-        // interval explicitly, then refine only the highest feasible region.
+      if (repairs_any_raw_gate_failure || improves_fwhm || improves_seam) {
+        // Probe the complete detail interval even when alpha=1 passes. The
+        // old policy selected the strongest feasible detail contribution;
+        // this can soften the stellar profile while improving the background.
         structure_attenuation_strategy =
-            "descending_eighths_then_four_step_refinement";
+            "full_eighth_grid_psf_first";
         reconstruction::AqmhValidationComparison best_validation;
         reconstruction::AqmhValidationComparison best_vs_raw;
         float best_alpha = 0.0f;
         constexpr int coarse_denominator = 8;
-        for (int numerator = coarse_denominator - 1; numerator >= 1;
+        for (int numerator = coarse_denominator; numerator >= 1;
              --numerator) {
           const float alpha =
               static_cast<float>(numerator) /
@@ -1066,14 +1038,28 @@ bool run_phase_aqmh_reconstruction(
           const bool ok =
               reconstruction::evaluate_aqmh_validation_gates(
               validation, cfg.aqmh.validation).all_ok &&
-              baseline_guard.ok;
+              baseline_guard.ok &&
+              reconstruction::aqmh_preserves_raw_star_profile(
+                  baseline_validation);
           ++structure_attenuation_evaluations;
           if (ok) {
             ++structure_attenuation_feasible_candidates;
-            best_alpha = alpha;
-            best_validation = validation;
-            best_vs_raw = baseline_validation;
-            break;
+            const bool sharper =
+                best_alpha <= 0.0f ||
+                (validation.fwhm_applicable && best_validation.fwhm_applicable &&
+                 validation.aqmh.fwhm + 1.0e-5f <
+                     best_validation.aqmh.fwhm) ||
+                (validation.fwhm_applicable && best_validation.fwhm_applicable &&
+                 std::abs(validation.aqmh.fwhm - best_validation.aqmh.fwhm) <=
+                     1.0e-5f &&
+                 validation.tail_applicable && best_validation.tail_applicable &&
+                 validation.aqmh.tail11_abs_median + 1.0e-5f <
+                     best_validation.aqmh.tail11_abs_median);
+            if (sharper) {
+              best_alpha = alpha;
+              best_validation = validation;
+              best_vs_raw = baseline_validation;
+            }
           }
         }
 
@@ -1108,14 +1094,28 @@ bool run_phase_aqmh_reconstruction(
             const bool ok =
                 reconstruction::evaluate_aqmh_validation_gates(
               validation, cfg.aqmh.validation).all_ok &&
-                baseline_guard.ok;
+                baseline_guard.ok &&
+                reconstruction::aqmh_preserves_raw_star_profile(
+                    baseline_validation);
             ++structure_attenuation_evaluations;
             if (ok) {
               ++structure_attenuation_feasible_candidates;
-              lo = alpha;
-              best_alpha = alpha;
-              best_validation = validation;
-              best_vs_raw = baseline_validation;
+              const bool sharper =
+                  (validation.fwhm_applicable && best_validation.fwhm_applicable &&
+                   validation.aqmh.fwhm + 1.0e-5f <
+                       best_validation.aqmh.fwhm) ||
+                  (validation.fwhm_applicable && best_validation.fwhm_applicable &&
+                   std::abs(validation.aqmh.fwhm - best_validation.aqmh.fwhm) <=
+                       1.0e-5f &&
+                   validation.tail_applicable && best_validation.tail_applicable &&
+                   validation.aqmh.tail11_abs_median + 1.0e-5f <
+                       best_validation.aqmh.tail11_abs_median);
+              if (sharper) {
+                lo = alpha;
+                best_alpha = alpha;
+                best_validation = validation;
+                best_vs_raw = baseline_validation;
+              }
             } else {
               hi = alpha;
             }
@@ -1173,6 +1173,7 @@ bool run_phase_aqmh_reconstruction(
           if (reconstruction::evaluate_aqmh_validation_gates(
                   best_validation, cfg.aqmh.validation).all_ok &&
               selected_baseline_guard.ok &&
+              reconstruction::aqmh_preserves_raw_star_profile(best_vs_raw) &&
               (attenuated_improves_fwhm || attenuated_improves_seam ||
                attenuated_repairs_any_raw_gate_failure)) {
             aqmh_recon.output = std::move(attenuated);
