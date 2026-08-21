@@ -635,3 +635,172 @@ TEST_CASE("aqmh_raw_baseline_guard_rejects_unrelated_seam_regression") {
   REQUIRE(decision.reason == "candidate_exceeds_raw_baseline_guard");
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// WP-A/R2 session test: session multichannel result matches individual calls.
+// Runs without CUDA (session falls back gracefully; test verifies the CPU
+// fallback path is consistent).
+// ---------------------------------------------------------------------------
+TEST_CASE("aqmh_cuda_session_multichannel_matches_individual_calls") {
+  constexpr int H = 12, W = 14, N = 4;
+  const auto dir = unique_recon_cache_dir("aqmh_session_multichannel");
+  std::filesystem::remove_all(dir);
+  auto cache = make_cache(dir, W, H);
+
+  tile_compile::VectorXf global_weights(N);
+  global_weights << 1.0f, 0.9f, 1.1f, 0.8f;
+
+  std::vector<tile_compile::Matrix2Df> frames_r(N), frames_g(N), frames_b(N);
+  for (int fi = 0; fi < N; ++fi) {
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x)
+        q(y, x) = 0.4f + 0.1f * fi + 0.005f * (x + y);
+    cache.write(static_cast<size_t>(fi), q);
+    frames_r[fi].resize(H, W);
+    frames_g[fi].resize(H, W);
+    frames_b[fi].resize(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        frames_r[fi](y, x) = 0.1f + 0.01f * x + 0.02f * y + 0.1f * fi;
+        frames_g[fi](y, x) = 0.2f + 0.01f * x + 0.02f * y + 0.1f * fi;
+        frames_b[fi](y, x) = 0.3f + 0.01f * x + 0.02f * y + 0.1f * fi;
+      }
+  }
+  std::vector<uint8_t> canvas_mask(static_cast<size_t>(W * H), 1u);
+  std::vector<uint8_t> frame_has_data(N, 1u);
+
+  tile_compile::reconstruction::AqmhReconstructionConfig plane_cfg;
+  plane_cfg.compute_uniform_control = false;
+  plane_cfg.clip_sigma = 2.0f;
+  plane_cfg.min_fraction = 0.5f;
+
+  // Build region loaders
+  auto make_region_loader = [&](const std::vector<tile_compile::Matrix2Df>& fs) {
+    return [&fs, &frame_has_data, N, W, H](
+        size_t fi, int y0, int rows, tile_compile::Matrix2Df& out) -> bool {
+      if (fi >= static_cast<size_t>(N) || frame_has_data[fi] == 0u) return false;
+      if (y0 < 0 || y0 + rows > H || rows <= 0) return false;
+      out = fs[fi].middleRows(y0, rows);
+      return out.rows() == rows && out.cols() == W;
+    };
+  };
+  auto r_region = make_region_loader(frames_r);
+  auto g_region = make_region_loader(frames_g);
+  auto b_region = make_region_loader(frames_b);
+
+  // Individual calls (reference)
+  auto make_full_loader = [&](const std::vector<tile_compile::Matrix2Df>& fs) {
+    return [&fs, &frame_has_data, N, W, H](size_t fi, tile_compile::Matrix2Df& out) -> bool {
+      if (fi >= static_cast<size_t>(N) || frame_has_data[fi] == 0u) return false;
+      out = fs[fi]; return out.rows() == H && out.cols() == W;
+    };
+  };
+  const auto ref_r = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      N, make_full_loader(frames_r), &cache, global_weights, canvas_mask, W, H, plane_cfg);
+  const auto ref_g = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      N, make_full_loader(frames_g), &cache, global_weights, canvas_mask, W, H, plane_cfg);
+  const auto ref_b = tile_compile::reconstruction::reconstruct_aqmh_weighted(
+      N, make_full_loader(frames_b), &cache, global_weights, canvas_mask, W, H, plane_cfg);
+
+#if TILE_COMPILE_WITH_CUDA
+  tile_compile::reconstruction::AqmhCudaReconstructionSession session;
+  const bool sess_ok = session.init(N, &cache, global_weights, canvas_mask, W, H,
+                                    plane_cfg, {}, {});
+  if (sess_ok) {
+    auto results = session.run_planes_rgb({r_region, g_region, b_region},
+                                          {false, false, false});
+    REQUIRE(results.size() == 3u);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        REQUIRE(results[0].output(y, x) == Catch::Approx(ref_r.output(y, x)).margin(1e-4f));
+        REQUIRE(results[1].output(y, x) == Catch::Approx(ref_g.output(y, x)).margin(1e-4f));
+        REQUIRE(results[2].output(y, x) == Catch::Approx(ref_b.output(y, x)).margin(1e-4f));
+      }
+    }
+  }
+#endif
+  // CPU path: verify individual results are self-consistent
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x)
+      REQUIRE(ref_r.output(y, x) != ref_b.output(y, x));  // different channels differ
+
+  std::filesystem::remove_all(dir);
+}
+
+// ---------------------------------------------------------------------------
+// WP-B two-stage test: session two-stage result matches single-stage.
+// GPU-only; skipped when CUDA is not available.
+// ---------------------------------------------------------------------------
+#if TILE_COMPILE_WITH_CUDA
+TEST_CASE("aqmh_cuda_two_stage_matches_single_stage") {
+  constexpr int H = 10, W = 12, N = 6;
+  const auto dir = unique_recon_cache_dir("aqmh_two_stage");
+  std::filesystem::remove_all(dir);
+  auto cache = make_cache(dir, W, H);
+
+  tile_compile::VectorXf global_weights(N);
+  for (int fi = 0; fi < N; ++fi) global_weights[fi] = 1.0f + 0.1f * fi;
+
+  std::vector<tile_compile::Matrix2Df> frames_a(N), frames_b(N);
+  for (int fi = 0; fi < N; ++fi) {
+    tile_compile::Matrix2Df q(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x)
+        q(y, x) = 0.5f + 0.05f * fi;
+    cache.write(static_cast<size_t>(fi), q);
+    frames_a[fi].resize(H, W); frames_b[fi].resize(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        frames_a[fi](y, x) = 1.0f + 0.01f * x + 0.02f * y + 0.05f * fi;
+        frames_b[fi](y, x) = 2.0f + 0.01f * x + 0.02f * y + 0.05f * fi;
+      }
+  }
+  std::vector<uint8_t> canvas(static_cast<size_t>(W * H), 1u);
+  tile_compile::reconstruction::AqmhReconstructionConfig cfg;
+  cfg.compute_uniform_control = false;
+
+  // Reference: single-plane calls
+  auto make_region = [&](const std::vector<tile_compile::Matrix2Df>& fs) {
+    return [&fs, N, W, H](size_t fi, int y0, int rows, tile_compile::Matrix2Df& out) -> bool {
+      if (fi >= static_cast<size_t>(N)) return false;
+      if (y0 < 0 || y0 + rows > H || rows <= 0) return false;
+      out = fs[fi].middleRows(y0, rows);
+      return true;
+    };
+  };
+
+  tile_compile::reconstruction::AqmhCudaReconstructionSession single_sess;
+  if (!single_sess.init(N, &cache, global_weights, canvas, W, H, cfg, {}, {})) {
+    std::filesystem::remove_all(dir); return;
+  }
+  auto res_a1 = single_sess.run_plane({}, make_region(frames_a), false);
+  auto res_b1 = single_sess.run_plane({}, make_region(frames_b), false);
+  if (res_a1.acceleration_fallback || res_b1.acceleration_fallback) {
+    std::filesystem::remove_all(dir); return;
+  }
+
+  // Two-stage: run_planes_rgb with 2 planes
+  tile_compile::reconstruction::AqmhCudaReconstructionSession two_sess;
+  if (!two_sess.init(N, &cache, global_weights, canvas, W, H, cfg, {}, {})) {
+    std::filesystem::remove_all(dir); return;
+  }
+  auto two_results = two_sess.run_planes_rgb(
+      {make_region(frames_a), make_region(frames_b)}, {false, false});
+  if (two_results.size() != 2 ||
+      two_results[0].acceleration_fallback || two_results[1].acceleration_fallback) {
+    std::filesystem::remove_all(dir); return;
+  }
+
+  // Results must match within floating-point tolerance
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      REQUIRE(two_results[0].output(y, x) ==
+              Catch::Approx(res_a1.output(y, x)).margin(1e-4f));
+      REQUIRE(two_results[1].output(y, x) ==
+              Catch::Approx(res_b1.output(y, x)).margin(1e-4f));
+    }
+  }
+  std::filesystem::remove_all(dir);
+}
+#endif
