@@ -1,6 +1,22 @@
 # AQMH Tuning Configuration Example
 # This configuration demonstrates extended AQMH parameters for advanced users.
 # Use this for fine-tuning AQMH quality map generation, storage, and diagnostics.
+#
+# GPU-vs-CPU-fallback A/B parity test (2026-08-22):
+# The values below (linearity.max_frames, registration.star_topk,
+# tile_denoise.soft_threshold.blur_kernel, pcc.chroma_strength/k_max/
+# max_condition_number/min_stars, aqmh.reconstruction.gpu_half_qmaps/
+# gpu_packed_masks) are exactly the parameter set used for run
+# m31-gpu-abtest_<timestamp> (runs-dir /media/tc_500), aligned against the
+# reference run M31-REF-20260801_080824_dd07d775 so that any remaining
+# sharpness/quality difference between CUDA and the automatic CPU fallback
+# (see runner_phase_aqmh_reconstruction.cpp: rgb_cuda_session_used /
+# acceleration_fallback_reason) is attributable to the compute backend, not
+# to tuning drift. For that specific A/B run, bge.enabled was additionally
+# set to false / method: none to match the reference run's disabled BGE
+# stage exactly -- this file keeps autobge enabled below as the general
+# baseline recommendation; flip it off if you need to reproduce that exact
+# comparison.
 
 method: aqmh
 
@@ -57,7 +73,7 @@ dithering:
 
 linearity:
   enabled: true
-  max_frames: 8
+  max_frames: 64             # aligned with M31-REF-20260801_080824_dd07d775 for the GPU/CPU-fallback A/B test
   min_overall_linearity: 0.9
   strictness: strict
 
@@ -163,6 +179,8 @@ aqmh:
     structure_mask_low_q: 0.40
     structure_mask_high_q: 0.90
     structure_mask_blur_sigma_px: 4.0
+    gpu_half_qmaps: true    # WP-E: H2D Q-maps as fp16 (halves H2D bandwidth); GPU transfer staging only, never persisted
+    gpu_packed_masks: true  # WP-E: H2D frame masks bit-packed (1 bit/pixel); GPU transfer staging only, never persisted
   
   # Cherry-pick parameters (pixel-level frame selection).
   # Keep disabled for the general baseline. If enabled for many-frame runs,
