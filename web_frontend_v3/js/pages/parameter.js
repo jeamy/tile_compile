@@ -160,7 +160,18 @@ function switchView(view, page, paramTab, aiTab) {
 
 async function initParameterData(restoreView = null, page = null, paramTab = null, aiTab = null) {
   await loadSchema();
-  await loadConfig();
+  // The Parameter page is torn down and rebuilt from scratch on every
+  // sub-tab switch (see main.js renderContent()), so this runs again each
+  // time the user navigates back here -- e.g. Parameter -> Run Monitor ->
+  // Parameter. loadConfig() unconditionally re-fetches config.yaml from the
+  // backend and overwrites the in-memory draft, so without this guard any
+  // unsaved edit (e.g. toggling bge.enabled) is silently discarded the
+  // moment the user leaves and returns to this tab. Only reload from disk
+  // when there is no unsaved draft; an explicit "reload/discard changes"
+  // action can still force it by resetting dirty first.
+  if (!getConfigState().dirty) {
+    await loadConfig();
+  }
   // Sync calibration values from Input & Scan tab into config draft
   syncCalibrationToDraft();
   renderCategories();
