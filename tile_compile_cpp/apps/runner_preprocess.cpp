@@ -8,6 +8,7 @@
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/errors.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
@@ -214,12 +215,17 @@ prep::Config parse_preprocessing_config(const json& j) {
   if (j.contains("bge") && j["bge"].is_object()) {
     const auto& b = j["bge"];
     cfg.has_bge_config = true;
-    cfg.bge.enabled = json_bool(b, "enabled", cfg.bge.enabled);
+    // bge.enabled was a legacy on/off mirror of bge.method; removed because
+    // it could silently disagree with method. Mirrors io/config.cpp: reject
+    // it explicitly rather than reinterpreting it.
+    if (b.contains("enabled")) {
+      throw tile_compile::ValidationError(
+          "bge.enabled is no longer supported; use bge.method: "
+          "none|classic|autobge instead (method is the sole on/off "
+          "switch -- \"none\" disables BGE).");
+    }
     if (b.contains("method") && b["method"].is_string()) {
       cfg.bge.method = b["method"].get<std::string>();
-      cfg.bge.enabled = (cfg.bge.method != "none");
-    } else {
-      cfg.bge.method = cfg.bge.enabled ? "classic" : "none";
     }
     const json autobge = json_object(b, "autobge");
     cfg.bge.autobge.num_sample_points =
@@ -1236,7 +1242,6 @@ std::vector<TileMetrics> measure_bge_tile_metrics(const Matrix2Df& R,
 
 config::BGEConfig default_preprocess_bge_config() {
   config::BGEConfig cfg;
-  cfg.enabled = true;
   cfg.method = "classic";
   cfg.min_valid_samples_for_apply = 16;
   cfg.min_valid_sample_fraction_for_apply = 0.10f;
@@ -1398,7 +1403,6 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     auto rgb = io::read_fits_rgb(current_rgb);
     config::BGEConfig bge_source = cfg.has_bge_config ? cfg.bge : default_preprocess_bge_config();
     if (!cfg.has_bge_config) {
-      bge_source.enabled = true;
       bge_source.method = "classic";
     }
     float seeing_fwhm = accepted_median_fwhm(qa);

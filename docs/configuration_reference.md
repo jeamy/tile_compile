@@ -2326,18 +2326,9 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Werte** | `none`, `classic`, `autobge` |
 | **Default** | `none` |
 
-**Zweck:** Wählt die BGE-Engine. `none` deaktiviert BGE vollständig, `classic` nutzt die bestehende grid-/tile-basierte BGE-Implementierung, `autobge` wählt die zweistufige Poly+RBF-AutoBGE-Implementierung. Wenn `bge.method` vorhanden ist, ist dieser Wert maßgeblich.
+**Zweck:** Wählt die BGE-Engine. `none` deaktiviert BGE vollständig, `classic` nutzt die bestehende grid-/tile-basierte BGE-Implementierung, `autobge` wählt die zweistufige Poly+RBF-AutoBGE-Implementierung. Dies ist der einzige Ein-/Ausschalter für BGE.
 
-### `bge.enabled` (Legacy)
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `false` |
-
-**Zweck:** Rückwärtskompatibilität für ältere Konfigurationen. Wenn `bge.method` fehlt, wird `enabled: true` als `method: classic` interpretiert und `enabled: false` als `method: none`. Wenn `bge.method` vorhanden ist, gewinnt `method`.
-
-**Empfehlung:** Für neue Konfigurationen `bge.method: none|classic|autobge` verwenden.
+> **Migrationshinweis:** `bge.enabled` (ein legacy boolean-Spiegel dieses Felds) wurde entfernt. Es konnte im Widerspruch zu `bge.method` stehen — z. B. lief BGE bei `enabled: false` neben einem veralteten `method: classic` trotzdem, weil `method` immer maßgeblich war, sobald vorhanden. Eine Config, die weiterhin `bge.enabled` setzt, schlägt jetzt beim Laden mit einem Validierungsfehler fehl, der auf `bge.method` verweist. Ersetze `enabled: true` durch `method: classic` (oder `autobge`) und `enabled: false` durch `method: none`.
 
 ### `bge.autobge.num_sample_points`
 

@@ -393,7 +393,11 @@ struct AstrometryConfig {
 };
 
 struct BGEConfig {
-  bool enabled = false;
+  // On/off is expressed solely through `method` ("none" == disabled); there
+  // is no separate `enabled` flag. A prior `bge.enabled` legacy field was
+  // removed because it could disagree with `method` (whichever was set
+  // last silently won depending on write order) -- see
+  // docs/configuration_reference.md "bge.method" for the migration note.
   std::string method = "none"; // none | classic | autobge
 
   struct AutoBGEConfig {

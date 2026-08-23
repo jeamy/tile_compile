@@ -424,8 +424,7 @@ Bei Fehlschlag wird die Phase als `skipped` mit Grund (`astap_not_found`, `solve
 
 BGE wird ausgeführt, wenn:
 
-- `cfg.bge.method` auf `classic` oder `autobge` steht
-- Legacy-Kompatibilität: fehlt `bge.method`, dann entspricht `bge.enabled=true` der Methode `classic`
+- `cfg.bge.method` auf `classic` oder `autobge` steht (einziger Ein-/Ausschalter; `bge.enabled` existiert nicht mehr)
 - RGB-Daten vorhanden sind (`have_rgb`)
 - tile-basierte Metrik-/Grid-Daten verfügbar und konsistent sind
 

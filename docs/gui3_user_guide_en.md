@@ -90,7 +90,7 @@ The Parameter Studio is organized into categories:
 | **Stacking** | `stacking.method` (sigma_clip/median/average), sigma-clip parameters |
 | **Debayer** | `data.bayer_pattern` (RGGB/BGGR/GBRG/GRBG) |
 | **Astrometry** | `astrometry.astap_bin`, `astrometry.astap_data_dir` |
-| **BGE** | `bge.method`, `bge.enabled` (legacy), `bge.fit.method`, `bge.autobge`, `bge.autotune` |
+| **BGE** | `bge.method` (sole on/off switch, "none" disables BGE), `bge.fit.method`, `bge.autobge`, `bge.autotune` |
 | **PCC** | `pcc.source` (auto/siril/vizier_gaia/vizier_apass), `pcc.mag_limit`, `pcc.siril_catalog_dir` |
 | **HyperMetric Stretch** | `hypermetric_stretch.enabled`, color strategy, convergence |
 | **Calibration** | Bias/Dark/Flat paths |

@@ -165,7 +165,7 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   // time the user navigates back here -- e.g. Parameter -> Run Monitor ->
   // Parameter. loadConfig() unconditionally re-fetches config.yaml from the
   // backend and overwrites the in-memory draft, so without this guard any
-  // unsaved edit (e.g. toggling bge.enabled) is silently discarded the
+  // unsaved edit (e.g. toggling bge.method) is silently discarded the
   // moment the user leaves and returns to this tab. Only reload from disk
   // when there is no unsaved draft; an explicit "reload/discard changes"
   // action can still force it by resetting dirty first.
@@ -386,10 +386,6 @@ function editableParamRow(path, value, fieldSchema) {
     setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
     updateDiff();
     if (path === "bge.method") {
-      const draft = getConfigState().draft;
-      if (draft?.bge) {
-        draft.bge.enabled = (rawVal !== "none");
-      }
       const savedCat = getUiState().selectedCategory || "all";
       renderEditorForCategory(savedCat);
     }
@@ -560,6 +556,22 @@ export function setConfigValue(obj, path, value) {
     cur = cur[parts[i]];
   }
   cur[parts[parts.length - 1]] = value;
+  syncLegacyBooleanTogglePairs(obj, path, value);
+}
+
+// `bge.enabled` no longer exists as a config key -- `bge.method` alone is
+// the on/off switch ("none" == disabled). The backend rejects a config that
+// still sets `bge.enabled` with a validation error. It has also been
+// removed from the schema, so the Parameter tab no longer renders a field
+// for it -- but a stale PI memory record or action-plan replay from before
+// this change can still send a `bge.enabled` write through setConfigValue().
+// Translate it into the equivalent `bge.method` write and strip the dead
+// key back out, so replaying old memories still produces a saveable config
+// instead of one the backend rejects on save.
+function syncLegacyBooleanTogglePairs(obj, path, value) {
+  if (path !== "bge.enabled" || !obj.bge) return;
+  obj.bge.method = value ? (obj.bge.method === "none" ? "classic" : obj.bge.method) : "none";
+  delete obj.bge.enabled;
 }
 
 function getNestedValue(obj, path) {

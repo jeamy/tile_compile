@@ -6238,7 +6238,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       core::json bge_artifact = tile_compile::runner::bge_diag_to_json(
-          bge_diag, cfg.bge.enabled, bge_have_tile_data, bge_metrics_tiles_match);
+          bge_diag, (cfg.bge.method != "none"), bge_have_tile_data, bge_metrics_tiles_match);
       bge_artifact["have_local_metrics"] = bge_have_local_metrics;
       bge_artifact["have_tile_metrics"] = bge_have_tile_metrics;
       bge_artifact["tile_metrics_source"] = bge_tile_metrics_source;
@@ -6251,7 +6251,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           bge_compact_tile_mode ? core::json("compact_tile_mode_auto_disabled")
                                 : core::json(nullptr);
       bge_artifact["config"] = {
-          {"enabled", cfg.bge.enabled},
+          {"enabled", (cfg.bge.method != "none")},
           {"method", cfg.bge.method},
           {"autobge",
            {
@@ -6330,7 +6330,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                     "write_artifact", "BGE", log_file);
 
       core::json bge_phase_extra = {
-          {"requested", cfg.bge.enabled},
+          {"requested", (cfg.bge.method != "none")},
           {"bge_method", cfg.bge.method},
           {"attempted", bge_diag.attempted},
           {"success", bge_diag.success},

@@ -1091,7 +1091,7 @@ Damit wird sichergestellt:
 
 Implementierungen müssen garantieren, dass die Gitterauflösung gröber als die Tile-Auflösung ist (`G >= 2*T`) **außer** im Compact-Tile-Modus.
 
-**Ausnahme im Compact-Tile-Modus (verbindlich):** Wenn der Compact-Tile-Modus aktiv ist (§5.4 Schritt 4, `T = min(W,H)`), kann die Bedingung `G >= 2*T` nicht erfüllt werden, weil `G_max = min(W,H)/4 < 2*T`. In diesem Fall **muss** BGE deaktiviert werden (`bge.enabled = false` implizit), oder der Grid-Abstand wird auf `G = G_max` festgesetzt und mit einer expliziten Diagnosewarnung protokolliert. Implementierungen müssen dokumentieren, welches Verhalten aktiv ist, und dürfen die `G >= 2*T`-Bedingung nicht stillschweigend verletzen.
+**Ausnahme im Compact-Tile-Modus (verbindlich):** Wenn der Compact-Tile-Modus aktiv ist (§5.4 Schritt 4, `T = min(W,H)`), kann die Bedingung `G >= 2*T` nicht erfüllt werden, weil `G_max = min(W,H)/4 < 2*T`. In diesem Fall **muss** BGE deaktiviert werden (`bge.method = none` implizit), oder der Grid-Abstand wird auf `G = G_max` festgesetzt und mit einer expliziten Diagnosewarnung protokolliert. Implementierungen müssen dokumentieren, welches Verhalten aktiv ist, und dürfen die `G >= 2*T`-Bedingung nicht stillschweigend verletzen.
 
 ---
 

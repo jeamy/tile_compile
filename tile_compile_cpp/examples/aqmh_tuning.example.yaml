@@ -12,11 +12,12 @@
 # sharpness/quality difference between CUDA and the automatic CPU fallback
 # (see runner_phase_aqmh_reconstruction.cpp: rgb_cuda_session_used /
 # acceleration_fallback_reason) is attributable to the compute backend, not
-# to tuning drift. For that specific A/B run, bge.enabled was additionally
-# set to false / method: none to match the reference run's disabled BGE
-# stage exactly -- this file keeps autobge enabled below as the general
-# baseline recommendation; flip it off if you need to reproduce that exact
-# comparison.
+# to tuning drift. For that specific A/B run, bge.method was additionally
+# set to none to match the reference run's disabled BGE stage exactly --
+# this file keeps method: autobge below as the general baseline
+# recommendation; set it to none if you need to reproduce that exact
+# comparison. (bge.enabled no longer exists as a config key -- bge.method
+# alone is the on/off switch, "none" == disabled.)
 
 method: aqmh
 
@@ -333,7 +334,6 @@ stacking:
 
 # Background gradient estimation
 bge:
-  enabled: true
   method: autobge
   autobge:
     num_sample_points: 800

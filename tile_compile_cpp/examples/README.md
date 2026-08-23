@@ -72,7 +72,7 @@ They are kept in sync with the active runner/config parser defaults, including:
     - `none`: disabled (default)
     - `classic`: current grid/tile BGE
     - `autobge`: two-stage poly+RBF AutoBGE path
-  - `bge.enabled` is kept for legacy configs; when `bge.method` is present, `method` wins.
+  - `bge.method` is the sole on/off switch; the legacy `bge.enabled` boolean has been removed and now fails to load with a validation error.
   - Removes large-scale gradients (light pollution, moonlight, airglow) before color calibration
   - Applied directly to RGB channels before PCC (not diagnostics-only)
   - Tile-based sampling with configurable quantile (default: 20th percentile)

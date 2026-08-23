@@ -540,7 +540,7 @@ int main(int argc, char** argv) {
                 {"schema_version", "pi.context_signature.v1"},
                 {"target", {{"object_name", "M31"}, {"object_type", "galaxy"}}},
                 {"acquisition", {{"camera_type", "MONO"}}},
-                {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}}}
+                {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.method"})}}}
             };
             delta_out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
@@ -560,7 +560,7 @@ int main(int argc, char** argv) {
                 {"evidence", {{"validation", "fixture"}, {"run_id", "pi_fixture_run"}}},
                 {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
                 {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
-                {"retrieval", {{"keywords", nlohmann::json::array({"bge.enabled"})}, {"negative", false}}}
+                {"retrieval", {{"keywords", nlohmann::json::array({"bge.method"})}, {"negative", false}}}
             }.dump() << "\n";
         }
 
@@ -663,7 +663,7 @@ int main(int argc, char** argv) {
                     {"schema_version", "pi.context_signature.v1"},
                     {"target", {{"object_name", "M42"}}},
                     {"acquisition", {{"camera_type", "OSC"}}},
-                    {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}}}
+                    {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.method"})}}}
                 }},
                 {"scope", {
                     {"applies_when", nlohmann::json::array({"BGE optimization context"})},
@@ -674,7 +674,7 @@ int main(int argc, char** argv) {
                 {"evidence", {{"validation", "fixture"}, {"run_id", "pi_fixture_run"}}},
                 {"outcome", {{"validation_valid", true}, {"applied_count", 1}}},
                 {"review", {{"status", "candidate"}, {"reviewed_by", nullptr}, {"reviewed_at", nullptr}, {"notes", ""}}},
-                {"retrieval", {{"keywords", nlohmann::json::array({"bge.enabled"})}, {"negative", false}}}
+                {"retrieval", {{"keywords", nlohmann::json::array({"bge.method"})}, {"negative", false}}}
             }.dump() << "\n";
         }
 

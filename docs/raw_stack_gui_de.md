@@ -214,8 +214,7 @@ Beim Laden der Raw-Stack-Defaults liest die GUI die aktuell geladene Tile-Compil
 | `astrometry.*` | `astrometry.*` | inkl. `enabled`, ASTAP-Pfade, Suchradius |
 | `astrometry.enabled` | `postprocess.astrometry` | setzt den Postprocess-Schalter vor |
 | `bge.*` | `bge.*` | vollstaendige BGE-Konfiguration |
-| `bge.method` | `postprocess.bge` | `none` deaktiviert den Postprocess-Schalter, `classic`/`autobge` aktivieren ihn |
-| `bge.enabled` | `postprocess.bge` | Legacy-Fallback, falls `bge.method` fehlt |
+| `bge.method` | `postprocess.bge` | `none` deaktiviert den Postprocess-Schalter, `classic`/`autobge` aktivieren ihn (einziger Ein-/Ausschalter, kein Legacy-Fallback mehr) |
 | `tile.*` | `tile.*` | Tile-Geometrie fuer BGE-Sampling |
 | `pcc.*` | `pcc.*` | vollstaendige PCC-Konfiguration |
 | `pcc.enabled` | `postprocess.pcc` | setzt den Postprocess-Schalter vor |

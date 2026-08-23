@@ -830,7 +830,11 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
 /// artifact, and error-handling semantics expected by callers.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
-  dst.enabled = src.enabled;
+  // config::BGEConfig has no `enabled` field of its own (method == "none"
+  // is the sole on/off switch); image::BGEConfig still has a real,
+  // load-bearing `enabled` gate used deep in the BGE algorithm itself
+  // (background_extraction.cpp), so derive it here.
+  dst.enabled = (src.method != "none");
   dst.method = src.method;
   dst.autobge.num_sample_points = src.autobge.num_sample_points;
   dst.autobge.poly_degree = src.autobge.poly_degree;

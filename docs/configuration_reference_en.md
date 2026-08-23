@@ -2077,8 +2077,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `quality_score`: applied as an additional tile-sample reliability factor.
 
 **Key BGE parameters:**
-- `bge.method`: Engine selector `none|classic|autobge` (default: `none`; authoritative when present)
-- `bge.enabled`: Legacy enable/disable. Used only when `bge.method` is absent.
+- `bge.method`: Engine selector `none|classic|autobge` (default: `none`). Sole on/off switch -- `none` disables BGE.
 - `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `1.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
@@ -2104,16 +2103,9 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Values** | `none`, `classic`, `autobge` |
 | **Default** | `none` |
 
-**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, and `autobge` selects the two-stage poly+RBF AutoBGE implementation. When present, this value is authoritative.
+**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, and `autobge` selects the two-stage poly+RBF AutoBGE implementation. This is the sole on/off switch for BGE.
 
-### `bge.enabled` (legacy)
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Backward compatibility for older configs. If `bge.method` is absent, `enabled: true` maps to `method: classic` and `enabled: false` maps to `method: none`. If `bge.method` is present, `method` wins.
+> **Migration note:** `bge.enabled` (a legacy boolean mirror of this field) has been removed. It could silently disagree with `bge.method` -- e.g. `enabled: false` next to a stale `method: classic` still ran BGE, because `method` was always authoritative whenever present. A config that still sets `bge.enabled` now fails to load with a validation error naming `bge.method`. Replace `enabled: true` with `method: classic` (or `autobge`), and `enabled: false` with `method: none`.
 
 ### `bge.autobge.num_sample_points`
 

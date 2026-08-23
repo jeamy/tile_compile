@@ -846,15 +846,22 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["bge"]) {
     auto b = node["bge"];
-    const bool has_method = static_cast<bool>(b["method"]);
-    if (yaml_has_value(b["enabled"]))
-      cfg.bge.enabled = b["enabled"].as<bool>();
-    if (has_method) {
-      cfg.bge.method = b["method"].as<std::string>();
-      cfg.bge.enabled = (cfg.bge.method != "none");
-    } else {
-      cfg.bge.method = cfg.bge.enabled ? "classic" : "none";
+    // `bge.enabled` was a legacy on/off mirror of `bge.method` ("none" ==
+    // disabled) that could silently disagree with `method` -- whichever was
+    // written most recently by a given caller won, which meant e.g. a
+    // config with enabled:false but a stale method:classic still ran BGE.
+    // The field has been removed; reject it explicitly instead of quietly
+    // ignoring or reinterpreting it, so an old config or preset that still
+    // sets it fails loudly with an actionable message rather than behaving
+    // unpredictably.
+    if (yaml_has_value(b["enabled"])) {
+      throw ValidationError(
+          "bge.enabled is no longer supported; use bge.method: "
+          "none|classic|autobge instead (method is the sole on/off "
+          "switch -- \"none\" disables BGE).");
     }
+    if (b["method"])
+      cfg.bge.method = b["method"].as<std::string>();
     if (yaml_has_value(b["autobge"])) {
       auto a = b["autobge"];
       if (yaml_has_value(a["num_sample_points"]))
@@ -1545,7 +1552,6 @@ YAML::Node Config::to_yaml() const {
   node["astrometry"]["astap_data_dir"] = astrometry.astap_data_dir;
   node["astrometry"]["search_radius"] = astrometry.search_radius;
 
-  node["bge"]["enabled"] = bge.enabled;
   node["bge"]["method"] = bge.method;
   node["bge"]["autobge"]["num_sample_points"] =
       bge.autobge.num_sample_points;
@@ -2686,8 +2692,7 @@ std::string get_schema_json() {
                       "astap_data_dir":{"type":"string"},
                       "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
     "bge": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "method":{"type":"string","enum":["none","classic","autobge"],"default":"none"},
+      "properties": { "method":{"type":"string","enum":["none","classic","autobge"],"default":"none"},
                       "autobge":{"type":"object","properties":{"num_sample_points":{"type":"integer","minimum":0,"default":0},"poly_degree":{"type":"integer","minimum":1,"maximum":6,"default":2},"rbf_smooth":{"type":"number","minimum":0,"default":0.1},"downsample_scale":{"type":"integer","minimum":1,"default":4},"patch_size":{"type":"integer","minimum":3,"default":15},"patch_estimator":{"type":"string","enum":["median","sigma_clipped_median"],"default":"median"},"stretch_mode":{"type":"string","enum":["none","linear","mtf"],"default":"linear"},"stretch_target_median":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25},"border_margin":{"type":"integer","minimum":0,"default":10},"bright_exclusion_fraction":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.5},"gradient_descent_max_iters":{"type":"integer","minimum":1,"default":100},"random_seed":{"type":"integer","default":42},"normalize_between_stages":{"type":"boolean","default":true},"apply_guards":{"type":"boolean","default":true},"mono_mode":{"type":"string","enum":["rgb_duplicate","disabled"],"default":"rgb_duplicate"}}},
                       "tile_weight_lambda_structure":{"type":"number","minimum":0},
                       "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},

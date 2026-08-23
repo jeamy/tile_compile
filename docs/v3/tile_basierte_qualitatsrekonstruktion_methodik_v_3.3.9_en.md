@@ -1206,7 +1206,7 @@ This ensures:
 
 Implementations must guarantee that grid resolution is coarser than tile resolution (`G >= 2*T`) **except** in compact-tile mode.
 
-**Compact-tile mode exception (binding):** When compact-tile mode is active (§5.4 step 4, `T = min(W,H)`), the constraint `G >= 2*T` cannot be satisfied because `G_max = min(W,H)/4 < 2*T`. In this case, BGE **must** be disabled (`bge.enabled = false` implicitly) or the grid spacing is fixed at `G = G_max` with an explicit diagnostic warning. Implementations must document which behavior is active and must not silently violate the `G >= 2*T` constraint.
+**Compact-tile mode exception (binding):** When compact-tile mode is active (§5.4 step 4, `T = min(W,H)`), the constraint `G >= 2*T` cannot be satisfied because `G_max = min(W,H)/4 < 2*T`. In this case, BGE **must** be disabled (`bge.method = none` implicitly) or the grid spacing is fixed at `G = G_max` with an explicit diagnostic warning. Implementations must document which behavior is active and must not silently violate the `G >= 2*T` constraint.
 
 ---
 

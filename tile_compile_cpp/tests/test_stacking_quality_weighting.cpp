@@ -1,44 +1,61 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/errors.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
 
-TEST_CASE("bge_method_parses_legacy_enabled_and_explicit_method") {
-  YAML::Node legacy = YAML::Load(R"(
+// bge.enabled was a legacy on/off mirror of bge.method ("none" == disabled)
+// that could silently disagree with method -- whichever was written most
+// recently by a given caller won, so e.g. enabled:false next to a stale
+// method:classic still ran BGE. The field was removed; bge.method alone is
+// now the sole on/off switch, and any config still setting bge.enabled must
+// fail loudly with an actionable message instead of being reinterpreted.
+TEST_CASE("bge_method_is_sole_on_off_switch") {
+  YAML::Node method_none = YAML::Load(R"(
 bge:
-  enabled: true
-)");
-  auto legacy_cfg = tile_compile::config::Config::from_yaml(legacy);
-  REQUIRE(legacy_cfg.bge.enabled);
-  REQUIRE(legacy_cfg.bge.method == "classic");
-  REQUIRE_NOTHROW(legacy_cfg.validate());
-
-  YAML::Node explicit_none = YAML::Load(R"(
-bge:
-  enabled: true
   method: none
 )");
-  auto none_cfg = tile_compile::config::Config::from_yaml(explicit_none);
-  REQUIRE_FALSE(none_cfg.bge.enabled);
+  auto none_cfg = tile_compile::config::Config::from_yaml(method_none);
   REQUIRE(none_cfg.bge.method == "none");
   REQUIRE_NOTHROW(none_cfg.validate());
 
-  YAML::Node explicit_autobge = YAML::Load(R"(
+  YAML::Node method_autobge = YAML::Load(R"(
 bge:
-  enabled: false
   method: autobge
   autobge:
     random_seed: 123
     stretch_mode: linear
 )");
-  auto autobge_cfg = tile_compile::config::Config::from_yaml(explicit_autobge);
-  REQUIRE(autobge_cfg.bge.enabled);
+  auto autobge_cfg = tile_compile::config::Config::from_yaml(method_autobge);
   REQUIRE(autobge_cfg.bge.method == "autobge");
   REQUIRE(autobge_cfg.bge.autobge.random_seed == 123);
   REQUIRE(autobge_cfg.bge.autobge.stretch_mode == "linear");
   REQUIRE_NOTHROW(autobge_cfg.validate());
+
+  // Default (no bge block at all) stays disabled.
+  auto default_cfg = tile_compile::config::Config::from_yaml(YAML::Load("{}"));
+  REQUIRE(default_cfg.bge.method == "none");
+}
+
+TEST_CASE("bge_enabled_legacy_field_is_rejected") {
+  YAML::Node legacy_enabled_true = YAML::Load(R"(
+bge:
+  enabled: true
+)");
+  REQUIRE_THROWS_AS(
+      tile_compile::config::Config::from_yaml(legacy_enabled_true),
+      tile_compile::ValidationError);
+
+  YAML::Node legacy_enabled_with_method = YAML::Load(R"(
+bge:
+  enabled: false
+  method: classic
+)");
+  REQUIRE_THROWS_AS(
+      tile_compile::config::Config::from_yaml(legacy_enabled_with_method),
+      tile_compile::ValidationError);
 }
 
 TEST_CASE("bge_autobge_parameters_validate") {

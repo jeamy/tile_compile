@@ -1745,7 +1745,7 @@ nlohmann::json build_run_chat_action_plan(const std::string& run_id,
             add_set("output.crop_to_nonzero_bbox", false,
                     "Wenn Nebel am Rand abgeschnitten wirkt, zuerst ohne automatisches Crop testen.");
         } else if (id == "faint_nebula") {
-            add_set("bge.enabled", false,
+            add_set("bge.method", "none",
                     "Bei ausgedehntem Nebel kann Hintergrundextraktion echte schwache Nebelanteile abschwaechen.");
             add_set("normalization.mode", "median",
                     "Median-Normalisierung ist fuer ausgedehnte Nebel oft konservativer als Hintergrund-Normalisierung.");

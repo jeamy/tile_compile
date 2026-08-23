@@ -532,7 +532,8 @@ void register_scan_routes(CrowApp& app,
                     config_status = "ok";
                     config_label = "Config geladen";
 
-                    bool bge_enabled = root["bge"] && root["bge"].IsMap() && root["bge"]["enabled"] && root["bge"]["enabled"].as<bool>();
+                    bool bge_enabled = root["bge"] && root["bge"].IsMap() && root["bge"]["method"] &&
+                                        root["bge"]["method"].as<std::string>() != "none";
                     bool pcc_enabled = root["pcc"] && root["pcc"].IsMap() && root["pcc"]["enabled"] && root["pcc"]["enabled"].as<bool>();
                     bge_pcc_status = (bge_enabled || pcc_enabled) ? "ok" : "check";
                     bge_pcc_label = std::string("BGE:") + (bge_enabled ? "an" : "aus") + " PCC:" + (pcc_enabled ? "an" : "aus");

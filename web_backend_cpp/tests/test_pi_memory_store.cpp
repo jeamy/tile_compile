@@ -270,7 +270,7 @@ int main() {
             {"schema_version", "pi.context_signature.v1"},
             {"target", {{"object_name", "M42"}, {"object_type", "emission_nebula"}, {"angular_size_class", "large"}, {"has_extended_emission", true}}},
             {"acquisition", {{"camera_type", "OSC"}, {"color_mode", "OSC"}, {"filters", nlohmann::json::array({"dual_narrowband"})}}},
-            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}, {"phases", nlohmann::json::array({"BGE"})}}}
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.method"})}, {"phases", nlohmann::json::array({"BGE"})}}}
         };
         const nlohmann::json nebula_scope = {
             {"applies_when", nlohmann::json::array({"target has large diffuse emission"})},
@@ -294,7 +294,7 @@ int main() {
             {"schema_version", "pi.context_signature.v1"},
             {"target", {{"object_name", "M104"}, {"object_type", "galaxy"}, {"angular_size_class", "small"}, {"has_extended_emission", false}}},
             {"acquisition", {{"camera_type", "MONO"}, {"color_mode", "MONO"}, {"filters", nlohmann::json::array({"LRGB"})}}},
-            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}, {"phases", nlohmann::json::array({"BGE"})}}}
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.method"})}, {"phases", nlohmann::json::array({"BGE"})}}}
         };
         const auto galaxy_matches = xstore.retrieve({
             {"context_signature", galaxy_query_ctx}
@@ -305,7 +305,7 @@ int main() {
         // Gleicher Config-Pfad darf bei fachlich falsem Kontext nicht als Match gelten.
         const auto galaxy_path_matches = xstore.retrieve({
             {"context_signature", galaxy_query_ctx},
-            {"paths", nlohmann::json::array({"bge.enabled"})}
+            {"paths", nlohmann::json::array({"bge.method"})}
         }, 10);
         expect_equal(static_cast<long>(galaxy_path_matches.size()), 0L,
                      "cross-contamination: path overlap alone must not override mismatched context");
@@ -315,7 +315,7 @@ int main() {
             {"schema_version", "pi.context_signature.v1"},
             {"target", {{"object_name", "M42"}, {"object_type", "emission_nebula"}, {"has_extended_emission", true}}},
             {"acquisition", {{"camera_type", "OSC"}, {"filters", nlohmann::json::array({"dual_narrowband"})}}},
-            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.enabled"})}}}
+            {"pipeline", {{"affected_paths", nlohmann::json::array({"bge.method"})}}}
         };
         const auto nebula_positive_matches = xstore.retrieve({
             {"context_signature", nebula_query_ctx}

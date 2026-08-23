@@ -214,8 +214,7 @@ When Raw Stack defaults are loaded, the GUI reads the currently loaded Tile-Comp
 | `astrometry.*` | `astrometry.*` | includes `enabled`, ASTAP paths, search radius |
 | `astrometry.enabled` | `postprocess.astrometry` | presets the postprocess toggle |
 | `bge.*` | `bge.*` | complete BGE configuration |
-| `bge.method` | `postprocess.bge` | `none` disables the postprocess toggle, `classic`/`autobge` enable it |
-| `bge.enabled` | `postprocess.bge` | legacy fallback when `bge.method` is absent |
+| `bge.method` | `postprocess.bge` | `none` disables the postprocess toggle, `classic`/`autobge` enable it (sole on/off switch, no legacy fallback) |
 | `tile.*` | `tile.*` | tile geometry for BGE sampling |
 | `pcc.*` | `pcc.*` | complete PCC configuration |
 | `pcc.enabled` | `postprocess.pcc` | presets the postprocess toggle |

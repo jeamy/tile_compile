@@ -1,5 +1,14 @@
 ## Changelog
 
+### (2026-08-23)
+
+**v0.4.9 — `bge.enabled` removal, PI/UI config sync fixes:**
+
+- **Breaking config change:** Removed the legacy `bge.enabled` boolean. `bge.method` (`none`/`classic`/`autobge`) is now the sole on/off switch for BGE -- `bge.enabled` could silently disagree with `bge.method` (whichever a given writer set last won unpredictably; `method` was always authoritative once present, so e.g. `enabled: false` next to a stale `method: classic` still ran BGE). A config that still sets `bge.enabled` now fails to load with a validation error naming `bge.method`. Removed from the JSON/YAML schema (both the embedded `get-schema` output and the checked-in `tile_compile.schema.json`/`.yaml` reference copies), the `Config`/`BGEConfig` struct, and all serialization/artifact/JSON-catalog references; runtime reads now compute `method != "none"` inline where the boolean is still needed downstream (e.g. `image::BGEConfig::enabled`, artifact `"enabled"`/`"requested"` fields, which keep their existing external key names).
+- **Root cause found and fixed:** The PI "faint_nebula" run-chat recommendation and the Parameter tab's `bge.enabled` field both used to write `enabled` without touching `method`, silently producing exactly this inconsistent state. The PI hint now sets `bge.method: none` directly; the frontend's generic `setConfigValue()` now centrally translates any incoming legacy `bge.enabled` write (from old PI memory replay, action-plan re-application, etc.) into the equivalent `bge.method` write instead of leaving a dead key that the backend would reject on save.
+- **Parameter tab data-loss fix:** The Parameter tab discarded unsaved edits whenever the user navigated away and back (e.g. Parameter → Run Monitor → Parameter), because the page is torn down and rebuilt on every sub-tab switch and unconditionally re-fetched `config.yaml` from disk. It now skips the reload while there is an unsaved (`dirty`) draft.
+- Updated three example configs (`aqmh_tuning`, `bright_star`, `M45_high_altitude_strong_rotation`) that still carried the legacy field -- two of them had `enabled: false` next to `method: autobge`, i.e. were already silently running AutoBGE despite the `enabled: false` they shipped with.
+
 ### (2026-08-21)
 
 **v0.4.8 — CUDA RGB fallback and GPU telemetry:**

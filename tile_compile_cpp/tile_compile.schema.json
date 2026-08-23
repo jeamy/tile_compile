@@ -1800,11 +1800,6 @@
     "bge": {
       "type": "object",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Legacy compatibility flag. Prefer bge.method. If bge.method is present it is authoritative; otherwise enabled=true maps to method=classic and enabled=false maps to method=none.",
-          "default": false
-        },
         "method": {
           "type": "string",
           "enum": [

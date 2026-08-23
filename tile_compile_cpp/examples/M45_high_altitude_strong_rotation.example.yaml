@@ -19,7 +19,6 @@ bge:
     holdout_fraction: 0.2
     max_evals: 32
     strategy: conservative
-  enabled: false
   method: autobge
   autobge:
     num_sample_points: 800
