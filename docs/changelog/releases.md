@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.9 (2026-08-23)
+
+**BGE `enabled` removal and UI/PI config sync fixes:**
+
+- Removed the legacy `bge.enabled` boolean; `bge.method` (`none`/`classic`/`autobge`) is now the only on/off switch for background extraction. Configs still using `bge.enabled` fail validation with a clear pointer to `bge.method`.
+- Fixed PI run-chat and Parameter-tab writes that set `bge.enabled` without updating `bge.method`, which silently left BGE inconsistent. They now write `bge.method` directly.
+- The Parameter tab no longer discards unsaved edits when the user navigates away and back; it skips reloading `config.yaml` while a dirty draft is pending.
+- Updated the `aqmh_tuning`, `bright_star`, and `M45_high_altitude_strong_rotation` example profiles to remove the obsolete `bge.enabled` key.
+
 ## v0.4.8 (2026-08-21)
 
 **CUDA RGB fallback and GPU telemetry:**
