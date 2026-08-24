@@ -1315,6 +1315,12 @@ PreprocessPostprocessResult run_preprocess_postprocess(
                         {{"reason", "astap_not_found"}, {"astap_bin", reported_bin}},
                         event_out);
     } else {
+      std::string astrometry_solver = "astap";
+      int local_gaia_image_stars = 0;
+      int local_gaia_catalog_stars = 0;
+      int local_gaia_inlier_stars = 0;
+      bool local_gaia_reflected = false;
+      std::string local_gaia_error = "not_attempted";
       const auto astap_stamp =
           std::chrono::steady_clock::now().time_since_epoch().count();
       fs::path astap_output_prefix =
@@ -1335,6 +1341,26 @@ PreprocessPostprocessResult run_preprocess_postprocess(
           have_wcs = wcs.valid();
         } catch (...) {
           have_wcs = false;
+        }
+      }
+      if (!have_wcs) {
+        try {
+          const io::RGBImage solve_rgb = io::read_fits_rgb(stack.stacked_rgb_path);
+          const auto local_gaia = runner::solve_with_local_gaia_catalog(solve_rgb);
+          local_gaia_image_stars = local_gaia.image_stars;
+          local_gaia_catalog_stars = local_gaia.catalog_stars;
+          local_gaia_inlier_stars = local_gaia.inlier_stars;
+          local_gaia_reflected = local_gaia.reflected_solution;
+          local_gaia_error = local_gaia.error_message;
+          if (local_gaia.success && runner::write_wcs_sidecar(local_gaia.wcs, wcs_path)) {
+            wcs = local_gaia.wcs;
+            have_wcs = true;
+            astrometry_solver = "local_gaia_dr3";
+          }
+        } catch (const std::exception &e) {
+          local_gaia_error = e.what();
+          // Keep the existing ASTAP failure contract if the local fallback
+          // cannot read the RGB stack or catalogue.
         }
       }
       if (have_wcs) {
@@ -1359,17 +1385,34 @@ PreprocessPostprocessResult run_preprocess_postprocess(
         io::update_fits_header_in_place(stack.stacked_rgb_path, hdr);
         add_artifact(result.artifacts, "wcs", "ASTROMETRY", result.astrometry_wcs_path);
         add_phase_result(result.phases, "ASTROMETRY", "ok",
-                         {{"ra", wcs.crval1}, {"dec", wcs.crval2},
+                         {{"solver", astrometry_solver},
+                          {"ra", wcs.crval1}, {"dec", wcs.crval2},
                           {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
                           {"rotation_deg", wcs.rotation_deg()},
-                          {"wcs_file", result.astrometry_wcs_path.string()}});
+                          {"wcs_file", result.astrometry_wcs_path.string()},
+                          {"local_gaia_image_stars", local_gaia_image_stars},
+                          {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                          {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                          {"local_gaia_reflected", local_gaia_reflected}});
         emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::ASTROMETRY), "ok",
                           result.phases.back(), event_out);
       } else {
         add_phase_result(result.phases, "ASTROMETRY", "skipped",
-                         {{"reason", "solve_failed"}, {"exit_code", ret}});
+                         {{"reason", "solve_failed"},
+                          {"exit_code", ret},
+                          {"local_gaia_error", local_gaia_error},
+                          {"local_gaia_image_stars", local_gaia_image_stars},
+                          {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                          {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                          {"local_gaia_reflected", local_gaia_reflected}});
         emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::ASTROMETRY), "skipped",
-                          {{"reason", "solve_failed"}, {"exit_code", ret}}, event_out);
+                          {{"reason", "solve_failed"},
+                           {"exit_code", ret},
+                           {"local_gaia_error", local_gaia_error},
+                           {"local_gaia_image_stars", local_gaia_image_stars},
+                           {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                           {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                           {"local_gaia_reflected", local_gaia_reflected}}, event_out);
       }
     }
   }

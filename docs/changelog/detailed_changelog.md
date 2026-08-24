@@ -1,5 +1,15 @@
 ## Changelog
 
+### (2026-08-24)
+
+**v0.4.A — Native local Gaia DR3 astrometry fallback and BGE draft compatibility:**
+
+- **Astrometry fallback:** ASTAP remains the primary plate solver. If its quad matcher returns no valid WCS, the runner now performs an in-process, offline near-solve against the local Siril/Gaia DR3 catalogue already installed for PCC. It never starts Siril and makes no network request.
+- **Robust wide-field matching:** The native solver detects up to 2,000 image stars, queries the local Gaia catalogue from the approximate pointing and optical scale, tries both image orientations, and supplements the existing triangle match with pair-distance voting plus a similarity-fit refinement. This covers stacks whose image-star brightness order differs from Gaia's magnitude order.
+- **WCS and pipeline coverage:** A successful local solution is persisted as a standard linear TAN/CD WCS sidecar and is available from the normal pipeline, raw-preprocessing postprocess, and resume paths. The fallback needs `RA`, `DEC`, `FOCALLEN`, and `XPIXSZ` or `YPIXSZ`; it intentionally does not estimate SIP distortion terms.
+- **Astrometry diagnostics:** Phase events record `solver: local_gaia_dr3`, image/catalogue/inlier star counts, and reflection state on success. If both solvers fail, `local_gaia_error` and the same counters are retained in the `solve_failed` event and resume error instead of leaving the Gaia attempt invisible in the Run Monitor diagnostics.
+- **BGE draft migration:** Browser drafts saved before the removal of `bge.enabled` are migrated at every outgoing configuration boundary (validation, save, save-as, and run start). `bge.enabled: false` becomes `bge.method: none`; an enabled legacy draft preserves a non-`none` method or uses `classic`. The cleaned draft is written back to browser state so stale localStorage data cannot cause a persistent validation loop.
+
 ### (2026-08-23)
 
 **v0.4.9 — `bge.enabled` removal, PI/UI config sync fixes:**

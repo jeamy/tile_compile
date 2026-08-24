@@ -11,7 +11,7 @@ import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { getRunState, setRunState } from "../state/run-state.js";
 import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
-import { getConfigState, setConfigState, validateConfig } from "../state/config-state.js";
+import { getConfigState, setConfigState, validateConfig, getOutgoingConfig } from "../state/config-state.js";
 import { parseYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
@@ -1935,7 +1935,7 @@ async function startRun() {
     const astroStore = getStore("astrometry", {});
     const astapDataDir = astroStore.getState().astapDataDir || "";
 
-    let configYaml = getConfigState().draftYaml || getConfigState().configYaml || "";
+    let configYaml = getOutgoingConfig().yaml || getConfigState().configYaml || "";
     if (configYaml && pccCatalogDir) {
       configYaml = injectSirilCatalogDir(configYaml, pccCatalogDir);
     }

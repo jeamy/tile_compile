@@ -1,6 +1,7 @@
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -16,10 +17,12 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
 #include <optional>
 #include <opencv2/core/utility.hpp>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <io.h>
@@ -243,6 +246,456 @@ bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
   inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
   inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
   return true;
+}
+
+namespace {
+
+constexpr double kRadiansPerDegree = 0.017453292519943295769;
+
+double normalized_ra_delta_deg(double ra_deg, double reference_ra_deg) {
+  double delta = ra_deg - reference_ra_deg;
+  while (delta > 180.0) delta -= 360.0;
+  while (delta < -180.0) delta += 360.0;
+  return delta;
+}
+
+bool project_tan_arcsec(double ra_deg, double dec_deg, double center_ra_deg,
+                        double center_dec_deg, double &xi_arcsec,
+                        double &eta_arcsec) {
+  const double ra = (center_ra_deg + normalized_ra_delta_deg(ra_deg, center_ra_deg)) *
+                    kRadiansPerDegree;
+  const double dec = dec_deg * kRadiansPerDegree;
+  const double ra0 = center_ra_deg * kRadiansPerDegree;
+  const double dec0 = center_dec_deg * kRadiansPerDegree;
+  const double cos_delta_ra = std::cos(ra - ra0);
+  const double denominator = std::sin(dec) * std::sin(dec0) +
+                             std::cos(dec) * std::cos(dec0) * cos_delta_ra;
+  if (!std::isfinite(denominator) || denominator <= 1.0e-9) {
+    return false;
+  }
+  const double xi = std::cos(dec) * std::sin(ra - ra0) / denominator;
+  const double eta = (std::sin(dec) * std::cos(dec0) -
+                      std::cos(dec) * std::sin(dec0) * cos_delta_ra) / denominator;
+  xi_arcsec = xi / kRadiansPerDegree * 3600.0;
+  eta_arcsec = eta / kRadiansPerDegree * 3600.0;
+  return std::isfinite(xi_arcsec) && std::isfinite(eta_arcsec);
+}
+
+int count_catalog_inliers(const std::vector<registration::StarPoint> &image_stars,
+                          const std::vector<registration::StarPoint> &catalog_stars,
+                          const WarpMatrix &image_to_catalog,
+                          float max_residual_px) {
+  const float max_residual_sq = max_residual_px * max_residual_px;
+  int inliers = 0;
+  for (const auto &image_star : image_stars) {
+    const float x = image_to_catalog(0, 0) * image_star.x +
+                    image_to_catalog(0, 1) * image_star.y +
+                    image_to_catalog(0, 2);
+    const float y = image_to_catalog(1, 0) * image_star.x +
+                    image_to_catalog(1, 1) * image_star.y +
+                    image_to_catalog(1, 2);
+    float best_sq = std::numeric_limits<float>::infinity();
+    for (const auto &catalog_star : catalog_stars) {
+      const float dx = x - catalog_star.x;
+      const float dy = y - catalog_star.y;
+      best_sq = std::min(best_sq, dx * dx + dy * dy);
+    }
+    if (best_sq <= max_residual_sq) {
+      ++inliers;
+    }
+  }
+  return inliers;
+}
+
+bool refine_similarity_transform(const std::vector<registration::StarPoint> &image_stars,
+                                 const std::vector<registration::StarPoint> &catalog_stars,
+                                 WarpMatrix &image_to_catalog,
+                                 float max_residual_px) {
+  struct Pair {
+    float x, y, u, v;
+  };
+  std::vector<Pair> pairs;
+  const float max_residual_sq = max_residual_px * max_residual_px;
+  for (const auto &image_star : image_stars) {
+    const float x = image_to_catalog(0, 0) * image_star.x +
+                    image_to_catalog(0, 1) * image_star.y +
+                    image_to_catalog(0, 2);
+    const float y = image_to_catalog(1, 0) * image_star.x +
+                    image_to_catalog(1, 1) * image_star.y +
+                    image_to_catalog(1, 2);
+    const registration::StarPoint *nearest = nullptr;
+    float best_sq = max_residual_sq;
+    for (const auto &catalog_star : catalog_stars) {
+      const float dx = x - catalog_star.x;
+      const float dy = y - catalog_star.y;
+      const float residual_sq = dx * dx + dy * dy;
+      if (residual_sq <= best_sq) {
+        best_sq = residual_sq;
+        nearest = &catalog_star;
+      }
+    }
+    if (nearest) pairs.push_back({image_star.x, image_star.y, nearest->x, nearest->y});
+  }
+  if (pairs.size() < 12) return false;
+
+  double mean_x = 0.0, mean_y = 0.0, mean_u = 0.0, mean_v = 0.0;
+  for (const auto &pair : pairs) {
+    mean_x += pair.x;
+    mean_y += pair.y;
+    mean_u += pair.u;
+    mean_v += pair.v;
+  }
+  const double count = static_cast<double>(pairs.size());
+  mean_x /= count;
+  mean_y /= count;
+  mean_u /= count;
+  mean_v /= count;
+
+  double denominator = 0.0, a_numerator = 0.0, b_numerator = 0.0;
+  for (const auto &pair : pairs) {
+    const double dx = pair.x - mean_x;
+    const double dy = pair.y - mean_y;
+    const double du = pair.u - mean_u;
+    const double dv = pair.v - mean_v;
+    denominator += dx * dx + dy * dy;
+    a_numerator += dx * du + dy * dv;
+    b_numerator += dx * dv - dy * du;
+  }
+  if (!std::isfinite(denominator) || denominator <= 1.0e-6) return false;
+  const double a = a_numerator / denominator;
+  const double b = b_numerator / denominator;
+  if (!std::isfinite(a) || !std::isfinite(b) || std::hypot(a, b) < 0.8 ||
+      std::hypot(a, b) > 1.2) {
+    return false;
+  }
+  image_to_catalog(0, 0) = static_cast<float>(a);
+  image_to_catalog(0, 1) = static_cast<float>(-b);
+  image_to_catalog(1, 0) = static_cast<float>(b);
+  image_to_catalog(1, 1) = static_cast<float>(a);
+  image_to_catalog(0, 2) = static_cast<float>(mean_u - a * mean_x + b * mean_y);
+  image_to_catalog(1, 2) = static_cast<float>(mean_v - b * mean_x - a * mean_y);
+  return true;
+}
+
+bool pair_vote_similarity_match(const std::vector<registration::StarPoint> &image_stars,
+                                const std::vector<registration::StarPoint> &catalog_stars,
+                                WarpMatrix &best_transform, int &best_inliers) {
+  struct StarPair {
+    int first = 0;
+    int second = 0;
+    float distance = 0.0f;
+  };
+  struct Vote {
+    int count = 0;
+    double a = 0.0, b = 0.0, tx = 0.0, ty = 0.0;
+  };
+  constexpr int kCandidateStars = 160;
+  constexpr float kMinPairDistance = 80.0f;
+  constexpr float kMinScale = 0.85f;
+  constexpr float kMaxScale = 1.15f;
+  constexpr float kAngleBinRad = 0.5f * static_cast<float>(kRadiansPerDegree);
+  constexpr float kTranslationBinPx = 24.0f;
+
+  const int image_count = std::min(kCandidateStars, static_cast<int>(image_stars.size()));
+  const int catalog_count = std::min(kCandidateStars, static_cast<int>(catalog_stars.size()));
+  if (image_count < 16 || catalog_count < 16) return false;
+  auto build_pairs = [](const std::vector<registration::StarPoint> &stars, int count) {
+    std::vector<StarPair> pairs;
+    pairs.reserve(static_cast<size_t>(count * (count - 1) / 2));
+    for (int first = 0; first < count; ++first) {
+      for (int second = first + 1; second < count; ++second) {
+        const float dx = stars[second].x - stars[first].x;
+        const float dy = stars[second].y - stars[first].y;
+        const float distance = std::hypot(dx, dy);
+        if (distance >= kMinPairDistance) pairs.push_back({first, second, distance});
+      }
+    }
+    return pairs;
+  };
+  const auto image_pairs = build_pairs(image_stars, image_count);
+  auto catalog_pairs = build_pairs(catalog_stars, catalog_count);
+  if (image_pairs.empty() || catalog_pairs.empty()) return false;
+  std::sort(catalog_pairs.begin(), catalog_pairs.end(),
+            [](const StarPair &lhs, const StarPair &rhs) { return lhs.distance < rhs.distance; });
+
+  std::unordered_map<uint64_t, Vote> votes;
+  votes.reserve(image_pairs.size() * 4);
+  auto add_vote = [&](const registration::StarPoint &image_first,
+                      const registration::StarPoint &image_second,
+                      const registration::StarPoint &catalog_first,
+                      const registration::StarPoint &catalog_second) {
+    const float image_dx = image_second.x - image_first.x;
+    const float image_dy = image_second.y - image_first.y;
+    const float catalog_dx = catalog_second.x - catalog_first.x;
+    const float catalog_dy = catalog_second.y - catalog_first.y;
+    const float image_distance = std::hypot(image_dx, image_dy);
+    const float catalog_distance = std::hypot(catalog_dx, catalog_dy);
+    const float scale = catalog_distance / image_distance;
+    if (scale < kMinScale || scale > kMaxScale) return;
+    const float angle = std::atan2(catalog_dy, catalog_dx) -
+                        std::atan2(image_dy, image_dx);
+    const float a = scale * std::cos(angle);
+    const float b = scale * std::sin(angle);
+    const float tx = catalog_first.x - a * image_first.x + b * image_first.y;
+    const float ty = catalog_first.y - b * image_first.x - a * image_first.y;
+    const int angle_bin = static_cast<int>(std::lround(angle / kAngleBinRad));
+    const int tx_bin = static_cast<int>(std::lround(tx / kTranslationBinPx));
+    const int ty_bin = static_cast<int>(std::lround(ty / kTranslationBinPx));
+    const uint64_t key =
+        (static_cast<uint64_t>(static_cast<uint32_t>(angle_bin + 32768) & 0xffffU) << 32U) |
+        (static_cast<uint64_t>(static_cast<uint32_t>(tx_bin + 32768) & 0xffffU) << 16U) |
+        static_cast<uint64_t>(static_cast<uint32_t>(ty_bin + 32768) & 0xffffU);
+    auto &vote = votes[key];
+    ++vote.count;
+    vote.a += a;
+    vote.b += b;
+    vote.tx += tx;
+    vote.ty += ty;
+  };
+
+  for (const auto &image_pair : image_pairs) {
+    const float lower_distance = image_pair.distance * kMinScale;
+    const float upper_distance = image_pair.distance * kMaxScale;
+    const auto begin = std::lower_bound(
+        catalog_pairs.begin(), catalog_pairs.end(), lower_distance,
+        [](const StarPair &pair, float distance) { return pair.distance < distance; });
+    const auto end = std::upper_bound(
+        begin, catalog_pairs.end(), upper_distance,
+        [](float distance, const StarPair &pair) { return distance < pair.distance; });
+    for (auto it = begin; it != end; ++it) {
+      add_vote(image_stars[image_pair.first], image_stars[image_pair.second],
+               catalog_stars[it->first], catalog_stars[it->second]);
+      add_vote(image_stars[image_pair.first], image_stars[image_pair.second],
+               catalog_stars[it->second], catalog_stars[it->first]);
+    }
+  }
+  std::vector<Vote> ranked_votes;
+  ranked_votes.reserve(votes.size());
+  for (const auto &[key, vote] : votes) {
+    (void)key;
+    if (vote.count >= 3) ranked_votes.push_back(vote);
+  }
+  std::sort(ranked_votes.begin(), ranked_votes.end(),
+            [](const Vote &lhs, const Vote &rhs) { return lhs.count > rhs.count; });
+
+  best_inliers = 0;
+  const size_t attempts = std::min<size_t>(24, ranked_votes.size());
+  for (size_t index = 0; index < attempts; ++index) {
+    const auto &vote = ranked_votes[index];
+    const double count = static_cast<double>(vote.count);
+    WarpMatrix candidate;
+    candidate << static_cast<float>(vote.a / count), static_cast<float>(-vote.b / count),
+        static_cast<float>(vote.tx / count), static_cast<float>(vote.b / count),
+        static_cast<float>(vote.a / count), static_cast<float>(vote.ty / count);
+    if (!refine_similarity_transform(image_stars, catalog_stars, candidate, 14.0f)) continue;
+    refine_similarity_transform(image_stars, catalog_stars, candidate, 6.0f);
+    const int inliers = count_catalog_inliers(image_stars, catalog_stars, candidate, 4.0f);
+    if (inliers > best_inliers) {
+      best_inliers = inliers;
+      best_transform = candidate;
+    }
+  }
+  return best_inliers >= 16;
+}
+
+bool wcs_from_catalog_transform(const WarpMatrix &image_to_catalog,
+                                double center_ra_deg, double center_dec_deg,
+                                double nominal_scale_arcsec,
+                                bool reflected_catalog, int width, int height,
+                                astrometry::WCS &wcs) {
+  const double a = image_to_catalog(0, 0);
+  const double b = image_to_catalog(0, 1);
+  const double c = image_to_catalog(1, 0);
+  const double d = image_to_catalog(1, 1);
+  const double determinant = a * d - b * c;
+  if (!std::isfinite(determinant) || std::abs(determinant) < 1.0e-10) {
+    return false;
+  }
+
+  const double center_x = 0.5 * static_cast<double>(width - 1);
+  const double center_y = 0.5 * static_cast<double>(height - 1);
+  const double du = center_x - image_to_catalog(0, 2);
+  const double dv = center_y - image_to_catalog(1, 2);
+  const double reference_x = (d * du - b * dv) / determinant;
+  const double reference_y = (-c * du + a * dv) / determinant;
+  const double scale_deg = nominal_scale_arcsec / 3600.0;
+  const double eta_sign = reflected_catalog ? 1.0 : -1.0;
+
+  wcs.crpix1 = reference_x + 1.0;
+  wcs.crpix2 = reference_y + 1.0;
+  wcs.crval1 = center_ra_deg;
+  wcs.crval2 = center_dec_deg;
+  wcs.cd1_1 = scale_deg * a;
+  wcs.cd1_2 = scale_deg * b;
+  wcs.cd2_1 = eta_sign * scale_deg * c;
+  wcs.cd2_2 = eta_sign * scale_deg * d;
+  wcs.naxis1 = width;
+  wcs.naxis2 = height;
+  return wcs.valid() && std::isfinite(wcs.pixel_scale_arcsec()) &&
+         wcs.pixel_scale_arcsec() > 0.1 && wcs.pixel_scale_arcsec() < 30.0;
+}
+
+} // namespace
+
+LocalGaiaPlateSolveResult solve_with_local_gaia_catalog(const io::RGBImage &rgb) {
+  LocalGaiaPlateSolveResult out;
+  const int width = rgb.width > 0 ? rgb.width : static_cast<int>(rgb.R.cols());
+  const int height = rgb.height > 0 ? rgb.height : static_cast<int>(rgb.R.rows());
+  if (width <= 32 || height <= 32 || rgb.R.rows() != height || rgb.R.cols() != width ||
+      rgb.G.rows() != height || rgb.G.cols() != width ||
+      rgb.B.rows() != height || rgb.B.cols() != width) {
+    out.error_message = "invalid_rgb_dimensions";
+    return out;
+  }
+
+  auto ra_opt = rgb.header.get_double("RA");
+  const auto dec_opt = rgb.header.get_double("DEC");
+  const auto focal_opt = rgb.header.get_double("FOCALLEN");
+  auto pixel_size_opt = rgb.header.get_double("XPIXSZ");
+  if (!pixel_size_opt) pixel_size_opt = rgb.header.get_double("YPIXSZ");
+  if (!ra_opt || !dec_opt || !focal_opt || !pixel_size_opt ||
+      !std::isfinite(*ra_opt) || !std::isfinite(*dec_opt) ||
+      !std::isfinite(*focal_opt) || !std::isfinite(*pixel_size_opt) ||
+      *focal_opt <= 0.0 || *pixel_size_opt <= 0.0) {
+    out.error_message = "missing_pointing_or_optics_metadata";
+    return out;
+  }
+
+  double center_ra_deg = *ra_opt;
+  if (center_ra_deg >= 0.0 && center_ra_deg <= 24.0) {
+    center_ra_deg *= 15.0;
+  }
+  if (center_ra_deg < 0.0 || center_ra_deg >= 360.0 || *dec_opt < -90.0 ||
+      *dec_opt > 90.0) {
+    out.error_message = "invalid_pointing_metadata";
+    return out;
+  }
+  const double nominal_scale_arcsec = 206.26480624709636 * *pixel_size_opt / *focal_opt;
+  if (!std::isfinite(nominal_scale_arcsec) || nominal_scale_arcsec < 0.1 ||
+      nominal_scale_arcsec > 30.0) {
+    out.error_message = "invalid_optical_scale";
+    return out;
+  }
+
+  const std::string catalog_dir = astrometry::default_siril_gaia_catalog_dir();
+  if (!astrometry::is_siril_gaia_catalog_available(catalog_dir)) {
+    out.error_message = "local_gaia_catalog_unavailable";
+    return out;
+  }
+
+  Matrix2Df luma = (rgb.R + rgb.G + rgb.B) / 3.0f;
+  auto image_stars = registration::detect_stars_simple(luma, 2000, true);
+  out.image_stars = static_cast<int>(image_stars.size());
+  if (image_stars.size() < 24) {
+    out.error_message = "too_few_image_stars";
+    return out;
+  }
+
+  const double diagonal_radius_deg = 0.5 * std::hypot(width, height) *
+                                     nominal_scale_arcsec / 3600.0 + 0.5;
+  auto gaia_stars = astrometry::siril_gaia_cone_search(
+      catalog_dir, center_ra_deg, *dec_opt, diagonal_radius_deg, 12.5);
+  std::sort(gaia_stars.begin(), gaia_stars.end(),
+            [](const astrometry::GaiaStar &lhs, const astrometry::GaiaStar &rhs) {
+              return lhs.mag < rhs.mag;
+            });
+  if (gaia_stars.size() > 2000) gaia_stars.resize(2000);
+  out.catalog_stars = static_cast<int>(gaia_stars.size());
+  if (gaia_stars.size() < 24) {
+    out.error_message = "too_few_local_gaia_stars";
+    return out;
+  }
+
+  const float center_x = 0.5f * static_cast<float>(width - 1);
+  const float center_y = 0.5f * static_cast<float>(height - 1);
+  for (const bool reflected : {false, true}) {
+    std::vector<registration::StarPoint> catalog_points;
+    catalog_points.reserve(gaia_stars.size());
+    for (const auto &gaia_star : gaia_stars) {
+      double xi_arcsec = 0.0;
+      double eta_arcsec = 0.0;
+      if (!project_tan_arcsec(gaia_star.ra, gaia_star.dec, center_ra_deg, *dec_opt,
+                              xi_arcsec, eta_arcsec)) {
+        continue;
+      }
+      const float x = center_x + static_cast<float>(xi_arcsec / nominal_scale_arcsec);
+      const float y_north_down = center_y -
+                                 static_cast<float>(eta_arcsec / nominal_scale_arcsec);
+      const float y = reflected ? static_cast<float>(height - 1) - y_north_down
+                                : y_north_down;
+      if (x < -0.25f * width || x > 1.25f * width || y < -0.25f * height ||
+          y > 1.25f * height) {
+        continue;
+      }
+      catalog_points.push_back({x, y, -gaia_star.mag});
+    }
+    if (catalog_points.size() < 24) continue;
+
+    const auto registration_result = registration::triangle_star_matching(
+        luma, luma, true, 2000, 8, 4.0f, "similarity", true,
+        static_cast<float>(std::hypot(width, height)), &image_stars, &catalog_points);
+    WarpMatrix image_to_catalog;
+    int inliers = 0;
+    if (registration_result.success &&
+        invert_affine_warp(registration_result.warp, image_to_catalog)) {
+      inliers = count_catalog_inliers(image_stars, catalog_points,
+                                      image_to_catalog, 5.0f);
+    }
+    // The generic triangle matcher deliberately limits itself to the 60
+    // brightest stars.  A stacked wide-field image can order detections and
+    // Gaia magnitudes differently, so independently vote for a similarity
+    // transform from pair distances across 160 stars before giving up.
+    WarpMatrix pair_vote_transform;
+    int pair_vote_inliers = 0;
+    if (pair_vote_similarity_match(image_stars, catalog_points,
+                                   pair_vote_transform, pair_vote_inliers) &&
+        pair_vote_inliers > inliers) {
+      image_to_catalog = pair_vote_transform;
+      inliers = pair_vote_inliers;
+    }
+    if (inliers < 16 || inliers <= out.inlier_stars) continue;
+
+    astrometry::WCS candidate_wcs;
+    if (!wcs_from_catalog_transform(image_to_catalog, center_ra_deg, *dec_opt,
+                                    nominal_scale_arcsec, reflected, width, height,
+                                    candidate_wcs)) {
+      continue;
+    }
+    out.success = true;
+    out.wcs = candidate_wcs;
+    out.inlier_stars = inliers;
+    out.reflected_solution = reflected;
+    out.error_message.clear();
+  }
+
+  if (!out.success) {
+    out.error_message = "local_gaia_match_failed";
+  }
+  return out;
+}
+
+bool write_wcs_sidecar(const astrometry::WCS &wcs, const fs::path &path) {
+  if (!wcs.valid()) return false;
+  std::ofstream out(path, std::ios::trunc);
+  if (!out.is_open()) return false;
+  out.imbue(std::locale::classic());
+  out << std::setprecision(15)
+      << "NAXIS1  = " << wcs.naxis1 << '\n'
+      << "NAXIS2  = " << wcs.naxis2 << '\n'
+      << "CRPIX1  = " << wcs.crpix1 << '\n'
+      << "CRPIX2  = " << wcs.crpix2 << '\n'
+      << "CRVAL1  = " << wcs.crval1 << '\n'
+      << "CRVAL2  = " << wcs.crval2 << '\n'
+      << "CD1_1   = " << wcs.cd1_1 << '\n'
+      << "CD1_2   = " << wcs.cd1_2 << '\n'
+      << "CD2_1   = " << wcs.cd2_1 << '\n'
+      << "CD2_2   = " << wcs.cd2_2 << '\n'
+      << "CTYPE1  = 'RA---TAN'" << '\n'
+      << "CTYPE2  = 'DEC--TAN'" << '\n'
+      << "CUNIT1  = 'deg'" << '\n'
+      << "CUNIT2  = 'deg'" << '\n'
+      << "EQUINOX = 2000.0" << '\n';
+  return out.good();
 }
 
 /// @brief Computes warps bounds.

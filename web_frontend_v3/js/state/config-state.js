@@ -23,6 +23,27 @@ export function getConfigState() { return store.getState(); }
 export function setConfigState(patch) { store.setState(patch); }
 export function markDirty() { store.setState({ dirty: true }); }
 
+// `config-state` (including `draft`/`draftYaml`) is persisted to
+// localStorage (see state/store.js PERSIST_LOCAL), so a draft saved to the
+// browser before bge.enabled was removed from the schema can sit there
+// indefinitely -- and loadConfig() now deliberately skips re-fetching from
+// disk while `dirty` is true (see pages/parameter.js), so a stale draft
+// with bge.enabled never self-heals just by revisiting the Parameter tab.
+// Migrate it defensively wherever the draft is about to leave the browser
+// (validate/save), so a leftover legacy field never round-trips as an
+// unfixable "Validation error: bge.enabled is no longer supported" loop.
+function migrateLegacyBgeEnabled(draft) {
+  if (!draft || typeof draft.bge !== "object" || draft.bge === null || !("enabled" in draft.bge)) {
+    return false;
+  }
+  const wasEnabled = draft.bge.enabled;
+  draft.bge.method = wasEnabled
+    ? (draft.bge.method && draft.bge.method !== "none" ? draft.bge.method : "classic")
+    : "none";
+  delete draft.bge.enabled;
+  return true;
+}
+
 function flattenSchemaPaths(node, prefix = [], out = new Set()) {
   if (!node || typeof node !== "object" || !node.properties || typeof node.properties !== "object") return out;
   for (const [key, value] of Object.entries(node.properties)) {
@@ -80,11 +101,42 @@ export async function loadConfig() {
   }
 }
 
+// Returns {draft, yaml} for the current draft, migrating any legacy
+// bge.enabled found in it first and writing the migration back to the
+// store (which also re-persists the sanitized draft to localStorage) so
+// every subsequent reader -- Start, Resume, Save, Save As, PI action-plan
+// preview, etc. -- sees the fixed value instead of re-discovering the same
+// stale field on every call. Use this (not `store.getState().draftYaml`
+// directly) anywhere a draft is about to be sent to the backend.
+export function getOutgoingConfig() {
+  let { draft, draftYaml } = store.getState();
+  if (draft && migrateLegacyBgeEnabled(draft)) {
+    draftYaml = stringifyYaml(draft);
+    store.setState({ draft, draftYaml });
+  } else if (draftYaml) {
+    // Normally both representations are updated together. Still inspect the
+    // serialized form as well so a partially persisted/older localStorage
+    // entry cannot bypass the migration merely because its parsed draft is
+    // missing or already differs from draftYaml.
+    try {
+      const parsed = parseYaml(draftYaml);
+      if (migrateLegacyBgeEnabled(parsed)) {
+        draft = parsed;
+        draftYaml = stringifyYaml(parsed);
+        store.setState({ draft, draftYaml });
+      }
+    } catch {
+      // Keep malformed YAML unchanged; backend validation must report the
+      // actual syntax error instead of this compatibility migration hiding it.
+    }
+  }
+  return { draft, yaml: draftYaml || (draft ? stringifyYaml(draft) : "") };
+}
+
 export async function validateConfig() {
-  const { draft, draftYaml } = store.getState();
-  if (!draft && !draftYaml) return null;
+  const { draft, yaml: yamlText } = getOutgoingConfig();
+  if (!draft && !yamlText) return null;
   try {
-    const yamlText = draftYaml || stringifyYaml(draft);
     const result = await api.post(API_ENDPOINTS.config.validate, { yaml: yamlText });
     store.setState({ validation: result });
     return result;
@@ -95,10 +147,9 @@ export async function validateConfig() {
 }
 
 export async function saveConfig() {
-  const { draft, draftYaml } = store.getState();
-  if (!draft && !draftYaml) return null;
+  const { draft, yaml: yamlText } = getOutgoingConfig();
+  if (!draft && !yamlText) return null;
   try {
-    const yamlText = draftYaml || stringifyYaml(draft);
     const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText });
     store.setState({ config: deepClone(draft), configYaml: yamlText, dirty: false });
     return result;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
+#include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
@@ -22,9 +23,37 @@
 
 namespace tile_compile::io {
 struct FitsHeader;
+struct RGBImage;
 }
 
 namespace tile_compile::runner {
+
+/// Result of the native near-solve that matches detected image stars against
+/// the installed Siril-format Gaia DR3 catalogue.  This is deliberately a
+/// local fallback: it needs valid approximate pointing and optical metadata,
+/// but never starts Siril or makes a network request.
+struct LocalGaiaPlateSolveResult {
+  bool success = false;
+  astrometry::WCS wcs;
+  int image_stars = 0;
+  int catalog_stars = 0;
+  int inlier_stars = 0;
+  bool reflected_solution = false;
+  std::string error_message;
+};
+
+/// Solve an RGB FITS image against the locally installed Gaia DR3 catalogue.
+/// The header must provide RA, DEC, FOCALLEN and XPIXSZ/YPIXSZ.  The returned
+/// WCS uses the regular FITS TAN/CD convention and is safe to persist in the
+/// same way as an ASTAP WCS result.
+LocalGaiaPlateSolveResult solve_with_local_gaia_catalog(
+    const io::RGBImage &rgb);
+
+/// Persist a WCS as a FITS-card compatible sidecar that parse_wcs_file can
+/// read.  Used for native solutions because no external solver created a WCS
+/// file to copy into the run artifacts.
+bool write_wcs_sidecar(const astrometry::WCS &wcs,
+                       const std::filesystem::path &path);
 
 /// Aggregate local tile metrics across multiple frames into a single median-based profile.
 std::vector<tile_compile::TileMetrics> aggregate_tile_metrics_across_frames(

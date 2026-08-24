@@ -2271,6 +2271,15 @@ Das Verhalten ist fest:
 
 **Zweck:** Aktiviert Plate Solving (WCS).
 
+**Fallback-Verhalten:** Zuerst wird ASTAP verwendet. Liefert dessen Quad-Matching
+keine WCS, versucht der Runner lokal und ohne Netzwerkzugriff einen Near-Solve
+gegen den bereits fuer PCC installierten Siril/Gaia-DR3-Katalog. Dafuer muessen
+im RGB-Stack `RA`, `DEC`, `FOCALLEN` sowie `XPIXSZ` oder `YPIXSZ` vorhanden
+sein. Der Fallback schaetzt nur eine lineare TAN/CD-WCS; SIP-Verzerrungen
+werden nicht erzeugt. Ist der lokale Gaia-Katalog nicht installiert oder die
+Sternzuordnung nicht robust genug, bleibt die bisherige `solve_failed`-Behandlung
+erhalten.
+
 ---
 
 ### `astrometry.astap_bin`

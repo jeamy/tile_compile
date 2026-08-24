@@ -2161,6 +2161,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     std::cout << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
     int ret = std::system(runner::system_cmd(cmd).c_str());
+    std::string astrometry_solver = "astap";
+    int local_gaia_image_stars = 0;
+    int local_gaia_catalog_stars = 0;
+    int local_gaia_inlier_stars = 0;
+    bool local_gaia_reflected = false;
+    std::string local_gaia_error = "not_attempted";
 
     if (ret == 0 && fs::exists(wcs_out)) {
       try {
@@ -2203,6 +2209,34 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
     }
 
+    if (!have_wcs) {
+      try {
+        const auto local_gaia = runner::solve_with_local_gaia_catalog(rgb);
+        local_gaia_image_stars = local_gaia.image_stars;
+        local_gaia_catalog_stars = local_gaia.catalog_stars;
+        local_gaia_inlier_stars = local_gaia.inlier_stars;
+        local_gaia_reflected = local_gaia.reflected_solution;
+        local_gaia_error = local_gaia.error_message;
+        if (local_gaia.success && runner::write_wcs_sidecar(local_gaia.wcs, wcs_out)) {
+          wcs = local_gaia.wcs;
+          have_wcs = true;
+          astrometry_solver = "local_gaia_dr3";
+          std::cout << "[ASTROMETRY][resume] Local Gaia DR3 fallback solved: image_stars="
+                    << local_gaia_image_stars << " catalog_stars="
+                    << local_gaia_catalog_stars << " inliers="
+                    << local_gaia_inlier_stars << " reflected="
+                    << (local_gaia_reflected ? "true" : "false") << std::endl;
+        } else {
+          std::cout << "[ASTROMETRY][resume] Local Gaia DR3 fallback failed: "
+                    << local_gaia.error_message << std::endl;
+        }
+      } catch (const std::exception &e) {
+        local_gaia_error = e.what();
+        std::cerr << "[ASTROMETRY][resume] Local Gaia DR3 fallback error: "
+                  << e.what() << std::endl;
+      }
+    }
+
     if (have_wcs) {
       fs::path wcs_artifact = run_dir / "artifacts" / "stacked_rgb.wcs";
       try {
@@ -2213,10 +2247,15 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       }
 
       emitter.phase_end(run_id, Phase::ASTROMETRY, "ok",
-                        {{"ra", wcs.crval1},
+                        {{"solver", astrometry_solver},
+                         {"ra", wcs.crval1},
                          {"dec", wcs.crval2},
                          {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
                          {"rotation_deg", wcs.rotation_deg()},
+                         {"local_gaia_image_stars", local_gaia_image_stars},
+                         {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                         {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                         {"local_gaia_reflected", local_gaia_reflected},
                          {"wcs_file",
                           (run_dir / "artifacts" / "stacked_rgb.wcs")
                               .string()}},
@@ -2239,9 +2278,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         return true;
       } else {
         astrometry_resume_error =
-            "astap plate solve failed (exit code " + std::to_string(ret) + ")";
+            "astap plate solve failed (exit code " + std::to_string(ret) +
+            "); local Gaia DR3 fallback: " + local_gaia_error;
         emitter.phase_end(run_id, Phase::ASTROMETRY, "error",
-                          {{"reason", "solve_failed"}, {"exit_code", ret}},
+                          {{"reason", "solve_failed"},
+                           {"exit_code", ret},
+                           {"local_gaia_error", local_gaia_error},
+                           {"local_gaia_image_stars", local_gaia_image_stars},
+                           {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                           {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                           {"local_gaia_reflected", local_gaia_reflected}},
                           log_file);
         return false;
       }

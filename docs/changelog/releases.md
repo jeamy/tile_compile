@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.A (2026-08-24)
+
+**Native local Gaia DR3 astrometry fallback and BGE draft compatibility:**
+
+- ASTAP remains the primary solver. When it cannot produce a WCS, Tile Compile now solves locally against the PCC-installed Siril/Gaia DR3 catalogue, without starting Siril or using the network.
+- The fallback combines triangle matching with pair-distance voting and similarity refinement for difficult wide-field stacks. It writes a linear TAN/CD WCS and is used by normal runs, preprocessing postprocess, and resumes.
+- Astrometry events now identify the selected solver and record Gaia image/catalogue/inlier counts. A failed fallback records its specific error in `solve_failed` diagnostics.
+- Stale browser drafts containing the removed `bge.enabled` key are migrated to `bge.method` before validate, save, save-as, or run start, preventing legacy localStorage drafts from failing validation indefinitely.
+
 ## v0.4.9 (2026-08-23)
 
 **BGE `enabled` removal and UI/PI config sync fixes:**

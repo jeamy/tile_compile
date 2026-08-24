@@ -3,7 +3,7 @@
 import { el, clear } from "../utils/dom.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { goToSubTab } from "../utils/navigation.js";
-import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, humanizeCategory, setConfigState, markDirty, deepClone } from "../state/config-state.js";
+import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, getOutgoingConfig, humanizeCategory, setConfigState, markDirty, deepClone } from "../state/config-state.js";
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
@@ -694,8 +694,8 @@ async function doSave() {
 }
 
 async function doSaveAs() {
-  const { draft, draftYaml } = getConfigState();
-  if (!draft && !draftYaml) return;
+  const { draft, yaml } = getOutgoingConfig();
+  if (!draft && !yaml) return;
 
   // Build modal dialog
   const overlay = el("div", {
@@ -835,7 +835,7 @@ async function doSaveAs() {
       overlay.remove();
       toast(t("ui.toast.saving", "Speichere..."), "", "info");
       try {
-        const yamlText = draftYaml || stringifyYaml(draft);
+        const { yaml: yamlText } = getOutgoingConfig();
         const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText, path: fullPath });
         toastSuccess(t("ui.toast.saved", "Config saved"), result?.path || fullPath);
         loadPresets();

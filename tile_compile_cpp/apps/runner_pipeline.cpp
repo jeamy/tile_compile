@@ -5809,6 +5809,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           {{"reason", "astap_not_found"},
                            {"astap_bin", cfg.astrometry.astap_bin.empty() ? astap_data + "/astap_cli" : cfg.astrometry.astap_bin}}, log_file);
       } else {
+        std::string astrometry_solver = "astap";
+        int local_gaia_image_stars = 0;
+        int local_gaia_catalog_stars = 0;
+        int local_gaia_inlier_stars = 0;
+        bool local_gaia_reflected = false;
+        std::string local_gaia_error = "not_attempted";
         const auto astap_stamp =
             std::chrono::steady_clock::now().time_since_epoch().count();
         fs::path astap_output_prefix =
@@ -5869,6 +5875,40 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
+        // ASTAP's quad matcher is intentionally retained as the fast primary
+        // solver.  Some wide-field OSC stacks are nevertheless solvable only
+        // by catalogue matching.  Reuse the locally installed Gaia DR3 data
+        // already used by PCC; this is an in-process fallback, not a Siril
+        // invocation and never requires a network connection.
+        if (!have_wcs) {
+          try {
+            const io::RGBImage solve_rgb = io::read_fits_rgb(stacked_rgb_solve_path);
+            const auto local_gaia = runner::solve_with_local_gaia_catalog(solve_rgb);
+            local_gaia_image_stars = local_gaia.image_stars;
+            local_gaia_catalog_stars = local_gaia.catalog_stars;
+            local_gaia_inlier_stars = local_gaia.inlier_stars;
+            local_gaia_reflected = local_gaia.reflected_solution;
+            local_gaia_error = local_gaia.error_message;
+            if (local_gaia.success && runner::write_wcs_sidecar(local_gaia.wcs, wcs_path)) {
+              wcs = local_gaia.wcs;
+              have_wcs = true;
+              astrometry_solver = "local_gaia_dr3";
+              std::cout << "[ASTROMETRY] Local Gaia DR3 fallback solved: image_stars="
+                        << local_gaia_image_stars << " catalog_stars="
+                        << local_gaia_catalog_stars << " inliers="
+                        << local_gaia_inlier_stars << " reflected="
+                        << (local_gaia_reflected ? "true" : "false") << std::endl;
+            } else {
+              std::cout << "[ASTROMETRY] Local Gaia DR3 fallback failed: "
+                        << local_gaia.error_message << std::endl;
+            }
+          } catch (const std::exception &e) {
+            local_gaia_error = e.what();
+            std::cerr << "[ASTROMETRY] Local Gaia DR3 fallback error: "
+                      << e.what() << std::endl;
+          }
+        }
+
         if (have_wcs) {
           // Inject WCS keywords into first_hdr so all subsequent
           // FITS outputs (PCC etc.) inherit the astrometric solution.
@@ -5913,18 +5953,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
 
           emitter.phase_end(run_id, Phase::ASTROMETRY, "ok",
-                            {{"ra", wcs.crval1},
+                            {{"solver", astrometry_solver},
+                             {"ra", wcs.crval1},
                              {"dec", wcs.crval2},
                              {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
                              {"rotation_deg", wcs.rotation_deg()},
                              {"fov_w_deg", wcs.fov_width_deg()},
                              {"fov_h_deg", wcs.fov_height_deg()},
-                             {"wcs_file", wcs_artifact.string()}},
+                             {"wcs_file", wcs_artifact.string()},
+                             {"local_gaia_image_stars", local_gaia_image_stars},
+                             {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                             {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                             {"local_gaia_reflected", local_gaia_reflected}},
                             log_file);
         } else {
           emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
                             {{"reason", "solve_failed"},
-                             {"exit_code", ret}}, log_file);
+                             {"exit_code", ret},
+                             {"local_gaia_error", local_gaia_error},
+                             {"local_gaia_image_stars", local_gaia_image_stars},
+                             {"local_gaia_catalog_stars", local_gaia_catalog_stars},
+                             {"local_gaia_inlier_stars", local_gaia_inlier_stars},
+                             {"local_gaia_reflected", local_gaia_reflected}}, log_file);
         }
       }
     }

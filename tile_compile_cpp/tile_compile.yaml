@@ -99,7 +99,6 @@ bge:
     holdout_fraction: 0.25
     max_evals: 24
     strategy: extended
-  enabled: false
   fit:
     huber_delta: 1.5
     irls_max_iterations: 10
@@ -133,12 +132,12 @@ calibration:
   dark_match_exposure_tolerance_percent: 10
   dark_match_temp_tolerance_c: 5
   dark_match_use_temp: false
-  dark_use_master: false
+  dark_use_master: true
   flat_use_master: false
   use_bias: false
-  use_dark: false
+  use_dark: true
   use_flat: false
-  dark_master: 
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_80_bin_1_stack_10.fits
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:

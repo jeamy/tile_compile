@@ -2035,6 +2035,14 @@ Astrometry solving settings.
 
 **Purpose:** Enable/disable astrometry solving.
 
+**Fallback behaviour:** ASTAP is tried first. If its quad matcher does not
+produce a WCS, the runner performs an offline near-solve against the
+Siril/Gaia DR3 catalogue already installed for PCC. The RGB stack must contain
+`RA`, `DEC`, `FOCALLEN`, and either `XPIXSZ` or `YPIXSZ`. The fallback produces
+a linear TAN/CD WCS only; it does not create SIP distortion terms. If the local
+Gaia catalogue is unavailable or the star match is not robust, the existing
+`solve_failed` behaviour is retained.
+
 ### `astrometry.astap_bin`
 
 | Property | Value |
