@@ -3407,7 +3407,7 @@
 </span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>                       │
 </span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>┌──────────────────────▼───────────────────────────────┐
 </span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>│  ASTROMETRY (Phase 14)                               │
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>│  • ASTAP solve / WCS                                 │
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>│  • ASTAP, local Gaia fallback / WCS                  │
 </span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>│  • WCS-Header in RGB-Outputs                         │
 </span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>└──────────────────────┬───────────────────────────────┘
 </span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>                       │
@@ -3866,7 +3866,7 @@ Reduced-Mode für das Ergebnis aus <code>TILE_RECONSTRUCTION</code>.</p>
 </table>
 <hr />
 <h2 id="phase-14-astrometry">Phase 14: ASTROMETRY<a class="headerlink" href="#phase-14-astrometry" title="Permanent link">&para;</a></h2>
-<p>Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgeführt. Bei Erfolg:</p>
+<p>Wenn aktiviert und RGB-Daten vorhanden sind, wird zunächst ein ASTAP-Plate-Solve ausgeführt. Liefert ASTAP keine gültige WCS, gleicht der Runner die erkannten Sterne nativ gegen den lokal für PCC installierten Gaia-DR3-Katalog ab. Dafür sind <code>RA</code>, <code>DEC</code>, <code>FOCALLEN</code> sowie <code>XPIXSZ</code> oder <code>YPIXSZ</code> im RGB-Stack erforderlich; Siril wird nicht gestartet und es findet keine Netzabfrage statt. Bei Erfolg:</p>
 <ul>
 <li>WCS wird aus <code>.wcs</code> geparst</li>
 <li>WCS-Header in <code>first_hdr</code> injiziert</li>
@@ -3877,8 +3877,7 @@ Reduced-Mode für das Ergebnis aus <code>TILE_RECONSTRUCTION</code>.</p>
 <h2 id="bge-optional-zwischen-astrometry-und-pcc">BGE (optional, zwischen ASTROMETRY und PCC)<a class="headerlink" href="#bge-optional-zwischen-astrometry-und-pcc" title="Permanent link">&para;</a></h2>
 <p>BGE wird ausgeführt, wenn:</p>
 <ul>
-<li><code>cfg.bge.method</code> auf <code>classic</code> oder <code>autobge</code> steht</li>
-<li>Legacy-Kompatibilität: fehlt <code>bge.method</code>, dann entspricht <code>bge.enabled=true</code> der Methode <code>classic</code></li>
+<li><code>cfg.bge.method</code> auf <code>classic</code> oder <code>autobge</code> steht (einziger Ein-/Ausschalter; <code>bge.enabled</code> existiert nicht mehr)</li>
 <li>RGB-Daten vorhanden sind (<code>have_rgb</code>)</li>
 <li>tile-basierte Metrik-/Grid-Daten verfügbar und konsistent sind</li>
 </ul>

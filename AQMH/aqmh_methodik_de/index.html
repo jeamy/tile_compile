@@ -3348,12 +3348,13 @@
 <p><code>Phi_artifact_s = 1</code> bedeutet eine saubere Region; <code>Phi_artifact_s = 0</code> bedeutet, dass mindestens <code>frac_artifact_max</code> (Default 25%) der Pixel im Fenster Outlier sind.</p>
 <h4 id="233-qualitaetskarte-pro-skala">2.3.3 Qualitaetskarte pro Skala<a class="headerlink" href="#233-qualitaetskarte-pro-skala" title="Permanent link">&para;</a></h4>
 <p>Die Qualitaetskarte pro Skala <code>Psi_s(x,y)</code> ist definiert als:</p>
-<p><code>Psi_s(x,y) = sigmoid(w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s)) * Phi_artifact_s(x,y)</code></p>
+<p><code>Psi_s(x,y) = sigmoid(score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))) * Phi_artifact_s(x,y)</code></p>
 <p>wobei:</p>
 <ul>
 <li><code>z(Phi)</code> die robuste z-score-Normalisierung ist: <code>z(Phi)(x,y) = (Phi(x,y) - median(Phi_s)) / max(1.4826 * MAD(Phi_s), eps_aqmh)</code>, angewendet ueber alle endlichen, canvas-gueltigen Pixel auf Skala <code>s</code></li>
 <li><code>sigmoid(v) = 1 / (1 + exp(-v))</code></li>
 <li><code>w_sharp</code>, <code>w_snr</code> konfigurierbare Gewichte sind (spezifizierte Defaults: <code>w_sharp = 0.6</code>, <code>w_snr = 0.4</code>)</li>
+<li><code>score_scale</code> die lokale Sigmoid-Temperatur ist (aktueller Betriebsdefault: <code>1.8</code>, muss <code>&gt; 0</code> sein)</li>
 <li>der Artefaktterm <code>Phi_artifact_s</code> als multiplikatives Gate wirkt: Er unterdrueckt Regionen mit zu hoher Outlier-Dichte unabhaengig von Schaerfe oder SNR.</li>
 </ul>
 <p>Bindende Bedingung: <code>Psi_s(x,y) in [0, 1]</code> fuer alle endlichen Eingaben. Der Sigmoid-Term ist strikt positiv, aber das multiplikative Artefakt-Gate kann <code>Psi_s</code> exakt auf null setzen.</p>
@@ -3540,10 +3541,22 @@
 </ol>
 <p>Diese Regionen werden im Diagnoseartefakt <code>aqmh_regions.json</code> pro Frame berichtet.</p>
 <h3 id="53-optionaler-cherry-pick-stacking-modus">5.3 Optionaler Cherry-Pick-Stacking-Modus<a class="headerlink" href="#53-optionaler-cherry-pick-stacking-modus" title="Permanent link">&para;</a></h3>
-<p>Wenn <code>aqmh.cherry_pick.enabled = true</code>, verwendet pixelweises Stacking nur die <strong>Top-K Frames</strong> nach Qualitaet statt aller Frames:</p>
-<p><code>K(p) = min(N_valid(p), max(k_min, floor(k_frac * N_valid(p))))</code></p>
-<p>wobei <code>N_valid(p) = |V_c^{I}(p)|</code> die Anzahl endlicher Intensitaetssamples an Pixel <code>p</code> ist (die Intensitaets-Sample-Menge aus Abschnitt 4.3), mit spezifizierten Defaults <code>k_min = 3</code>, <code>k_frac = 0.3</code>.</p>
-<p>Fuer jedes Pixel <code>p</code> sortiere <code>V_c^{I}(p)</code> nach dem cross-frame kalibrierten Score <code>S_f(p) = G_{f,c} * Q_map_{f,c}(p)</code> absteigend und behalte nur die Top-<code>K(p)</code> Frames. Frames mit nicht verfuegbaren/nicht-endlichen Maps erhalten <code>S_f(p) = 0</code>. Die gewichtete Rekonstruktion laeuft ueber diese reduzierte Menge.</p>
+<p>Wenn <code>aqmh.cherry_pick.enabled = true</code>, verwendet pixelweises Stacking einen
+explizit berichteten Selektionsmodus. Standard ist <code>mode = auto_reject</code>: AQMH
+behaelt die meisten lokal nutzbaren Frames und verwirft nur klare lokale
+Low-Score-Ausreisser.</p>
+<p>Fuer jedes Pixel <code>p</code> werden rankbare Samples nach dem cross-frame kalibrierten
+Score <code>S_f(p) = G_{f,c} * Q_map_{f,c}(p)</code> bewertet. Im Modus <code>auto_reject</code>
+gelten:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>S_best(p) = max_f S_f(p)
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>T(p) = reject_below_best_fraction * S_best(p)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+</span></code></pre></div>
+<p>Samples unterhalb <code>T(p)</code> sind verwerfbar, aber mindestens <code>K_floor(p)</code> Samples
+bleiben erhalten. Ist der Score-Abstand zwischen letztem behaltenen und erstem
+verworfenen Sample kleiner als <code>margin_min</code>, wird lokal nichts verworfen.</p>
+<p><code>mode = top_k</code> bleibt als Legacy-Regel verfuegbar:</p>
+<p><code>K(p) = min(N_valid(p), max(k_min_required, floor(k_frac * N_valid(p))))</code></p>
 <p><strong>Warnung (bindend):</strong> Cherry-Pick-Modus verletzt die Default-AQMH-No-Frame-Selection-Invariante auf Pixelebene, auch wenn er keine ganzen Frames verwirft. Er darf nur verwendet werden, wenn der Nutzer ihn explizit aktiviert, und muss in Diagnoseausgaben klar markiert werden. Default ist <code>disabled</code>.</p>
 <hr />
 <h2 id="6-qualitaetskarten-diagnostik">6. Qualitaetskarten-Diagnostik<a class="headerlink" href="#6-qualitaetskarten-diagnostik" title="Permanent link">&para;</a></h2>
@@ -3605,43 +3618,47 @@
 <hr />
 <h2 id="7-konfiguration">7. Konfiguration<a class="headerlink" href="#7-konfiguration" title="Permanent link">&para;</a></h2>
 <h3 id="71-top-level-schalter">7.1 Top-Level-Schalter<a class="headerlink" href="#71-top-level-schalter" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aqmh</span><span class="w">              </span><span class="c1"># optionaler expliziter Methodenschluessel: classic_tile_compile | aqmh</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">aqmh</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">        </span><span class="c1"># default: disabled until validated</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aqmh</span><span class="w">              </span><span class="c1"># optionaler expliziter Methodenschluessel: classic_tile_compile | aqmh</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">        </span><span class="c1"># default: disabled until validated</span>
 </span></code></pre></div>
 <p>Wenn <code>aqmh.enabled: false</code>, werden alle AQMH-Berechnungen uebersprungen. Wenn die Implementierung noch keinen expliziten Top-Level-<code>method</code>-Schluessel unterstuetzt, muss der Runtime-Status trotzdem die abgeleitete Methode anzeigen: <code>aqmh.enabled = false</code> bedeutet <code>classic_tile_compile</code>, und <code>aqmh.enabled = true</code> bedeutet <code>aqmh</code>.</p>
 <h3 id="72-pyramidenkonfiguration">7.2 Pyramidenkonfiguration<a class="headerlink" href="#72-pyramidenkonfiguration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">aqmh</span><span class="p">:</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">pyramid</span><span class="p">:</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">scales</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">           </span><span class="c1"># Anzahl Skalen P (Default: 4)</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">base_window_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">   </span><span class="c1"># Fensterradius R_s in downscaled Pixeln (Default: 4)</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">w_sharp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.6</span><span class="w">        </span><span class="c1"># Schaerfegewicht im pro-Skala-Sigmoid (Default: 0.6)</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">w_snr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span><span class="w">          </span><span class="c1"># SNR-Gewicht im pro-Skala-Sigmoid (Default: 0.4)</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">k_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span><span class="w">     </span><span class="c1"># Outlier-Erkennungsschwelle (Default: 3.0)</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">frac_artifact_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.25</span><span class="w">  </span><span class="c1"># Artefakt-Gate-Schwelle (Default: 0.25)</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">pyramid</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">scales</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">           </span><span class="c1"># Anzahl Skalen P (Default: 4)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">base_window_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">   </span><span class="c1"># Fensterradius R_s in downscaled Pixeln (Default: 4)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">w_sharp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.6</span><span class="w">        </span><span class="c1"># Schaerfegewicht im pro-Skala-Sigmoid (Default: 0.6)</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">w_snr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span><span class="w">          </span><span class="c1"># SNR-Gewicht im pro-Skala-Sigmoid (Default: 0.4)</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">score_scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.8</span><span class="w">    </span><span class="c1"># lokale Sigmoid-Temperatur (Default: 1.8)</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">k_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span><span class="w">     </span><span class="c1"># Outlier-Erkennungsschwelle (Default: 3.0)</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">frac_artifact_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.25</span><span class="w">  </span><span class="c1"># Artefakt-Gate-Schwelle (Default: 0.25)</span>
 </span></code></pre></div>
 <h3 id="73-speicherkonfiguration">7.3 Speicherkonfiguration<a class="headerlink" href="#73-speicherkonfiguration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">aqmh</span><span class="p">:</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">storage</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">resolution_divisor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">   </span><span class="c1"># linearer Divisor pro Achse: 1=voll, 2=halbe Breite/Hoehe (1/4 Flaeche), 4=Viertelbreite/-hoehe (1/16 Flaeche)</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">dtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float32</span><span class="w">          </span><span class="c1"># float32 | uint16 | uint8 (Default: float32)</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">max_resident_maps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># begrenzter Read-Through-Cache waehrend Rekonstruktion; 0 deaktiviert</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">storage</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">resolution_divisor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">   </span><span class="c1"># linearer Divisor pro Achse: 1=voll, 2=halbe Breite/Hoehe (1/4 Flaeche), 4=Viertelbreite/-hoehe (1/16 Flaeche)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">dtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float32</span><span class="w">          </span><span class="c1"># float32 | uint16 | uint8 (Default: float32)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">max_resident_maps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># begrenzter Read-Through-Cache waehrend Rekonstruktion; 0 deaktiviert</span>
 </span></code></pre></div>
 <p>Der Speicherdefault (<code>resolution_divisor = 2</code>, <code>dtype = float32</code>) entspricht der <strong>1/4-area float32</strong>-Strategie in Abschnitt 3.2. <code>max_resident_maps</code> begrenzt, wie viele Full-Resolution-Maps waehrend der AQMH-Rekonstruktion gleichzeitig im RAM gehalten werden duerfen; diese Zahl darf nicht mit der Framezahl skalieren.
 <code>uint16</code> ist das empfohlene Performance-Cache-Format, wenn bitidentische float32-Cachewerte nicht erforderlich sind. Es quantisiert <code>Q_map</code> auf <code>[0,65535]</code>, erhaelt exakte Zero-Veto- und Full-Quality-Endpunkte und hat einen maximalen Quantisierungsfehler von etwa <code>7.7e-6</code>.</p>
 <h3 id="74-cherry-pick-modus">7.4 Cherry-Pick-Modus<a class="headerlink" href="#74-cherry-pick-modus" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">aqmh</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">cherry_pick</span><span class="p">:</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># muss explizit aktiviert werden; bricht No-Frame-Selection-Invariante auf Pixelebene</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">k_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">k_frac</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.30</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">cherry_pick</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># muss explizit aktiviert werden; bricht No-Frame-Selection-Invariante auf Pixelebene</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto_reject</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">k_min_required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">reject_below_best_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.25</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">min_keep_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.90</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">k_frac</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.30</span><span class="w">       </span><span class="c1"># nur fuer mode: top_k</span>
 </span></code></pre></div>
 <h3 id="75-diagnostikkonfiguration">7.5 Diagnostikkonfiguration<a class="headerlink" href="#75-diagnostikkonfiguration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">aqmh</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">diagnostics</span><span class="p">:</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">tau_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.20</span><span class="w">  </span><span class="c1"># Qualitaetsschwelle fuer artifact_frac-Diagnostik (Default: 0.20)</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">q_region</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.75</span><span class="w">      </span><span class="c1"># Quantilschwelle fuer Qualitaetsregionsextraktion (Default: 0.75)</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">r_morph_canvas_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span><span class="w"> </span><span class="c1"># canvas-aequivalenter Radius fuer Qualitaetsregion-Morphologie (Default: 6)</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">aqmh</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">diagnostics</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">tau_artifact</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.20</span><span class="w">  </span><span class="c1"># Qualitaetsschwelle fuer artifact_frac-Diagnostik (Default: 0.20)</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">q_region</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.75</span><span class="w">      </span><span class="c1"># Quantilschwelle fuer Qualitaetsregionsextraktion (Default: 0.75)</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">r_morph_canvas_px</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span><span class="w"> </span><span class="c1"># canvas-aequivalenter Radius fuer Qualitaetsregion-Morphologie (Default: 6)</span>
 </span></code></pre></div>
 <p><code>tau_artifact</code> ist eine <strong>nur diagnostische</strong> Schwelle (siehe Abschnitt 6.1, 6.2). Sie beeinflusst weder Rekonstruktionsgewichte noch das pro-Skala-Artefakt-Gate <code>Phi_artifact_s</code>, das durch <code>k_artifact</code> und <code>frac_artifact_max</code> in Abschnitt 7.2 gesteuert wird.</p>
 <hr />
@@ -3680,6 +3697,11 @@
 <td><code>w_snr</code></td>
 <td><code>0.4</code></td>
 <td>SNR-Gewicht im pro-Skala-Qualitaetssigmoid</td>
+</tr>
+<tr>
+<td><code>score_scale</code></td>
+<td><code>1.8</code></td>
+<td>lokale Sigmoid-Temperatur der AQMH-Quality-Map</td>
 </tr>
 <tr>
 <td><code>P</code></td>

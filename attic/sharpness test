@@ -1,0 +1,439 @@
+# Sharpness-Testprotokoll
+
+## 2026-08-07 - Registration-Residualanalyse, M31 100 Frames
+
+Ziel: Ursache der verbleibenden Unschärfe objektagnostisch eingrenzen und mit 50-100 Frames testen.
+
+Implementiert:
+
+- `PhaseRegistrationContext` speichert pro Frame einen `registration_residual_weight_factor`.
+- `global_registration.json` schreibt pro Frame `star_residuals`:
+  - `applicable`
+  - `ref_stars`
+  - `frame_stars`
+  - `matched_stars`
+  - `median_px`
+  - `p90_px`
+  - `rms_px`
+  - `max_px`
+  - `weight_factor`
+- Nach der globalen Registrierung wird der registrierte Proxy gegen den Referenzproxy gemessen.
+- Bei aktivem `aqmh.reconstruction.registration_weight_guard` wird der globale Frame-Weight zusätzlich mit dem Residual-Faktor multipliziert.
+
+Code-Dateien:
+
+- `tile_compile_cpp/apps/runner_phase_registration.hpp`
+- `tile_compile_cpp/apps/runner_phase_registration.cpp`
+- `tile_compile_cpp/apps/runner_pipeline.cpp`
+
+Build/Test:
+
+- `cmake --build build --target tile_compile_runner tests -j2`
+  - Ergebnis: erfolgreich
+- `./build/tests`
+  - Ergebnis: 259 Test Cases, 258 bestanden, 1 CUDA-Test skipped
+
+Testlauf:
+
+- Run: `/media/tc_500/20260807_210106_984f19e8`
+- Input: `/media/tc_ssd/M31_ligths_all`
+- Frames: `--max-frames 100`
+- Status: erfolgreich
+
+Registrierungsbefund:
+
+- Frames: 100/100 registriert
+- Quellen laut Registration:
+  - `reference`: 1
+  - `direct_global`: 36
+  - `sequential_refined`: 63
+- Neue Residualmessung:
+  - applicable: 100/100
+  - gedämpft: 93/100
+  - Faktor min: 0.6625
+  - Faktor median: 0.7904
+  - Median-Residual median: 0.1210 Proxy-px
+  - Median-Residual p90: 0.2475 Proxy-px
+  - p90-Residual median: 1.0400 Proxy-px
+  - p90-Residual p90: 1.5850 Proxy-px
+
+Aufteilung:
+
+- `direct_global`: 36 Frames, 32 gedämpft, median_px median 0.0700, p90_px median 1.0497
+- `sequential_refined`: 63 Frames, 61 gedämpft, median_px median 0.1621, p90_px median 1.0346
+
+Interpretation:
+
+- Das Problem ist nicht nur die sequentielle Chain-Registrierung.
+- Auch direkt registrierte Frames zeigen hohe p90-Residuals.
+- Der niedrige Median bei gleichzeitig hohem p90 spricht für lokale Restverzerrung, Mess-/Match-Ausreißer oder ein Warp-Skalen-/Interpolationsproblem in Teilbereichen.
+- Ein globaler Weight-Penalty allein ist deshalb kein ausreichender Qualitätsfix.
+
+Laufzeit 100-Frame-Test:
+
+- REGISTRATION: 43.561 s
+- PREWARP: 59.876 s
+- AQMH_MAPS: 89.013 s
+- AQMH_RECONSTRUCTION: 238.412 s
+- BGE: 57.785 s
+- PCC: 62.972 s
+- Gesamt über Phasen: 587.202 s
+
+Bildmetriken:
+
+| Datei | n Sterne | FWHM radial median | FWHM p25 | FWHM p75 | Elongation median |
+|---|---:|---:|---:|---:|---:|
+| externe Referenz `result.fit` | 450 | 3.4005 | 3.2566 | 3.5630 | 0.1205 |
+| `m31-1_20260807_183324/stacked_rgb.fits` | 450 | 4.5285 | 4.3356 | 4.7101 | 0.1150 |
+| neuer 100-Frame-Run `stacked_rgb.fits` | 448 | 4.4924 | 4.2697 | 4.7031 | 0.1226 |
+| `m31-1_20260807_183324/stacked_rgb_hms.fits` | 432 | 8.2178 | 7.4846 | 9.3063 | 0.1023 |
+| neuer 100-Frame-Run `stacked_rgb_hms.fits` | 442 | 6.8594 | 6.2870 | 7.8347 | 0.1107 |
+
+Bewertung:
+
+- Linear ist die Schärfe praktisch unverändert gegenüber dem bisherigen Tile-Compile-Run.
+- HMS wirkt besser, ist aber wegen Stretch/Star-Pressure nicht der primäre technische Nachweis.
+- Der neue Residual-Penalty erklärt und protokolliert Restfehler, löst den Kernfehler aber nicht.
+
+Nächste technisch sinnvolle Schritte:
+
+1. Residualanalyse zunächst als Diagnose beibehalten, aber nicht als aggressiven globalen Penalty behandeln.
+2. Vor einem weiteren Penalty eine robustere Residualmessung verwenden:
+   - gegenseitiges nearest-neighbor matching statt rein greedy
+   - p75 oder getrimmtes p90 statt rohem p90
+   - separates Reporting nach Bildregion
+3. Danach echte Korrektur statt nur Dämpfung:
+   - per-Frame affine Feinkorrektur aus gematchten Sternen nach der bisherigen Registrierung
+   - nur anwenden, wenn robuste Matches ausreichend sind und die Korrektur klein bleibt
+   - bei hoher lokaler Restverzerrung optional stückweise affine/TPS-Korrektur mit strengen Guards
+
+
+## 2026-08-08 - Prewarp-Interpolation, M31 100 Frames
+
+Ziel: Alternative Schärfeansätze objektiv vergleichen, wobei sich die Testläufe ausschließlich bei `aqmh.reconstruction.prewarp_interpolation` unterscheiden. Alle Läufe wurden auf maximal 100 Frames begrenzt.
+
+Testprofile:
+
+- `tile_compile_cpp/examples/sharpness_100_linear.yaml` - Kontrolle, `linear`
+- `tile_compile_cpp/examples/sharpness_100_cubic.yaml` - Variante, `cubic`
+- `tile_compile_cpp/examples/sharpness_100_lanczos4.yaml` - Variante, `lanczos4`
+
+Run-Artefakte:
+
+- `/media/tc_500/sharpness_100_linear_full_20260808`
+- `/media/tc_500/sharpness_100_cubic_full_20260808`
+- `/media/tc_500/sharpness_100_lanczos4_full_20260808`
+
+Randbedingungen und Kontrolle:
+
+- Input: `/media/tc_ssd/M31_ligths_all`
+- Jeder Lauf: `--max-frames 100`, 100/100 Frames verarbeitet
+- Alle drei Läufe erfolgreich mit `status: ok` und `success: true`
+- CUDA aktiv, kein CPU-Fallback
+- Registrierung in allen Läufen identisch: 37 affine Korrekturen angewendet, 39 verworfen, 100/100 Residuen anwendbar, 93 Frames gedämpft
+- Residual median median: `0.13759121298789978`
+- Residual p90 median: `1.031242847442627`
+- Residual weight factor median: `0.7873120307922363`, Minimum `0.55`
+- AQMH registration guard: Median `0.844050407409668`, Minimum `0.7227550745010376`
+
+### Messwerte
+
+Niedrigere FWHM bedeutet schärfer. Die technische Output-FWHM und die PCC-FWHM stammen aus den linearen Validierungs-/PCC-Messungen; die AQMH-FWHM bezeichnet den jeweils ausgewählten AQMH-Kandidaten.
+
+| Variante | Output-FWHM [px] | Änderung zu linear | AQMH selected FWHM [px] | Änderung zu linear | PCC auto-FWHM Green [px] | Änderung zu linear | Output background RMS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `linear` | 5.10065365 | Referenz | 2.70472264 | Referenz | 5.16114569 | Referenz | 0.84331995 |
+| `cubic` | 5.03059244 | -1.3736 % | 2.65754437 | -1.7443 % | 5.07236910 | -1.7201 % | 0.91438180 |
+| `lanczos4` | 5.02526951 | -1.4779 % | 2.67117429 | -1.2404 % | 5.09323120 | -1.3159 % | 0.94638252 |
+
+Postprocessing und Gates:
+
+- Alle drei Läufe wählten `structure_masked_detail`.
+- `raw_aqmh_preserved_by_guard=false` in allen drei Läufen.
+- Der Uniform-Control-Gate wurde in keinem Lauf ausgelöst.
+- BGE wurde in allen drei Läufen versucht, aber wegen `slope_worsened` übersprungen.
+- Die Profile variierten keine Registrierung und keine AQMH-Gewichtung; der Vergleich isoliert daher den Prewarp-Interpolationsschritt.
+
+Bewertung:
+
+- Beide Alternativen liefern eine kleine, aber konsistente Verbesserung gegenüber `linear` in der technischen Output-FWHM: `cubic` -1,37 %, `lanczos4` -1,48 %.
+- `cubic` ist beim ausgewählten AQMH-Kandidaten und bei der PCC-FWHM besser als `lanczos4`; `lanczos4` ist bei der technischen Output-FWHM geringfügig besser.
+- Der Schärfegewinn wird mit höherem Hintergrund-RMS erkauft: `cubic` liegt absolut um etwa `0.0711`, `lanczos4` um etwa `0.1031` über der linearen Kontrolle. Das spricht für einen Trade-off zwischen nomineller Schärfe und Hintergrund-/Rauschqualität.
+- Der Unterschied ist messbar, aber klein. Aus diesem 100-Frame-Test ergibt sich kein eindeutiger Grund, `lanczos4` generell gegenüber `cubic` zu bevorzugen. `cubic` ist der ausgewogenere nächste Kandidat, wenn AQMH- und PCC-Messung gemeinsam betrachtet werden; `lanczos4` bleibt die knapp beste Variante nach technischer Output-FWHM.
+- Eine unabhängige matched-star-radiale-FWHM-Tabelle für genau diese drei neuen Outputs wurde in diesem Test noch nicht erstellt. Die Schlussfolgerung basiert daher auf den konsistenten Validierungs-, AQMH- und PCC-Artefakten sowie der identischen Registrierung.
+
+Fazit und nächster Ansatz:
+
+Die Prewarp-Interpolation beeinflusst die messbare Schärfe, beseitigt die Restunschärfe aber nicht. Für weitere Tests sollte zunächst `cubic` als ausgewogener Kandidat gegen die lineare Kontrolle verwendet werden. Der nächste methodische Ansatz bleibt eine echte per-Frame affine Feinkorrektur aus robust gematchten Sternen; sie sollte separat und wieder mit maximal 100 Frames getestet werden. Eine lokale affine/TPS-Korrektur wurde in diesem Test nicht implementiert.
+
+## 2026-08-08 - Robuste affine Feinkorrektur pro Frame, M31 100 Frames
+
+Ziel: Nach der globalen Registrierung eine kleine affine Restkorrektur aus robust gematchten Sternen schätzen, nur nach strengen Verbesserungs-Gates anwenden und gegen einen unveränderten Kontrolllauf mit maximal 100 Frames testen.
+
+### Implementierung
+
+Neue Konfigurationsoption:
+
+```yaml
+registration:
+  affine_refinement_enabled: false
+```
+
+Der Default bleibt `false`. Bei Aktivierung arbeitet die Korrektur auf dem bereits global gewarpten Registrierungsproxy und verwendet:
+
+- gegenseitige Nearest-Neighbor-Sternpaare innerhalb von 3 Proxy-Pixeln mit Ambiguitätsfilter;
+- mindestens 24 Matches, mindestens 18 RANSAC-Inlier und mindestens 60 % Inlierquote;
+- affine RANSAC-Schätzung mit räumlicher Abdeckung der Inlier;
+- konservative Gates für Skalierung, Shear, Rotation und Verschiebung des Bildzentrums;
+- Vorher-/Nachher-Vergleich auf denselben Sternpaaren: Median und p90 müssen sinken, RMS darf nicht steigen;
+- zusätzliche NCC- und Überlappungs-Gates auf identischem Bildsupport;
+- korrekte `WARP_INVERSE_MAP`-Komposition `W_neu = W_alt o C^-1`;
+- unveränderten Original-Warp bei jedem abgelehnten Kandidaten;
+- transaktionalen Fehlerpfad pro Frame: Bei einer Ausnahme wird der Original-Warp dieses Frames wiederhergestellt und die Analyse der übrigen Frames fortgesetzt;
+- explizite `cc`-Semantik: Der Top-Level-`cc` bleibt der Score der globalen Registrierung vor der Feinkorrektur; das maskierte Post-Refinement-NCC wird separat als Diagnose gespeichert und der Residual-Weight-Faktor wird neu berechnet.
+
+`artifacts/global_registration.json` protokolliert pro Frame Versuch, Anwendung/Ablehnungsgrund, Match-/Inlierdaten, räumliche Abdeckung, Vorher-/Nachher-Residuals, NCC, Überlappung und Korrekturmatrix.
+
+Relevante Code-/Konfigurationsdateien:
+
+- `tile_compile_cpp/include/tile_compile/registration/global_registration.hpp`
+- `tile_compile_cpp/src/registration/global_registration.cpp`
+- `tile_compile_cpp/apps/runner_phase_registration.cpp`
+- `tile_compile_cpp/include/tile_compile/config/configuration.hpp`
+- `tile_compile_cpp/src/io/config.cpp`
+- `tile_compile_cpp/tile_compile.schema.json`
+- `tile_compile_cpp/tile_compile.schema.yaml`
+- `tile_compile_cpp/tile_compile.yaml`
+- `tile_compile_cpp/examples/sharpness_100_cubic_affine.yaml`
+
+### Build und Tests
+
+- `cmake --build build --target tile_compile_runner tests -j2`: erfolgreich
+- Catch2-Filter `affine star refinement*`: 2 Testfälle, 11 Assertions, alle bestanden
+- vollständige Catch2-Suite: 262 Testfälle, 29665 Assertions, alle bestanden
+- JSON-/YAML-Validierung: erfolgreich
+- Das Variantenprofil ist bis auf `registration.affine_refinement_enabled: true` identisch mit `sharpness_100_cubic.yaml`.
+
+### Kontrollierte Runs
+
+Kontrolle:
+
+- `/media/tc_500/sharpness_100_cubic_control_v2_20260808`
+- Profil: `sharpness_100_cubic.yaml`
+- `affine_refinement_enabled=false`
+
+Variante:
+
+- `/media/tc_500/sharpness_100_cubic_affine_20260808`
+- Profil: `sharpness_100_cubic_affine.yaml`
+- `affine_refinement_enabled=true`
+
+Gemeinsame Randbedingungen:
+
+- Input: `/media/tc_ssd/M31_ligths_all`
+- exakt `--max-frames 100`, jeweils 100/100 Frames
+- beide Runs erfolgreich mit `status: ok`, `success: true`
+- cubic Prewarp-Interpolation
+- CUDA für Prewarp/AQMH ohne Fallback
+- gleiche globale Registrierungsquellen: 36 `direct_global`, 63 `sequential_refined`, 1 Referenzframe
+- beide wählten `structure_masked_detail`
+- Uniform-Control-Gate in beiden Runs nicht ausgelöst
+- `raw_aqmh_preserved_by_guard=false` in beiden Runs
+- BGE in beiden Runs wegen `slope_worsened` übersprungen
+
+Wichtige Kontrollkorrektur: Der ältere Lauf `sharpness_100_cubic_full_20260808` ist keine gültige Disable-Kontrolle für diesen Test. Sein Artefakt meldet 37 Anwendungen des früheren, damals noch unkonfigurierbaren Prototyps. Deshalb wurde mit aktueller Binary ein neuer explizit deaktivierter Kontrolllauf erzeugt.
+
+### Gate-Ergebnis der robusten Variante
+
+Von 100 Frames:
+
+- 23: p90 unter dem Versuchstrigger, unverändert
+- 1: Referenzframe, unverändert
+- 76: affine Schätzung versucht
+- 26: alle Gates bestanden und angewendet
+- 50: verworfen und Original-Warp beibehalten
+  - 25 `median_not_improved`
+  - 22 `p90_not_improved`
+  - 3 `ncc_regressed`
+
+Medianwerte der 26 akzeptierten Frames, jeweils auf denselben Sternpaaren:
+
+| Metrik | Vorher | Nachher | Änderung |
+|---|---:|---:|---:|
+| Sternresidual Median [Proxy-px] | 0.173375 | 0.080213 | -53.73 % |
+| Sternresidual p90 [Proxy-px] | 0.577625 | 0.392310 | -32.08 % |
+| Sternresidual RMS [Proxy-px] | 0.519029 | 0.498803 | -3.90 % |
+| Masked NCC | 0.758048 | 0.761655 | +0.48 % |
+| RANSAC-Inlierquote | - | 0.90625 | - |
+| Zentrumsverschiebung [Proxy-px] | - | 0.15725 | - |
+
+Damit funktionieren Transformrichtung und lokale Acceptance-Gates wie beabsichtigt: Akzeptierte Frames verbessern dieselben Sternpaare deutlich, während 50 nicht eindeutig bessere Kandidaten keinen Warp ändern.
+
+### Finaler A/B-Vergleich
+
+Niedrigere FWHM, Hintergrund-RMS und Seam-Werte sind besser.
+
+| Metrik | cubic Kontrolle | cubic + affine | Änderung |
+|---|---:|---:|---:|
+| technische Output-FWHM [px] | 5.026530 | 5.005576 | -0.4169 % |
+| PCC auto-FWHM Green [px] | 5.054318 | 5.053658 | -0.0131 % |
+| AQMH selected FWHM [px] | 2.650457 | 2.633406 | -0.6433 % |
+| Output background RMS | 0.905039 | 0.913298 | +0.9125 % |
+| AQMH selected background RMS | 0.468887 | 0.482140 | +2.8264 % |
+| AQMH selected seam score | 0.665342 | 0.675772 | +1.5676 % |
+
+Globale Residualdiagnose über alle Frames:
+
+| Metrik | Kontrolle | affine Variante | Änderung |
+|---|---:|---:|---:|
+| Median-Residual, Median [Proxy-px] | 0.121032 | 0.076113 | -37.11 % |
+| p90-Residual, Median [Proxy-px] | 1.039953 | 1.070213 | +2.91 % |
+| Residual-Weight-Faktor Median | 0.790411 | 0.779661 | - |
+| Residual-Weight-Faktor Minimum | 0.662500 | 0.662500 | - |
+
+Hinweis zur Metrikdisziplin: Die Vorher-/Nachher-Zahlen der 26 angewendeten Korrekturen verwenden unveränderte Sternpaare und sind der belastbare direkte Registrierungsnachweis. Die globalen finalen FWHM-Werte sind unabhängige Output-/Validierungsmessungen. Kandidaten-/Kontrollwerte für Star-Tail und Elongation werden hier nicht als direkter A/B-Nachweis verwendet, weil für die beiden finalen Outputs keine separate positionsgematchte Sternpopulation berechnet wurde.
+
+### Bewertung
+
+- Die Methode korrigiert einen realen, global-affin modellierbaren Anteil der Restfehler: Auf akzeptierten Frames sinken matched-star Median und p90 deutlich.
+- Der endgültige Schärfegewinn ist jedoch klein: etwa 0.42 % technische Output-FWHM und 0.64 % AQMH-FWHM. PCC ist mit 0.013 % praktisch unverändert.
+- Der globale p90-Residual wird nicht besser, sondern liegt 2.91 % höher. Das bestätigt, dass die verbleibenden Tails überwiegend nicht durch eine einzige globale affine Korrektur pro Frame erklärt werden.
+- Der kleine FWHM-Gewinn wird mit etwas schlechterem Hintergrund und Seam-Score erkauft. Alle AQMH-Sicherheitsgates bestehen zwar, aber die Variante ist nicht in allen Qualitätsdimensionen besser.
+- Deshalb bleibt `affine_refinement_enabled` standardmäßig deaktiviert. Die Funktion ist als diagnostisch kontrollierte Opt-in-Variante sinnvoll, aber dieser 100-Frame-Test rechtfertigt keine globale Default-Aktivierung.
+
+Fazit: Die robuste affine Feinkorrektur ist technisch funktionsfähig und sicher geguardet, löst den Schärfekernfehler aber nur teilweise. Der nächste sinnvolle Ansatz wäre eine lokal begrenzte, stückweise affine oder TPS-basierte Korrektur, die regionale Residual-Tails modelliert. Sie darf nur mit räumlich gematchten Sternen, lokalen Coverage-Gates, Glattheits-/Jacobian-Grenzen und unverändertem Fallback auf den globalen Warp getestet werden; erneut mit maximal 100 Frames.
+
+## 2026-08-08 - Geglättete lokale Restkorrektur, M31 100 Frames
+
+Ziel: Den nach der robusten global-affinen Feinkorrektur verbleibenden regionalen Residual-Tail mit einem kleinen, glatten lokalen Verschiebungsfeld modellieren, nur eindeutig bessere und geometrisch sichere Kandidaten anwenden und die Variante gegen eine mit derselben Binary erzeugte Kontrolle mit exakt 100 Frames prüfen.
+
+### Implementierung
+
+Neue Opt-in-Konfigurationsoption:
+
+```yaml
+registration:
+  smooth_local_refinement_enabled: false
+```
+
+Der Default bleibt `false`. Die lokale Korrektur wird erst nach der vorhandenen globalen und optionalen affinen Registrierung geschätzt. Sie verwendet:
+
+- gegenseitige Nearest-Neighbor-Sternpaare innerhalb von 3 Proxy-Pixeln mit Ambiguitätsfilter;
+- mindestens 32 Matches, davon mindestens 24 Training und 8 deterministisch ausgewählte Held-out-Sterne;
+- mindestens 0,15 Convex-Hull-Coverage sowie mindestens 0,40 Bildspanne in x und y;
+- ein normalisiertes 4x4-Gaussian-Basisfeld mit Ridge `0.08`, vier IRLS-Runden und Huber-Grenze `0.35 px`;
+- einen 8-%-Randtaper, maximal 1,5 Proxy-Pixel Verschiebung, Jacobian-Determinante 0,94-1,06 und lokale Singularwerte 0,96-1,04;
+- getrennte Verbesserungs-Gates für Median, p90 und RMS sowohl auf allen gematchten Sternen als auch auf dem unveränderten Held-out-Satz;
+- mindestens 0,995 Überlappung und höchstens 0,001 NCC-Regression;
+- unveränderten Fallback auf den bisherigen globalen beziehungsweise affinen Warp bei Nichtanwendbarkeit, Gate-Ablehnung oder Fehler.
+
+Der Full-resolution-Prewarp komponiert das inverse Feld direkt als `map(q)=W_global(q+d(q))`. Dadurch entsteht kein zweiter Resampling-Schritt. Das Verfahren unterstützt MONO und OSC mit Debayer-first RGB; ein CFA-Mosaikpfad ohne diesen Support behält den globalen Warp. Die Analyse-Proxys werden außerhalb des gültigen Supports mit null gefüllt, während Full-resolution-Daten dort weiterhin NaN plus Supportmaske verwenden.
+
+`artifacts/global_registration.json` protokolliert pro Frame Versuch, Anwendung, Ablehnungsgrund, Training-/Held-out-Größen, Coverage, Vorher-/Nachher-Residuals, NCC, Überlappung, maximale Verschiebung, Jacobian und lokale Skalen. Der Top-Level-`cc` bleibt mit `cc_semantics = pre_affine_or_local_refinement_global_registration_score` der Score vor beiden Feinkorrekturen.
+
+### Build und Tests
+
+- `tile_compile_runner` und `tests` erfolgreich gebaut;
+- vollständige Catch2-Suite zweimal bestanden: 262 Testfälle, 29665 Assertions;
+- JSON- und YAML-Validierung bestanden;
+- Kontroll- und Variantenprofil unterscheiden sich ausschließlich bei `smooth_local_refinement_enabled: false -> true`.
+
+### Kontrollierte Runs
+
+Kontrolle:
+
+- `/media/tc_500/sharpness_100_cubic_affine_control_v3_20260808`
+- Profil: `sharpness_100_cubic_affine.yaml`
+- `affine_refinement_enabled=true`, `smooth_local_refinement_enabled=false`
+
+Variante:
+
+- `/media/tc_500/sharpness_100_cubic_affine_local_v2_20260808`
+- Profil: `sharpness_100_cubic_affine_local.yaml`
+- `affine_refinement_enabled=true`, `smooth_local_refinement_enabled=true`
+
+Gemeinsame Randbedingungen:
+
+- Input: `/media/tc_ssd/M31_ligths_all`;
+- exakt `--max-frames 100`, jeweils 100/100 Frames;
+- beide Runs mit `status: ok` und `success: true` abgeschlossen;
+- cubic Prewarp, Debayer-first RGB und CUDA für den regulären Prewarp-/AQMH-Pfad;
+- identische affine Stufe: 76 Versuche, 26 Anwendungen, 50 Ablehnungen;
+- 100/100 finale Registrierungsresiduen anwendbar;
+- beide wählten `structure_masked_detail`, `raw_aqmh_preserved_by_guard=false`;
+- Uniform-Control-Gate in beiden Runs nicht ausgelöst;
+- BGE in beiden Runs wegen `slope_worsened` nicht angewendet.
+
+Nicht als A/B-Variante verwendet wurde `/media/tc_500/sharpness_100_cubic_affine_local_20260808`. Dieser Diagnoselauf erreichte nach der ersten Implementierung nur 95/100 anwendbare Residualmessungen. Er blieb unverändert; nach der Supportkorrektur wurde die gültige Variante unter einer neuen Run-ID vollständig neu gerechnet.
+
+### Lokale Gate-Verteilung
+
+Von 100 Frames der gültigen Variante:
+
+- 85 lokale Schätzungen versucht;
+- 6 angewendet: nullbasierte Frame-Indizes `8, 25, 53, 60, 73, 95` beziehungsweise einbasig `9, 26, 54, 61, 74, 96`;
+- 79 abgelehnt und der affine Warp unverändert beibehalten:
+  - 56 `median_not_improved`;
+  - 17 `p90_not_improved`;
+  - 2 `ncc_regressed`;
+  - 1 `validation_median_not_improved`;
+  - 2 `validation_p90_not_improved`;
+  - 1 `validation_rms_regressed`.
+
+Median der sechs akzeptierten Frames; Vorher und Nachher verwenden jeweils dieselben Sternpositionen:
+
+| Metrik | Vorher | Nachher | Änderung |
+|---|---:|---:|---:|
+| All-set Median [Proxy-px] | 0.180555 | 0.088786 | -50.83 % |
+| All-set p90 [Proxy-px] | 0.507071 | 0.334967 | -33.94 % |
+| All-set RMS [Proxy-px] | 0.529045 | 0.468590 | -11.43 % |
+| Held-out Median [Proxy-px] | 0.164915 | 0.073665 | -55.33 % |
+| Held-out p90 [Proxy-px] | 0.603261 | 0.407780 | -32.40 % |
+| Held-out RMS [Proxy-px] | 0.466063 | 0.367069 | -21.24 % |
+| Masked NCC | 0.757554 | 0.760838 | +0.43 % |
+
+Weitere Gates der akzeptierten Frames:
+
+- 63 gematchte Sterne im Median, davon 47 Training und 16 Held-out;
+- räumliche Coverage im Median `0.780546`;
+- maximale Verschiebung im Median `0.286248`, Maximum `0.513662` Proxy-px;
+- Jacobian-Gesamtspanne `0.993079` bis `1.005716`;
+- lokale Skalen-Gesamtspanne `0.993034` bis `1.005839`;
+- Überlappung mindestens `0.999998`, Median praktisch `1.0`;
+- alle sechs lokal korrigierten Frames blieben in der finalen Residualmessung anwendbar.
+
+Der Run protokolliert explizit: `PREWARP smooth-local refinement uses the guarded CPU remap for 6 accepted frames; remaining frames keep the selected opencv_cuda affine path`. Die direkte lokale Map wird somit nur für die sechs akzeptierten Frames per CPU-Remap ausgewertet; die übrigen 94 Frames behalten den ausgewählten CUDA-Affine-Pfad. Dies ist ein bewusster, sichtbarer Fallback und kein stiller Wechsel des gesamten Runs.
+
+### Finaler A/B-Vergleich
+
+Niedrigere FWHM-, Hintergrund-RMS- und Seam-Werte sind besser.
+
+| Metrik | affine Kontrolle | affine + smooth-local | Änderung |
+|---|---:|---:|---:|
+| technische Output-FWHM [px] | 5.005576 | 4.997350 | -0.1643 % |
+| PCC auto-FWHM Green [px] | 5.053658 | 5.041587 | -0.2389 % |
+| AQMH selected FWHM [px] | 2.633406 | 2.630734 | -0.1015 % |
+| Output background RMS | 0.913303 | 0.914735 | +0.1567 % |
+| AQMH selected background RMS | 0.482140 | 0.484083 | +0.4031 % |
+| AQMH selected seam score | 0.675772 | 0.677363 | +0.2355 % |
+
+Globale Residualdiagnose über alle Frames:
+
+| Metrik | affine Kontrolle | affine + smooth-local | Änderung |
+|---|---:|---:|---:|
+| Median-Residual, Median [Proxy-px] | 0.076113 | 0.075687 | -0.5588 % |
+| Median-Residual, p90 [Proxy-px] | 0.195539 | 0.177514 | -9.2182 % |
+| p90-Residual, Median [Proxy-px] | 1.070213 | 1.070213 | 0.0000 % |
+| gedämpfte Frames | 92 | 91 | -1 Frame |
+| Residual-Weight-Faktor Median | 0.779661 | 0.779661 | 0.0000 % |
+| Residual-Weight-Faktor Minimum | 0.662500 | 0.662500 | 0.0000 % |
+
+### Bewertung
+
+- Die lokale Modellierung ist technisch wirksam: Bei allen sechs akzeptierten Frames verbessern sich dieselben All-set- und Held-out-Sternpaare deutlich, ohne auffällige Jacobian-, Skalen-, Coverage-, Überlappungs- oder NCC-Verletzung.
+- Der Effekt erreicht aber nur 6 % der Frames. Über alle Frames sinkt der Median-Residual nur um 0,56 %, und der problematische Median des p90-Residuals bleibt exakt unverändert. Der regionale Tail wird damit nicht allgemein gelöst.
+- Die drei unabhängigen finalen FWHM-Messungen verbessern sich konsistent, aber nur um 0,10-0,24 %. Gleichzeitig verschlechtern sich Output-/AQMH-Hintergrund und AQMH-Seam um 0,16-0,40 %. Das ist kein praktisch überzeugender Gesamtgewinn.
+- Die sechs lokalen Frames verwenden absichtlich CPU-Remap, während die Kontrolle dort den CUDA-Affine-Pfad verwendet. Die Methode bleibt semantisch geguardet, aber bei so kleinen finalen Differenzen ist dieser Ausführungspfad ein zusätzlicher Grund, keine starke kausale Aussage aus den Output-Metriken abzuleiten.
+- Eine finale positionsgematchte radiale FWHM-/Star-Tail-/Elongationstabelle für genau diese beiden Outputs wurde nicht berechnet. Die in AQMH-Artefakten enthaltenen Tail-/Elongationswerte basieren nicht auf einer zwischen Kandidat und Kontrolle fixierten Sternpopulation und werden deshalb nicht als direkter A/B-Nachweis verwendet.
+
+Fazit: Das geglättete 4x4-Lokalfeld und seine Safety-Gates funktionieren, liefern in diesem kontrollierten 100-Frame-Test aber keinen ausreichenden praktischen Vorteil. `smooth_local_refinement_enabled` bleibt standardmäßig deaktiviert. Ein weiterer lokaler Warp-Versuch sollte erst erfolgen, wenn er entweder wesentlich mehr Frames mit unverändert strengen Held-out-/Jacobian-Gates erreicht oder eine positionsgematchte regionale Tail-Metrik gezielt verbessert; bloßes Nachschärfen oder Lockern der globalen Sicherheitsgates ist durch diesen Versuch nicht begründet.

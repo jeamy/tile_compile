@@ -2444,10 +2444,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#92-aqmh-core-parameters-unchanged-from-v020" class="md-nav__link">
+  <a href="#92-aqmh-core-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.2 AQMH Core Parameters (unchanged from v0.2.0)
+        9.2 AQMH Core Parameters
       
     </span>
   </a>
@@ -2488,10 +2488,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#96-cherry-pick-unchanged" class="md-nav__link">
+  <a href="#96-cherry-pick" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.6 Cherry-Pick (unchanged)
+        9.6 Cherry-Pick
       
     </span>
   </a>
@@ -3712,10 +3712,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#92-aqmh-core-parameters-unchanged-from-v020" class="md-nav__link">
+  <a href="#92-aqmh-core-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.2 AQMH Core Parameters (unchanged from v0.2.0)
+        9.2 AQMH Core Parameters
       
     </span>
   </a>
@@ -3756,10 +3756,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#96-cherry-pick-unchanged" class="md-nav__link">
+  <a href="#96-cherry-pick" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.6 Cherry-Pick (unchanged)
+        9.6 Cherry-Pick
       
     </span>
   </a>
@@ -3819,9 +3819,15 @@
 <h3 id="01-changes-from-v020">0.1 Changes from v0.2.0<a class="headerlink" href="#01-changes-from-v020" title="Permanent link">&para;</a></h3>
 <p>Version <code>v0.2.1</code> is a strict superset of <code>v0.2.0</code>. All mathematical definitions,
 invariants, normative defaults and diagnostic requirements of <code>v0.2.0</code> remain
-binding. <code>v0.2.1</code> formalises three main additions that were introduced in the
+binding. <code>v0.2.1</code> formalises four main additions that were introduced in the
 reference implementation after the <code>v0.2.0</code> baseline:</p>
 <ol>
+<li>
+<p><strong>Sigmoid temperature scaling in per-scale quality maps (§2.3.3).</strong><br />
+   A configurable <code>score_scale</code> parameter (default 1.8) multiplies the
+   combined z-score before applying the sigmoid function. This increases
+   per-pixel frame selectivity while preserving the [0,1] map range.</p>
+</li>
 <li>
 <p><strong>Background-gradient penalty in global frame quality (§1.5, §4.2).</strong><br />
    A third global-quality signal penalises frames with strong large-scale
@@ -4134,11 +4140,19 @@ pair by fusing multi-scale local sharpness, SNR and artifact-anomaly signals.</p
 <p>Identical to v0.2.0. All frames must be calibrated, registered and prewarped
 to a common output canvas before AQMH map computation.</p>
 <h3 id="23-multi-scale-pyramid">2.3 Multi-Scale Pyramid<a class="headerlink" href="#23-multi-scale-pyramid" title="Permanent link">&para;</a></h3>
-<p>Identical to v0.2.0 §2.3. The four scales, omission rule, sharpness, SNR and
-artifact computations, and the geometric-mean fusion are unchanged.</p>
+<p>The four scales, omission rule, sharpness, SNR and artifact computations, and
+the geometric-mean fusion remain as in v0.2.0.</p>
+<p><strong>Post-v0.2.1 extension — local sigmoid temperature.</strong> The local per-scale
+quality score is multiplied by <code>score_scale</code> before the sigmoid:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>score_s(x,y) = score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Psi_s(x,y)  = sigmoid(score_s(x,y)) * Phi_artifact_s(x,y)
+</span></code></pre></div>
+<p><code>score_scale</code> must be <code>&gt; 0</code> and has the current operating default <code>1.8</code>.
+Values above <code>1.0</code> increase local quality-map selectivity without changing the
+bounded <code>[0,1]</code> range or the artifact veto.</p>
 <h3 id="24-multi-scale-fusion">2.4 Multi-Scale Fusion<a class="headerlink" href="#24-multi-scale-fusion" title="Permanent link">&para;</a></h3>
 <p>Identical to v0.2.0 §2.4.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}
 </span></code></pre></div>
 <p>implemented as <code>exp(mean_s(log(Psi_s^{up})))</code> with the exact-zero veto and
 output guard.</p>
@@ -4159,11 +4173,11 @@ per-frame scalar computed during or after map computation and stored in
 <h2 id="4-pipeline-integration">4. Pipeline Integration<a class="headerlink" href="#4-pipeline-integration" title="Permanent link">&para;</a></h2>
 <h3 id="41-aqmh-processing-stages">4.1 AQMH Processing Stages<a class="headerlink" href="#41-aqmh-processing-stages" title="Permanent link">&para;</a></h3>
 <p>Identical to v0.2.0:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AQMH_MAPS
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>AQMH_GLOBAL_QUALITY
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>AQMH_RECONSTRUCTION
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>AQMH_DIAGNOSTICS
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>AQMH_NATIVE_BGE_INPUTS
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>AQMH_MAPS
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>AQMH_GLOBAL_QUALITY
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>AQMH_RECONSTRUCTION
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>AQMH_DIAGNOSTICS
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>AQMH_NATIVE_BGE_INPUTS
 </span></code></pre></div>
 <p>The output of <code>AQMH_RECONSTRUCTION</code> is additionally persisted unchanged as
 <code>outputs/aqmh_reconstructed_raw.fit</code>. For OSC data this artifact still contains
@@ -4202,11 +4216,11 @@ optionally <code>chain_depth</code>.</p>
 <li><strong>Cross-correlation mapping.</strong> Direct and reference solutions are not
    continuously damped above the floor:</li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>r_cc = cc_f &gt;= cc_floor ? 1.0 : r_floor
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>r_cc = cc_f &gt;= cc_floor ? 1.0 : r_floor
 </span></code></pre></div>
 <p>Sequential, predicted, interpolated, and unknown solutions use:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>r_cc = r_floor + (1 - r_floor) * t
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>r_cc = r_floor + (1 - r_floor) * t
 </span></code></pre></div>
 <p>with defaults <code>r_floor = 0.30</code>, <code>cc_floor = 0.35</code>, <code>cc_full = 0.80</code>.</p>
 <ol>
@@ -4225,17 +4239,17 @@ optionally <code>chain_depth</code>.</p>
 <p><strong>Chain-depth damping for non-direct solutions.</strong></p>
 </li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>r_f *= (1 - depth_penalty)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>r_f *= (1 - depth_penalty)
 </span></code></pre></div>
 <p>with defaults <code>depth_penalty_per_step = 0.03</code>, <code>depth_max = 0.15</code>.</p>
 <ol>
 <li><strong>Clamp.</strong></li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>R_f = clamp(r_f, r_floor, 1.0)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>R_f = clamp(r_f, r_floor, 1.0)
 </span></code></pre></div>
 <p>The effective global weight used in reconstruction is:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>G_f^{eff} = G_f * R_f
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>G_f^{eff} = G_f * R_f
 </span></code></pre></div>
 <p>The guard is enabled by default (<code>registration_weight_guard: true</code>) and
 reported in <code>aqmh_reconstruction.json</code> under <code>registration_weight_guard</code>.</p>
@@ -4271,7 +4285,7 @@ by the registration-weight guard.</p>
 <h2 id="5-pixel-wise-weighted-reconstruction">5. Pixel-Wise Weighted Reconstruction<a class="headerlink" href="#5-pixel-wise-weighted-reconstruction" title="Permanent link">&para;</a></h2>
 <h3 id="51-reconstruction-formula">5.1 Reconstruction Formula<a class="headerlink" href="#51-reconstruction-formula" title="Permanent link">&para;</a></h3>
 <p>Identical to v0.2.0. For each output channel:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
 </span></code></pre></div>
 <p>where <code>w_f(p) = G_f^{eff} * Q_map_{f,c}(p)</code> and <code>V_c^I(p)</code> is the set of frames
 with finite intensity and finite quality-map value at pixel <code>p</code>.</p>
@@ -4295,16 +4309,31 @@ pixels from a few frames to be diluted by nonexistent zero samples.</p>
 <code>clip_sigma_high</code>, and a minimum effective sample count <code>min_n_eff</code> and
 minimum fraction <code>min_fraction</code>.</p>
 <h3 id="53-cherry-pick-stacking-mode">5.3 Cherry-Pick Stacking Mode<a class="headerlink" href="#53-cherry-pick-stacking-mode" title="Permanent link">&para;</a></h3>
-<p>Identical to v0.2.0 §5.3. The run-level <code>K_nominal_median</code> floor,
-per-pixel <code>K(p) = max(k_min_required, K_nominal(p))</code> rule, tiering and
-rank-separation diagnostics are unchanged.</p>
+<p>Cherry-pick is still an explicit opt-in mode and must be reported in
+diagnostics. The default selector for enabled cherry-pick is now
+<code>mode = auto_reject</code>, which keeps the full AQMH weighted sample set unless a
+sample is a clear local low-score outlier.</p>
+<p>For <code>auto_reject</code>, sort locally rankable samples by score
+<code>S_f(p) = G_f * max(0, Q_f(p))</code> only for threshold estimation:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>S_best(p) = max_f S_f(p)
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>T(p) = reject_below_best_fraction * S_best(p)
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+</span></code></pre></div>
+<p>Samples below <code>T(p)</code> are rejectable, but the retained set must contain at least
+<code>K_floor(p)</code> samples. If the score margin between the last retained and first
+rejected sample is below <code>margin_min</code>, no local rejection is applied. This makes
+the selector conservative: it is intended to remove extreme local defects, not
+to turn AQMH into a fixed small-N stack.</p>
+<p><code>mode = top_k</code> remains available as the legacy fixed-fraction selector from
+v0.2.0. In that mode <code>k_frac</code>, tiering, <code>K_nominal_median</code>, and the legacy
+per-pixel <code>K(p) = max(k_min_required, K_nominal(p))</code> rule apply unchanged.</p>
 <hr />
 <h2 id="6-post-reconstruction-robustness-extensions-v021">6. Post-Reconstruction Robustness Extensions (v0.2.1)<a class="headerlink" href="#6-post-reconstruction-robustness-extensions-v021" title="Permanent link">&para;</a></h2>
 <h3 id="61-uniform-control-mean">6.1 Uniform Control Mean<a class="headerlink" href="#61-uniform-control-mean" title="Permanent link">&para;</a></h3>
 <p>When <code>compute_uniform_control: true</code>, the reconstruction routine also computes
 the unweighted mean of the registered frames over the same valid-pixel set. This
 mean is called the <strong>uniform-control</strong> output <code>U(p)</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>U(p) = sum_{f in V_c^I(p)} I_f(p) / |V_c^I(p)|
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>U(p) = sum_{f in V_c^I(p)} I_f(p) / |V_c^I(p)|
 </span></code></pre></div>
 <p><code>U(p)</code> is not a quality-weighted result; it is a diagnostic reference.</p>
 <h3 id="62-validation-metrics">6.2 Validation Metrics<a class="headerlink" href="#62-validation-metrics" title="Permanent link">&para;</a></h3>
@@ -4323,7 +4352,7 @@ estimated robustly from horizontal and vertical pixel differences
 is therefore not classified as background noise.</p>
 <p>These comparisons are recorded in <code>aqmh_reconstruction.json</code>. Each metric must
 also record an applicability state:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>status = pass | fail | not_applicable
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>status = pass | fail | not_applicable
 </span></code></pre></div>
 <p><code>not_applicable</code> is required when either side of the comparison is missing,
 non-finite, has too few samples, or would require a relative regression against
@@ -4332,8 +4361,8 @@ only and must not by itself trigger fallback to uniform control.</p>
 <h3 id="63-adaptive-low-frequency-neutralisation">6.3 Adaptive Low-Frequency Neutralisation<a class="headerlink" href="#63-adaptive-low-frequency-neutralisation" title="Permanent link">&para;</a></h3>
 <p>If the uniform control <code>U(p)</code> is available, an optional neutralised candidate
 <code>N(p)</code> is computed:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>L(p) = GaussianBlur( A(p) - U(p), sigma = 96 px )
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>N(p) = A(p) - L(p)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>L(p) = GaussianBlur( A(p) - U(p), sigma = 96 px )
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>N(p) = A(p) - L(p)
 </span></code></pre></div>
 <p>The blur uses a reflect-101 border mode. The sigma of 96 px was chosen
 empirically to target large-scale "veil" residuals without affecting
@@ -4341,7 +4370,7 @@ structure on smaller scales.</p>
 <p>A validation comparison <code>compare(N, U)</code> is computed. <code>N(p)</code> may be selected as
 the base over <code>A(p)</code> only when the background RMS metric is applicable and its
 regression is strictly smaller:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>background_rms_regression(N, U) &lt; background_rms_regression(A, U)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>background_rms_regression(N, U) &lt; background_rms_regression(A, U)
 </span></code></pre></div>
 <p>If the raw AQMH candidate already passes applicable background gates, the
 neutralised candidate must not replace it unless it also preserves the primary
@@ -4369,7 +4398,7 @@ from <code>B(p)</code>:</p>
    range suppressed.</li>
 <li>Compute the detail candidate:</li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>D(p) = U(p) + M_s(p) * (B(p) - U(p))
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>D(p) = U(p) + M_s(p) * (B(p) - U(p))
 </span></code></pre></div>
 <p>In high-structure regions (<code>M_s ≈ 1</code>) <code>D(p)</code> follows the AQMH base; in
    smooth regions (<code>M_s ≈ 0</code>) it follows the uniform control.</p>
@@ -4381,16 +4410,16 @@ are reported and no object-specific rules are used. This is important for
 galaxies, where scientifically relevant spiral arms and dust lanes often occupy
 mid-gradient percentile ranges rather than only the top gradient quantiles.</p>
 <p><code>D(p)</code> is accepted if it passes all applicable validation thresholds:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>background_rms_regression(D, U) &lt;= max_background_rms_regression
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>fwhm_regression(D, U)            &lt;= max_fwhm_regression
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>seam_score_regression(D, U)      &lt;= max_seam_score_regression
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>tail11_abs_regression(D, U)      &lt;= max_tail11_abs_regression
-</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>elongation_regression(D, U)      &lt;= max_elongation_regression
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>background_rms_regression(D, U) &lt;= max_background_rms_regression
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>fwhm_regression(D, U)            &lt;= max_fwhm_regression
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>seam_score_regression(D, U)      &lt;= max_seam_score_regression
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>tail11_abs_regression(D, U)      &lt;= max_tail11_abs_regression
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>elongation_regression(D, U)      &lt;= max_elongation_regression
 </span></code></pre></div>
 <p>and it improves at least one of FWHM or seam score relative to <code>U</code>.</p>
 <p>If <code>D(p)</code> fails, an <strong>alpha-blended attenuation</strong> search is performed over
 <code>alpha ∈ [0, 1]</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
 </span></code></pre></div>
 <p>The largest <code>alpha</code> that satisfies the applicable validation thresholds and improves
 FWHM or seam score is selected. If no <code>alpha &gt; 0</code> passes, the base <code>B(p)</code> is
@@ -4398,7 +4427,7 @@ kept.</p>
 <h3 id="65-final-protection-gate">6.5 Final Protection Gate<a class="headerlink" href="#65-final-protection-gate" title="Permanent link">&para;</a></h3>
 <p>After all post-processing, the selected output <code>O(p)</code> is validated one more
 time against <code>U(p)</code> and the immutable raw AQMH baseline <code>A(p)</code>. If:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>background_rms_regression(O, U) &gt; max_background_rms_regression
+<div class="language-text highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>background_rms_regression(O, U) &gt; max_background_rms_regression
 </span></code></pre></div>
 <p>or any other applicable configured threshold is exceeded, the runner rejects
 the post-processed candidate and emits <code>A(p)</code>. <code>U(p)</code> remains a diagnostic
@@ -4472,12 +4501,13 @@ the uniform-control output by the configured regression thresholds.</p>
   the header has no Bayer metadata. This change was introduced to prevent
   example-config defaults from overriding camera metadata.</li>
 </ul>
-<h3 id="92-aqmh-core-parameters-unchanged-from-v020">9.2 AQMH Core Parameters (unchanged from v0.2.0)<a class="headerlink" href="#92-aqmh-core-parameters-unchanged-from-v020" title="Permanent link">&para;</a></h3>
+<h3 id="92-aqmh-core-parameters">9.2 AQMH Core Parameters<a class="headerlink" href="#92-aqmh-core-parameters" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>aqmh.pyramid.scales = 4</code></li>
 <li><code>aqmh.pyramid.base_window_px = 4</code></li>
 <li><code>aqmh.pyramid.w_sharp = 0.6</code></li>
 <li><code>aqmh.pyramid.w_snr = 0.4</code></li>
+<li><code>aqmh.pyramid.score_scale = 1.8</code></li>
 <li><code>aqmh.pyramid.k_artifact = 3.0</code></li>
 <li><code>aqmh.pyramid.frac_artifact_max = 0.25</code></li>
 <li><code>aqmh.storage.resolution_divisor = 1</code></li>
@@ -4516,9 +4546,12 @@ the uniform-control output by the configured regression thresholds.</p>
 <p>The v0.2.1 reference values were <code>low_q=0.70</code>, <code>high_q=0.97</code>, blur sigma
 <code>2 px</code>; the current operating defaults are wider to preserve mid-gradient
 structure.</p>
-<h3 id="96-cherry-pick-unchanged">9.6 Cherry-Pick (unchanged)<a class="headerlink" href="#96-cherry-pick-unchanged" title="Permanent link">&para;</a></h3>
+<h3 id="96-cherry-pick">9.6 Cherry-Pick<a class="headerlink" href="#96-cherry-pick" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>aqmh.cherry_pick.enabled = false</code> by default.</li>
+<li><code>mode = auto_reject</code></li>
+<li><code>reject_below_best_fraction = 0.25</code></li>
+<li><code>min_keep_fraction = 0.90</code></li>
 <li><code>k_frac = 0.30</code></li>
 <li><code>k_min_required = 20</code></li>
 <li><code>margin_min = 0.02</code></li>

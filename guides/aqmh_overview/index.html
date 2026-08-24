@@ -2791,7 +2791,7 @@
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>         Phi_sharp = local variance of masked Laplacian (sharpness)
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>         Phi_snr   = local SNR = mu / max(1.4826*MAD, eps)
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>         Phi_artifact = 1 - clip(outlier_frac / frac_artifact_max, 0, 1)
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    3. Psi_s = sigmoid(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr)) * Phi_artifact
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    3. Psi_s = sigmoid(score_scale*(w_sharp*z(Phi_sharp) + w_snr*z(Phi_snr))) * Phi_artifact
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>       (z = robust z-score; artifact gate is multiplicative — one bad scale vetos pixel)
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    4. Upsample Psi_s to canvas resolution (mask-aware bilinear)
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  Q_map_{f,c} = geometric_mean over scales(Psi_s)  # all scales must agree
@@ -2837,6 +2837,11 @@
 <td>SNR weight in quality index</td>
 </tr>
 <tr>
+<td><code>aqmh.pyramid.score_scale</code></td>
+<td><code>1.8</code></td>
+<td>Local quality-map selectivity</td>
+</tr>
+<tr>
 <td><code>aqmh.pyramid.k_artifact</code></td>
 <td><code>3.0</code></td>
 <td>MAD multiplier for artifact detection (higher = more tolerant)</td>
@@ -2864,12 +2869,17 @@
 <tr>
 <td><code>aqmh.cherry_pick.enabled</code></td>
 <td><code>false</code></td>
-<td>Stack only top-quality frames</td>
+<td>Enable conservative per-pixel frame selection</td>
+</tr>
+<tr>
+<td><code>aqmh.cherry_pick.mode</code></td>
+<td><code>auto_reject</code></td>
+<td>Keep most frames; reject only clear low-score outliers</td>
 </tr>
 <tr>
 <td><code>aqmh.cherry_pick.k_frac</code></td>
 <td><code>0.30</code></td>
-<td>Fraction of best frames to use (0.30 = best 30%)</td>
+<td>Legacy <code>top_k</code> fraction only</td>
 </tr>
 <tr>
 <td><code>aqmh.cherry_pick.k_min_required</code></td>
@@ -2934,7 +2944,7 @@ Practical examples: <a href="../../configuration_examples_practical_en/">Configu
 </tr>
 <tr>
 <td>Strongly varying frame quality (seeing, clouds)</td>
-<td><strong>AQMH</strong> with <code>cherry_pick.enabled: true</code>, <code>resolution_divisor: 1</code>, <code>dtype: float32</code></td>
+<td><strong>AQMH</strong> with <code>cherry_pick.enabled: true</code>, <code>cherry_pick.mode: auto_reject</code>, <code>resolution_divisor: 1</code>, <code>dtype: float32</code></td>
 </tr>
 <tr>
 <td>Very large sessions, RAM-limited</td>

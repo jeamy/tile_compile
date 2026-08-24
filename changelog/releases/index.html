@@ -2532,6 +2532,61 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v04a-2026-08-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.A (2026-08-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v049-2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.9 (2026-08-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v048-2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.8 (2026-08-21)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v047-2026-08-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.7 (2026-08-19)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v046-2026-08-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.6 (2026-08-08)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v045-2026-07-25" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3279,6 +3334,61 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v04a-2026-08-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.A (2026-08-24)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v049-2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.9 (2026-08-23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v048-2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.8 (2026-08-21)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v047-2026-08-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.7 (2026-08-19)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v046-2026-08-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.4.6 (2026-08-08)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v045-2026-07-25" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3945,6 +4055,46 @@
 
 
 <h1 id="release-notes">Release Notes<a class="headerlink" href="#release-notes" title="Permanent link">&para;</a></h1>
+<h2 id="v04a-2026-08-24">v0.4.A (2026-08-24)<a class="headerlink" href="#v04a-2026-08-24" title="Permanent link">&para;</a></h2>
+<p><strong>Native local Gaia DR3 astrometry fallback and BGE draft compatibility:</strong></p>
+<ul>
+<li>ASTAP remains the primary solver. When it cannot produce a WCS, Tile Compile now solves locally against the PCC-installed Siril/Gaia DR3 catalogue, without starting Siril or using the network.</li>
+<li>The fallback combines triangle matching with pair-distance voting and similarity refinement for difficult wide-field stacks. It writes a linear TAN/CD WCS and is used by normal runs, preprocessing postprocess, and resumes.</li>
+<li>Astrometry events now identify the selected solver and record Gaia image/catalogue/inlier counts. A failed fallback records its specific error in <code>solve_failed</code> diagnostics.</li>
+<li>Stale browser drafts containing the removed <code>bge.enabled</code> key are migrated to <code>bge.method</code> before validate, save, save-as, or run start, preventing legacy localStorage drafts from failing validation indefinitely.</li>
+</ul>
+<h2 id="v049-2026-08-23">v0.4.9 (2026-08-23)<a class="headerlink" href="#v049-2026-08-23" title="Permanent link">&para;</a></h2>
+<p><strong>BGE <code>enabled</code> removal and UI/PI config sync fixes:</strong></p>
+<ul>
+<li>Removed the legacy <code>bge.enabled</code> boolean; <code>bge.method</code> (<code>none</code>/<code>classic</code>/<code>autobge</code>) is now the only on/off switch for background extraction. Configs still using <code>bge.enabled</code> fail validation with a clear pointer to <code>bge.method</code>.</li>
+<li>Fixed PI run-chat and Parameter-tab writes that set <code>bge.enabled</code> without updating <code>bge.method</code>, which silently left BGE inconsistent. They now write <code>bge.method</code> directly.</li>
+<li>The Parameter tab no longer discards unsaved edits when the user navigates away and back; it skips reloading <code>config.yaml</code> while a dirty draft is pending.</li>
+<li>Updated the <code>aqmh_tuning</code>, <code>bright_star</code>, and <code>M45_high_altitude_strong_rotation</code> example profiles to remove the obsolete <code>bge.enabled</code> key.</li>
+</ul>
+<h2 id="v048-2026-08-21">v0.4.8 (2026-08-21)<a class="headerlink" href="#v048-2026-08-21" title="Permanent link">&para;</a></h2>
+<p><strong>CUDA RGB fallback and GPU telemetry:</strong></p>
+<ul>
+<li>AQMH now starts the RGB CUDA session only after a successful GPU Luma/core pass; GPU fallbacks use the CPU RGB path directly.</li>
+<li>Specific CUDA fallback reasons, actual RGB CUDA usage, and runtime are recorded in the reconstruction artifacts.</li>
+</ul>
+<h2 id="v047-2026-08-19">v0.4.7 (2026-08-19)<a class="headerlink" href="#v047-2026-08-19" title="Permanent link">&para;</a></h2>
+<p><strong>CUDA fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:</strong></p>
+<ul>
+<li><strong>CUDA fix:</strong> Restored 60% VRAM budget and made double-buffering adaptive — single-stream single-buffer is now the default, eliminating the performance regression where halved <code>chunk_rows</code> doubled chunk count for negligible overlap benefit.</li>
+<li><strong>AQMH performance:</strong> Parallelized frame loading, accelerated sigma clipping with in-place Quickselect, SIMD vectorized quality map decoding, subsampled FWHM validation, and inlined uniform control averaging.</li>
+<li><strong>PCC/HMS:</strong> Fixed photometric color calibration green-cast and channel balance issues; fixed HyperMetric Stretch application and preview glitches.</li>
+<li><strong>Registration:</strong> Stronger anchor handling, improved cascade refinement, cached-star parameters for <code>triangle_star_matching</code> to avoid redundant star detection.</li>
+<li><strong>PI/AI:</strong> Refactored backend PI routes with new context v2, parameter catalog, recommendation validator, and schema utils; expanded agent-service frame analysis and run chat.</li>
+<li><strong>Frontend:</strong> Improved live image viewer, AI-Empfehlung page, and i18n updates.</li>
+</ul>
+<h2 id="v046-2026-08-08">v0.4.6 (2026-08-08)<a class="headerlink" href="#v046-2026-08-08" title="Permanent link">&para;</a></h2>
+<p><strong>AQMH quality, registration robustness, PI/AI integration, and Run Monitor improvements:</strong></p>
+<ul>
+<li>Improved AQMH reconstruction and registration with stronger confidence handling, safer candidate validation, raw-output preservation, structure-aware detail control, and better resume support.</li>
+<li>Updated the PI agent service to <code>@earendil-works/pi-coding-agent ^0.84.1</code> with Node.js <code>&gt;=22.19.0</code>; improved streaming compatibility, AI analysis, run chat, and provider/auth handling.</li>
+<li>Added visible progress for AQMH diagnostics and fixed duplicated live-log entries in the v3 Run Monitor.</li>
+<li>Expanded Parameter Studio explanations, AQMH configuration/schema synchronization, build metadata, documentation, and regression coverage.</li>
+</ul>
 <h2 id="v045-2026-07-25">v0.4.5 (2026-07-25)<a class="headerlink" href="#v045-2026-07-25" title="Permanent link">&para;</a></h2>
 <p><strong>PI API key configuration bug fix:</strong></p>
 <ul>

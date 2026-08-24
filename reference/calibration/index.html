@@ -2283,10 +2283,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc" class="md-nav__link">
+  <a href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc-and-astrometry-fallback" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Siril Gaia DR3 XP sampled catalog (for PCC)
+        Siril Gaia DR3 XP sampled catalog (for PCC and astrometry fallback)
       
     </span>
   </a>
@@ -2681,10 +2681,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc" class="md-nav__link">
+  <a href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc-and-astrometry-fallback" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Siril Gaia DR3 XP sampled catalog (for PCC)
+        Siril Gaia DR3 XP sampled catalog (for PCC and astrometry fallback)
       
     </span>
   </a>
@@ -2733,12 +2733,14 @@
 </ul>
 <h2 id="external-sources-pcc-and-astrometry">External Sources (PCC and Astrometry)<a class="headerlink" href="#external-sources-pcc-and-astrometry" title="Permanent link">&para;</a></h2>
 <p>For optional color calibration and astrometric solving, the pipeline can use external data/tools:</p>
-<h3 id="siril-gaia-dr3-xp-sampled-catalog-for-pcc">Siril Gaia DR3 XP sampled catalog (for PCC)<a class="headerlink" href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc" title="Permanent link">&para;</a></h3>
+<h3 id="siril-gaia-dr3-xp-sampled-catalog-for-pcc-and-astrometry-fallback">Siril Gaia DR3 XP sampled catalog (for PCC and astrometry fallback)<a class="headerlink" href="#siril-gaia-dr3-xp-sampled-catalog-for-pcc-and-astrometry-fallback" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Can be reused if already downloaded by Siril.</li>
 <li>Typical local path: <code>~/.local/share/siril/siril_cat1_healpix8_xpsamp/</code></li>
 <li>Upstream source (catalog release): <code>https://zenodo.org/records/14738271</code></li>
 <li><strong>Download via GUI3</strong>: Tab <em>Tools → PCC → Download Missing</em> automatically downloads missing catalog chunks (~2 GB, 48 chunks).</li>
+<li><strong>Astrometry fallback:</strong> When ASTAP does not produce a valid WCS, the runner matches detected stack stars against this local catalog in-process. This is an offline Tile Compile solver; it does not launch Siril.</li>
+<li>The fallback needs approximate pointing and optics metadata in the RGB stack: <code>RA</code>, <code>DEC</code>, <code>FOCALLEN</code>, and <code>XPIXSZ</code> or <code>YPIXSZ</code>. It writes a linear TAN/CD WCS without SIP distortion terms.</li>
 </ul>
 <h3 id="astap-for-astrometry-wcs-plate-solving">ASTAP (for astrometry / WCS plate solving)<a class="headerlink" href="#astap-for-astrometry-wcs-plate-solving" title="Permanent link">&para;</a></h3>
 <ul>
@@ -2746,7 +2748,7 @@
 <li>Official site/downloads: <code>https://www.hnsky.org/astap.htm</code></li>
 <li><strong>Download via GUI3</strong>: Tab <em>Tools → Astrometry → Install CLI</em> and <em>Download Catalog</em> download ASTAP binary and star database directly.</li>
 </ul>
-<p>If these resources are not installed, core reconstruction still works, but ASTROMETRY/PCC phases may be skipped or fail depending on configuration. BGE (Background Gradient Extraction) works independently of external catalogs.</p>
+<p>If these resources are not installed, core reconstruction still works. ASTROMETRY can succeed through ASTAP alone, or through the local Gaia fallback when the required metadata is available; PCC uses the local catalog or its configured online source. A phase with no applicable solver/catalog may be skipped or fail depending on configuration. BGE (Background Gradient Extraction) works independently of external catalogs.</p>
 
 
 

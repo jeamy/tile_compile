@@ -3046,6 +3046,7 @@ Umbenennung von <code>LOCAL_METRICS</code> und <code>TILE_RECONSTRUCTION</code>.
 <li>Classic Tile-Metriken werden <strong>nicht berechnet</strong> (<code>compute_classic_local_metrics = false</code>)</li>
 <li>Stattdessen werden <strong>pyramid-basierte Qualitätskarten</strong> pro Frame berechnet:</li>
 <li>Multi-Scale-Sharpness und SNR über Pyramid-Level</li>
+<li>lokale Score-Skalierung (<code>score_scale</code>) vor dem AQMH-Sigmoid</li>
 <li>Artefakt-Detektion (<code>k_artifact</code>, <code>frac_artifact_max</code>)</li>
 <li>Qualitätskarte <code>Q_map</code> pro Frame wird in <code>QualityMapCache</code> gespeichert (<code>runs/&lt;id&gt;/cache/aqmh/</code>)</li>
 <li>Phase-Anzeige: <code>AQMH_MAPS</code> (Enum 19)</li>
@@ -3090,6 +3091,11 @@ Umbenennung von <code>LOCAL_METRICS</code> und <code>TILE_RECONSTRUCTION</code>.
 <td>0.4</td>
 </tr>
 <tr>
+<td><code>aqmh.pyramid.score_scale</code></td>
+<td>Lokale Quality-Map-Selektivität</td>
+<td>1.8</td>
+</tr>
+<tr>
 <td><code>aqmh.pyramid.k_artifact</code></td>
 <td>Artefakt-Schwellwert</td>
 <td>3.0</td>
@@ -3125,8 +3131,13 @@ Umbenennung von <code>LOCAL_METRICS</code> und <code>TILE_RECONSTRUCTION</code>.
 <td>20</td>
 </tr>
 <tr>
+<td><code>aqmh.cherry_pick.mode</code></td>
+<td>Frame-Selektionsmodus (<code>auto_reject</code> oder <code>top_k</code>)</td>
+<td>auto_reject</td>
+</tr>
+<tr>
 <td><code>aqmh.cherry_pick.k_frac</code></td>
-<td>Fraktion der besten Frames</td>
+<td>Fraktion der besten Frames nur im Legacy-Modus <code>top_k</code></td>
 <td>0.30</td>
 </tr>
 </tbody>
@@ -3255,7 +3266,7 @@ Umbenennung von <code>LOCAL_METRICS</code> und <code>TILE_RECONSTRUCTION</code>.
 </span><span id="__span-4-89"><a id="__codelineno-4-89" name="__codelineno-4-89" href="#__codelineno-4-89"></a>                             │
 </span><span id="__span-4-90"><a id="__codelineno-4-90" name="__codelineno-4-90" href="#__codelineno-4-90"></a>              ┌──────────────▼──────────────┐
 </span><span id="__span-4-91"><a id="__codelineno-4-91" name="__codelineno-4-91" href="#__codelineno-4-91"></a>              │  PHASE 14: ASTROMETRY       │
-</span><span id="__span-4-92"><a id="__codelineno-4-92" name="__codelineno-4-92" href="#__codelineno-4-92"></a>              │  • ASTAP solve / WCS        │
+</span><span id="__span-4-92"><a id="__codelineno-4-92" name="__codelineno-4-92" href="#__codelineno-4-92"></a>              │  • ASTAP, local Gaia fallback│
 </span><span id="__span-4-93"><a id="__codelineno-4-93" name="__codelineno-4-93" href="#__codelineno-4-93"></a>              └──────────────┬──────────────┘
 </span><span id="__span-4-94"><a id="__codelineno-4-94" name="__codelineno-4-94" href="#__codelineno-4-94"></a>                             │
 </span><span id="__span-4-95"><a id="__codelineno-4-95" name="__codelineno-4-95" href="#__codelineno-4-95"></a>              ┌──────────────▼──────────────┐

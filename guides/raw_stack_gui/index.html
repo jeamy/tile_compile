@@ -2696,7 +2696,7 @@
 </blockquote>
 <p>The Raw Stack page provides standalone preprocessing from FITS light frames to a final stacked and post-processed image, running fully separately from the normal Tile-Compile run studio.</p>
 <h2 id="pipeline-phases">Pipeline phases<a class="headerlink" href="#pipeline-phases" title="Permanent link">&para;</a></h2>
-<p>Calibration → CFA/Mono Prep → Registration → Quality Analysis → Frame Filtering → Stacking (Sigma/Median/Winsor) → Astrometry (ASTAP) → BGE → PCC → HyperMetric Stretch</p>
+<p>Calibration → CFA/Mono Prep → Registration → Quality Analysis → Frame Filtering → Stacking (Sigma/Median/Winsor) → Astrometry (ASTAP, then local Gaia DR3 fallback) → BGE → PCC → HyperMetric Stretch</p>
 <p>All configurable parameters (sigma-clip, rejection method, stacking weighting, BGE, PCC, Astrometry, and HyperMetric Stretch) are taken directly from the Parameter Studio configuration — no hardcoded values.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>

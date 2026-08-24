@@ -2568,6 +2568,61 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#2026-08-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-24)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-23)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-21)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-19)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-08)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#2026-07-25" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3214,6 +3269,61 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#2026-08-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-24)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-23)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-21)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-19)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2026-08-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        (2026-08-08)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#2026-07-25" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3799,6 +3909,116 @@
   <h1>Detailed Changelog</h1>
 
 <h2 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h2>
+<h3 id="2026-08-24">(2026-08-24)<a class="headerlink" href="#2026-08-24" title="Permanent link">&para;</a></h3>
+<p><strong>v0.4.A — Native local Gaia DR3 astrometry fallback and BGE draft compatibility:</strong></p>
+<ul>
+<li><strong>Astrometry fallback:</strong> ASTAP remains the primary plate solver. If its quad matcher returns no valid WCS, the runner now performs an in-process, offline near-solve against the local Siril/Gaia DR3 catalogue already installed for PCC. It never starts Siril and makes no network request.</li>
+<li><strong>Robust wide-field matching:</strong> The native solver detects up to 2,000 image stars, queries the local Gaia catalogue from the approximate pointing and optical scale, tries both image orientations, and supplements the existing triangle match with pair-distance voting plus a similarity-fit refinement. This covers stacks whose image-star brightness order differs from Gaia's magnitude order.</li>
+<li><strong>WCS and pipeline coverage:</strong> A successful local solution is persisted as a standard linear TAN/CD WCS sidecar and is available from the normal pipeline, raw-preprocessing postprocess, and resume paths. The fallback needs <code>RA</code>, <code>DEC</code>, <code>FOCALLEN</code>, and <code>XPIXSZ</code> or <code>YPIXSZ</code>; it intentionally does not estimate SIP distortion terms.</li>
+<li><strong>Astrometry diagnostics:</strong> Phase events record <code>solver: local_gaia_dr3</code>, image/catalogue/inlier star counts, and reflection state on success. If both solvers fail, <code>local_gaia_error</code> and the same counters are retained in the <code>solve_failed</code> event and resume error instead of leaving the Gaia attempt invisible in the Run Monitor diagnostics.</li>
+<li><strong>BGE draft migration:</strong> Browser drafts saved before the removal of <code>bge.enabled</code> are migrated at every outgoing configuration boundary (validation, save, save-as, and run start). <code>bge.enabled: false</code> becomes <code>bge.method: none</code>; an enabled legacy draft preserves a non-<code>none</code> method or uses <code>classic</code>. The cleaned draft is written back to browser state so stale localStorage data cannot cause a persistent validation loop.</li>
+</ul>
+<h3 id="2026-08-23">(2026-08-23)<a class="headerlink" href="#2026-08-23" title="Permanent link">&para;</a></h3>
+<p><strong>v0.4.9 — <code>bge.enabled</code> removal, PI/UI config sync fixes:</strong></p>
+<ul>
+<li><strong>Breaking config change:</strong> Removed the legacy <code>bge.enabled</code> boolean. <code>bge.method</code> (<code>none</code>/<code>classic</code>/<code>autobge</code>) is now the sole on/off switch for BGE -- <code>bge.enabled</code> could silently disagree with <code>bge.method</code> (whichever a given writer set last won unpredictably; <code>method</code> was always authoritative once present, so e.g. <code>enabled: false</code> next to a stale <code>method: classic</code> still ran BGE). A config that still sets <code>bge.enabled</code> now fails to load with a validation error naming <code>bge.method</code>. Removed from the JSON/YAML schema (both the embedded <code>get-schema</code> output and the checked-in <code>tile_compile.schema.json</code>/<code>.yaml</code> reference copies), the <code>Config</code>/<code>BGEConfig</code> struct, and all serialization/artifact/JSON-catalog references; runtime reads now compute <code>method != "none"</code> inline where the boolean is still needed downstream (e.g. <code>image::BGEConfig::enabled</code>, artifact <code>"enabled"</code>/<code>"requested"</code> fields, which keep their existing external key names).</li>
+<li><strong>Root cause found and fixed:</strong> The PI "faint_nebula" run-chat recommendation and the Parameter tab's <code>bge.enabled</code> field both used to write <code>enabled</code> without touching <code>method</code>, silently producing exactly this inconsistent state. The PI hint now sets <code>bge.method: none</code> directly; the frontend's generic <code>setConfigValue()</code> now centrally translates any incoming legacy <code>bge.enabled</code> write (from old PI memory replay, action-plan re-application, etc.) into the equivalent <code>bge.method</code> write instead of leaving a dead key that the backend would reject on save.</li>
+<li><strong>Parameter tab data-loss fix:</strong> The Parameter tab discarded unsaved edits whenever the user navigated away and back (e.g. Parameter → Run Monitor → Parameter), because the page is torn down and rebuilt on every sub-tab switch and unconditionally re-fetched <code>config.yaml</code> from disk. It now skips the reload while there is an unsaved (<code>dirty</code>) draft.</li>
+<li>Updated three example configs (<code>aqmh_tuning</code>, <code>bright_star</code>, <code>M45_high_altitude_strong_rotation</code>) that still carried the legacy field -- two of them had <code>enabled: false</code> next to <code>method: autobge</code>, i.e. were already silently running AutoBGE despite the <code>enabled: false</code> they shipped with.</li>
+</ul>
+<h3 id="2026-08-21">(2026-08-21)<a class="headerlink" href="#2026-08-21" title="Permanent link">&para;</a></h3>
+<p><strong>v0.4.8 — CUDA RGB fallback and GPU telemetry:</strong></p>
+<ul>
+<li><strong>CUDA fix:</strong> The AQMH RGB CUDA session now starts only when the preceding Luma/core pass has successfully confirmed GPU usage. After a GPU fallback, the slow or failing RGB CUDA attempt is skipped and the CPU path is used directly.</li>
+<li><strong>Fallback diagnostics:</strong> CUDA fallbacks now record specific reasons, including invalid input, exceeded frame limits, insufficient VRAM, failed CUDA calls, and failed chunk-buffer allocations.</li>
+<li><strong>Telemetry:</strong> Reconstruction artifacts and phase metrics record the fallback reason, whether the RGB CUDA session was actually used, and its runtime.</li>
+</ul>
+<h3 id="2026-08-19">(2026-08-19)<a class="headerlink" href="#2026-08-19" title="Permanent link">&para;</a></h3>
+<p><strong>v0.4.7 — CUDA double-buffering fix, AQMH performance, PCC/HMS fixes, PI refactoring, and registration improvements:</strong></p>
+<p><strong>CUDA reconstruction fix:</strong></p>
+<ul>
+<li>Fixed GPU performance regression caused by mandatory double-buffering: the device-budget was halved from 60% to 30% of free VRAM, which halved <code>chunk_rows</code> and doubled the chunk count. Since CUDA kernel time dominated (&gt;99% of pipeline time), the overlap benefit was negligible while overhead doubled. The fix restores 60% VRAM budget, allocates one buffer set first with retry, then optionally attempts a second set for double-buffering only when VRAM is sufficient. Single-stream single-buffer mode is the default; double-buffering remains available as an adaptive fallback for GPUs with ample VRAM.</li>
+<li>Fixed <code>triangle_star_matching</code> header/definition mismatch: the header declaration in <code>global_registration.hpp</code> had 9 parameters while the definition in <code>global_registration.cpp</code> had 11 (two additional cached-star pointers). Default arguments were incorrectly duplicated in the definition. Header now declares all 11 parameters with defaults; definition no longer repeats defaults.</li>
+</ul>
+<p><strong>AQMH reconstruction performance:</strong></p>
+<ul>
+<li>Parallelized chunk frame loading with OpenMP across frames using dynamic scheduling for I/O overlap.</li>
+<li>Accelerated sigma clipping with in-place Quickselect median/MAD selection and stack buffers, eliminating per-iteration allocations.</li>
+<li>Vectorized quality map decoding with SIMD and optimized bilinear upsampling coordinate lookups.</li>
+<li>Subsampled large canvases during FWHM validation to reduce post-processing overhead.</li>
+<li>Inlined uniform control averaging into the reconstruction loop to avoid a separate pass.</li>
+</ul>
+<p><strong>PCC and HMS fixes:</strong></p>
+<ul>
+<li>Fixed photometric color calibration issues affecting green cast and channel balance in stacked output.</li>
+<li>Fixed HyperMetric Stretch glitches affecting stretch application and preview rendering.</li>
+<li>Added PCC detail header with auxiliary metadata for calibration diagnostics.</li>
+</ul>
+<p><strong>Registration improvements:</strong></p>
+<ul>
+<li>Reworked <code>runner_phase_registration.cpp</code> with stronger anchor handling, improved cascade refinement, and safer fallback behavior for difficult sessions.</li>
+<li>Added <code>triangle_star_matching</code> cached-star parameters to avoid redundant star detection across registration attempts.</li>
+<li>Updated registration process flow documentation.</li>
+</ul>
+<p><strong>PI and AI services:</strong></p>
+<ul>
+<li>Refactored backend PI routes and AI route handling: <code>ai_routes.cpp</code> simplified, new <code>pi_context_v2.cpp</code>, <code>pi_parameter_catalog.cpp</code>, <code>pi_recommendation_validator.cpp</code>, and <code>pi_schema_utils.cpp</code> added for structured recommendation validation.</li>
+<li>Added PI context protocol compression plan documentation.</li>
+<li>Expanded agent-service frame analysis and run-chat services with improved streaming and context handling.</li>
+<li>Added <code>pi_image_ops</code> test coverage and fake CLI fixture for backend tests.</li>
+</ul>
+<p><strong>Frontend:</strong></p>
+<ul>
+<li>Improved live image viewer with enhanced preview lifecycle and drag detection.</li>
+<li>Updated AI-Empfehlung page with refined run-chat UI and recommendation display.</li>
+<li>Added CSS component styles and updated i18n strings in both German and English.</li>
+</ul>
+<p><strong>Configuration and schema:</strong></p>
+<ul>
+<li>Updated <code>tile_compile.schema.json</code>, <code>tile_compile.schema.yaml</code>, and <code>tile_compile.yaml</code> with new and revised parameter defaults.</li>
+<li>Updated configuration reference and practical examples documentation in both English and German.</li>
+<li>Removed obsolete sharpness example profiles (<code>sharpness_100_cubic</code>, <code>sharpness_100_cubic_affine</code>, <code>sharpness_100_cubic_affine_local</code>, <code>sharpness_100_lanczos4</code>, <code>sharpness_100_linear</code>).</li>
+<li>Updated <code>aqmh_tuning.example.yaml</code> with current parameter set.</li>
+</ul>
+<p><strong>Documentation:</strong></p>
+<ul>
+<li>Added AQMH reconstruction optimization documentation (<code>docs/AQMH/aqmh_reconstruction_optimierung_de.md</code>).</li>
+<li>Updated registration process flow documentation (<code>docs/process_flow/phase_1_registration.md</code>).</li>
+<li>Removed obsolete M31 stacked RGB comparison document.</li>
+</ul>
+<h3 id="2026-08-08">(2026-08-08)<a class="headerlink" href="#2026-08-08" title="Permanent link">&para;</a></h3>
+<p><strong>v0.4.6 — AQMH reconstruction quality, registration robustness, PI/AI integration, and run-monitor improvements:</strong></p>
+<p><strong>AQMH reconstruction and registration:</strong></p>
+<ul>
+<li>Replaced order-dependent neighboring-frame registration chains with <code>independent_global_consensus_v2</code>: fixed anchors are independently solved against the master reference, and every ordinary frame evaluates up to five nearest fixed anchors plus the master in the same global coordinate system. Direct selection now requires at least two transforms agreeing in wrapped angle, scale, and transformed center/corners, or one strong candidate that is clearly superior in global NCC. Ambiguous frames remain unresolved for frame-independent master ECC, astrometry, or the global model; valid direct-global source selections cannot be replaced by temporal transforms, recovered frames cannot propagate transforms, and registration artifacts record the exact gates and aggregate consensus decisions.</li>
+<li>Improved global registration for long or difficult sessions with stronger anchor handling, cascade refinement, affine refinement, smooth local refinement, confidence checks, and safer fallback behavior.</li>
+<li>Added registration-confidence weighting and chain-depth penalties so uncertain or indirectly registered frames contribute less aggressively to AQMH reconstruction.</li>
+<li>Extended AQMH reconstruction candidate handling with immutable raw-AQMH output, uniform-control comparison, adaptive low-frequency neutralisation, structure-masked detail candidates, and validation against both the uniform control and raw baseline.</li>
+<li>Added and aligned AQMH reconstruction controls for asymmetric sigma clipping, structure masks, registration-weight guards, RGB/debayer-first processing, and sequential RGB memory handling.</li>
+<li>Improved AQMH diagnostics and reconstruction artifacts, including raw/selected output separation, validation metadata, cache/backend information, and safer resume dependencies.</li>
+<li>Added regression coverage for AQMH quality maps, reconstruction, validation, debayering, registration cascades, linearity, and GPU/CPU-related behavior.</li>
+</ul>
+<p><strong>Progress, logging, and Run Monitor:</strong></p>
+<ul>
+<li>AQMH diagnostics now reports visible progress while processing frame/block diagnostics and while writing diagnostic artifacts; the existing <code>AQMH_DIAGNOSTICS</code> phase remains resumable and is shown correctly in the v3 Run Monitor.</li>
+<li>Fixed repeated live-log entries caused by periodically reloading the same run-log tail. The frontend now appends only new or non-overlapping log lines.</li>
+<li>Improved phase, progress, warning, and run-status handling during normal runs and resume operations, including restored phase state after reload.</li>
+<li>Added clearer runtime/build and acceleration information for reconstruction and registration phases.</li>
+</ul>
+<p><strong>PI and AI services:</strong></p>
+<ul>
+<li>Updated <code>@earendil-works/pi-coding-agent</code> to <code>^0.84.1</code> and raised the agent-service Node.js requirement to <code>&gt;=22.19.0</code>.</li>
+<li>Updated the agent-service lockfile with Node 22 and adapted streaming handling to the <code>0.84.x</code> delta-only <code>message_update</code> event format.</li>
+<li>Expanded AI prompt and provider handling, frame analysis, run chat, model/auth status, and provider payload support.</li>
+<li>Added backend AI/PI routes and run-analysis context handling for configuration, diagnostics, validation artifacts, logs, and resumable phase recommendations.</li>
+</ul>
+<p><strong>Frontend and configuration:</strong></p>
+<ul>
+<li>Expanded the v3 Parameter Studio with AQMH explanations, parameter guidance, validation-aware controls, calibration controls, and aligned English/German translations.</li>
+<li>Synchronized AQMH configuration defaults, schemas, examples, practical configuration documentation, and methodology references.</li>
+<li>Added build-information generation and runtime version/build metadata to the CMake and runner setup.</li>
+<li>Added sharpness and registration comparison profiles and documented the related M31/AQMH evaluation results.</li>
+</ul>
 <h3 id="2026-07-25">(2026-07-25)<a class="headerlink" href="#2026-07-25" title="Permanent link">&para;</a></h3>
 <p><strong>v0.4.5 — PI API key configuration bug fix:</strong></p>
 <ul>

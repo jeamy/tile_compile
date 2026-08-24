@@ -4947,8 +4947,9 @@
 <li><strong>Photometric signal mapping</strong> remains linear (no global nonlinear tone curves such as stretch, asinh, log).
 | <code>aqmh.storage.dtype</code> | <code>float32</code> | Cache-Datentyp (<code>float32</code>, <code>uint16</code> oder <code>uint8</code>) |
 | <code>aqmh.storage.max_resident_maps</code> | <code>2</code> | Max. gleichzeitig im RAM gehaltene Qualitätskarten |
-| <code>aqmh.cherry_pick.enabled</code> | <code>false</code> | Nur beste Frames stacken |
-| <code>aqmh.cherry_pick.k_frac</code> | <code>0.30</code> | Anteil bester Frames (0.30 = beste 30%) |
+| <code>aqmh.cherry_pick.enabled</code> | <code>false</code> | Konservative AQMH-Frame-Selektion aktivieren |
+| <code>aqmh.cherry_pick.mode</code> | <code>auto_reject</code> | Meiste Frames behalten; nur klare Low-Score-Ausreißer verwerfen |
+| <code>aqmh.cherry_pick.k_frac</code> | <code>0.30</code> | Nur Legacy-Anteil fuer <code>top_k</code> |
 | <code>aqmh.cherry_pick.k_min_required</code> | <code>20</code> | Lauf-Gate und Untergrenze Samples pro Pixel |
 | <code>aqmh.diagnostics.enabled</code> | <code>true</code> | AQMH-Diagnosephase aktivieren |
 | <code>aqmh.diagnostics.level</code> | <code>full</code> | Detaillierungsgrad: <code>none</code>, <code>summary</code> oder <code>full</code> |</li>
@@ -5963,7 +5964,7 @@ To mitigate this, an additive Background Gradient Extraction (BGE) step may be a
 <li>large mosaics retain sufficient spatial sampling.</li>
 </ul>
 <p>Implementations must guarantee that grid resolution is coarser than tile resolution (<code>G &gt;= 2*T</code>) <strong>except</strong> in compact-tile mode.</p>
-<p><strong>Compact-tile mode exception (binding):</strong> When compact-tile mode is active (§5.4 step 4, <code>T = min(W,H)</code>), the constraint <code>G &gt;= 2*T</code> cannot be satisfied because <code>G_max = min(W,H)/4 &lt; 2*T</code>. In this case, BGE <strong>must</strong> be disabled (<code>bge.enabled = false</code> implicitly) or the grid spacing is fixed at <code>G = G_max</code> with an explicit diagnostic warning. Implementations must document which behavior is active and must not silently violate the <code>G &gt;= 2*T</code> constraint.</p>
+<p><strong>Compact-tile mode exception (binding):</strong> When compact-tile mode is active (§5.4 step 4, <code>T = min(W,H)</code>), the constraint <code>G &gt;= 2*T</code> cannot be satisfied because <code>G_max = min(W,H)/4 &lt; 2*T</code>. In this case, BGE <strong>must</strong> be disabled (<code>bge.method = none</code> implicitly) or the grid spacing is fixed at <code>G = G_max</code> with an explicit diagnostic warning. Implementations must document which behavior is active and must not silently violate the <code>G &gt;= 2*T</code> constraint.</p>
 <hr />
 <h4 id="6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf">6.3.10 RBF Surface Mathematical Specification (Binding, when <code>bge.fit.method = rbf</code>)<a class="headerlink" href="#6310-rbf-surface-mathematical-specification-binding-when-bgefitmethod-rbf" title="Permanent link">&para;</a></h4>
 <p>Let grid-cell samples be <code>(r_j, b_j, w_j)</code> for <code>j = 1..J</code>, where:</p>

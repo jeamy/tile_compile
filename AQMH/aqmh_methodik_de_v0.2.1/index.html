@@ -2461,10 +2461,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" class="md-nav__link">
+  <a href="#92-aqmh-kernparameter" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)
+        9.2 AQMH-Kernparameter
       
     </span>
   </a>
@@ -2505,10 +2505,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#96-cherry-pick-unverandert" class="md-nav__link">
+  <a href="#96-cherry-pick" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.6 Cherry-Pick (unverändert)
+        9.6 Cherry-Pick
       
     </span>
   </a>
@@ -3690,10 +3690,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" class="md-nav__link">
+  <a href="#92-aqmh-kernparameter" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)
+        9.2 AQMH-Kernparameter
       
     </span>
   </a>
@@ -3734,10 +3734,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#96-cherry-pick-unverandert" class="md-nav__link">
+  <a href="#96-cherry-pick" class="md-nav__link">
     <span class="md-ellipsis">
       
-        9.6 Cherry-Pick (unverändert)
+        9.6 Cherry-Pick
       
     </span>
   </a>
@@ -4108,12 +4108,19 @@ Artefakt-Anomalie-Signale.</p>
 <p>Identisch zu v0.2.0. Alle Frames müssen vor der AQMH-Map-Berechnung kalibriert,
 registriert und auf einen gemeinsamen Output-Canvas prewarped sein.</p>
 <h3 id="23-mehrskalige-pyramide">2.3 Mehrskalige Pyramide<a class="headerlink" href="#23-mehrskalige-pyramide" title="Permanent link">&para;</a></h3>
-<p>Identisch zu v0.2.0 §2.3. Die vier Skalen, die Auslassungsregel, die Berechnung
-von Schärfe, SNR und Artefakt sowie die geometrische Mittelwertfusion bleiben
-unverändert.</p>
+<p>Die vier Skalen, die Auslassungsregel, die Berechnung von Schärfe, SNR und
+Artefakt sowie die geometrische Mittelwertfusion bleiben wie in v0.2.0.</p>
+<p><strong>Post-v0.2.1-Erweiterung — lokale Sigmoid-Temperatur.</strong> Der lokale
+Qualitätsscore pro Skala wird vor dem Sigmoid mit <code>score_scale</code> multipliziert:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>score_s(x,y) = score_scale * (w_sharp * z(Phi_sharp_s) + w_snr * z(Phi_snr_s))
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Psi_s(x,y)  = sigmoid(score_s(x,y)) * Phi_artifact_s(x,y)
+</span></code></pre></div>
+<p><code>score_scale</code> muss <code>&gt; 0</code> sein und hat den aktuellen Betriebsdefault <code>1.8</code>.
+Werte über <code>1.0</code> erhöhen die lokale Selektivität der Quality-Map, ohne den
+gebundenen Wertebereich <code>[0,1]</code> oder das Artefakt-Veto zu verändern.</p>
 <h3 id="24-mehrskalen-fusion">2.4 Mehrskalen-Fusion<a class="headerlink" href="#24-mehrskalen-fusion" title="Permanent link">&para;</a></h3>
 <p>Identisch zu v0.2.0 §2.4.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Q_map_{f,c}(x,y) = ( prod_{s in S_actual} Psi_s^{up}(x,y) )^{1/P_actual}
 </span></code></pre></div>
 <p>implementiert als <code>exp(mean_s(log(Psi_s^{up})))</code> mit dem Exact-Zero-Veto und
 dem Output-Guard.</p>
@@ -4134,11 +4141,11 @@ und in <code>aqmh_metrics.json</code> abgelegt wird.</p>
 <h2 id="4-pipeline-integration">4. Pipeline-Integration<a class="headerlink" href="#4-pipeline-integration" title="Permanent link">&para;</a></h2>
 <h3 id="41-aqmh-verarbeitungsstufen">4.1 AQMH-Verarbeitungsstufen<a class="headerlink" href="#41-aqmh-verarbeitungsstufen" title="Permanent link">&para;</a></h3>
 <p>Identisch zu v0.2.0:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AQMH_MAPS
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>AQMH_GLOBAL_QUALITY
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>AQMH_RECONSTRUCTION
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>AQMH_DIAGNOSTICS
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>AQMH_NATIVE_BGE_INPUTS
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>AQMH_MAPS
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>AQMH_GLOBAL_QUALITY
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>AQMH_RECONSTRUCTION
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>AQMH_DIAGNOSTICS
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>AQMH_NATIVE_BGE_INPUTS
 </span></code></pre></div>
 <p>Die Ausgabe von <code>AQMH_RECONSTRUCTION</code> wird zusätzlich unverändert als
 <code>outputs/aqmh_reconstructed_raw.fit</code> gespeichert. Dieses Artefakt enthält bei
@@ -4178,11 +4185,11 @@ bereits den <code>1 / wfwhm</code>-Wert.</p>
 <li><strong>Kreuzkorrelations-Abbildung.</strong> Direkte und Referenz-Lösungen erhalten
    oberhalb des Floors keine kontinuierliche Dämpfung:</li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>r_cc = cc_f &gt;= cc_floor ? 1.0 : r_floor
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>r_cc = cc_f &gt;= cc_floor ? 1.0 : r_floor
 </span></code></pre></div>
 <p>Für sequenzielle, vorhergesagte, interpolierte oder unbekannte Lösungen gilt:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>r_cc = r_floor + (1 - r_floor) * t
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>t = clamp( (cc_f - cc_floor) / (cc_full - cc_floor), 0, 1 )
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>r_cc = r_floor + (1 - r_floor) * t
 </span></code></pre></div>
 <p>mit den Vorgaben <code>r_floor = 0.30</code>, <code>cc_floor = 0.35</code>, <code>cc_full = 0.80</code>.</p>
 <ol>
@@ -4201,17 +4208,17 @@ bereits den <code>1 / wfwhm</code>-Wert.</p>
 <p><strong>Kettentiefen-Dämpfung für nicht-direkte Lösungen.</strong></p>
 </li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>r_f *= (1 - depth_penalty)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>depth_penalty = min( depth_max, max(0, depth_f - 1) * depth_penalty_per_step )
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>r_f *= (1 - depth_penalty)
 </span></code></pre></div>
 <p>mit den Vorgaben <code>depth_penalty_per_step = 0.03</code>, <code>depth_max = 0.15</code>.</p>
 <ol>
 <li><strong>Clamping.</strong></li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>R_f = clamp(r_f, r_floor, 1.0)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>R_f = clamp(r_f, r_floor, 1.0)
 </span></code></pre></div>
 <p>Das effektive globale Gewicht in der Rekonstruktion lautet:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>G_f^{eff} = G_f * R_f
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>G_f^{eff} = G_f * R_f
 </span></code></pre></div>
 <p>Der Schutz ist standardmäßig aktiviert (<code>registration_weight_guard: true</code>) und
 wird in <code>aqmh_reconstruction.json</code> unter <code>registration_weight_guard</code> berichtet.</p>
@@ -4250,7 +4257,7 @@ werden.</p>
 <h2 id="5-pixelweise-gewichtete-rekonstruktion">5. Pixelweise gewichtete Rekonstruktion<a class="headerlink" href="#5-pixelweise-gewichtete-rekonstruktion" title="Permanent link">&para;</a></h2>
 <h3 id="51-rekonstruktionsformel">5.1 Rekonstruktionsformel<a class="headerlink" href="#51-rekonstruktionsformel" title="Permanent link">&para;</a></h3>
 <p>Identisch zu v0.2.0. Für jeden Output-Kanal:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>R(p) = sum_{f in V_c^I(p)} w_f(p) * I_f(p) / sum_{f in V_c^I(p)} w_f(p)
 </span></code></pre></div>
 <p>wobei <code>w_f(p) = G_f^{eff} * Q_map_{f,c}(p)</code> und <code>V_c^I(p)</code> die Menge der
 Frames mit finite Intensität und finite Quality-Map an Pixel <code>p</code> ist.</p>
@@ -4281,9 +4288,25 @@ stark abzuschneiden. Es gelten außerdem <code>min_n_eff = 2.0</code> und
 <code>min_fraction = 0.40</code>. Reicht die Sample-Suffizienz nicht aus, darf kein
 scheinbar qualitätsverbesserter Wert aus einer zu kleinen Restmenge entstehen.</p>
 <h3 id="53-cherry-pick-stacking-modus">5.3 Cherry-Pick-Stacking-Modus<a class="headerlink" href="#53-cherry-pick-stacking-modus" title="Permanent link">&para;</a></h3>
-<p>Identisch zu v0.2.0 §5.3. Das Run-Level-<code>K_nominal_median</code>-Floor, die
-Per-Pixel-Regel <code>K(p) = max(k_min_required, K_nominal(p))</code>, Tiering und die
-Rank-Separation-Diagnostik bleiben unverändert.</p>
+<p>Cherry-Pick bleibt ein expliziter Opt-in-Modus und muss in der Diagnostik
+berichtet werden. Der Standardselektor fuer aktiviertes Cherry-Pick ist jetzt
+<code>mode = auto_reject</code>: Die vollständige AQMH-gewichtete Sample-Menge bleibt
+erhalten, solange ein Sample kein klarer lokaler Low-Score-Ausreißer ist.</p>
+<p>Für <code>auto_reject</code> werden lokal rankbare Samples nach Score
+<code>S_f(p) = G_f * max(0, Q_f(p))</code> nur zur Schwellwertbestimmung sortiert:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>S_best(p) = max_f S_f(p)
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>T(p) = reject_below_best_fraction * S_best(p)
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>K_floor(p) = max(k_min_required, ceil(min_keep_fraction * N_rankable(p)))
+</span></code></pre></div>
+<p>Samples unterhalb von <code>T(p)</code> sind verwerfbar, aber die behaltene Menge muss
+mindestens <code>K_floor(p)</code> Samples enthalten. Liegt der Score-Abstand zwischen
+letztem behaltenen und erstem verworfenen Sample unter <code>margin_min</code>, wird lokal
+nichts verworfen. Dadurch bleibt der Selektor konservativ: Er soll extreme
+lokale Defekte entfernen, nicht AQMH in einen festen Small-N-Stack verwandeln.</p>
+<p><code>mode = top_k</code> bleibt als Legacy-Selektor mit fester Fraktion aus v0.2.0
+verfuegbar. In diesem Modus gelten <code>k_frac</code>, Tiering, <code>K_nominal_median</code> und
+die alte Per-Pixel-Regel <code>K(p) = max(k_min_required, K_nominal(p))</code>
+unveraendert.</p>
 <hr />
 <h2 id="6-robustheits-erweiterungen-nach-der-rekonstruktion-v021">6. Robustheits-Erweiterungen nach der Rekonstruktion (v0.2.1)<a class="headerlink" href="#6-robustheits-erweiterungen-nach-der-rekonstruktion-v021" title="Permanent link">&para;</a></h2>
 <h3 id="61-uniformes-kontrollmittel">6.1 Uniformes Kontrollmittel<a class="headerlink" href="#61-uniformes-kontrollmittel" title="Permanent link">&para;</a></h3>
@@ -4291,7 +4314,7 @@ Rank-Separation-Diagnostik bleiben unverändert.</p>
 Rekonstruktionsroutine zusätzlich den ungewichteten Mittelwert der
 registrierten Frames über dieselbe Menge gültiger Pixel. Dieses Mittel wird
 <strong>uniformes Kontrollmittel</strong> <code>U(p)</code> genannt:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>U(p) = sum_{f in V_c^I(p)} I_f(p) / |V_c^I(p)|
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>U(p) = sum_{f in V_c^I(p)} I_f(p) / |V_c^I(p)|
 </span></code></pre></div>
 <p><code>U(p)</code> ist kein qualitätsgewichtetes Ergebnis; es ist ein diagnostischer
 Referenzwert.</p>
@@ -4322,8 +4345,8 @@ nicht als Fehler, dürfen aber auch nicht als Verbesserung ausgelegt werden.</p>
 <h3 id="63-adaptive-niederfrequenz-neutralisierung">6.3 Adaptive Niederfrequenz-Neutralisierung<a class="headerlink" href="#63-adaptive-niederfrequenz-neutralisierung" title="Permanent link">&para;</a></h3>
 <p>Ist das uniforme Kontrollmittel <code>U(p)</code> verfügbar, wird ein optionaler
 neutralisierter Kandidat <code>N(p)</code> berechnet:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>L(p) = GaussianBlur( A(p) - U(p), sigma = 96 px )
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>N(p) = A(p) - L(p)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>L(p) = GaussianBlur( A(p) - U(p), sigma = 96 px )
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>N(p) = A(p) - L(p)
 </span></code></pre></div>
 <p>Das Blurring verwendet den Reflektionsrandmodus REFLECT101. Die Sigma von
 96 px wurde empirisch gewählt, um großskalige „Veil“-Residuen anzugehen, ohne
@@ -4332,9 +4355,9 @@ Struktur auf kleineren Skalen zu beeinträchtigen.</p>
 wird gegenüber <code>A(p)</code> nur dann ausgewählt, wenn der Hintergrundvergleich
 anwendbar ist, <code>A</code> gegenüber <code>U</code> tatsächlich einen schlechteren Hintergrund
 besitzt, <code>N</code> diesen verbessert und beide Vergleiche alle Schwellen bestehen:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>background_rms_regression(N, U) &lt; background_rms_regression(A, U)
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>background_rms_regression(A, U) &gt; 0
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>gate(N, U) &amp;&amp; gate(N, A)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>background_rms_regression(N, U) &lt; background_rms_regression(A, U)
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>background_rms_regression(A, U) &gt; 0
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>gate(N, U) &amp;&amp; gate(N, A)
 </span></code></pre></div>
 <p>Das ausgewählte Basisbild wird <code>B(p)</code> genannt (entweder <code>A(p)</code> oder <code>N(p)</code>).</p>
 <p><strong>Begründung.</strong> Der per-Pixel-gewichtete Mittelwert kann in seltenen Fällen
@@ -4357,23 +4380,23 @@ Hintergrund von <code>B(p)</code> erhalten bleibt:</p>
    ursprünglich enge Bereich unterdrückte.</li>
 <li>Berechne den Detail-Kandidaten:</li>
 </ol>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>D(p) = U(p) + M_s(p) * (B(p) - U(p))
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>D(p) = U(p) + M_s(p) * (B(p) - U(p))
 </span></code></pre></div>
 <p>In strukturreichen Regionen (<code>M_s ≈ 1</code>) folgt <code>D(p)</code> der AQMH-Basis; in
    glatten Regionen (<code>M_s ≈ 0</code>) folgt es dem uniformen Kontrollmittel.</p>
 <p><code>D(p)</code> wird akzeptiert, wenn er alle Validierungsschwellen sowohl gegen <code>U</code>
 als auch gegen die unveränderliche Baseline <code>A</code> besteht:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>background_rms_regression(D, U) &lt;= max_background_rms_regression
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>fwhm_regression(D, U)            &lt;= max_fwhm_regression
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>seam_score_regression(D, U)      &lt;= max_seam_score_regression
-</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>tail11_abs_regression(D, U)      &lt;= max_tail11_abs_regression
-</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>elongation_regression(D, U)      &lt;= max_elongation_regression
-</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>gate(D, A)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>background_rms_regression(D, U) &lt;= max_background_rms_regression
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>fwhm_regression(D, U)            &lt;= max_fwhm_regression
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>seam_score_regression(D, U)      &lt;= max_seam_score_regression
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>tail11_abs_regression(D, U)      &lt;= max_tail11_abs_regression
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>elongation_regression(D, U)      &lt;= max_elongation_regression
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>gate(D, A)
 </span></code></pre></div>
 <p>und zumindest FWHM oder Seam-Score gegenüber <code>U</code> verbessert.</p>
 <p>Schlägt <code>D(p)</code> fehl, wird eine <strong>Alpha-Blend-Attenuierung</strong> über
 <code>alpha ∈ [0, 1]</code> gesucht:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>D_alpha(p) = U(p) + alpha * M_s(p) * (B(p) - U(p))
 </span></code></pre></div>
 <p>Das größte <code>alpha</code>, das <code>gate(D_alpha, U)</code> und <code>gate(D_alpha, A)</code> besteht und
 FWHM oder Seam-Score gegenüber <code>U</code> verbessert, wird ausgewählt. Gibt es kein
@@ -4383,7 +4406,7 @@ FWHM oder Seam-Score gegenüber <code>U</code> verbessert, wird ausgewählt. Gib
 <p>Nach der gesamten Nachverarbeitung wird das ausgewählte Ausgabebild <code>O(p)</code>
 nochmals gegen <code>U(p)</code> und die unveränderliche Raw-AQMH-Baseline <code>A(p)</code>
 validiert. Falls gilt:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>background_rms_regression(O, U) &gt; max_background_rms_regression
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>background_rms_regression(O, U) &gt; max_background_rms_regression
 </span></code></pre></div>
 <p>oder eine andere konfigurierte Schwelle überschritten wird, verwirft der
 Runner den nachverarbeiteten Kandidaten und gibt <code>A(p)</code> aus. <code>U(p)</code> bleibt
@@ -4458,12 +4481,13 @@ uniforme Kontrollmittel um mehr als die konfigurierten Regressionsschwellen
   eingeführt, damit Beispiel-Config-Defaults Kamera-Metadaten nicht
   überschreiben.</li>
 </ul>
-<h3 id="92-aqmh-kernparameter-unverandert-gegenuber-v020">9.2 AQMH-Kernparameter (unverändert gegenüber v0.2.0)<a class="headerlink" href="#92-aqmh-kernparameter-unverandert-gegenuber-v020" title="Permanent link">&para;</a></h3>
+<h3 id="92-aqmh-kernparameter">9.2 AQMH-Kernparameter<a class="headerlink" href="#92-aqmh-kernparameter" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>aqmh.pyramid.scales = 4</code></li>
 <li><code>aqmh.pyramid.base_window_px = 4</code></li>
 <li><code>aqmh.pyramid.w_sharp = 0.6</code></li>
 <li><code>aqmh.pyramid.w_snr = 0.4</code></li>
+<li><code>aqmh.pyramid.score_scale = 1.8</code></li>
 <li><code>aqmh.pyramid.k_artifact = 3.0</code></li>
 <li><code>aqmh.pyramid.frac_artifact_max = 0.25</code></li>
 <li><code>aqmh.storage.resolution_divisor = 1</code></li>
@@ -4504,9 +4528,12 @@ begrenzte v0.2.1-Sigmoid-Abbildung bleibt aktiv.</p>
 <p>Die v0.2.1-Referenzwerte waren <code>low_q=0.70</code>, <code>high_q=0.97</code>, Blur-Sigma
 <code>2 px</code>; die aktuellen Betriebswerte sind weiter, um mittelgradientige
 Struktur zu erhalten.</p>
-<h3 id="96-cherry-pick-unverandert">9.6 Cherry-Pick (unverändert)<a class="headerlink" href="#96-cherry-pick-unverandert" title="Permanent link">&para;</a></h3>
+<h3 id="96-cherry-pick">9.6 Cherry-Pick<a class="headerlink" href="#96-cherry-pick" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>aqmh.cherry_pick.enabled = false</code> standardmäßig.</li>
+<li><code>mode = auto_reject</code></li>
+<li><code>reject_below_best_fraction = 0.25</code></li>
+<li><code>min_keep_fraction = 0.90</code></li>
 <li><code>k_frac = 0.30</code></li>
 <li><code>k_min_required = 20</code></li>
 <li><code>margin_min = 0.02</code></li>

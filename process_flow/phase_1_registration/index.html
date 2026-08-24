@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#registration-kaskadierte-globale-registrierung-pre-warping" class="md-skip">
+        <a href="#registration-globale-multi-anchor-konsensregistrierung-pre-warping" class="md-skip">
           Skip to content
         </a>
       
@@ -1753,10 +1753,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#12-rescue-hierarchie-nach-dem-direktpass" class="md-nav__link">
+  <a href="#12-globale-frame-unabhaengige-rescue-nach-dem-direktpass" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1.2 Rescue-Hierarchie nach dem Direktpass
+        1.2 Globale, frame-unabhaengige Rescue nach dem Direktpass
       
     </span>
   </a>
@@ -2906,10 +2906,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#12-rescue-hierarchie-nach-dem-direktpass" class="md-nav__link">
+  <a href="#12-globale-frame-unabhaengige-rescue-nach-dem-direktpass" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1.2 Rescue-Hierarchie nach dem Direktpass
+        1.2 Globale, frame-unabhaengige Rescue nach dem Direktpass
       
     </span>
   </a>
@@ -3132,13 +3132,13 @@
 
 
 
-<h1 id="registration-kaskadierte-globale-registrierung-pre-warping">REGISTRATION — Kaskadierte globale Registrierung + Pre-Warping<a class="headerlink" href="#registration-kaskadierte-globale-registrierung-pre-warping" title="Permanent link">&para;</a></h1>
+<h1 id="registration-globale-multi-anchor-konsensregistrierung-pre-warping">REGISTRATION — Globale Multi-Anchor-Konsensregistrierung + Pre-Warping<a class="headerlink" href="#registration-globale-multi-anchor-konsensregistrierung-pre-warping" title="Permanent link">&para;</a></h1>
 <blockquote>
 <p><strong>C++ Implementierung:</strong> <code>global_registration.cpp</code>, <code>registration.cpp</code>, <code>runner_phase_registration.cpp</code>
 <strong>Phase-Enum:</strong> <code>Phase::REGISTRATION</code> (gefolgt von eigener <code>Phase::PREWARP</code>)</p>
 </blockquote>
 <h2 id="ubersicht">Übersicht<a class="headerlink" href="#ubersicht" title="Permanent link">&para;</a></h2>
-<p>Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsystem aus. Der aktuelle C++-Runner kombiniert eine <strong>6-stufige Einzelbild-Registrierungskaskade</strong> mit einer <strong>Multi-Anchor-Strategie</strong>, sequentiellen Frame-zu-Frame-Rescues und optionaler Astrometrie. Das ist speziell fuer lange Alt/Az-Sequenzen mit Feldrotation wichtig, bei denen ein einziger spaeter Referenzframe fuer fruehe Frames oft geometrisch zu weit entfernt ist. Anschliessend werden alle Frames in der <strong>eigenen Pipeline-Phase <code>PREWARP</code></strong> vollaufgeloest vorgewrapt, bevor lokale Tile-Metriken berechnet werden.</p>
+<p>Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsystem aus. Der aktuelle C++-Runner kombiniert eine <strong>6-stufige Einzelbild-Registrierungskaskade</strong> mit einer <strong>festen Multi-Anchor-Konsensstrategie</strong> und optionaler Astrometrie. Das ist speziell fuer lange Alt/Az-Sequenzen mit Feldrotation wichtig, bei denen ein einziger spaeter Referenzframe fuer fruehe Frames oft geometrisch zu weit entfernt ist. Kein Warp wird aus einem vorhergehenden Frame oder aus einem rekursiv promovierten Anchor abgeleitet. Anschliessend werden alle Frames in der <strong>eigenen Pipeline-Phase <code>PREWARP</code></strong> vollaufgeloest vorgewrapt, bevor lokale Tile-Metriken berechnet werden.</p>
 <p><strong>Kernprinzip:</strong> Keine Frame-Selektion. Jeder Frame bleibt im Datenfluss; die Provenienz wird ueber <code>source</code>, <code>chain_depth</code> und Registration-Telemetrie dokumentiert.</p>
 <p><code>v3.3.9</code> ergänzt hier zwei normative Punkte:</p>
 <ol>
@@ -3148,17 +3148,15 @@
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────────────────────────────────────────┐
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  Fuer jeden Frame f != master_ref:                       │
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│                                                          │
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  1. Waehle 1/3/5 hochwertige, zeitlich verteilte Anker   │
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  2. Verankere Anchor-Frames gegen den Master-Anchor      │
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│  3. Registriere jedes Frame direkt gegen den naechsten   │
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│     aktiven Anchor (Einzelbild-Kaskade darunter)         │
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  4. Promote starke direkte Treffer zu weiteren Anchors   │
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│     und wiederhole direkte Paesse                        │
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  5. Rescue-Stufen: sequential refine -&gt; phase-corr       │
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│     -&gt; temporal/local/ECC -&gt; optional Astrometrie        │
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  6. Optionales Feldrotationsmodell fuer Restfaelle       │
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  7. Pre-warp ganzes Bild (CFA-aware bei OSC)             │
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>└──────────────────────────────────────────────────────────┘
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  1. Waehle hochwertige, zeitlich verteilte feste Anker   │
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  2. Loese jeden festen Anker unabhaengig gegen Master    │
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│  3. Teste bis zu 5 naechste feste Anker plus Master      │
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│  4. Validiere jeden Warp im Master-System (NCC/Overlap)  │
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  5. Akzeptiere Transform-Konsens oder einen eindeutig    │
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│     ueberlegenen starken Einzelkandidaten                │
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  6. Sonst: Master-ECC -&gt; Modell -&gt; optionale ASTAP-Pruefung│
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  7. Pre-warp ganzes Bild (CFA-aware bei OSC)             │
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>└──────────────────────────────────────────────────────────┘
 </span></code></pre></div>
 <h2 id="1-referenz-frame-auswahl">1. Referenz-Frame-Auswahl<a class="headerlink" href="#1-referenz-frame-auswahl" title="Permanent link">&para;</a></h2>
 <p>Der Runner verwendet nicht mehr nur einen einzelnen Qualitaets-Ref-Frame, sondern ein <strong>Master-Anchor plus mehrere zeitlich verteilte Referenzanker</strong>:</p>
@@ -3176,22 +3174,76 @@
 <h2 id="11-multi-anchor-direktpass">1.1 Multi-Anchor-Direktpass<a class="headerlink" href="#11-multi-anchor-direktpass" title="Permanent link">&para;</a></h2>
 <p>Nach der Anchor-Auswahl laeuft die direkte Registrierung so:</p>
 <ul>
-<li>Angeforderte Anchor-Frames werden zuerst gegen bereits aktive Anchors verankert.</li>
-<li>Jedes normale Frame wird direkt gegen den <strong>zeitlich naechsten aktiven Anchor</strong> registriert, nicht zwangslaeufig gegen den Master-Anchor.</li>
-<li>Starke <code>direct_global</code>-Treffer koennen zu weiteren aktiven Anchors promoted werden.</li>
-<li>Die Promotion skaliert ebenfalls mit <code>N</code>: Zielgroesse fuer aktive Anchors ist aktuell ungefaehr <strong>1 aktiver Anchor pro 60 Frames</strong>, begrenzt auf <code>21</code>.</li>
-<li>Pro Promote-Runde duerfen aktuell ungefaehr <strong>1 neue Anchors pro 160 Frames</strong> dazukommen, begrenzt auf <code>2..8</code> pro Runde.</li>
-<li>Die Anzahl zusaetzlicher Direktpaesse skaliert ebenfalls mit <code>N</code> und ist aktuell auf <code>ceil(N / 240)</code> begrenzt, mindestens <code>3</code>, maximal <code>8</code>.</li>
+<li>Aufnahmezeit-Gaps aus Dateinamen im Format <code>YYYYMMDD-HHMMSS...</code> trennen
+  unabhaengige Serien. Fuer jedes erkannte Segment werden die Randframes und
+  zusaetzliche lokale Quality-Anker erzwungen. Dadurch besitzt auch ein
+  kombinierter Run wie <code>part1 + part2</code> feste Anker in jeder Aufnahmeserie.</li>
+<li>Angeforderte Anchor-Frames werden jeweils direkt gegen den unveraenderlichen
+  Master-Referenzframe geloest und global per Overlap/NCC validiert. Kein Anchor
+  erbt die Transformation eines anderen Anchors.</li>
+<li>Fuer jedes normale Frame werden deterministisch die bis zu <strong>fuenf zeitlich
+  naechsten festen Anchors plus der Master</strong> getestet. Die
+  Frame-zu-Anchor-Transformation wird mit dem unabhaengigen Anchor-zu-Master-Warp
+  zusammengesetzt; anschliessend wird jeder Kandidat gegen dasselbe Masterbild
+  mit maskiertem Overlap und globalem NCC bewertet.</li>
+<li>Primaer wird nur ein Kandidat mit mindestens einem zweiten uebereinstimmenden
+  Kandidaten akzeptiert. Uebereinstimmung bedeutet im Registrierungs-Proxy:
+  hoechstens <code>0.75 deg</code> Winkeldifferenz, <code>0.5 %</code> relative Skalendifferenz und
+  hoechstens <code>3 px</code> Abstand an Bildmittelpunkt und allen vier Ecken. Dadurch
+  bilden auch korrekt gefundene <code>180 deg</code>-Meridian-Flip-Warps eine gemeinsame
+  Orientierungsfamilie, waehrend ein isolierter Halbturn-Alias keinen Konsens
+  erhaelt.</li>
+<li>Ohne Zweierkonsens darf nur der global beste <strong>starke und eindeutig
+  ueberlegene</strong> Kandidat passieren: NCC mindestens
+  <code>max(registration.reject_cc_min_abs, 0.35)</code> und mindestens <code>0.03</code> ueber dem Runner-up. Existiert kein global gueltiger
+  Runner-up, gilt die strengere absolute NCC-Schwelle <code>0.50</code>.</li>
+<li>Normale Frames werden nicht zu neuen Anchors promoted. Ein frueher
+  Registrierungsfehler kann daher weder die Anchor-Menge noch spaetere Frames
+  beeinflussen. Kandidaten ohne Konsens bzw. eindeutigen Sieger gehen
+  <code>unresolved</code> in die frame-unabhaengige Rescue aus Abschnitt 1.2.</li>
+<li><code>global_registration.json</code> protokolliert Strategie, exakte Schwellen sowie
+  aggregierte Anzahlen fuer Versuche, global gueltige Kandidaten,
+  Konsensannahmen, Einzelannahmen und Ablehnungen ohne Konsens.</li>
 </ul>
-<h2 id="12-rescue-hierarchie-nach-dem-direktpass">1.2 Rescue-Hierarchie nach dem Direktpass<a class="headerlink" href="#12-rescue-hierarchie-nach-dem-direktpass" title="Permanent link">&para;</a></h2>
-<p>Wenn die direkte Registrierung fuer ein Frame nicht ausreicht, folgen in dieser Reihenfolge weitere Stufen:</p>
+<h2 id="12-globale-frame-unabhaengige-rescue-nach-dem-direktpass">1.2 Globale, frame-unabhaengige Rescue nach dem Direktpass<a class="headerlink" href="#12-globale-frame-unabhaengige-rescue-nach-dem-direktpass" title="Permanent link">&para;</a></h2>
+<p>Die Quell- und Basisauswahl einer gueltigen <code>direct_global</code>-Transformation ist
+nach dem Direktpass unveraenderlich: Sie wird weder durch einen zeitlichen
+Nachbarn noch durch eine Frame-zu-Frame-Kette ersetzt. Die spaeteren,
+frame-lokalen affinen und Smooth-Local-Refinements duerfen diesen Basis-Warp
+weiterhin nur unter ihren Residual-, Geometrie-, NCC- und Overlap-Gates
+verfeinern; sie erzeugen keine Abhaengigkeit zu anderen Frames. Damit kann eine
+Fehlregistrierung nicht mehr als Anker fuer nachfolgende Frames wirken oder den
+Stern-PSF ueber eine lange Kette verbreitern.</p>
+<p>Fuer jedes noch ungeloeste Frame gelten stattdessen unabhaengige globale
+Stufen:</p>
 <ol>
-<li><code>sequential_refined</code>: direktes Frame-zu-Frame-Matching gegen den zeitlichen Nachbarn mit anschliessender globaler Konsistenzpruefung.</li>
-<li><code>sequential_rescue</code>: Phase-Correlation-Rescue gegen den Nachbarn fuer Bloecke, in denen die globale Korrelation verloren ging.</li>
-<li><code>temporal_rescue</code>, <code>seeded_ecc_rescue</code>, <code>local_reference_rescue</code>: weitere Bruecken- und Unterstuetzungsstufen fuer verbleibende Ausfaelle.</li>
-<li><code>astrometric_rescue</code>: ASTAP-basierte Plate-Solve-Rettung fuer unresolved oder sehr schwache/chained Ergebnisse.</li>
-<li><code>model_predicted</code> / <code>model_blended</code>: Feldrotationsmodell als letzter geometrischer Rueckfall.</li>
+<li><code>seeded_ecc_rescue</code>: Aus den urspruenglichen <code>direct_global</code>- und
+   Referenz-Warps wird nur ein geometrischer Interpolations-Seed gebildet. Das
+   Frame selbst wird anschliessend direkt gegen den unveraenderlichen
+   Master-Referenzframe optimiert und per globalem Overlap/NCC validiert.</li>
+<li>Die Ergebnisse dieser Stufe werden niemals als Seeds oder Stuetzpunkte fuer
+   andere Frames bzw. das Feldrotationsmodell wiederverwendet; die Ausgabe ist
+   deshalb unabhaengig von Iterationsrichtung und Frame-Reihenfolge.</li>
+<li><code>model_interpolated</code> / <code>model_blended</code>: globales Feldrotationsmodell als
+   geometrischer Rueckfall fuer noch ungeloeste Frames. Nicht global plausible
+   Vorhersagen bleiben <code>unresolved</code> und werden nicht als scheinbar gueltige
+   Ketten weitergereicht.</li>
+<li><code>astrometric_rescue</code>: Wenn ASTAP konfiguriert und verfuegbar ist, werden
+   weiterhin ungeloeste Frames sowie die synthetischen Modellwarps mit niedriger
+   CC per Plate Solve geprueft. Eine erfolgreiche astrometrische Loesung ersetzt
+   den schwachen Modellwarp; ohne ASTAP bleibt der konservative Modell- bzw.
+   <code>unresolved</code>-Fallback erhalten.</li>
 </ol>
+<p>Die historischen Provenienzen <code>sequential_refined</code>, <code>sequential_rescue</code>,
+<code>temporal_rescue</code> und <code>local_reference_rescue</code> bleiben fuer die Lesbarkeit alter
+Run-Artefakte bekannt, werden von der aktuellen Auswahlstrategie
+<code>independent_global_consensus_v2</code> aber nicht mehr erzeugt. <code>global_registration.json</code>
+weist die Strategie und <code>temporal_chain_transforms_enabled: false</code> explizit aus.</p>
+<p>Vor der Modellvorhersage wird die zeitliche Transformations-Komponente weiterhin
+nur als <strong>Outlier-Diagnose</strong> auf Nachbar-Kontinuitaet geprueft. Diese Pruefung
+schaetzt oder ersetzt keinen Warp. Ein einzelner grosser Sprung kann damit
+Aufnahmeserien trennen, ohne dass ein Nachbarframe zur geometrischen Referenz
+eines anderen Frames wird.</p>
 <h2 id="2-downsample-fur-registrierung">2. Downsample für Registrierung<a class="headerlink" href="#2-downsample-fur-registrierung" title="Permanent link">&para;</a></h2>
 <div class="language-cpp highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">Matrix2Df</span><span class="w"> </span><span class="n">ref_reg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">detected_mode</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">ColorMode</span><span class="o">::</span><span class="n">OSC</span><span class="p">)</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="o">?</span><span class="w"> </span><span class="n">image</span><span class="o">::</span><span class="n">cfa_green_proxy_downsample2x2</span><span class="p">(</span><span class="n">ref_full</span><span class="p">,</span><span class="w"> </span><span class="n">detected_bayer_str</span><span class="p">)</span>

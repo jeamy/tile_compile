@@ -3616,13 +3616,13 @@ ausgeführt und lokale Tile-Metriken und Gewichte <code>L_f,t</code> berechnet.<
 </ul>
 <p><strong>Verarbeitung</strong></p>
 <ul>
-<li>Plate Solving gegen Astrometrie-Werkzeuge und Kataloge</li>
+<li>zuerst ASTAP-Plate-Solving; liefert es keine WCS, werden erkannte Sterne ohne Siril-Start und ohne Netzabfrage gegen den lokal installierten PCC-Gaia-DR3-Katalog abgeglichen</li>
 <li>Eintrag oder Ableitung von Himmelskoordinatenbezug und Bildskalierung</li>
 </ul>
 <p><strong>Ausgabe</strong></p>
 <ul>
 <li>WCS-informiertes Bild oder zugehörige WCS-Datei</li>
-<li>Diagnoseartefakte zum Solve-Prozess</li>
+<li>Diagnoseartefakte und Phasenfelder zum gewählten Löser, zu Gaia-Sternzahlen und zu einem möglichen Fallback-Fehler</li>
 </ul>
 <hr />
 <h2 id="15-background-gradient-extraction-bge-optional">15) Background Gradient Extraction (<code>BGE</code>, optional)<a class="headerlink" href="#15-background-gradient-extraction-bge-optional" title="Permanent link">&para;</a></h2>

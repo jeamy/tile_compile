@@ -1172,10 +1172,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#siril-gaia-dr3-xp-katalog-fur-pcc" class="md-nav__link">
+  <a href="#lokaler-gaia-dr3-katalog-fur-pcc-und-astrometrie-fallback" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Siril Gaia DR3 XP Katalog (für PCC)
+        Lokaler Gaia-DR3-Katalog (für PCC und Astrometrie-Fallback)
       
     </span>
   </a>
@@ -3569,10 +3569,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#siril-gaia-dr3-xp-katalog-fur-pcc" class="md-nav__link">
+  <a href="#lokaler-gaia-dr3-katalog-fur-pcc-und-astrometrie-fallback" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Siril Gaia DR3 XP Katalog (für PCC)
+        Lokaler Gaia-DR3-Katalog (für PCC und Astrometrie-Fallback)
       
     </span>
   </a>
@@ -3758,7 +3758,7 @@
 </tr>
 <tr>
 <td><strong>BGE</strong></td>
-<td><code>bge.method</code>, <code>bge.enabled</code> (Legacy), <code>bge.fit.method</code>, <code>bge.autobge</code>, <code>bge.autotune</code></td>
+<td><code>bge.method</code> (einziger Ein-/Ausschalter, "none" deaktiviert BGE), <code>bge.fit.method</code>, <code>bge.autobge</code>, <code>bge.autotune</code></td>
 </tr>
 <tr>
 <td><strong>PCC</strong></td>
@@ -4141,9 +4141,9 @@ noch <code>config.yaml</code>.</p>
 <blockquote>
 <p>Die ASTAP-Kataloge können auch direkt über die GUI3 heruntergeladen werden (Tools → Astrometry → Download Catalog).</p>
 </blockquote>
-<h3 id="siril-gaia-dr3-xp-katalog-fur-pcc">Siril Gaia DR3 XP Katalog (für PCC)<a class="headerlink" href="#siril-gaia-dr3-xp-katalog-fur-pcc" title="Permanent link">&para;</a></h3>
+<h3 id="lokaler-gaia-dr3-katalog-fur-pcc-und-astrometrie-fallback">Lokaler Gaia-DR3-Katalog (für PCC und Astrometrie-Fallback)<a class="headerlink" href="#lokaler-gaia-dr3-katalog-fur-pcc-und-astrometrie-fallback" title="Permanent link">&para;</a></h3>
 <ol>
-<li><strong>Katalogdaten</strong>: Der Siril Gaia DR3 XP sampled catalog wird für die photometrische Farbkalibrierung benötigt.</li>
+<li><strong>Katalogdaten</strong>: Der Siril Gaia DR3 XP sampled catalog wird für die photometrische Farbkalibrierung benötigt und dient auch als Offline-Fallback für die Astrometrie.</li>
 <li><strong>In GUI3 einrichten</strong>:</li>
 <li>Tab <strong>Tools → Sub-Tab PCC</strong></li>
 <li><strong>Catalog Dir</strong>: Pfad zum Katalogverzeichnis (Standard: <code>~/.local/share/siril/siril_cat1_healpix8_xpsamp/</code>)</li>
@@ -4153,6 +4153,10 @@ noch <code>config.yaml</code>.</p>
 <blockquote>
 <p>Falls der Katalog bereits von <a href="https://siril.org/">Siril</a> heruntergeladen wurde, kann derselbe Ordner wiederverwendet werden.</p>
 </blockquote>
+<p>Falls ASTAP keine WCS liefert, führt Tile Compile den Fallback nativ aus; Siril
+wird nicht gestartet und es findet keine Netzabfrage statt. Der Stack benötigt
+<code>RA</code>, <code>DEC</code>, <code>FOCALLEN</code> sowie <code>XPIXSZ</code> oder <code>YPIXSZ</code>. Die erzeugte WCS ist
+linear TAN/CD und enthält keine SIP-Verzerrungsterme.</p>
 <ol>
 <li><strong>PCC-Parameter</strong> (im Parameter Studio):</li>
 <li><code>pcc.source</code>: <code>auto</code> (empfohlen), <code>siril</code>, <code>vizier_gaia</code> oder <code>vizier_apass</code></li>
@@ -4160,9 +4164,10 @@ noch <code>config.yaml</code>.</p>
 <li><code>pcc.siril_catalog_dir</code>: Pfad zum Siril-Katalog (falls abweichend)</li>
 </ol>
 <h3 id="wenn-kataloge-fehlen">Wenn Kataloge fehlen<a class="headerlink" href="#wenn-kataloge-fehlen" title="Permanent link">&para;</a></h3>
-<p>Wenn ASTAP oder der Siril-Katalog nicht installiert sind:
+<p>Wenn ASTAP oder der lokale Gaia-Katalog nicht installiert sind:
 - Die Kernrekonstruktion (Registrierung, AQMH, Stacking, Debayer) funktioniert weiterhin.
-- Die Phasen <code>ASTROMETRY</code> und <code>PCC</code> werden als <code>skipped</code> markiert oder schlagen fehl, je nach Konfiguration.
+- Astrometrie kann entweder einen erfolgreichen ASTAP-Solve oder den lokalen Gaia-Fallback verwenden; PCC benötigt den lokalen Gaia-Katalog (oder seine konfigurierte Online-Quelle).
+- Eine Phase ohne verfügbaren passenden Löser/Katalog wird je nach Konfiguration als <code>skipped</code> markiert oder schlägt fehl.
 - BGE (Background Gradient Extraction) funktioniert unabhängig von externen Katalogen.</p>
 <hr />
 <h2 id="7-raw-stack-eigenstandige-vorverarbeitung">7. Raw Stack (eigenständige Vorverarbeitung)<a class="headerlink" href="#7-raw-stack-eigenstandige-vorverarbeitung" title="Permanent link">&para;</a></h2>
